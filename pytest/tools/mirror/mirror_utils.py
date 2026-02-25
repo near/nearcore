@@ -310,6 +310,100 @@ def call_stake(node, signer_key, amount, public_key, nonce, block_hash):
     )
 
 
+def send_add_gas_key(node, signer_key, gas_key, num_nonces, nonce, block_hash):
+    action = transaction.create_gas_key_full_access_key_action(
+        gas_key.decoded_pk(), num_nonces)
+    tx = transaction.sign_and_serialize_transaction(signer_key.account_id,
+                                                    nonce, [action], block_hash,
+                                                    signer_key.account_id,
+                                                    signer_key.decoded_pk(),
+                                                    signer_key.decoded_sk())
+    res = node.send_tx(tx)
+    logger.info(
+        f'sent add gas key tx for {signer_key.account_id} {gas_key.pk} num_nonces={num_nonces}: {res}'
+    )
+
+
+def fund_gas_key(node, signer_key, gas_key_pk, amount, nonce, block_hash):
+    action = transaction.create_transfer_to_gas_key_action(gas_key_pk, amount)
+    tx = transaction.sign_and_serialize_transaction(signer_key.account_id,
+                                                    nonce, [action], block_hash,
+                                                    signer_key.account_id,
+                                                    signer_key.decoded_pk(),
+                                                    signer_key.decoded_sk())
+    res = node.send_tx(tx)
+    logger.info(f'sent fund gas key tx for {signer_key.account_id}: {res}')
+
+
+def withdraw_from_gas_key(node, signer_key, gas_key_pk, amount, nonce,
+                          block_hash):
+    action = transaction.create_withdraw_from_gas_key_action(gas_key_pk, amount)
+    tx = transaction.sign_and_serialize_transaction(signer_key.account_id,
+                                                    nonce, [action], block_hash,
+                                                    signer_key.account_id,
+                                                    signer_key.decoded_pk(),
+                                                    signer_key.decoded_sk())
+    res = node.send_tx(tx)
+    logger.info(
+        f'sent withdraw from gas key tx for {signer_key.account_id}: {res}')
+
+
+def send_gas_key_transfer(node, gas_key, receiver_id, amount, nonce,
+                          nonce_index, block_hash):
+    action = transaction.create_payment_action(amount)
+    tx = transaction.sign_and_serialize_transaction_v1(receiver_id, nonce,
+                                                       nonce_index, [action],
+                                                       block_hash,
+                                                       gas_key.account_id,
+                                                       gas_key.decoded_pk(),
+                                                       gas_key.decoded_sk())
+    res = node.send_tx(tx)
+    logger.info(
+        f'sent gas key V1 transfer from {gas_key.account_id} ni={nonce_index} to {receiver_id}: {res}'
+    )
+
+
+def get_gas_key_nonces(node, account_id, public_key):
+    """Query gas key nonces via RPC. Returns list of nonces or None on error."""
+    try:
+        res = node.json_rpc(
+            'query', {
+                'request_type': 'view_gas_key_nonces',
+                'account_id': account_id,
+                'public_key': public_key,
+                'finality': 'final',
+            })
+    except Exception as e:
+        logger.warning(
+            f'get_gas_key_nonces failed for {account_id} {public_key}: {e}')
+        return None
+    if 'error' in res or 'error' in res.get('result', {}):
+        return None
+    return res['result'].get('nonces')
+
+
+def get_gas_key_balance(node, account_id, public_key):
+    """Query gas key balance via view_access_key RPC."""
+    try:
+        res = node.json_rpc(
+            'query', {
+                'request_type': 'view_access_key',
+                'account_id': account_id,
+                'public_key': public_key,
+                'finality': 'final',
+            })
+    except Exception as e:
+        logger.warning(
+            f'get_gas_key_balance failed for {account_id} {public_key}: {e}')
+        return None
+    if 'error' in res or 'error' in res.get('result', {}):
+        return None
+    permission = res['result'].get('permission')
+    if isinstance(permission, dict) and 'GasKeyFullAccess' in permission:
+        return int(permission['GasKeyFullAccess']['balance'])
+    return None
+
+
 def contract_deployed(node, account_id):
     return 'error' not in node.json_rpc('query', {
         "request_type": "view_code",

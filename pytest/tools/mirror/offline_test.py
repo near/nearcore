@@ -242,6 +242,105 @@ class CreateSubaccountTest(MirrorTestCase):
         logger.info(f'{self.name}: subaccount checks passed')
 
 
+class GasKeyTest(MirrorTestCase):
+    name = 'gas_key'
+
+    def __init__(self):
+        self.gas_key_1 = key.Key.from_random('test0')
+        self.num_nonces_1 = 3
+        self.gas_key_2 = key.Key.from_random('test0')
+        self.num_nonces_2 = 2
+        self.gk1_recipient = mirror_utils.ImplicitAccount()
+        self.gk2_recipient = mirror_utils.ImplicitAccount()
+        self._transfers_sent = False
+        self._block_count = 0
+
+    def pre_fork(self, ctx):
+        mirror_utils.send_add_gas_key(ctx.node, ctx.signer_key,
+                                      self.gas_key_1, self.num_nonces_1,
+                                      ctx.next_nonce(), ctx.bhash)
+        mirror_utils.fund_gas_key(ctx.node, ctx.signer_key,
+                                  self.gas_key_1.decoded_pk(), 10**24,
+                                  ctx.next_nonce(), ctx.bhash)
+        return []
+
+    def check_fork(self, node):
+        mapped_pk = mirror_utils.map_key_no_secret(self.gas_key_1.pk)
+        nonces = mirror_utils.get_gas_key_nonces(node, 'test0', mapped_pk)
+        assert nonces is not None, \
+            f'gas key nonces not found for mapped {mapped_pk} on forked state'
+        assert len(nonces) == self.num_nonces_1, \
+            f'expected {self.num_nonces_1} nonce indexes on forked state, ' \
+            f'got {len(nonces)}'
+        logger.info(
+            f'{self.name}: forked state has {len(nonces)} nonces for gas_key_1')
+
+    def post_fork(self, ctx):
+        mirror_utils.send_add_gas_key(ctx.node, ctx.signer_key,
+                                      self.gas_key_2, self.num_nonces_2,
+                                      ctx.next_nonce(), ctx.bhash)
+        mirror_utils.fund_gas_key(ctx.node, ctx.signer_key,
+                                  self.gas_key_2.decoded_pk(), 10**24,
+                                  ctx.next_nonce(), ctx.bhash)
+        mirror_utils.withdraw_from_gas_key(ctx.node, ctx.signer_key,
+                                           self.gas_key_2.decoded_pk(), 10**22,
+                                           ctx.next_nonce(), ctx.bhash)
+        return []
+
+    def on_post_fork_block(self, ctx):
+        # Wait for gas key add/fund txs to land before sending V1 transfers.
+        self._block_count += 1
+        if self._transfers_sent or self._block_count <= 10:
+            return
+        for gas_key, num_nonces, recipient in [
+            (self.gas_key_1, self.num_nonces_1, self.gk1_recipient),
+            (self.gas_key_2, self.num_nonces_2, self.gk2_recipient),
+        ]:
+            for nonce_index in range(num_nonces):
+                mirror_utils.send_gas_key_transfer(ctx.node, gas_key,
+                                                   recipient.account_id(),
+                                                   10**24,
+                                                   ctx.nonce * 1000000 + 1,
+                                                   nonce_index, ctx.bhash)
+        self._transfers_sent = True
+
+    def check(self, node):
+        for label, gas_key, num_nonces in [
+            ('gas_key_1', self.gas_key_1, self.num_nonces_1),
+            ('gas_key_2', self.gas_key_2, self.num_nonces_2),
+        ]:
+            mapped_pk = mirror_utils.map_key_no_secret(gas_key.pk)
+            nonce = node.get_nonce_for_pk('test0', mapped_pk, finality='final')
+            assert nonce is not None, \
+                f'{label} {mapped_pk} not found on target'
+            nonces = mirror_utils.get_gas_key_nonces(node, 'test0', mapped_pk)
+            assert nonces is not None, \
+                f'{label} nonces not found on target'
+            assert len(nonces) == num_nonces, \
+                f'expected {num_nonces} nonces for {label}, got {len(nonces)}'
+
+        # Gas key 2 balance should be reduced by withdrawal
+        mapped_pk2 = mirror_utils.map_key_no_secret(self.gas_key_2.pk)
+        balance = mirror_utils.get_gas_key_balance(node, 'test0', mapped_pk2)
+        assert balance is not None, 'gas key 2 balance not found on target'
+        upper = 10**24 - 10**22
+        assert balance < upper, \
+            f'gas key 2 balance {balance} not below {upper}'
+
+        # V1 transfers created implicit accounts
+        for label, recipient in [
+            ('gk1_recipient', self.gk1_recipient),
+            ('gk2_recipient', self.gk2_recipient),
+        ]:
+            mapped_id = mirror_utils.map_account_no_secret(
+                recipient.account_id())
+            res = node.get_account(mapped_id, do_assert=False)
+            assert 'error' not in res, \
+                f'{label} {mapped_id} not found on target'
+
+        logger.info(f'{self.name}: all gas key checks passed')
+
+
 def build_images(config, test_cases):
     """Phases 1-5: build target image (forked state) and source image (chain with traffic).
 
@@ -484,6 +583,7 @@ def main():
         AddKeyTest(),
         ContractTest(),
         CreateSubaccountTest(),
+        GasKeyTest(),
     ]
     target_img, source_img, validator_keys, end_source_height = build_images(
         config, test_cases)
