@@ -48,7 +48,7 @@ use {
 
 /// Marker file written inside the hot store directory to signal that the data
 /// directory should be wiped on the next startup for epoch sync re-bootstrap.
-const EPOCH_SYNC_DATA_RESET_MARKER: &str = "EPOCH_SYNC_DATA_RESET";
+const EPOCH_SYNC_DATA_RESET_MARKER_FILE_NAME: &str = ".EPOCH_SYNC_DATA_RESET";
 
 /// Signal received by the shutdown handler.
 #[derive(Debug)]
@@ -564,18 +564,9 @@ impl RunCmd {
         // Resolve the hot store path from config (before config is moved).
         let hot_store_path = home_dir
             .join(near_config.config.store.path.as_deref().unwrap_or_else(|| Path::new("data")));
-        let marker_path = hot_store_path.join(EPOCH_SYNC_DATA_RESET_MARKER);
 
         // Check for epoch sync data reset marker from a previous run.
-        if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) && marker_path.exists() {
-            if near_config.config.archive {
-                tracing::warn!(target: "neard", "epoch sync data reset marker found but node is archival, ignoring");
-            } else {
-                tracing::info!(target: "neard", ?hot_store_path, "epoch sync data reset marker found, deleting data directory");
-                std::fs::remove_dir_all(&hot_store_path)
-                    .expect("failed to delete data directory for epoch sync reset");
-            }
-        }
+        check_epoch_sync_data_reset_marker(&hot_store_path, near_config.client_config.archive);
 
         let (tx_crash, mut rx_crash) = broadcast::channel::<ShutdownReason>(16);
         let (tx_config_update, rx_config_update) =
@@ -629,14 +620,7 @@ impl RunCmd {
 
             // Write marker if this is an epoch sync data reset shutdown.
             if let ShutdownSignal::ClientShutdown(ShutdownReason::EpochSyncDataReset) = &sig {
-                // Ensure the data directory exists (it should, since we're running).
-                std::fs::create_dir_all(&hot_store_path)
-                    .expect("failed to create data directory for reset marker");
-                std::fs::write(&marker_path, b"")
-                    .expect("failed to write epoch sync reset marker");
-                std::fs::File::open(&hot_store_path).unwrap().sync_all()
-                    .expect("failed to fsync data directory after writing reset marker");
-                tracing::info!(target: "neard", ?marker_path, "epoch sync data reset marker written");
+                write_epoch_sync_data_reset_marker(&hot_store_path);
             }
 
             tracing::warn!(target: "neard", ?sig, "stopping, this may take a few minutes");
@@ -651,6 +635,36 @@ impl RunCmd {
         tracing::info!(target: "neard", "waiting for rocksdb to gracefully shutdown");
         RocksDB::block_until_all_instances_are_dropped();
     }
+}
+
+/// Checks for the epoch sync data reset marker and deletes the data directory if found.
+/// Archival nodes skip deletion to prevent accidental data loss.
+fn check_epoch_sync_data_reset_marker(hot_store_path: &Path, is_archival: bool) {
+    let marker_path = hot_store_path.join(EPOCH_SYNC_DATA_RESET_MARKER_FILE_NAME);
+    if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) || !marker_path.exists() {
+        return;
+    }
+    if is_archival {
+        tracing::warn!(target: "neard", "epoch sync data reset marker found but node is archival, ignoring");
+    } else {
+        tracing::info!(target: "neard", ?hot_store_path, "epoch sync data reset marker found, deleting data directory");
+        std::fs::remove_dir_all(hot_store_path)
+            .expect("failed to delete data directory for epoch sync reset");
+    }
+}
+
+/// Writes the epoch sync data reset marker file inside the hot store directory.
+/// On next startup, this marker signals that the data directory should be wiped.
+fn write_epoch_sync_data_reset_marker(hot_store_path: &Path) {
+    let marker_path = hot_store_path.join(EPOCH_SYNC_DATA_RESET_MARKER_FILE_NAME);
+    // Ensure the data directory exists (it should, since we're running).
+    std::fs::create_dir_all(hot_store_path)
+        .expect("failed to create data directory for reset marker");
+    std::fs::write(&marker_path, b"").expect("failed to write epoch sync reset marker");
+    std::fs::File::open(&marker_path)
+        .and_then(|f| f.sync_all())
+        .expect("failed to fsync reset marker file");
+    tracing::info!(target: "neard", ?marker_path, "epoch sync data reset marker written");
 }
 
 #[cfg(not(unix))]

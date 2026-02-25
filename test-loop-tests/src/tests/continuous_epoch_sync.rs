@@ -5,12 +5,12 @@ use near_async::time::Duration;
 use near_epoch_manager::epoch_sync::derive_epoch_sync_proof_from_last_block;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
+use near_primitives::types::AccountId;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::epoch_store::EpochStoreAdapter;
 
 use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
-use crate::setup::env::TestLoopEnv;
 use crate::utils::account::{create_validators_spec, validators_spec_clients};
 
 // Test that epoch sync proof is correctly updated after each epoch.
@@ -217,7 +217,7 @@ fn test_epoch_sync_bootstrap_fresh_node() {
     let genesis = env.shared_state.genesis.clone();
     let tempdir_path = env.shared_state.tempdir.path().to_path_buf();
     let identifier = "fresh_node";
-    let account_id: near_primitives::types::AccountId = "fresh_node".parse().unwrap();
+    let account_id: AccountId = "fresh_node".parse().unwrap();
     let node_state = NodeStateBuilder::new(genesis, tempdir_path)
         .account_id(account_id)
         .config_modifier(|config| {
@@ -227,23 +227,14 @@ fn test_epoch_sync_bootstrap_fresh_node() {
         .build();
     env.add_node(identifier, node_state);
 
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = env;
-
     // Track sync status transitions on the fresh node.
-    let new_node = node_datas.last().unwrap().client_sender.actor_handle();
+    let fresh_node_idx = env.node_datas.len() - 1;
+    let new_node = env.node_datas[fresh_node_idx].client_sender.actor_handle();
     let sync_status_history = Rc::new(RefCell::new(Vec::new()));
     {
         let sync_status_history = sync_status_history.clone();
-        test_loop.set_every_event_callback(move |test_loop_data| {
+        env.test_loop.set_every_event_callback(move |test_loop_data| {
             let client = &test_loop_data.get(&new_node).client;
-            let header_head_height = client.chain.header_head().unwrap().height;
-            let head_height = client.chain.head().unwrap().height;
-            tracing::info!(
-                ?client.sync_handler.sync_status,
-                ?header_head_height,
-                ?head_height,
-                "fresh node sync status"
-            );
             let sync_status = client.sync_handler.sync_status.as_variant_name();
             let mut history = sync_status_history.borrow_mut();
             if history.last().map(|s| s as &str) != Some(sync_status) {
@@ -253,26 +244,12 @@ fn test_epoch_sync_bootstrap_fresh_node() {
     }
 
     // Run until the fresh node catches up to node 0's head height.
-    let new_node = node_datas.last().unwrap().client_sender.actor_handle();
-    let node0 = node_datas[0].client_sender.actor_handle();
-    test_loop.run_until(
-        |test_loop_data| {
-            let new_node_height = test_loop_data.get(&new_node).client.chain.head().unwrap().height;
-            let node0_height = test_loop_data.get(&node0).client.chain.head().unwrap().height;
-            new_node_height == node0_height
-        },
-        Duration::seconds(20),
-    );
+    env.node_runner(fresh_node_idx).run_until_head_height(target_height);
 
     // Run 2 more epochs to verify continued normal operation.
-    let current_height = test_loop.data.get(&node0).client.chain.head().unwrap().height;
-    test_loop.run_until(
-        |test_loop_data| {
-            let new_node_height = test_loop_data.get(&new_node).client.chain.head().unwrap().height;
-            new_node_height >= current_height + 2 * epoch_length
-        },
-        Duration::seconds(30),
-    );
+    for _ in 0..2 {
+        env.node_runner(fresh_node_idx).run_until_new_epoch();
+    }
 
     assert_eq!(
         sync_status_history.borrow().as_slice(),
@@ -292,7 +269,6 @@ fn test_epoch_sync_bootstrap_fresh_node() {
         .collect::<Vec<_>>()
     );
 
-    let env = TestLoopEnv { test_loop, node_datas, shared_state };
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
