@@ -41,7 +41,8 @@ use near_primitives::sharding::ReceiptProof;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::sharding::ShardProof;
 use near_primitives::state::PartialState;
-use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
+use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::stateless_validation::contract_distribution::{CodeHash, ContractUpdates};
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateTransition;
 use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness;
@@ -699,8 +700,20 @@ impl ChunkExecutorActor {
             self.create_witness(block, apply_result, shard_id, execution_result_hash)?;
 
         save_witness(&self.chain_store, block.hash(), shard_id, &state_witness);
+        // Only the actual chunk producer distribute the witness and contract accesses
+        // over the network. Validators will verify the contract accesses signature against
+        // the chunk producer's key, so other nodes must not send them.
+        let key = ChunkProductionKey {
+            epoch_id: *block.header().epoch_id(),
+            shard_id,
+            height_created: block.header().height(),
+        };
+        let chunk_producer = self.epoch_manager.get_chunk_producer_info(&key)?;
+        if chunk_producer.account_id() == my_signer.validator_id() {
+            self.data_distributor_adapter
+                .send(SpiceDistributorStateWitness { state_witness });
+        }
 
-        self.data_distributor_adapter.send(SpiceDistributorStateWitness { state_witness });
         Ok(())
     }
 
