@@ -24,7 +24,7 @@ jobs:
     steps:
       - name: Checkout near/nearcore's ${{ github.event.inputs.branch }} branch
         if: ${{ github.event_name == 'workflow_dispatch'}}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           ref: ${{ github.event.inputs.branch }}
@@ -32,7 +32,7 @@ jobs:
 
       - name: Checkout nearcore repository
         if: ${{ github.event_name != 'workflow_dispatch'}}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           persist-credentials: false
