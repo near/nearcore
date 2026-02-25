@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use near_async::time::{Clock, Duration};
@@ -88,10 +88,10 @@ pub async fn build_streamer_message(
             .remove(&header.shard_id)
             .expect("execution outcomes for given shard should be present");
         let outcome_count = outcomes.len();
-        let mut outcomes = outcomes
-            .into_iter()
-            .map(|outcome| (outcome.execution_outcome.id, outcome))
-            .collect::<BTreeMap<_, _>>();
+        let outcome_order: Vec<CryptoHash> =
+            outcomes.iter().map(|o| o.execution_outcome.id).collect();
+        let mut outcomes: HashMap<_, _> =
+            outcomes.into_iter().map(|outcome| (outcome.execution_outcome.id, outcome)).collect();
         debug_assert_eq!(outcomes.len(), outcome_count);
         let indexer_transactions = transactions
             .into_iter()
@@ -134,7 +134,12 @@ pub async fn build_streamer_message(
         }
 
         let mut receipt_execution_outcomes: Vec<IndexerExecutionOutcomeWithReceipt> = vec![];
-        for (_, outcome) in receipt_outcomes {
+        for outcome_id in outcome_order {
+            let Some(outcome) = receipt_outcomes.remove(&outcome_id) else {
+                // outcome_id corresponds to a transaction, already handled above
+                continue;
+            };
+
             let IndexerExecutionOutcomeWithOptionalReceipt { execution_outcome, receipt } = outcome;
             let receipt = if let Some(receipt) = receipt {
                 receipt

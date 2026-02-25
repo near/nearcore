@@ -94,12 +94,16 @@ use tracing::debug_span;
 pub enum ShutdownReason {
     /// The node reached the configured `expected_shutdown` block height.
     ExpectedShutdown,
+    /// The node is stale and needs its data directory deleted before
+    /// re-bootstrapping via epoch sync.
+    EpochSyncDataReset,
 }
 
 impl fmt::Display for ShutdownReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::ExpectedShutdown => write!(f, "expected shutdown"),
+            Self::EpochSyncDataReset => write!(f, "epoch sync data reset"),
         }
     }
 }
@@ -1832,6 +1836,12 @@ impl ClientActor {
             // needs access to the client.
             SyncHandlerRequest::NeedProcessBlockArtifact(block_processing_artifacts) => {
                 self.client.process_block_processing_artifact(block_processing_artifacts);
+            }
+            SyncHandlerRequest::NeedsDataReset => {
+                tracing::info!(target: "client", "stale node detected, requesting data reset for epoch sync");
+                if let Some(tx) = self.shutdown_signal.take() {
+                    let _ = tx.send(ShutdownReason::EpochSyncDataReset);
+                }
             }
         }
     }

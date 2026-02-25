@@ -30,6 +30,7 @@ use near_primitives::{borsh::BorshDeserialize, types::Balance};
 mod adapters;
 mod config;
 mod errors;
+mod gas_key_utils;
 mod models;
 pub mod test;
 mod types;
@@ -442,6 +443,14 @@ async fn account_balance(
             crate::models::SubAccount::Locked => account_balances.locked,
             crate::models::SubAccount::LiquidBalanceForStorage => {
                 account_balances.liquid_for_storage
+            }
+            crate::models::SubAccount::GasKey => {
+                crate::gas_key_utils::query_gas_key_balance(
+                    near_primitives::types::BlockId::Hash(block_hash).into(),
+                    account_identifier.address.clone().into(),
+                    &state.view_client_addr,
+                )
+                .await?
             }
         }
     } else {

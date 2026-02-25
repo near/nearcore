@@ -207,7 +207,7 @@ fn get_state_witness_block_range(
             0 => {
                 let header = store.get_block_header(&prev_prev_hash)?;
                 let block_context =
-                    Chain::get_apply_chunk_block_context(&position.prev_block, &header, false)?;
+                    Chain::get_apply_chunk_block_context(&position.prev_block, &header, false);
                 implicit_transition_params
                     .push(ImplicitTransitionParams::ApplyOldChunk(block_context, shard_uid));
             }
@@ -402,7 +402,7 @@ pub fn pre_validate_chunk_state_witness(
                 chunk_hash: Some(chunk_header.chunk_hash().clone()),
                 transactions,
                 receipts: receipts_to_apply,
-                block: Chain::get_apply_chunk_block_context(last_chunk_block, &header, true)?,
+                block: Chain::get_apply_chunk_block_context(last_chunk_block, &header, true),
                 storage_context: StorageContext {
                     storage_data_source: StorageDataSource::Recorded(PartialStorage {
                         nodes: state_witness.main_state_transition().base_state.clone(),

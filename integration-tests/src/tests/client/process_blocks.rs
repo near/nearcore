@@ -19,6 +19,7 @@ use near_chain_configs::{
     DEFAULT_GC_NUM_EPOCHS_TO_KEEP, GAS_PRICE_ADJUSTMENT_RATE, MAX_GAS_PRICE,
     ProtocolVersionCheckConfig,
 };
+use near_client::sync::epoch::EpochSyncRunResult;
 use near_client::test_utils::create_chunk_on_height;
 use near_client::{GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType, Signature};
@@ -1490,7 +1491,7 @@ fn test_reject_block_headers_during_epoch_sync() {
             highest_height,
             &highest_height_peers
         ),
-        Ok(()),
+        Ok(EpochSyncRunResult::Ok),
         "Epoch sync failure"
     );
 
