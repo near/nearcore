@@ -1223,6 +1223,7 @@ fn slow_test_resharding_v3_delayed_receipts_left_child() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "test_features"), ignore)]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_global_contract_by_hash() {
@@ -1235,6 +1236,7 @@ fn slow_test_resharding_v3_global_contract_by_hash() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "test_features"), ignore)]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_global_contract_by_account_id() {
