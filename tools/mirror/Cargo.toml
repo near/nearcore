@@ -78,5 +78,8 @@ protocol_feature_spice = [
   "near-primitives-core/protocol_feature_spice",
 ]
 
+[dev-dependencies]
+tempfile.workspace = true
+
 [package.metadata.cargo-machete]
 ignored = ["near-async", "near-network"]
