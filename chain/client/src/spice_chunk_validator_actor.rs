@@ -419,6 +419,7 @@ impl SpiceChunkValidatorActor {
                 missing.clone(),
                 &signer,
             );
+            // TODO(spice): retry with different producers if request fails or times out.
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::SpiceContractCodeRequest(target, request),
             ));
