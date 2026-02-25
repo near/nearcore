@@ -4,6 +4,7 @@ use near_amend_genesis::AmendGenesisCommand;
 use near_async::ActorSystem;
 use near_chain_configs::{GenesisValidationMode, TrackedShardsConfig};
 use near_client::ConfigUpdater;
+use near_client::client_actor::ShutdownReason;
 use near_cold_store_tool::ColdStoreCommand;
 use near_config_utils::DownloadConfigType;
 use near_database_tool::commands::DatabaseCommand;
@@ -21,6 +22,7 @@ use near_ping::PingCommand;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
 use near_primitives::types::{Gas, NumSeats, NumShards, ProtocolVersion, ShardId};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_replay_archive_tool::ReplayArchiveCommand;
 use near_state_parts::cli::StatePartsCommand;
 use near_state_parts_dump_check::cli::StatePartsDumpCheckCommand;
@@ -43,6 +45,17 @@ use {
     near_dump_test_contract::DumpTestContractCommand, near_network::tcp,
     near_primitives::epoch_manager::EpochConfigStore,
 };
+
+/// Marker file written inside the hot store directory to signal that the data
+/// directory should be wiped on the next startup for epoch sync re-bootstrap.
+const EPOCH_SYNC_DATA_RESET_MARKER_FILE_NAME: &str = ".EPOCH_SYNC_DATA_RESET";
+
+/// Signal received by the shutdown handler.
+#[derive(Debug)]
+enum ShutdownSignal {
+    OsSignal(String),
+    ClientShutdown(ShutdownReason),
+}
 
 /// NEAR Protocol Node
 #[derive(clap::Parser)]
@@ -548,7 +561,14 @@ impl RunCmd {
             }
         }
 
-        let (tx_crash, mut rx_crash) = broadcast::channel::<()>(16);
+        // Resolve the hot store path from config (before config is moved).
+        let hot_store_path = home_dir
+            .join(near_config.config.store.path.as_deref().unwrap_or_else(|| Path::new("data")));
+
+        // Check for epoch sync data reset marker from a previous run.
+        check_epoch_sync_data_reset_marker(&hot_store_path, near_config.client_config.archive);
+
+        let (tx_crash, mut rx_crash) = broadcast::channel::<ShutdownReason>(16);
         let (tx_config_update, rx_config_update) =
             broadcast::channel::<Result<UpdatableConfigs, Arc<UpdatableConfigLoaderError>>>(16);
         let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
@@ -588,15 +608,22 @@ impl RunCmd {
 
             let sig = loop {
                 let sig = wait_for_interrupt_signal(home_dir, &mut rx_crash).await;
-                if sig == "SIGHUP" {
-                    let maybe_updatable_configs =
-                        nearcore::dyn_config::read_updatable_configs(home_dir);
-                    updatable_config_loader.reload(maybe_updatable_configs);
-                } else {
-                    break sig;
+                match &sig {
+                    ShutdownSignal::OsSignal(s) if s == "SIGHUP" => {
+                        let maybe_updatable_configs =
+                            nearcore::dyn_config::read_updatable_configs(home_dir);
+                        updatable_config_loader.reload(maybe_updatable_configs);
+                    }
+                    _ => break sig,
                 }
             };
-            tracing::warn!(target: "neard", %sig, "stopping, this may take a few minutes");
+
+            // Write marker if this is an epoch sync data reset shutdown.
+            if let ShutdownSignal::ClientShutdown(ShutdownReason::EpochSyncDataReset) = &sig {
+                write_epoch_sync_data_reset_marker(&hot_store_path);
+            }
+
+            tracing::warn!(target: "neard", ?sig, "stopping, this may take a few minutes");
             if let Some(handle) = cold_store_loop_handle {
                 handle.store(false, std::sync::atomic::Ordering::Relaxed);
             }
@@ -610,25 +637,61 @@ impl RunCmd {
     }
 }
 
+/// Checks for the epoch sync data reset marker and deletes the data directory if found.
+/// Archival nodes skip deletion to prevent accidental data loss.
+fn check_epoch_sync_data_reset_marker(hot_store_path: &Path, is_archival: bool) {
+    let marker_path = hot_store_path.join(EPOCH_SYNC_DATA_RESET_MARKER_FILE_NAME);
+    if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) || !marker_path.exists() {
+        return;
+    }
+    if is_archival {
+        tracing::warn!(target: "neard", "epoch sync data reset marker found but node is archival, ignoring");
+    } else {
+        tracing::info!(target: "neard", ?hot_store_path, "epoch sync data reset marker found, deleting data directory");
+        std::fs::remove_dir_all(hot_store_path)
+            .expect("failed to delete data directory for epoch sync reset");
+    }
+}
+
+/// Writes the epoch sync data reset marker file inside the hot store directory.
+/// On next startup, this marker signals that the data directory should be wiped.
+fn write_epoch_sync_data_reset_marker(hot_store_path: &Path) {
+    let marker_path = hot_store_path.join(EPOCH_SYNC_DATA_RESET_MARKER_FILE_NAME);
+    // Ensure the data directory exists (it should, since we're running).
+    std::fs::create_dir_all(hot_store_path)
+        .expect("failed to create data directory for reset marker");
+    std::fs::write(&marker_path, b"").expect("failed to write epoch sync reset marker");
+    std::fs::File::open(&marker_path)
+        .and_then(|f| f.sync_all())
+        .expect("failed to fsync reset marker file");
+    tracing::info!(target: "neard", ?marker_path, "epoch sync data reset marker written");
+}
+
 #[cfg(not(unix))]
-async fn wait_for_interrupt_signal(_home_dir: &Path, mut _rx_crash: &Receiver<()>) -> &str {
+async fn wait_for_interrupt_signal(
+    _home_dir: &Path,
+    mut _rx_crash: &Receiver<ShutdownReason>,
+) -> ShutdownSignal {
     // TODO(#6372): Support graceful shutdown on windows.
     tokio::signal::ctrl_c().await.unwrap();
-    "Ctrl+C"
+    ShutdownSignal::OsSignal("Ctrl+C".to_string())
 }
 
 #[cfg(unix)]
-async fn wait_for_interrupt_signal(_home_dir: &Path, rx_crash: &mut Receiver<()>) -> &'static str {
+async fn wait_for_interrupt_signal(
+    _home_dir: &Path,
+    rx_crash: &mut Receiver<ShutdownReason>,
+) -> ShutdownSignal {
     use tokio::signal::unix::{SignalKind, signal};
     let mut sigint = signal(SignalKind::interrupt()).unwrap();
     let mut sigterm = signal(SignalKind::terminate()).unwrap();
     let mut sighup = signal(SignalKind::hangup()).unwrap();
 
     tokio::select! {
-         _ = sigint.recv()  => "SIGINT",
-         _ = sigterm.recv() => "SIGTERM",
-         _ = sighup.recv() => "SIGHUP",
-         _ = rx_crash.recv() => "ClientActor died",
+         _ = sigint.recv()  => ShutdownSignal::OsSignal("SIGINT".to_string()),
+         _ = sigterm.recv() => ShutdownSignal::OsSignal("SIGTERM".to_string()),
+         _ = sighup.recv() => ShutdownSignal::OsSignal("SIGHUP".to_string()),
+         Ok(reason) = rx_crash.recv() => ShutdownSignal::ClientShutdown(reason),
     }
 }
 

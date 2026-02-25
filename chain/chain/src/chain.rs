@@ -982,7 +982,7 @@ impl Chain {
                 header.height(),
                 header.approvals(),
                 info,
-            )? {
+            ) {
                 return Err(Error::InvalidApprovals);
             };
 
@@ -1403,7 +1403,7 @@ impl Chain {
                 &block_context.to_key_source(),
                 &chunks,
                 shard_id,
-            )?;
+            );
             shard_update_keys.push(cached_shard_update_key);
             let job = self.get_update_shard_job(
                 cached_shard_update_key,
@@ -2403,6 +2403,12 @@ impl Chain {
             return Err(e);
         }
 
+        crate::validate::validate_block_shard_split(
+            self.epoch_manager.as_ref(),
+            header,
+            &block.chunks(),
+        )?;
+
         let protocol_version =
             self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
         let last_certified_block_execution_results =
@@ -2781,7 +2787,7 @@ impl Chain {
         chunks: &Chunks,
         prev_block_header: &BlockHeader,
         is_new_chunk: bool,
-    ) -> Result<ApplyChunkBlockContext, Error> {
+    ) -> ApplyChunkBlockContext {
         // Before `FixApplyChunks` feature, gas price was taken from current
         // block by mistake. Preserve it for backwards compatibility.
         let gas_price = if is_new_chunk {
@@ -2796,19 +2802,19 @@ impl Chain {
         let congestion_info = chunks.block_congestion_info();
         let bandwidth_requests = chunks.block_bandwidth_requests();
 
-        Ok(ApplyChunkBlockContext::from_header(
+        ApplyChunkBlockContext::from_header(
             block_header,
             gas_price,
             congestion_info,
             bandwidth_requests,
-        ))
+        )
     }
 
     pub fn get_apply_chunk_block_context(
         block: &Block,
         prev_block_header: &BlockHeader,
         is_new_chunk: bool,
-    ) -> Result<ApplyChunkBlockContext, Error> {
+    ) -> ApplyChunkBlockContext {
         Self::get_apply_chunk_block_context_from_block_header(
             block.header(),
             &block.chunks(),
@@ -3158,13 +3164,13 @@ impl Chain {
                 &chunk_headers,
                 prev_block.header(),
                 chunk_header.is_new_chunk(),
-            )?;
+            );
 
             let cached_shard_update_key = Self::get_cached_shard_update_key(
                 &block_context.to_key_source(),
                 chunk_headers,
                 shard_id,
-            )?;
+            );
             update_shard_args.push((block_context, cached_shard_update_key));
         }
 
@@ -3264,7 +3270,7 @@ impl Chain {
         block: &OptimisticBlockKeySource,
         chunk_headers: &Chunks,
         shard_id: ShardId,
-    ) -> Result<CachedShardUpdateKey, Error> {
+    ) -> CachedShardUpdateKey {
         const BYTES_LEN: usize =
             size_of::<CryptoHash>() + size_of::<CryptoHash>() + size_of::<u64>();
 
@@ -3275,7 +3281,7 @@ impl Chain {
         bytes.extend_from_slice(&hash(&borsh::to_vec(&chunks_key_source).unwrap()).0);
         bytes.extend_from_slice(&shard_id.to_le_bytes());
 
-        Ok(CachedShardUpdateKey::new(hash(&bytes)))
+        CachedShardUpdateKey::new(hash(&bytes))
     }
 
     /// This method returns the closure that is responsible for updating a shard.

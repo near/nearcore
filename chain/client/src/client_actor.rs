@@ -89,6 +89,25 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use tracing::debug_span;
 
+/// Reason for a graceful shutdown initiated by the node itself.
+#[derive(Debug, Clone)]
+pub enum ShutdownReason {
+    /// The node reached the configured `expected_shutdown` block height.
+    ExpectedShutdown,
+    /// The node is stale and needs its data directory deleted before
+    /// re-bootstrapping via epoch sync.
+    EpochSyncDataReset,
+}
+
+impl fmt::Display for ShutdownReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ExpectedShutdown => write!(f, "expected shutdown"),
+            Self::EpochSyncDataReset => write!(f, "epoch sync data reset"),
+        }
+    }
+}
+
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: i32 = 10;
 /// `max_block_production_time` times this multiplier is how long we wait before rebroadcasting
@@ -152,7 +171,7 @@ pub fn start_client(
     validator_signer: MutableValidatorSigner,
     telemetry_sender: Sender<TelemetryEvent>,
     snapshot_callbacks: Option<SnapshotCallbacks>,
-    sender: Option<broadcast::Sender<()>>,
+    sender: Option<broadcast::Sender<ShutdownReason>>,
     adv: crate::adversarial::Controls,
     config_updater: Option<ConfigUpdater>,
     partial_witness_adapter: PartialWitnessSenderForClient,
@@ -312,7 +331,7 @@ pub struct ClientActor {
 
     /// Synchronization measure to allow graceful shutdown.
     /// Informs the system when a ClientActor gets dropped.
-    shutdown_signal: Option<broadcast::Sender<()>>,
+    shutdown_signal: Option<broadcast::Sender<ShutdownReason>>,
 
     /// Manages updating the config.
     config_updater: Option<ConfigUpdater>,
@@ -405,7 +424,7 @@ impl ClientActor {
         node_id: PeerId,
         network_adapter: PeerManagerAdapter,
         telemetry_sender: Sender<TelemetryEvent>,
-        shutdown_signal: Option<broadcast::Sender<()>>,
+        shutdown_signal: Option<broadcast::Sender<ShutdownReason>>,
         adv: crate::adversarial::Controls,
         config_updater: Option<ConfigUpdater>,
         sync_jobs_sender: SyncJobsSenderForClient,
@@ -1292,7 +1311,7 @@ impl ClientActor {
                 if head.height >= block_height_to_shutdown {
                     tracing::info!(target: "client", head_height = head.height, ?block_height_to_shutdown, "expected shutdown triggered");
                     if let Some(tx) = self.shutdown_signal.take() {
-                        let _ = tx.send(()); // Ignore send signal fail, it will send again in next trigger
+                        let _ = tx.send(ShutdownReason::ExpectedShutdown);
                     }
                 }
             }
@@ -1817,6 +1836,12 @@ impl ClientActor {
             // needs access to the client.
             SyncHandlerRequest::NeedProcessBlockArtifact(block_processing_artifacts) => {
                 self.client.process_block_processing_artifact(block_processing_artifacts);
+            }
+            SyncHandlerRequest::NeedsDataReset => {
+                tracing::info!(target: "client", "stale node detected, requesting data reset for epoch sync");
+                if let Some(tx) = self.shutdown_signal.take() {
+                    let _ = tx.send(ShutdownReason::EpochSyncDataReset);
+                }
             }
         }
     }

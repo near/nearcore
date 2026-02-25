@@ -674,7 +674,7 @@ impl ChunkProducer {
         };
         let shard_id = shard_uid.shard_id();
         let prev_chunk_shard_update_key: CachedShardUpdateKey =
-            Chain::get_cached_shard_update_key(&prev_block_context, &chunks, shard_id).unwrap();
+            Chain::get_cached_shard_update_key(&prev_block_context, &chunks, shard_id);
 
         let prepare_job_key = PrepareTransactionsJobKey {
             shard_uid,

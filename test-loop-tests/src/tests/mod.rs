@@ -30,6 +30,7 @@ mod in_memory_tries;
 mod increase_max_congestion_missing_chunks;
 #[cfg(feature = "test_features")]
 mod indexer;
+mod jsonrpc;
 mod malicious_chunk_producer;
 mod max_receipt_size;
 mod multinode_stateless_validators;
@@ -41,6 +42,7 @@ mod processed_receipts_gc;
 mod protocol_upgrade;
 mod reject_outdated_blocks;
 mod resharding_v3;
+mod shutdown_signal;
 mod single_shard_tracking;
 mod spice;
 mod spice_resharding;

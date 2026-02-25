@@ -10,7 +10,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardInfo, ShardLayout};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
-use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, ShardId, ShardIndex, ValidatorId,
@@ -163,7 +162,9 @@ pub trait EpochManagerAdapter: Send + Sync {
     }
 
     fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, EpochError> {
-        self.get_epoch_config(epoch_id).map(ShardConfig::new)
+        let epoch_config = self.get_epoch_config(epoch_id)?;
+        let shard_layout = self.get_shard_layout(epoch_id)?;
+        Ok(ShardConfig::new(epoch_config, shard_layout))
     }
 
     /// For each `ShardId` in the current block, returns its parent `ShardInfo`
@@ -290,13 +291,12 @@ pub trait EpochManagerAdapter: Send + Sync {
         Ok(shard_layout != prev_shard_layout)
     }
 
-    // TODO(dynamic_resharding): remove this method
-    fn static_shard_layout_for_protocol_version(
-        &self,
-        protocol_version: ProtocolVersion,
-    ) -> ShardLayout;
-
-    fn try_static_shard_layout_for_protocol_version(
+    /// Get *static* shard layout for the given protocol version. If the protocol version uses
+    /// dynamic resharding, there is no specific layout assigned to that version, so this method
+    /// returns `None`.
+    ///
+    /// **Tip:** Consider using `get_shard_layout` instead.
+    fn get_static_shard_layout_for_protocol_version(
         &self,
         protocol_version: ProtocolVersion,
     ) -> Option<ShardLayout>;
@@ -805,7 +805,7 @@ pub trait EpochManagerAdapter: Send + Sync {
         client_protocol_version: ProtocolVersion,
     ) -> Result<HashSet<ShardUId>, Error> {
         let Some(head_shard_layout) =
-            self.try_static_shard_layout_for_protocol_version(head_protocol_version)
+            self.get_static_shard_layout_for_protocol_version(head_protocol_version)
         else {
             // With dynamic resharding enabled, there is no point in trying to preload shards
             // pending resharding, as they cannot be known upfront.
@@ -864,14 +864,14 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Parameters:
     ///  - `protocol_version`: protocol version of the current epoch
     ///  - `parent_hash`: hash of the parent of the block being produced
-    ///  - `proposed_splits`: mapping containing all proposed shard splits from chunk headers
+    ///  - `chunk_headers`: chunk headers from the block, used to collect proposed shard splits
     ///
     /// Returns `Some((shard_id, boundary_account))` if a shard split should be scheduled.
     fn get_upcoming_shard_split(
         &self,
         protocol_version: ProtocolVersion,
         parent_hash: &CryptoHash,
-        proposed_splits: &HashMap<ShardId, TrieSplit>,
+        chunk_headers: &[ShardChunkHeader],
     ) -> Result<Option<(ShardId, AccountId)>, EpochError>;
 }
 
@@ -936,22 +936,12 @@ impl EpochManagerAdapter for EpochManagerHandle {
         self.read().get_epoch_start_from_epoch_id(epoch_id)
     }
 
-    // TODO(dynamic_resharding): remove this method
-    fn static_shard_layout_for_protocol_version(
-        &self,
-        protocol_version: ProtocolVersion,
-    ) -> ShardLayout {
-        debug_assert!(!ProtocolFeature::DynamicResharding.enabled(protocol_version));
-        let epoch_manager = self.read();
-        epoch_manager.get_epoch_config(protocol_version).static_shard_layout()
-    }
-
-    fn try_static_shard_layout_for_protocol_version(
+    fn get_static_shard_layout_for_protocol_version(
         &self,
         protocol_version: ProtocolVersion,
     ) -> Option<ShardLayout> {
         let epoch_manager = self.read();
-        epoch_manager.get_epoch_config(protocol_version).try_static_shard_layout()
+        epoch_manager.get_epoch_config(protocol_version).static_shard_layout()
     }
 
     fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
@@ -1063,10 +1053,10 @@ impl EpochManagerAdapter for EpochManagerHandle {
         &self,
         protocol_version: ProtocolVersion,
         parent_hash: &CryptoHash,
-        proposed_splits: &HashMap<ShardId, TrieSplit>,
+        chunk_headers: &[ShardChunkHeader],
     ) -> Result<Option<(ShardId, AccountId)>, EpochError> {
         let epoch_manager = self.read();
-        epoch_manager.get_upcoming_shard_split(protocol_version, parent_hash, proposed_splits)
+        epoch_manager.get_upcoming_shard_split(protocol_version, parent_hash, chunk_headers)
     }
 
     fn get_chunk_producer_blacklist(

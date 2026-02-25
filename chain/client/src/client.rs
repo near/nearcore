@@ -953,17 +953,10 @@ impl Client {
 
         // Compute shard_split if this is the last block of the epoch
         let shard_split = if is_produced_block_last_in_epoch {
-            // Collect proposed splits from chunk headers
-            let mut proposed_splits = HashMap::new();
-            for header in &chunk_headers {
-                if let Some(split) = header.proposed_split() {
-                    proposed_splits.insert(header.shard_id(), split.clone());
-                }
-            }
             self.epoch_manager.get_upcoming_shard_split(
                 protocol_version,
                 &prev_hash,
-                &proposed_splits,
+                &chunk_headers,
             )?
         } else {
             None

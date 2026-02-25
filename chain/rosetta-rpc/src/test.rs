@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+
+use near_crypto::SecretKey;
 use near_parameters::RuntimeConfigView;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::Balance;
@@ -5,6 +8,7 @@ use near_primitives::types::Balance;
 use crate::adapters::transactions::{ExecutionToReceipts, convert_block_changes_to_transactions};
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_client::ViewClientActor;
+use near_primitives::views::SignedTransactionView;
 
 pub async fn test_convert_block_changes_to_transactions(
     view_client_addr: &MultithreadRuntimeHandle<ViewClientActor>,
@@ -112,6 +116,8 @@ pub async fn test_convert_block_changes_to_transactions(
         accounts_changes,
         accounts_previous_state,
         ExecutionToReceipts::empty(),
+        crate::gas_key_utils::GasKeyInfo::empty(),
+        vec![],
     )
     .await
     .unwrap();
@@ -136,5 +142,285 @@ pub async fn test_convert_block_changes_to_transactions(
     insta::assert_debug_snapshot!(
         "nfvalidator2_action_receipt_gas_reward_transaction",
         nfvalidator2_action_receipt_gas_reward_transaction
+    );
+}
+
+/// Tests per-receipt gas key balance changes: transfer in, gas deduction, key deletion,
+/// and transfer_fee_type metadata (GasPrepayment for TransactionProcessing, GasRefund
+/// for system predecessor, none for regular receipts).
+pub async fn test_gas_key_changes_to_transactions(
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActor>,
+    runtime_config: &RuntimeConfigView,
+) {
+    let block_hash = CryptoHash::default();
+    let transfer_receipt_hash = CryptoHash([1u8; 32]);
+    let refund_receipt_hash = CryptoHash([2u8; 32]);
+    let gas_usage_receipt_hash = CryptoHash([3u8; 32]);
+    let delete_key_receipt_hash = CryptoHash([4u8; 32]);
+    let gas_prepay_tx_hash = CryptoHash([5u8; 32]);
+
+    // nfvalidator1: had key_a (0.5 NEAR), key_b (0.3 NEAR), key_c (0.1 NEAR),
+    // key_d (0.4 NEAR) in prev block.
+    // In current block:
+    //   - Receipt 1: key_b balance updated to 0.5 NEAR (+0.2 NEAR transfer, no fee type)
+    //   - Receipt 2 (from "system"): key_c balance updated to 0.2 NEAR (+0.1 NEAR refund)
+    //   - Receipt 3: key_a balance decreased to 0.3 NEAR (-0.2 NEAR gas usage, no fee type)
+    //   - Receipt 4: key_a deleted (burned remaining 0.3 NEAR)
+    //   - Transaction 5: key_d balance decreased to 0.2 NEAR (-0.2 NEAR gas prepayment)
+    let key_a = SecretKey::from_seed(near_crypto::KeyType::ED25519, "gas-key-a").public_key();
+    let key_b = SecretKey::from_seed(near_crypto::KeyType::ED25519, "gas-key-b").public_key();
+    let key_c = SecretKey::from_seed(near_crypto::KeyType::ED25519, "gas-key-c").public_key();
+    let key_d = SecretKey::from_seed(near_crypto::KeyType::ED25519, "gas-key-d").public_key();
+    let previous_gas_keys = crate::gas_key_utils::GasKeyInfo::from_entries([(
+        "nfvalidator1.near".parse().unwrap(),
+        HashMap::from([
+            (key_a.clone(), Balance::from_millinear(500)),
+            (key_b.clone(), Balance::from_millinear(300)),
+            (key_c.clone(), Balance::from_millinear(100)),
+            (key_d.clone(), Balance::from_millinear(400)),
+        ]),
+    )]);
+
+    let exec_to_rx = ExecutionToReceipts::with_data(
+        HashMap::from([
+            (transfer_receipt_hash, "alice.near".parse().unwrap()),
+            (refund_receipt_hash, "system".parse().unwrap()),
+            (gas_usage_receipt_hash, "bob.near".parse().unwrap()),
+            (delete_key_receipt_hash, "bob.near".parse().unwrap()),
+        ]),
+        HashMap::from([(
+            gas_prepay_tx_hash,
+            SignedTransactionView {
+                signer_id: "nfvalidator1.near".parse().unwrap(),
+                public_key: SecretKey::from_seed(near_crypto::KeyType::ED25519, "signer")
+                    .public_key(),
+                nonce: 1,
+                receiver_id: "nfvalidator1.near".parse().unwrap(),
+                actions: vec![],
+                _priority_fee: 0,
+                signature: near_crypto::Signature::default(),
+                hash: gas_prepay_tx_hash,
+                nonce_index: None,
+            },
+        )]),
+    );
+
+    let access_key_changes = vec![
+        // Receipt from non-system predecessor: no fee type
+        near_primitives::views::StateChangeWithCauseView {
+            cause: near_primitives::views::StateChangeCauseView::ReceiptProcessing {
+                receipt_hash: transfer_receipt_hash,
+            },
+            value: near_primitives::views::StateChangeValueView::AccessKeyUpdate {
+                account_id: "nfvalidator1.near".parse().unwrap(),
+                public_key: key_b,
+                access_key: near_primitives::views::AccessKeyView {
+                    nonce: 1,
+                    permission: near_primitives::views::AccessKeyPermissionView::GasKeyFullAccess {
+                        balance: Balance::from_millinear(500),
+                        num_nonces: 1,
+                    },
+                },
+            },
+        },
+        // Receipt from "system": GasRefund
+        near_primitives::views::StateChangeWithCauseView {
+            cause: near_primitives::views::StateChangeCauseView::ReceiptProcessing {
+                receipt_hash: refund_receipt_hash,
+            },
+            value: near_primitives::views::StateChangeValueView::AccessKeyUpdate {
+                account_id: "nfvalidator1.near".parse().unwrap(),
+                public_key: key_c,
+                access_key: near_primitives::views::AccessKeyView {
+                    nonce: 1,
+                    permission: near_primitives::views::AccessKeyPermissionView::GasKeyFullAccess {
+                        balance: Balance::from_millinear(200),
+                        num_nonces: 1,
+                    },
+                },
+            },
+        },
+        // Receipt from non-system predecessor: no fee type
+        near_primitives::views::StateChangeWithCauseView {
+            cause: near_primitives::views::StateChangeCauseView::ReceiptProcessing {
+                receipt_hash: gas_usage_receipt_hash,
+            },
+            value: near_primitives::views::StateChangeValueView::AccessKeyUpdate {
+                account_id: "nfvalidator1.near".parse().unwrap(),
+                public_key: key_a.clone(),
+                access_key: near_primitives::views::AccessKeyView {
+                    nonce: 2,
+                    permission: near_primitives::views::AccessKeyPermissionView::GasKeyFullAccess {
+                        balance: Balance::from_millinear(300),
+                        num_nonces: 1,
+                    },
+                },
+            },
+        },
+        // Key deletion
+        near_primitives::views::StateChangeWithCauseView {
+            cause: near_primitives::views::StateChangeCauseView::ReceiptProcessing {
+                receipt_hash: delete_key_receipt_hash,
+            },
+            value: near_primitives::views::StateChangeValueView::AccessKeyDeletion {
+                account_id: "nfvalidator1.near".parse().unwrap(),
+                public_key: key_a,
+            },
+        },
+        // TransactionProcessing: GasPrepayment
+        near_primitives::views::StateChangeWithCauseView {
+            cause: near_primitives::views::StateChangeCauseView::TransactionProcessing {
+                tx_hash: gas_prepay_tx_hash,
+            },
+            value: near_primitives::views::StateChangeValueView::AccessKeyUpdate {
+                account_id: "nfvalidator1.near".parse().unwrap(),
+                public_key: key_d,
+                access_key: near_primitives::views::AccessKeyView {
+                    nonce: 3,
+                    permission: near_primitives::views::AccessKeyPermissionView::GasKeyFullAccess {
+                        balance: Balance::from_millinear(200),
+                        num_nonces: 1,
+                    },
+                },
+            },
+        },
+    ];
+
+    let transactions = convert_block_changes_to_transactions(
+        view_client_addr,
+        runtime_config,
+        &block_hash,
+        vec![],
+        HashMap::new(),
+        exec_to_rx,
+        previous_gas_keys,
+        access_key_changes,
+    )
+    .await
+    .unwrap();
+
+    let fee_type =
+        |op: &crate::models::Operation| op.metadata.as_ref().and_then(|m| m.transfer_fee_type);
+
+    // key_b update (+0.2 NEAR): non-system receipt, no fee type.
+    let transfer_tx = &transactions[&format!("receipt:{}", transfer_receipt_hash)];
+    let gas_key_ops: Vec<_> = transfer_tx
+        .operations
+        .iter()
+        .filter(|op| {
+            op.account
+                .sub_account
+                .as_ref()
+                .is_some_and(|s| s.address == crate::models::SubAccount::GasKey)
+        })
+        .collect();
+    assert_eq!(gas_key_ops.len(), 1, "expected Transfer on SubAccount::GasKey");
+    assert_eq!(gas_key_ops[0].type_, crate::models::OperationType::Transfer);
+    assert_eq!(fee_type(gas_key_ops[0]), None);
+    // +0.2 NEAR: key_b went from 0.3 to 0.5 NEAR
+    assert_eq!(
+        gas_key_ops[0].amount,
+        Some(crate::models::Amount::from_yoctonear_diff(crate::utils::SignedDiff::cmp(
+            Balance::from_millinear(300).as_yoctonear(),
+            Balance::from_millinear(500).as_yoctonear(),
+        )))
+    );
+
+    // key_c refund (+0.1 NEAR): system receipt, GasRefund.
+    let refund_tx = &transactions[&format!("receipt:{}", refund_receipt_hash)];
+    let gas_key_ops: Vec<_> = refund_tx
+        .operations
+        .iter()
+        .filter(|op| {
+            op.account
+                .sub_account
+                .as_ref()
+                .is_some_and(|s| s.address == crate::models::SubAccount::GasKey)
+        })
+        .collect();
+    assert_eq!(gas_key_ops.len(), 1, "expected Transfer (refund) on SubAccount::GasKey");
+    assert_eq!(gas_key_ops[0].type_, crate::models::OperationType::Transfer);
+    assert_eq!(
+        fee_type(gas_key_ops[0]),
+        Some(crate::models::OperationMetadataTransferFeeType::GasRefund)
+    );
+    // +0.1 NEAR: key_c went from 0.1 to 0.2 NEAR
+    assert_eq!(
+        gas_key_ops[0].amount,
+        Some(crate::models::Amount::from_yoctonear_diff(crate::utils::SignedDiff::cmp(
+            Balance::from_millinear(100).as_yoctonear(),
+            Balance::from_millinear(200).as_yoctonear(),
+        )))
+    );
+
+    // key_a gas usage (-0.2 NEAR): non-system receipt, no fee type.
+    let gas_usage_tx = &transactions[&format!("receipt:{}", gas_usage_receipt_hash)];
+    let gas_key_ops: Vec<_> = gas_usage_tx
+        .operations
+        .iter()
+        .filter(|op| {
+            op.account
+                .sub_account
+                .as_ref()
+                .is_some_and(|s| s.address == crate::models::SubAccount::GasKey)
+        })
+        .collect();
+    assert_eq!(gas_key_ops.len(), 1, "expected Transfer (deduction) on SubAccount::GasKey");
+    assert_eq!(gas_key_ops[0].type_, crate::models::OperationType::Transfer);
+    assert_eq!(fee_type(gas_key_ops[0]), None);
+    // -0.2 NEAR: key_a went from 0.5 to 0.3 NEAR
+    assert_eq!(
+        gas_key_ops[0].amount,
+        Some(crate::models::Amount::from_yoctonear_diff(crate::utils::SignedDiff::cmp(
+            Balance::from_millinear(500).as_yoctonear(),
+            Balance::from_millinear(300).as_yoctonear(),
+        )))
+    );
+
+    // key_a deletion (burn remaining 0.3 NEAR).
+    let delete_tx = &transactions[&format!("receipt:{}", delete_key_receipt_hash)];
+    let gas_key_ops: Vec<_> = delete_tx
+        .operations
+        .iter()
+        .filter(|op| {
+            op.account
+                .sub_account
+                .as_ref()
+                .is_some_and(|s| s.address == crate::models::SubAccount::GasKey)
+        })
+        .collect();
+    assert_eq!(gas_key_ops.len(), 1, "expected GasKeyBalanceBurnt on SubAccount::GasKey");
+    assert_eq!(gas_key_ops[0].type_, crate::models::OperationType::GasKeyBalanceBurnt);
+    // -0.3 NEAR: key_a had 0.3 NEAR remaining (after gas usage) when deleted
+    assert_eq!(
+        gas_key_ops[0].amount,
+        Some(-crate::models::Amount::from_balance(Balance::from_millinear(300)))
+    );
+
+    // key_d TransactionProcessing (-0.2 NEAR): GasPrepayment.
+    let prepay_tx = &transactions[&format!("tx:{}", gas_prepay_tx_hash)];
+    let gas_key_ops: Vec<_> = prepay_tx
+        .operations
+        .iter()
+        .filter(|op| {
+            op.account
+                .sub_account
+                .as_ref()
+                .is_some_and(|s| s.address == crate::models::SubAccount::GasKey)
+        })
+        .collect();
+    assert_eq!(gas_key_ops.len(), 1, "expected Transfer (prepay) on SubAccount::GasKey");
+    assert_eq!(gas_key_ops[0].type_, crate::models::OperationType::Transfer);
+    assert_eq!(
+        fee_type(gas_key_ops[0]),
+        Some(crate::models::OperationMetadataTransferFeeType::GasPrepayment)
+    );
+    // -0.2 NEAR: key_d went from 0.4 to 0.2 NEAR
+    assert_eq!(
+        gas_key_ops[0].amount,
+        Some(crate::models::Amount::from_yoctonear_diff(crate::utils::SignedDiff::cmp(
+            Balance::from_millinear(400).as_yoctonear(),
+            Balance::from_millinear(200).as_yoctonear(),
+        )))
     );
 }
