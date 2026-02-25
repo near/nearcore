@@ -1414,6 +1414,20 @@ impl ShardsManagerActor {
             }
         };
 
+        // If the pre-computed ChunkProducers DB entry isn't available yet for
+        // this (prev_block_hash, shard_id), treat as transient — the caller
+        // will retry once the block is fully processed.
+        if !self
+            .epoch_manager
+            .is_chunk_producer_info_in_db(header.prev_block_hash(), header.shard_id())
+        {
+            return Err(DBNotFoundErr(format!(
+                "chunk producer not ready for block {:?}",
+                header.prev_block_hash()
+            ))
+            .into());
+        }
+
         let valid_signature =
             verify_chunk_header_signature_with_epoch_manager(self.epoch_manager.as_ref(), header)?;
         if !valid_signature {
@@ -1775,6 +1789,15 @@ impl ShardsManagerActor {
 
         if have_all_receipts {
             self.encoded_chunks.mark_received_all_receipts(&chunk_hash);
+        }
+
+        // If ChunkProducers DB entry isn't populated yet, return NeedBlock so
+        // the caller retries after the block is fully processed.
+        if !self
+            .epoch_manager
+            .is_chunk_producer_info_in_db(header.prev_block_hash(), header.shard_id())
+        {
+            return Ok(ProcessPartialEncodedChunkResult::NeedBlock);
         }
 
         let chunk_producer = self

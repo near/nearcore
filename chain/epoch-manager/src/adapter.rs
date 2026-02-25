@@ -486,6 +486,22 @@ pub trait EpochManagerAdapter: Send + Sync {
         self.get_chunk_producer_info(prev_block_hash, shard_id)
     }
 
+    /// Returns whether the pre-computed chunk producer entry exists in `DBCol::ChunkProducers`
+    /// for the given `(prev_block_hash, shard_id)`.
+    ///
+    /// This is a non-panicking readiness probe: callers that may run before the DB column
+    /// is populated (e.g. concurrent actors) should check this before calling
+    /// `get_chunk_producer_info` to avoid hitting the `debug_assert!(false)`.
+    ///
+    /// Default returns `true` for test/mock impls that don't use the DB column.
+    fn is_chunk_producer_info_in_db(
+        &self,
+        _prev_block_hash: &CryptoHash,
+        _shard_id: ShardId,
+    ) -> bool {
+        true
+    }
+
     /// Write baseline (non-blacklisted) chunk producer entries to DBCol::ChunkProducers.
     /// Used by test infrastructure that records blocks without going through the full
     /// Chain processing path (which calls save_chunk_producers_for_header).
@@ -1175,6 +1191,20 @@ impl EpochManagerAdapter for EpochManagerHandle {
             )));
         };
         Ok(epoch_info.get_validator(validator_id))
+    }
+
+    fn is_chunk_producer_info_in_db(
+        &self,
+        prev_block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> bool {
+        let epoch_manager = self.read();
+        let key = get_block_shard_id(prev_block_hash, shard_id);
+        epoch_manager
+            .store
+            .store_ref()
+            .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
+            .is_some()
     }
 
     fn save_default_chunk_producers(&self, block_hash: &CryptoHash) -> Result<(), EpochError> {

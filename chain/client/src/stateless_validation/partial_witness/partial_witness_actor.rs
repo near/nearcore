@@ -17,7 +17,6 @@ use near_network::state_witness::{
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_parameters::RuntimeConfig;
 use near_primitives::block::Block;
-use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::reed_solomon::{
     REED_SOLOMON_MAX_PARTS, ReedSolomonEncoder, ReedSolomonEncoderCache,
@@ -271,30 +270,26 @@ impl PartialWitnessActor {
         }
     }
 
-    /// Check if a V2 message's `prev_block_hash` is available. If the block is
-    /// missing (transient), defer the message into the pending pool and return
-    /// `true`. If the block is available or the message is V1 (no prev_block_hash),
-    /// return `false` so the caller continues normal processing.
+    /// Check if the pre-computed chunk producer info is available for the
+    /// message's `prev_block_hash` and `shard_id`. If the DB entry is missing
+    /// (transient race between block processing and DB writes), defer the
+    /// message into the pending pool and return `true`. If the entry is
+    /// available or the message is V1 (no prev_block_hash), return `false` so
+    /// the caller continues normal processing.
     fn try_defer_if_block_missing(
         &mut self,
         prev_block_hash: Option<&CryptoHash>,
+        shard_id: ShardId,
         msg: PendingSideChannelMessage,
     ) -> bool {
         let Some(hash) = prev_block_hash else {
             return false;
         };
-        match self.epoch_manager.get_block_info(hash) {
-            Ok(_) => false,
-            Err(EpochError::MissingBlock(_)) => {
-                self.pending_side_channel_pool.add_pending(msg);
-                true
-            }
-            Err(_) => {
-                // Non-transient error (e.g. IO). Don't defer — let the handler
-                // deal with the error through its normal code path.
-                false
-            }
+        if self.epoch_manager.is_chunk_producer_info_in_db(hash, shard_id) {
+            return false;
         }
+        self.pending_side_channel_pool.add_pending(msg);
+        true
     }
 
     fn handle_distribute_state_witness_request(
@@ -517,6 +512,7 @@ impl PartialWitnessActor {
         // Defer if the referenced prev_block_hash is not yet available locally.
         if self.try_defer_if_block_missing(
             partial_witness.prev_block_hash(),
+            partial_witness.chunk_production_key().shard_id,
             PendingSideChannelMessage::PartialWitness(partial_witness.clone()),
         ) {
             return Ok(());
@@ -622,6 +618,7 @@ impl PartialWitnessActor {
         // Defer if the referenced prev_block_hash is not yet available locally.
         if self.try_defer_if_block_missing(
             partial_witness.prev_block_hash(),
+            partial_witness.chunk_production_key().shard_id,
             PendingSideChannelMessage::PartialWitnessForward(partial_witness.clone()),
         ) {
             return Ok(());
@@ -693,6 +690,7 @@ impl PartialWitnessActor {
         // Defer if the referenced prev_block_hash is not yet available locally.
         if self.try_defer_if_block_missing(
             partial_deploys.prev_block_hash(),
+            partial_deploys.chunk_production_key().shard_id,
             PendingSideChannelMessage::ContractDeploys(partial_deploys.clone()),
         ) {
             return Ok(());
@@ -804,6 +802,7 @@ impl PartialWitnessActor {
         // Defer if the referenced prev_block_hash is not yet available locally.
         if self.try_defer_if_block_missing(
             accesses.prev_block_hash(),
+            accesses.chunk_production_key().shard_id,
             PendingSideChannelMessage::ContractAccesses(accesses.clone()),
         ) {
             return Ok(());
