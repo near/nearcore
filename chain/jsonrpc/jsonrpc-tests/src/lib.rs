@@ -7,7 +7,9 @@ use near_async::messaging::{IntoMultiSender, IntoSender, noop};
 use near_chain::ChainGenesis;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::test_utils::TestClientConfigParams;
-use near_chain_configs::{ClientConfig, MutableConfigValue, TrackedShardsConfig};
+use near_chain_configs::{
+    ClientConfig, MAX_GAS_PRICE, MIN_GAS_PRICE, MutableConfigValue, TrackedShardsConfig,
+};
 use near_client::adversarial::Controls;
 use near_client::client_actor::SpiceClientConfig;
 use near_client::{RpcHandlerConfig, ViewClientActor, spawn_rpc_handler_actor, start_client};
@@ -86,12 +88,16 @@ pub fn create_test_setup_with_accounts_and_validity(
 
     // Create genesis with all specified accounts
     let validator_accounts: Vec<&str> = validators.iter().map(|a| a.as_str()).collect();
+    let validator_set: std::collections::HashSet<&AccountId> = validators.iter().collect();
     let mut builder = TestGenesisBuilder::new()
         .epoch_length(10)
+        .gas_prices(MIN_GAS_PRICE, MAX_GAS_PRICE)
         .validators_spec(ValidatorsSpec::desired_roles(&validator_accounts, &[]));
     for account_id in &all_accounts {
-        builder =
-            builder.add_user_account_simple(account_id.clone(), Balance::from_near(1_000_000_000));
+        if !validator_set.contains(account_id) {
+            builder = builder
+                .add_user_account_simple(account_id.clone(), Balance::from_near(1_000_000_000));
+        }
     }
     let genesis = builder.build();
 

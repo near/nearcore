@@ -415,6 +415,6 @@ mod test {
 
         // In case this test fails, please make sure the changes do not change the structure of the genesis block.
         let hash = genesis_block.hash().to_string();
-        assert_eq!(hash, "93CRibQrTXr4eGB1zBCdVqrCNS3jFwwmx8oQ6wFxsx5j");
+        assert_eq!(hash, "9sLbJdHU6vSxkFn1J8jbDcY42iEFxvTXNPBoiPJxeJ5P");
     }
 }

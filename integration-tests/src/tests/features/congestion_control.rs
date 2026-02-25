@@ -1,5 +1,6 @@
 use assert_matches::assert_matches;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
+use near_chain_configs::test_utils::TESTING_INIT_BALANCE;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
@@ -65,6 +66,7 @@ fn setup_test_runtime(_sender_id: AccountId, protocol_version: ProtocolVersion) 
             &accounts.iter().map(|a| a.as_str()).collect::<Vec<_>>(),
             &[],
         ))
+        .add_user_account_simple("near".parse().unwrap(), TESTING_INIT_BALANCE)
         // Chain must be sharded to test cross-shard congestion control.
         .shard_layout(ShardLayout::multi_shard(4, 3))
         .protocol_version(protocol_version)

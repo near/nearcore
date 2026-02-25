@@ -385,6 +385,11 @@ impl TestGenesisBuilder {
         self
     }
 
+    pub fn gas_price_adjustment_rate(mut self, gas_price_adjustment_rate: Rational32) -> Self {
+        self.gas_price_adjustment_rate = gas_price_adjustment_rate;
+        self
+    }
+
     pub fn max_inflation_rate(mut self, max_inflation_rate: Rational32) -> Self {
         self.max_inflation_rate = max_inflation_rate;
         self

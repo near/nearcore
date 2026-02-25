@@ -16,7 +16,7 @@ use near_async::ActorSystem;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
-use near_chain_configs::test_utils::TestClientConfigParams;
+use near_chain_configs::test_utils::{TESTING_INIT_STAKE, TestClientConfigParams, random_chain_id};
 use near_chain_configs::{
     ChunkDistributionNetworkConfig, ClientConfig, MutableConfigValue, MutableValidatorSigner,
     ProtocolVersionCheckConfig, ReshardingConfig, ReshardingHandle, TrackedShardsConfig,
@@ -47,6 +47,7 @@ use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
+use near_primitives::types::AccountInfo;
 use near_primitives::types::{AccountId, Balance, BlockHeightDelta, Gas, NumSeats};
 use near_primitives::validator_signer::EmptyValidatorSigner;
 use near_primitives::version::{PROTOCOL_VERSION, get_protocol_upgrade_schedule};
@@ -93,7 +94,17 @@ fn setup(
 
     let num_validator_seats = validators.len() as NumSeats;
 
-    let validator_strs: Vec<&str> = validators.iter().map(|v| v.as_str()).collect();
+    // Build validator infos with equal stakes to match old Genesis::test() behavior.
+    // Old code gave all validators TESTING_INIT_STAKE; DesiredRoles gives decreasing
+    // stakes which changes validator ordering.
+    let validator_infos: Vec<AccountInfo> = validators
+        .iter()
+        .map(|account_id| AccountInfo {
+            public_key: create_test_signer(account_id.as_str()).public_key(),
+            account_id: account_id.clone(),
+            amount: TESTING_INIT_STAKE,
+        })
+        .collect();
 
     // Certain tests depend on these accounts existing so we make them available here.
     // This is mostly due to historical reasons - those tests used to use heavily mocked testing
@@ -107,14 +118,15 @@ fn setup(
 
     let transaction_validity_period = epoch_length * 2;
     let mut builder = TestGenesisBuilder::new()
+        .chain_id(random_chain_id())
         .epoch_length(epoch_length)
-        .validators_spec(ValidatorsSpec::desired_roles(&validator_strs, &[]));
-    // Add validators as user accounts so they have access keys for sending transactions.
-    for validator in &validators {
-        builder =
-            builder.add_user_account_simple(validator.clone(), Balance::from_near(1_000_000_000));
-    }
-    // Add extra accounts that certain tests depend on.
+        .validators_spec(ValidatorsSpec::raw(
+            validator_infos,
+            num_validator_seats,
+            num_validator_seats,
+            0,
+        ));
+    // Add extra (non-validator) accounts that certain tests depend on.
     for account in &extra_accounts {
         builder =
             builder.add_user_account_simple(account.clone(), Balance::from_near(1_000_000_000));

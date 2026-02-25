@@ -16,7 +16,8 @@ use near_chain::{BlockProcessingArtifact, ChainStore, ChainStoreAccess, Error, P
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{
-    DEFAULT_GC_NUM_EPOCHS_TO_KEEP, MAX_GAS_PRICE, ProtocolVersionCheckConfig,
+    DEFAULT_GC_NUM_EPOCHS_TO_KEEP, GAS_PRICE_ADJUSTMENT_RATE, MAX_GAS_PRICE,
+    ProtocolVersionCheckConfig,
 };
 use near_client::test_utils::create_chunk_on_height;
 use near_client::{GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult};
@@ -832,7 +833,8 @@ fn test_minimum_gas_price() {
 fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
     let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let mut blocks = vec![];
@@ -898,7 +900,8 @@ fn test_archival_save_trie_changes() {
 
     let mut genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .build();
     genesis.config.total_supply = Balance::from_yoctonear(1_000_000_000);
     let mut env = TestEnv::builder(&genesis.config)
@@ -963,7 +966,8 @@ fn test_archival_gc_common(
 ) {
     let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .build();
 
     let hot_store = &storage.get_hot_store();
@@ -1131,8 +1135,9 @@ fn test_gc_execution_outcome() {
     let epoch_length = 5;
     let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
         .add_user_account_simple("test0".parse().unwrap(), Balance::from_near(1_000_000_000))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_hash = *env.clients[0].chain.genesis().hash();
@@ -1164,7 +1169,8 @@ fn slow_test_gc_after_state_sync() {
     let epoch_length = 1024;
     let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .build();
     let mut env =
         TestEnv::builder(&genesis.config).clients_count(2).nightshade_runtimes(&genesis).build();
@@ -1198,7 +1204,8 @@ fn slow_test_process_block_after_state_sync() {
     let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
         .shard_layout(ShardLayout::multi_shard(1, 1))
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .build();
 
     let mut env = TestEnv::builder(&genesis.config)
@@ -1271,7 +1278,8 @@ fn test_gc_fork_tail() {
     let epoch_length = 101;
     let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .build();
     let mut env =
         TestEnv::builder(&genesis.config).clients_count(2).nightshade_runtimes(&genesis).build();
@@ -1364,7 +1372,7 @@ fn test_tx_forward_around_epoch_boundary() {
     let epoch_length = 4;
     let mut genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
         .add_user_account_simple("test0".parse().unwrap(), TESTING_INIT_BALANCE)
         .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .build();
@@ -1427,7 +1435,8 @@ fn test_not_resync_old_blocks() {
     let epoch_length = 5;
     let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let mut blocks = vec![];
@@ -1450,7 +1459,8 @@ fn test_reject_block_headers_during_epoch_sync() {
     let epoch_length = 2;
     let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .build();
     let mut env =
         TestEnv::builder(&genesis.config).clients_count(2).nightshade_runtimes(&genesis).build();
@@ -1504,7 +1514,8 @@ fn test_gc_tail_update() {
     let epoch_length = 2;
     let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .build();
     let mut env =
         TestEnv::builder(&genesis.config).clients_count(2).nightshade_runtimes(&genesis).build();
@@ -1571,7 +1582,7 @@ fn test_gas_price_change() {
     let mut genesis = TestGenesisBuilder::new()
         .gas_prices(min_gas_price, MAX_GAS_PRICE)
         .gas_limit(Gas::from_gas(gas_limit))
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
         .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .build();
     genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
@@ -1620,7 +1631,7 @@ fn test_gas_price_overflow() {
         .gas_prices(min_gas_price, max_gas_price)
         .gas_limit(Gas::from_gas(gas_limit))
         .epoch_length(43200)
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
         .add_user_account_simple("test1".parse().unwrap(), Balance::from_near(1_000_000_000))
         .build();
     genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
@@ -1822,7 +1833,8 @@ fn test_sync_hash_validity() {
     let epoch_length = 8;
     let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let mut height = 1;
@@ -1886,8 +1898,9 @@ fn test_validate_chunk_extra() {
     let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
         .gas_prices(Balance::ZERO, Balance::ZERO)
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
         .add_user_account_simple("test0".parse().unwrap(), Balance::from_near(1_000_000_000))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -2048,9 +2061,10 @@ fn slow_test_catchup_gas_price_change() {
     let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
         .gas_prices(min_gas_price, MAX_GAS_PRICE)
+        .gas_price_adjustment_rate(GAS_PRICE_ADJUSTMENT_RATE)
         .gas_limit(Gas::from_teragas(1))
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
-        .add_user_account_simple("test0".parse().unwrap(), Balance::from_near(1_000_000_000))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .build();
 
     let mut env = TestEnv::builder(&genesis.config)
@@ -2290,8 +2304,9 @@ fn test_save_tx_outcomes_false() {
         .epoch_length(epoch_length)
         .gas_prices(min_gas_price, MAX_GAS_PRICE)
         .gas_limit(Gas::from_teragas(1))
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
         .add_user_account_simple("test0".parse().unwrap(), Balance::from_near(1_000_000_000))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .build();
     let mut env = TestEnv::builder(&genesis.config)
         .save_tx_outcomes(false)
@@ -2340,8 +2355,9 @@ fn test_refund_receipts_processing() {
         // transactions to get through.
         .gas_limit(Gas::from_gas(100_000_000))
         .shard_layout(ShardLayout::multi_shard(1, 1))
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
         .add_user_account_simple("test0".parse().unwrap(), Balance::from_near(1_000_000_000))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -2420,8 +2436,9 @@ fn test_execution_metadata() {
         let epoch_length = 5;
         let genesis = TestGenesisBuilder::new()
             .epoch_length(epoch_length)
-            .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+            .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
             .add_user_account_simple("test0".parse().unwrap(), Balance::from_near(1_000_000_000))
+            .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
             .build();
         let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
@@ -2771,7 +2788,8 @@ fn get_epoch_id_and_protocol_version(env: &TestEnv) -> (EpochId, u32) {
 #[test]
 fn test_discard_non_finalizable_block() {
     let genesis = TestGenesisBuilder::new()
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
@@ -2823,8 +2841,9 @@ fn test_query_final_state() {
     let epoch_length = 10;
     let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
         .add_user_account_simple("test0".parse().unwrap(), Balance::from_near(1_000_000_000))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -3016,8 +3035,9 @@ fn prepare_env_with_transaction() -> (TestEnv, CryptoHash) {
     let epoch_length = 5;
     let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
         .add_user_account_simple("test0".parse().unwrap(), Balance::from_near(1_000_000_000))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .build();
     let env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -3041,7 +3061,8 @@ fn test_not_broadcast_block_on_accept() {
     let epoch_length = 5;
     let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .build();
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let mut env = TestEnv::builder(&genesis.config)
@@ -3119,7 +3140,8 @@ fn run_with_version_upgrade_scheduled_in_next_next_epoch(
 ) {
     let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .build();
     let mut env = TestEnv::builder(&genesis.config)
         .nightshade_runtimes(&genesis)
@@ -3143,7 +3165,8 @@ fn test_block_ordinal() {
     let epoch_length = 200;
     let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .build();
     let mut env = TestEnv::builder_from_genesis(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -3255,8 +3278,9 @@ fn test_validator_stake_host_function() {
     let epoch_length = 5;
     let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
         .add_user_account_simple("test0".parse().unwrap(), Balance::from_near(1_000_000_000))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -3365,8 +3389,9 @@ mod contract_precompilation_tests {
         let num_clients = 2;
         let genesis = TestGenesisBuilder::new()
             .epoch_length(EPOCH_LENGTH)
-            .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+            .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
             .add_user_account_simple("test0".parse().unwrap(), Balance::from_near(1_000_000_000))
+            .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
             .build();
         let mut caches: Vec<FilesystemContractRuntimeCache> =
             (0..num_clients).map(|_| FilesystemContractRuntimeCache::test().unwrap()).collect();
@@ -3462,8 +3487,9 @@ mod contract_precompilation_tests {
         let num_clients = 2;
         let genesis = TestGenesisBuilder::new()
             .epoch_length(EPOCH_LENGTH)
-            .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+            .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
             .add_user_account_simple("test0".parse().unwrap(), Balance::from_near(1_000_000_000))
+            .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
             .build();
 
         let caches: Vec<FilesystemContractRuntimeCache> =
@@ -3540,8 +3566,9 @@ mod contract_precompilation_tests {
         let num_clients = 3;
         let genesis = TestGenesisBuilder::new()
             .epoch_length(EPOCH_LENGTH)
-            .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1", "test2"]))
+            .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
             .add_user_account_simple("test0".parse().unwrap(), Balance::from_near(1_000_000_000))
+            .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
             .add_user_account_simple("test2".parse().unwrap(), Balance::from_near(1_000_000_000))
             .build();
         let caches: Vec<FilesystemContractRuntimeCache> =

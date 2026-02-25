@@ -6,6 +6,7 @@ use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
 use near_chain::Error;
 use near_chain::Provenance;
 use near_chain::chain::ChunkStateWitnessMessage;
+use near_chain_configs::test_utils::TESTING_INIT_BALANCE;
 use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
@@ -403,9 +404,10 @@ fn test_eth_implicit_accounts() {
     let genesis = near_chain_configs::test_genesis::TestGenesisBuilder::new()
         .epoch_length(5)
         .validators_spec(near_chain_configs::test_genesis::ValidatorsSpec::desired_roles(
-            &["test0", "test1", "test2"],
+            &["test0", "test1"],
             &[],
         ))
+        .add_user_account_simple("test2".parse().unwrap(), TESTING_INIT_BALANCE)
         .build();
     let mut env = TestEnv::builder(&genesis.config)
         .validators(accounts.clone())

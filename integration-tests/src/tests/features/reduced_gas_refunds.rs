@@ -1,4 +1,5 @@
 use crate::node::{Node, RuntimeNode};
+use near_chain_configs::MIN_GAS_PRICE;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::{ExtCosts, ParameterCost, RuntimeConfig, RuntimeConfigStore};
@@ -146,6 +147,7 @@ fn setup_env(contract_load_gas: Gas) -> (RuntimeNode, FeeHelper) {
     let mut genesis = TestGenesisBuilder::new()
         .epoch_length(5)
         .validators_spec(ValidatorsSpec::desired_roles(&["alice.near", "bob.near"], &[]))
+        .gas_prices(MIN_GAS_PRICE, MIN_GAS_PRICE)
         .build();
     add_test_contract(&mut genesis, &alice_account());
     add_test_contract(&mut genesis, &bob_account());

@@ -1,6 +1,7 @@
 use assert_matches::assert_matches;
 use near_chain::Provenance;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
+use near_chain_configs::test_utils::TESTING_INIT_BALANCE;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, Signer};
 use near_parameters::RuntimeConfigStore;
@@ -32,7 +33,8 @@ fn test_storage_proof_size_limit() {
     let mut env = {
         let genesis = TestGenesisBuilder::new()
             .epoch_length(epoch_length)
-            .validators_spec(ValidatorsSpec::desired_roles(&["test0", "test1"], &[]))
+            .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+            .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
             .build();
         TestEnv::builder(&genesis.config)
             .nightshade_runtimes_with_runtime_config_store(&genesis, vec![runtime_config_store])

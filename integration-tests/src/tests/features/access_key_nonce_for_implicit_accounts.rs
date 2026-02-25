@@ -6,6 +6,7 @@ use near_async::messaging::CanSend;
 use near_chain::orphan::NUM_ORPHAN_ANCESTORS_CHECK;
 use near_chain::{ChainStoreAccess, Error, Provenance};
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
+use near_chain_configs::test_utils::TESTING_INIT_BALANCE;
 use near_chunks::metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER;
 use near_client::test_utils::create_chunk;
 use near_client::{ProcessTxResponse, ProduceChunkResult};
@@ -51,7 +52,8 @@ fn test_transaction_hash_collision() {
     let epoch_length = 5;
     let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0", "test1"], &[]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -122,7 +124,8 @@ fn get_status_of_tx_hash_collision_for_near_implicit_account(
     let epoch_length = 100;
     let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0", "test1"], &[]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .protocol_version(protocol_version)
         .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
@@ -221,7 +224,8 @@ fn test_chunk_transaction_validity() {
     let epoch_length = 5;
     let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0", "test1"], &[]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -269,7 +273,8 @@ fn test_transaction_nonce_too_large() {
     let epoch_length = 5;
     let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0", "test1"], &[]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .build();
     let env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
