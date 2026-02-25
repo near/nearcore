@@ -149,50 +149,89 @@ def extract_pr_number(run):
 # Nayduck helpers
 # ---------------------------------------------------------------------------
 
-_nayduck_runs_cache = None
+_nayduck_sha_to_id = {}
+_nayduck_min_id = None
+_nayduck_index_initialized = False
 
 
-def fetch_nayduck_runs_index(limit=500):
-    """Fetch recent Nayduck runs and build a sha -> run_id lookup.
-
-    This is a single bulk API call that replaces the slow per-run
-    `gh run view --log` approach.
-    """
-    global _nayduck_runs_cache
-    if _nayduck_runs_cache is not None:
-        return _nayduck_runs_cache
+def _init_nayduck_index():
+    """Bulk-fetch the Nayduck runs listing (max 100) to seed the SHA index."""
+    global _nayduck_min_id, _nayduck_index_initialized
+    if _nayduck_index_initialized:
+        return
+    _nayduck_index_initialized = True
 
     progress("Fetching Nayduck runs index...")
-    url = f"{NAYDUCK_API}/runs?limit={limit}"
     try:
-        resp = requests.get(url, timeout=30)
+        resp = requests.get(f"{NAYDUCK_API}/runs?limit=100", timeout=30)
         if resp.status_code != 200:
             progress(f"  warning: Nayduck API returned {resp.status_code}")
-            _nayduck_runs_cache = {}
-            return _nayduck_runs_cache
+            return
         runs = resp.json()
     except Exception as e:
         progress(f"  warning: Nayduck API error: {e}")
-        _nayduck_runs_cache = {}
-        return _nayduck_runs_cache
+        return
 
-    # Build sha -> run_id mapping for CI runs (merge queue).
-    lookup = {}
     for r in runs:
         sha = r.get("sha", "")
         if sha:
-            # Use first match per SHA (most recent run).
-            lookup.setdefault(sha, r["run_id"])
-    progress(f"  indexed {len(lookup)} Nayduck runs")
-    _nayduck_runs_cache = lookup
-    return lookup
+            _nayduck_sha_to_id.setdefault(sha, r["run_id"])
+    if runs:
+        _nayduck_min_id = min(r["run_id"] for r in runs)
+    progress(f"  indexed {len(_nayduck_sha_to_id)} runs (oldest id={_nayduck_min_id})")
+
+
+def _extend_nayduck_index(target_sha):
+    """Extend the index backwards by fetching older Nayduck runs by ID.
+
+    The /api/runs listing is capped at 100. For older runs we fetch
+    /api/run/{id} individually, walking backwards from the oldest known
+    ID. Each response includes the sha so we can match. Progress is
+    tracked so repeated calls don't re-scan already-visited IDs.
+    """
+    global _nayduck_min_id
+    if _nayduck_min_id is None:
+        return None
+
+    start_id = _nayduck_min_id
+    run_id = _nayduck_min_id - 1
+    scanned = 0
+    # Walk backwards until we find the target or exhaust 200 new IDs.
+    while scanned < 200 and run_id > 0:
+        if target_sha in _nayduck_sha_to_id:
+            break
+        if scanned % 20 == 0:
+            progress(f"\r  extending Nayduck index: id={run_id}...", end="")
+        try:
+            resp = requests.get(f"{NAYDUCK_API}/run/{run_id}", timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                sha = data.get("sha", "")
+                if sha:
+                    _nayduck_sha_to_id.setdefault(sha, run_id)
+        except Exception:
+            pass
+        run_id -= 1
+        scanned += 1
+    _nayduck_min_id = run_id + 1
+    progress(f"\r  extended Nayduck index: {start_id} -> {_nayduck_min_id} ({scanned} fetched, {len(_nayduck_sha_to_id)} total)")
+    return _nayduck_sha_to_id.get(target_sha)
 
 
 def resolve_nayduck_run_id(gh_run):
-    """Resolve a GitHub Actions run to a Nayduck run ID via SHA matching."""
-    index = fetch_nayduck_runs_index()
+    """Resolve a GitHub Actions run to a Nayduck run ID via SHA matching.
+
+    First checks the bulk index (from /api/runs listing). On cache miss,
+    extends the index backwards by fetching older Nayduck runs by ID.
+    """
+    _init_nayduck_index()
     sha = gh_run.get("head_sha", "")
-    return index.get(sha)
+    if not sha:
+        return None
+    nay_id = _nayduck_sha_to_id.get(sha)
+    if nay_id:
+        return nay_id
+    return _extend_nayduck_index(sha)
 
 
 def fetch_nayduck_results(nayduck_run_id):
