@@ -675,7 +675,8 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                     receiver_account_id.try_set(&receiver_transfer_operation.account)?;
                     if !receiver_transfer_operation.amount.value.is_non_negative() {
                         return Err(crate::errors::ErrorKind::InvalidInput(
-                            "Receiver TRANSFER operations must have positive `amount`".to_string(),
+                            "Receiver TRANSFER operations must have non-negative `amount`"
+                                .to_string(),
                         ));
                     }
 
