@@ -6,7 +6,17 @@ use borsh::{BorshDeserialize, BorshSerialize};
 ///
 /// **NOTE: This is an artificial value calculated according to `TRIE_COST`. Hence, it does not
 /// represent actual memory allocation, but the split ratio should be roughly consistent with that.**
-#[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Eq,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    BorshSerialize,
+    BorshDeserialize,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct TrieSplit {
     /// Account ID representing the split path
     pub boundary_account: AccountId,
@@ -39,5 +49,9 @@ impl TrieSplit {
     /// Get absolute difference between right and left memory
     pub fn mem_diff(&self) -> u64 {
         self.right_memory.abs_diff(self.left_memory)
+    }
+
+    pub fn total_memory(&self) -> u64 {
+        self.left_memory.saturating_add(self.right_memory)
     }
 }

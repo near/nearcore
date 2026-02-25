@@ -90,7 +90,7 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
         .account_id(account_id)
         .config_modifier(|config| {
             // Enable epoch sync, and make the horizon small enough to trigger it.
-            config.epoch_sync.epoch_sync_horizon = 30;
+            config.epoch_sync.epoch_sync_horizon_num_epochs = 3;
             // Make header sync horizon small enough to trigger it.
             config.block_header_fetch_horizon = 8;
             // Make block sync horizon small enough to trigger it.

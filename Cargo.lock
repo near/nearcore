@@ -2060,7 +2060,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33d852cb9b869c2a9b3df2f71a3074817f01e1844f839a144f5fcef059a4eb5d"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3348,7 +3348,6 @@ dependencies = [
  "borsh",
  "bytesize 1.1.0",
  "chrono",
- "derive_builder",
  "ethabi",
  "futures",
  "hex",
@@ -3385,7 +3384,7 @@ dependencies = [
  "parking_lot 0.12.1",
  "primitive-types 0.10.1",
  "rand 0.8.5",
- "rand_chacha 0.3.1",
+ "reed-solomon-erasure",
  "regex",
  "rlp",
  "serde_json",
@@ -3491,9 +3490,12 @@ checksum = "41ee439ee368ba4a77ac70d04f14015415af8600d6c894dc1f11bd79758c57d5"
 
 [[package]]
 name = "keccak"
-version = "0.1.0"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67c21572b4949434e4fc1e1978b99c5f77064153c59d998bf13ecd96fb5ecba7"
+checksum = "cb26cec98cce3a3d96cbb7bced3c4b16e3d13f27ec56dbd62cbc8f39cfb9d653"
+dependencies = [
+ "cpufeatures",
+]
 
 [[package]]
 name = "keypair-generator"
@@ -4012,7 +4014,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0bf7d8c37ea9408d536af7e998bd0d4f9699de1f6b0d12280d28ae46977c4501"
 dependencies = [
  "borsh",
- "schemars 1.0.3",
+ "schemars 1.2.1",
  "serde",
 ]
 
@@ -4109,7 +4111,6 @@ dependencies = [
  "near-vm-runner",
  "node-runtime",
  "num-rational 0.3.2",
- "oneshot",
  "parking_lot 0.12.1",
  "primitive-types 0.10.1",
  "rand 0.8.5",
@@ -4143,7 +4144,7 @@ dependencies = [
  "near-time",
  "num-rational 0.3.2",
  "parking_lot 0.12.1",
- "schemars 1.0.3",
+ "schemars 1.2.1",
  "serde",
  "serde_json",
  "sha2 0.10.6",
@@ -4295,7 +4296,7 @@ dependencies = [
  "near-stdx",
  "primitive-types 0.10.1",
  "rand 0.8.5",
- "schemars 1.0.3",
+ "schemars 1.2.1",
  "secp256k1",
  "serde",
  "serde_json",
@@ -4561,7 +4562,7 @@ dependencies = [
  "near-jsonrpc-primitives",
  "near-primitives",
  "okapi",
- "schemars 1.0.3",
+ "schemars 1.2.1",
  "serde_json",
 ]
 
@@ -4576,7 +4577,7 @@ dependencies = [
  "near-primitives",
  "near-schema-checker-lib",
  "near-time",
- "schemars 1.0.3",
+ "schemars 1.2.1",
  "serde",
  "serde_json",
  "thiserror 2.0.16",
@@ -4757,7 +4758,7 @@ dependencies = [
  "near-primitives-core",
  "near-schema-checker-lib",
  "num-rational 0.3.2",
- "schemars 1.0.3",
+ "schemars 1.2.1",
  "serde",
  "serde_repr",
  "serde_yaml",
@@ -4832,7 +4833,7 @@ dependencies = [
  "rand_chacha 0.3.1",
  "reed-solomon-erasure",
  "regex",
- "schemars 1.0.3",
+ "schemars 1.2.1",
  "serde",
  "serde_json",
  "serde_with",
@@ -4863,7 +4864,7 @@ dependencies = [
  "near-schema-checker-lib",
  "near-token",
  "num-rational 0.3.2",
- "schemars 1.0.3",
+ "schemars 1.2.1",
  "serde",
  "serde_json",
  "serde_repr",
@@ -5083,7 +5084,7 @@ name = "near-time"
 version = "0.0.0"
 dependencies = [
  "parking_lot 0.12.1",
- "schemars 1.0.3",
+ "schemars 1.2.1",
  "serde",
  "serde_json",
  "time",
@@ -5097,7 +5098,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "133a293baa70b78db8c4325753ca8012f84e67de6c84c013960722a937985615"
 dependencies = [
  "borsh",
- "schemars 1.0.3",
+ "schemars 1.2.1",
  "serde",
 ]
 
@@ -5733,12 +5734,6 @@ name = "once_cell"
 version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3fdb12b2476b595f9358c5161aa467c2438859caa136dec86c26fdd2efe17b92"
-
-[[package]]
-name = "oneshot"
-version = "0.1.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "269bca4c2591a28585d6bf10d9ed0332b7d76900a1b02bec41bdc3a2cdcda107"
 
 [[package]]
 name = "oorandom"
@@ -7123,7 +7118,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.14",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7136,7 +7131,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.9.2",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7287,14 +7282,14 @@ dependencies = [
 
 [[package]]
 name = "schemars"
-version = "1.0.3"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1375ba8ef45a6f15d83fa8748f1079428295d403d6ea991d09ab100155fbc06d"
+checksum = "a2b42f36aa1cd011945615b92222f6bf73c599a102a300334cd7f8dbeec726cc"
 dependencies = [
  "chrono",
  "dyn-clone",
  "ref-cast",
- "schemars_derive 1.0.3",
+ "schemars_derive 1.2.1",
  "serde",
  "serde_json",
 ]
@@ -7313,9 +7308,9 @@ dependencies = [
 
 [[package]]
 name = "schemars_derive"
-version = "1.0.3"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b13ed22d6d49fe23712e068770b5c4df4a693a2b02eeff8e7ca3135627a24f6"
+checksum = "7d115b50f4aaeea07e79c1912f645c7513d81715d0420f8bc77a18c6260b307f"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8017,7 +8012,7 @@ dependencies = [
  "getrandom 0.3.1",
  "once_cell",
  "rustix 1.0.7",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -8055,10 +8050,15 @@ name = "test-loop-tests"
 version = "0.0.0"
 dependencies = [
  "assert_matches",
+ "aurora-engine-transactions",
+ "aurora-engine-types",
+ "axum",
  "borsh",
  "bytesize 1.1.0",
  "derive_builder",
+ "ethabi",
  "futures",
+ "hex",
  "itertools 0.14.0",
  "near-async",
  "near-chain",
@@ -8071,6 +8071,7 @@ dependencies = [
  "near-external-storage",
  "near-indexer",
  "near-jsonrpc",
+ "near-jsonrpc-primitives",
  "near-network",
  "near-o11y",
  "near-parameters",
@@ -8079,14 +8080,19 @@ dependencies = [
  "near-store",
  "near-test-contracts",
  "near-vm-runner",
+ "near-wallet-contract",
  "nearcore",
  "parking_lot 0.12.1",
+ "primitive-types 0.10.1",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
+ "rlp",
  "serde_json",
+ "sha3",
  "tempfile",
  "testlib",
  "tokio",
+ "tower-service",
  "tracing",
 ]
 

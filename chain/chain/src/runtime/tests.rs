@@ -145,7 +145,7 @@ impl TestEnv {
             DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
             false,
         );
-        let state_roots = get_genesis_state_roots(&store).unwrap().unwrap();
+        let state_roots = get_genesis_state_roots(&store).unwrap();
         let genesis_hash = hash(&[0]);
 
         let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
@@ -161,7 +161,7 @@ impl TestEnv {
                     &genesis_hash,
                     0,
                 );
-                store_update.commit().unwrap();
+                store_update.commit();
                 assert!(matches!(
                     flat_storage_manager.get_flat_storage_status(shard_uid),
                     near_store::flat::FlatStorageStatus::Ready(_)
@@ -182,6 +182,7 @@ impl TestEnv {
                     vec![],
                     genesis_total_supply,
                     genesis_protocol_version,
+                    genesis_protocol_version,
                     0,
                     ChunkEndorsementsBitmap::from_endorsements(vec![
                         vec![
@@ -191,12 +192,12 @@ impl TestEnv {
                         shard_layout.num_shards()
                             as usize
                     ]),
+                    None,
                 ),
                 [0; 32].as_ref().try_into().unwrap(),
             )
             .unwrap()
-            .commit()
-            .unwrap();
+            .commit();
         Self {
             epoch_manager,
             runtime,
@@ -258,6 +259,7 @@ impl TestEnv {
                     block_type: BlockType::Normal,
                     height,
                     prev_block_hash,
+                    last_final_block_hash: CryptoHash::default(),
                     block_timestamp,
                     gas_price,
                     random_seed: CryptoHash::default(),
@@ -307,7 +309,7 @@ impl TestEnv {
             let new_store_update = flat_storage.add_delta(delta).unwrap();
             store_update.merge(new_store_update.into());
         }
-        store_update.commit().unwrap();
+        store_update.commit();
 
         (apply_result.new_root, apply_result.validator_proposals, apply_result.outgoing_receipts)
     }
@@ -358,14 +360,15 @@ impl TestEnv {
                     chunk_mask,
                     self.runtime.genesis_config.total_supply,
                     self.runtime.genesis_config.protocol_version,
+                    self.runtime.genesis_config.protocol_version,
                     self.time + 10u64.pow(9),
                     chunk_endorsements,
+                    None,
                 ),
                 [0; 32].as_ref().try_into().unwrap(),
             )
             .unwrap()
-            .commit()
-            .unwrap();
+            .commit();
         let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(&new_hash).unwrap();
         let mut new_receipts = HashMap::<_, Vec<Receipt>>::new();
         for receipt in all_receipts {
@@ -871,18 +874,19 @@ fn test_state_sync() {
                     vec![true],
                     new_env.runtime.genesis_config.total_supply,
                     new_env.runtime.genesis_config.protocol_version,
+                    new_env.runtime.genesis_config.protocol_version,
                     new_env.time,
                     ChunkEndorsementsBitmap::from_endorsements(vec![
                         vec![true; num_nodes as usize];
                         shard_layout.num_shards()
                             as usize
                     ]),
+                    None,
                 ),
                 [0; 32].as_ref().try_into().unwrap(),
             )
             .unwrap()
-            .commit()
-            .unwrap();
+            .commit();
         new_env.head.height = i;
         new_env.head.last_block_hash = cur_hash;
         new_env.head.prev_block_hash = prev_hash;
@@ -1503,7 +1507,7 @@ fn test_genesis_hash() {
     );
 
     let state_roots =
-        get_genesis_state_roots(runtime.store()).unwrap().expect("genesis should be initialized.");
+        get_genesis_state_roots(runtime.store()).expect("genesis should be initialized.");
     let (block, _chunks) = Chain::make_genesis_block(
         epoch_manager.as_ref(),
         runtime.as_ref(),

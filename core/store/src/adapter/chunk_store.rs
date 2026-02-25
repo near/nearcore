@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::io;
 use std::sync::Arc;
 
 use near_chain_primitives::Error;
@@ -38,14 +37,12 @@ impl ChunkStoreAdapter {
     ) -> Result<Arc<PartialEncodedChunk>, ChunkAccessError> {
         self.store
             .caching_get_ser(DBCol::PartialChunks, chunk_hash.as_ref())
-            .expect("Borsh should not have failed here")
             .ok_or_else(|| ChunkAccessError::ChunkMissing(chunk_hash.clone()))
     }
 
     pub fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<ShardChunk, ChunkAccessError> {
         self.store
             .get_ser(DBCol::Chunks, chunk_hash.as_ref())
-            .expect("Borsh should not have failed here")
             .ok_or_else(|| ChunkAccessError::ChunkMissing(chunk_hash.clone()))
     }
 
@@ -60,22 +57,13 @@ impl ChunkStoreAdapter {
     }
 
     /// Returns a HashSet of Chunk Hashes for current Height
-    pub fn get_all_chunk_hashes_by_height(
-        &self,
-        height: BlockHeight,
-    ) -> Result<HashSet<ChunkHash>, Error> {
-        Ok(self
-            .store
-            .get_ser(DBCol::ChunkHashesByHeight, &index_to_bytes(height))?
-            .unwrap_or_default())
+    pub fn get_all_chunk_hashes_by_height(&self, height: BlockHeight) -> HashSet<ChunkHash> {
+        self.store.get_ser(DBCol::ChunkHashesByHeight, &index_to_bytes(height)).unwrap_or_default()
     }
 
     /// Returns encoded chunk if it's invalid otherwise None.
-    pub fn is_invalid_chunk(
-        &self,
-        chunk_hash: &ChunkHash,
-    ) -> Result<Option<Arc<EncodedShardChunk>>, Error> {
-        self.store.get_ser(DBCol::InvalidChunks, chunk_hash.as_ref()).map_err(|err| err.into())
+    pub fn is_invalid_chunk(&self, chunk_hash: &ChunkHash) -> Option<Arc<EncodedShardChunk>> {
+        self.store.get_ser(DBCol::InvalidChunks, chunk_hash.as_ref())
     }
 
     /// Information from applying chunk.
@@ -95,20 +83,14 @@ impl ChunkStoreAdapter {
         &self,
         block_hash: &CryptoHash,
         shard_id: &ShardId,
-    ) -> Result<Option<ChunkApplyStats>, Error> {
-        self.store
-            .get_ser(DBCol::ChunkApplyStats, &get_block_shard_id(block_hash, *shard_id))
-            .map_err(|e| e.into())
+    ) -> Option<ChunkApplyStats> {
+        self.store.get_ser(DBCol::ChunkApplyStats, &get_block_shard_id(block_hash, *shard_id))
     }
 }
 
-fn option_to_not_found<T, F>(res: io::Result<Option<T>>, field_name: F) -> Result<T, Error>
+fn option_to_not_found<T, F>(res: Option<T>, field_name: F) -> Result<T, Error>
 where
     F: std::string::ToString,
 {
-    match res {
-        Ok(Some(o)) => Ok(o),
-        Ok(None) => Err(Error::DBNotFoundErr(field_name.to_string())),
-        Err(e) => Err(e.into()),
-    }
+    res.ok_or_else(|| Error::DBNotFoundErr(field_name.to_string()))
 }

@@ -73,7 +73,7 @@ impl ChunkTestFixture {
         let store = create_test_store();
         let mut store_update = store.store_update();
         set_genesis_height(&mut store_update, &0);
-        store_update.commit().unwrap();
+        store_update.commit();
 
         let epoch_manager = setup_epoch_manager_with_block_and_chunk_producers(
             store.clone(),

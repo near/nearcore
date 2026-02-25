@@ -43,7 +43,7 @@ fn get_incoming_receipts(
 ) -> anyhow::Result<Vec<Receipt>> {
     let mut receipt_proofs = vec![];
 
-    let chunk_hashes = chain_store.chunk_store().get_all_chunk_hashes_by_height(target_height)?;
+    let chunk_hashes = chain_store.chunk_store().get_all_chunk_hashes_by_height(target_height);
     if !chunk_hashes.contains(chunk_hash) {
         return Err(anyhow!(
             "given chunk hash is not listed in DBCol::ChunkHashesByHeight[{}]",
@@ -168,6 +168,8 @@ pub fn apply_chunk(
 
     let valid_txs = chain_store.compute_transaction_validity(prev_block.header(), &chunk);
 
+    let last_final_block_hash = *prev_block.header().last_final_block_for_height(target_height);
+
     Ok((
         runtime.apply_chunk(
             storage.create_runtime_storage(prev_state_root),
@@ -184,6 +186,7 @@ pub fn apply_chunk(
                 height: target_height,
                 block_timestamp: prev_timestamp + 1_000_000_000,
                 prev_block_hash: *prev_block_hash,
+                last_final_block_hash,
                 gas_price,
                 random_seed: hash("random seed".as_ref()),
                 congestion_info: block_congestion_info,
@@ -292,7 +295,7 @@ fn apply_tx_in_chunk(
     tx_hash: &CryptoHash,
     storage: StorageSource,
 ) -> anyhow::Result<Vec<ApplyChunkResult>> {
-    if chain_store.get_transaction(tx_hash)?.is_none() {
+    if chain_store.get_transaction(tx_hash).is_none() {
         return Err(anyhow!("tx with hash {} not known", tx_hash));
     }
 

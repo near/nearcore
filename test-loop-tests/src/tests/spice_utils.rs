@@ -12,6 +12,10 @@ use parking_lot::RwLock;
 use crate::setup::env::TestLoopEnv;
 
 pub(super) fn delay_endorsements_propagation(env: &mut TestLoopEnv, delay_height: u64) {
+    for node in &env.node_datas {
+        node.set_expected_execution_delay(delay_height);
+    }
+
     let core_writer_senders: HashMap<_, _> = env
         .node_datas
         .iter()

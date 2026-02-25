@@ -57,6 +57,36 @@ fn validate_and_derive_shard_ancestor_map(
     shards_ancestor_map
 }
 
+/// Build `ShardsSplitMapV3` from a sequence of previous shard layouts.
+///
+/// Assumes that layouts are ordered from newest to oldest, and that there are no duplicates.
+/// Ignores layouts with `version()` lower than `VERSION` (this is **not** the struct version).
+pub fn build_shard_split_map(layout_history: &[ShardLayout]) -> ShardsSplitMapV3 {
+    let mut split_history = ShardsSplitMapV3::new();
+
+    for window in layout_history.windows(2) {
+        let current_layout = &window[0];
+        let prev_layout = &window[1];
+
+        if current_layout.version() < VERSION || prev_layout.version() < VERSION {
+            break;
+        }
+
+        debug_assert_ne!(current_layout, prev_layout);
+
+        for shard_id in current_layout.shard_ids() {
+            match current_layout.try_get_parent_shard_id(shard_id).expect("invalid shard_id") {
+                Some(parent_id) if parent_id != shard_id => {
+                    split_history.entry(parent_id).or_default().push(shard_id);
+                }
+                _ => continue,
+            }
+        }
+    }
+
+    split_history
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
 pub struct ShardLayoutV3 {
     /// The boundary accounts are the accounts on boundaries between shards.
@@ -196,27 +226,48 @@ impl ShardLayoutV3 {
         }
     }
 
+    /// Derive a V3 shard layout from an existing V3 `base_shard_layout`.
+    ///
+    /// Returns an error if `new_boundary_account` already exists in `base_shard_layout`.
     pub fn derive(
-        base_shard_layout: &ShardLayout,
+        base_shard_layout: &Self,
         new_boundary_account: AccountId,
     ) -> Result<Self, ShardLayoutError> {
-        // ShardLayoutV3 cannot be built from earlier versions, because they don't store
-        // the complete ancestor history.
-        let mut shards_split_map = match base_shard_layout {
-            ShardLayout::V0(_) | ShardLayout::V1(_) | ShardLayout::V2(_) => {
-                return Err(ShardLayoutError::CannotDeriveLayout);
-            }
-            ShardLayout::V3(v3) => v3.shards_split_map.clone(),
-        };
+        let shard_ids = base_shard_layout.shard_ids.clone();
+        let boundary_accounts = base_shard_layout.boundary_accounts.clone();
+        let shards_split_map = base_shard_layout.shards_split_map.clone();
+        Self::derive_impl(shard_ids, boundary_accounts, new_boundary_account, shards_split_map)
+    }
 
-        let mut boundary_accounts = base_shard_layout.boundary_accounts().clone();
-        let new_boundary_idx = match boundary_accounts.binary_search(&new_boundary_account) {
-            Ok(_) => panic!("duplicated boundary account"),
-            Err(idx) => idx,
+    /// Derive a V3 shard layout from an earlier version (V1/V2) using a sequence
+    /// of previous shard layouts. The `layout_history` should be ordered from most
+    /// recent to oldest.
+    ///
+    /// Returns an error if `new_boundary_account` already exists in `base_shard_layout`.
+    pub fn derive_with_layout_history(
+        base_shard_layout: &ShardLayout,
+        new_boundary_account: AccountId,
+        layout_history: &[ShardLayout],
+    ) -> Result<Self, ShardLayoutError> {
+        let shard_ids = base_shard_layout.shard_ids().collect();
+        let boundary_accounts = base_shard_layout.boundary_accounts().clone();
+        let shards_split_map = build_shard_split_map(layout_history);
+        Self::derive_impl(shard_ids, boundary_accounts, new_boundary_account, shards_split_map)
+    }
+
+    fn derive_impl(
+        mut shard_ids: Vec<ShardId>,
+        mut boundary_accounts: Vec<AccountId>,
+        new_boundary_account: AccountId,
+        mut shards_split_map: ShardsSplitMapV3,
+    ) -> Result<Self, ShardLayoutError> {
+        let Err(new_boundary_idx) = boundary_accounts.binary_search(&new_boundary_account) else {
+            return Err(ShardLayoutError::DuplicateBoundaryAccount {
+                account_id: new_boundary_account,
+            });
         };
         boundary_accounts.insert(new_boundary_idx, new_boundary_account);
 
-        let mut shard_ids = base_shard_layout.shard_ids().collect_vec();
         let max_shard_id =
             *shard_ids.iter().max().expect("there should always be at least one shard");
         let new_shards = vec![max_shard_id + 1, max_shard_id + 2];

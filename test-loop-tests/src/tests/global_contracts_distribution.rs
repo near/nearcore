@@ -4,7 +4,6 @@ use std::sync::Arc;
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
-use near_client::Client;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
 use near_primitives::epoch_manager::EpochConfigStore;
@@ -21,7 +20,9 @@ use crate::utils::account::{
 };
 use crate::utils::node::TestLoopNode;
 use crate::utils::setups::derive_new_epoch_config_from_boundary;
-use crate::utils::transactions::{check_txs, deploy_global_contract, use_global_contract};
+use crate::utils::transactions::{
+    call_contract, check_txs, deploy_global_contract, use_global_contract,
+};
 
 const EPOCH_LENGTH: BlockHeightDelta = 5;
 
@@ -68,15 +69,15 @@ fn test_global_receipt_distribution_at_resharding_boundary() {
     // Verify that global contract distribution receipt has target shard from the old shard layout,
     // while its block has the new layout.
     {
-        let block =
-            env.client().chain.get_block_by_height(expected_new_shard_layout_height).unwrap();
+        let client = env.chunk_producer_node().client();
+        let block = client.chain.get_block_by_height(expected_new_shard_layout_height).unwrap();
         let block_shard_layout =
-            env.client().epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
+            client.epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
         assert_eq!(block_shard_layout, env.new_shard_layout);
         let chunks = block.chunks();
         // Expect new chunk
         assert!(chunks[0].is_new_chunk(block.header().height()));
-        let chunk = env.client().chain.get_chunk(&chunks[0].compute_hash()).unwrap();
+        let chunk = client.chain.get_chunk(&chunks[0].compute_hash()).unwrap();
         let [distribution_receipt] = chunk
             .prev_outgoing_receipts()
             .iter()
@@ -110,6 +111,104 @@ fn test_global_receipt_distribution_at_resharding_boundary() {
     }
     env.env.test_loop.run_for(Duration::seconds(2));
     check_txs(&mut env.env.test_loop.data, &env.env.node_datas, &env.chunk_producer, &use_txs);
+
+    env.shutdown();
+}
+
+/// Test that nonce-based idempotency prevents stale overwrites during global contract updates.
+///
+/// Deploys a trivial contract first (AccountId mode), waits for distribution,
+/// then deploys rs_contract (AccountId mode) with a higher auto-incremented nonce.
+/// Verifies all shards have the newer version by calling a function that only
+/// exists in the rs_contract.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_global_contract_nonce_prevents_stale_overwrite() {
+    init_test_logger();
+    let mut env = GlobalContractsReshardingTestEnv::setup();
+
+    let deploy_user = env.users[0].clone();
+
+    // Step 1: Deploy trivial contract as first version (AccountId mode).
+    tracing::info!(target: "test", "Deploying first version of global contract (trivial contract)...");
+    let deploy_tx_v1 = deploy_global_contract(
+        &mut env.env.test_loop,
+        &env.env.node_datas,
+        &env.chunk_producer,
+        deploy_user.clone(),
+        near_test_contracts::trivial_contract().to_vec(),
+        1,
+        GlobalContractDeployMode::AccountId,
+    );
+    env.env.test_loop.run_for(Duration::seconds(5));
+    check_txs(
+        &mut env.env.test_loop.data,
+        &env.env.node_datas,
+        &env.chunk_producer,
+        &[deploy_tx_v1],
+    );
+
+    // Step 2: Deploy rs_contract as second version (AccountId mode).
+    // This will have a higher auto-incremented nonce.
+    tracing::info!(target: "test", "Deploying second version of global contract (rs_contract)...");
+    let deploy_tx_v2 = deploy_global_contract(
+        &mut env.env.test_loop,
+        &env.env.node_datas,
+        &env.chunk_producer,
+        deploy_user.clone(),
+        near_test_contracts::rs_contract().to_vec(),
+        2,
+        GlobalContractDeployMode::AccountId,
+    );
+    env.env.test_loop.run_for(Duration::seconds(5));
+    check_txs(
+        &mut env.env.test_loop.data,
+        &env.env.node_datas,
+        &env.chunk_producer,
+        &[deploy_tx_v2],
+    );
+
+    // Step 3: Have all users use the global contract and verify that the rs_contract
+    // version (v2) is active by calling "log_something" which only exists in rs_contract.
+    tracing::info!(target: "test", "Calling use global contract from all users to verify rs_contract is active...");
+    let mut nonce = 3u64;
+    for user in &env.users {
+        let use_tx = use_global_contract(
+            &mut env.env.test_loop,
+            &env.env.node_datas,
+            &env.chunk_producer,
+            user.clone(),
+            nonce,
+            GlobalContractIdentifier::AccountId(deploy_user.clone()),
+        );
+        nonce += 1;
+        env.env.test_loop.run_for(Duration::seconds(5));
+        check_txs(&mut env.env.test_loop.data, &env.env.node_datas, &env.chunk_producer, &[use_tx]);
+    }
+
+    // Step 4: Call "log_something" on each user's account. This method only exists in
+    // the rs_contract, so if the trivial contract had overwritten it, this would fail.
+    tracing::info!(target: "test", "Calling contract method from all users to verify rs_contract is active...");
+    for user in &env.users {
+        let call_tx = call_contract(
+            &mut env.env.test_loop,
+            &env.env.node_datas,
+            &env.chunk_producer,
+            user,
+            user,
+            "log_something".to_string(),
+            vec![],
+            nonce,
+        );
+        nonce += 1;
+        env.env.test_loop.run_for(Duration::seconds(5));
+        check_txs(
+            &mut env.env.test_loop.data,
+            &env.env.node_datas,
+            &env.chunk_producer,
+            &[call_tx],
+        );
+    }
 
     env.shutdown();
 }
@@ -169,19 +268,17 @@ impl GlobalContractsReshardingTestEnv {
     }
 
     fn run_until_head_height(&mut self, height: BlockHeight) {
-        TestLoopNode::for_account(&self.env.node_datas, &self.chunk_producer)
-            .run_until_head_height(&mut self.env.test_loop, height);
-    }
-
-    fn client(&self) -> &Client {
-        TestLoopNode::for_account(&self.env.node_datas, &self.chunk_producer)
-            .client(self.env.test_loop_data())
+        self.env.runner_for_account(&self.chunk_producer).run_until_head_height(height);
     }
 
     fn current_shard_layout(&self) -> ShardLayout {
-        let epoch_id = self.client().chain.chain_store().head().unwrap().epoch_id;
-        let epoch_manager = self.client().epoch_manager.clone();
-        epoch_manager.get_shard_layout(&epoch_id).unwrap()
+        let client = self.chunk_producer_node().client();
+        let epoch_id = client.chain.chain_store().head().unwrap().epoch_id;
+        client.epoch_manager.get_shard_layout(&epoch_id).unwrap()
+    }
+
+    fn chunk_producer_node(&self) -> TestLoopNode<'_> {
+        self.env.node_for_account(&self.chunk_producer)
     }
 
     fn shutdown(self) {

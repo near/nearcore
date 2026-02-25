@@ -46,23 +46,50 @@ let mut env = TestLoopBuilder::new()
 
 ## 2. Trigger and execute events
 
-`TestLoopNode` can be used to interact with the cluster performing actions such as
-executing transactions or waiting for blocks to be produced.
+`TestLoopEnv` provides two main abstractions for interacting with nodes:
+
+- **`TestLoopNode`** — read-only access to a node's state (head, client, store,
+  runtime queries). Holds `&TestLoopData`, so accessors like `env.node()` take
+  `&self` and multiple nodes can be held simultaneously.
+- **`TestLoopNodeMut`** — mutable access to a node for operations like
+  `client_actor()` or `view_client_actor()`. Holds `&mut TestLoopData`.
+- **`NodeRunner`** — drives the test loop forward while observing a specific
+  node (run until a condition, produce blocks, execute transactions).
+
+Convenience accessors on `TestLoopEnv`:
+
+| Accessor | Returns | Selects |
+|---|---|---|
+| `env.validator()` / `env.validator_runner()` | `TestLoopNode` / `NodeRunner` | First validator (index 0) |
+| `env.rpc_node()` / `env.rpc_runner()` | `TestLoopNode` / `NodeRunner` | The RPC node |
+| `env.node(i)` / `env.node_runner(i)` | `TestLoopNode` / `NodeRunner` | Node at index `i` |
+| `env.node_for_account(id)` / `env.runner_for_account(id)` | `TestLoopNode` / `NodeRunner` | Node with given account id |
+
+Mutable node access is available via `_mut()` variants (`env.validator_mut()`,
+`env.node_mut(i)`, etc.) which return `TestLoopNodeMut`:
 
 ```rust
-let rpc_node = TestLoopNode::rpc(&env.node_datas);
-rpc_node.run_tx(&mut env.test_loop, ..);
-rpc_node.run_until_head_height(&mut env.test_loop, ..);
+// Access ClientActor for adversarial testing.
+env.validator_mut().client_actor().adv_produce_blocks_on(3, true, height_selection);
 ```
 
-Also `run_until` method can be used to progress the blockchain until a certain
-condition is met:
+Example usage:
 
 ```rust
-test_loop.run_until(
-    |test_loop_data| {
-        rpc_node.head(test_loop_data).epoch_id == expected_epoch_id
-    },
+// Execute a transaction via the RPC node.
+env.rpc_runner().run_tx(tx, Duration::seconds(5));
+
+// Wait for the validator to reach a certain height.
+env.validator_runner().run_until_head_height(10);
+```
+
+`NodeRunner::run_until` can be used to progress the blockchain until a
+condition is met. The condition closure receives a `&TestLoopNode` for
+the associated node:
+
+```rust
+env.validator_runner().run_until(
+    |node| node.head().epoch_id == expected_epoch_id,
     Duration::seconds(20),
 );
 ```
@@ -76,8 +103,8 @@ run quickly while still accurately modeling time-dependent blockchain behavior.
 Verify that the test produced the expected results.
 
 ```rust
-let account = validator_node.query_account(env.test_loop_data(), ..);
-assert_eq!(account.balance, Balance::from_near(42));
+let account = env.validator().view_account_query(&account_id).unwrap();
+assert_eq!(account.amount, Balance::from_near(42));
 ```
 
 After that, properly shut down the test environment:

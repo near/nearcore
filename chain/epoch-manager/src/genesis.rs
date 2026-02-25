@@ -33,7 +33,7 @@ impl EpochManager {
         let mut store_update = self.store.store_update();
         self.save_epoch_info(&mut store_update, &EpochId::default(), Arc::new(genesis_epoch_info))?;
         self.save_block_info(&mut store_update, block_info)?;
-        store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 
@@ -62,6 +62,12 @@ impl EpochManager {
             }
             Ok(genesis_epoch_info)
         } else {
+            let shard_layout = genesis_epoch_config.static_shard_layout().ok_or_else(|| {
+                EpochError::ShardingError(format!(
+                    "static shard layout expected for genesis. genesis_protocol_version={}",
+                    genesis_protocol_version
+                ))
+            })?;
             proposals_to_epoch_info(
                 &genesis_epoch_config,
                 [0; 32],
@@ -71,8 +77,9 @@ impl EpochManager {
                 validator_reward,
                 Balance::ZERO,
                 genesis_protocol_version,
-                genesis_epoch_config.static_shard_layout(),
+                shard_layout,
                 false,
+                None,
             )
         }
     }

@@ -359,7 +359,7 @@ impl Client {
 
         let doomslug = Doomslug::new(
             clock.clone(),
-            chain.chain_store().largest_target_height()?,
+            chain.chain_store().largest_target_height(),
             config.min_block_production_delay,
             config.max_block_production_delay,
             config.max_block_production_delay / 10,
@@ -467,7 +467,7 @@ impl Client {
                 .cares_about_shard_this_or_next_epoch(block.header().prev_hash(), shard_id)
             {
                 // By now the chunk must be in store, otherwise the block would have been orphaned
-                let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
+                let chunk = self.chain.get_chunk(&chunk_header.chunk_hash())?;
                 let transactions = chunk.to_transactions();
                 let mut pool_guard = self.chunk_producer.sharded_tx_pool.lock();
                 pool_guard.remove_transactions(shard_uid, transactions);
@@ -490,7 +490,7 @@ impl Client {
                 .cares_about_shard_this_or_next_epoch(block.header().prev_hash(), shard_id)
             {
                 // By now the chunk must be in store, otherwise the block would have been orphaned
-                let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
+                let chunk = self.chain.get_chunk(&chunk_header.chunk_hash())?;
 
                 let validated_txs = chunk
                     .to_transactions()
@@ -572,7 +572,7 @@ impl Client {
         let prev_hash = prev_header.hash();
         if self.epoch_manager.is_next_block_epoch_start(prev_hash)? {
             let prev_prev_hash = prev_header.prev_hash();
-            if !self.chain.prev_block_is_caught_up(prev_prev_hash, prev_hash)? {
+            if !self.chain.prev_block_is_caught_up(prev_prev_hash, prev_hash) {
                 tracing::debug!(target: "client", height, "skipping block production, prev block is not caught up");
                 return Ok(false);
             }
@@ -944,18 +944,37 @@ impl Client {
             None
         };
 
+        // Last final block **after this block is produced**
+        let last_final_block = prev.last_final_block_for_height(height);
+        let is_produced_block_last_in_epoch = self.epoch_manager.is_produced_block_last_in_epoch(
+            height,
+            &prev_hash,
+            &last_final_block,
+        )?;
+
+        // Compute shard_split if this is the last block of the epoch
+        let shard_split = if is_produced_block_last_in_epoch {
+            self.epoch_manager.get_upcoming_shard_split(
+                protocol_version,
+                &prev_hash,
+                &chunk_headers,
+            )?
+        } else {
+            None
+        };
+
         let next_epoch_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
         let spice_info = if ProtocolFeature::Spice.enabled(protocol_version) {
-            let core_statements =
-                self.chain.spice_core_reader.core_statements_for_next_block(&prev_header)?;
+            let core_statements = SpiceCoreStatements::new(
+                self.chain.spice_core_reader.core_statements_for_next_block(&prev_header)?,
+            );
             let last_certified_block_execution_results =
                 self.chain.spice_core_reader.get_last_certified_execution_results_for_next_block(
                     prev_header,
-                    SpiceCoreStatements::new(&core_statements),
+                    &core_statements,
                 )?;
-
             Some(SpiceNewBlockProductionInfo {
                 core_statements,
                 last_certified_block_execution_results,
@@ -965,6 +984,7 @@ impl Client {
         };
 
         let block = Arc::new(Block::produce(
+            protocol_version,
             self.upgrade_schedule
                 .protocol_version_to_vote_for(self.clock.now_utc(), next_epoch_protocol_version),
             prev_header,
@@ -986,14 +1006,14 @@ impl Client {
             self.clock.clone(),
             sandbox_delta_time,
             optimistic_block,
-            None,
+            shard_split,
             spice_info,
         ));
 
         // Update latest known even before returning block out, to prevent race conditions.
         self.chain
             .mut_chain_store()
-            .save_latest_known(LatestKnown { height, seen: block.header().raw_timestamp() })?;
+            .save_latest_known(LatestKnown { height, seen: block.header().raw_timestamp() });
 
         metrics::BLOCK_PRODUCED_TOTAL.inc();
 
@@ -1150,7 +1170,7 @@ impl Client {
             tracing::debug!(target: "client", head_height = head.height, "dropping a block that is too far ahead");
             return Ok(false);
         }
-        let tail = self.chain.tail()?;
+        let tail = self.chain.tail();
         if block_height < tail {
             tracing::debug!(target: "client", tail_height = tail, "dropping a block that is too far behind");
             return Ok(false);
@@ -1815,7 +1835,8 @@ impl Client {
                 #[cfg(feature = "test_features")]
                 let chain_validate: &dyn Fn(&SignedTransaction) -> bool = {
                     match self.chunk_producer.adversarial.produce_mode {
-                        Some(AdvProduceChunksMode::ProduceWithoutTxValidityCheck) => &|_| true,
+                        Some(AdvProduceChunksMode::ProduceWithoutTxValidityCheck)
+                        | Some(AdvProduceChunksMode::ProduceWithoutTxVerification) => &|_| true,
                         _ => &transaction_validity_check,
                     }
                 };
@@ -2052,30 +2073,26 @@ impl Client {
         let parent_hash = match inner {
             ApprovalInner::Endorsement(parent_hash) => *parent_hash,
             ApprovalInner::Skip(parent_height) => {
-                match self.chain.chain_store().get_all_block_hashes_by_height(*parent_height) {
-                    Ok(hashes) => {
-                        // If there is more than one block at the height, all of them will be
-                        // eligible to build the next block on, so we just pick one.
-                        let hash = hashes.values().flatten().next();
-                        match hash {
-                            Some(hash) => *hash,
-                            None => {
-                                self.handle_process_approval_error(
-                                    approval,
-                                    approval_type,
-                                    true,
-                                    near_chain::Error::DBNotFoundErr(format!(
-                                        "Cannot find any block on height {}",
-                                        parent_height
-                                    )),
-                                );
-                                return;
-                            }
+                {
+                    let hashes =
+                        self.chain.chain_store().get_all_block_hashes_by_height(*parent_height);
+                    // If there is more than one block at the height, all of them will be
+                    // eligible to build the next block on, so we just pick one.
+                    let hash = hashes.values().flatten().next();
+                    match hash {
+                        Some(hash) => *hash,
+                        None => {
+                            self.handle_process_approval_error(
+                                approval,
+                                approval_type,
+                                true,
+                                near_chain::Error::DBNotFoundErr(format!(
+                                    "Cannot find any block on height {}",
+                                    parent_height
+                                )),
+                            );
+                            return;
                         }
-                    }
-                    Err(e) => {
-                        self.handle_process_approval_error(approval, approval_type, true, e);
-                        return;
                     }
                 }
             }

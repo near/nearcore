@@ -1,3 +1,4 @@
+mod pick_shard_to_split;
 mod random_epochs;
 
 use super::*;
@@ -913,8 +914,7 @@ fn test_expected_chunks() {
                 rng_seed,
             )
             .unwrap()
-            .commit()
-            .unwrap();
+            .commit();
         prev_block = *curr_block;
 
         if epoch_id != initial_epoch_id {
@@ -995,8 +995,7 @@ fn test_expected_chunks_prev_block_not_produced() {
                     rng_seed,
                 )
                 .unwrap()
-                .commit()
-                .unwrap();
+                .commit();
             prev_block = *curr_block;
         }
         if epoch_id != initial_epoch_id {
@@ -2322,8 +2321,7 @@ fn test_final_block_consistency() {
             [0; 32],
         )
         .unwrap()
-        .commit()
-        .unwrap();
+        .commit();
     let new_epoch_aggregator_final_hash = epoch_manager.epoch_info_aggregator.last_block_hash;
     assert_eq!(epoch_aggregator_final_hash, new_epoch_aggregator_final_hash);
 }
@@ -3410,7 +3408,7 @@ fn test_possible_epochs_of_height_around_tip() {
             vec![],
             DEFAULT_TOTAL_SUPPLY,
         );
-        epoch_manager.write().record_block_info(block_info, [0; 32]).unwrap().commit().unwrap();
+        epoch_manager.write().record_block_info(block_info, [0; 32]).unwrap().commit();
         let tip = Tip {
             height,
             last_block_hash: h[i],
@@ -3473,7 +3471,7 @@ fn test_possible_epochs_of_height_around_tip() {
             vec![],
             DEFAULT_TOTAL_SUPPLY,
         );
-        epoch_manager.write().record_block_info(block_info, [0; 32]).unwrap().commit().unwrap();
+        epoch_manager.write().record_block_info(block_info, [0; 32]).unwrap().commit();
         let tip = Tip {
             height,
             last_block_hash: h[i],
@@ -3641,7 +3639,10 @@ fn test_get_shard_uids_pending_resharding_none() {
 #[test]
 fn test_get_shard_uids_pending_resharding_simple_nightshade() {
     let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
-    let shard_layout = epoch_config_store.get_config(PROTOCOL_VERSION).static_shard_layout();
+    let shard_layout = epoch_config_store
+        .get_config(PROTOCOL_VERSION)
+        .static_shard_layout()
+        .expect("get_shard_uids_pending_resharding should be removed when dynamic resharding is stabilized");
     let shard_uids =
         test_get_shard_uids_pending_resharding_base(&[shard_layout.clone(), shard_layout]);
     assert_eq!(shard_uids.len(), 0);

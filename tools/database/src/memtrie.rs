@@ -60,10 +60,9 @@ impl LoadMemTrieCommand {
         let genesis_config = &near_config.genesis.config;
         // Note: this is not necessarily correct; it's just an estimate of the shard layout,
         // so that users of this tool doesn't have to specify the full shard UID.
-        let head =
-            store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY).unwrap().unwrap().last_block_hash;
+        let head = store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY).unwrap().last_block_hash;
         let block_header = store
-            .get_ser::<BlockHeader>(DBCol::BlockHeader, &borsh::to_vec(&head).unwrap())?
+            .get_ser::<BlockHeader>(DBCol::BlockHeader, &borsh::to_vec(&head).unwrap())
             .ok_or_else(|| anyhow::anyhow!("Block header not found"))?;
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &genesis_config, Some(home));
@@ -397,12 +396,15 @@ impl ArchivalDataLossRecoveryCommand {
         );
         let runtime = runtime.context("could not create the transaction runtime")?;
 
+        // TODO(dynamic_resharding): decide how to deal with this when dynamic resharding is enabled
         // Get the shard layout and ensure the protocol version upgrade actually
         // contains a resharding.
-        let shard_layout =
-            epoch_manager.get_shard_layout_from_protocol_version(self.protocol_version);
-        let prev_shard_layout =
-            epoch_manager.get_shard_layout_from_protocol_version(self.protocol_version - 1);
+        let shard_layout = epoch_manager
+            .get_static_shard_layout_for_protocol_version(self.protocol_version)
+            .context("dynamic resharding protocol versions are not supported")?;
+        let prev_shard_layout = epoch_manager
+            .get_static_shard_layout_for_protocol_version(self.protocol_version - 1)
+            .context("dynamic resharding protocol versions are not supported")?;
         assert_ne!(
             shard_layout, prev_shard_layout,
             "The provided protocol version does not contain a resharding."

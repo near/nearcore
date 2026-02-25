@@ -3,8 +3,8 @@ use crate::block::BlockValidityError::{
     InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot, InvalidStateRoot,
     InvalidTransactionRoot,
 };
+use crate::block_body::SpiceCoreStatements;
 use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures};
-use crate::block_body::{SpiceCoreStatement, SpiceCoreStatements};
 pub use crate::block_header::*;
 use crate::challenge::Challenge;
 use crate::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
@@ -107,6 +107,7 @@ impl Block {
     /// Produces new block from header of previous block, current state root and set of transactions.
     #[cfg(feature = "clock")]
     pub fn produce(
+        current_protocol_version: ProtocolVersion,
         latest_protocol_version: ProtocolVersion,
         prev: &BlockHeader,
         height: BlockHeight,
@@ -142,9 +143,9 @@ impl Block {
         let mut gas_limit = Gas::ZERO;
         for chunk in &chunks {
             if chunk.height_included() == height {
-                prev_validator_proposals.extend(chunk.prev_validator_proposals());
                 gas_used = gas_used.checked_add(chunk.prev_gas_used()).unwrap();
                 if spice_info.is_none() {
+                    prev_validator_proposals.extend(chunk.prev_validator_proposals());
                     gas_limit = gas_limit.checked_add(chunk.gas_limit()).unwrap();
                 }
                 balance_burnt = balance_burnt.checked_add(chunk.prev_balance_burnt()).unwrap();
@@ -153,6 +154,16 @@ impl Block {
                 chunk_mask.push(false);
             }
         }
+        if let Some(ref spice_info) = spice_info {
+            prev_validator_proposals.extend(
+                spice_info.core_statements.iter_execution_results().flat_map(
+                    |(_chunk_id, execution_result)| {
+                        execution_result.chunk_extra.validator_proposals()
+                    },
+                ),
+            );
+        }
+
         // TODO(spice): Use gas_used and other relevant fields from spice_info last
         // certified block execution results.
         if let Some(ref spice_info) = spice_info {
@@ -200,12 +211,7 @@ impl Block {
         let last_ds_final_block =
             if height == prev.height() + 1 { prev.hash() } else { prev.last_ds_final_block() };
 
-        let last_final_block =
-            if height == prev.height() + 1 && prev.last_ds_final_block() == prev.prev_hash() {
-                prev.prev_hash()
-            } else {
-                prev.last_final_block()
-            };
+        let last_final_block = prev.last_final_block_for_height(height);
 
         match prev {
             BlockHeader::BlockHeaderV1(_) | BlockHeader::BlockHeaderV2(_) => {
@@ -255,6 +261,7 @@ impl Block {
         };
 
         let header = BlockHeader::new(
+            current_protocol_version,
             latest_protocol_version,
             height,
             *prev.hash(),
@@ -430,10 +437,10 @@ impl Block {
     }
 
     #[inline]
-    pub fn spice_core_statements(&self) -> SpiceCoreStatements<'_> {
+    pub fn spice_core_statements(&self) -> &SpiceCoreStatements {
         match self {
             Block::BlockV1(_) | Block::BlockV2(_) | Block::BlockV3(_) => {
-                SpiceCoreStatements::new(&[])
+                SpiceCoreStatements::empty()
             }
             Block::BlockV4(block) => block.body.spice_core_statements(),
         }
@@ -516,7 +523,7 @@ impl Block {
 }
 
 pub struct SpiceNewBlockProductionInfo {
-    pub core_statements: Vec<SpiceCoreStatement>,
+    pub core_statements: SpiceCoreStatements,
     pub last_certified_block_execution_results: BlockExecutionResults,
 }
 

@@ -89,6 +89,25 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use tracing::debug_span;
 
+/// Reason for a graceful shutdown initiated by the node itself.
+#[derive(Debug, Clone)]
+pub enum ShutdownReason {
+    /// The node reached the configured `expected_shutdown` block height.
+    ExpectedShutdown,
+    /// The node is stale and needs its data directory deleted before
+    /// re-bootstrapping via epoch sync.
+    EpochSyncDataReset,
+}
+
+impl fmt::Display for ShutdownReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ExpectedShutdown => write!(f, "expected shutdown"),
+            Self::EpochSyncDataReset => write!(f, "epoch sync data reset"),
+        }
+    }
+}
+
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: i32 = 10;
 /// `max_block_production_time` times this multiplier is how long we wait before rebroadcasting
@@ -152,7 +171,7 @@ pub fn start_client(
     validator_signer: MutableValidatorSigner,
     telemetry_sender: Sender<TelemetryEvent>,
     snapshot_callbacks: Option<SnapshotCallbacks>,
-    sender: Option<broadcast::Sender<()>>,
+    sender: Option<broadcast::Sender<ShutdownReason>>,
     adv: crate::adversarial::Controls,
     config_updater: Option<ConfigUpdater>,
     partial_witness_adapter: PartialWitnessSenderForClient,
@@ -220,12 +239,12 @@ pub fn start_client(
         client.config.save_latest_witnesses,
         client.config.save_invalid_witnesses,
         {
-            // The number of shards for the binary's latest `PROTOCOL_VERSION` is used as a thread limit.
+            // The number of shards for the binary's latest `PROTOCOL_VERSION` is used to compute the thread limit.
             // This assumes that:
-            // a) The number of shards will not grow above this limit without the binary being updated (no dynamic resharding),
+            // a) The number of shards will not grow above this limit without the binary being updated,
             // b) Under normal conditions, the node will not process more chunks at the same time as there are shards.
-            let max_num_shards = runtime.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
-            ApplyChunksSpawner::Default.into_spawner(max_num_shards)
+            let thread_limit = runtime.get_shard_limit(PROTOCOL_VERSION) as usize * 3;
+            ApplyChunksSpawner::Default.into_spawner(thread_limit)
         },
         client.config.orphan_state_witness_pool_size,
         client.config.orphan_state_witness_max_size.as_u64(),
@@ -312,7 +331,7 @@ pub struct ClientActor {
 
     /// Synchronization measure to allow graceful shutdown.
     /// Informs the system when a ClientActor gets dropped.
-    shutdown_signal: Option<broadcast::Sender<()>>,
+    shutdown_signal: Option<broadcast::Sender<ShutdownReason>>,
 
     /// Manages updating the config.
     config_updater: Option<ConfigUpdater>,
@@ -405,7 +424,7 @@ impl ClientActor {
         node_id: PeerId,
         network_adapter: PeerManagerAdapter,
         telemetry_sender: Sender<TelemetryEvent>,
-        shutdown_signal: Option<broadcast::Sender<()>>,
+        shutdown_signal: Option<broadcast::Sender<ShutdownReason>>,
         adv: crate::adversarial::Controls,
         config_updater: Option<ConfigUpdater>,
         sync_jobs_sender: SyncJobsSenderForClient,
@@ -603,10 +622,7 @@ impl Handler<SpanWrapped<BlockResponse>> for ClientActor {
         tracing::debug!(target: "client", block_height = block.header().height(), block_hash = ?block.header().hash(), "received block response");
         let blocks_at_height =
             self.client.chain.chain_store().get_all_block_hashes_by_height(block.header().height());
-        if was_requested
-            || blocks_at_height.is_err()
-            || blocks_at_height.as_ref().unwrap().is_empty()
-        {
+        if was_requested || blocks_at_height.is_empty() {
             // This is a very sneaky piece of logic.
             if self.maybe_receive_state_sync_blocks(Arc::clone(&block)) {
                 // A node is syncing its state. Don't consider receiving
@@ -623,7 +639,7 @@ impl Handler<SpanWrapped<BlockResponse>> for ClientActor {
             match self.client.epoch_manager.get_epoch_id_from_prev_block(block.header().prev_hash())
             {
                 Ok(epoch_id) => {
-                    if let Some(hashes) = blocks_at_height.unwrap().get(&epoch_id) {
+                    if let Some(hashes) = blocks_at_height.get(&epoch_id) {
                         if !hashes.contains(block.header().hash()) {
                             tracing::warn!(target: "client", block_hash = ?block.header().hash(), block_height = block.header().height(), "rejecting un-requested block");
                         }
@@ -1107,7 +1123,7 @@ impl ClientActor {
             if let Some(new_latest_known) =
                 self.sandbox_process_fast_forward(latest_known.height)?
             {
-                self.client.chain.mut_chain_store().save_latest_known(new_latest_known)?;
+                self.client.chain.mut_chain_store().save_latest_known(new_latest_known);
                 self.client.sandbox_update_tip(new_latest_known.height)?;
             }
         }
@@ -1295,7 +1311,7 @@ impl ClientActor {
                 if head.height >= block_height_to_shutdown {
                     tracing::info!(target: "client", head_height = head.height, ?block_height_to_shutdown, "expected shutdown triggered");
                     if let Some(tx) = self.shutdown_signal.take() {
-                        let _ = tx.send(()); // Ignore send signal fail, it will send again in next trigger
+                        let _ = tx.send(ShutdownReason::ExpectedShutdown);
                     }
                 }
             }
@@ -1820,6 +1836,12 @@ impl ClientActor {
             // needs access to the client.
             SyncHandlerRequest::NeedProcessBlockArtifact(block_processing_artifacts) => {
                 self.client.process_block_processing_artifact(block_processing_artifacts);
+            }
+            SyncHandlerRequest::NeedsDataReset => {
+                tracing::info!(target: "client", "stale node detected, requesting data reset for epoch sync");
+                if let Some(tx) = self.shutdown_signal.take() {
+                    let _ = tx.send(ShutdownReason::EpochSyncDataReset);
+                }
             }
         }
     }

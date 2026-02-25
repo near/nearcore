@@ -1,5 +1,7 @@
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 
+use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
@@ -18,6 +20,7 @@ use near_client::archive::cloud_archival_writer::create_cloud_archival_writer;
 use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig};
 use near_client::client_actor::ClientActor;
+use near_client::client_actor::ShutdownReason;
 use near_client::gc_actor::GCActor;
 use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
@@ -31,6 +34,7 @@ use near_client::{
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_jsonrpc::client::RpcTransport;
 use near_primitives::genesis::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
@@ -39,8 +43,10 @@ use near_store::config::SplitStorageConfig;
 use near_store::{StoreConfig, TrieConfig};
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::state_sync::StateSyncDumper;
+use tokio::sync::broadcast;
 
 use crate::utils::peer_manager_actor::TestLoopPeerManagerActor;
+use crate::utils::rpc::{TestLoopRpcTransport, create_testloop_jsonrpc_router};
 
 use super::drop_condition::ClientToShardsManagerSender;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
@@ -140,7 +146,7 @@ pub fn setup_client(
         chunks_storage: chunks_storage.clone(),
     });
 
-    let (block_notification_watch_sender, _block_notification_watch_receiver) =
+    let (block_notification_watch_sender, block_notification_watch_receiver) =
         tokio::sync::watch::channel(None);
 
     // Generate a PeerId. This is used to identify the client in the network.
@@ -281,13 +287,21 @@ pub fn setup_client(
     } else {
         noop().into_sender()
     };
+    let (shutdown_tx, mut shutdown_rx) = broadcast::channel::<ShutdownReason>(1);
+    let pending_denylist = test_loop.event_denylist();
+    let id = identifier.to_string();
+    test_loop.future_spawner(identifier).spawn("ShutdownWatcher", async move {
+        let _ = shutdown_rx.recv().await;
+        pending_denylist.lock().push(id);
+    });
+
     let client_actor = ClientActor::new(
         test_loop.clock(),
         client,
         peer_id.clone(),
         network_adapter.as_multi_sender(),
         noop().into_sender(),
-        None,
+        Some(shutdown_tx),
         Default::default(),
         None,
         sync_jobs_adapter.as_multi_sender(),
@@ -354,7 +368,7 @@ pub fn setup_client(
         storage.cold_db.is_some(),
     );
     // We don't send messages to `GCActor` so adapter is not needed.
-    test_loop.data.register_actor(identifier, gc_actor, None);
+    let gc_actor_sender = test_loop.data.register_actor(identifier, gc_actor, None);
 
     let cold_store_sender = if storage.cold_db.is_some() {
         let (cold_store_actor, _) = create_cold_store_actor(
@@ -487,7 +501,7 @@ pub fn setup_client(
         validator: validator_signer,
         future_spawner: Arc::new(test_loop.future_spawner(identifier)),
     };
-    let state_sync_dumper_handle = state_sync_dumper.start().unwrap();
+    let state_sync_dumper_handle = state_sync_dumper.start();
     let state_sync_dumper_handle = test_loop.data.register_data(state_sync_dumper_handle);
 
     let client_sender =
@@ -530,6 +544,18 @@ pub fn setup_client(
     let peer_manager_sender =
         test_loop.data.register_actor(identifier, peer_manager_actor, Some(network_adapter));
 
+    let jsonrpc_router = create_testloop_jsonrpc_router(
+        test_loop.clock(),
+        &client_sender,
+        &view_client_sender,
+        &rpc_handler_sender,
+        &gc_actor_sender,
+        &genesis.config,
+        block_notification_watch_receiver,
+    );
+    let jsonrpc_transport: Arc<dyn RpcTransport> =
+        Arc::new(TestLoopRpcTransport::new(jsonrpc_router));
+
     let node_data = NodeExecutionData {
         identifier: identifier.to_string(),
         account_id,
@@ -549,6 +575,8 @@ pub fn setup_client(
         cold_store_sender,
         cloud_storage_sender,
         cloud_archival_writer_handle,
+        jsonrpc_transport,
+        expected_execution_delay: Arc::new(AtomicU64::new(0)),
     };
 
     // Add the client to the network shared state before returning data

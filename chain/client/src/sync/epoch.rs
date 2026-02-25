@@ -35,6 +35,16 @@ use rand::seq::SliceRandom;
 use std::sync::Arc;
 use tracing::instrument;
 
+/// Result of running `EpochSync::run()`.
+#[derive(Debug)]
+pub enum EpochSyncRunResult {
+    /// Epoch sync handled normally (either not needed, in progress, or request sent).
+    Ok,
+    /// The node has stale data and is far behind the network. The data directory
+    /// should be deleted so the node can re-bootstrap via epoch sync.
+    NeedsDataReset,
+}
+
 pub struct EpochSync {
     clock: Clock,
     network_adapter: PeerManagerAdapter,
@@ -134,24 +144,30 @@ impl EpochSync {
         chain: &Chain,
         highest_height: BlockHeight,
         highest_height_peers: &[HighestHeightPeerInfo],
-    ) -> Result<(), Error> {
+    ) -> Result<EpochSyncRunResult, Error> {
         let tip_height = chain.chain_store().header_head()?.height;
-        if tip_height != chain.genesis().height() {
-            // Epoch Sync only supports bootstrapping at genesis. This is because there is no reason
-            // to use Epoch Sync on an already existing node; we would have to carefully delete old
-            // data and then the result would be the same as if we just started the node from
-            // scratch.
-            return Ok(());
+        // If the node is within the epoch sync horizon, no action needed.
+        if tip_height + self.config.epoch_sync_horizon_num_epochs * chain.epoch_length
+            >= highest_height
+        {
+            return Ok(EpochSyncRunResult::Ok);
         }
-        if tip_height + self.config.epoch_sync_horizon >= highest_height {
-            return Ok(());
+        // If the node has data beyond genesis but is far behind the network,
+        // it needs a data reset to re-bootstrap via epoch sync.
+        if tip_height != chain.genesis().height() {
+            if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
+                return Ok(EpochSyncRunResult::NeedsDataReset);
+            }
+            // Without ContinuousEpochSync, fall through to old behavior: epoch sync
+            // only supports bootstrapping at genesis.
+            return Ok(EpochSyncRunResult::Ok);
         }
         match status {
             SyncStatus::EpochSync(status) => {
                 if status.attempt_time + self.config.timeout_for_epoch_sync < self.clock.now_utc() {
                     tracing::warn!(source_peer_id = %status.source_peer_id, "epoch sync from peer timed out, retrying");
                 } else {
-                    return Ok(());
+                    return Ok(EpochSyncRunResult::Ok);
                 }
             }
             _ => {}
@@ -174,7 +190,7 @@ impl EpochSync {
             NetworkRequests::EpochSyncRequest { peer_id: peer.peer_info.id.clone() },
         ));
 
-        Ok(())
+        Ok(EpochSyncRunResult::Ok)
     }
 
     pub fn apply_proof(
@@ -208,7 +224,7 @@ impl EpochSync {
                 .current_epoch
                 .first_block_header_in_epoch
                 .height()
-                .saturating_add(self.config.epoch_sync_horizon)
+                .saturating_add(self.config.epoch_sync_horizon_num_epochs * chain.epoch_length)
                 < status.source_peer_height
             {
                 tracing::error!(
@@ -274,8 +290,13 @@ impl EpochSync {
         // It means that store contains header of last final block of the first block of current epoch.
         let last_header_last_finalized_height =
             store.chain_store().get_block_header(last_header.last_final_block())?.height();
-        let mut first_block_info_in_epoch =
-            BlockInfo::from_header(&last_header, last_header_last_finalized_height);
+        let current_protocol_version =
+            epoch_manager.get_epoch_protocol_version(last_header.epoch_id())?;
+        let mut first_block_info_in_epoch = BlockInfo::from_header(
+            &last_header,
+            last_header_last_finalized_height,
+            current_protocol_version,
+        );
         // We need to populate fields below manually, as they are set to defaults by `BlockInfo::from_header`.
         *first_block_info_in_epoch.epoch_first_block_mut() = *last_header.hash();
         *first_block_info_in_epoch.epoch_id_mut() = *last_header.epoch_id();
@@ -293,7 +314,7 @@ impl EpochSync {
             &proof.current_epoch.partial_merkle_tree_for_first_block,
         );
 
-        store_update.commit()?;
+        store_update.commit();
 
         *status = SyncStatus::EpochSyncDone;
         tracing::info!(epoch_id=?last_header.epoch_id(), "bootstrapped from epoch sync");
@@ -523,7 +544,7 @@ impl Handler<EpochSyncRequestMessage> for ClientActor {
             // When ContinuousEpochSync is enabled, we simply return the stored compressed proof.
             // The proof is automatically updated at the beginning of each epoch via the epoch manager.
             let epoch_store = self.client.chain.chain_store.epoch_store();
-            let Some(proof) = epoch_store.get_compressed_epoch_sync_proof().unwrap() else {
+            let Some(proof) = epoch_store.get_compressed_epoch_sync_proof() else {
                 // This would likely only happen when the blockchain is an epoch or two around genesis.
                 let chain_store = epoch_store.chain_store();
                 let head = chain_store.head();

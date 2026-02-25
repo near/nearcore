@@ -79,6 +79,7 @@ pub enum ShardLayoutError {
     InvalidShardIndex { shard_index: ShardIndex },
     NoParent { shard_id: ShardId },
     CannotDeriveLayout,
+    DuplicateBoundaryAccount { account_id: AccountId },
 }
 
 impl fmt::Display for ShardLayoutError {
@@ -256,11 +257,32 @@ impl ShardLayout {
         Self::V2(ShardLayoutV2::derive(base_shard_layout, new_boundary_account))
     }
 
+    /// Derive a new V3 shard layout from an existing one.
+    ///
+    /// If the base layout is already V3, derivation uses its existing split history.
+    ///
+    /// Otherwise, `get_layout_history` is called to reconstruct the split history.
+    /// The layout history is expected to be ordered from newest to oldest.
+    ///
+    /// Returns an error if `self` is `ShardLayoutV0` (cannot derive) or if `new_boundary_account`
+    /// already exists.
     pub fn derive_v3(
-        base_shard_layout: &Self,
+        &self,
         new_boundary_account: AccountId,
+        get_layout_history: impl FnOnce() -> Vec<Self>,
     ) -> Result<Self, ShardLayoutError> {
-        let v3 = ShardLayoutV3::derive(base_shard_layout, new_boundary_account)?;
+        let v3 = match self {
+            Self::V0(_) => return Err(ShardLayoutError::CannotDeriveLayout),
+            Self::V1(_) | Self::V2(_) => {
+                let layout_history = get_layout_history();
+                ShardLayoutV3::derive_with_layout_history(
+                    self,
+                    new_boundary_account,
+                    &layout_history,
+                )?
+            }
+            Self::V3(v3) => ShardLayoutV3::derive(v3, new_boundary_account)?,
+        };
         Ok(Self::V3(v3))
     }
 

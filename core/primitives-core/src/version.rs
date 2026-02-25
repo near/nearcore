@@ -348,9 +348,30 @@ pub enum ProtocolFeature {
     /// Apply PromiseYield receipts immediately after emitting them. Allows to perform the resume
     /// sooner, without waiting for the PromiseYield receipt to pass through outgoing receipts.
     InstantPromiseYield,
+    /// Improve functionality of Yield/Resume. Keep the current status of yielded receipt in the
+    /// trie state. Allows to call yield and resume in two actions within the same transaction.
+    /// Keeping the status in the state could allow to query it from contracts.
+    YieldResumeImprovements,
     /// Includes tokens burnt as part of global contract deploys into corresponding
     /// execution outcome's `tokens_burnt`.
     IncludeDeployGlobalContractOutcomeBurntStorage,
+    /// Fix deterministic account ID creation to allow creation by any incoming transfer
+    /// (unless it's a refund) and fix `account_is_implicit()` to correctly check if
+    /// deterministic account IDs are enabled.
+    /// NEP: https://github.com/near/NEPs/pull/616
+    FixDeterministicAccountIdCreation,
+    /// Nonce-based idempotency for global contract distribution receipts. Each
+    /// distribution carries an auto-incremented nonce. Any distribution receipt
+    /// with a nonce less than the one already stored will be dropped. This
+    /// prevents race conditions in the case of multiple distribution attempts
+    /// for the same contract.
+    GlobalContractDistributionNonce,
+    /// Use global contract for ETH implicit accounts instead of embedded WASM.
+    EthImplicitGlobalContract,
+    /// Process action receipts containing a single DeleteAccount action as
+    /// instant receipts, executing them immediately after the receipt that
+    /// produced them rather than sending them as outgoing receipts.
+    InstantDeleteAccount,
 }
 
 impl ProtocolFeature {
@@ -452,26 +473,28 @@ impl ProtocolFeature {
             ProtocolFeature::InvalidTxGenerateOutcomes
             | ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen
             | ProtocolFeature::FixAccessKeyAllowanceCharging
-            | ProtocolFeature::IncludeDeployGlobalContractOutcomeBurntStorage => 83,
+            | ProtocolFeature::IncludeDeployGlobalContractOutcomeBurntStorage
+            | ProtocolFeature::FixDeterministicAccountIdCreation
+            | ProtocolFeature::GlobalContractDistributionNonce
+            | ProtocolFeature::InstantPromiseYield
+            | ProtocolFeature::YieldResumeImprovements
+            | ProtocolFeature::EthImplicitGlobalContract
+            | ProtocolFeature::InstantDeleteAccount => 83,
             ProtocolFeature::Wasmtime => 84,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
-            ProtocolFeature::InstantPromiseYield => 130,
-            ProtocolFeature::ContinuousEpochSync => 131,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::GasKeys => 149,
+            ProtocolFeature::DynamicResharding => 150,
+            ProtocolFeature::ContinuousEpochSync => 151,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,
-
             // Place features that are not yet in Nightly below this line.
-            // TODO(dynamic_resharding): This should be 152, but some resharding tests bump
-            //     protocol version to trigger resharding and accidentally turn on this feature
-            ProtocolFeature::DynamicResharding => 252,
         }
     }
 
@@ -490,7 +513,7 @@ pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 80;
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 84;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 151;
 
 // TODO(spice): Once spice is mature and close to release make it part of nightly - at the point in
 // time cargo feature for spice should be removed as well.

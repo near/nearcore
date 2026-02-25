@@ -457,7 +457,7 @@ fn record_execution_results(actor: &TestActor, block: &Block, state_root: Crypto
 }
 
 fn test_starting_state_root(actor: &TestActor) -> CryptoHash {
-    get_genesis_state_roots(&actor.chain_store.store()).unwrap().unwrap()[0]
+    get_genesis_state_roots(&actor.chain_store.store()).unwrap()[0]
 }
 
 fn simulate_chunk_application(
@@ -491,7 +491,6 @@ fn simulate_chunk_application(
             {
                 let is_new_chunk = true;
                 Chain::get_apply_chunk_block_context(&block, prev_block.header(), is_new_chunk)
-                    .unwrap()
             },
             &TEST_RECEIPTS,
             transactions,

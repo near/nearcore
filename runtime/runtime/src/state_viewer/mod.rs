@@ -166,22 +166,21 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Vec<Nonce>, errors::ViewAccessKeyError> {
-        // TODO(gas-keys): Optimize this by iterating with a prefix instead of querying individually.
+    ) -> Result<Vec<Nonce>, errors::ViewGasKeyNoncesError> {
         let access_key =
             get_access_key(state_update, account_id, public_key)?.ok_or_else(|| {
-                errors::ViewAccessKeyError::AccessKeyDoesNotExist { public_key: public_key.clone() }
+                errors::ViewGasKeyNoncesError::GasKeyDoesNotExist { public_key: public_key.clone() }
             })?;
         // If the access key is not a gas key, treat as not found.
         let Some(gas_key_info) = access_key.gas_key_info() else {
-            return Err(errors::ViewAccessKeyError::AccessKeyDoesNotExist {
+            return Err(errors::ViewGasKeyNoncesError::GasKeyDoesNotExist {
                 public_key: public_key.clone(),
             });
         };
         (0..gas_key_info.num_nonces)
             .map(|index| {
                 get_gas_key_nonce(state_update, account_id, public_key, index)?.ok_or_else(|| {
-                errors::ViewAccessKeyError::InternalError {
+                errors::ViewGasKeyNoncesError::InternalError {
                     error_message: format!(
                         "gas key nonce at index {} does not exist for account {} and public key {}",
                         index, account_id, public_key
@@ -305,6 +304,7 @@ impl TrieViewer {
             Arc::clone(config),
             apply_state.cache.as_ref().map(|v| v.handle()),
             state_update.contract_storage(),
+            epoch_info_provider.chain_id(),
         );
         let view_config = Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view });
         let code_hash = account.contract().into_owned().hash(&state_update)?;

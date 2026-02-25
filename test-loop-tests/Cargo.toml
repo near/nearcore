@@ -13,17 +13,26 @@ workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true
+aurora-engine-transactions.workspace = true
+aurora-engine-types.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
 derive_builder.workspace = true
+ethabi.workspace = true
 futures.workspace = true
+hex.workspace = true
 itertools.workspace = true
 parking_lot.workspace = true
+primitive-types.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
+rlp.workspace = true
+axum.workspace = true
 serde_json.workspace = true
+sha3.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
+tower-service.workspace = true
 tracing.workspace = true
 
 near-async.workspace = true
@@ -37,6 +46,7 @@ near-epoch-manager.workspace = true
 near-external-storage.workspace = true
 near-indexer.workspace = true
 near-jsonrpc.workspace = true
+near-jsonrpc-primitives.workspace = true
 near-network.workspace = true
 near-o11y.workspace = true
 near-parameters.workspace = true
@@ -45,6 +55,7 @@ near-primitives-core.workspace = true
 near-store.workspace = true
 near-test-contracts.workspace = true
 near-vm-runner.workspace = true
+near-wallet-contract.workspace = true
 nearcore.workspace = true
 testlib.workspace = true
 

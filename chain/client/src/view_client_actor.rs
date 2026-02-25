@@ -355,7 +355,7 @@ impl ViewClientActor {
         Ok(windows)
     }
 
-    fn handle_query(&self, msg: Query) -> Result<QueryResponse, QueryError> {
+    pub fn handle_query(&self, msg: Query) -> Result<QueryResponse, QueryError> {
         let header = self.get_block_header_by_reference(&msg.block_reference);
         let header = match header {
             Ok(Some(header)) => Ok(header),
@@ -436,6 +436,11 @@ impl ViewClientActor {
                     block_height,
                     block_hash,
                 } => QueryError::UnknownAccessKey { public_key, block_height, block_hash },
+                near_chain_primitives::error::QueryError::UnknownGasKey {
+                    public_key,
+                    block_height,
+                    block_hash,
+                } => QueryError::UnknownGasKey { public_key, block_height, block_hash },
                 near_chain::near_chain_primitives::error::QueryError::ContractExecutionError {
                     error_message,
                     error,
@@ -650,8 +655,7 @@ impl ViewClientActor {
                     Ok(TxStatusView { execution_outcome: Some(res), status })
                 }
                 Err(near_chain::Error::DBNotFoundErr(_)) => {
-                    if let Ok(Some(transaction)) = self.chain.chain_store.get_transaction(&tx_hash)
-                    {
+                    if let Some(transaction) = self.chain.chain_store.get_transaction(&tx_hash) {
                         let transaction =
                             SignedTransactionView::from(Arc::unwrap_or_clone(transaction));
                         if let Ok(tx_outcome) = self.chain.get_execution_outcome(&tx_hash) {
@@ -948,7 +952,7 @@ impl Handler<GetStateChangesInBlock, Result<StateChangesKindsView, GetStateChang
         Ok(self
             .chain
             .chain_store()
-            .get_state_changes_in_block(&msg.block_hash)?
+            .get_state_changes_in_block(&msg.block_hash)
             .into_iter()
             .map(Into::into)
             .collect())
@@ -964,7 +968,7 @@ impl Handler<GetStateChanges, Result<StateChangesView, GetStateChangesError>> fo
         Ok(self
             .chain
             .chain_store()
-            .get_state_changes(&msg.block_hash, &msg.state_changes_request.into())?
+            .get_state_changes(&msg.block_hash, &msg.state_changes_request.into())
             .into_iter()
             .map(Into::into)
             .collect())
@@ -986,7 +990,7 @@ impl Handler<GetStateChangesWithCauseInBlock, Result<StateChangesView, GetStateC
         Ok(self
             .chain
             .chain_store()
-            .get_state_changes_with_cause_in_block(&msg.block_hash)?
+            .get_state_changes_with_cause_in_block(&msg.block_hash)
             .into_iter()
             .map(Into::into)
             .collect())
@@ -1010,7 +1014,7 @@ impl
             .with_label_values(&["GetStateChangesWithCauseInBlockForTrackedShards"])
             .start_timer();
         let state_changes_with_cause_in_block =
-            self.chain.chain_store().get_state_changes_with_cause_in_block(&msg.block_hash)?;
+            self.chain.chain_store().get_state_changes_with_cause_in_block(&msg.block_hash);
 
         let mut state_changes_with_cause_split_by_shard_id: HashMap<ShardId, StateChangesView> =
             HashMap::new();
@@ -1209,7 +1213,7 @@ impl Handler<GetReceipt, Result<Option<ReceiptView>, GetReceiptError>> for ViewC
         Ok(self
             .chain
             .chain_store()
-            .get_receipt(&msg.receipt_id)?
+            .get_receipt(&msg.receipt_id)
             .map(|receipt| Receipt::clone(&receipt).into()))
     }
 }
@@ -1452,11 +1456,11 @@ impl Handler<GetSplitStorageInfo, Result<SplitStorageInfoView, GetSplitStorageIn
         tracing::debug!(target: "client", ?msg);
 
         let store = self.chain.chain_store().store();
-        let head = store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
-        let final_head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;
-        let cold_head = store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY)?;
+        let head = store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY);
+        let final_head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY);
+        let cold_head = store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY);
 
-        let hot_db_kind = store.get_db_kind()?.map(|kind| kind.to_string());
+        let hot_db_kind = store.get_db_kind().map(|kind| kind.to_string());
 
         Ok(SplitStorageInfoView {
             head_height: head.map(|tip| tip.height),

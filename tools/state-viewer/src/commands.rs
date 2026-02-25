@@ -27,9 +27,7 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter, proposals_to_epoch_i
 use near_primitives::account::id::AccountId;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::Block;
-use near_primitives::chains::MAINNET;
 use near_primitives::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{ChunkHash, ShardChunk};
@@ -42,7 +40,6 @@ use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::types::{Balance, EpochHeight};
-use near_primitives_core::version::ProtocolFeature;
 use near_store::TrieStorage;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
@@ -582,11 +579,10 @@ pub(crate) fn print_chunk_apply_stats(
         near_config.genesis.config.transaction_validity_period,
     );
     match chain_store.get_chunk_apply_stats(block_hash, &ShardId::new(shard_id)) {
-        Ok(Some(stats)) => println!("{:#?}", stats),
-        Ok(None) => {
+        Some(stats) => println!("{:#?}", stats),
+        None => {
             println!("\nNo stats found for block hash {} and shard {}\n", block_hash, shard_id)
         }
-        Err(e) => eprintln!("Error: {:#?}", e),
     }
 }
 
@@ -857,8 +853,7 @@ pub(crate) fn view_genesis(
 
     if view_config || compare {
         tracing::info!(target: "state_viewer", "computing genesis from config");
-        let state_roots =
-            near_store::get_genesis_state_roots(&chain_store.store()).unwrap().unwrap();
+        let state_roots = near_store::get_genesis_state_roots(&chain_store.store()).unwrap();
         let (genesis_block, genesis_chunks) = Chain::make_genesis_block(
             epoch_manager.as_ref(),
             runtime_adapter.as_ref(),
@@ -1032,13 +1027,8 @@ pub(crate) fn print_epoch_analysis(
     let mut has_same_shard_layout;
     let mut next_next_protocol_version;
 
-    let num_shards = if ProtocolFeature::DynamicResharding.enabled(PROTOCOL_VERSION) {
-        // TODO(dynamic_resharding): adjust number of shards if a shard was marked for splitting
-        let next_epoch_id = epoch_heights_to_ids.get(&next_epoch_info.epoch_height()).unwrap();
-        epoch_manager.get_shard_layout(&next_epoch_id).unwrap().num_shards() as usize
-    } else {
-        next_next_epoch_config.static_shard_layout().num_shards() as usize
-    };
+    let next_epoch_id = epoch_heights_to_ids.get(&next_epoch_info.epoch_height()).unwrap();
+    let num_shards = epoch_manager.get_shard_layout(&next_epoch_id).unwrap().num_shards() as usize;
 
     // Print data header.
     match mode {
@@ -1065,7 +1055,7 @@ pub(crate) fn print_epoch_analysis(
     // Each iteration will generate and print *next next* epoch info based on
     // *next* epoch info for `epoch_height`. This follows epoch generation
     // logic in the protocol.
-    for (epoch_height, _epoch_info) in
+    for (epoch_height, epoch_info) in
         epoch_heights_to_infos.range(min_epoch_height..=max_epoch_height)
     {
         let next_epoch_height = epoch_height.saturating_add(1);
@@ -1075,30 +1065,37 @@ pub(crate) fn print_epoch_analysis(
         let epoch_summary = epoch_heights_to_validator_infos.get(epoch_height).unwrap();
         let original_next_next_protocol_version = epoch_summary.next_next_epoch_version;
         let next_shard_layout = epoch_manager.get_shard_layout(&next_epoch_id).unwrap();
-        let next_next_shard_layout =
-            if ProtocolFeature::DynamicResharding.enabled(original_next_next_protocol_version) {
-                // TODO(dynamic_resharding): adjust layout if a shard was marked for splitting
-                next_shard_layout.clone()
-            } else {
-                next_next_epoch_config.static_shard_layout()
-            };
+        let epoch_protocol_version = epoch_info.protocol_version();
+        let epoch_config = epoch_manager.get_epoch_config(epoch_protocol_version);
+        let block_info = epoch_manager.get_block_info(&next_next_epoch_id.0).unwrap();
 
         match mode {
             EpochAnalysisMode::CheckConsistency => {
-                // Retrieve remaining parameters from the stored information
-                // about epochs.
+                // Retrieve remaining parameters from the stored information about epochs. Must
+                // happen before next_next_shard_layout so it uses the correct config for epoch N+2.
                 next_epoch_info =
                     epoch_heights_to_infos.get(&next_epoch_height).unwrap().as_ref().clone();
-                next_next_epoch_config = epoch_manager.get_epoch_config(
-                    epoch_manager.get_epoch_info(next_next_epoch_id).unwrap().protocol_version(),
-                );
-                has_same_shard_layout = next_shard_layout == next_next_shard_layout;
+                next_next_epoch_config =
+                    epoch_manager.get_epoch_config(original_next_next_protocol_version);
                 next_next_protocol_version = original_next_next_protocol_version;
             }
             EpochAnalysisMode::Backtest => {
-                has_same_shard_layout = true;
                 next_next_protocol_version = PROTOCOL_VERSION;
             }
+        };
+
+        let next_next_shard_layout = epoch_manager
+            .next_next_shard_layout(
+                &epoch_config,
+                epoch_protocol_version,
+                &next_next_epoch_config,
+                &next_shard_layout,
+                &block_info,
+            )
+            .unwrap();
+        has_same_shard_layout = match mode {
+            EpochAnalysisMode::CheckConsistency => next_shard_layout == next_next_shard_layout,
+            EpochAnalysisMode::Backtest => true,
         };
 
         // Use "future" information to generate next next epoch which is stored
@@ -1106,6 +1103,10 @@ pub(crate) fn print_epoch_analysis(
         let stored_next_next_epoch_info =
             epoch_heights_to_infos.get(&next_next_epoch_height).unwrap();
         let rng_seed = stored_next_next_epoch_info.rng_seed();
+
+        let last_resharding = (!has_same_shard_layout)
+            .then_some(next_next_epoch_height)
+            .or_else(|| next_epoch_info.last_resharding());
 
         let next_next_epoch_info = proposals_to_epoch_info(
             &next_next_epoch_config,
@@ -1118,6 +1119,7 @@ pub(crate) fn print_epoch_analysis(
             next_next_protocol_version,
             next_next_shard_layout,
             has_same_shard_layout,
+            last_resharding,
         )
         .unwrap();
 
@@ -1261,11 +1263,11 @@ pub(crate) fn contract_accounts(
     near_config: NearConfig,
     filter: ContractAccountFilter,
 ) -> anyhow::Result<()> {
-    let (_, _runtime, state_roots, _header) = load_trie(store.clone(), home_dir, &near_config);
+    let (epoch_manager, _runtime, state_roots, header) =
+        load_trie(store.clone(), home_dir, &near_config);
+    let shard_layout = epoch_manager.get_shard_layout(header.epoch_id())?;
 
     let tries = state_roots.iter().enumerate().map(|(shard_index, &state_root)| {
-        let epoch_config_store = EpochConfigStore::for_chain_id(MAINNET, None).unwrap();
-        let shard_layout = &epoch_config_store.get_config(PROTOCOL_VERSION).static_shard_layout();
         let shard_uid = shard_layout.get_shard_uid(shard_index).unwrap();
         // Use simple non-caching storage, we don't expect many duplicate lookups while iterating.
         let storage = TrieDBStorage::new(store.trie_store(), shard_uid);
@@ -1304,7 +1306,7 @@ pub(crate) fn contract_accounts(
 pub(crate) fn clear_cache(store: Store) {
     let mut store_update = store.store_update();
     store_update.delete_all(DBCol::CachedContractCode);
-    store_update.commit().unwrap();
+    store_update.commit();
 }
 
 /// Prints the state statistics for all shards. Please note that it relies on
@@ -1434,9 +1436,6 @@ fn get_state_stats_group_by<'a>(
         .iter()
         .map(|(type_byte, _)| chunk_view.iter_range(Some(&[*type_byte]), Some(&[*type_byte + 1])))
         .into_iter();
-
-    // Filter out any errors.
-    let type_iters = type_iters.map(|type_iter| type_iter.filter_map(|item| item.ok())).into_iter();
 
     // Read the values from and convert items to StateStatsStateRecord.
     let type_iters = type_iters

@@ -304,7 +304,7 @@ impl ReplayController {
         };
 
         let block_context =
-            Chain::get_apply_chunk_block_context(block, prev_block.header(), is_new_chunk)?;
+            Chain::get_apply_chunk_block_context(block, prev_block.header(), is_new_chunk);
 
         let update_reason = if is_new_chunk {
             let receipts = self.collect_incoming_receipts(
@@ -426,11 +426,13 @@ impl ReplayController {
     fn update_epoch_manager(&self, block: &Block) -> Result<()> {
         let last_finalized_height =
             self.chain_store.get_block_height(block.header().last_final_block())?;
+        let current_protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
         let store_update = self.epoch_manager.add_validator_proposals(
-            BlockInfo::from_header(block.header(), last_finalized_height),
+            BlockInfo::from_header(block.header(), last_finalized_height, current_protocol_version),
             *block.header().random_value(),
         )?;
-        let _ = store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 
@@ -477,7 +479,7 @@ impl ReplayController {
     /// Note that there are no chunks in the genesis block, so we directly generate the ChunkExtras
     /// from the information in the genesis block without applying any transactions or receipts.
     fn save_genesis_chunk_extras(&mut self, genesis_block: &Block) -> Result<()> {
-        let state_roots = get_genesis_state_roots(&self.chain_store.store())?
+        let state_roots = get_genesis_state_roots(&self.chain_store.store())
             .ok_or_else(|| anyhow!("genesis state roots do not exist in the db".to_owned()))?;
         let mut store_update = self.chain_store.store_update();
         Chain::save_genesis_chunk_extras(

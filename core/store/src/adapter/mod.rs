@@ -17,7 +17,7 @@ use crate::{Store, StoreUpdate};
 /// store_update.set_foo("bar");
 /// some_large_update_function(&mut store_update);
 ///
-/// store_update.commit()?;
+/// store_update.commit();
 /// ```
 /// Now with StoreAdapters, store could be of any of the type of the adapters, example `FlatStoreAdapter`.
 /// In that case, we expect the above pattern to look similar, however we would expect calls to
@@ -33,13 +33,13 @@ use crate::{Store, StoreUpdate};
 /// // Pattern 1: reference to store_update
 /// let store_update: StoreUpdate = store.store_update();
 /// update_flat_store(&mut store_update.flat_store_update());
-/// store_update.commit()?;
+/// store_update.commit();
 ///
 /// // Pattern 2: owned store_update
 /// let flat_store: FlatStoreAdapter = store.flat_store();
 /// let flat_store_update: FlatStoreUpdateAdapter<'static> = flat_store.store_update();
 /// update_flat_store(&mut flat_store_update);
-/// flat_store_update.commit()?;
+/// flat_store_update.commit();
 /// ```
 ///
 /// To make both these patterns possible, where in pattern 1, flat_store_update holds a reference to store_update

@@ -89,7 +89,7 @@ fn test_maybe_open_state_snapshot_file_not_exist() {
     let snapshot_hash = CryptoHash::new();
     let mut store_update = test_env.shard_tries.store_update();
     store_update.set_state_snapshot_hash(Some(snapshot_hash));
-    store_update.commit().unwrap();
+    store_update.commit();
     let result =
         test_env.shard_tries.maybe_open_state_snapshot(|_| Ok(vec![(0, ShardUId::single_shard())]));
     assert!(result.is_err());
@@ -107,7 +107,7 @@ fn test_maybe_open_state_snapshot_garbage_snapshot() {
     let snapshot_hash = CryptoHash::new();
     let mut store_update = test_env.shard_tries.store_update();
     store_update.set_state_snapshot_hash(Some(snapshot_hash));
-    store_update.commit().unwrap();
+    store_update.commit();
     let snapshot_path =
         ShardTries::get_state_snapshot_base_dir(&snapshot_hash, &test_env.state_snapshots_dir);
     if let Some(parent) = Path::new(&snapshot_path).parent() {
@@ -262,7 +262,7 @@ fn slow_test_make_state_snapshot() {
     // check that if the entry in DBCol::STATE_SNAPSHOT_KEY was missing while snapshot file exists, an overwrite of snapshot can succeed
     let mut store_update = state_snapshot_test_env.shard_tries.store_update();
     store_update.set_state_snapshot_hash(None);
-    store_update.commit().unwrap();
+    store_update.commit();
     let head = env.clients[0].chain.head().unwrap();
     let head_block_hash = head.last_block_hash;
     let head_block = env.clients[0].chain.get_block(&head_block_hash).unwrap();

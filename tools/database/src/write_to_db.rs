@@ -48,11 +48,12 @@ impl WriteCryptoHashCommand {
                         DBCol::BlockMisc,
                         near_store::STATE_SNAPSHOT_KEY,
                         &self.hash,
-                    )?;
+                    );
                 }
             },
         }
 
-        Ok(store_update.commit()?)
+        store_update.commit();
+        Ok(())
     }
 }

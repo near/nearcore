@@ -425,7 +425,7 @@ impl<'a> StoreOpener<'a> {
 
                 let db = opener.create()?;
                 let store = Store::new(Arc::new(db));
-                store.set_db_version(DB_VERSION)?;
+                store.set_db_version(DB_VERSION);
                 return Ok(());
             }
             None => {
@@ -446,7 +446,7 @@ impl<'a> StoreOpener<'a> {
         tracing::debug!(target: "db_opener", path = %opener.path.display(), archive, which, "ensure db kind is correct and set");
         let store = Self::open_store_unsafe(mode, opener)?;
 
-        let current_kind = store.get_db_kind()?;
+        let current_kind = store.get_db_kind();
         let default_kind = get_default_kind(archive, temp);
         let err =
             Err(StoreOpenerError::DbKindMismatch { which, got: current_kind, want: default_kind });
@@ -466,7 +466,7 @@ impl<'a> StoreOpener<'a> {
         if mode.read_write() {
             tracing::info!(target: "db_opener", archive, which, ?default_kind, "setting the db kind");
 
-            store.set_db_kind(default_kind)?;
+            store.set_db_kind(default_kind);
             return Ok(());
         }
 
@@ -574,9 +574,9 @@ impl<'a> StoreOpener<'a> {
                 .map_err(StoreOpenerError::MigrationError)?;
 
             // Update versions in both stores
-            hot_store.set_db_version(version + 1)?;
+            hot_store.set_db_version(version + 1);
             if let Some(ref cold) = cold_db {
-                cold.as_store().set_db_version(version + 1)?;
+                cold.as_store().set_db_version(version + 1);
             }
         }
 
@@ -586,11 +586,11 @@ impl<'a> StoreOpener<'a> {
             tracing::info!(target: "db_opener", %version, "setting the database version for nightly");
 
             let hot_store = Self::open_store(mode, hot_opener, DB_VERSION)?;
-            hot_store.set_db_version(version)?;
+            hot_store.set_db_version(version);
 
             if let Some(cold_opener) = cold_opener {
                 let cold_store = Self::open_store(mode, cold_opener, DB_VERSION)?;
-                cold_store.set_db_version(version)?;
+                cold_store.set_db_version(version);
             }
         }
 
@@ -656,7 +656,7 @@ impl<'a> DBOpener<'a> {
     /// Use [`Self::create`] to create a new database.
     fn open(&self, mode: Mode, want_version: DbVersion) -> std::io::Result<(RocksDB, DbMetadata)> {
         let db = RocksDB::open(&self.path, &self.config, mode, self.temp)?;
-        let metadata = DbMetadata::read(&db)?;
+        let metadata = DbMetadata::read(&db);
         if want_version != metadata.version {
             let msg = format!("unexpected DbVersion {}; expected {want_version}", metadata.version);
             Err(std::io::Error::other(msg))
@@ -813,7 +813,7 @@ mod tests {
         let (home_dir, opener) = NodeStorage::test_opener();
         let node_storage = opener.open().unwrap();
         let hot_store = Store::new(node_storage.hot_storage.clone());
-        assert_eq!(hot_store.get_db_kind().unwrap(), Some(DbKind::RPC));
+        assert_eq!(hot_store.get_db_kind(), Some(DbKind::RPC));
 
         let keys = vec![vec![0], vec![1], vec![2], vec![3]];
         let columns = vec![DBCol::Block, DBCol::Chunks, DBCol::BlockHeader];
@@ -824,7 +824,7 @@ mod tests {
                 store_update.insert(column, key.clone(), vec![42]);
             }
         }
-        store_update.commit().unwrap();
+        store_update.commit();
 
         let store = checkpoint_hot_storage_and_cleanup_columns(
             &hot_store,

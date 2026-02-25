@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use near_async::messaging::{IntoMultiSender, IntoSender, Sender};
 use near_async::test_loop::data::TestLoopDataHandle;
@@ -19,6 +19,7 @@ use near_client::{
     ViewClientActor,
 };
 use near_jsonrpc::ViewClientSenderForRpc;
+use near_jsonrpc::client::{JsonRpcClient, RpcTransport};
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::PartialWitnessSenderForNetwork;
@@ -97,6 +98,25 @@ pub struct NodeExecutionData {
     pub cold_store_sender: Option<TestLoopSender<ColdStoreActor>>,
     pub cloud_storage_sender: TestLoopDataHandle<Option<Arc<CloudStorage>>>,
     pub cloud_archival_writer_handle: TestLoopDataHandle<Option<CloudArchivalWriterHandle>>,
+    pub jsonrpc_transport: Arc<dyn RpcTransport>,
+    /// Extra blocks of delay between consensus head and execution head.
+    /// Set by delay_endorsements_propagation to account for certification delay in timeouts.
+    /// It is Arc<_> so updates are visible through clones.
+    pub(super) expected_execution_delay: Arc<AtomicU64>,
+}
+
+impl NodeExecutionData {
+    pub fn expected_execution_delay(&self) -> u64 {
+        self.expected_execution_delay.load(Ordering::Relaxed)
+    }
+
+    pub fn set_expected_execution_delay(&self, delay: u64) {
+        self.expected_execution_delay.store(delay, Ordering::Relaxed);
+    }
+
+    pub fn jsonrpc_client(&self) -> JsonRpcClient {
+        JsonRpcClient::new_with_transport(self.jsonrpc_transport.clone())
+    }
 }
 
 impl From<&NodeExecutionData> for AccountId {
