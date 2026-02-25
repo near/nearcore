@@ -1451,36 +1451,62 @@ impl<T: ChainAccess> TxMirror<T> {
             })?;
         for ch in source_block.chunks {
             for (idx, source_tx) in ch.transactions.into_iter().enumerate() {
-                self.add_tx_function_call_keys(
-                    &source_tx,
-                    MappedTxProvenance::TxCreateAccount(create_account_height, ch.shard_id, idx),
-                    create_account_height,
-                    &ref_hash,
-                    tracker,
-                    tx_block_queue,
-                    target_view_client,
-                    txs,
-                )
-                .await?
+                if let Err(err) = self
+                    .add_tx_function_call_keys(
+                        &source_tx,
+                        MappedTxProvenance::TxCreateAccount(
+                            create_account_height,
+                            ch.shard_id,
+                            idx,
+                        ),
+                        create_account_height,
+                        &ref_hash,
+                        tracker,
+                        tx_block_queue,
+                        target_view_client,
+                        txs,
+                    )
+                    .await
+                {
+                    tracing::warn!(
+                        target: "mirror",
+                        ?err,
+                        source_height = create_account_height,
+                        shard_id = %ch.shard_id,
+                        tx_hash = %source_tx.hash(),
+                        "failed to add tx function call keys for create account",
+                    );
+                }
             }
             for (idx, receipt) in ch.receipts.iter().enumerate() {
                 // TODO: we're scanning the list of receipts for each block twice. Once here and then again
                 // when we queue that height's txs. Prob not a big deal but could fix that.
-                self.add_receipt_function_call_keys(
-                    receipt,
-                    MappedTxProvenance::ReceiptCreateAccount(
+                if let Err(err) = self
+                    .add_receipt_function_call_keys(
+                        receipt,
+                        MappedTxProvenance::ReceiptCreateAccount(
+                            create_account_height,
+                            ch.shard_id,
+                            idx,
+                        ),
                         create_account_height,
-                        ch.shard_id,
-                        idx,
-                    ),
-                    create_account_height,
-                    &ref_hash,
-                    tracker,
-                    tx_block_queue,
-                    target_view_client,
-                    txs,
-                )
-                .await?;
+                        &ref_hash,
+                        tracker,
+                        tx_block_queue,
+                        target_view_client,
+                        txs,
+                    )
+                    .await
+                {
+                    tracing::warn!(
+                        target: "mirror",
+                        ?err,
+                        source_height = create_account_height,
+                        shard_id = %ch.shard_id,
+                        receipt_idx = idx,
+                        "failed to add receipt function call keys for create account",
+                    );
+                }
             }
         }
         Ok(())
@@ -1509,7 +1535,20 @@ impl<T: ChainAccess> TxMirror<T> {
 
             for (idx, source_tx) in ch.transactions.into_iter().enumerate() {
                 let (actions, nonce_updates) =
-                    self.map_actions(target_view_client, &source_tx).await?;
+                    match self.map_actions(target_view_client, &source_tx).await {
+                        Ok(x) => x,
+                        Err(err) => {
+                            tracing::warn!(
+                                target: "mirror",
+                                ?err,
+                                source_height = source_height,
+                                shard_id = %ch.shard_id,
+                                tx_hash = %source_tx.hash(),
+                                "failed to map actions for source tx, skipping",
+                            );
+                            continue;
+                        }
+                    };
                 if actions.is_empty() {
                     // If this is a tx containing only stake actions, skip it.
                     continue;
@@ -1528,7 +1567,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     self.secret.as_ref(),
                 );
 
-                let target_tx = self
+                let target_tx = match self
                     .prepare_tx(
                         tracker,
                         tx_block_queue,
@@ -1544,32 +1583,68 @@ impl<T: ChainAccess> TxMirror<T> {
                         MappedTxProvenance::MappedSourceTx(source_height, ch.shard_id, idx),
                         nonce_updates,
                     )
-                    .await?;
+                    .await
+                {
+                    Ok(tx) => tx,
+                    Err(err) => {
+                        tracing::warn!(
+                            target: "mirror",
+                            ?err,
+                            source_height = source_height,
+                            shard_id = %ch.shard_id,
+                            tx_hash = %source_tx.hash(),
+                            "failed to prepare target tx, skipping",
+                        );
+                        continue;
+                    }
+                };
                 txs.push(target_tx);
-                self.add_tx_function_call_keys(
-                    &source_tx,
-                    MappedTxProvenance::TxAddKey(source_height, ch.shard_id, idx),
-                    source_height,
-                    &ref_hash,
-                    tracker,
-                    tx_block_queue,
-                    target_view_client,
-                    &mut txs,
-                )
-                .await?;
+                if let Err(err) = self
+                    .add_tx_function_call_keys(
+                        &source_tx,
+                        MappedTxProvenance::TxAddKey(source_height, ch.shard_id, idx),
+                        source_height,
+                        &ref_hash,
+                        tracker,
+                        tx_block_queue,
+                        target_view_client,
+                        &mut txs,
+                    )
+                    .await
+                {
+                    tracing::warn!(
+                        target: "mirror",
+                        ?err,
+                        source_height = source_height,
+                        shard_id = %ch.shard_id,
+                        tx_hash = %source_tx.hash(),
+                        "failed to add tx function call keys",
+                    );
+                }
             }
             for (idx, r) in ch.receipts.iter().enumerate() {
-                self.add_receipt_function_call_keys(
-                    r,
-                    MappedTxProvenance::ReceiptAddKey(source_height, ch.shard_id, idx),
-                    source_height,
-                    &ref_hash,
-                    tracker,
-                    tx_block_queue,
-                    target_view_client,
-                    &mut txs,
-                )
-                .await?;
+                if let Err(err) = self
+                    .add_receipt_function_call_keys(
+                        r,
+                        MappedTxProvenance::ReceiptAddKey(source_height, ch.shard_id, idx),
+                        source_height,
+                        &ref_hash,
+                        tracker,
+                        tx_block_queue,
+                        target_view_client,
+                        &mut txs,
+                    )
+                    .await
+                {
+                    tracing::warn!(
+                        target: "mirror",
+                        ?err,
+                        source_height = source_height,
+                        shard_id = %ch.shard_id,
+                        receipt_idx = idx,
+                        "failed to add receipt function call keys",
+                    );
+                }
             }
             tracing::trace!(
                 target: "mirror",
@@ -1584,15 +1659,25 @@ impl<T: ChainAccess> TxMirror<T> {
             if !chunks.is_empty() {
                 // just add them to shard 0's transactions instead of caring about which one to put it in. Doesn't really
                 // matter since in the end we're just sending all of them
-                self.add_create_account_txs(
-                    create_account_height,
-                    ref_hash,
-                    tracker,
-                    tx_block_queue,
-                    target_view_client,
-                    &mut chunks[0].txs,
-                )
-                .await?;
+                if let Err(err) = self
+                    .add_create_account_txs(
+                        create_account_height,
+                        ref_hash,
+                        tracker,
+                        tx_block_queue,
+                        target_view_client,
+                        &mut chunks[0].txs,
+                    )
+                    .await
+                {
+                    tracing::warn!(
+                        target: "mirror",
+                        ?err,
+                        source_height = source_height,
+                        create_account_height = create_account_height,
+                        "failed to add create account txs",
+                    );
+                }
             } else {
                 // shouldn't happen
                 tracing::warn!(
