@@ -54,15 +54,15 @@ impl TryFrom<crate::models::Operation> for FunctionCallOperation {
         let method_name = metadata.method_name.ok_or_else(required_fields_error)?;
         let args = metadata.args.ok_or_else(required_fields_error)?.into_inner();
         let attached_gas = metadata.attached_gas.ok_or_else(required_fields_error)?;
-        let attached_gas = if attached_gas.is_positive() {
+        let attached_gas = if attached_gas.is_non_negative() {
             near_primitives::types::Gas::from_gas(attached_gas.absolute_difference())
         } else {
             return Err(crate::errors::ErrorKind::InvalidInput(
-                "FUNCTION_CALL operation requires `attached_gas` to be positive".into(),
+                "FUNCTION_CALL operation requires `attached_gas` to be non-negative".into(),
             ));
         };
         let attached_amount = if let Some(ref attached_amount) = operation.amount {
-            if !attached_amount.value.is_positive() {
+            if !attached_amount.value.is_non_negative() {
                 return Err(crate::errors::ErrorKind::InvalidInput(
                     "FUNCTION_CALL operations must have non-negative `amount`".to_string(),
                 ));

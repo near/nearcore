@@ -673,7 +673,7 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                     let receiver_transfer_operation =
                         validated_operations::TransferOperation::try_from(tail_operation)?;
                     receiver_account_id.try_set(&receiver_transfer_operation.account)?;
-                    if !receiver_transfer_operation.amount.value.is_positive() {
+                    if !receiver_transfer_operation.amount.value.is_non_negative() {
                         return Err(crate::errors::ErrorKind::InvalidInput(
                             "Receiver TRANSFER operations must have positive `amount`".to_string(),
                         ));
@@ -772,7 +772,7 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                                 "Currency of TRANSFER has to be NEAR".to_string(),
                             ));
                         }
-                        if transfer_operation.amount.value.is_positive()
+                        if transfer_operation.amount.value.is_non_negative()
                             || Balance::from_yoctonear(
                                 transfer_operation.amount.value.absolute_difference(),
                             ) != function_call_operation.attached_amount
