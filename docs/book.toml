@@ -1,11 +1,13 @@
 [book]
 language = "en"
-multilingual = false
 src = "."
 title = "Guide to Nearcore Development"
 
 [preprocessor.katex]
 after = ["links"]
+
+[preprocessor.mermaid]
+command = "mdbook-mermaid"
 
 [build]
 # Let's re-use the existing target dir for all build artifacts.
@@ -14,3 +16,4 @@ build-dir = "../target/book"
 [output.html]
 git-repository-url = "https://github.com/near/nearcore/tree/master/docs"
 edit-url-template = "https://github.com/near/nearcore/edit/master/docs/{path}"
+additional-js = ["mermaid.min.js", "mermaid-init.js"]

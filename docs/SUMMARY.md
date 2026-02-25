@@ -93,6 +93,7 @@
   - [Parameter Definitions](./architecture/gas/parameter_definition.md)
   - [Gas Profile](./architecture/gas/gas_profile.md)
   - [Runtime Parameter Estimator](./architecture/gas/estimator.md)
+- [ZK Analysis](./architecture/near_transaction_execution_zk_analysis.md)
 
 # Practices
 
