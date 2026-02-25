@@ -2162,7 +2162,7 @@ pub fn create_jsonrpc_app(
             epoch_manager,
             tracked_shards_config,
             peers_config,
-            Duration::from_secs(pool_forward_timeout_secs),
+            std::time::Duration::from_secs(pool_forward_timeout_secs),
         ))
     });
 

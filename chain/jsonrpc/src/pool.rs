@@ -8,7 +8,7 @@ use near_chain_configs::TrackedShardsConfig;
 use near_epoch_manager::EpochManagerAdapter;
 use near_jsonrpc_client_internal::JsonRpcClient;
 use near_jsonrpc_primitives::errors::RpcError;
-use near_jsonrpc_primitives::message::{Message, from_slice};
+use near_jsonrpc_primitives::message::Message;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::AccountId;
@@ -31,26 +31,9 @@ pub trait RpcNodeHandle: Send + Sync {
 impl RpcNodeHandle for JsonRpcClient {
     fn forward(&self, request: &Message) -> BoxFut<'_, Result<Value, RpcError>> {
         let request = request.clone();
+        let transport = self.transport.clone();
         Box::pin(async move {
-            let response = self
-                .client
-                .post(&self.server_addr)
-                .header("Content-Type", "application/json")
-                .header("X-Near-Pool-Forwarded", "true")
-                .json(&request)
-                .send()
-                .await
-                .map_err(|err| {
-                    RpcError::new_internal_error(None, format!("Pool forward error: {}", err))
-                })?;
-
-            let bytes = response.bytes().await.map_err(|err| {
-                RpcError::new_internal_error(None, format!("Pool forward payload error: {}", err))
-            })?;
-
-            let message = from_slice(&bytes).map_err(|_| {
-                RpcError::parse_error("Pool forward: invalid JSON-RPC response".to_string())
-            })?;
+            let message = transport.send_jsonrpc_request(request).await?;
 
             match message {
                 Message::Response(resp) => resp.result,
@@ -355,7 +338,10 @@ pub fn build_pool(
 ) -> RpcPool {
     let get_shard_layout = Box::new(move || {
         epoch_manager
-            .get_shard_layout_from_protocol_version(near_primitives::version::PROTOCOL_VERSION)
+            .get_static_shard_layout_for_protocol_version(
+                near_primitives::version::PROTOCOL_VERSION,
+            )
+            .expect("shard layout must exist for current protocol version")
     });
 
     let http_client = Client::builder()

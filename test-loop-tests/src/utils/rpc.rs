@@ -78,5 +78,7 @@ pub(crate) fn create_testloop_jsonrpc_router(
         #[cfg(feature = "test_features")]
         gc_actor_sender.clone().into_multi_sender(),
         entity_debug_handler,
+        None,
+        None,
     )
 }
