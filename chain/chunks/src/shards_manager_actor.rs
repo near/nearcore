@@ -1248,6 +1248,19 @@ impl ShardsManagerActor {
             self.validate_part(forward.merkle_root, part_info, num_total_parts)?;
         }
 
+        // If ChunkProducers DB entry isn't available yet, treat as transient.
+        // The caller caches the forward and retries later.
+        if !self
+            .epoch_manager
+            .is_chunk_producer_info_in_db(&forward.prev_block_hash, forward.shard_id)
+        {
+            return Err(DBNotFoundErr(format!(
+                "chunk producer not ready for block {:?}",
+                forward.prev_block_hash
+            ))
+            .into());
+        }
+
         // check signature
         let valid_signature = verify_chunk_header_signature_with_epoch_manager_and_parts(
             self.epoch_manager.as_ref(),
