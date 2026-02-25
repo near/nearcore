@@ -42,15 +42,18 @@ CLIPPY_JOB = "Clippy"
 # ---------------------------------------------------------------------------
 
 
-def progress(msg, end="\n"):
+def progress(message, end="\n"):
     """Print a progress message to stderr."""
-    print(msg, file=sys.stderr, end=end, flush=True)
+    print(message, file=sys.stderr, end=end, flush=True)
 
 
-def progress_item(i, total, label):
+def progress_item(index, total, label):
     """Print a progress counter like [3/10] label..."""
-    print(f"\r  [{i}/{total}] {label}...", file=sys.stderr, end="", flush=True)
-    if i == total:
+    print(f"\r  [{index}/{total}] {label}...",
+          file=sys.stderr,
+          end="",
+          flush=True)
+    if index == total:
         print(file=sys.stderr)
 
 
@@ -88,12 +91,12 @@ def gh_api(endpoint, paginate=False):
                 pos += 1
             if pos >= len(text):
                 break
-            obj, end = decoder.raw_decode(text, pos)
+            obj, next_pos = decoder.raw_decode(text, pos)
             if isinstance(obj, list):
                 arrays.extend(obj)
             else:
                 arrays.append(obj)
-            pos = end
+            pos = next_pos
         return arrays
     return json.loads(text)
 
@@ -112,13 +115,13 @@ def fetch_workflow_runs(workflow_file, days, per_page=100):
         if not batch:
             progress(f" {len(runs)} runs total")
             break
-        for r in batch:
-            created = datetime.fromisoformat(r["created_at"].replace(
+        for run in batch:
+            created = datetime.fromisoformat(run["created_at"].replace(
                 "Z", "+00:00"))
             if created < cutoff:
                 progress(f" {len(runs)} runs total")
                 return runs
-            runs.append(r)
+            runs.append(run)
         if len(batch) < per_page:
             progress(f" {len(runs)} runs total")
             break
@@ -137,8 +140,8 @@ def fetch_jobs(run_id):
 def extract_pr_number(run):
     """Extract PR number from the merge queue branch name."""
     branch = run.get("head_branch", "")
-    m = re.search(r"/pr-(\d+)-", branch)
-    return int(m.group(1)) if m else None
+    match = re.search(r"/pr-(\d+)-", branch)
+    return int(match.group(1)) if match else None
 
 
 # ---------------------------------------------------------------------------
@@ -164,16 +167,16 @@ def _init_nayduck_index():
             progress(f"  warning: Nayduck API returned {resp.status_code}")
             return
         runs = resp.json()
-    except Exception as e:
-        progress(f"  warning: Nayduck API error: {e}")
+    except Exception as exception:
+        progress(f"  warning: Nayduck API error: {exception}")
         return
 
-    for r in runs:
-        sha = r.get("sha", "")
+    for run in runs:
+        sha = run.get("sha", "")
         if sha:
-            _nayduck_sha_to_id.setdefault(sha, r["run_id"])
+            _nayduck_sha_to_id.setdefault(sha, run["run_id"])
     if runs:
-        _nayduck_min_id = min(r["run_id"] for r in runs)
+        _nayduck_min_id = min(run["run_id"] for run in runs)
     progress(
         f"  indexed {len(_nayduck_sha_to_id)} runs (oldest id={_nayduck_min_id})"
     )
@@ -233,9 +236,9 @@ def resolve_nayduck_run_id(gh_run):
     sha = gh_run.get("head_sha", "")
     if not sha:
         return None
-    nay_id = _nayduck_sha_to_id.get(sha)
-    if nay_id:
-        return nay_id
+    nayduck_id = _nayduck_sha_to_id.get(sha)
+    if nayduck_id:
+        return nayduck_id
     return _extend_nayduck_index(sha)
 
 
@@ -249,8 +252,10 @@ def fetch_nayduck_results(nayduck_run_id):
         progress(
             f"  warning: Nayduck API returned {resp.status_code} for run {nayduck_run_id}"
         )
-    except Exception as e:
-        progress(f"  warning: Nayduck API error for run {nayduck_run_id}: {e}")
+    except Exception as exception:
+        progress(
+            f"  warning: Nayduck API error for run {nayduck_run_id}: {exception}"
+        )
     return None
 
 
@@ -261,38 +266,38 @@ def fetch_nayduck_results(nayduck_run_id):
 
 def classify_ci_failure(jobs):
     """Classify a CI workflow failure. Returns a category string."""
-    failed_jobs = [j for j in jobs if j.get("conclusion") == "failure"]
+    failed_jobs = [job for job in jobs if job.get("conclusion") == "failure"]
     if not failed_jobs:
         return "unknown"
-    names = [j["name"] for j in failed_jobs]
+    names = [job["name"] for job in failed_jobs]
     # Cargo audit is not a required check but still shows as failure.
-    if all(CARGO_AUDIT_JOB in n for n in names):
+    if all(CARGO_AUDIT_JOB in name for name in names):
         return "cargo_audit"
-    if all(COVERAGE_JOB in n for n in names):
+    if all(COVERAGE_JOB in name for name in names):
         return "coverage_cascade"
     if len(failed_jobs) >= 4:
         # When nearly all jobs fail simultaneously it's likely infra.
         return "infra"
-    for n in names:
-        if NEXTEST_JOB in n:
+    for name in names:
+        if NEXTEST_JOB in name:
             return "nextest"
-        if CLIPPY_JOB in n:
+        if CLIPPY_JOB in name:
             return "clippy"
-    if any(COVERAGE_JOB in n for n in names):
+    if any(COVERAGE_JOB in name for name in names):
         return "coverage_cascade"
     return "other"
 
 
 def classify_nayduck_failure(jobs):
     """Classify a CI Nayduck tests workflow failure."""
-    failed_jobs = [j for j in jobs if j.get("conclusion") == "failure"]
-    names = [j["name"] for j in failed_jobs]
+    failed_jobs = [job for job in jobs if job.get("conclusion") == "failure"]
+    names = [job["name"] for job in failed_jobs]
     categories = []
-    for n in names:
-        nl = n.lower()
-        if "nayduck" in nl:
+    for name in names:
+        name_lower = name.lower()
+        if "nayduck" in name_lower:
             categories.append("nayduck_flaky")
-        elif "pytest" in nl:
+        elif "pytest" in name_lower:
             categories.append("large_pytest_flaky")
         else:
             categories.append("other")
@@ -319,139 +324,145 @@ def build_report(days, verbose=False):
         "details": [],
     }
 
-    for wf_name, wf_file in WORKFLOWS.items():
-        progress(f"Fetching {wf_name} runs ({wf_file})...")
-        runs = fetch_workflow_runs(wf_file, days)
+    for workflow_name, workflow_file in WORKFLOWS.items():
+        progress(f"Fetching {workflow_name} runs ({workflow_file})...")
+        runs = fetch_workflow_runs(workflow_file, days)
         counts = defaultdict(int)
-        for r in runs:
-            counts[r["conclusion"] or "in_progress"] += 1
+        for run in runs:
+            counts[run["conclusion"] or "in_progress"] += 1
 
-        report["workflows"][wf_name] = {
+        report["workflows"][workflow_name] = {
             "total": len(runs),
             "conclusions": dict(counts),
             "runs": runs,
         }
 
         # Track PR merge-queue attempts.
-        for r in runs:
-            pr = extract_pr_number(r)
-            if pr is None:
+        for run in runs:
+            pr_number = extract_pr_number(run)
+            if pr_number is None:
                 continue
-            branch = r.get("head_branch", "")
-            report["pr_attempts"].setdefault(pr, set())
-            report["pr_attempts"][pr].add(branch)
+            branch = run.get("head_branch", "")
+            report["pr_attempts"].setdefault(pr_number, set())
+            report["pr_attempts"][pr_number].add(branch)
 
     # --- Fetch jobs for all failed runs across all workflows ---
-    for wf_name in WORKFLOWS:
-        wf_data = report["workflows"].get(wf_name, {})
-        wf_runs = wf_data.get("runs", [])
-        wf_failures = [r for r in wf_runs if r.get("conclusion") == "failure"]
-        if not wf_failures:
+    for workflow_name in WORKFLOWS:
+        workflow_data = report["workflows"].get(workflow_name, {})
+        workflow_runs = workflow_data.get("runs", [])
+        workflow_failures = [
+            run for run in workflow_runs if run.get("conclusion") == "failure"
+        ]
+        if not workflow_failures:
             continue
         progress(
-            f"Fetching jobs for {len(wf_failures)} failed {wf_name} runs...")
-        for i, r in enumerate(wf_failures, 1):
-            pr = extract_pr_number(r)
-            progress_item(i, len(wf_failures), f"PR #{pr or '?'}")
-            jobs = fetch_jobs(r["id"])
+            f"Fetching jobs for {len(workflow_failures)} failed {workflow_name} runs..."
+        )
+        for index, run in enumerate(workflow_failures, 1):
+            pr_number = extract_pr_number(run)
+            progress_item(index, len(workflow_failures),
+                          f"PR #{pr_number or '?'}")
+            jobs = fetch_jobs(run["id"])
 
             # Per-job failure tracking.
             failed_names = []
-            for j in jobs:
-                if j.get("conclusion") == "failure":
-                    report["job_failures"][wf_name][j["name"]] += 1
-                    failed_names.append(j["name"])
+            for job in jobs:
+                if job.get("conclusion") == "failure":
+                    report["job_failures"][workflow_name][job["name"]] += 1
+                    failed_names.append(job["name"])
 
             # CI-specific classification.
-            if wf_name == "CI":
-                cat = classify_ci_failure(jobs)
-                report["ci_failure_categories"][cat] += 1
+            if workflow_name == "CI":
+                category = classify_ci_failure(jobs)
+                report["ci_failure_categories"][category] += 1
                 if verbose:
                     report["details"].append({
                         "workflow": "CI",
-                        "run_id": r["id"],
-                        "pr": pr,
-                        "conclusion": r["conclusion"],
-                        "category": cat,
+                        "run_id": run["id"],
+                        "pr": pr_number,
+                        "conclusion": run["conclusion"],
+                        "category": category,
                         "failed_jobs": failed_names,
-                        "created_at": r["created_at"],
+                        "created_at": run["created_at"],
                     })
 
             # Nayduck-specific: get individual test failures.
-            elif wf_name == "CI Nayduck tests":
-                cats = classify_nayduck_failure(jobs)
-                for cat in cats:
-                    report["ci_failure_categories"][cat] += 1
-                for j in jobs:
-                    name_lower = j["name"].lower()
-                    if j.get("conclusion"
-                            ) == "failure" and "nayduck" in name_lower:
-                        nay_id = resolve_nayduck_run_id(r)
-                        if nay_id:
-                            nay_data = fetch_nayduck_results(nay_id)
-                            if nay_data:
-                                for t in nay_data.get("tests", []):
-                                    if t.get("status") == "FAILED":
+            elif workflow_name == "CI Nayduck tests":
+                categories = classify_nayduck_failure(jobs)
+                for category in categories:
+                    report["ci_failure_categories"][category] += 1
+                for job in jobs:
+                    name_lower = job["name"].lower()
+                    if job.get("conclusion"
+                              ) == "failure" and "nayduck" in name_lower:
+                        nayduck_run_id = resolve_nayduck_run_id(run)
+                        if nayduck_run_id:
+                            nayduck_data = fetch_nayduck_results(nayduck_run_id)
+                            if nayduck_data:
+                                for test in nayduck_data.get("tests", []):
+                                    if test.get("status") == "FAILED":
                                         report["nayduck_failed_tests"][
-                                            t["name"]] += 1
-                    elif j.get("conclusion"
-                              ) == "failure" and "pytest" in name_lower:
-                        for step in j.get("steps", []):
+                                            test["name"]] += 1
+                    elif job.get("conclusion"
+                                ) == "failure" and "pytest" in name_lower:
+                        for step in job.get("steps", []):
                             if step.get("conclusion") == "failure":
                                 report["large_pytest_failures"][
                                     step["name"]] += 1
                 if verbose:
                     report["details"].append({
                         "workflow": "CI Nayduck tests",
-                        "run_id": r["id"],
-                        "pr": pr,
-                        "conclusion": r["conclusion"],
-                        "categories": cats,
+                        "run_id": run["id"],
+                        "pr": pr_number,
+                        "conclusion": run["conclusion"],
+                        "categories": categories,
                         "failed_jobs": failed_names,
-                        "created_at": r["created_at"],
+                        "created_at": run["created_at"],
                     })
 
             # Benchmarks or other workflows.
             elif verbose:
                 report["details"].append({
-                    "workflow": wf_name,
-                    "run_id": r["id"],
-                    "pr": pr,
-                    "conclusion": r["conclusion"],
+                    "workflow": workflow_name,
+                    "run_id": run["id"],
+                    "pr": pr_number,
+                    "conclusion": run["conclusion"],
                     "failed_jobs": failed_names,
-                    "created_at": r["created_at"],
+                    "created_at": run["created_at"],
                 })
             time.sleep(0.15)
 
     # --- Nayduck hidden flakiness (retry data from successful + failed runs) ---
-    nay_runs = report["workflows"].get("CI Nayduck tests", {}).get("runs", [])
-    completed_nay = [
-        r for r in nay_runs if r.get("conclusion") in ("success", "failure")
+    nayduck_runs = report["workflows"].get("CI Nayduck tests",
+                                           {}).get("runs", [])
+    completed_nayduck = [
+        run for run in nayduck_runs
+        if run.get("conclusion") in ("success", "failure")
     ]
     progress(
-        f"Fetching retry data for {len(completed_nay)} completed Nayduck runs..."
+        f"Fetching retry data for {len(completed_nayduck)} completed Nayduck runs..."
     )
     nayduck_run_count = 0
-    for i, r in enumerate(completed_nay, 1):
-        pr = extract_pr_number(r)
-        nay_id = resolve_nayduck_run_id(r)
-        if not nay_id:
-            progress_item(i, len(completed_nay),
-                          f"PR #{pr or '?'} (no nayduck match)")
+    for index, run in enumerate(completed_nayduck, 1):
+        pr_number = extract_pr_number(run)
+        nayduck_run_id = resolve_nayduck_run_id(run)
+        if not nayduck_run_id:
+            progress_item(index, len(completed_nayduck),
+                          f"PR #{pr_number or '?'} (no nayduck match)")
             continue
-        progress_item(i, len(completed_nay),
-                      f"PR #{pr or '?'} (nayduck #{nay_id})")
-        nay_data = fetch_nayduck_results(nay_id)
-        if not nay_data:
+        progress_item(index, len(completed_nayduck),
+                      f"PR #{pr_number or '?'} (nayduck #{nayduck_run_id})")
+        nayduck_data = fetch_nayduck_results(nayduck_run_id)
+        if not nayduck_data:
             continue
         nayduck_run_count += 1
-        for t in nay_data.get("tests", []):
-            tries = t.get("tries", 1)
+        for test in nayduck_data.get("tests", []):
+            tries = test.get("tries", 1)
             if tries > 1:
-                report["nayduck_retry_tests"][t["name"]] += 1
+                report["nayduck_retry_tests"][test["name"]] += 1
         time.sleep(0.1)
     progress(
-        f"  successfully fetched {nayduck_run_count}/{len(completed_nay)} Nayduck runs"
+        f"  successfully fetched {nayduck_run_count}/{len(completed_nayduck)} Nayduck runs"
     )
     report["nayduck_sampled_runs"] = nayduck_run_count
 
@@ -459,10 +470,12 @@ def build_report(days, verbose=False):
 
     # Convert sets/defaultdict for JSON serialization.
     report["pr_attempts"] = {
-        str(pr): len(branches) for pr, branches in report["pr_attempts"].items()
+        str(pr_number): len(branches)
+        for pr_number, branches in report["pr_attempts"].items()
     }
     report["job_failures"] = {
-        wf: dict(jobs) for wf, jobs in report["job_failures"].items()
+        workflow: dict(jobs)
+        for workflow, jobs in report["job_failures"].items()
     }
     report["ci_failure_categories"] = dict(report["ci_failure_categories"])
     report["nayduck_failed_tests"] = dict(report["nayduck_failed_tests"])
@@ -470,8 +483,8 @@ def build_report(days, verbose=False):
     report["large_pytest_failures"] = dict(report["large_pytest_failures"])
 
     # Remove raw run data before returning.
-    for wf in report["workflows"].values():
-        del wf["runs"]
+    for workflow in report["workflows"].values():
+        del workflow["runs"]
 
     return report
 
@@ -492,10 +505,10 @@ def print_text_report(report):
     print("## Workflow Runs\n")
     for name, data in report["workflows"].items():
         total = data["total"]
-        c = data["conclusions"]
-        success = c.get("success", 0)
-        failure = c.get("failure", 0)
-        cancelled = c.get("cancelled", 0)
+        conclusions = data["conclusions"]
+        success = conclusions.get("success", 0)
+        failure = conclusions.get("failure", 0)
+        cancelled = conclusions.get("cancelled", 0)
         rate = f"{success/total*100:.0f}%" if total else "N/A"
         print(f"  {name}: {total} runs  ({rate} success)")
         print(
@@ -506,44 +519,47 @@ def print_text_report(report):
     job_failures = report.get("job_failures", {})
     if job_failures:
         print("## Job Failure Rates\n")
-        for wf_name, jobs in job_failures.items():
-            wf_data = report["workflows"].get(wf_name, {})
-            c = wf_data["conclusions"]
-            completed = c.get("success", 0) + c.get("failure", 0)
-            print(f"  {wf_name} ({completed} completed runs):")
+        for workflow_name, jobs in job_failures.items():
+            workflow_data = report["workflows"].get(workflow_name, {})
+            conclusions = workflow_data["conclusions"]
+            completed = conclusions.get("success", 0) + conclusions.get(
+                "failure", 0)
+            print(f"  {workflow_name} ({completed} completed runs):")
             for job, count in sorted(jobs.items(), key=lambda x: -x[1]):
-                pct = f"{count/completed*100:.0f}%" if completed else "?"
-                print(f"    {count:3d} ({pct:>4s})  {job}")
+                percent = f"{count/completed*100:.0f}%" if completed else "?"
+                print(f"    {count:3d} ({percent:>4s})  {job}")
             print()
 
     # PR attempt stats
     attempts = report["pr_attempts"]
     if attempts:
         total_prs = len(attempts)
-        first_try = sum(1 for v in attempts.values() if v == 1)
-        multi = sum(1 for v in attempts.values() if v > 1)
-        avg = sum(attempts.values()) / total_prs
+        first_try = sum(1 for value in attempts.values() if value == 1)
+        requeued = sum(1 for value in attempts.values() if value > 1)
+        average = sum(attempts.values()) / total_prs
         print("## Merge Queue Reliability\n")
         print(f"  PRs seen:                {total_prs}")
         print(
             f"  First-attempt merges:    {first_try} ({first_try/total_prs*100:.0f}%)"
         )
         print(
-            f"  Re-queued PRs:           {multi} ({multi/total_prs*100:.0f}%)")
-        print(f"  Avg attempts per PR:     {avg:.2f}")
-        if multi:
+            f"  Re-queued PRs:           {requeued} ({requeued/total_prs*100:.0f}%)"
+        )
+        print(f"  Avg attempts per PR:     {average:.2f}")
+        if requeued:
             worst = sorted(attempts.items(), key=lambda x: -x[1])[:5]
             print(
-                f"  Worst PRs:               {', '.join(f'#{pr}({n}x)' for pr, n in worst)}"
+                f"  Worst PRs:               {', '.join(f'#{pr_number}({count}x)' for pr_number, count in worst)}"
             )
         print()
 
     # CI failure categories
-    cats = report["ci_failure_categories"]
-    if cats:
+    failure_categories = report["ci_failure_categories"]
+    if failure_categories:
         print("## Failure Categories\n")
-        for cat, count in sorted(cats.items(), key=lambda x: -x[1]):
-            print(f"  {cat:25s} {count}")
+        for category, count in sorted(failure_categories.items(),
+                                      key=lambda x: -x[1]):
+            print(f"  {category:25s} {count}")
         print()
 
     # Nayduck failed tests (caused ejections)
@@ -555,10 +571,11 @@ def print_text_report(report):
         print()
 
     # Large pytest failures
-    lp = report["large_pytest_failures"]
-    if lp:
+    large_pytest_failures = report["large_pytest_failures"]
+    if large_pytest_failures:
         print("## Large pytest Failures\n")
-        for name, count in sorted(lp.items(), key=lambda x: -x[1]):
+        for name, count in sorted(large_pytest_failures.items(),
+                                  key=lambda x: -x[1]):
             print(f"  {count}x  {name}")
         print()
 
@@ -577,13 +594,15 @@ def print_text_report(report):
     details = report.get("details", [])
     if details:
         print("## Detailed Failures\n")
-        for d in details:
-            pr = d.get("pr", "?")
-            print(f"  [{d['created_at'][:10]}] PR #{pr}  run={d['run_id']}")
+        for detail in details:
+            pr_number = detail.get("pr", "?")
             print(
-                f"    workflow={d['workflow']}  category={d.get('category') or d.get('categories')}"
+                f"  [{detail['created_at'][:10]}] PR #{pr_number}  run={detail['run_id']}"
             )
-            print(f"    failed_jobs={d.get('failed_jobs', [])}")
+            print(
+                f"    workflow={detail['workflow']}  category={detail.get('category') or detail.get('categories')}"
+            )
+            print(f"    failed_jobs={detail.get('failed_jobs', [])}")
         print()
 
 
