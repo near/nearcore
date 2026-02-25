@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::iter::repeat_n;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use rand::Rng as _;
@@ -35,6 +36,12 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
 use near_store::adapter::StoreAdapter as _;
 
+// Each pendin chunk is up to ~80MB in the worst case (17MB witness + 64MB contracts). This results
+// in a max of ~2GB of memory used for pending chunks.
+// On the other hand if the validator follows 8 shards this means 3 pending chunks per shard on
+// average, so we do not want to drop below that.
+const MAX_PENDING_CHUNKS: usize = 24;
+
 pub struct SpiceChunkValidatorActor {
     chain_store: ChainStore,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -50,7 +57,7 @@ pub struct SpiceChunkValidatorActor {
     validation_spawner: Arc<dyn AsyncComputationSpawner>,
 
     /// Per-chunk state for witnesses waiting on contract bytes.
-    pending_chunks: HashMap<SpiceChunkId, PendingChunkParts>,
+    pending_chunks: lru::LruCache<SpiceChunkId, PendingChunkParts>,
 }
 
 /// Tracks the state of a chunk that is waiting on contract bytes and/or its witness.
@@ -60,6 +67,7 @@ struct PendingChunkParts {
     /// Some(non-empty) = still waiting for these contracts.
     missing: Option<HashSet<CodeHash>>,
     /// Contract bytes collected so far (from code responses).
+    /// TODO(spice),TODO(pipelining): This is not strictly needed, as we could send the contracts for compilation/caching as they arrive without waiting for all of them + witness to be present.
     contracts: Vec<CodeBytes>,
     /// The witness, if it has arrived.
     witness: Option<SpiceChunkStateWitness>,
@@ -106,7 +114,7 @@ impl SpiceChunkValidatorActor {
             core_reader,
             core_writer_sender,
             validation_spawner: validation_spawner.into_spawner(validation_thread_limit),
-            pending_chunks: HashMap::new(),
+            pending_chunks: lru::LruCache::new(NonZeroUsize::new(MAX_PENDING_CHUNKS).unwrap()),
         }
     }
 }
@@ -214,11 +222,9 @@ impl SpiceChunkValidatorActor {
             }
             WitnessProcessingReadiness::Ready(_) => {
                 // Block ready: store witness in pending_chunks and try to finalize.
-                let entry = self
-                    .pending_chunks
-                    .entry(chunk_id.clone())
-                    .or_insert_with(PendingChunkParts::new);
-                entry.witness = Some(witness);
+                self.pending_chunks
+                    .get_or_insert_mut(chunk_id.clone(), PendingChunkParts::new)
+                    .witness = Some(witness);
                 self.try_finalize_chunk(&chunk_id, signer)
             }
         }
@@ -287,9 +293,9 @@ impl SpiceChunkValidatorActor {
                 ?prev_hash,
                 ?chunk_id,
                 "processing ready pending state witness");
-            let entry =
-                self.pending_chunks.entry(chunk_id.clone()).or_insert_with(PendingChunkParts::new);
-            entry.witness = Some(witness);
+            self.pending_chunks
+                .get_or_insert_mut(chunk_id.clone(), PendingChunkParts::new)
+                .witness = Some(witness);
             self.try_finalize_chunk(&chunk_id, signer.clone())?;
         }
         Ok(())
@@ -386,9 +392,6 @@ impl SpiceChunkValidatorActor {
         let runtime_config = self.runtime_adapter.get_runtime_config(protocol_version);
         let cache = self.runtime_adapter.compiled_contract_cache();
 
-        let entry =
-            self.pending_chunks.entry(chunk_id.clone()).or_insert_with(PendingChunkParts::new);
-
         let mut missing = HashSet::new();
         for code_hash in accesses.contracts() {
             if crate::stateless_validation::contracts_cache_contains_contract(
@@ -421,7 +424,8 @@ impl SpiceChunkValidatorActor {
             ));
         }
 
-        entry.missing = Some(missing);
+        self.pending_chunks.get_or_insert_mut(chunk_id.clone(), PendingChunkParts::new).missing =
+            Some(missing);
 
         let signer = self
             .validator_signer
@@ -482,7 +486,7 @@ impl SpiceChunkValidatorActor {
         chunk_id: &SpiceChunkId,
         signer: Arc<ValidatorSigner>,
     ) -> Result<(), Error> {
-        let can_finalize = match self.pending_chunks.get(chunk_id) {
+        let can_finalize = match self.pending_chunks.peek(chunk_id) {
             None => false,
             Some(entry) => {
                 entry.witness.is_some()
@@ -496,14 +500,14 @@ impl SpiceChunkValidatorActor {
 
         // Remove entry so we own the data and avoid borrow conflicts.
         let PendingChunkParts { missing: _, contracts, witness } =
-            self.pending_chunks.remove(chunk_id).unwrap();
+            self.pending_chunks.pop(chunk_id).unwrap();
         let mut witness = witness.unwrap();
 
         // Check block readiness.
         match self.witness_processing_readiness(&witness)? {
             WitnessProcessingReadiness::NotReady => {
                 // Put it back — block isn't ready yet.
-                self.pending_chunks.insert(
+                self.pending_chunks.put(
                     chunk_id.clone(),
                     PendingChunkParts {
                         missing: Some(HashSet::new()),
