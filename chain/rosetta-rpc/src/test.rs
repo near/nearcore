@@ -199,6 +199,7 @@ pub async fn test_gas_key_changes_to_transactions(
                 signature: near_crypto::Signature::default(),
                 hash: gas_prepay_tx_hash,
                 nonce_index: None,
+                nonce_mode: None,
             },
         )]),
     );
