@@ -236,10 +236,6 @@ pub(crate) fn map_records<P: AsRef<Path>>(
                     index: *index,
                     nonce: *nonce,
                 };
-                // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
-                if account_id.get_account_type() != AccountType::NearImplicitAccount {
-                    has_full_key.insert(account_id.clone());
-                }
                 records_seq.serialize_element(&new_record).unwrap();
             }
             StateRecord::Account { account_id, .. } => {
@@ -299,10 +295,11 @@ pub(crate) fn map_records<P: AsRef<Path>>(
 #[cfg(test)]
 mod test {
     use near_crypto::{KeyType, SecretKey};
-    use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
+    use near_primitives::account::{AccessKeyPermission, FunctionCallPermission, GasKeyInfo};
     use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
+    use near_primitives::state_record::StateRecord;
     use near_primitives::transaction::{Action, AddKeyAction, CreateAccountAction};
     use near_primitives::types::Balance;
     use near_primitives_core::account::AccessKey;
@@ -475,5 +472,112 @@ mod test {
         assert_eq!(receipt0, want_receipt0);
         crate::genesis::map_receipt(&mut receipt1, None, &default_key);
         assert_eq!(receipt1, want_receipt1);
+    }
+
+    /// Write `records` as JSON, run `map_records(no_secret=true)`, return the output records.
+    fn run_map_records(records: &[StateRecord]) -> Vec<StateRecord> {
+        let dir = tempfile::tempdir().unwrap();
+        let records_in = dir.path().join("records_in.json");
+        let records_out = dir.path().join("records_out.json");
+        let secret_out = dir.path().join("secret");
+
+        std::fs::write(&records_in, serde_json::to_string(records).unwrap()).unwrap();
+        crate::genesis::map_records(&records_in, &records_out, true, &secret_out).unwrap();
+
+        let out_bytes = std::fs::read(&records_out).unwrap();
+        serde_json::from_slice(&out_bytes).unwrap()
+    }
+
+    fn has_default_full_access_key(records: &[StateRecord]) -> bool {
+        let default_key = crate::key_mapping::default_extra_key(None).public_key();
+        records.iter().any(|r| match r {
+            StateRecord::AccessKey { public_key, access_key, .. } => {
+                *public_key == default_key
+                    && access_key.permission == AccessKeyPermission::FullAccess
+            }
+            _ => false,
+        })
+    }
+
+    #[test]
+    fn test_map_records_gas_key_nonce() {
+        let public_key = SecretKey::from_seed(KeyType::ED25519, "gas-key").public_key();
+        let mapped_public_key = crate::key_mapping::map_key(&public_key, None).public_key();
+        let records = vec![
+            StateRecord::Account {
+                account_id: "alice.near".parse().unwrap(),
+                account: near_primitives::test_utils::account_new(
+                    Balance::from_yoctonear(1_000_000),
+                    near_primitives::hash::CryptoHash::default(),
+                ),
+            },
+            StateRecord::GasKeyNonce {
+                account_id: "alice.near".parse().unwrap(),
+                public_key,
+                index: 3,
+                nonce: 42,
+            },
+        ];
+        let out = run_map_records(&records);
+        let gas_key_record = out
+            .iter()
+            .find(|r| matches!(r, StateRecord::GasKeyNonce { .. }))
+            .expect("GasKeyNonce record should be present in output");
+        let StateRecord::GasKeyNonce { account_id, public_key, index, nonce } = gas_key_record
+        else {
+            unreachable!()
+        };
+        assert_eq!(account_id.as_str(), "alice.near");
+        assert_eq!(*public_key, mapped_public_key);
+        assert_eq!(*index, 3);
+        assert_eq!(*nonce, 42);
+        // GasKeyNonce record should not suppress adding a full default access
+        // key for mirror purposes.
+        assert!(has_default_full_access_key(&out));
+    }
+
+    #[test]
+    fn test_map_records_gas_key_access_key_gets_default_key() {
+        let public_key = SecretKey::from_seed(KeyType::ED25519, "gas-key").public_key();
+        let mapped_public_key = crate::key_mapping::map_key(&public_key, None).public_key();
+        let records = vec![
+            StateRecord::Account {
+                account_id: "bob.near".parse().unwrap(),
+                account: near_primitives::test_utils::account_new(
+                    Balance::from_yoctonear(1_000_000),
+                    near_primitives::hash::CryptoHash::default(),
+                ),
+            },
+            StateRecord::AccessKey {
+                account_id: "bob.near".parse().unwrap(),
+                public_key,
+                access_key: AccessKey::gas_key_full_access(4),
+            },
+        ];
+        let out = run_map_records(&records);
+        let gas_key_record = out
+            .iter()
+            .find(|r| match r {
+                StateRecord::AccessKey { access_key, .. } => {
+                    matches!(access_key.permission, AccessKeyPermission::GasKeyFullAccess(_))
+                }
+                _ => false,
+            })
+            .expect("GasKeyFullAccess access key should be in output");
+        let StateRecord::AccessKey { account_id, public_key, access_key } = gas_key_record else {
+            unreachable!()
+        };
+        assert_eq!(account_id.as_str(), "bob.near");
+        assert_eq!(*public_key, mapped_public_key);
+        assert_eq!(
+            access_key.permission,
+            AccessKeyPermission::GasKeyFullAccess(GasKeyInfo {
+                balance: Balance::from_yoctonear(0),
+                num_nonces: 4,
+            }),
+        );
+        // GasKeyFullAccess record should not suppress adding a full default access
+        // key for mirror purposes.
+        assert!(has_default_full_access_key(&out));
     }
 }

@@ -118,6 +118,9 @@ impl RpcFrom<QueryError> for RpcQueryError {
             QueryError::UnknownAccessKey { public_key, block_height, block_hash } => {
                 Self::UnknownAccessKey { public_key, block_height, block_hash }
             }
+            QueryError::UnknownGasKey { public_key, block_height, block_hash } => {
+                Self::UnknownGasKey { public_key, block_height, block_hash }
+            }
             QueryError::ContractExecutionError { vm_error, error, block_height, block_hash } => {
                 Self::ContractExecutionError { vm_error, error, block_height, block_hash }
             }

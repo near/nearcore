@@ -37,6 +37,12 @@ pub enum QueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
+    #[error("Gas key for public key {public_key} does not exist while viewing")]
+    UnknownGasKey {
+        public_key: near_crypto::PublicKey,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
     #[error("Internal error occurred: {error_message}")]
     InternalError {
         error_message: String,
@@ -202,6 +208,12 @@ pub enum Error {
     /// Invalid bandwidth requests
     #[error("Invalid bandwidth requests - chunk extra doesn't match chunk header: {0}")]
     InvalidBandwidthRequests(String),
+    /// Invalid proposed_split in chunk header
+    #[error("Invalid proposed_split in chunk header: {0}")]
+    InvalidChunkHeaderShardSplit(String),
+    /// Invalid shard_split in block header
+    #[error("Invalid shard_split in block header: {0}")]
+    InvalidBlockHeaderShardSplit(String),
     /// Invalid shard id
     #[error("Shard id {0} does not exist")]
     InvalidShardId(ShardId),
@@ -343,6 +355,8 @@ impl Error {
             | Error::InvalidTotalSupply
             | Error::InvalidCongestionInfo(_)
             | Error::InvalidBandwidthRequests(_)
+            | Error::InvalidChunkHeaderShardSplit(_)
+            | Error::InvalidBlockHeaderShardSplit(_)
             | Error::InvalidShardId(_)
             | Error::InvalidShardIndex(_)
             | Error::NoParentShardId(_)
@@ -427,6 +441,8 @@ impl Error {
             Error::InvalidTotalSupply => "invalid_total_supply",
             Error::InvalidCongestionInfo(_) => "invalid_congestion_info",
             Error::InvalidBandwidthRequests(_) => "invalid_bandwidth_requests",
+            Error::InvalidChunkHeaderShardSplit(_) => "invalid_chunk_header_shard_split",
+            Error::InvalidBlockHeaderShardSplit(_) => "invalid_block_header_shard_split",
             Error::InvalidShardId(_) => "invalid_shard_id",
             Error::InvalidShardIndex(_) => "invalid_shard_index",
             Error::NoParentShardId(_) => "no_parent_shard_id",
@@ -476,6 +492,7 @@ impl From<ShardLayoutError> for Error {
             }
             ShardLayoutError::NoParent { shard_id } => Error::NoParentShardId(shard_id),
             ShardLayoutError::CannotDeriveLayout => Error::CannotDeriveLayout,
+            ShardLayoutError::DuplicateBoundaryAccount { .. } => Error::CannotDeriveLayout,
         }
     }
 }

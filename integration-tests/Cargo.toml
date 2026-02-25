@@ -66,7 +66,6 @@ testlib.workspace = true
 near-primitives = { workspace = true, features = ["clock", "solomon", "rand"] }
 aurora-engine-transactions.workspace = true
 aurora-engine-types.workspace = true
-derive_builder.workspace = true
 ethabi.workspace = true
 insta.workspace = true
 near-state-viewer.workspace = true
@@ -74,7 +73,7 @@ near-undo-block.workspace = true
 rlp.workspace = true
 sha3.workspace = true
 regex.workspace = true
-rand_chacha.workspace = true
+reed-solomon-erasure.workspace = true
 
 [features]
 test_features = [

@@ -97,7 +97,11 @@ where
         },
         Err(err) => match err.kind() {
             std::io::ErrorKind::NotFound => {
-                tracing::info!(target: "neard", ?err, ?path, "reset the config because the config file doesn't exist");
+                tracing::info!(
+                    target: "neard",
+                    path = %path.display(),
+                    "config file does not exist → resetting to defaults"
+                );
                 Ok(None)
             }
             _ => Err(UpdatableConfigLoaderError::OpenAndRead { file: path.to_path_buf(), err }),

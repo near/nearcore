@@ -3,16 +3,30 @@
 ## [unreleased]
 
 ### Protocol Changes
-* Contract gas limit is increased from 300 TGas to 1 PGas.
 * The contract runtime has been upgraded to use the new Wasmtime-based runtime;
 * The contract runtime now allows for bulk memory instructions in Wasm code.
+
+### Non-protocol Changes
+
+## [2.11.0]
+
+### Protocol Changes
+* Contract gas limit is increased from 300 TGas to 1 PGas.
 * Yield/Resume improvements - from now on, calling `promise_yield_resume` after `promise_yield_create` will always work. Previously there were some cases where calling `resume` would fail if called too quickly after `create`. See the [github issue](https://github.com/near/nearcore/issues/14904) for details. Strictly speaking, this could be a breaking change for contracts which expected the resume to fail in these situations, but it shouldn't affect normal use cases.
 * A promise with a single `DeleteAccount` action and no input promises will be executed immediately after the receipt that created it, before any other receipts for this account.
 * ETH implicit accounts now use a globally deployed contract instead of a contract embedded in the neard binary.
+* Invalid transactions now generate execution outcomes, allowing indexers and RPC to report outcomes for all transactions including failed ones.
+* Existing contract code is excluded from chunk state witnesses for deploy-contract and delete-account actions, reducing witness size by using internal trie nodes to check code size instead.
+* Fix access key allowance being incorrectly decremented before validation checks that could fail. Previously, allowance was mutated in-place before storage stake and function call permission checks, so a failed transaction could incorrectly reduce the allowance.
+* Include tokens burnt as part of global contract deploys in the corresponding execution outcome's `tokens_burnt` field.
+* Fix deterministic account ID creation to allow creation by any incoming transfer (unless it's a refund) and correctly check whether the feature is enabled.
+* Add nonce-based idempotency for global contract distribution receipts. Each distribution carries an auto-incremented nonce, and any distribution receipt with a stale nonce is dropped, preventing race conditions during multiple distribution attempts for the same contract.
 
 ### Non-protocol Changes
 * Replace polling for transaction status with event notifications to improve jsonrpc response latency
 * Added a database migration to backfill trie data lost due to a bug in resharding. The migration runs automatically on node startup and takes approximately 5 minutes on an archival node. Non-archival nodes are not affected. ([#15044](https://github.com/near/nearcore/pull/15044))
+* Fix `sandbox_fast_forward` RPC returning success before blocks are actually produced, by tracking target height explicitly instead of relying on the delta field which could be temporarily zero during processing. ([#14899](https://github.com/near/nearcore/pull/14899))
+* Fix `sandbox_patch_state` RPC silently dropping patches when a block was being processed concurrently, by removing an unnecessary `clear()` call that raced with new patches. ([#14893](https://github.com/near/nearcore/pull/14893))
 
 ## [2.10.0]
 
