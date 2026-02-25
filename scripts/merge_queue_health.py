@@ -65,9 +65,16 @@ def gh_api(endpoint, paginate=False):
     if paginate:
         cmd.append("--paginate")
     cmd.append(endpoint)
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        result = subprocess.run(cmd,
+                                capture_output=True,
+                                text=True,
+                                timeout=120)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"gh api timed out for: {endpoint}")
     if result.returncode != 0:
-        raise RuntimeError(f"gh api failed: {result.stderr.strip()}")
+        raise RuntimeError(
+            f"gh api failed for {endpoint}: {result.stderr.strip()}")
     text = result.stdout.strip()
     if not text:
         return []
@@ -125,17 +132,6 @@ def fetch_jobs(run_id):
     endpoint = f"/repos/{REPO}/actions/runs/{run_id}/jobs?per_page=100"
     data = gh_api(endpoint)
     return data.get("jobs", [])
-
-
-def fetch_failed_step(run_id, job_name):
-    """Return the name of the first failed step in a job, or None."""
-    jobs = fetch_jobs(run_id)
-    for job in jobs:
-        if job["name"] == job_name:
-            for step in job.get("steps", []):
-                if step.get("conclusion") == "failure":
-                    return step["name"]
-    return None
 
 
 def extract_pr_number(run):
@@ -245,8 +241,11 @@ def fetch_nayduck_results(nayduck_run_id):
         resp = requests.get(url, timeout=15)
         if resp.status_code == 200:
             return resp.json()
-    except Exception:
-        pass
+        progress(
+            f"  warning: Nayduck API returned {resp.status_code} for run {nayduck_run_id}"
+        )
+    except Exception as e:
+        progress(f"  warning: Nayduck API error for run {nayduck_run_id}: {e}")
     return None
 
 
@@ -378,8 +377,9 @@ def build_report(days, verbose=False):
                 for cat in cats:
                     report["ci_failure_categories"][cat] += 1
                 for j in jobs:
+                    name_lower = j["name"].lower()
                     if j.get("conclusion"
-                            ) == "failure" and "Nayduck" in j["name"]:
+                            ) == "failure" and "nayduck" in name_lower:
                         nay_id = resolve_nayduck_run_id(r)
                         if nay_id:
                             nay_data = fetch_nayduck_results(nay_id)
@@ -389,7 +389,7 @@ def build_report(days, verbose=False):
                                         report["nayduck_failed_tests"][
                                             t["name"]] += 1
                     elif j.get("conclusion"
-                              ) == "failure" and "pytest" in j["name"].lower():
+                              ) == "failure" and "pytest" in name_lower:
                         for step in j.get("steps", []):
                             if step.get("conclusion") == "failure":
                                 report["large_pytest_failures"][
@@ -499,8 +499,8 @@ def print_text_report(report):
         print("## Job Failure Rates\n")
         for wf_name, jobs in job_failures.items():
             wf_data = report["workflows"].get(wf_name, {})
-            completed = wf_data["total"] - wf_data["conclusions"].get(
-                "cancelled", 0)
+            c = wf_data["conclusions"]
+            completed = c.get("success", 0) + c.get("failure", 0)
             print(f"  {wf_name} ({completed} completed runs):")
             for job, count in sorted(jobs.items(), key=lambda x: -x[1]):
                 pct = f"{count/completed*100:.0f}%" if completed else "?"
