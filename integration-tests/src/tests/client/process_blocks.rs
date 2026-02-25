@@ -15,6 +15,7 @@ use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{BlockProcessingArtifact, ChainStore, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, ProtocolVersionCheckConfig};
+use near_client::sync::epoch::EpochSyncRunResult;
 use near_client::test_utils::create_chunk_on_height;
 use near_client::{GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType, Signature};
@@ -1454,7 +1455,7 @@ fn test_reject_block_headers_during_epoch_sync() {
             highest_height,
             &highest_height_peers
         ),
-        Ok(()),
+        Ok(EpochSyncRunResult::Ok),
         "Epoch sync failure"
     );
 
