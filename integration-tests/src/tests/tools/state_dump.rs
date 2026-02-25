@@ -16,7 +16,9 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_record::StateRecord;
+use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
+use near_primitives::types::AccountInfo;
 use near_primitives::types::{Balance, BlockHeight, BlockHeightDelta, NumBlocks, ProtocolVersion};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -33,13 +35,17 @@ fn setup(
     protocol_version: ProtocolVersion,
     test_resharding: bool,
 ) -> (Store, Genesis, TestEnv, NearConfig) {
+    let validators = vec![AccountInfo {
+        account_id: "test0".parse().unwrap(),
+        public_key: create_test_signer("test0").public_key(),
+        amount: TESTING_INIT_STAKE,
+    }];
     let mut genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
         .protocol_version(protocol_version)
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .validators_spec(ValidatorsSpec::raw(validators, 2, 2, 0))
         .add_user_account_simple("test1".parse().unwrap(), Balance::from_near(1_000_000_000))
         .build();
-    genesis.config.num_block_producer_seats = 2;
     genesis.config.use_production_config = test_resharding;
 
     let env = if test_resharding {

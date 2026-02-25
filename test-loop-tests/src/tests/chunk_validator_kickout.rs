@@ -67,7 +67,6 @@ fn run_test_chunk_validator_kickout(accounts: Vec<AccountId>, test_case: TestCas
         ValidatorsSpec::desired_roles(block_and_chunk_producers, chunk_validators_only);
 
     let genesis = TestLoopBuilder::new_genesis_builder()
-        .genesis_height(1)
         .epoch_length(epoch_length)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
