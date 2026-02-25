@@ -7,7 +7,6 @@ use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
 
 pub(crate) mod account;
-pub(crate) mod client_queries;
 pub(crate) mod cloud_archival;
 pub(crate) mod contract_distribution;
 pub(crate) mod loop_action;
