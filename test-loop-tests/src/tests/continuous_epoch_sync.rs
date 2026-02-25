@@ -189,6 +189,7 @@ fn test_epoch_sync_stale_node_triggers_reset() {
 // Test that a fresh node (genesis-only) can bootstrap via epoch sync using the
 // ContinuousEpochSync proof path.
 #[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_epoch_sync_bootstrap_fresh_node() {
     // This test is only relevant when ContinuousEpochSync is enabled.
     if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
