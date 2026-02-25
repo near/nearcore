@@ -57,8 +57,7 @@ nodes[1].kill()
 node0_height, _ = utils.wait_for_blocks(nodes[0], target=TARGET_HEIGHT)
 
 logger.info('Restart node 1')
-nodes[1].start(boot_node=nodes[1])
-time.sleep(3)
+nodes[1].start_with_epoch_sync_restart(boot_node=nodes[1])
 
 start_time = time.time()
 

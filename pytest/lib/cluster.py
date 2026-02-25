@@ -622,6 +622,55 @@ class LocalNode(BaseNode):
             logger.error(
                 '=== failed to start node, rpc is not ready in 10 seconds')
 
+    _EPOCH_SYNC_DATA_RESET_MARKER = '.EPOCH_SYNC_DATA_RESET'
+
+    def start_with_epoch_sync_restart(
+            self,
+            *,
+            boot_node: BootNode = None,
+            extra_env: typing.Dict[str, str] = dict(),
+    ):
+        """Start the node, restarting if it exits for epoch sync data reset.
+
+        With ContinuousEpochSync a stale node writes a data-reset marker and
+        exits, expecting a supervisor to restart it. This method detects the
+        marker and performs that restart.
+
+        Raises RuntimeError if:
+        - The node exits without writing the marker (unexpected crash).
+        - The marker doesn't appear within the timeout (epoch sync didn't
+          trigger).
+        """
+        marker_timeout = 30
+        exit_timeout = 5
+
+        logger.info(
+            f"Starting node {self.ordinal} (expecting epoch sync restart).")
+        cmd = self._get_command_line(self.near_root, self.node_dir, boot_node,
+                                     self.binary_name)
+        self.run_cmd(cmd=cmd, extra_env=extra_env)
+
+        marker_path = os.path.join(self.node_dir, 'data',
+                                   self._EPOCH_SYNC_DATA_RESET_MARKER)
+        deadline = time.time() + marker_timeout
+        while time.time() < deadline:
+            if os.path.exists(marker_path):
+                self._process.wait(timeout=exit_timeout)
+                logger.info(
+                    f'Node {self.ordinal} epoch sync data reset detected, '
+                    f'restarting')
+                self.start(boot_node=boot_node, extra_env=extra_env)
+                return
+            if self._process.poll() is not None:
+                raise RuntimeError(
+                    f'Node {self.ordinal} exited unexpectedly '
+                    f'(no epoch sync data reset marker at {marker_path})')
+            time.sleep(0.5)
+
+        raise RuntimeError(
+            f'Node {self.ordinal} did not trigger epoch sync data reset '
+            f'within {marker_timeout}s (no marker at {marker_path})')
+
     def run_cmd(self, *, cmd: tuple, extra_env: typing.Dict[str, str] = dict()):
 
         env = os.environ.copy()

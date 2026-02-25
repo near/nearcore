@@ -23,7 +23,6 @@ EPOCH_LENGTH = 10
 
 (node_config_dump,
  node_config_sync) = state_sync_lib.get_state_sync_configs_pair()
-node_config_dump["gc_num_epochs_to_keep"] = 100
 
 nodes = start_cluster(
     1, 1, 1, None,
@@ -66,8 +65,7 @@ for signer_key in account_keys:
 cur_height, _ = utils.wait_for_blocks(nodes[0], target=80)
 
 logger.info('restart node1')
-nodes[1].start(boot_node=nodes[1])
+nodes[1].start_with_epoch_sync_restart(boot_node=nodes[1])
 logger.info('node1 restarted')
-time.sleep(3)
 
 utils.wait_for_blocks(nodes[1], target=cur_height)
