@@ -27,7 +27,11 @@ fn slow_test_early_chunk_producer_kickout() {
     init_test_logger();
 
     let epoch_length = 100;
-    let protocol_version = ProtocolFeature::EarlyChunkProducerKickout.protocol_version();
+    let protocol_version = if cfg!(feature = "protocol_feature_spice") {
+        near_primitives::version::PROTOCOL_VERSION
+    } else {
+        ProtocolFeature::EarlyChunkProducerKickout.protocol_version()
+    };
     let shard_layout = ShardLayout::multi_shard(2, 1);
     let validators_spec = create_validators_spec(4, 0);
     let clients = validators_spec_clients(&validators_spec);
@@ -170,7 +174,11 @@ fn slow_test_early_chunk_producer_kickout_safety_valve() {
 
     let epoch_length = 200;
     let num_validators = 4;
-    let protocol_version = ProtocolFeature::EarlyChunkProducerKickout.protocol_version();
+    let protocol_version = if cfg!(feature = "protocol_feature_spice") {
+        near_primitives::version::PROTOCOL_VERSION
+    } else {
+        ProtocolFeature::EarlyChunkProducerKickout.protocol_version()
+    };
     let shard_layout = ShardLayout::multi_shard(2, 1);
     let validators_spec = create_validators_spec(num_validators, 0);
     let clients = validators_spec_clients(&validators_spec);
