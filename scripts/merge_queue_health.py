@@ -37,10 +37,10 @@ COVERAGE_JOB = "Generate Coverage Artifact"
 NEXTEST_JOB = "Cargo Nextest"
 CLIPPY_JOB = "Clippy"
 
-
 # ---------------------------------------------------------------------------
 # Progress helpers
 # ---------------------------------------------------------------------------
+
 
 def progress(msg, end="\n"):
     """Print a progress message to stderr."""
@@ -57,6 +57,7 @@ def progress_item(i, total, label):
 # ---------------------------------------------------------------------------
 # GitHub helpers
 # ---------------------------------------------------------------------------
+
 
 def gh_api(endpoint, paginate=False):
     """Call `gh api` and return parsed JSON."""
@@ -97,17 +98,16 @@ def fetch_workflow_runs(workflow_file, days, per_page=100):
     page = 1
     while True:
         progress(f"  page {page}...", end="")
-        endpoint = (
-            f"/repos/{REPO}/actions/workflows/{workflow_file}/runs"
-            f"?event=merge_group&per_page={per_page}&page={page}"
-        )
+        endpoint = (f"/repos/{REPO}/actions/workflows/{workflow_file}/runs"
+                    f"?event=merge_group&per_page={per_page}&page={page}")
         data = gh_api(endpoint)
         batch = data.get("workflow_runs", [])
         if not batch:
             progress(f" {len(runs)} runs total")
             break
         for r in batch:
-            created = datetime.fromisoformat(r["created_at"].replace("Z", "+00:00"))
+            created = datetime.fromisoformat(r["created_at"].replace(
+                "Z", "+00:00"))
             if created < cutoff:
                 progress(f" {len(runs)} runs total")
                 return runs
@@ -178,7 +178,9 @@ def _init_nayduck_index():
             _nayduck_sha_to_id.setdefault(sha, r["run_id"])
     if runs:
         _nayduck_min_id = min(r["run_id"] for r in runs)
-    progress(f"  indexed {len(_nayduck_sha_to_id)} runs (oldest id={_nayduck_min_id})")
+    progress(
+        f"  indexed {len(_nayduck_sha_to_id)} runs (oldest id={_nayduck_min_id})"
+    )
 
 
 def _extend_nayduck_index(target_sha):
@@ -214,7 +216,9 @@ def _extend_nayduck_index(target_sha):
         run_id -= 1
         scanned += 1
     _nayduck_min_id = run_id + 1
-    progress(f"\r  extended Nayduck index: {start_id} -> {_nayduck_min_id} ({scanned} fetched, {len(_nayduck_sha_to_id)} total)")
+    progress(
+        f"\r  extended Nayduck index: {start_id} -> {_nayduck_min_id} ({scanned} fetched, {len(_nayduck_sha_to_id)} total)"
+    )
     return _nayduck_sha_to_id.get(target_sha)
 
 
@@ -249,6 +253,7 @@ def fetch_nayduck_results(nayduck_run_id):
 # ---------------------------------------------------------------------------
 # Classification
 # ---------------------------------------------------------------------------
+
 
 def classify_ci_failure(jobs):
     """Classify a CI workflow failure. Returns a category string."""
@@ -292,6 +297,7 @@ def classify_nayduck_failure(jobs):
 # ---------------------------------------------------------------------------
 # Report building
 # ---------------------------------------------------------------------------
+
 
 def build_report(days, verbose=False):
     """Gather all data and build the report dictionary."""
@@ -337,7 +343,8 @@ def build_report(days, verbose=False):
         wf_failures = [r for r in wf_runs if r.get("conclusion") == "failure"]
         if not wf_failures:
             continue
-        progress(f"Fetching jobs for {len(wf_failures)} failed {wf_name} runs...")
+        progress(
+            f"Fetching jobs for {len(wf_failures)} failed {wf_name} runs...")
         for i, r in enumerate(wf_failures, 1):
             pr = extract_pr_number(r)
             progress_item(i, len(wf_failures), f"PR #{pr or '?'}")
@@ -371,18 +378,22 @@ def build_report(days, verbose=False):
                 for cat in cats:
                     report["ci_failure_categories"][cat] += 1
                 for j in jobs:
-                    if j.get("conclusion") == "failure" and "Nayduck" in j["name"]:
+                    if j.get("conclusion"
+                            ) == "failure" and "Nayduck" in j["name"]:
                         nay_id = resolve_nayduck_run_id(r)
                         if nay_id:
                             nay_data = fetch_nayduck_results(nay_id)
                             if nay_data:
                                 for t in nay_data.get("tests", []):
                                     if t.get("status") == "FAILED":
-                                        report["nayduck_failed_tests"][t["name"]] += 1
-                    elif j.get("conclusion") == "failure" and "pytest" in j["name"].lower():
+                                        report["nayduck_failed_tests"][
+                                            t["name"]] += 1
+                    elif j.get("conclusion"
+                              ) == "failure" and "pytest" in j["name"].lower():
                         for step in j.get("steps", []):
                             if step.get("conclusion") == "failure":
-                                report["large_pytest_failures"][step["name"]] += 1
+                                report["large_pytest_failures"][
+                                    step["name"]] += 1
                 if verbose:
                     report["details"].append({
                         "workflow": "CI Nayduck tests",
@@ -408,7 +419,9 @@ def build_report(days, verbose=False):
 
     # --- Nayduck hidden flakiness (retry data from successful + failed runs) ---
     nay_runs = report["workflows"].get("CI Nayduck tests", {}).get("runs", [])
-    completed_nay = [r for r in nay_runs if r.get("conclusion") in ("success", "failure")]
+    completed_nay = [
+        r for r in nay_runs if r.get("conclusion") in ("success", "failure")
+    ]
     sample = completed_nay
     progress(f"Fetching retry data for {len(sample)} completed Nayduck runs...")
     nayduck_run_count = 0
@@ -428,12 +441,14 @@ def build_report(days, verbose=False):
             if tries > 1:
                 report["nayduck_retry_tests"][t["name"]] += 1
         time.sleep(0.1)
-    progress(f"  successfully fetched {nayduck_run_count}/{len(sample)} Nayduck runs")
+    progress(
+        f"  successfully fetched {nayduck_run_count}/{len(sample)} Nayduck runs"
+    )
     report["nayduck_sampled_runs"] = nayduck_run_count
 
     progress("Building report...")
 
-    # Convert sets/defaultdicts for JSON serialization.
+    # Convert sets/defaultdict for JSON serialization.
     report["pr_attempts"] = {
         str(pr): len(branches) for pr, branches in report["pr_attempts"].items()
     }
@@ -456,6 +471,7 @@ def build_report(days, verbose=False):
 # Printing
 # ---------------------------------------------------------------------------
 
+
 def print_text_report(report):
     days = report["window_days"]
     print(f"\n{'='*60}")
@@ -473,7 +489,8 @@ def print_text_report(report):
         cancelled = c.get("cancelled", 0)
         rate = f"{success/total*100:.0f}%" if total else "N/A"
         print(f"  {name}: {total} runs  ({rate} success)")
-        print(f"    success={success}  failure={failure}  cancelled={cancelled}")
+        print(
+            f"    success={success}  failure={failure}  cancelled={cancelled}")
     print()
 
     # Per-job failure rates
@@ -482,7 +499,8 @@ def print_text_report(report):
         print("## Job Failure Rates\n")
         for wf_name, jobs in job_failures.items():
             wf_data = report["workflows"].get(wf_name, {})
-            completed = wf_data["total"] - wf_data["conclusions"].get("cancelled", 0)
+            completed = wf_data["total"] - wf_data["conclusions"].get(
+                "cancelled", 0)
             print(f"  {wf_name} ({completed} completed runs):")
             for job, count in sorted(jobs.items(), key=lambda x: -x[1]):
                 pct = f"{count/completed*100:.0f}%" if completed else "?"
@@ -498,12 +516,17 @@ def print_text_report(report):
         avg = sum(attempts.values()) / total_prs
         print("## Merge Queue Reliability\n")
         print(f"  PRs seen:                {total_prs}")
-        print(f"  First-attempt merges:    {first_try} ({first_try/total_prs*100:.0f}%)")
-        print(f"  Re-queued PRs:           {multi} ({multi/total_prs*100:.0f}%)")
+        print(
+            f"  First-attempt merges:    {first_try} ({first_try/total_prs*100:.0f}%)"
+        )
+        print(
+            f"  Re-queued PRs:           {multi} ({multi/total_prs*100:.0f}%)")
         print(f"  Avg attempts per PR:     {avg:.2f}")
         if multi:
             worst = sorted(attempts.items(), key=lambda x: -x[1])[:5]
-            print(f"  Worst PRs:               {', '.join(f'#{pr}({n}x)' for pr, n in worst)}")
+            print(
+                f"  Worst PRs:               {', '.join(f'#{pr}({n}x)' for pr, n in worst)}"
+            )
         print()
 
     # CI failure categories
@@ -534,7 +557,8 @@ def print_text_report(report):
     retries = report["nayduck_retry_tests"]
     sampled = report.get("nayduck_sampled_runs", 0)
     if retries:
-        print(f"## Nayduck Hidden Flakiness (retries, sampled {sampled} runs)\n")
+        print(
+            f"## Nayduck Hidden Flakiness (retries, sampled {sampled} runs)\n")
         for name, count in sorted(retries.items(), key=lambda x: -x[1])[:20]:
             rate = f"{count}/{sampled}" if sampled else "?"
             print(f"  {rate:8s}  {name}")
@@ -547,7 +571,9 @@ def print_text_report(report):
         for d in details:
             pr = d.get("pr", "?")
             print(f"  [{d['created_at'][:10]}] PR #{pr}  run={d['run_id']}")
-            print(f"    workflow={d['workflow']}  category={d.get('category') or d.get('categories')}")
+            print(
+                f"    workflow={d['workflow']}  category={d.get('category') or d.get('categories')}"
+            )
             print(f"    failed_jobs={d.get('failed_jobs', [])}")
         print()
 
@@ -560,20 +586,25 @@ def print_json_report(report):
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Analyze nearcore merge queue health and flaky tests."
-    )
+        description="Analyze nearcore merge queue health and flaky tests.")
     parser.add_argument(
-        "--days", type=int, default=14,
+        "--days",
+        type=int,
+        default=14,
         help="Time window in days (default: 14)",
     )
     parser.add_argument(
-        "--output", choices=["text", "json"], default="text",
+        "--output",
+        choices=["text", "json"],
+        default="text",
         help="Output format (default: text)",
     )
     parser.add_argument(
-        "--verbose", action="store_true",
+        "--verbose",
+        action="store_true",
         help="Show per-failure details",
     )
     args = parser.parse_args()
