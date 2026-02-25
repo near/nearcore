@@ -58,7 +58,7 @@ jobs:
       id-token: "write"
     steps:
       - if: github.event_name != 'pull_request' || matrix.run_on_pr
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
         with:
           persist-credentials: false
@@ -116,7 +116,7 @@ jobs:
     name: "Protobuf Backward Compatibility"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
       - uses: bufbuild/buf-setup-action@1158f4fa81bc02e1ff62abcca6d516c9e24c77da
@@ -136,7 +136,7 @@ jobs:
       contents: "read"
       id-token: "write"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
       - id: gcp-auth
@@ -188,7 +188,7 @@ jobs:
       contents: "read"
       id-token: "write"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
       - id: gcp-auth
@@ -216,7 +216,7 @@ jobs:
     name: "Style"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
@@ -233,7 +233,7 @@ jobs:
     name: "Cargo Fmt"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
@@ -248,7 +248,7 @@ jobs:
       contents: "read"
       id-token: "write"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
       - id: gcp-auth
@@ -278,7 +278,7 @@ jobs:
       contents: "read"
       id-token: "write"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
       - id: gcp-auth
@@ -304,7 +304,7 @@ jobs:
   spellcheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
@@ -317,7 +317,7 @@ jobs:
     name: "Cargo Deny"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
@@ -329,7 +329,7 @@ jobs:
     name: "Themis"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
@@ -341,7 +341,7 @@ jobs:
     name: "Cargo machete (unused dependencies)"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
@@ -356,7 +356,7 @@ jobs:
       contents: "read"
       id-token: "write"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
       - id: gcp-auth
@@ -386,7 +386,7 @@ jobs:
       contents: "read"
       id-token: "write"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
       - id: gcp-auth
@@ -413,7 +413,7 @@ jobs:
     name: "Cargo Audit"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
@@ -433,7 +433,7 @@ jobs:
           - type: unit
             profraws: unit
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 1000 # have enough history to find the merge-base between PR and master
           persist-credentials: false
@@ -480,7 +480,7 @@ jobs:
       - cargo_nextest
       - pytest_nightly_tests
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
       - uses: actions/download-artifact@v4
@@ -529,7 +529,7 @@ jobs:
         if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
         name: Check if job should be skipped
         run: true
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         if: steps.run-job.outcome == 'success'
         with:
           persist-credentials: false
@@ -563,7 +563,7 @@ jobs:
     name: "OpenAPI Spec"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
