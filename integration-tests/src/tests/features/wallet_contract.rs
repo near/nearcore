@@ -265,7 +265,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
 #[test]
 fn test_wallet_contract_interaction() {
     let genesis = TestGenesisBuilder::new()
-        .epoch_length(5)
+        .epoch_length(50)
         .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
         .add_user_account_simple(alice_account(), Balance::from_near(1_000_000_000))
         .add_user_account_simple(bob_account(), Balance::from_near(1_000_000_000))

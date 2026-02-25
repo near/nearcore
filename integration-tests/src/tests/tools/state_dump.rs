@@ -39,6 +39,7 @@ fn setup(
         .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
         .add_user_account_simple("test1".parse().unwrap(), Balance::from_near(1_000_000_000))
         .build();
+    genesis.config.num_block_producer_seats = 2;
     genesis.config.use_production_config = test_resharding;
 
     let env = if test_resharding {

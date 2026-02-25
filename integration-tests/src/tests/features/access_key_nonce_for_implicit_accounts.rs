@@ -330,13 +330,10 @@ fn test_request_chunks_for_orphan() {
     let num_validators = 1;
     let epoch_length = 10;
 
-    let accounts: Vec<String> = (0..num_clients).map(|i| format!("test{}", i)).collect();
     let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
-        .validators_spec(ValidatorsSpec::desired_roles(
-            &accounts.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
-            &[],
-        ))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .shard_layout(ShardLayout::multi_shard(4, 3))
         .build();
     let mut env = TestEnv::builder(&genesis.config)
@@ -470,13 +467,10 @@ fn test_processing_chunks_sanity() {
     let num_validators = 1;
     let epoch_length = 10;
 
-    let accounts: Vec<String> = (0..num_clients).map(|i| format!("test{}", i)).collect();
     let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
-        .validators_spec(ValidatorsSpec::desired_roles(
-            &accounts.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
-            &[],
-        ))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .shard_layout(ShardLayout::multi_shard(4, 3))
         .build();
     let mut env = TestEnv::builder(&genesis.config)

@@ -1,11 +1,13 @@
 use futures::future;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
+use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{Genesis, TrackedShardsConfig};
+use near_crypto::Signer;
 use near_network::tcp;
 use near_network::test_utils::convert_boot_nodes;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards};
+use near_primitives::types::{AccountInfo, BlockHeight, BlockHeightDelta, NumSeats, NumShards};
 use nearcore::{load_test_config, start_with_config};
 
 use near_async::multithread::MultithreadRuntimeHandle;
@@ -33,15 +35,29 @@ async fn start_nodes(
 
     let num_tracking_nodes = num_nodes - num_lightclient;
     let seeds = (0..num_nodes).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
-    let genesis = TestGenesisBuilder::new()
+    let validator_infos: Vec<AccountInfo> = seeds[..num_validator_seats as usize]
+        .iter()
+        .map(|seed| AccountInfo {
+            account_id: seed.parse().unwrap(),
+            public_key: near_crypto::InMemorySigner::test_signer(&seed.parse().unwrap())
+                .public_key(),
+            amount: TESTING_INIT_STAKE,
+        })
+        .collect();
+    let mut builder = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
         .genesis_height(genesis_height)
-        .validators_spec(ValidatorsSpec::desired_roles(
-            &seeds.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
-            &[],
+        .validators_spec(ValidatorsSpec::raw(
+            validator_infos,
+            num_validator_seats,
+            num_validator_seats,
+            0,
         ))
-        .shard_layout(ShardLayout::multi_shard(num_shards as u64, 1))
-        .build();
+        .shard_layout(ShardLayout::multi_shard(num_shards as u64, 1));
+    for seed in &seeds[num_validator_seats as usize..] {
+        builder = builder.add_user_account_simple(seed.parse().unwrap(), TESTING_INIT_BALANCE);
+    }
+    let genesis = builder.build();
 
     let validators = (0..num_validator_seats).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
     let mut near_configs = vec![];
