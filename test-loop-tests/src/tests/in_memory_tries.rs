@@ -69,10 +69,10 @@ fn test_load_memtrie_after_empty_chunks() {
     // Find client currently tracking shard with index 0.
     let shard_uid = shard_layout.shard_uids().next().unwrap();
     let shard_id = shard_uid.shard_id();
-    let tracked_shards_per_node: Vec<Vec<_>> = node_datas
+    let tracked_shards_per_node = node_datas
         .iter()
         .map(|node_data| TestLoopNode { data: &test_loop.data, node_data }.tracked_shards())
-        .collect();
+        .collect_vec();
     tracing::info!(?tracked_shards_per_node, "current tracked shards");
     let idx = tracked_shards_per_node
         .iter()

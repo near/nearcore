@@ -39,10 +39,10 @@ fn slow_test_sync_from_genesis() {
         .build()
         .warmup();
 
-    let first_epoch_tracked_shards: Vec<Vec<_>> = node_datas
+    let first_epoch_tracked_shards = node_datas
         .iter()
         .map(|node_data| TestLoopNode { data: &test_loop.data, node_data }.tracked_shards())
-        .collect();
+        .collect_vec();
     tracing::info!(?first_epoch_tracked_shards, "first epoch tracked shards");
 
     execute_money_transfers(&mut test_loop, &node_datas, &accounts).unwrap();
