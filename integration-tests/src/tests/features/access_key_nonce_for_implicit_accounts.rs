@@ -562,7 +562,7 @@ impl ChunkForwardingOptimizationTestData {
         let epoch_length = 10;
 
         let accounts: Vec<String> = (0..num_clients).map(|i| format!("test{}", i)).collect();
-        let genesis = TestGenesisBuilder::new()
+        let mut genesis = TestGenesisBuilder::new()
             .epoch_length(epoch_length)
             .validators_spec(ValidatorsSpec::desired_roles(
                 &accounts.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
@@ -570,6 +570,9 @@ impl ChunkForwardingOptimizationTestData {
             ))
             .shard_layout(ShardLayout::multi_shard(4, 3))
             .build();
+        // Only 1 block producer so that clients[0] can produce all blocks,
+        // but all 4 validators are chunk producers.
+        genesis.config.num_block_producer_seats = 1;
         let env = TestEnv::builder(&genesis.config)
             .clients_count(num_clients)
             .validator_seats(num_validators as usize)
@@ -777,13 +780,10 @@ fn test_processing_blocks_async() {
     let num_validators = 1;
     let epoch_length = 10;
 
-    let accounts: Vec<String> = (0..num_clients).map(|i| format!("test{}", i)).collect();
     let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
-        .validators_spec(ValidatorsSpec::desired_roles(
-            &accounts.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
-            &[],
-        ))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
         .shard_layout(ShardLayout::multi_shard(4, 3))
         .build();
     let mut env = TestEnv::builder(&genesis.config)

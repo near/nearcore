@@ -44,7 +44,7 @@ async fn test_block_by_id_height() {
     assert_eq!(block.header.prev_hash.0.as_ref(), &[0; 32]);
     assert_eq!(
         block.header.prev_state_root.to_string(),
-        "Eup37mTfmpgeRoajG4sWgvM1xw7mAhKRqFwEYREDCRKX"
+        "DRnQpND4P381QxiWN49nMEMEMXWnLXpvnytY2dE1WVQ4"
     );
     assert!(block.header.timestamp > 0);
     assert_eq!(block.header.validator_proposals.len(), 0);
@@ -91,7 +91,7 @@ async fn test_block_query() {
         assert_eq!(block.header.prev_hash.as_ref(), &[0; 32]);
         assert_eq!(
             block.header.prev_state_root.to_string(),
-            "Eup37mTfmpgeRoajG4sWgvM1xw7mAhKRqFwEYREDCRKX"
+            "DRnQpND4P381QxiWN49nMEMEMXWnLXpvnytY2dE1WVQ4"
         );
         assert!(block.header.timestamp > 0);
         assert_eq!(block.header.validator_proposals.len(), 0);

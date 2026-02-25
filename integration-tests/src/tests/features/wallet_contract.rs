@@ -96,7 +96,6 @@ fn test_eth_implicit_account_creation() {
     let genesis = TestGenesisBuilder::new()
         .epoch_length(5)
         .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
-        .add_user_account_simple("test0".parse().unwrap(), Balance::from_near(1_000_000_000))
         .add_user_account_simple("test1".parse().unwrap(), Balance::from_near(1_000_000_000))
         .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
@@ -169,7 +168,6 @@ fn test_transaction_from_eth_implicit_account_fail() {
     let genesis = TestGenesisBuilder::new()
         .epoch_length(5)
         .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
-        .add_user_account_simple("test0".parse().unwrap(), Balance::from_near(1_000_000_000))
         .add_user_account_simple("test1".parse().unwrap(), Balance::from_near(1_000_000_000))
         .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
@@ -269,7 +267,6 @@ fn test_wallet_contract_interaction() {
     let genesis = TestGenesisBuilder::new()
         .epoch_length(5)
         .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
-        .add_user_account_simple("test0".parse().unwrap(), Balance::from_near(1_000_000_000))
         .add_user_account_simple(alice_account(), Balance::from_near(1_000_000_000))
         .add_user_account_simple(bob_account(), Balance::from_near(1_000_000_000))
         .build();

@@ -45,6 +45,8 @@ impl AdversarialBehaviorTestData {
             .build();
         {
             let config = &mut genesis.config;
+            // 4 block+chunk producers + 4 chunk-only validators = 8 chunk producers total
+            config.num_chunk_producer_seats = 8;
             // Configure kickout threshold at 50%.
             config.block_producer_kickout_threshold = 50;
             config.chunk_producer_kickout_threshold = 50;

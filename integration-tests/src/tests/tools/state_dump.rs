@@ -37,22 +37,19 @@ fn setup(
         .epoch_length(epoch_length)
         .protocol_version(protocol_version)
         .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
-        .add_user_account_simple("test0".parse().unwrap(), Balance::from_near(1_000_000_000))
         .add_user_account_simple("test1".parse().unwrap(), Balance::from_near(1_000_000_000))
         .build();
-    genesis.config.num_block_producer_seats = 2;
-    genesis.config.num_block_producer_seats_per_shard = vec![2];
     genesis.config.use_production_config = test_resharding;
 
     let env = if test_resharding {
         TestEnv::builder(&genesis.config)
-            .validator_seats(2)
+            .validator_seats(1)
             .use_state_snapshots()
             .real_stores()
             .nightshade_runtimes(&genesis)
             .build()
     } else {
-        TestEnv::builder(&genesis.config).validator_seats(2).nightshade_runtimes(&genesis).build()
+        TestEnv::builder(&genesis.config).validator_seats(1).nightshade_runtimes(&genesis).build()
     };
 
     let near_config = NearConfig::new(
@@ -339,14 +336,11 @@ fn test_dump_state_return_locked() {
 #[should_panic(expected = "MissingTrieValue")]
 fn test_dump_state_not_track_shard() {
     let epoch_length = 4;
-    let mut genesis = TestGenesisBuilder::new()
+    let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
         .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
-        .add_user_account_simple("test0".parse().unwrap(), Balance::from_near(1_000_000_000))
         .add_user_account_simple("test1".parse().unwrap(), Balance::from_near(1_000_000_000))
         .build();
-    genesis.config.num_block_producer_seats = 2;
-    genesis.config.num_block_producer_seats_per_shard = vec![2];
     let store1 = create_test_store();
     let store2 = create_test_store();
     initialize_genesis_state(store1.clone(), &genesis, None);
@@ -438,14 +432,11 @@ fn test_dump_state_with_delayed_receipt() {
     init_test_logger();
 
     let epoch_length = 4;
-    let mut genesis = TestGenesisBuilder::new()
+    let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
         .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
-        .add_user_account_simple("test0".parse().unwrap(), Balance::from_near(1_000_000_000))
         .add_user_account_simple("test1".parse().unwrap(), Balance::from_near(1_000_000_000))
         .build();
-    genesis.config.num_block_producer_seats = 2;
-    genesis.config.num_block_producer_seats_per_shard = vec![2];
     let store = create_test_store();
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
@@ -456,7 +447,7 @@ fn test_dump_state_with_delayed_receipt() {
         epoch_manager.clone(),
     );
     let mut env = TestEnv::builder(&genesis.config)
-        .validator_seats(2)
+        .validator_seats(1)
         .stores(vec![store.clone()])
         .epoch_managers(vec![epoch_manager])
         .runtimes(vec![nightshade_runtime])

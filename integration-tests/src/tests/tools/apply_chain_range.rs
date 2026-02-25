@@ -19,14 +19,11 @@ use near_store::test_utils::create_test_store;
 use nearcore::NightshadeRuntime;
 
 fn setup(epoch_length: NumBlocks) -> (Store, Genesis, TestEnv) {
-    let mut genesis = TestGenesisBuilder::new()
+    let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
         .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
-        .add_user_account_simple("test0".parse().unwrap(), Balance::from_near(1_000_000_000))
         .add_user_account_simple("test1".parse().unwrap(), Balance::from_near(1_000_000_000))
         .build();
-    genesis.config.num_block_producer_seats = 2;
-    genesis.config.num_block_producer_seats_per_shard = vec![2];
     let store = create_test_store();
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
@@ -37,7 +34,7 @@ fn setup(epoch_length: NumBlocks) -> (Store, Genesis, TestEnv) {
         epoch_manager.clone(),
     );
     let env = TestEnv::builder(&genesis.config)
-        .validator_seats(2)
+        .validator_seats(1)
         .stores(vec![store.clone()])
         .epoch_managers(vec![epoch_manager])
         .runtimes(vec![nightshade_runtime])

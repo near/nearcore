@@ -470,7 +470,9 @@ impl TestGenesisBuilder {
             user_accounts.push(UserAccount {
                 account_id: protocol_treasury_account.clone(),
                 balance: TESTING_INIT_BALANCE,
-                access_keys: vec![],
+                access_keys: vec![
+                    create_test_signer(protocol_treasury_account.as_str()).public_key(),
+                ],
             });
         }
 
