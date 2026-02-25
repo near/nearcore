@@ -325,10 +325,7 @@ pub trait External {
     /// # Panics
     ///
     /// Panics if the `receipt_index` does not refer to a known receipt.
-    fn append_action_create_account(
-        &mut self,
-        receipt_index: ReceiptIndex,
-    ) -> Result<(), VMLogicError>;
+    fn append_action_create_account(&mut self, receipt_index: ReceiptIndex);
 
     /// Attach the [`DeployContractAction`] action to an existing receipt.
     ///
@@ -340,11 +337,7 @@ pub trait External {
     /// # Panics
     ///
     /// Panics if the `receipt_index` does not refer to a known receipt.
-    fn append_action_deploy_contract(
-        &mut self,
-        receipt_index: ReceiptIndex,
-        code: Vec<u8>,
-    ) -> Result<(), VMLogicError>;
+    fn append_action_deploy_contract(&mut self, receipt_index: ReceiptIndex, code: Vec<u8>);
 
     /// Attach the [`DeployGlobalContractAction`] action to an existing receipt.
     ///
@@ -362,7 +355,7 @@ pub trait External {
         receipt_index: ReceiptIndex,
         code: Vec<u8>,
         mode: GlobalContractDeployMode,
-    ) -> Result<(), VMLogicError>;
+    );
 
     /// Attach the [`UseGlobalContractAction`] action to an existing receipt.
     ///
@@ -378,7 +371,7 @@ pub trait External {
         &mut self,
         receipt_index: ReceiptIndex,
         contract_id: GlobalContractIdentifier,
-    ) -> Result<(), VMLogicError>;
+    );
 
     /// Attach the [`DeterministicStateInit`] action to an existing receipt.
     ///
@@ -401,7 +394,7 @@ pub trait External {
         receipt_index: ReceiptIndex,
         contract_id: GlobalContractIdentifier,
         amount: Balance,
-    ) -> Result<ActionIndex, VMLogicError>;
+    ) -> ActionIndex;
 
     /// Set a data entry to an existing [`DeterministicStateInit`] action.
     ///
@@ -463,11 +456,7 @@ pub trait External {
     /// # Panics
     ///
     /// Panics if the `receipt_index` does not refer to a known receipt.
-    fn append_action_transfer(
-        &mut self,
-        receipt_index: ReceiptIndex,
-        deposit: Balance,
-    ) -> Result<(), VMLogicError>;
+    fn append_action_transfer(&mut self, receipt_index: ReceiptIndex, deposit: Balance);
 
     /// Attach the [`StakeAction`] action to an existing receipt.
     ///
@@ -558,7 +547,7 @@ pub trait External {
         &mut self,
         receipt_index: ReceiptIndex,
         beneficiary_id: AccountId,
-    ) -> Result<(), VMLogicError>;
+    );
 
     /// # Panic
     ///
