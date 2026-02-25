@@ -647,9 +647,7 @@ impl ForkNetworkCommand {
     }
 
     /// Reads configuration patches for sharded benchmark.
-    /// For now reads only epoch config and number of accounts per shard to
-    /// benchmark.
-    fn read_patches(patches_path: &Path) -> anyhow::Result<(EpochConfig, u64, u64)> {
+    fn read_patches(patches_path: &Path) -> anyhow::Result<(EpochConfig, u64, u64, u64)> {
         let epoch_config_path = patches_path.join("epoch_configs/template.json");
         let epoch_config: EpochConfig =
             serde_json::from_str(&std::fs::read_to_string(epoch_config_path)?)?;
@@ -658,7 +656,8 @@ impl ForkNetworkCommand {
             serde_json::from_str(&std::fs::read_to_string(params_path)?)?;
         let num_accounts = params["num_accounts"].as_u64().unwrap();
         let chunk_producers = params["chunk_producers"].as_u64().unwrap();
-        Ok((epoch_config, num_accounts, chunk_producers))
+        let num_rpcs = params.get("rpcs").and_then(|v| v.as_u64()).unwrap_or(0);
+        Ok((epoch_config, num_accounts, chunk_producers, num_rpcs))
     }
 
     /// Sets genesis block to be able to write accounts to the state.
@@ -702,7 +701,7 @@ impl ForkNetworkCommand {
         let store = storage.get_hot_store();
 
         // 1. Create default genesis and override its fields with given parameters.
-        let (epoch_config, num_accounts_per_shard, chunk_producers) =
+        let (epoch_config, num_accounts_per_shard, chunk_producers, num_rpcs) =
             Self::read_patches(patches_path)?;
         // TODO(dynamic_resharding): decide how to support dynamic resharding in fork network
         let target_shard_layout =
@@ -765,6 +764,7 @@ impl ForkNetworkCommand {
             target_shard_layout,
             num_accounts_per_shard,
             chunk_producers,
+            num_rpcs,
         )?;
         tracing::info!("creating a new genesis");
         backup_genesis_file(home_dir, &near_config)?;
@@ -1324,6 +1324,16 @@ impl ForkNetworkCommand {
         Ok(new_validator_accounts)
     }
 
+    /// Returns one account prefix per shard, suitable for generating accounts
+    /// that land in the correct shard.
+    fn shard_account_prefixes(shard_layout: &ShardLayout) -> Vec<AccountId> {
+        let boundary_account_ids = shard_layout.boundary_accounts().clone();
+        let first_boundary_account_id = boundary_account_ids[0].clone();
+        let first_account_id =
+            "0".repeat(first_boundary_account_id.len()).parse::<AccountId>().unwrap();
+        vec![first_account_id].into_iter().chain(boundary_account_ids).collect()
+    }
+
     /// Adds `num_accounts_per_shard` accounts to each shard.
     /// Writes them to state and to the disk.
     /// Returns the new state roots.
@@ -1337,6 +1347,7 @@ impl ForkNetworkCommand {
         shard_layout: &ShardLayout,
         num_accounts_per_shard: u64,
         chunk_producers: u64,
+        num_rpcs: u64,
     ) -> anyhow::Result<Vec<StateRoot>> {
         #[derive(serde::Serialize, Clone)]
         struct AccountData {
@@ -1354,14 +1365,7 @@ impl ForkNetworkCommand {
 
         let liquid_balance = Balance::from_near(100_000_000);
         let storage_bytes = runtime_config.fees.storage_usage_config.num_bytes_account;
-        let boundary_account_ids = shard_layout.boundary_accounts().clone();
-        let first_boundary_account_id = boundary_account_ids[0].clone();
-        let first_account_id =
-            "0".repeat(first_boundary_account_id.len()).parse::<AccountId>().unwrap();
-        let account_prefixes = vec![first_account_id]
-            .into_iter()
-            .chain(boundary_account_ids.into_iter())
-            .collect::<Vec<_>>();
+        let account_prefixes = Self::shard_account_prefixes(shard_layout);
         for (account_prefix_idx, account_prefix) in account_prefixes.into_iter().enumerate() {
             tracing::info!(
                 %account_prefix_idx,
@@ -1450,6 +1454,81 @@ impl ForkNetworkCommand {
             }
 
             state_roots = storage_mutator.commit()?;
+        }
+
+        // Create probe accounts (2 per shard) for the RPC probe.
+        // These are separate from benchmark accounts and stored in their own file.
+        // TODO: create one access key per RPC node on each probe account so that
+        // write probes on multiple RPC nodes don't collide on nonces.
+        if num_rpcs > 0 {
+            let state_roots_map: HashMap<ShardUId, StateRoot> = shard_uids
+                .iter()
+                .enumerate()
+                .map(|(idx, shard_uid)| (*shard_uid, state_roots[idx]))
+                .collect();
+            let update_state = ShardUpdateState::new_update_state(
+                &flat_store,
+                &shard_layout,
+                &shard_layout,
+                &state_roots_map,
+            )?;
+            let mut storage_mutator = StorageMutator::new(
+                runtime.get_tries(),
+                update_state.clone(),
+                shard_layout.clone(),
+            )?;
+
+            let probe_prefixes = Self::shard_account_prefixes(shard_layout);
+            let mut probe_account_infos: Vec<AccountData> = Vec::new();
+
+            for (shard_idx, account_prefix) in probe_prefixes.into_iter().enumerate() {
+                for probe_idx in 0..2 {
+                    let account_id =
+                        format!("{account_prefix}_probe_{probe_idx}").parse::<AccountId>().unwrap();
+                    let actual_shard_idx = shard_layout
+                        .get_shard_index(shard_layout.account_id_to_shard_id(&account_id))
+                        .unwrap();
+                    assert!(
+                        actual_shard_idx == shard_idx,
+                        "probe account {account_id} landed in shard {actual_shard_idx}, expected {shard_idx}"
+                    );
+                    storage_mutator.set_account(
+                        shard_idx,
+                        account_id.clone(),
+                        Account::new(
+                            liquid_balance,
+                            Balance::ZERO,
+                            AccountContract::None,
+                            storage_bytes,
+                        ),
+                    )?;
+
+                    let key_seed = format!("{account_id}_rpc_0");
+                    let secret_key = SecretKey::from_seed(near_crypto::KeyType::ED25519, &key_seed);
+                    let public_key = secret_key.public_key();
+
+                    storage_mutator.set_access_key(
+                        shard_idx,
+                        account_id.clone(),
+                        public_key.clone(),
+                        AccessKey::full_access(),
+                    )?;
+
+                    probe_account_infos.push(AccountData {
+                        account_id: account_id.clone(),
+                        public_key: public_key.to_string(),
+                        secret_key: secret_key.to_string(),
+                        nonce: 0,
+                    });
+                }
+            }
+
+            state_roots = storage_mutator.commit()?;
+
+            let probe_accounts_path = accounts_path.join("probe_accounts.json");
+            let probe_file = File::create(&probe_accounts_path)?;
+            let probe_writer = BufWriter::new(probe_file);
+            serde_json::to_writer(probe_writer, &probe_account_infos)?;
         }
 
         Ok(state_roots)

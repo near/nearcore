@@ -604,11 +604,7 @@ impl ChainStore {
 }
 
 impl<'a> ChainStoreUpdate<'a> {
-    fn clear_header_data_for_heights(
-        &mut self,
-        start: BlockHeight,
-        end: BlockHeight,
-    ) -> Result<(), Error> {
+    fn clear_header_data_for_heights(&mut self, start: BlockHeight, end: BlockHeight) {
         for height in start..=end {
             let header_hashes = self.chain_store().get_all_header_hashes_by_height(height);
             for header_hash in header_hashes {
@@ -621,7 +617,6 @@ impl<'a> ChainStoreUpdate<'a> {
             let key = index_to_bytes(height);
             self.gc_col(DBCol::HeaderHashesByHeight, &key);
         }
-        Ok(())
     }
 
     fn clear_chunk_data_and_headers(&mut self, min_chunk_height: BlockHeight) -> Result<(), Error> {
@@ -1008,7 +1003,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
         self.clear_chunk_data_at_height(head_height)?;
 
-        self.clear_header_data_for_heights(head_height, header_head_height)?;
+        self.clear_header_data_for_heights(head_height, header_head_height);
 
         Ok(())
     }

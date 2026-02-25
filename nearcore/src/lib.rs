@@ -792,6 +792,11 @@ pub async fn start_with_config_and_synchronization_impl(
         view_client_addr.clone().into_multi_sender(),
     );
 
+    #[cfg(feature = "rpc_probe")]
+    if let Some(rpc_probe_config) = config.rpc_probe {
+        near_rpc_probe::start(rpc_probe_config);
+    }
+
     #[cfg(feature = "actor_instrumentation_testing")]
     near_async::instrumentation::testing::spawn_actors_for_testing_instrumentation(
         actor_system.clone(),

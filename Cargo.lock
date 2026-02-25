@@ -4661,6 +4661,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.6",
  "strum",
+ "tempfile",
  "thiserror 2.0.16",
  "tokio",
  "tracing",
@@ -4923,6 +4924,18 @@ dependencies = [
  "tower-http",
  "utoipa",
  "utoipa-swagger-ui",
+]
+
+[[package]]
+name = "near-rpc-probe"
+version = "0.0.0"
+dependencies = [
+ "near-o11y",
+ "reqwest 0.12.4",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -5387,6 +5400,7 @@ dependencies = [
  "near-pool",
  "near-primitives",
  "near-rosetta-rpc",
+ "near-rpc-probe",
  "near-store",
  "near-telemetry",
  "near-time",
