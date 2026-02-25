@@ -1713,6 +1713,9 @@ impl Client {
         let block_notification = BlockNotificationMessage { block: block.clone() };
         self.chunk_validation_sender.block_notification.send(block_notification.clone());
 
+        // Notify partial witness actor about the new block for pending side-channel message replay
+        self.partial_witness_adapter.block_notification.send(block_notification.clone());
+
         // Notify all subscribed watchers about the new block.
         self.block_notification_watch_sender.send_replace(Some(block_notification));
     }

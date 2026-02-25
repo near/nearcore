@@ -3,6 +3,7 @@ use itertools::Itertools;
 use near_chain::types::Tip;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
@@ -11,8 +12,10 @@ use near_primitives::stateless_validation::contract_distribution::{
 use near_primitives::stateless_validation::partial_witness::{
     MAX_COMPRESSED_STATE_WITNESS_SIZE, VersionedPartialEncodedStateWitness,
 };
+use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeightDelta};
 use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::version::ProtocolFeature;
 use near_store::{DBCol, FINAL_HEAD_KEY, HEAD_KEY, Store};
 use strum::IntoStaticStr;
 
@@ -105,11 +108,8 @@ pub fn validate_partial_encoded_state_witness(
     )?);
 
     let key = partial_witness.chunk_production_key();
-    let chunk_producer = epoch_manager.get_chunk_producer_for_height(
-        &key.epoch_id,
-        key.height_created,
-        key.shard_id,
-    )?;
+    let chunk_producer =
+        resolve_chunk_producer(epoch_manager, partial_witness.prev_block_hash(), &key)?;
     if !partial_witness.verify(chunk_producer.public_key()) {
         return Err(Error::InvalidPartialChunkStateWitness("Invalid signature".to_string()));
     }
@@ -124,11 +124,8 @@ pub fn validate_partial_encoded_contract_deploys(
 ) -> Result<ChunkRelevance, Error> {
     let key = partial_deploys.chunk_production_key();
     require_relevant!(validate_chunk_relevant(epoch_manager, key, store)?);
-    let chunk_producer = epoch_manager.get_chunk_producer_for_height(
-        &key.epoch_id,
-        key.height_created,
-        key.shard_id,
-    )?;
+    let chunk_producer =
+        resolve_chunk_producer(epoch_manager, partial_deploys.prev_block_hash(), key)?;
     if !partial_deploys.verify_signature(chunk_producer.public_key()) {
         return Err(Error::Other("Invalid contract deploys signature".to_owned()));
     }
@@ -196,6 +193,33 @@ pub fn validate_contract_code_request(
     validate_witness_contract_code_request_signature(epoch_manager, request)?;
 
     Ok(ChunkRelevance::Relevant)
+}
+
+/// Resolves the chunk producer for signature verification.
+/// When `prev_block_hash` is available (V2 wire types), uses the DB-authoritative
+/// `get_chunk_producer_info`. When absent (V1), falls back to height-based lookup.
+/// Returns `Err` if `EarlyChunkProducerKickout` is enabled but `prev_block_hash`
+/// is missing — V1 messages are invalid once the feature is active.
+fn resolve_chunk_producer(
+    epoch_manager: &dyn EpochManagerAdapter,
+    prev_block_hash: Option<&CryptoHash>,
+    key: &ChunkProductionKey,
+) -> Result<ValidatorStake, Error> {
+    if let Some(prev_block_hash) = prev_block_hash {
+        Ok(epoch_manager.get_chunk_producer_info(prev_block_hash, key.shard_id)?)
+    } else {
+        let protocol_version = epoch_manager.get_epoch_protocol_version(&key.epoch_id)?;
+        if ProtocolFeature::EarlyChunkProducerKickout.enabled(protocol_version) {
+            return Err(Error::Other(
+                "missing prev_block_hash with EarlyChunkProducerKickout enabled".to_string(),
+            ));
+        }
+        Ok(epoch_manager.get_chunk_producer_for_height(
+            &key.epoch_id,
+            key.height_created,
+            key.shard_id,
+        )?)
+    }
 }
 
 fn validate_chunk_relevant_as_validator(
@@ -339,11 +363,7 @@ fn validate_witness_contract_accesses_signature(
     accesses: &ChunkContractAccesses,
 ) -> Result<(), Error> {
     let key = accesses.chunk_production_key();
-    let chunk_producer = epoch_manager.get_chunk_producer_for_height(
-        &key.epoch_id,
-        key.height_created,
-        key.shard_id,
-    )?;
+    let chunk_producer = resolve_chunk_producer(epoch_manager, accesses.prev_block_hash(), key)?;
     if !accesses.verify_signature(chunk_producer.public_key()) {
         return Err(Error::Other("Invalid witness contract accesses signature".to_owned()));
     }
