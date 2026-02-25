@@ -26,7 +26,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_part::{PartId, StatePart};
-use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
+use near_primitives::transaction::{NonceMode, SignedTransaction, ValidatedTransaction};
 use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
@@ -891,6 +891,51 @@ impl RuntimeAdapter for NightshadeRuntime {
                     break 'add_txs_loop;
                 }
 
+                // Load signer cache before popping so we can do the strict
+                // nonce gap check without removing the tx from the pool.
+                if signer_cache.is_none() {
+                    let signer_id = tx_peek.signer_id();
+                    let nonce_index = tx_peek.nonce().nonce_index();
+                    let account = get_account(&state_update, signer_id);
+                    let account = account.transpose().and_then(|v| v.ok());
+                    let access_key = get_access_key(&state_update, signer_id, tx_peek.public_key());
+                    let access_key = access_key.transpose().and_then(|v| v.ok());
+                    // For gas key transactions, also load the gas key nonce
+                    let gas_key_nonce = if let Some(idx) = nonce_index {
+                        let nonce =
+                            get_gas_key_nonce(&state_update, signer_id, tx_peek.public_key(), idx);
+                        let nonce = nonce.transpose().and_then(|v| v.ok());
+                        Some((idx, nonce.ok_or(Error::InvalidTransactions)?))
+                    } else {
+                        None
+                    };
+                    signer_cache = Some(SignerCache {
+                        account_id: signer_id.clone(),
+                        account: account.ok_or(Error::InvalidTransactions)?,
+                        access_key: access_key.ok_or(Error::InvalidTransactions)?,
+                        public_key: tx_peek.public_key().clone(),
+                        gas_key_nonce,
+                    });
+                }
+
+                // Strict nonce gap check: if the tx requires sequential
+                // nonces and there is a gap, leave it in the pool for a
+                // future block rather than popping and discarding it.
+                if tx_peek.nonce_mode() == NonceMode::Strict {
+                    let cache = signer_cache.as_ref().unwrap();
+                    let current_nonce = if let Some((_, n)) = cache.gas_key_nonce {
+                        n
+                    } else {
+                        cache.access_key.nonce
+                    };
+                    let tx_nonce = tx_peek.nonce().nonce();
+                    if tx_nonce > current_nonce + 1 {
+                        // Gap detected — tx stays in group, returns to pool
+                        // when the iterator drops.
+                        break;
+                    }
+                }
+
                 // Take the transaction out of the pool. Please take note that
                 // the transaction may still be rejected in which case it will
                 // not be returned to the pool. Most notably this may happen
@@ -924,43 +969,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     continue;
                 }
 
-                let signer_id = validated_tx.signer_id();
-                let nonce_index = validated_tx.nonce().nonce_index();
-                let cache = match &mut signer_cache {
-                    Some(cache) => {
-                        // Check that the cached signer matches the current transaction
-                        debug_assert_eq!(signer_id, &cache.account_id);
-                        debug_assert_eq!(nonce_index, cache.gas_key_nonce.map(|(idx, _)| idx));
-                        cache
-                    }
-                    None => {
-                        let account = get_account(&state_update, signer_id);
-                        let account = account.transpose().and_then(|v| v.ok());
-                        let access_key =
-                            get_access_key(&state_update, signer_id, validated_tx.public_key());
-                        let access_key = access_key.transpose().and_then(|v| v.ok());
-                        // For gas key transactions, also load the gas key nonce
-                        let gas_key_nonce = if let Some(idx) = nonce_index {
-                            let nonce = get_gas_key_nonce(
-                                &state_update,
-                                signer_id,
-                                validated_tx.public_key(),
-                                idx,
-                            );
-                            let nonce = nonce.transpose().and_then(|v| v.ok());
-                            Some((idx, nonce.ok_or(Error::InvalidTransactions)?))
-                        } else {
-                            None
-                        };
-                        signer_cache.insert(SignerCache {
-                            account_id: signer_id.clone(),
-                            account: account.ok_or(Error::InvalidTransactions)?,
-                            access_key: access_key.ok_or(Error::InvalidTransactions)?,
-                            public_key: validated_tx.public_key().clone(),
-                            gas_key_nonce,
-                        })
-                    }
-                };
+                let cache = signer_cache.as_mut().unwrap();
 
                 let cost = match tx_cost(
                     runtime_config,

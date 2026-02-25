@@ -18,7 +18,8 @@ use near_primitives::receipt::{
     DataReceipt, Receipt, VersionedActionReceipt, VersionedReceiptEnum,
 };
 use near_primitives::transaction::{
-    Action, DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
+    Action, DeployContractAction, FunctionCallAction, NonceMode, SignedTransaction, StakeAction,
+    Transaction,
 };
 use near_primitives::transaction::{DeleteAccountAction, ValidatedTransaction};
 use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, Nonce, StorageUsage};
@@ -233,9 +234,19 @@ fn verify_nonce(
     tx_nonce: Nonce,
     current_nonce: Nonce,
     block_height: Option<BlockHeight>,
+    nonce_mode: NonceMode,
 ) -> Result<(), InvalidTxError> {
-    if tx_nonce <= current_nonce {
-        return Err(InvalidTxError::InvalidNonce { tx_nonce, ak_nonce: current_nonce });
+    match nonce_mode {
+        NonceMode::Monotonic => {
+            if tx_nonce <= current_nonce {
+                return Err(InvalidTxError::InvalidNonce { tx_nonce, ak_nonce: current_nonce });
+            }
+        }
+        NonceMode::Strict => {
+            if tx_nonce != current_nonce + 1 {
+                return Err(InvalidTxError::InvalidNonce { tx_nonce, ak_nonce: current_nonce });
+            }
+        }
     }
     if let Some(height) = block_height {
         let upper_bound = height
@@ -311,7 +322,7 @@ pub fn verify_and_charge_tx_ephemeral(
     } = *transaction_cost;
     let account_id = tx.signer_id();
     let tx_nonce = tx.nonce().nonce();
-    if let Err(e) = verify_nonce(tx_nonce, access_key.nonce, block_height) {
+    if let Err(e) = verify_nonce(tx_nonce, access_key.nonce, block_height, tx.nonce_mode()) {
         return TxVerdict::Failed(e);
     }
 
@@ -424,7 +435,7 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
     }
 
     let tx_nonce = tx.nonce().nonce();
-    if let Err(e) = verify_nonce(tx_nonce, current_nonce, block_height) {
+    if let Err(e) = verify_nonce(tx_nonce, current_nonce, block_height, tx.nonce_mode()) {
         return TxVerdict::Failed(e);
     }
 
@@ -3395,5 +3406,222 @@ mod tests {
         assert_eq!(result.gas_burnt, cost.gas_burnt);
         assert_eq!(result.burnt_amount, cost.burnt_amount);
         assert_eq!(result.new_account_amount, initial_balance);
+    }
+
+    mod strict_nonce_tests {
+        use super::*;
+
+        /// The nightly protocol version where StrictNonce is enabled.
+        const STRICT_NONCE_PROTOCOL_VERSION: ProtocolVersion =
+            ProtocolFeature::StrictNonce.protocol_version();
+
+        #[test]
+        fn test_strict_nonce_exact_next_nonce_succeeds() {
+            let config = RuntimeConfig::test();
+            let initial_nonce = 5;
+            let (signer, mut state_update, gas_price) = setup_common(
+                TESTING_INIT_BALANCE,
+                Balance::ZERO,
+                Some(AccessKey {
+                    nonce: initial_nonce,
+                    permission: AccessKeyPermission::FullAccess,
+                }),
+            );
+
+            let signed_tx = SignedTransaction::from_actions_v1_strict(
+                TransactionNonce::from_nonce(initial_nonce + 1),
+                alice_account(),
+                bob_account(),
+                &*signer,
+                vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
+                CryptoHash::default(),
+            );
+
+            validate_verify_and_charge_transaction(
+                &config,
+                &mut state_update,
+                signed_tx,
+                gas_price,
+                None,
+                STRICT_NONCE_PROTOCOL_VERSION,
+            )
+            .expect("strict nonce with exact next nonce should succeed");
+        }
+
+        #[test]
+        fn test_strict_nonce_gap_rejected() {
+            let config = RuntimeConfig::test();
+            let initial_nonce = 5;
+            let (signer, mut state_update, gas_price) = setup_common(
+                TESTING_INIT_BALANCE,
+                Balance::ZERO,
+                Some(AccessKey {
+                    nonce: initial_nonce,
+                    permission: AccessKeyPermission::FullAccess,
+                }),
+            );
+
+            // Nonce 7 when ak_nonce is 5 → gap (expected 6)
+            let signed_tx = SignedTransaction::from_actions_v1_strict(
+                TransactionNonce::from_nonce(initial_nonce + 2),
+                alice_account(),
+                bob_account(),
+                &*signer,
+                vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
+                CryptoHash::default(),
+            );
+
+            let err = validate_verify_and_charge_transaction(
+                &config,
+                &mut state_update,
+                signed_tx,
+                gas_price,
+                None,
+                STRICT_NONCE_PROTOCOL_VERSION,
+            )
+            .expect_err("strict nonce with gap should fail");
+            assert_eq!(
+                err,
+                InvalidTxError::InvalidNonce {
+                    tx_nonce: initial_nonce + 2,
+                    ak_nonce: initial_nonce
+                }
+            );
+        }
+
+        #[test]
+        fn test_strict_nonce_stale_rejected() {
+            let config = RuntimeConfig::test();
+            let initial_nonce = 5;
+            let (signer, mut state_update, gas_price) = setup_common(
+                TESTING_INIT_BALANCE,
+                Balance::ZERO,
+                Some(AccessKey {
+                    nonce: initial_nonce,
+                    permission: AccessKeyPermission::FullAccess,
+                }),
+            );
+
+            // Nonce 3 when ak_nonce is 5 → stale
+            let signed_tx = SignedTransaction::from_actions_v1_strict(
+                TransactionNonce::from_nonce(3),
+                alice_account(),
+                bob_account(),
+                &*signer,
+                vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
+                CryptoHash::default(),
+            );
+
+            let err = validate_verify_and_charge_transaction(
+                &config,
+                &mut state_update,
+                signed_tx,
+                gas_price,
+                None,
+                STRICT_NONCE_PROTOCOL_VERSION,
+            )
+            .expect_err("strict nonce with stale nonce should fail");
+            assert_eq!(err, InvalidTxError::InvalidNonce { tx_nonce: 3, ak_nonce: initial_nonce });
+        }
+
+        #[test]
+        fn test_monotonic_nonce_gap_succeeds() {
+            let config = RuntimeConfig::test();
+            let initial_nonce = 5;
+            let (signer, mut state_update, gas_price) = setup_common(
+                TESTING_INIT_BALANCE,
+                Balance::ZERO,
+                Some(AccessKey {
+                    nonce: initial_nonce,
+                    permission: AccessKeyPermission::FullAccess,
+                }),
+            );
+
+            // Nonce 100 with monotonic mode → should succeed (gap is ok)
+            let signed_tx = SignedTransaction::from_actions_v1(
+                TransactionNonce::from_nonce(100),
+                alice_account(),
+                bob_account(),
+                &*signer,
+                vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
+                CryptoHash::default(),
+            );
+
+            validate_verify_and_charge_transaction(
+                &config,
+                &mut state_update,
+                signed_tx,
+                gas_price,
+                None,
+                STRICT_NONCE_PROTOCOL_VERSION,
+            )
+            .expect("monotonic nonce with gap should succeed");
+        }
+
+        #[test]
+        fn test_strict_nonce_rejected_when_feature_disabled() {
+            let config = RuntimeConfig::test();
+            let (signer, _state_update, _gas_price) =
+                setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
+
+            let signed_tx = SignedTransaction::from_actions_v1_strict(
+                TransactionNonce::from_nonce(1),
+                alice_account(),
+                bob_account(),
+                &*signer,
+                vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
+                CryptoHash::default(),
+            );
+
+            // Use a protocol version where StrictNonce is NOT enabled.
+            // GasKeys must be enabled for V1 to be accepted at all.
+            let protocol_version = ProtocolFeature::GasKeys.protocol_version();
+            assert!(
+                !ProtocolFeature::StrictNonce.enabled(protocol_version),
+                "StrictNonce should not be enabled at GasKeys protocol version"
+            );
+
+            let err = validate_transaction(&config, signed_tx, protocol_version)
+                .expect_err("strict nonce should be rejected when feature disabled");
+            assert_eq!(err.0, InvalidTxError::InvalidTransactionVersion);
+        }
+
+        #[test]
+        fn test_strict_nonce_equal_to_current_rejected() {
+            let config = RuntimeConfig::test();
+            let initial_nonce = 5;
+            let (signer, mut state_update, gas_price) = setup_common(
+                TESTING_INIT_BALANCE,
+                Balance::ZERO,
+                Some(AccessKey {
+                    nonce: initial_nonce,
+                    permission: AccessKeyPermission::FullAccess,
+                }),
+            );
+
+            // Nonce exactly equal to ak_nonce → should fail (need ak_nonce + 1)
+            let signed_tx = SignedTransaction::from_actions_v1_strict(
+                TransactionNonce::from_nonce(initial_nonce),
+                alice_account(),
+                bob_account(),
+                &*signer,
+                vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
+                CryptoHash::default(),
+            );
+
+            let err = validate_verify_and_charge_transaction(
+                &config,
+                &mut state_update,
+                signed_tx,
+                gas_price,
+                None,
+                STRICT_NONCE_PROTOCOL_VERSION,
+            )
+            .expect_err("strict nonce equal to current should fail");
+            assert_eq!(
+                err,
+                InvalidTxError::InvalidNonce { tx_nonce: initial_nonce, ak_nonce: initial_nonce }
+            );
+        }
     }
 }
