@@ -457,21 +457,7 @@ pub trait EpochManagerAdapter: Send + Sync {
         &self,
         prev_block_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<ValidatorStake, EpochError> {
-        let block_info = self.get_block_info(prev_block_hash)?;
-        let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
-        let height = block_info.height() + 1;
-        let epoch_info = self.get_epoch_info(&epoch_id)?;
-        let shard_layout = self.get_shard_layout(&epoch_id)?;
-        let Some(validator_id) = epoch_info.sample_chunk_producer(&shard_layout, shard_id, height)
-        else {
-            return Err(EpochError::ChunkProducerSelectionError(format!(
-                "Invalid shard {} for height {}",
-                shard_id, height,
-            )));
-        };
-        Ok(epoch_info.get_validator(validator_id))
-    }
+    ) -> Result<ValidatorStake, EpochError>;
 
     /// Best-effort chunk producer info: tries DB first, falls back to computation.
     /// Use this for non-critical callers (metrics, debug, RPC views) where a stale
@@ -480,11 +466,7 @@ pub trait EpochManagerAdapter: Send + Sync {
         &self,
         prev_block_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<ValidatorStake, EpochError> {
-        // Default impl is pure computation (same as get_chunk_producer_info).
-        // EpochManagerHandle overrides this with a DB-first-then-fallback path.
-        self.get_chunk_producer_info(prev_block_hash, shard_id)
-    }
+    ) -> Result<ValidatorStake, EpochError>;
 
     /// Returns whether the pre-computed chunk producer entry exists in `DBCol::ChunkProducers`
     /// for the given `(prev_block_hash, shard_id)`.
