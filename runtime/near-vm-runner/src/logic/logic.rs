@@ -2235,7 +2235,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
 
         self.pay_action_base(ActionCosts::create_account, sir)?;
 
-        self.ext.append_action_create_account(receipt_idx)?;
+        self.ext.append_action_create_account(receipt_idx);
         Ok(())
     }
 
@@ -2282,7 +2282,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         self.pay_action_base(ActionCosts::deploy_contract_base, sir)?;
         self.pay_action_per_byte(ActionCosts::deploy_contract_byte, code_len, sir)?;
 
-        self.ext.append_action_deploy_contract(receipt_idx, code)?;
+        self.ext.append_action_deploy_contract(receipt_idx, code);
         Ok(())
     }
 
@@ -2375,7 +2375,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         self.pay_action_base(ActionCosts::deploy_global_contract_base, sir)?;
         self.pay_action_per_byte(ActionCosts::deploy_global_contract_byte, code_len, sir)?;
 
-        self.ext.append_action_deploy_global_contract(receipt_idx, code, mode)?;
+        self.ext.append_action_deploy_global_contract(receipt_idx, code, mode);
         Ok(())
     }
 
@@ -2458,7 +2458,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         let len = contract_id.len() as u64;
         self.pay_action_per_byte(ActionCosts::use_global_contract_byte, len, sir)?;
 
-        self.ext.append_action_use_global_contract(receipt_idx, contract_id)?;
+        self.ext.append_action_use_global_contract(receipt_idx, contract_id);
         Ok(())
     }
 
@@ -2573,7 +2573,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         self.pay_action_base(ActionCosts::deterministic_state_init_base, sir)?;
         self.result_state.deduct_balance(amount)?;
 
-        self.ext.append_action_deterministic_state_init(receipt_idx, code, amount)
+        Ok(self.ext.append_action_deterministic_state_init(receipt_idx, code, amount))
     }
 
     /// Appends a data entry to an existing `DeterministicStateInit` action.
@@ -2812,7 +2812,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             ActionCosts::transfer,
         )?;
         self.result_state.deduct_balance(amount)?;
-        self.ext.append_action_transfer(receipt_idx, amount)?;
+        self.ext.append_action_transfer(receipt_idx, amount);
         Ok(())
     }
 
@@ -3032,7 +3032,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         self.pay_action_base(ActionCosts::delete_account, sir)?;
 
-        self.ext.append_action_delete_account(receipt_idx, beneficiary_id)?;
+        self.ext.append_action_delete_account(receipt_idx, beneficiary_id);
         Ok(())
     }
 

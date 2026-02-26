@@ -4,8 +4,7 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::{create_validators_spec, validators_spec_clients};
-use crate::utils::client_queries::ClientQueries;
-use crate::utils::transactions::get_anchor_hash;
+use crate::utils::node::TestLoopNode;
 use near_async::messaging::CanSend as _;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
@@ -20,7 +19,6 @@ use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{QueryRequest, QueryResponseKind};
 
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
@@ -66,18 +64,9 @@ fn test_producer_with_expired_transactions() {
         let receiver = accounts[0].clone();
         test_loop.send_adhoc_event("transaction".into(), move |data| {
             let signer = create_user_test_signer(&sender);
-            let clients = vec![&data.get(&chunk_producer.client_sender.actor_handle()).client];
-            let response = clients.runtime_query(
-                &receiver,
-                QueryRequest::ViewAccessKey {
-                    account_id: sender.clone(),
-                    public_key: signer.public_key(),
-                },
-            );
-            let QueryResponseKind::AccessKey(access_key) = response.kind else {
-                panic!("Expected AccessKey response");
-            };
-            let anchor_hash = get_anchor_hash(&clients);
+            let node = TestLoopNode { data, node_data: &chunk_producer };
+            let access_key = node.view_access_key_query(&sender, &signer.public_key()).unwrap();
+            let anchor_hash = node.head().last_block_hash;
             let tx = SignedTransaction::send_money(
                 access_key.nonce + 1,
                 sender,
@@ -137,9 +126,9 @@ fn test_producer_with_expired_transactions() {
 
     // I'd have loved to check this holds true for chunk validators but they do not track shards
     // and thus cannot provide the info about balances.
-    let clients = vec![&test_loop.data.get(&chunk_producer.client_sender.actor_handle()).client];
+    let node = TestLoopNode { data: &test_loop.data, node_data: chunk_producer };
     for account in &accounts {
-        let actual = clients.query_balance(account);
+        let actual = node.query_balance(account);
         assert_eq!(actual, Balance::from_near(1000000), "no transfers should have happened");
     }
 

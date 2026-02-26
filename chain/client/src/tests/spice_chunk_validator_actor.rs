@@ -491,7 +491,6 @@ fn simulate_chunk_application(
             {
                 let is_new_chunk = true;
                 Chain::get_apply_chunk_block_context(&block, prev_block.header(), is_new_chunk)
-                    .unwrap()
             },
             &TEST_RECEIPTS,
             transactions,

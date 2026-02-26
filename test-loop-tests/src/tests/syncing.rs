@@ -1,6 +1,6 @@
 use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
 use crate::setup::env::TestLoopEnv;
-use crate::utils::client_queries::ClientQueries;
+use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::execute_money_transfers;
 use itertools::Itertools;
 use near_async::time::Duration;
@@ -39,13 +39,10 @@ fn slow_test_sync_from_genesis() {
         .build()
         .warmup();
 
-    let first_epoch_tracked_shards = {
-        let clients = node_datas
-            .iter()
-            .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
-            .collect_vec();
-        clients.tracked_shards_for_each_client()
-    };
+    let first_epoch_tracked_shards = node_datas
+        .iter()
+        .map(|node_data| TestLoopNode { data: &test_loop.data, node_data }.tracked_shards())
+        .collect_vec();
     tracing::info!(?first_epoch_tracked_shards, "first epoch tracked shards");
 
     execute_money_transfers(&mut test_loop, &node_datas, &accounts).unwrap();
