@@ -316,6 +316,7 @@ def build_report(days, verbose=False):
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "workflows": {},
         "pr_attempts": {},
+        "pr_merged": set(),
         "job_failures": defaultdict(lambda: defaultdict(int)),
         "ci_failure_categories": defaultdict(int),
         "nayduck_failed_tests": defaultdict(int),
@@ -345,6 +346,8 @@ def build_report(days, verbose=False):
             branch = run.get("head_branch", "")
             report["pr_attempts"].setdefault(pr_number, set())
             report["pr_attempts"][pr_number].add(branch)
+            if run.get("conclusion") == "success":
+                report["pr_merged"].add(pr_number)
 
     # --- Fetch jobs for all failed runs across all workflows ---
     for workflow_name in WORKFLOWS:
@@ -469,6 +472,7 @@ def build_report(days, verbose=False):
     progress("Building report...")
 
     # Convert sets/defaultdict for JSON serialization.
+    report["pr_merged"] = [str(pr_number) for pr_number in report["pr_merged"]]
     report["pr_attempts"] = {
         str(pr_number): len(branches)
         for pr_number, branches in report["pr_attempts"].items()
@@ -532,22 +536,32 @@ def print_text_report(report):
 
     # PR attempt stats
     attempts = report["pr_attempts"]
+    merged_set = set(report.get("pr_merged", []))
     if attempts:
         total_prs = len(attempts)
-        first_try = sum(1 for value in attempts.values() if value == 1)
-        requeued = sum(1 for value in attempts.values() if value > 1)
-        average = sum(attempts.values()) / total_prs
+        merged_prs = {
+            pr: count for pr, count in attempts.items() if pr in merged_set
+        }
+        unmerged_prs = {
+            pr: count for pr, count in attempts.items() if pr not in merged_set
+        }
+        first_try = sum(1 for value in merged_prs.values() if value == 1)
+        requeued = sum(1 for value in merged_prs.values() if value > 1)
+        average = (sum(merged_prs.values()) /
+                   len(merged_prs)) if merged_prs else 0
         print("## Merge Queue Reliability\n")
         print(f"  PRs seen:                {total_prs}")
+        print(f"  Merged:                  {len(merged_prs)}")
+        print(f"  Still pending:           {len(unmerged_prs)}")
         print(
-            f"  First-attempt merges:    {first_try} ({first_try/total_prs*100:.0f}%)"
-        )
+            f"  First-attempt merges:    {first_try} ({first_try/len(merged_prs)*100:.0f}%)"
+            if merged_prs else f"  First-attempt merges:    0")
         print(
-            f"  Re-queued PRs:           {requeued} ({requeued/total_prs*100:.0f}%)"
-        )
-        print(f"  Avg attempts per PR:     {average:.2f}")
+            f"  Re-queued PRs:           {requeued} ({requeued/len(merged_prs)*100:.0f}%)"
+            if merged_prs else f"  Re-queued PRs:           0")
+        print(f"  Avg attempts per PR:     {average:.2f} (merged PRs only)")
         if requeued:
-            worst = sorted(attempts.items(), key=lambda x: -x[1])[:5]
+            worst = sorted(merged_prs.items(), key=lambda x: -x[1])[:5]
             print(
                 f"  Worst PRs:               {', '.join(f'#{pr_number}({count}x)' for pr_number, count in worst)}"
             )
