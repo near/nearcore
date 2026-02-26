@@ -78,6 +78,29 @@ impl TransactionNonce {
     }
 }
 
+/// Controls how the transaction nonce is validated against the access key nonce.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Default,
+    ProtocolSchema,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub enum NonceMode {
+    /// Any nonce strictly greater than the current access key nonce (default behavior).
+    #[default]
+    Monotonic,
+    /// Nonce must be exactly `ak_nonce + 1` (sequential ordering).
+    Strict,
+}
+
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone, ProtocolSchema)]
 pub struct TransactionV1 {
     /// An account on which behalf transaction is signed
@@ -95,6 +118,8 @@ pub struct TransactionV1 {
     pub block_hash: CryptoHash,
     /// A list of actions to be applied
     pub actions: Vec<Action>,
+    /// Controls nonce validation mode (monotonic or strict sequential).
+    pub nonce_mode: NonceMode,
 }
 
 impl Transaction {
@@ -158,6 +183,13 @@ impl Transaction {
         match self {
             Transaction::V0(tx) => &tx.block_hash,
             Transaction::V1(tx) => &tx.block_hash,
+        }
+    }
+
+    pub fn nonce_mode(&self) -> NonceMode {
+        match self {
+            Transaction::V0(_) => NonceMode::Monotonic,
+            Transaction::V1(tx) => tx.nonce_mode,
         }
     }
 }
@@ -255,6 +287,11 @@ impl ValidatedTransaction {
         {
             return Err(InvalidTxError::InvalidTransactionVersion);
         }
+        if signed_tx.transaction.nonce_mode() == NonceMode::Strict
+            && !ProtocolFeature::StrictNonce.enabled(protocol_version)
+        {
+            return Err(InvalidTxError::InvalidTransactionVersion);
+        }
         let tx_size = signed_tx.get_size();
         let max_tx_size = config.wasm_config.limit_config.max_transaction_size;
         if tx_size > max_tx_size {
@@ -312,6 +349,10 @@ impl ValidatedTransaction {
 
     pub fn actions(&self) -> &[Action] {
         self.to_tx().actions()
+    }
+
+    pub fn nonce_mode(&self) -> NonceMode {
+        self.to_tx().nonce_mode()
     }
 }
 
@@ -753,6 +794,7 @@ mod tests {
                     beneficiary_id: "123".parse().unwrap(),
                 }),
             ],
+            nonce_mode: NonceMode::Monotonic,
         }
     }
 

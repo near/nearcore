@@ -33,8 +33,8 @@ use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBit
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithIdAndProof,
-    ExecutionStatus, FunctionCallAction, PartialExecutionOutcome, PartialExecutionStatus,
-    SignedTransaction, StakeAction, TransferAction,
+    ExecutionStatus, FunctionCallAction, NonceMode, PartialExecutionOutcome,
+    PartialExecutionStatus, SignedTransaction, StakeAction, TransferAction,
 };
 use crate::trie_split::TrieSplit;
 use crate::types::{
@@ -1637,12 +1637,18 @@ pub struct SignedTransactionView {
     pub hash: CryptoHash,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub nonce_index: Option<NonceIndex>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub nonce_mode: Option<NonceMode>,
 }
 
 impl From<SignedTransaction> for SignedTransactionView {
     fn from(signed_tx: SignedTransaction) -> Self {
         let hash = signed_tx.get_hash();
         let transaction = signed_tx.transaction;
+        let nonce_mode = match transaction.nonce_mode() {
+            NonceMode::Monotonic => None,
+            mode => Some(mode),
+        };
         SignedTransactionView {
             signer_id: transaction.signer_id().clone(),
             public_key: transaction.public_key().clone(),
@@ -1653,6 +1659,7 @@ impl From<SignedTransaction> for SignedTransactionView {
             signature: signed_tx.signature,
             hash,
             _priority_fee: 0,
+            nonce_mode,
         }
     }
 }
