@@ -1472,11 +1472,8 @@ impl ForkNetworkCommand {
                 &shard_layout,
                 &state_roots_map,
             )?;
-            let mut storage_mutator = StorageMutator::new(
-                runtime.get_tries(),
-                update_state.clone(),
-                shard_layout.clone(),
-            )?;
+            let mut storage_mutator =
+                StorageMutator::new(runtime.get_tries(), update_state, shard_layout.clone())?;
 
             let probe_prefixes = Self::shard_account_prefixes(shard_layout);
             let mut probe_account_infos: Vec<AccountData> = Vec::new();

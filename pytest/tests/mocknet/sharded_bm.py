@@ -384,8 +384,7 @@ def configure_rpc_probe(args):
     run_cmd_args2.cmd = (
         f"jq --arg accounts_path {probe_accounts_path}"
         f" '.rpc_probe.accounts_path = $accounts_path'"
-        f" {CONFIG_PATH} > tmp.$$.json && mv tmp.$$.json {CONFIG_PATH}"
-    )
+        f" {CONFIG_PATH} > tmp.$$.json && mv tmp.$$.json {CONFIG_PATH}")
     run_remote_cmd(CommandContext(run_cmd_args2))
 
     logger.info(f"Configured RPC probe on {len(rpc_names)} RPC nodes")
