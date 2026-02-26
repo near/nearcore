@@ -25,7 +25,6 @@ use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessag
 use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state::PartialState;
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::contract_distribution::{CodeBytes, CodeHash};
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness;
@@ -374,21 +373,24 @@ impl SpiceChunkValidatorActor {
     ) -> Result<(), Error> {
         let chunk_id = accesses.chunk_id().clone();
 
-        // Verify signature of accesses message.
-        let block = self.chain_store.get_block(&chunk_id.block_hash)?;
-        let key = ChunkProductionKey {
-            epoch_id: *block.header().epoch_id(),
-            shard_id: chunk_id.shard_id,
-            height_created: block.header().height(),
-        };
-        let chunk_producer = self.epoch_manager.get_chunk_producer_info(&key)?;
-        if !accesses.verify_signature(chunk_producer.public_key()) {
+        // Verify signature of accesses message against any chunk producer for the shard
+        // in the epoch (any node tracking the shard may send contract accesses).
+        let epoch_id = self.epoch_manager.get_epoch_id(&chunk_id.block_hash)?;
+        let producers =
+            self.epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, chunk_id.shard_id)?;
+        let is_valid_signature = producers.iter().any(|account_id| {
+            let Ok(validator) =
+                self.epoch_manager.get_validator_by_account_id(&epoch_id, account_id)
+            else {
+                return false;
+            };
+            accesses.verify_signature(validator.public_key())
+        });
+        if !is_valid_signature {
             return Err(Error::Other("invalid spice contract accesses signature".to_owned()));
         }
 
-        let protocol_version = self
-            .epoch_manager
-            .get_epoch_protocol_version(&self.epoch_manager.get_epoch_id(&chunk_id.block_hash)?)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let runtime_config = self.runtime_adapter.get_runtime_config(protocol_version);
         let cache = self.runtime_adapter.compiled_contract_cache();
 
@@ -405,7 +407,6 @@ impl SpiceChunkValidatorActor {
         }
 
         if !missing.is_empty() {
-            let epoch_id = self.epoch_manager.get_epoch_id(&chunk_id.block_hash)?;
             let mut producers = self
                 .epoch_manager
                 .get_epoch_chunk_producers_for_shard(&epoch_id, chunk_id.shard_id)?;
