@@ -86,7 +86,7 @@ use std::future::Future;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
@@ -356,7 +356,7 @@ struct JsonRpcHandler {
     debug_pages_src_path: Option<PathBuf>,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
     block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
-    pool: Option<pool::RpcPool>,
+    pool: Arc<OnceLock<pool::RpcPool>>,
 }
 
 impl JsonRpcHandler {
@@ -412,7 +412,7 @@ impl JsonRpcHandler {
 
         // Pool routing: forward or fan-out before local dispatch.
         if !is_forwarded {
-            if let Some(pool) = &self.pool {
+            if let Some(pool) = self.pool.get() {
                 let routing = pool.route(&request.method, &request.params);
                 match routing {
                     pool::RoutingDecision::Forward(shard_uid) => {
@@ -2141,7 +2141,7 @@ pub fn create_jsonrpc_app(
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
     epoch_manager: Option<Arc<dyn near_epoch_manager::EpochManagerAdapter>>,
     tracked_shards_config: Option<near_chain_configs::TrackedShardsConfig>,
-) -> Router {
+) -> (Router, Arc<OnceLock<pool::RpcPool>>) {
     let RpcConfig {
         cors_allowed_origins,
         polling_config,
@@ -2154,17 +2154,19 @@ pub fn create_jsonrpc_app(
     } = config;
 
     // Build the RPC pool if pool config is present.
-    let pool = pool_config.and_then(|peers_config| {
-        let epoch_manager = epoch_manager?;
-        let tracked_shards_config =
-            tracked_shards_config.unwrap_or(near_chain_configs::TrackedShardsConfig::AllShards);
-        Some(pool::build_pool(
-            epoch_manager,
-            tracked_shards_config,
-            peers_config,
-            std::time::Duration::from_secs(pool_forward_timeout_secs),
-        ))
-    });
+    let pool = Arc::new(OnceLock::new());
+    if let Some(peers_config) = pool_config {
+        if let Some(epoch_manager) = epoch_manager {
+            let tracked_shards_config =
+                tracked_shards_config.unwrap_or(near_chain_configs::TrackedShardsConfig::AllShards);
+            let _ = pool.set(pool::build_pool(
+                epoch_manager,
+                tracked_shards_config,
+                peers_config,
+                std::time::Duration::from_secs(pool_forward_timeout_secs),
+            ));
+        }
+    }
 
     // Create shared state
     let handler = Arc::new(JsonRpcHandler {
@@ -2181,7 +2183,7 @@ pub fn create_jsonrpc_app(
         #[cfg(feature = "test_features")]
         gc_sender,
         block_notification_watcher,
-        pool,
+        pool: pool.clone(),
     });
 
     // Build router
@@ -2210,9 +2212,11 @@ pub fn create_jsonrpc_app(
             .route("/debug/pages/{page}", get(display_debug_html));
     }
 
-    app.layer(get_cors(&cors_allowed_origins))
+    let router = app
+        .layer(get_cors(&cors_allowed_origins))
         .layer(RequestBodyLimitLayer::new(limits_config.json_payload_max_size))
-        .with_state(handler)
+        .with_state(handler);
+    (router, pool)
 }
 
 /// Starts HTTP server(s) listening for RPC requests.
@@ -2244,7 +2248,7 @@ pub async fn start_http(
     tracing::info!(target: "network", %addr, "starting http server");
 
     // Create the axum app using the extracted function
-    let app = create_jsonrpc_app(
+    let (app, _pool) = create_jsonrpc_app(
         clock,
         config,
         genesis_config,
