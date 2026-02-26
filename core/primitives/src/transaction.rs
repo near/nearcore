@@ -160,6 +160,14 @@ impl Transaction {
             Transaction::V1(tx) => &tx.block_hash,
         }
     }
+
+    /// Check if this transaction version requires the GasKeys protocol feature to be enabled.
+    pub fn gas_keys_required(&self) -> bool {
+        match self {
+            Transaction::V0(_) => false,
+            Transaction::V1(_) => true,
+        }
+    }
 }
 
 impl BorshSerialize for Transaction {
@@ -251,7 +259,7 @@ impl ValidatedTransaction {
         protocol_version: ProtocolVersion,
     ) -> Result<(), InvalidTxError> {
         if !ProtocolFeature::GasKeys.enabled(protocol_version)
-            && matches!(signed_tx.transaction, Transaction::V1(_))
+            && signed_tx.transaction.gas_keys_required()
         {
             return Err(InvalidTxError::InvalidTransactionVersion);
         }

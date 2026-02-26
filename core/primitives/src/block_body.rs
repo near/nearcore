@@ -213,7 +213,7 @@ impl BlockBody {
         // From BlockBodyV2 onwards, we hash the entire body including version.
         match self {
             BlockBody::V1(body) => body.compute_hash(),
-            _ => CryptoHash::hash_borsh(self),
+            BlockBody::V2(_) | BlockBody::V3(_) => CryptoHash::hash_borsh(self),
         }
     }
 }
