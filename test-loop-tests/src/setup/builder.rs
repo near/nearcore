@@ -263,14 +263,8 @@ impl TestLoopBuilder {
         let has_clients = !self.clients.is_empty();
 
         assert!(
-            !uses_new_api || !has_genesis,
-            "builder API (.validators(), .num_shards(), .enable_rpc()) is incompatible \
-             with manually provided genesis"
-        );
-        assert!(
-            !uses_new_api || !has_clients,
-            "builder API (.validators(), .num_shards(), .enable_rpc()) is incompatible \
-             with manually provided clients"
+            !(uses_new_api && (has_genesis || has_clients)),
+            "builder-derived configuration is incompatible with manually provided genesis/clients"
         );
         assert!(
             has_genesis == has_clients,
@@ -320,6 +314,7 @@ impl TestLoopBuilder {
             } else {
                 validators_spec_clients(validators_spec)
             };
+            assert!(!self.clients.is_empty(), "validators spec must produce at least one client");
         }
         assert!(
             self.cold_storage_archival_clients
