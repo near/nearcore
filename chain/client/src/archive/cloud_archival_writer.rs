@@ -10,12 +10,17 @@ use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain_configs::{CloudArchivalWriterConfig, InterruptHandle};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_primitives::types::BlockHeight;
+use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::ShardLayout;
+use near_primitives::shard_layout::ShardUId;
+use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::archive::cloud_storage::archive::CloudArchivingError;
 use near_store::archive::cloud_storage::retrieve::CloudRetrievalError;
-use near_store::db::{CLOUD_HEAD_KEY, DBTransaction};
+use near_store::db::{
+    CLOUD_BLOCK_HEAD_KEY, CLOUD_MIN_HEAD_KEY, CLOUD_SHARD_HEAD_PREFIX, DBTransaction,
+};
 use near_store::{DBCol, FINAL_HEAD_KEY, Store};
 use time::Duration;
 
@@ -38,16 +43,6 @@ enum CloudArchivingResult {
 pub enum CloudArchivalInitializationError {
     #[error("IO error while initializing cloud archival: {message}")]
     IOError { message: String },
-    #[error(
-        "Cloud head is present locally ({cloud_head_local}) but it is missing externally.\n\
-            Please make sure you use the correct cloud archive location, or delete CLOUD_HEAD from the local database"
-    )]
-    MissingExternalHead { cloud_head_local: BlockHeight },
-    #[error(
-        "Local cloud head ({cloud_head_local}) is ahead of the external head ({cloud_head_external}).\n\
-        This indicates an invalid state. Please ensure the correct cloud archive is used or reset the local CLOUD_HEAD."
-    )]
-    LocalHeadAboveExternal { cloud_head_local: BlockHeight, cloud_head_external: BlockHeight },
     #[error(
         "GC tail: {gc_tail}, exceeds GC stop height: {gc_stop_height} for the cloud head: {cloud_head}"
     )]
@@ -92,6 +87,12 @@ impl CloudArchivalWriterHandle {
     pub fn new() -> Self {
         Self(InterruptHandle::new())
     }
+}
+
+fn cloud_shard_head_key(shard_id: ShardId) -> Vec<u8> {
+    let mut key = CLOUD_SHARD_HEAD_PREFIX.to_vec();
+    key.extend(shard_id.to_le_bytes());
+    key
 }
 
 /// Responsible for copying finalized blocks to cloud storage.
@@ -163,7 +164,7 @@ impl CloudArchivalWriter {
     }
 
     async fn start(self, runtime_adapter: Arc<dyn RuntimeAdapter>) {
-        if let Err(error) = self.initialize_cloud_head(&runtime_adapter).await {
+        if let Err(error) = self.initialize_cloud_heads(&runtime_adapter).await {
             tracing::error!(target: "cloud_archival", ?error, "cloud archival initialization failed");
             return;
         }
@@ -223,155 +224,297 @@ impl CloudArchivalWriter {
         Ok(result)
     }
 
-    /// If the cloud head lags the hot final head, archive the next height. Updates
-    /// `cloud_head` on success.
+    /// If the min cloud head lags the hot final head, archive the next height.
+    /// Only archives components whose individual heads are behind.
     async fn try_archive_data_impl(&self) -> Result<CloudArchivingResult, CloudArchivingError> {
-        let cloud_head =
-            self.get_cloud_head_local()?.expect("CLOUD_HEAD should exist in hot store");
-        let height_to_archive = cloud_head + 1;
+        let min_head =
+            self.get_cloud_min_head_local()?.expect("CLOUD_MIN_HEAD should exist in hot store");
+        let height_to_archive = min_head + 1;
         let hot_final_height = self.get_hot_final_head_height()?;
         tracing::trace!(target: "cloud_archival", height_to_archive, hot_final_height, "try_archive");
 
-        // Archive only while the height to archive is below the finalized height, since
-        // the next block should be finalized first (for `DBCol::NextBlockHashes`).
         if height_to_archive >= hot_final_height {
-            return Ok(CloudArchivingResult::NoHeightArchived(cloud_head));
+            return Ok(CloudArchivingResult::NoHeightArchived(min_head));
         }
 
-        self.archive_data(height_to_archive).await?;
-        self.update_cloud_head(height_to_archive).await?;
+        self.archive_lagging_components(height_to_archive).await?;
 
         let result = if height_to_archive + 1 == hot_final_height {
-            Ok(CloudArchivingResult::LatestHeightArchived(height_to_archive))
+            CloudArchivingResult::LatestHeightArchived(height_to_archive)
         } else {
-            Ok(CloudArchivingResult::OlderHeightArchived(height_to_archive, hot_final_height - 1))
+            CloudArchivingResult::OlderHeightArchived(height_to_archive, hot_final_height - 1)
         };
         tracing::trace!(target: "cloud_archival", ?result, "ending");
-        result
+        Ok(result)
     }
 
-    /// Persist finalized data for `height` to cloud storage.
-    async fn archive_data(&self, height: BlockHeight) -> Result<(), CloudArchivingError> {
+    /// Archives all lagging components at the given height and advances local heads.
+    async fn archive_lagging_components(
+        &self,
+        height: BlockHeight,
+    ) -> Result<(), CloudArchivingError> {
         let block_hash = self.hot_store.chain_store().get_block_hash_by_height(height)?;
         let epoch_id = self.epoch_manager.get_epoch_id(&block_hash)?;
         let tracked_shards =
             self.shard_tracker.get_tracked_shards_for_non_validator_in_epoch(&epoch_id)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
 
-        if self.epoch_manager.is_next_block_epoch_start(&block_hash)? {
-            self.cloud_storage.archive_epoch_data(&self.hot_store, &shard_layout, epoch_id).await?;
+        let block_advanced = if self.config.archive_block_data {
+            self.archive_block_and_epoch_if_lagging(height, &block_hash, epoch_id, &shard_layout)
+                .await?
+        } else {
+            false
+        };
+        let advanced_shards =
+            self.archive_shards_if_lagging(height, &tracked_shards, &shard_layout).await?;
+        self.advance_local_heads(height, block_advanced, &advanced_shards)?;
+        Ok(())
+    }
+
+    /// Archives block and epoch data if the local block head is behind `height`.
+    /// Epoch data is uploaded at epoch boundaries since it is keyed by epoch ID
+    /// and naturally belongs with the last block of the epoch.
+    /// Returns true if the block head was advanced.
+    async fn archive_block_and_epoch_if_lagging(
+        &self,
+        height: BlockHeight,
+        block_hash: &CryptoHash,
+        epoch_id: EpochId,
+        shard_layout: &ShardLayout,
+    ) -> Result<bool, CloudArchivingError> {
+        if let Some(head) = self.get_local_block_head()? {
+            if head >= height {
+                return Ok(false);
+            }
         }
-
+        if self.epoch_manager.is_next_block_epoch_start(block_hash)? {
+            self.cloud_storage.archive_epoch_data(&self.hot_store, shard_layout, epoch_id).await?;
+        }
         self.cloud_storage.archive_block_data(&self.hot_store, height).await?;
+        self.cloud_storage.update_cloud_block_head(height).await?;
+        Ok(true)
+    }
 
+    /// Archives shard data for tracked shards whose local head is behind `height`.
+    /// Returns the shard IDs that were advanced.
+    async fn archive_shards_if_lagging(
+        &self,
+        height: BlockHeight,
+        tracked_shards: &[ShardUId],
+        shard_layout: &ShardLayout,
+    ) -> Result<Vec<ShardId>, CloudArchivingError> {
+        let mut advanced_shards = Vec::new();
         for shard_uid in tracked_shards {
+            let shard_id = shard_uid.shard_id();
+            let lagging = match self.get_local_shard_head(shard_id)? {
+                Some(head) => head < height,
+                None => true,
+            };
+            if !lagging {
+                continue;
+            }
             self.cloud_storage
                 .archive_shard_data(
                     &self.hot_store,
                     self.genesis_height,
-                    &shard_layout,
+                    shard_layout,
                     height,
-                    shard_uid,
+                    *shard_uid,
                 )
                 .await?;
+            self.cloud_storage.update_cloud_shard_head(shard_id, height).await?;
+            advanced_shards.push(shard_id);
+        }
+        Ok(advanced_shards)
+    }
+
+    /// Initializes cloud heads by reconciling external and local state.
+    ///
+    /// Three cases:
+    /// 1. No external heads exist: fresh bucket, init all at hot_final_height.
+    /// 2. Some heads missing: joining writer or resharding, init missing at
+    ///    max(existing tracked heads), keep existing heads at their own heights.
+    /// 3. All heads exist: normal restart, sync each head from external.
+    ///
+    /// Each local head is set to its own resolved height so only lagging components
+    /// catch up during the archival loop.
+    // TODO(cloud_archival) Cover this logic with tests.
+    async fn initialize_cloud_heads(
+        &self,
+        runtime_adapter: &Arc<dyn RuntimeAdapter>,
+    ) -> Result<(), CloudArchivalInitializationError> {
+        let hot_final_height = self.get_hot_final_head_height()?;
+        let tracked_shard_ids = self.get_tracked_shard_ids(hot_final_height)?;
+
+        let (block_head_ext, shard_heads_ext) =
+            self.read_external_heads(&tracked_shard_ids).await?;
+
+        let (block_head_local, shard_heads_local, min_height_local) =
+            self.resolve_heads(hot_final_height, block_head_ext, &shard_heads_ext).await?;
+
+        // GC check only when local min head doesn't exist (fresh writer setup).
+        if self.get_cloud_min_head_local()?.is_none() {
+            self.ensure_cloud_head_available_for_archiving(runtime_adapter, min_height_local)?;
+        }
+
+        // Set each local head to its own resolved height.
+        self.set_local_heads(block_head_local, &shard_heads_local, min_height_local)?;
+
+        Ok(())
+    }
+
+    /// Reads external head for block (if configured) and each tracked shard.
+    async fn read_external_heads(
+        &self,
+        tracked_shard_ids: &[ShardId],
+    ) -> Result<
+        (Option<BlockHeight>, Vec<(ShardId, Option<BlockHeight>)>),
+        CloudArchivalInitializationError,
+    > {
+        let block_head_ext = if self.config.archive_block_data {
+            self.cloud_storage.retrieve_cloud_block_head_if_exists().await?
+        } else {
+            None
+        };
+        let mut shard_heads_ext = Vec::new();
+        for &shard_id in tracked_shard_ids {
+            let head = self.cloud_storage.retrieve_cloud_shard_head_if_exists(shard_id).await?;
+            shard_heads_ext.push((shard_id, head));
+        }
+        Ok((block_head_ext, shard_heads_ext))
+    }
+
+    /// Resolves external heads into per-component local heights, uploading
+    /// initial values for any missing heads. Computes the overall min height
+    /// across all tracked components for use as GC stop reference.
+    ///
+    /// Returns (block_head_local, shard_heads_local, min_height_local).
+    async fn resolve_heads(
+        &self,
+        hot_final_height: BlockHeight,
+        block_head_ext: Option<BlockHeight>,
+        shard_heads_ext: &[(ShardId, Option<BlockHeight>)],
+    ) -> Result<
+        (Option<BlockHeight>, Vec<(ShardId, BlockHeight)>, BlockHeight),
+        CloudArchivalInitializationError,
+    > {
+        // Height used to initialize any component whose external head is missing.
+        // If some heads already exist, use the max so the new component starts at
+        // a height the other components have already archived. If no heads exist
+        // (fresh bucket), start from hot_final_height to skip already-finalized
+        // history and only archive new blocks going forward.
+        let init_height = block_head_ext
+            .into_iter()
+            .chain(shard_heads_ext.iter().filter_map(|&(_, head)| head))
+            .max()
+            .unwrap_or(hot_final_height);
+        self.upload_heads_if_missing(init_height, block_head_ext, shard_heads_ext).await?;
+        self.log_initialization_status(block_head_ext, shard_heads_ext, init_height);
+        Ok(self.collect_resolved_heads(init_height, block_head_ext, shard_heads_ext))
+    }
+
+    /// Uploads initial head values for any components that are missing in
+    /// external storage. No-op for components that already have a head.
+    async fn upload_heads_if_missing(
+        &self,
+        init_height: BlockHeight,
+        block_head_ext: Option<BlockHeight>,
+        shard_heads_ext: &[(ShardId, Option<BlockHeight>)],
+    ) -> Result<(), CloudArchivalInitializationError> {
+        if self.config.archive_block_data && block_head_ext.is_none() {
+            self.cloud_storage.update_cloud_block_head(init_height).await?;
+        }
+        for &(shard_id, ext_head) in shard_heads_ext {
+            if ext_head.is_none() {
+                self.cloud_storage.update_cloud_shard_head(shard_id, init_height).await?;
+            }
         }
         Ok(())
     }
 
-    /// Advance the cloud archival head to `new_head` after a successful upload.
-    async fn update_cloud_head(&self, new_head: BlockHeight) -> Result<(), CloudArchivingError> {
-        self.cloud_storage.update_cloud_head(new_head).await?;
-        self.set_cloud_head_local(new_head)?;
-        Ok(())
+    /// Logs the initialization status based on external head presence.
+    fn log_initialization_status(
+        &self,
+        block_head_ext: Option<BlockHeight>,
+        shard_heads_ext: &[(ShardId, Option<BlockHeight>)],
+        init_height: BlockHeight,
+    ) {
+        // block_head_ext is None both when blocks aren't tracked and when
+        // the external head is missing, so we need the config check for has_missing.
+        let has_existing =
+            block_head_ext.is_some() || shard_heads_ext.iter().any(|&(_, head)| head.is_some());
+        let has_missing = (self.config.archive_block_data && block_head_ext.is_none())
+            || shard_heads_ext.iter().any(|&(_, head)| head.is_none());
+
+        if has_missing && has_existing {
+            tracing::info!(
+                target: "cloud_archival",
+                reference_height = init_height,
+                "some external heads missing, initializing at max existing head",
+            );
+        } else if has_missing {
+            tracing::info!(
+                target: "cloud_archival",
+                start_height = init_height,
+                "no external heads found, initializing new cloud archive",
+            );
+        } else {
+            tracing::info!(
+                target: "cloud_archival",
+                "all external heads present, syncing from external",
+            );
+        }
     }
 
-    /// Initializes and reconciles the cloud head between local and external state. If both
-    /// are missing – creates a new archive; if local is missing – sets from external; if
-    /// external is missing – returns an error; if they differ – uses external and updates
-    /// local.
-    // TODO(cloud_archival) Cover this logic with tests.
-    async fn initialize_cloud_head(
+    /// Resolves each external head to its final local height (using
+    /// `init_height` for missing ones) and computes the overall minimum.
+    fn collect_resolved_heads(
         &self,
-        runtime_adapter: &Arc<dyn RuntimeAdapter>,
-    ) -> Result<(), CloudArchivalInitializationError> {
-        let cloud_head_local = self.get_cloud_head_local()?;
-        let cloud_head_external = self.cloud_storage.retrieve_cloud_head_if_exists().await?;
-        match (cloud_head_local, cloud_head_external) {
-            (None, None) => {
-                let hot_final_height = self.get_hot_final_head_height()?;
-                tracing::info!(
-                    target: "cloud_archival",
-                    start_height = hot_final_height,
-                    "cloud head is missing both locally and externally, initializing new cloud archive and writer",
-                );
-                self.initialize_new_cloud_archive_and_writer(hot_final_height).await?;
-            }
-            (None, Some(cloud_head_external)) => {
-                tracing::info!(
-                    target: "cloud_archival",
-                    cloud_head_external,
-                    "cloud head is missing locally, initializing new cloud archival writer",
-                );
-                self.update_cloud_writer_head(runtime_adapter, cloud_head_external)?;
-            }
-            (Some(cloud_head_local), None) => {
-                return Err(CloudArchivalInitializationError::MissingExternalHead {
-                    cloud_head_local,
-                });
-            }
-            (Some(cloud_head_local), Some(cloud_head_external))
-                if cloud_head_local < cloud_head_external =>
-            {
-                tracing::warn!(
-                    target: "cloud_archival",
-                    cloud_head_local,
-                    cloud_head_external,
-                    "external cloud head is ahead of the local head, syncing local to external",
-                );
-                self.update_cloud_writer_head(runtime_adapter, cloud_head_external)?;
-            }
-            (Some(cloud_head_local), Some(cloud_head_external))
-                if cloud_head_local > cloud_head_external =>
-            {
-                return Err(CloudArchivalInitializationError::LocalHeadAboveExternal {
-                    cloud_head_local,
-                    cloud_head_external,
-                });
-            }
-            (Some(cloud_head_local), Some(cloud_head_external)) => {
-                assert_eq!(cloud_head_local, cloud_head_external);
-                tracing::info!(
-                    target: "cloud_archival",
-                    cloud_head_local,
-                    "cloud head is equal locally and externally",
-                );
-            }
+        init_height: BlockHeight,
+        block_head_ext: Option<BlockHeight>,
+        shard_heads_ext: &[(ShardId, Option<BlockHeight>)],
+    ) -> (Option<BlockHeight>, Vec<(ShardId, BlockHeight)>, BlockHeight) {
+        let mut min_height_local: Option<BlockHeight> = None;
+        let mut update_min = |height: BlockHeight| {
+            min_height_local = Some(min_height_local.map_or(height, |cur| cur.min(height)));
         };
-        Ok(())
+
+        let block_head_local = if self.config.archive_block_data {
+            let height = block_head_ext.unwrap_or(init_height);
+            update_min(height);
+            Some(height)
+        } else {
+            None
+        };
+        let shard_heads_local: Vec<(ShardId, BlockHeight)> = shard_heads_ext
+            .iter()
+            .map(|&(shard_id, ext_head)| {
+                let height = ext_head.unwrap_or(init_height);
+                update_min(height);
+                (shard_id, height)
+            })
+            .collect();
+
+        let min_height_local = min_height_local.expect("writer must track at least one component");
+
+        (block_head_local, shard_heads_local, min_height_local)
     }
 
-    /// Sets up a new external cloud archive and local cloud writer starting at
-    /// `hot_final_height`. No GC-tail check is needed because we start from the current hot
-    /// final head.
-    async fn initialize_new_cloud_archive_and_writer(
+    /// Returns the tracked shard IDs for the epoch at the given height.
+    fn get_tracked_shard_ids(
         &self,
-        hot_final_height: BlockHeight,
-    ) -> Result<(), CloudArchivalInitializationError> {
-        self.cloud_storage.update_cloud_head(hot_final_height).await?;
-        self.set_cloud_head_local(hot_final_height)?;
-        Ok(())
-    }
-
-    /// Updates the local cloud writer head to `cloud_head_external` after validating GC
-    /// constraints.
-    fn update_cloud_writer_head(
-        &self,
-        runtime_adapter: &Arc<dyn RuntimeAdapter>,
-        cloud_head_external: BlockHeight,
-    ) -> Result<(), CloudArchivalInitializationError> {
-        self.ensure_cloud_head_available_for_archiving(runtime_adapter, cloud_head_external)?;
-        self.set_cloud_head_local(cloud_head_external)?;
-        Ok(())
+        height: BlockHeight,
+    ) -> Result<Vec<ShardId>, CloudArchivalInitializationError> {
+        let block_hash = self.hot_store.chain_store().get_block_hash_by_height(height)?;
+        let epoch_id = self
+            .epoch_manager
+            .get_epoch_id(&block_hash)
+            .map_err(near_chain_primitives::Error::from)?;
+        let tracked_shards = self
+            .shard_tracker
+            .get_tracked_shards_for_non_validator_in_epoch(&epoch_id)
+            .map_err(near_chain_primitives::Error::from)?;
+        Ok(tracked_shards.iter().map(|uid| uid.shard_id()).collect())
     }
 
     /// Ensures `cloud_head` is not older than GC stop; returns `CloudHeadTooOld` otherwise.
@@ -400,27 +543,76 @@ impl CloudArchivalWriter {
         Ok(hot_final_head_height)
     }
 
-    /// Returns the locally stored cloud head, if any.
-    fn get_cloud_head_local(&self) -> io::Result<Option<BlockHeight>> {
-        let cloud_head_tip = self.hot_store.get_ser::<Tip>(DBCol::BlockMisc, CLOUD_HEAD_KEY);
-        let cloud_head = cloud_head_tip.map(|tip| tip.height);
-        Ok(cloud_head)
+    /// Returns the locally stored cloud min head height, if any.
+    fn get_cloud_min_head_local(&self) -> io::Result<Option<BlockHeight>> {
+        Ok(self
+            .hot_store
+            .get_ser::<Tip>(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY)
+            .map(|tip| tip.height))
     }
 
-    /// Writes the local CLOUD_HEAD in the hot DB.
-    fn set_cloud_head_local(
+    /// Returns the locally stored cloud block head height, if any.
+    fn get_local_block_head(&self) -> io::Result<Option<BlockHeight>> {
+        Ok(self
+            .hot_store
+            .get_ser::<Tip>(DBCol::BlockMisc, CLOUD_BLOCK_HEAD_KEY)
+            .map(|tip| tip.height))
+    }
+
+    /// Returns the locally stored cloud shard head height, if any.
+    fn get_local_shard_head(&self, shard_id: ShardId) -> io::Result<Option<BlockHeight>> {
+        let key = cloud_shard_head_key(shard_id);
+        Ok(self.hot_store.get_ser::<Tip>(DBCol::BlockMisc, &key).map(|tip| tip.height))
+    }
+
+    /// Sets local heads during initialization, each to its own resolved height.
+    fn set_local_heads(
         &self,
-        new_head: BlockHeight,
+        block_head: Option<BlockHeight>,
+        shard_heads: &[(ShardId, BlockHeight)],
+        min_height: BlockHeight,
     ) -> Result<(), near_chain_primitives::Error> {
-        let cloud_head_header =
-            self.hot_store.chain_store().get_block_header_by_height(new_head)?;
-        let cloud_head_tip = Tip::from_header(&cloud_head_header);
         let mut transaction = DBTransaction::new();
-        transaction.set(
-            DBCol::BlockMisc,
-            CLOUD_HEAD_KEY.to_vec(),
-            borsh::to_vec(&cloud_head_tip).unwrap(),
-        );
+
+        if let Some(block_head) = block_head {
+            let header = self.hot_store.chain_store().get_block_header_by_height(block_head)?;
+            let tip_bytes = borsh::to_vec(&Tip::from_header(&header)).unwrap();
+            transaction.set(DBCol::BlockMisc, CLOUD_BLOCK_HEAD_KEY.to_vec(), tip_bytes);
+        }
+
+        for &(shard_id, height) in shard_heads {
+            let header = self.hot_store.chain_store().get_block_header_by_height(height)?;
+            let tip_bytes = borsh::to_vec(&Tip::from_header(&header)).unwrap();
+            transaction.set(DBCol::BlockMisc, cloud_shard_head_key(shard_id), tip_bytes);
+        }
+
+        let header = self.hot_store.chain_store().get_block_header_by_height(min_height)?;
+        let tip_bytes = borsh::to_vec(&Tip::from_header(&header)).unwrap();
+        transaction.set(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY.to_vec(), tip_bytes);
+
+        self.hot_store.database().write(transaction);
+        Ok(())
+    }
+
+    /// Advances local heads after archiving at `height`. Only updates heads for
+    /// components that were actually behind. Always advances CLOUD_MIN_HEAD.
+    fn advance_local_heads(
+        &self,
+        height: BlockHeight,
+        block_advanced: bool,
+        advanced_shard_ids: &[ShardId],
+    ) -> Result<(), near_chain_primitives::Error> {
+        let header = self.hot_store.chain_store().get_block_header_by_height(height)?;
+        let tip_bytes = borsh::to_vec(&Tip::from_header(&header)).unwrap();
+
+        let mut transaction = DBTransaction::new();
+        if block_advanced {
+            transaction.set(DBCol::BlockMisc, CLOUD_BLOCK_HEAD_KEY.to_vec(), tip_bytes.clone());
+        }
+        for &shard_id in advanced_shard_ids {
+            transaction.set(DBCol::BlockMisc, cloud_shard_head_key(shard_id), tip_bytes.clone());
+        }
+        transaction.set(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY.to_vec(), tip_bytes);
         self.hot_store.database().write(transaction);
         Ok(())
     }

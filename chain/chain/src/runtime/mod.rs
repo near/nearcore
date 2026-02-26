@@ -38,7 +38,7 @@ use near_primitives::views::{
     QueryResponseKind, ViewStateResult,
 };
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
-use near_store::db::CLOUD_HEAD_KEY;
+use near_store::db::CLOUD_MIN_HEAD_KEY;
 use near_store::db::metadata::DbKind;
 use near_store::flat::FlatStorageManager;
 use near_store::trie::{FindSplitError, find_trie_split, total_mem_usage};
@@ -414,11 +414,11 @@ impl NightshadeRuntime {
             let Some(cloud_head_epoch_start_height) = get_epoch_start_height_from_archival_head(
                 &self.store,
                 &epoch_manager,
-                CLOUD_HEAD_KEY,
+                CLOUD_MIN_HEAD_KEY,
             )?
             else {
                 return Err(Error::DBNotFoundErr(
-                    "Cloud archival writer is configured, but CLOUD_HEAD is missing".into(),
+                    "Cloud archival writer is configured, but CLOUD_MIN_HEAD is missing".into(),
                 ));
             };
             gc_stop_height = gc_stop_height.min(cloud_head_epoch_start_height);

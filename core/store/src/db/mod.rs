@@ -40,7 +40,9 @@ pub const COLD_HEAD_KEY: &[u8; 9] = b"COLD_HEAD";
 pub const STATE_SYNC_DUMP_KEY: &[u8; 15] = b"STATE_SYNC_DUMP";
 pub const STATE_SNAPSHOT_KEY: &[u8; 18] = b"STATE_SNAPSHOT_KEY";
 pub const GC_STOP_HEIGHT_KEY: &[u8; 14] = b"GC_STOP_HEIGHT";
-pub const CLOUD_HEAD_KEY: &[u8] = b"CLOUD_HEAD";
+pub const CLOUD_BLOCK_HEAD_KEY: &[u8] = b"CLOUD_BLOCK_HEAD";
+pub const CLOUD_SHARD_HEAD_PREFIX: &[u8] = b"CLOUD_SHARD_HEAD:";
+pub const CLOUD_MIN_HEAD_KEY: &[u8] = b"CLOUD_MIN_HEAD";
 
 // `DBCol::Misc` keys
 pub const TRIE_STATE_RESHARDING_STATUS_KEY: &[u8] = b"TRIE_STATE_RESHARDING_STATUS";

@@ -98,7 +98,10 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
             if client_index != archival_index {
                 return;
             }
-            config.cloud_archival_writer = Some(Default::default());
+            config.cloud_archival_writer = Some(near_chain_configs::CloudArchivalWriterConfig {
+                archive_block_data: true,
+                ..Default::default()
+            });
         });
     }
 
