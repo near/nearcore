@@ -4,6 +4,7 @@ use near_o11y::testonly::init_test_logger;
 use crate::setup::builder::TestLoopBuilder;
 
 /// Demonstrates the most basic single-validator test loop env setup.
+/// Uses all defaults: one validator, one shard, no RPC.
 #[test]
 fn test_setup_default() {
     init_test_logger();
@@ -15,6 +16,8 @@ fn test_setup_default() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(1));
 }
 
+/// Demonstrates a multi-validator setup with an RPC node.
+/// Creates 2 block+chunk producers, 1 chunk-only validator, and 1 RPC node.
 #[test]
 fn test_setup_multiple_validators_with_rpc() {
     init_test_logger();
@@ -38,6 +41,8 @@ fn test_setup_multiple_validators_with_rpc() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(1));
 }
 
+/// Demonstrates a multi-shard setup with one chunk producer per shard.
+/// Each validator tracks exactly one shard.
 #[test]
 fn test_setup_multishard() {
     init_test_logger();
@@ -46,8 +51,10 @@ fn test_setup_multishard() {
     let env =
         TestLoopBuilder::new().num_shards(num_shards).chunk_producer_per_shard().build().warmup();
 
+    // One validator node per shard.
     assert_eq!(env.node_datas.len(), num_shards);
 
+    // Each node tracks exactly one shard, and they track different shards.
     let node0_tracked_shards = env.node(0).tracked_shards();
     assert_eq!(node0_tracked_shards.len(), 1);
     let node1_tracked_shards = env.node(1).tracked_shards();
