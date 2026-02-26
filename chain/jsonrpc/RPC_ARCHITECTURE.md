@@ -20,6 +20,7 @@ This document describes the internals of the RPC layer in nearcore: how requests
 | `chain/rosetta-rpc/src/models.rs` | Rosetta API data structures |
 | `chain/chain/src/lightclient.rs` | Light client block creation |
 | `core/store/src/merkle_proof.rs` | Merkle proof computation for light client |
+| `chain/jsonrpc/src/pool.rs` | RPC pool: shard-based request routing, forwarding, fan-out |
 | `nearcore/src/lib.rs` | Node startup: actor creation and RPC server wiring |
 
 ## Gotchas and Conventions
@@ -37,6 +38,10 @@ Integration tests live in `chain/jsonrpc/jsonrpc-tests/tests/`:
 - `rpc_query.rs` - Tests for query, block, chunk, validators, and other read methods.
 - `rpc_transactions.rs` - Tests for transaction submission and status polling.
 - `http_query.rs` - Tests for HTTP-level behavior (status, health endpoints).
+
+RPC pool tests:
+- Unit tests in `chain/jsonrpc/src/pool.rs` — MockNode-based tests for routing decisions and forward/fan-out execution.
+- TestLoop integration test in `test-loop-tests/src/tests/rpc_pool.rs` — 2-shard, 2-RPC-node test verifying local and forwarded queries.
 
 Run with:
 
@@ -106,6 +111,7 @@ When a POST request arrives at `/`:
 2. **`process()`** - Validates it's a `Request`, extracts `id`, delegates to `process_request()`.
 3. **`process_request()`** - Metrics wrapper (timing, request count, error count per method). Delegates to `process_request_internal()`.
 4. **`process_request_internal()`** - Core routing. Tries in order:
+   - **Pool routing** (if an `RpcPool` is configured and the request is not already forwarded): consults `pool.route()` to decide `Local`, `Forward(ShardUId)`, or `FanOut`. Forwarded requests carry an `is_forwarded` flag to prevent re-routing loops.
    - Adversarial requests (only with `test_features` cargo feature).
    - `process_basic_requests_internal()` - matches method name against known RPC methods.
    - Special `"query"` branch with sub-type metrics tracking.
@@ -141,6 +147,33 @@ Methods registered in `process_basic_requests_internal()`:
 **EXPERIMENTAL:** ~14 methods for direct queries, protocol config, receipts, tx status, validators, congestion level, light client block proofs, etc. All follow the same `process_method_call` pattern. See `process_basic_requests_internal()` for the full list.
 
 **Sandbox** (only with `sandbox` feature): `sandbox_patch_state`, `sandbox_fast_forward`
+
+### RPC Pool (Shard Routing)
+
+When an RPC node only tracks a subset of shards, the pool forwards requests to peer nodes that track the target shard.
+
+**Routing decisions** (`pool::RoutingDecision`):
+
+| Decision | Methods |
+|---|---|
+| `Local` | health, status, network_info, client_config, block, gas_price, validators, genesis_config, send_tx, broadcast_tx_async, broadcast_tx_commit, EXPERIMENTAL_receipt, EXPERIMENTAL_validators_ordered, EXPERIMENTAL_protocol_config, EXPERIMENTAL_genesis_config, EXPERIMENTAL_split_storage_info, next_light_client_block, EXPERIMENTAL_light_client_block_proof |
+| `Forward(ShardUId)` | query, EXPERIMENTAL_view_account/code/state/access_key/access_key_list/call_function, tx, EXPERIMENTAL_tx_status, maintenance_windows, EXPERIMENTAL_maintenance_windows, light_client_proof, EXPERIMENTAL_light_client_proof, chunk, EXPERIMENTAL_congestion_level (routed by account_id, sender_account_id, sender_id/receiver_id, or shard_id extracted from params) |
+| `FanOut` | block_effects, EXPERIMENTAL_changes_in_block, changes, EXPERIMENTAL_changes (sent to all peers, results merged) |
+
+**Forward loop prevention:** An `is_forwarded` flag on incoming requests prevents re-routing. If a forwarded request arrives, it is always executed locally.
+
+**Late-binding architecture:** `JsonRpcHandler.pool` is `Arc<OnceLock<RpcPool>>` (not `Option`). The pool is injected after construction — needed by TestLoop where nodes are built sequentially and peer transports aren't available at construction time. `OnceLock` has zero overhead on reads after initialization.
+
+**`RpcPool` internals:** Holds a `get_shard_layout` closure (called per-request for resharding support), `tracked_shards_config`, `peers` (`HashMap<ShardUId, Arc<dyn RpcNodeHandle>>`), and deduplicated `unique_peers` (for fan-out). The `RpcNodeHandle` trait abstracts over `JsonRpcClient` (production HTTP) and TestLoop in-process transports.
+
+**Known limitations:**
+- The per-method routing logic is provisional and needs to be validated against actual shard data requirements for each method.
+- Height-based routing is not yet implemented (forwarding based on which peer has data at a specific block height).
+- Shard layout changes during resharding: `get_shard_layout` is called per-request so it picks up new layouts, but the `peers` map is static — peer reconfiguration after resharding is not yet supported.
+
+**Configuration:** `pool` field in RPC config maps `ShardUId -> peer_address`. `pool_forward_timeout_secs` (default 10s) controls HTTP timeout for forwarded requests.
+
+**Metrics:** `RPC_POOL_FORWARD_TOTAL` (per method+shard), `RPC_POOL_FORWARD_DURATION_SECONDS` (per method), `RPC_POOL_FORWARD_ERRORS_TOTAL` (per method+shard), `RPC_POOL_FANOUT_TOTAL` (per method).
 
 ### Parameter Parsing
 
@@ -285,6 +318,11 @@ Proof computation is in `core/store/src/merkle_proof.rs`. ViewClientActor handle
 - `polling_config.polling_timeout` - Timeout for `broadcast_tx_commit` etc. (default: 10s).
 - `limits_config.json_payload_max_size` - Max request body (default: 10MB).
 - `enable_debug_rpc` - Enable debug endpoints.
+
+**RPC Pool** (via `rpc` section in `config.json`):
+
+- `pool` - Map of `ShardUId -> peer_address` (e.g., `{"s0.v3": "http://peer1:3030"}`). Empty by default (pool disabled).
+- `pool_forward_timeout_secs` - HTTP timeout for forwarded requests (default: 10s).
 
 **Rosetta RPC** (via `rosetta_rpc` section in `config.json`):
 
