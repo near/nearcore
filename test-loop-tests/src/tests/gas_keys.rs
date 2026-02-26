@@ -570,7 +570,7 @@ fn test_gas_key_transfer_host_function() {
     // Verify gas key balance increased by the deposit amount
     let (_, gas_key_balance_after) =
         query_gas_key_and_balance(&env.rpc_node(), account, &gas_key_signer.public_key());
-    assert_eq!(gas_key_balance_after, gas_key_balance_before.checked_add(host_fn_deposit).unwrap(),);
+    assert_eq!(gas_key_balance_after, gas_key_balance_before.checked_add(host_fn_deposit).unwrap());
 
     // Verify account balance decreased by exactly deposit + tokens_burnt - reward.
     // The runtime gives 30% of gas_burnt_for_function_call * gas_price back to the account.
