@@ -491,6 +491,8 @@ pub fn setup_client(
         Some(spice_core_writer_adapter),
     );
 
+    let rpc_epoch_manager = epoch_manager.clone();
+    let rpc_tracked_shards_config = client_config.tracked_shards_config.clone();
     let state_sync_dumper = StateSyncDumper {
         clock: test_loop.clock(),
         client_config,
@@ -544,7 +546,7 @@ pub fn setup_client(
     let peer_manager_sender =
         test_loop.data.register_actor(identifier, peer_manager_actor, Some(network_adapter));
 
-    let jsonrpc_router = create_testloop_jsonrpc_router(
+    let (jsonrpc_router, pool) = create_testloop_jsonrpc_router(
         test_loop.clock(),
         &client_sender,
         &view_client_sender,
@@ -552,6 +554,8 @@ pub fn setup_client(
         &gc_actor_sender,
         &genesis.config,
         block_notification_watch_receiver,
+        Some(rpc_epoch_manager),
+        Some(rpc_tracked_shards_config),
     );
     let jsonrpc_transport: Arc<dyn RpcTransport> =
         Arc::new(TestLoopRpcTransport::new(jsonrpc_router));
@@ -576,6 +580,7 @@ pub fn setup_client(
         cloud_storage_sender,
         cloud_archival_writer_handle,
         jsonrpc_transport,
+        pool,
         expected_execution_delay: Arc::new(AtomicU64::new(0)),
     };
 

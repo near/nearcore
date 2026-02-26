@@ -1,6 +1,6 @@
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 
 use near_async::messaging::{IntoMultiSender, IntoSender, Sender};
 use near_async::test_loop::data::TestLoopDataHandle;
@@ -20,6 +20,7 @@ use near_client::{
 };
 use near_jsonrpc::ViewClientSenderForRpc;
 use near_jsonrpc::client::{JsonRpcClient, RpcTransport};
+use near_jsonrpc::pool::RpcPool;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::PartialWitnessSenderForNetwork;
@@ -99,6 +100,7 @@ pub struct NodeExecutionData {
     pub cloud_storage_sender: TestLoopDataHandle<Option<Arc<CloudStorage>>>,
     pub cloud_archival_writer_handle: TestLoopDataHandle<Option<CloudArchivalWriterHandle>>,
     pub jsonrpc_transport: Arc<dyn RpcTransport>,
+    pub pool: Arc<OnceLock<RpcPool>>,
     /// Extra blocks of delay between consensus head and execution head.
     /// Set by delay_endorsements_propagation to account for certification delay in timeouts.
     /// It is Arc<_> so updates are visible through clones.

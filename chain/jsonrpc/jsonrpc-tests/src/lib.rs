@@ -204,7 +204,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         pool_forward_timeout_secs: 10,
     };
 
-    let app = create_jsonrpc_app(
+    let (app, _pool) = create_jsonrpc_app(
         Clock::real(),
         rpc_config,
         genesis.config,
