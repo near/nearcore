@@ -235,24 +235,25 @@ impl TestLoopBuilder {
 
     /// Check that the builder configuration is consistent.
     /// There are two supported API paths:
-    /// - New API: use validators_spec (via `.validators()` etc) to auto-derive genesis and clients.
-    /// - Old API: manually provide genesis and clients.
+    /// - New API: use `.validators()`, `.num_shards()`, `.enable_rpc()` etc to
+    ///   auto-derive genesis and clients.
+    /// - Old API: manually provide genesis and clients via `.genesis()` and `.clients()`.
     /// Mixing the two is not allowed.
     fn ensure_compatible(self) -> Self {
-        let has_validators_spec = self.validators_spec.is_some();
+        let uses_new_api =
+            self.validators_spec.is_some() || self.shard_layout.is_some() || self.enable_rpc;
         let has_genesis = self.genesis.is_some();
         let has_clients = !self.clients.is_empty();
 
         assert!(
-            !has_validators_spec || !has_genesis,
-            "validators_spec and genesis cannot both be set; \
-             use either the builder API (.validators(), .num_shards()) \
-             or manually provide genesis, not both"
+            !uses_new_api || !has_genesis,
+            "builder API (.validators(), .num_shards(), .enable_rpc()) is incompatible \
+             with manually provided genesis"
         );
         assert!(
-            !has_validators_spec || !has_clients,
-            "validators_spec and clients cannot both be set; \
-             clients are auto-derived from validators_spec"
+            !uses_new_api || !has_clients,
+            "builder API (.validators(), .num_shards(), .enable_rpc()) is incompatible \
+             with manually provided clients"
         );
         assert!(
             has_genesis == has_clients,
