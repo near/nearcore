@@ -312,6 +312,7 @@ impl ClientConfig {
             save_trie_changes: true,
             save_untracked_partial_chunks_parts: true,
             save_tx_outcomes: true,
+            save_receipt_to_tx: true,
             save_state_changes: true,
             log_summary_style: LogSummaryStyle::Colored,
             view_client_threads: 1,

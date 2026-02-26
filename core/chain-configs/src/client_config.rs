@@ -787,6 +787,8 @@ pub struct ClientConfig {
     pub save_trie_changes: bool,
     /// Whether to persist transaction outcomes to disk or not.
     pub save_tx_outcomes: bool,
+    /// Whether to persist receipt-to-tx origin mappings to disk or not.
+    pub save_receipt_to_tx: bool,
     /// Whether to persist state changes on disk or not.
     pub save_state_changes: bool,
     /// Whether to persist partial chunk parts for untracked shards or not.

@@ -490,6 +490,7 @@ impl Chain {
             transaction_validity_period,
         )
         .with_save_tx_outcomes(chain_config.save_tx_outcomes)
+        .with_save_receipt_to_tx(chain_config.save_receipt_to_tx)
         .with_save_state_changes(chain_config.save_state_changes);
         let state_sync_adapter = ChainStateSyncAdapter::new(
             clock.clone(),

@@ -657,6 +657,7 @@ pub async fn start_with_config_and_synchronization_impl(
             ChunkExecutorConfig {
                 save_trie_changes: config.client_config.save_trie_changes,
                 save_tx_outcomes: config.client_config.save_tx_outcomes,
+                save_receipt_to_tx: config.client_config.save_receipt_to_tx,
                 save_state_changes: config.client_config.save_state_changes,
             },
             &chunk_executor_adapter,

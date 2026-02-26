@@ -159,6 +159,8 @@ impl<'a> ChainUpdate<'a> {
                     apply_result.outcomes,
                     outcome_paths,
                 );
+                // Save receipt-to-tx origin mappings.
+                self.chain_store_update.save_receipt_to_tx(apply_result.receipt_to_tx);
                 if should_save_state_transition_data {
                     self.chain_store_update.save_state_transition_data(
                         *block_hash,

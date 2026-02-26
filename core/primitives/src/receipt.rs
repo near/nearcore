@@ -1291,6 +1291,34 @@ mod tests {
             assert_eq!(receipt_or_state_stored_receipt, deserialized_receipt);
         }
     }
+
+    #[test]
+    fn receipt_to_tx_info_borsh_roundtrip_from_transaction() {
+        let info = ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+            origin: ReceiptOrigin::FromTransaction(ReceiptOriginTransaction {
+                tx_hash: CryptoHash::hash_bytes(b"tx"),
+                sender_account_id: "alice.near".parse().unwrap(),
+            }),
+            receiver_account_id: "bob.near".parse().unwrap(),
+        });
+        let bytes = borsh::to_vec(&info).unwrap();
+        let decoded: ReceiptToTxInfo = borsh::from_slice(&bytes).unwrap();
+        assert_eq!(info, decoded);
+    }
+
+    #[test]
+    fn receipt_to_tx_info_borsh_roundtrip_from_receipt() {
+        let info = ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+            origin: ReceiptOrigin::FromReceipt(ReceiptOriginReceipt {
+                parent_receipt_id: CryptoHash::hash_bytes(b"parent"),
+                parent_creator_account_id: "alice.near".parse().unwrap(),
+            }),
+            receiver_account_id: "contract.near".parse().unwrap(),
+        });
+        let bytes = borsh::to_vec(&info).unwrap();
+        let decoded: ReceiptToTxInfo = borsh::from_slice(&bytes).unwrap();
+        assert_eq!(info, decoded);
+    }
 }
 
 /// Source of a processed receipt, used to track how a receipt was applied.
@@ -1336,4 +1364,39 @@ impl ProcessedReceiptMetadata {
 pub struct ProcessedReceiptMetadataV0 {
     pub receipt_id: CryptoHash,
     pub source: ReceiptSource,
+}
+
+/// Describes the origin of a receipt: either created directly from a transaction,
+/// or spawned as a child of another receipt.
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
+pub enum ReceiptOrigin {
+    FromTransaction(ReceiptOriginTransaction),
+    FromReceipt(ReceiptOriginReceipt),
+}
+
+/// A receipt that was created directly from a signed transaction.
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
+pub struct ReceiptOriginTransaction {
+    pub tx_hash: CryptoHash,
+    pub sender_account_id: AccountId,
+}
+
+/// A receipt that was spawned as a child of another receipt.
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
+pub struct ReceiptOriginReceipt {
+    pub parent_receipt_id: CryptoHash,
+    pub parent_creator_account_id: AccountId,
+}
+
+/// Versioned mapping from receipt_id to its origin information.
+/// Stored in `DBCol::ReceiptToTx` to enable reverse lookups from receipt to originating transaction.
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
+pub enum ReceiptToTxInfo {
+    V1(ReceiptToTxInfoV1),
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
+pub struct ReceiptToTxInfoV1 {
+    pub origin: ReceiptOrigin,
+    pub receiver_account_id: AccountId,
 }

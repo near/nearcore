@@ -1113,6 +1113,8 @@ impl<'a> ChainStoreUpdate<'a> {
                     DBCol::TransactionResultForBlock,
                     &get_outcome_id_block_hash(&outcome_id, block_hash),
                 );
+                // GC the receipt-to-tx mapping for this outcome (receipt) ID.
+                self.gc_col(DBCol::ReceiptToTx, outcome_id.as_bytes());
             }
             self.gc_col(DBCol::OutcomeIds, &get_block_shard_id(block_hash, shard_id));
         }
@@ -1225,6 +1227,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.delete(col, key);
             }
             DBCol::ProcessedReceiptIds => {
+                store_update.delete(col, key);
+            }
+            DBCol::ReceiptToTx => {
                 store_update.delete(col, key);
             }
             #[cfg(feature = "protocol_feature_spice")]

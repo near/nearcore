@@ -25,7 +25,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, merklize};
 use near_primitives::optimistic_block::OptimisticBlockKeySource;
-use near_primitives::receipt::{ProcessedReceipt, PromiseYieldTimeout, Receipt};
+use near_primitives::receipt::{ProcessedReceipt, PromiseYieldTimeout, Receipt, ReceiptToTxInfo};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
@@ -138,6 +138,8 @@ pub struct ApplyChunkResult {
     pub stats: ChunkApplyStatsV0,
     /// Proposed split of this shard (dynamic resharding).
     pub proposed_split: Option<TrieSplit>,
+    /// Mapping from receipt_id to its origin (parent receipt or originating transaction).
+    pub receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
 }
 
 impl ApplyChunkResult {
@@ -246,6 +248,8 @@ pub struct ChainConfig {
     pub save_trie_changes: bool,
     /// Whether to persist transaction outcomes on disk or not.
     pub save_tx_outcomes: bool,
+    /// Whether to persist receipt-to-tx origin mappings on disk or not.
+    pub save_receipt_to_tx: bool,
     /// Whether to persist state changes on disk or not.
     pub save_state_changes: bool,
     /// Number of threads to execute background migration work.
@@ -262,6 +266,7 @@ impl ChainConfig {
         Self {
             save_trie_changes: true,
             save_tx_outcomes: true,
+            save_receipt_to_tx: true,
             save_state_changes: true,
             background_migration_threads: 1,
             resharding_config: MutableConfigValue::new(

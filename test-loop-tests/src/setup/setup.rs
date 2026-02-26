@@ -454,6 +454,7 @@ pub fn setup_client(
         ChunkExecutorConfig {
             save_trie_changes: client_config.save_trie_changes,
             save_tx_outcomes: client_config.save_tx_outcomes,
+            save_receipt_to_tx: client_config.save_receipt_to_tx,
             save_state_changes: client_config.save_state_changes,
         },
     );
