@@ -133,6 +133,14 @@ pub(super) async fn run_state_sync_for_shard(
             .collect();
         // Wait before retrying the failed parts
         if !parts_to_download.is_empty() {
+            tracing::debug!(
+                target: "sync",
+                ?shard_id,
+                ?attempt_count,
+                num_failed = parts_to_download.len(),
+                delay = ?min_delay_before_reattempt,
+                "some parts failed to download, retrying after delay",
+            );
             let deadline = downloader.clock.now() + min_delay_before_reattempt;
             tokio::select! {
                 _ = downloader.clock.sleep_until(deadline) => {}
