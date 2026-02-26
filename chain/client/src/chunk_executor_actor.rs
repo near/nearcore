@@ -42,7 +42,7 @@ use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::sharding::ShardProof;
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::ChunkProductionKey;
-use near_primitives::stateless_validation::contract_distribution::{CodeHash, ContractUpdates};
+use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateTransition;
 use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness;
@@ -710,8 +710,7 @@ impl ChunkExecutorActor {
         };
         let chunk_producer = self.epoch_manager.get_chunk_producer_info(&key)?;
         if chunk_producer.account_id() == my_signer.validator_id() {
-            self.data_distributor_adapter
-                .send(SpiceDistributorStateWitness { state_witness });
+            self.data_distributor_adapter.send(SpiceDistributorStateWitness { state_witness });
         }
 
         Ok(())
