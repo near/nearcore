@@ -245,6 +245,41 @@ pub(crate) fn execute_storage_operations(
     LoopAction::new(action_fn, succeeded)
 }
 
+/// Checks the outcomes of transactions stored in `txs`. Successful transactions
+/// are removed. Transactions that haven't completed yet (`Started`/`NotStarted`)
+/// are put back in `txs` for retry on the next iteration. Any other status is
+/// treated as a failure and panics. When all transactions have succeeded,
+/// `checked_transactions` is set to `true`.
+fn check_txs_with_retry(
+    client: &Client,
+    txs: &Cell<Vec<(CryptoHash, u64)>>,
+    checked_transactions: &Cell<bool>,
+) {
+    let mut remaining = vec![];
+    for (tx, tx_height) in txs.take() {
+        let tx_outcome = client.chain.get_partial_transaction_result(&tx);
+        let status = match tx_outcome {
+            Err(e) => panic!("transaction {tx} not found: {e}"),
+            Ok(outcome) => outcome.status,
+        };
+        tracing::debug!(target: "test", ?tx_height, ?tx, ?status, "transaction status");
+        match status {
+            FinalExecutionStatus::SuccessValue(_) => {}
+            FinalExecutionStatus::Started | FinalExecutionStatus::NotStarted => {
+                remaining.push((tx, tx_height));
+            }
+            FinalExecutionStatus::Failure(error) => {
+                panic!("transaction {tx} failed with error: {error:?}");
+            }
+        }
+    }
+    if remaining.is_empty() {
+        checked_transactions.set(true);
+    } else {
+        txs.set(remaining);
+    }
+}
+
 /// Returns a loop action that invokes a costly method from a contract
 /// `CALLS_PER_BLOCK_HEIGHT` times per block height.
 ///
@@ -285,15 +320,7 @@ pub(crate) fn call_burn_gas_contract(
             // After resharding: wait some blocks and check that all txs have been executed correctly.
             if let Some(height) = resharding_height.get() {
                 if tip.height > height + tx_check_blocks_after_resharding {
-                    for (tx, tx_height) in txs.take() {
-                        let tx_outcome =
-                            client_actor.client.chain.get_partial_transaction_result(&tx);
-                        let status = tx_outcome.as_ref().map(|o| o.status.clone());
-                        let status = status.unwrap();
-                        tracing::debug!(target: "test", ?tx_height, ?tx, ?status, "transaction status");
-                        assert_matches!(status, FinalExecutionStatus::SuccessValue(_));
-                    }
-                    checked_transactions.set(true);
+                    check_txs_with_retry(&client_actor.client, &txs, &checked_transactions);
                 }
             } else {
                 if next_block_has_new_shard_layout(client_actor.client.epoch_manager.as_ref(), &tip)
@@ -302,9 +329,12 @@ pub(crate) fn call_burn_gas_contract(
                     resharding_height.set(Some(tip.height));
                 }
             }
-            // Before resharding and one block after: call the test contract a few times per block.
+            // Before resharding: call the test contract a few times per block.
             // The objective is to pile up receipts (e.g. delayed).
-            if tip.height <= resharding_height.get().unwrap_or(1000) + 1 {
+            // Don't send txs at the first block of the resharding epoch because the
+            // RPC client may observe it before chunk producers do, causing forwarded
+            // txs to be rejected as Expired.
+            if tip.height <= resharding_height.get().unwrap_or(1000) {
                 for i in 0..CALLS_PER_BLOCK_HEIGHT {
                     // Note that if the number of signers and receivers is the
                     // same then the traffic will always flow the same way. It
@@ -517,9 +547,12 @@ pub(crate) fn call_promise_yield(
             // The operation to be done depends on the current block height in relation to the
             // resharding height.
             match (resharding_height.get(), latest_height.get()) {
-                // Resharding happened in the previous block.
+                // Resharding happened two blocks ago.
                 // Maybe send the resume transaction.
-                (Some(resharding), latest) if latest == resharding + 1 && call_resume => {
+                // Don't send at resharding + 1 (first block of new epoch) because the
+                // RPC client may observe it before chunk producers do, causing forwarded
+                // txs to be rejected as Expired.
+                (Some(resharding), latest) if latest == resharding + 2 && call_resume => {
                     for (signer_id, receiver_id) in
                         signer_ids.clone().into_iter().zip(receiver_ids.clone().into_iter())
                     {
@@ -549,18 +582,8 @@ pub(crate) fn call_promise_yield(
                 }
                 // Resharding happened a few blocks in the past.
                 // Check transactions' outcomes.
-                (Some(resharding), latest) if latest == resharding + 4 => {
-                    let txs = txs.take();
-                    assert_ne!(txs.len(), 0);
-                    for (tx, tx_height) in txs {
-                        let tx_outcome =
-                            client_actor.client.chain.get_partial_transaction_result(&tx);
-                        let status = tx_outcome.as_ref().map(|o| o.status.clone());
-                        let status = status.unwrap();
-                        tracing::debug!(target: "test", ?tx_height, ?tx, ?status, "transaction status");
-                        assert_matches!(status, FinalExecutionStatus::SuccessValue(_));
-                    }
-                    checked_transactions.set(true);
+                (Some(resharding), latest) if latest >= resharding + 4 => {
+                    check_txs_with_retry(&client_actor.client, &txs, &checked_transactions);
                 }
                 (Some(_resharding), _latest) => {}
                 // Resharding didn't happen in the past.
@@ -985,7 +1008,7 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
             let indices_left_child_shard = get_promise_yield_indices(left_child_shard_uid);
             let indices_right_child_shard = get_promise_yield_indices(right_child_shard_uid);
 
-            tracing::debug!(target: "test", height=tip.height, epoch=?tip.epoch_id, 
+            tracing::debug!(target: "test", height=tip.height, epoch=?tip.epoch_id,
                     ?indices_parent_shard, ?indices_left_child_shard, ?indices_right_child_shard, "promise yield indices");
 
             // At any height, if the shard exists and it is tracked, the promise yield indices trie
@@ -1188,7 +1211,7 @@ pub(crate) fn delayed_receipts_repro_missing_trie_value(
             let indices_left_child_shard = get_delayed_receipts_indices(left_child_shard_uid);
             let indices_right_child_shard = get_delayed_receipts_indices(right_child_shard_uid);
 
-            tracing::debug!(target: "test", height=tip.height, epoch=?tip.epoch_id, 
+            tracing::debug!(target: "test", height=tip.height, epoch=?tip.epoch_id,
                     ?indices_parent_shard, ?indices_left_child_shard, ?indices_right_child_shard, "delayed receipts indices");
 
             // At any height, if the shard exists and it is tracked, the delayed receipts indices

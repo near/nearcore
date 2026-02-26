@@ -74,6 +74,30 @@ impl FlatStorageResharder {
         Self { epoch_manager, runtime, handle: controller, resharding_config }
     }
 
+    /// TEST ONLY. Sets child shard flat storage statuses to `CreatingChild` without
+    /// starting the heavy resharding work. This is used when `adv_task_delay_by_blocks`
+    /// artificially delays resharding: it ensures the `StateSnapshotActor` can detect
+    /// pending resharding via `should_wait_for_resharding_split` even before the actual
+    /// resharding begins.
+    #[cfg(feature = "test_features")]
+    pub fn set_child_shard_statuses_to_creating(
+        &self,
+        left_child_shard: ShardUId,
+        right_child_shard: ShardUId,
+    ) {
+        let flat_store = self.runtime.store().flat_store();
+        let mut store_update = flat_store.store_update();
+        store_update.set_flat_storage_status(
+            left_child_shard,
+            FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CreatingChild),
+        );
+        store_update.set_flat_storage_status(
+            right_child_shard,
+            FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CreatingChild),
+        );
+        store_update.commit();
+    }
+
     /// Main function to start resharding. This function is a long running cancellable task.
     /// This is called from the resharding actor and is blocking till the resharding of flat storage
     /// is completed.

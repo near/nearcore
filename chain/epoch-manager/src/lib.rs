@@ -679,6 +679,18 @@ impl EpochManager {
             return Ok(next_shard_layout.clone());
         };
 
+        // Skip the split if the shard no longer exists in the next layout
+        // (e.g. it was already split in a previous epoch).
+        if !next_shard_layout.shard_ids().any(|id| id == *shard_id) {
+            tracing::info!(
+                target: "epoch_manager",
+                ?shard_id,
+                %boundary_account,
+                "dynamic resharding: shard no longer exists in next layout, skipping split"
+            );
+            return Ok(next_shard_layout.clone());
+        }
+
         tracing::info!(
             target: "epoch_manager",
             ?shard_id,
@@ -1136,6 +1148,14 @@ impl EpochManager {
         parent_hash: &CryptoHash,
         last_final_block_hash: &CryptoHash,
     ) -> Result<bool, EpochError> {
+        // If the block being produced starts a new epoch, it can't also be the
+        // last block of that epoch (the epoch just started). This check is
+        // needed because `is_next_block_in_next_epoch_impl` uses the parent's
+        // epoch boundaries and would incorrectly return true when the parent
+        // is the last block of the previous epoch.
+        if self.is_next_block_epoch_start(parent_hash)? {
+            return Ok(false);
+        }
         let last_final_block_height = self.get_block_info(last_final_block_hash)?.height();
         let parent_info = self.get_block_info(parent_hash)?;
         let epoch_first_block = parent_info.epoch_first_block();
@@ -1886,8 +1906,12 @@ pub fn pick_shard_to_split(
         }
     }
 
-    proposed_splits.iter().max_by_key(|(_, split)| split.total_memory()).map(|(shard_id, split)| {
-        debug_assert!(!config.block_split_shards.contains(shard_id));
-        (*shard_id, split.clone())
-    })
+    // We're using (total_memory, shard_id) tuple as key to enforce determinism in case two shards
+    // have the exacts same memory usage (very unlikely in production, but can happen in tests).
+    proposed_splits.iter().max_by_key(|(shard_id, split)| (split.total_memory(), *shard_id)).map(
+        |(shard_id, split)| {
+            debug_assert!(!config.block_split_shards.contains(shard_id));
+            (*shard_id, split.clone())
+        },
+    )
 }
