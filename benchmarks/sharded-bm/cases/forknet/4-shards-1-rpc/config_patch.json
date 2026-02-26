@@ -1,1 +1,9 @@
-{}
+{
+    "store": {
+        "state_snapshot_config": {
+            "state_snapshot_type": "EveryEpoch"
+        }
+    },
+    "save_untracked_partial_chunks_parts": true,
+    "chunks_cache_height_horizon": 64
+}
