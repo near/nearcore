@@ -1,6 +1,9 @@
 use itertools::Itertools;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, TestGenesisBuilder};
+use near_chain_configs::test_genesis::{
+    TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
+};
 use near_chain_configs::test_utils::TestClientConfigParams;
+use near_primitives::shard_layout::ShardLayout;
 use near_store::archive::cloud_storage::config::test_cloud_archival_config;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -16,12 +19,15 @@ use near_chain_configs::{
 };
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, NumShards};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::get_protocol_upgrade_schedule;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::{TestNodeStorage, create_test_node_storage};
 
+use crate::utils::account::{
+    create_validators_spec, validators_spec_clients, validators_spec_clients_with_rpc,
+};
 use crate::utils::peer_manager_actor::{TestLoopNetworkSharedState, UnreachableActor};
 
 use super::env::TestLoopEnv;
@@ -60,6 +66,10 @@ pub(crate) struct TestLoopBuilder {
     /// Upgrade schedule which determines when the clients start voting for new protocol versions.
     /// If not explicitly set, the chain_id from genesis determines the schedule.
     upgrade_schedule: Option<ProtocolUpgradeVotingSchedule>,
+
+    validators_spec: Option<ValidatorsSpec>,
+    enable_rpc: bool,
+    shard_layout: Option<ShardLayout>,
 }
 
 impl TestLoopBuilder {
@@ -79,6 +89,9 @@ impl TestLoopBuilder {
             track_all_shards: false,
             load_memtries_for_tracked_shards: true,
             upgrade_schedule: None,
+            validators_spec: None,
+            enable_rpc: false,
+            shard_layout: None,
         }
     }
 
@@ -105,9 +118,8 @@ impl TestLoopBuilder {
     }
 
     pub(crate) fn epoch_config_store_from_genesis(self) -> Self {
-        let genesis = self.genesis.as_ref().expect("expected genesis to be set");
-        let genesis_epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-        self.epoch_config_store(genesis_epoch_config_store)
+        // noop, this is a default behavior now, to be removed
+        self
     }
 
     pub(crate) fn runtime_config_store(mut self, runtime_config_store: RuntimeConfigStore) -> Self {
@@ -115,9 +127,45 @@ impl TestLoopBuilder {
         self
     }
 
+    pub(crate) fn chunk_producer_per_shard(self) -> Self {
+        let shard_layout = self.shard_layout.as_ref().expect("shard layout should be set");
+        let num_block_and_chunk_producers = shard_layout.num_shards() as usize;
+        self.validators(num_block_and_chunk_producers, 0)
+    }
+
+    pub(crate) fn validators(
+        self,
+        num_block_and_chunk_producers: usize,
+        num_chunk_validators_only: usize,
+    ) -> Self {
+        self.validators_spec(create_validators_spec(
+            num_block_and_chunk_producers,
+            num_chunk_validators_only,
+        ))
+    }
+
+    pub(crate) fn enable_rpc(mut self) -> Self {
+        self.enable_rpc = true;
+        self
+    }
+
+    pub(crate) fn validators_spec(mut self, spec: ValidatorsSpec) -> Self {
+        self.validators_spec = Some(spec);
+        self
+    }
+
     /// Set the clients for the test loop.
     pub(crate) fn clients(mut self, clients: Vec<AccountId>) -> Self {
         self.clients = clients;
+        self
+    }
+
+    pub fn num_shards(self, num_shards: usize) -> Self {
+        self.shard_layout(ShardLayout::multi_shard(num_shards as NumShards, 1))
+    }
+
+    pub fn shard_layout(mut self, shard_layout: ShardLayout) -> Self {
+        self.shard_layout = Some(shard_layout);
         self
     }
 
@@ -177,21 +225,80 @@ impl TestLoopBuilder {
 
     /// Build the test loop environment.
     pub(crate) fn build(self) -> TestLoopEnv {
-        self.ensure_genesis().ensure_epoch_config_store().ensure_clients().build_impl()
+        self.ensure_compatible()
+            .ensure_validators_spec()
+            .ensure_genesis()
+            .ensure_epoch_config_store()
+            .ensure_clients()
+            .build_impl()
     }
 
-    fn ensure_genesis(self) -> Self {
-        assert!(self.genesis.is_some(), "Genesis must be provided to the test loop");
+    /// Check that the builder configuration is consistent.
+    /// There are two supported API paths:
+    /// - New API: use validators_spec (via `.validators()` etc) to auto-derive genesis and clients.
+    /// - Old API: manually provide genesis and clients.
+    /// Mixing the two is not allowed.
+    fn ensure_compatible(self) -> Self {
+        let has_validators_spec = self.validators_spec.is_some();
+        let has_genesis = self.genesis.is_some();
+        let has_clients = !self.clients.is_empty();
+
+        assert!(
+            !has_validators_spec || !has_genesis,
+            "validators_spec and genesis cannot both be set; \
+             use either the builder API (.validators(), .num_shards()) \
+             or manually provide genesis, not both"
+        );
+        assert!(
+            !has_validators_spec || !has_clients,
+            "validators_spec and clients cannot both be set; \
+             clients are auto-derived from validators_spec"
+        );
+        assert!(
+            has_genesis == has_clients,
+            "genesis and clients must be provided together; \
+             either provide both or use the builder API to auto-derive them"
+        );
         self
     }
 
-    fn ensure_epoch_config_store(self) -> Self {
-        assert!(self.epoch_config_store.is_some(), "EpochConfigStore must be provided");
+    fn ensure_validators_spec(mut self) -> Self {
+        if self.validators_spec.is_none() {
+            self.validators_spec = Some(default_validators_spec());
+        }
         self
     }
 
-    fn ensure_clients(self) -> Self {
-        assert!(!self.clients.is_empty(), "Clients must be provided to the test loop");
+    fn ensure_genesis(mut self) -> Self {
+        if self.genesis.is_none() {
+            let validators_spec = self.validators_spec.clone().unwrap();
+            let mut genesis_builder = Self::new_genesis_builder().validators_spec(validators_spec);
+            if let Some(shard_layout) = &self.shard_layout {
+                genesis_builder = genesis_builder.shard_layout(shard_layout.clone());
+            }
+            self.genesis = Some(genesis_builder.build());
+        }
+        self
+    }
+
+    fn ensure_epoch_config_store(mut self) -> Self {
+        if self.epoch_config_store.is_none() {
+            self.epoch_config_store = Some(TestEpochConfigBuilder::build_store_from_genesis(
+                self.genesis.as_ref().unwrap(),
+            ));
+        }
+        self
+    }
+
+    fn ensure_clients(mut self) -> Self {
+        if self.clients.is_empty() {
+            let validators_spec = self.validators_spec.as_ref().unwrap();
+            self.clients = if self.enable_rpc {
+                validators_spec_clients_with_rpc(validators_spec)
+            } else {
+                validators_spec_clients(validators_spec)
+            };
+        }
         assert!(
             self.cold_storage_archival_clients
                 .is_subset(&HashSet::from_iter(self.clients.iter().cloned())),
@@ -228,11 +335,12 @@ impl TestLoopBuilder {
             self.test_loop.data.register_actor("UnreachableActor", UnreachableActor {}, None);
         self.test_loop.event_denylist().lock().push("UnreachableActor".to_string());
 
-        let upgrade_schedule = self.upgrade_schedule.unwrap_or_else(|| {
-            get_protocol_upgrade_schedule(&self.genesis.as_ref().unwrap().config.chain_id)
-        });
+        let genesis = self.genesis.unwrap();
+        let upgrade_schedule = self
+            .upgrade_schedule
+            .unwrap_or_else(|| get_protocol_upgrade_schedule(&genesis.config.chain_id));
         let shared_state = SharedState {
-            genesis: self.genesis.unwrap(),
+            genesis: genesis,
             tempdir: self.test_loop_data_dir,
             epoch_config_store: self.epoch_config_store.unwrap(),
             runtime_config_store: self.runtime_config_store,
@@ -278,6 +386,10 @@ impl TestLoopBuilder {
             .config_modifier(config_modifier)
             .build()
     }
+}
+
+fn default_validators_spec() -> ValidatorsSpec {
+    create_validators_spec(1, 0)
 }
 
 pub struct NodeStateBuilder<'a> {
