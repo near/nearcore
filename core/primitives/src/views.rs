@@ -1158,7 +1158,9 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             validator_proposals: inner.prev_validator_proposals().map(Into::into).collect(),
             congestion_info: Some(inner.congestion_info().into()),
             bandwidth_requests: inner.bandwidth_requests().cloned(),
-            proposed_split: inner.has_proposed_split().then(|| inner.proposed_split().cloned()),
+            proposed_split: inner
+                .has_proposed_split_field()
+                .then(|| inner.proposed_split().cloned()),
             signature,
         }
     }

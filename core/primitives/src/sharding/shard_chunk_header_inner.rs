@@ -258,7 +258,7 @@ impl ShardChunkHeaderInner {
     /// it's `Some` or `None`. Used when creating `ChunkHeaderView` to distinguish "field absent"
     /// from "field present but None".
     #[inline]
-    pub fn has_proposed_split(&self) -> bool {
+    pub fn has_proposed_split_field(&self) -> bool {
         match self {
             Self::V1(_) | Self::V2(_) | Self::V3(_) | Self::V4(_) => false,
             Self::V5(_) => true,
