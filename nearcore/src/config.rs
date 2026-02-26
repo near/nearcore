@@ -89,9 +89,6 @@ pub const MAX_BLOCK_WAIT_DELAY: i64 = 6_000;
 /// Multiplier for the wait time for all chunks to be received.
 pub const CHUNK_WAIT_DENOMINATOR: i32 = 3;
 
-/// Horizon at which instead of fetching block, fetch full state.
-const BLOCK_FETCH_HORIZON: BlockHeightDelta = 50;
-
 /// Behind this horizon header fetch kicks in.
 const BLOCK_HEADER_FETCH_HORIZON: BlockHeightDelta = 50;
 
@@ -139,8 +136,6 @@ pub struct Consensus {
     pub chunk_wait_mult: Rational32,
     /// Produce empty blocks, use `false` for testing.
     pub produce_empty_blocks: bool,
-    /// Horizon at which instead of fetching block, fetch full state.
-    pub block_fetch_horizon: BlockHeightDelta,
     /// Behind this horizon header fetch kicks in.
     pub block_header_fetch_horizon: BlockHeightDelta,
     /// Time between check to perform catchup.
@@ -208,7 +203,6 @@ impl Default for Consensus {
             max_block_wait_delay: Duration::milliseconds(MAX_BLOCK_WAIT_DELAY),
             chunk_wait_mult: Rational32::new(1, CHUNK_WAIT_DENOMINATOR),
             produce_empty_blocks: true,
-            block_fetch_horizon: BLOCK_FETCH_HORIZON,
             block_header_fetch_horizon: BLOCK_HEADER_FETCH_HORIZON,
             catchup_step_period: Duration::milliseconds(CATCHUP_STEP_PERIOD),
             chunk_request_retry_period: Duration::milliseconds(CHUNK_REQUEST_RETRY_PERIOD),
@@ -719,8 +713,6 @@ impl NearConfig {
                 epoch_length: genesis.config.epoch_length,
                 num_block_producer_seats: genesis.config.num_block_producer_seats,
                 ttl_account_id_router: config.network.ttl_account_id_router,
-                // TODO(1047): this should be adjusted depending on the speed of sync of state.
-                block_fetch_horizon: config.consensus.block_fetch_horizon,
                 block_header_fetch_horizon: config.consensus.block_header_fetch_horizon,
                 catchup_step_period: config.consensus.catchup_step_period,
                 chunk_request_retry_period: config.consensus.chunk_request_retry_period,

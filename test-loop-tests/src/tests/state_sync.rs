@@ -460,8 +460,6 @@ fn run_test_with_added_node(state: TestState) {
     let new_node_state = NodeStateBuilder::new(genesis, tempdir_path)
         .account_id(account_id.clone())
         .config_modifier(move |config| {
-            // Lower the threshold at which state sync is chosen over block sync
-            config.block_fetch_horizon = 5;
             config.tracked_shards_config = TrackedShardsConfig::AllShards;
         })
         .build();
@@ -1077,8 +1075,6 @@ fn slow_test_state_sync_no_parts_provided() {
     let new_node_state = NodeStateBuilder::new(genesis, tempdir_path)
         .account_id(account_id.clone())
         .config_modifier(move |config| {
-            // Lower the threshold at which state sync is chosen over block sync
-            config.block_fetch_horizon = 5;
             config.tracked_shards_config = TrackedShardsConfig::AllShards;
             config.state_sync_enabled = true;
             config.state_sync = StateSyncConfig::default();

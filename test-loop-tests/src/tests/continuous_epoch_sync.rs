@@ -222,7 +222,6 @@ fn test_epoch_sync_bootstrap_fresh_node() {
         .account_id(account_id)
         .config_modifier(|config| {
             config.block_header_fetch_horizon = 8;
-            config.block_fetch_horizon = 3;
         })
         .build();
     env.add_node(identifier, node_state);

@@ -26,7 +26,6 @@ node0_config.update({"gc_blocks_limit": 10})
 
 node1_config.update({
     "consensus": {
-        "block_fetch_horizon": 10,
         "block_header_fetch_horizon": 10,
     },
     "tracked_shards_config": "AllShards",

@@ -14,12 +14,7 @@ import utils
 
 BLOCKS = 10
 
-consensus_config0 = {
-    "consensus": {
-        "block_fetch_horizon": 30,
-        "block_header_fetch_horizon": 30
-    }
-}
+consensus_config0 = {"consensus": {"block_header_fetch_horizon": 30}}
 consensus_config1 = {
     "consensus": {
         "min_block_production_delay": {
