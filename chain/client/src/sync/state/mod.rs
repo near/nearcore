@@ -164,12 +164,13 @@ impl StateSync {
         };
         let computation_task_tracker = TaskTracker::new(usize::from(num_concurrent_computations));
 
-        let min_delay_before_reattempt = if num_attempts_before_fallback > 0 {
-            // No need to wait if p2p attempts are enabled
-            Duration::ZERO
-        } else {
+        let has_fallback = downloader.fallback_source.is_some();
+        let min_delay_before_reattempt = if has_fallback && num_attempts_before_fallback == 0 {
             // Avoid aggressively checking the external storage for requests which just failed
             external_backoff
+        } else {
+            // No need to wait if p2p attempts are enabled
+            Duration::ZERO
         };
 
         Self {
