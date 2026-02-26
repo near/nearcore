@@ -2,6 +2,7 @@ use crate::types::AccountId;
 use crate::{action::GlobalContractIdentifier, hash::CryptoHash};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
+use near_primitives_core::trie_key::access_key_key_len;
 use near_primitives_core::types::{NonceIndex, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 use std::mem::size_of;
@@ -284,14 +285,9 @@ impl Byte for u8 {
 /// Convenience common alias for storage of encoded `TrieKey`s in `SmallVec`s.
 pub type SmallKeyVec = smallvec::SmallVec<[u8; 64]>;
 
-/// Returns the length of the trie key for an access key.
-pub fn access_key_key_len(account_id: &AccountId, public_key: &PublicKey) -> usize {
-    col::ACCESS_KEY.len() * 2 + account_id.len() + public_key.len()
-}
-
 /// Returns the length of the trie key for a gas key nonce.
 pub fn gas_key_nonce_key_len(account_id: &AccountId, public_key: &PublicKey) -> usize {
-    access_key_key_len(account_id, public_key) + size_of::<NonceIndex>()
+    access_key_key_len(account_id.len(), public_key.len()) + size_of::<NonceIndex>()
 }
 
 impl TrieKey {
@@ -300,7 +296,7 @@ impl TrieKey {
             TrieKey::Account { account_id } => col::ACCOUNT.len() + account_id.len(),
             TrieKey::ContractCode { account_id } => col::CONTRACT_CODE.len() + account_id.len(),
             TrieKey::AccessKey { account_id, public_key } => {
-                access_key_key_len(account_id, public_key)
+                access_key_key_len(account_id.len(), public_key.len())
             }
             TrieKey::ReceivedData { receiver_id, data_id } => {
                 col::RECEIVED_DATA.len()
@@ -365,7 +361,7 @@ impl TrieKey {
                 col::GLOBAL_CONTRACT_CODE.len() + identifier.len()
             }
             TrieKey::GasKeyNonce { account_id, public_key, index: _index } => {
-                access_key_key_len(account_id, public_key) + size_of::<NonceIndex>()
+                gas_key_nonce_key_len(account_id, public_key)
             }
             TrieKey::GlobalContractNonce { identifier } => {
                 col::GLOBAL_CONTRACT_NONCE.len() + identifier.len()
@@ -613,7 +609,7 @@ pub mod trie_key_parsers {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<Option<NonceIndex>, std::io::Error> {
-        let prefix_len = access_key_key_len(account_id, public_key);
+        let prefix_len = access_key_key_len(account_id.len(), public_key.len());
         if raw_key.len() < prefix_len {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -1186,6 +1182,28 @@ mod tests {
 
             // GasKeyNonce should return the account id.
             assert_eq!(gas_key_nonce.get_account_id(), Some(account_id.clone()));
+        }
+    }
+
+    /// Verifies that `near_primitives_core::trie_key::access_key_key_len` matches
+    /// the actual serialized `TrieKey::AccessKey` length. This guards against the
+    /// primitives-core function getting out of sync with the trie key format.
+    #[test]
+    fn test_access_key_key_len_matches_trie_key() {
+        for key_type in [KeyType::ED25519, KeyType::SECP256K1] {
+            let public_key = PublicKey::empty(key_type);
+            for account_id in OK_ACCOUNT_IDS.iter().map(|x| x.parse::<AccountId>().unwrap()) {
+                let key = TrieKey::AccessKey {
+                    account_id: account_id.clone(),
+                    public_key: public_key.clone(),
+                };
+                let raw_key = key.to_vec();
+                assert_eq!(
+                    raw_key.len(),
+                    access_key_key_len(account_id.len(), public_key.len()),
+                    "access_key_key_len mismatch for account_id={account_id}, key_type={key_type:?}"
+                );
+            }
         }
     }
 
