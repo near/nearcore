@@ -254,6 +254,18 @@ impl ShardChunkHeaderInner {
         }
     }
 
+    /// Returns whether this header version has the `proposed_split` field, regardless of whether
+    /// it's `Some` or `None`. Used when creating `ChunkHeaderView` to distinguish "field absent"
+    /// from "field present but None".
+    #[inline]
+    pub fn has_proposed_split(&self) -> bool {
+        match self {
+            Self::V1(_) | Self::V2(_) | Self::V3(_) | Self::V4(_) => false,
+            Self::V5(_) => true,
+            Self::V6(_) => false,
+        }
+    }
+
     #[inline]
     pub fn proposed_split(&self) -> Option<&TrieSplit> {
         match self {

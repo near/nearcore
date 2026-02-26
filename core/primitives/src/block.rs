@@ -98,9 +98,9 @@ impl Block {
         // We should not expect BlockV4 to have BlockBodyV1
         match body {
             BlockBody::V1(_) => {
-                panic!("Attempted to include BlockBodyV1 in new protocol version")
+                panic!("attempted to include BlockBodyV1 in new protocol version")
             }
-            _ => Block::BlockV4(BlockV4 { header, body }),
+            BlockBody::V2(_) | BlockBody::V3(_) => Block::BlockV4(BlockV4 { header, body }),
         }
     }
 
