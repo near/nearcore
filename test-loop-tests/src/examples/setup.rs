@@ -1,7 +1,9 @@
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::types::Balance;
 
 use crate::setup::builder::TestLoopBuilder;
+use crate::utils::account::create_account_id;
 
 /// Demonstrates the most basic single-validator test loop env setup.
 /// Uses all defaults: one validator, one shard, no RPC.
@@ -60,6 +62,23 @@ fn test_setup_multishard() {
     let node1_tracked_shards = env.node(1).tracked_shards();
     assert_eq!(node1_tracked_shards.len(), 1);
     assert_ne!(&node0_tracked_shards[0], &node1_tracked_shards[0]);
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(1));
+}
+
+/// Demonstrates adding a user account via the builder API.
+#[test]
+fn test_setup_user_account() {
+    init_test_logger();
+
+    let user_account = create_account_id("user0");
+    let initial_balance = Balance::from_near(10);
+    let env = TestLoopBuilder::new()
+        .add_user_account(user_account.clone(), initial_balance)
+        .build()
+        .warmup();
+
+    assert_eq!(env.validator().query_balance(&user_account), initial_balance);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(1));
 }

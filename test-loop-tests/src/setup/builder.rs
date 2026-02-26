@@ -19,7 +19,7 @@ use near_chain_configs::{
 };
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
-use near_primitives::types::{AccountId, NumShards};
+use near_primitives::types::{AccountId, Balance, NumShards};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::get_protocol_upgrade_schedule;
 use near_store::genesis::initialize_genesis_state;
@@ -70,6 +70,7 @@ pub(crate) struct TestLoopBuilder {
     validators_spec: Option<ValidatorsSpec>,
     enable_rpc: bool,
     shard_layout: Option<ShardLayout>,
+    user_accounts: Vec<(AccountId, Balance)>,
 }
 
 impl TestLoopBuilder {
@@ -92,6 +93,7 @@ impl TestLoopBuilder {
             validators_spec: None,
             enable_rpc: false,
             shard_layout: None,
+            user_accounts: vec![],
         }
     }
 
@@ -169,6 +171,19 @@ impl TestLoopBuilder {
         self
     }
 
+    pub fn add_user_account(mut self, account_id: AccountId, initial_balance: Balance) -> Self {
+        self.user_accounts.push((account_id, initial_balance));
+        self
+    }
+
+    #[allow(dead_code)]
+    pub fn add_user_accounts(mut self, accounts: &[AccountId], initial_balance: Balance) -> Self {
+        for account_id in accounts {
+            self.user_accounts.push((account_id.clone(), initial_balance));
+        }
+        self
+    }
+
     /// Set the accounts whose clients should be configured as cold DB split store archival nodes in the test loop.
     /// These accounts should be a subset of the accounts provided to the `clients` method.
     pub(crate) fn cold_storage_archival_clients(mut self, clients: HashSet<AccountId>) -> Self {
@@ -240,8 +255,10 @@ impl TestLoopBuilder {
     /// - Old API: manually provide genesis and clients via `.genesis()` and `.clients()`.
     /// Mixing the two is not allowed.
     fn ensure_compatible(self) -> Self {
-        let uses_new_api =
-            self.validators_spec.is_some() || self.shard_layout.is_some() || self.enable_rpc;
+        let uses_new_api = self.validators_spec.is_some()
+            || self.shard_layout.is_some()
+            || self.enable_rpc
+            || !self.user_accounts.is_empty();
         let has_genesis = self.genesis.is_some();
         let has_clients = !self.clients.is_empty();
 
@@ -276,6 +293,10 @@ impl TestLoopBuilder {
             let mut genesis_builder = Self::new_genesis_builder().validators_spec(validators_spec);
             if let Some(shard_layout) = &self.shard_layout {
                 genesis_builder = genesis_builder.shard_layout(shard_layout.clone());
+            }
+            for (account_id, balance) in &self.user_accounts {
+                genesis_builder =
+                    genesis_builder.add_user_account_simple(account_id.clone(), *balance);
             }
             self.genesis = Some(genesis_builder.build());
         }
