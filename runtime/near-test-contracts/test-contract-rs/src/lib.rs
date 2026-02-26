@@ -202,6 +202,14 @@ extern "C" {
 
     #[cfg(feature = "test_features")]
     fn burn_gas(gas: u64);
+
+    #[cfg(feature = "nightly")]
+    fn promise_batch_action_transfer_to_gas_key(
+        promise_index: u64,
+        public_key_len: u64,
+        public_key_ptr: u64,
+        amount_ptr: u64,
+    );
 }
 
 const TGAS: u64 = 1_000_000_000_000;
@@ -1916,4 +1924,35 @@ pub unsafe fn resume_with_large_payload() {
         resolve_data.as_ptr() as u64,
     );
     assert_eq!(success, 1);
+}
+
+/// Transfer tokens to a gas key via promise batch action.
+/// Input format: public_key_bytes (N bytes) || amount (16 bytes LE u128)
+/// The last 16 bytes of the input are the amount; everything before is the public key.
+#[cfg(feature = "nightly")]
+#[unsafe(no_mangle)]
+pub unsafe fn transfer_to_gas_key() {
+    input(0);
+    let data_len = register_len(0) as usize;
+    let data = vec![0u8; data_len];
+    read_register(0, data.as_ptr() as u64);
+
+    // Last 16 bytes are the u128 amount in LE
+    let pk_len = data_len - 16;
+    let pk_bytes = &data[..pk_len];
+    let amount_bytes: [u8; 16] = data[pk_len..].try_into().unwrap();
+
+    // Create a batch promise to self
+    current_account_id(1);
+    let account_id_len = register_len(1);
+    let account_id = vec![0u8; account_id_len as usize];
+    read_register(1, account_id.as_ptr() as u64);
+
+    let batch_idx = promise_batch_create(account_id.len() as u64, account_id.as_ptr() as u64);
+    promise_batch_action_transfer_to_gas_key(
+        batch_idx,
+        pk_bytes.len() as u64,
+        pk_bytes.as_ptr() as u64,
+        amount_bytes.as_ptr() as u64,
+    );
 }

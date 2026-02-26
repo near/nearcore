@@ -57,6 +57,11 @@ pub enum MockAction {
         receipt_index: ReceiptIndex,
         deposit: Balance,
     },
+    TransferToGasKey {
+        receipt_index: ReceiptIndex,
+        public_key: near_crypto::PublicKey,
+        deposit: Balance,
+    },
     Stake {
         receipt_index: ReceiptIndex,
         stake: Balance,
@@ -337,6 +342,15 @@ impl External for MockedExternal {
 
     fn append_action_transfer(&mut self, receipt_index: ReceiptIndex, deposit: Balance) {
         self.action_log.push(MockAction::Transfer { receipt_index, deposit });
+    }
+
+    fn append_action_transfer_to_gas_key(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        public_key: near_crypto::PublicKey,
+        deposit: Balance,
+    ) {
+        self.action_log.push(MockAction::TransferToGasKey { receipt_index, public_key, deposit });
     }
 
     fn append_action_stake(

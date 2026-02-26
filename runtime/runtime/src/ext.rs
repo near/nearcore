@@ -459,6 +459,15 @@ impl<'a> External for RuntimeExt<'a> {
         self.receipt_manager.append_action_transfer(receipt_index, deposit);
     }
 
+    fn append_action_transfer_to_gas_key(
+        &mut self,
+        _receipt_index: ReceiptIndex,
+        _public_key: near_crypto::PublicKey,
+        _deposit: Balance,
+    ) {
+        unimplemented!("transfer_to_gas_key wired up in next PR");
+    }
+
     fn append_action_stake(
         &mut self,
         receipt_index: ReceiptIndex,

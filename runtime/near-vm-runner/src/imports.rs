@@ -241,6 +241,12 @@ imports! {
         beneficiary_id_len: u64,
         beneficiary_id_ptr: u64
     ] -> []>,
+    #[gas_key_host_fns] promise_batch_action_transfer_to_gas_key<[
+        promise_index: u64,
+        public_key_len: u64,
+        public_key_ptr: u64,
+        amount_ptr: u64
+    ] -> []>,
     // NOTE: There are intentionally no promise batch actions for
     // WithdrawFromGasKey. Actions that reduce gas key balance must only be
     // initiated via transactions, not by contracts. Otherwise, they will not be

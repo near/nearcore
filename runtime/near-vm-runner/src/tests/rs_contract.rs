@@ -276,3 +276,108 @@ fn attach_unspent_gas_but_use_all_gas() {
         }
     });
 }
+
+#[cfg(feature = "nightly")]
+fn nightly_test_contract() -> ContractCode {
+    ContractCode::new(near_test_contracts::nightly_rs_contract().to_vec(), None)
+}
+
+/// Build the input bytes for the test contract's `transfer_to_gas_key` function.
+/// Format: `borsh(public_key) || amount_le_bytes(16)`
+#[cfg(feature = "nightly")]
+fn transfer_to_gas_key_input(public_key: &near_crypto::PublicKey, amount: Balance) -> Vec<u8> {
+    let pk_bytes = borsh::to_vec(public_key).unwrap();
+    let mut input = pk_bytes;
+    input.extend_from_slice(&amount.as_yoctonear().to_le_bytes());
+    input
+}
+
+#[cfg(feature = "nightly")]
+const TEST_PUBLIC_KEY: &str = "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf";
+
+#[cfg(feature = "nightly")]
+#[test]
+fn test_transfer_to_gas_key_creates_correct_action() {
+    with_vm_variants(|vm_kind: VMKind| {
+        let public_key: near_crypto::PublicKey = TEST_PUBLIC_KEY.parse().unwrap();
+        let deposit = Balance::from_near(1);
+
+        let config = Arc::new(test_vm_config(Some(vm_kind)));
+        let fees = Arc::new(RuntimeFeesConfig::test());
+        let code = nightly_test_contract();
+        let mut external = MockedExternal::with_code(code);
+
+        let mut context = create_context(transfer_to_gas_key_input(&public_key, deposit));
+        context.account_balance = Balance::from_near(10);
+
+        let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
+        let gas_counter = context.make_gas_counter(&config);
+        let outcome = runtime
+            .prepare(&external, None, gas_counter, "transfer_to_gas_key")
+            .run(&mut external, &context, fees)
+            .expect("execution failed");
+
+        assert!(outcome.aborted.is_none(), "unexpected abort: {:?}", outcome.aborted);
+
+        // Verify the action log contains CreateReceipt + TransferToGasKey
+        match &external.action_log[..] {
+            [
+                MockAction::CreateReceipt { receiver_id, .. },
+                MockAction::TransferToGasKey {
+                    receipt_index,
+                    public_key: action_pk,
+                    deposit: action_deposit,
+                },
+            ] => {
+                assert_eq!(receiver_id.as_str(), CURRENT_ACCOUNT_ID);
+                assert_eq!(*receipt_index, 0);
+                assert_eq!(action_pk, &public_key);
+                assert_eq!(*action_deposit, deposit);
+            }
+            other => panic!("unexpected actions: {other:?}"),
+        }
+
+        // Balance = (account_balance + attached_deposit) - deposit
+        let expected_balance = context
+            .account_balance
+            .checked_add(context.attached_deposit)
+            .unwrap()
+            .checked_sub(deposit)
+            .unwrap();
+        assert_eq!(outcome.balance, expected_balance);
+    });
+}
+
+#[cfg(feature = "nightly")]
+#[test]
+fn test_transfer_to_gas_key_insufficient_balance() {
+    with_vm_variants(|vm_kind: VMKind| {
+        let public_key: near_crypto::PublicKey = TEST_PUBLIC_KEY.parse().unwrap();
+        // Request a huge transfer that exceeds the account balance
+        let deposit = Balance::from_near(1_000);
+
+        let config = Arc::new(test_vm_config(Some(vm_kind)));
+        let fees = Arc::new(RuntimeFeesConfig::test());
+        let code = nightly_test_contract();
+        let mut external = MockedExternal::with_code(code);
+
+        // Default balance is 2 yoctoNEAR, far less than the deposit
+        let context = create_context(transfer_to_gas_key_input(&public_key, deposit));
+
+        let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
+        let gas_counter = context.make_gas_counter(&config);
+        let outcome = runtime
+            .prepare(&external, None, gas_counter, "transfer_to_gas_key")
+            .run(&mut external, &context, fees)
+            .expect("execution failed");
+
+        assert!(
+            matches!(
+                outcome.aborted,
+                Some(FunctionCallError::HostError(HostError::BalanceExceeded))
+            ),
+            "expected BalanceExceeded, got: {:?}",
+            outcome.aborted
+        );
+    });
+}

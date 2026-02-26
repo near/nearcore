@@ -235,6 +235,8 @@ pub struct VMConfigView {
     pub reftypes_bulk_memory: bool,
     /// See [VMConfig::deterministic_account_ids](crate::vm::Config::deterministic_account_ids).
     pub deterministic_account_ids: bool,
+    /// See [VMConfig::gas_key_host_fns](crate::vm::Config::gas_key_host_fns).
+    pub gas_key_host_fns: bool,
 
     /// See [VMConfig::storage_get_mode](crate::vm::Config::storage_get_mode).
     pub storage_get_mode: crate::vm::StorageGetMode,
@@ -273,6 +275,7 @@ impl From<crate::vm::Config> for VMConfigView {
             global_contract_host_fns: config.global_contract_host_fns,
             reftypes_bulk_memory: config.reftypes_bulk_memory,
             deterministic_account_ids: config.deterministic_account_ids,
+            gas_key_host_fns: config.gas_key_host_fns,
         }
     }
 }
@@ -295,6 +298,7 @@ impl From<VMConfigView> for crate::vm::Config {
             global_contract_host_fns: view.global_contract_host_fns,
             reftypes_bulk_memory: view.reftypes_bulk_memory,
             deterministic_account_ids: view.deterministic_account_ids,
+            gas_key_host_fns: view.gas_key_host_fns,
         }
     }
 }
