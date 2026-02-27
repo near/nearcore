@@ -86,6 +86,7 @@ pub struct TestEnv {
     pub(crate) seeds: HashMap<AccountId, RngSeed>,
     pub(crate) enable_split_store: bool,
     pub(crate) save_tx_outcomes: bool,
+    pub(crate) save_receipt_to_tx: bool,
     pub(crate) protocol_version_check: ProtocolVersionCheckConfig,
 }
 
@@ -714,6 +715,7 @@ impl TestEnv {
             rng_seed,
             self.enable_split_store,
             self.save_tx_outcomes,
+            self.save_receipt_to_tx,
             self.protocol_version_check,
             None,
             self.clients[idx].partial_witness_adapter.clone(),

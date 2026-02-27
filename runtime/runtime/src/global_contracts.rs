@@ -9,7 +9,10 @@ use near_primitives::action::{
 use near_primitives::errors::{ActionErrorKind, IntegerOverflowError, RuntimeError};
 use near_primitives::global_contract::ContractIsLocalError;
 use near_primitives::hash::{CryptoHash, hash};
-use near_primitives::receipt::{GlobalContractDistributionReceipt, Receipt, ReceiptEnum};
+use near_primitives::receipt::{
+    GlobalContractDistributionReceipt, Receipt, ReceiptEnum, ReceiptOrigin, ReceiptOriginReceipt,
+    ReceiptToTxInfo, ReceiptToTxInfoV1,
+};
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{AccountId, EpochInfoProvider, ShardId, StateChangeCause};
 use near_primitives::version::ProtocolFeature;
@@ -132,6 +135,7 @@ pub(crate) fn apply_global_contract_distribution_receipt(
     epoch_info_provider: &dyn EpochInfoProvider,
     state_update: &mut TrieUpdate,
     receipt_sink: &mut ReceiptSink,
+    receipt_to_tx: &mut Vec<(CryptoHash, ReceiptToTxInfo)>,
 ) -> Result<(), RuntimeError> {
     let _span = tracing::debug_span!(
         target: "runtime",
@@ -150,6 +154,7 @@ pub(crate) fn apply_global_contract_distribution_receipt(
         epoch_info_provider,
         state_update,
         receipt_sink,
+        receipt_to_tx,
     )?;
 
     Ok(())
@@ -305,6 +310,7 @@ fn forward_distribution_next_shard(
     epoch_info_provider: &dyn EpochInfoProvider,
     state_update: &mut TrieUpdate,
     receipt_sink: &mut ReceiptSink,
+    receipt_to_tx: &mut Vec<(CryptoHash, ReceiptToTxInfo)>,
 ) -> Result<(), RuntimeError> {
     let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
     let already_delivered_shards = BTreeSet::from_iter(
@@ -327,6 +333,16 @@ fn forward_distribution_next_shard(
     let mut next_receipt = Receipt::new_global_contract_distribution(predecessor_id, next_receipt);
     let receipt_id = apply_state.create_receipt_id(receipt.receipt_id(), 0);
     next_receipt.set_receipt_id(receipt_id);
+    receipt_to_tx.push((
+        receipt_id,
+        ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+            origin: ReceiptOrigin::FromReceipt(ReceiptOriginReceipt {
+                parent_receipt_id: *receipt.receipt_id(),
+                parent_creator_account_id: receipt.predecessor_id().clone(),
+            }),
+            receiver_account_id: next_receipt.receiver_id().clone(),
+        }),
+    ));
     receipt_sink.forward_or_buffer_receipt(next_receipt, apply_state, state_update)?;
     Ok(())
 }

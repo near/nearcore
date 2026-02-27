@@ -4,7 +4,8 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::gas::Gas;
 use near_primitives::receipt::{
-    ProcessedReceiptMetadata, Receipt, ReceiptSource, VersionedReceiptEnum,
+    ProcessedReceiptMetadata, Receipt, ReceiptOrigin, ReceiptSource, ReceiptToTxInfo,
+    VersionedReceiptEnum,
 };
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
@@ -139,6 +140,124 @@ fn test_processed_receipt_ids_gc() {
     assert!(
         store.get(DBCol::ProcessedReceiptIds, &metadata_key).is_none(),
         "receipt metadata should be garbage collected from DBCol::ProcessedReceiptIds"
+    );
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+/// Tests that ReceiptToTx entries are saved for local receipts, instant receipts, and
+/// transaction→receipt mappings, then properly garbage collected.
+///
+/// Deploys a contract, then calls `call_yield_create_return_promise` which produces
+/// a local receipt (from the transaction) and a PromiseYield instant receipt.
+/// Verifies ReceiptToTx entries exist with correct ReceiptOrigin variants, then runs
+/// enough epochs for GC to kick in and verifies cleanup.
+#[test]
+fn test_receipt_to_tx_saved_and_gced() {
+    init_test_logger();
+
+    let validators_spec = create_validators_spec(1, 0);
+    let clients = validators_spec_clients(&validators_spec);
+    let user_account = create_account_id("account0");
+
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(EPOCH_LENGTH)
+        .shard_layout(ShardLayout::single_shard())
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&[user_account.clone()], Balance::from_near(1_000_000))
+        .build();
+
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store_from_genesis()
+        .clients(clients)
+        .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
+        .build()
+        .warmup();
+
+    let signer = create_user_test_signer(&user_account);
+
+    // Deploy the test contract.
+    let contract_code = near_test_contracts::rs_contract().to_vec();
+    let block_hash = env.validator().head().last_block_hash;
+    let deploy_tx =
+        SignedTransaction::deploy_contract(1, &user_account, contract_code, &signer, block_hash);
+    env.validator_runner().run_tx(deploy_tx, Duration::seconds(5));
+
+    // Call yield_create — produces a local receipt and a PromiseYield instant receipt.
+    let block_hash = env.validator().head().last_block_hash;
+    let tx = SignedTransaction::from_actions(
+        2,
+        user_account.clone(),
+        user_account.clone(),
+        &signer,
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "call_yield_create_return_promise".to_string(),
+            args: vec![42u8; 16],
+            gas: Gas::from_teragas(300),
+            deposit: Balance::ZERO,
+        }))],
+        block_hash,
+    );
+    let tx_hash = tx.get_hash();
+    env.validator().submit_tx(tx);
+
+    // Wait for the transaction outcome (tx → local receipt).
+    let tx_outcome =
+        env.validator_runner().run_until_outcome_available(tx_hash, Duration::seconds(5));
+    let [local_receipt_id] = tx_outcome.outcome_with_id.outcome.receipt_ids[..] else {
+        panic!("expected single receipt from transaction")
+    };
+
+    // Wait for the local receipt outcome (local receipt → instant receipt).
+    let local_outcome =
+        env.validator_runner().run_until_outcome_available(local_receipt_id, Duration::seconds(5));
+    let [instant_receipt_id] = local_outcome.outcome_with_id.outcome.receipt_ids[..] else {
+        panic!("expected single receipt from local receipt execution")
+    };
+
+    let store = env.validator().store();
+
+    // Verify ReceiptToTx entry for the tx→local receipt mapping.
+    let tx_receipt_info = store
+        .get_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx, local_receipt_id.as_ref())
+        .expect("receipt_to_tx entry should exist for local receipt created from transaction");
+    match &tx_receipt_info {
+        ReceiptToTxInfo::V1(v1) => {
+            assert_matches!(&v1.origin, ReceiptOrigin::FromTransaction(origin) => {
+                assert_eq!(origin.tx_hash, tx_hash, "tx_hash should match the originating transaction");
+                assert_eq!(origin.sender_account_id, user_account, "sender should match");
+            });
+            assert_eq!(v1.receiver_account_id, user_account, "receiver should match");
+        }
+    }
+
+    // Verify ReceiptToTx entry for the local→instant receipt mapping.
+    let instant_receipt_info = store
+        .get_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx, instant_receipt_id.as_ref())
+        .expect("receipt_to_tx entry should exist for instant receipt created from local receipt");
+    match &instant_receipt_info {
+        ReceiptToTxInfo::V1(v1) => {
+            assert_matches!(&v1.origin, ReceiptOrigin::FromReceipt(origin) => {
+                assert_eq!(origin.parent_receipt_id, local_receipt_id,
+                    "parent should be the local receipt");
+            });
+        }
+    }
+
+    #[cfg(feature = "test_features")]
+    env.validator_mut().validate_store();
+
+    // Run enough epochs for GC to clean up.
+    let num_blocks = EPOCH_LENGTH * GC_NUM_EPOCHS_TO_KEEP + 1;
+    env.validator_runner().run_for_number_of_blocks(num_blocks as usize);
+
+    // Verify ReceiptToTx entries have been garbage collected.
+    // GC deletes ReceiptToTx entries for receipt IDs that appear as outcome IDs in the block.
+    let store = env.validator().store();
+    assert!(
+        store.get(DBCol::ReceiptToTx, local_receipt_id.as_ref()).is_none(),
+        "receipt_to_tx for local receipt should be garbage collected"
     );
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));

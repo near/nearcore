@@ -454,6 +454,7 @@ pub fn setup_client_with_runtime(
     rng_seed: RngSeed,
     split_store_enabled: bool,
     save_tx_outcomes: bool,
+    save_receipt_to_tx: bool,
     protocol_version_check: ProtocolVersionCheckConfig,
     snapshot_callbacks: Option<SnapshotCallbacks>,
     partial_witness_adapter: PartialWitnessSenderForClient,
@@ -469,6 +470,7 @@ pub fn setup_client_with_runtime(
         state_sync_enabled: true,
     });
     config.save_tx_outcomes = save_tx_outcomes;
+    config.save_receipt_to_tx = save_receipt_to_tx;
     config.protocol_version_check = protocol_version_check;
     config.epoch_length = chain_genesis.epoch_length;
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(&chain_genesis.chain_id);

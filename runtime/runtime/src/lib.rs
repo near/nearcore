@@ -1285,6 +1285,7 @@ impl Runtime {
                     epoch_info_provider,
                     state_update,
                     receipt_sink,
+                    receipt_to_tx,
                 )?;
                 return Ok(None);
             }
@@ -2898,6 +2899,25 @@ fn resolve_promise_yield_timeouts(
                     data: None,
                 }),
             });
+
+            // Record a ReceiptToTx entry for the new resume receipt. The parent is the
+            // yield receipt that is being timed out.
+            let yield_receipt = get_promise_yield_receipt(
+                state_update,
+                &queue_entry.account_id,
+                queue_entry.data_id,
+            )?
+            .expect("promise yield receipt should exist since contains_key was true");
+            processing_state.receipt_to_tx.push((
+                new_receipt_id,
+                ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+                    origin: ReceiptOrigin::FromReceipt(ReceiptOriginReceipt {
+                        parent_receipt_id: *yield_receipt.receipt_id(),
+                        parent_creator_account_id: yield_receipt.predecessor_id().clone(),
+                    }),
+                    receiver_account_id: queue_entry.account_id.clone(),
+                }),
+            ));
 
             // The receipt is destined for the local shard and will be placed in the outgoing
             // receipts buffer. It is possible that there is already an outgoing receipt resolving
