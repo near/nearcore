@@ -17,6 +17,7 @@ use near_store::adapter::StoreAdapter;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
+use crate::utils::account::create_account_id;
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{BalanceMismatchError, execute_money_transfers};
 
@@ -79,10 +80,9 @@ fn setup_initial_blockchain(transaction_validity_period: BlockHeightDelta) -> Te
 
 fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> TestLoopEnv {
     let identifier = format!("account{}", env.node_datas.len());
-    let account_id: AccountId = identifier.parse().unwrap();
     let node_state = env
         .node_state_builder()
-        .account_id(&account_id)
+        .account_id(&create_account_id(&identifier))
         .config_modifier(|config| {
             // Enable epoch sync, and make the horizon small enough to trigger it.
             config.epoch_sync.epoch_sync_horizon_num_epochs = 3;
