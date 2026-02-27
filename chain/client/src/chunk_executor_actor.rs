@@ -41,7 +41,7 @@ use near_primitives::sharding::ReceiptProof;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::sharding::ShardProof;
 use near_primitives::state::PartialState;
-use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
+use near_primitives::stateless_validation::contract_distribution::{CodeHash, ContractUpdates};
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateTransition;
 use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness;
@@ -52,6 +52,7 @@ use near_primitives::types::ChunkExecutionResultHash;
 use near_primitives::types::SpiceChunkId;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{Gas, ShardId};
+use near_primitives::utils::get_contract_accesses_key;
 use near_primitives::utils::get_receipt_proof_key;
 use near_primitives::utils::get_receipt_proof_target_shard_prefix;
 use near_primitives::utils::get_witnesses_key;
@@ -60,11 +61,8 @@ use near_store::DBCol;
 use near_store::ShardUId;
 use near_store::Store;
 use near_store::StoreUpdate;
-use near_store::TrieDBStorage;
-use near_store::TrieStorage;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use near_store::adapter::trie_store::TrieStoreAdapter;
 use node_runtime::SignedValidPeriodTransactions;
 use rayon::iter::IntoParallelIterator as _;
 use rayon::iter::ParallelIterator as _;
@@ -695,12 +693,14 @@ impl ChunkExecutorActor {
             self.core_writer_sender.send(SpiceChunkEndorsementMessage(endorsement));
         }
 
-        let state_witness =
+        let (state_witness, contract_accesses) =
             self.create_witness(block, apply_result, shard_id, execution_result_hash)?;
 
         save_witness(&self.chain_store, block.hash(), shard_id, &state_witness);
+        save_contract_accesses(&self.chain_store, block.hash(), shard_id, &contract_accesses);
+        self.data_distributor_adapter
+            .send(SpiceDistributorStateWitness { state_witness, contract_accesses });
 
-        self.data_distributor_adapter.send(SpiceDistributorStateWitness { state_witness });
         Ok(())
     }
 
@@ -710,7 +710,7 @@ impl ChunkExecutorActor {
         apply_result: &ApplyChunkResult,
         shard_id: ShardId,
         execution_result_hash: ChunkExecutionResultHash,
-    ) -> Result<SpiceChunkStateWitness, Error> {
+    ) -> Result<(SpiceChunkStateWitness, HashSet<CodeHash>), Error> {
         let block_hash = block.header().hash();
         let epoch_id = self.epoch_manager.get_epoch_id(block_hash).unwrap();
         let transactions = {
@@ -726,21 +726,15 @@ impl ChunkExecutorActor {
         };
 
         let applied_receipts_hash = apply_result.applied_receipts_hash;
-        let main_transition = {
-            let ContractUpdates { contract_accesses, contract_deploys: _ } =
-                apply_result.contract_updates.clone();
+        let ContractUpdates { contract_accesses, contract_deploys: _ } =
+            apply_result.contract_updates.clone();
 
-            let PartialState::TrieValues(mut base_state_values) =
+        let main_transition = {
+            let PartialState::TrieValues(base_state_values) =
                 apply_result.proof.clone().unwrap().nodes;
-            let trie_storage = TrieDBStorage::new(
-                TrieStoreAdapter::new(self.runtime_adapter.store().clone()),
-                shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?,
-            );
-            base_state_values.reserve_exact(contract_accesses.len());
-            for contract_hash in contract_accesses {
-                let contract = trie_storage.retrieve_raw_bytes(&contract_hash.0)?;
-                base_state_values.push(contract);
-            }
+            // Contract bytecodes are not included in the witness. They are sent
+            // separately via SpiceChunkContractAccesses so that validators can
+            // check their compiled contract cache and only request missing ones.
             SpiceChunkStateTransition {
                 base_state: PartialState::TrieValues(base_state_values),
                 post_state_root: apply_result.new_root,
@@ -769,7 +763,7 @@ impl ChunkExecutorActor {
             transactions,
             execution_result_hash,
         );
-        Ok(state_witness)
+        Ok((state_witness, contract_accesses))
     }
 
     #[instrument(
@@ -1043,6 +1037,30 @@ pub fn get_witness(
 ) -> Option<SpiceChunkStateWitness> {
     let key = get_witnesses_key(block_hash, shard_id);
     store.get_ser(DBCol::witnesses(), &key)
+}
+
+pub(crate) fn save_contract_accesses(
+    chain_store: &ChainStoreAdapter,
+    block_hash: &CryptoHash,
+    shard_id: ShardId,
+    contract_accesses: &HashSet<CodeHash>,
+) {
+    let mut store_update = chain_store.store().store_update();
+    let key = get_contract_accesses_key(block_hash, shard_id);
+    let value: Vec<&CodeHash> = contract_accesses.iter().collect();
+    let value = borsh::to_vec(&value).unwrap();
+    store_update.set(DBCol::contract_accesses(), &key, &value);
+    store_update.commit();
+}
+
+pub fn get_contract_accesses(
+    store: &Store,
+    block_hash: &CryptoHash,
+    shard_id: ShardId,
+) -> Option<HashSet<CodeHash>> {
+    let key = get_contract_accesses_key(block_hash, shard_id);
+    let accesses: Arc<Vec<CodeHash>> = store.caching_get_ser(DBCol::contract_accesses(), &key)?;
+    Some(accesses.iter().cloned().collect())
 }
 
 pub fn get_receipt_proof(

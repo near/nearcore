@@ -109,8 +109,10 @@ impl Clone for OutgoingMessage {
             ),
             OutgoingMessage::SpiceDistributorStateWitness(SpiceDistributorStateWitness {
                 state_witness,
+                contract_accesses,
             }) => OutgoingMessage::SpiceDistributorStateWitness(SpiceDistributorStateWitness {
                 state_witness: state_witness.clone(),
+                contract_accesses: contract_accesses.clone(),
             }),
         }
     }
@@ -936,6 +938,7 @@ fn test_not_sending_witness_when_not_validator() {
     while let Ok(Some(event)) = outgoing_rc.try_next() {
         let OutgoingMessage::SpiceDistributorStateWitness(SpiceDistributorStateWitness {
             state_witness,
+            ..
         }) = event
         else {
             continue;
@@ -1026,6 +1029,7 @@ fn test_witness_is_valid() {
     while let Ok(Some(event)) = outgoing_rc.try_next() {
         let OutgoingMessage::SpiceDistributorStateWitness(SpiceDistributorStateWitness {
             state_witness,
+            ..
         }) = event
         else {
             continue;
