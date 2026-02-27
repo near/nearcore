@@ -4,7 +4,7 @@
 
 Dynamic resharding is a protocol-level feature for the NEAR blockchain that enables automatic splitting of shards based on runtime state size, without requiring a protocol upgrade. It replaces the legacy "static resharding" approach where shard layout changes were hard-coded into specific protocol versions.
 
-The feature is gated behind the `ProtocolFeature::DynamicResharding` protocol feature flag, currently assigned to nightly protocol version **150**.
+The feature is gated behind the `ProtocolFeature::DynamicResharding` protocol feature flag.
 
 ### Key Design Principles
 
@@ -55,7 +55,7 @@ next_next_shard_layout() -- derives ShardLayoutV3 for epoch N+2
 
 The core problem: given a shard's state trie, find an account ID boundary that divides the trie into two roughly equal halves by memory usage.
 
-NEAR's state trie is a Merkle-Patricia trie with 16-ary branching. Each node stores a cumulative `memory_usage` value for its entire subtree. The trie has many "column" subtrees sharing a common root, each identified by the first nibble of the key (see `trie_key::col`). Of these, only four use account ID as key or key prefix, which makes them relevant to the split algorithm (since shards are split by account ID boundaries):
+NEAR's state trie is a Merkle-Patricia trie with 16-ary branching. Each node stores a cumulative `memory_usage` value for its entire subtree. The trie has many "column" subtrees sharing a common root, each identified by the first byte of the key (see `trie_key::col`). Of these, only four use account ID as key or key prefix, which makes them relevant to the split algorithm (since shards are split by account ID boundaries):
 - **ACCOUNT** (column 0) -- account records
 - **CONTRACT_CODE** (column 1) -- WASM contract code
 - **ACCESS_KEY** (column 2) -- access keys
