@@ -4,7 +4,7 @@ use near_client::{Query, QueryError};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
-use near_primitives::types::{AccountId, Balance, BlockId, BlockReference};
+use near_primitives::types::{AccountId, BlockId, BlockReference};
 use near_primitives::views::QueryRequest;
 use std::sync::Arc;
 
@@ -68,7 +68,7 @@ fn test_unavailable_shard_query_error() {
     let boundary_account: AccountId = "boundary".parse().unwrap();
     let shard_layout = ShardLayout::multi_shard_custom(vec![boundary_account], 1);
 
-    let mut env = TestLoopBuilder::new()
+    let env = TestLoopBuilder::new()
         .shard_layout(shard_layout)
         .chunk_producer_per_shard()
         .build()
