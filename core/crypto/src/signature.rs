@@ -73,33 +73,29 @@ fn split_key_type_data(value: &str) -> Result<(KeyType, &str), crate::errors::Pa
 #[as_ref(forward)]
 pub struct Secp256K1PublicKey([u8; 64]);
 
-impl Secp256K1PublicKey {
-    /// Validates that the point lies on the secp256k1 curve.
-    pub fn verify(&self) -> Result<(), crate::errors::ParseKeyError> {
-        let mut uncompressed = [0x04; 65];
-        uncompressed[1..].copy_from_slice(&self.0);
-
-        // This checks if PublicKey lies on the curve
-        secp256k1::PublicKey::from_slice(&uncompressed).map_err(|e| {
-            crate::errors::ParseKeyError::InvalidData { error_message: e.to_string() }
-        })?;
-
-        Ok(())
-    }
-}
-
 impl TryFrom<&[u8]> for Secp256K1PublicKey {
     type Error = crate::errors::ParseKeyError;
 
     fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
-        let pk: Self = data.try_into().map_err(|_| Self::Error::InvalidLength {
+        let data: [u8; 64] = data.try_into().map_err(|_| Self::Error::InvalidLength {
             expected_length: 64,
             received_length: data.len(),
         })?;
 
-        pk.verify()?;
+        let mut uncompressed = [0x04; 65];
+        uncompressed[1..].copy_from_slice(&data);
 
-        Ok(pk)
+        // This checks if PublicKey lies on the curve
+        // We add 0x04 header byte to show that this is "uncompressed" public key, as
+        // internal `secp256k1_ec_pubkey_parse` expects it to be 65 bytes
+        //
+        // P.S. newer version of secp256k1 crate also accept 64 byte-sized PublicKey, but on older
+        // versions it just passes it to internal `secp256k1_ec_pubkey_parse` C library binding
+        secp256k1::PublicKey::from_slice(&uncompressed).map_err(|e| {
+            crate::errors::ParseKeyError::InvalidData { error_message: e.to_string() }
+        })?;
+
+        Ok(Self(data))
     }
 }
 
@@ -251,9 +247,10 @@ impl BorshDeserialize for PublicKey {
                 Ok(PublicKey::ED25519(ED25519PublicKey(BorshDeserialize::deserialize_reader(rd)?)))
             }
             KeyType::SECP256K1 => {
-                let pk = Secp256K1PublicKey(BorshDeserialize::deserialize_reader(rd)?);
-                pk.verify().map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
-                Ok(PublicKey::SECP256K1(pk))
+                let data: [u8; 64] = BorshDeserialize::deserialize_reader(rd)?;
+                let pk = Secp256K1PublicKey::try_from(data.as_slice())
+                    .map_err(|err| Error::new(ErrorKind::InvalidData, err.to_string()))?;
+                Ok(Self::SECP256K1(pk))
             }
         }
     }
@@ -290,8 +287,8 @@ impl FromStr for PublicKey {
         Ok(match key_type {
             KeyType::ED25519 => Self::ED25519(ED25519PublicKey(decode_bs58(key_data)?)),
             KeyType::SECP256K1 => {
-                let pk = Secp256K1PublicKey(decode_bs58(key_data)?);
-                pk.verify()?;
+                let data = decode_bs58::<64>(key_data)?;
+                let pk = Secp256K1PublicKey::try_from(data.as_slice())?;
                 Self::SECP256K1(pk)
             }
         })
@@ -824,6 +821,8 @@ impl std::convert::From<DecodeBs58Error> for crate::errors::ParseSignatureError 
 
 #[cfg(test)]
 mod tests {
+    use borsh::BorshDeserialize;
+
     use super::{KeyType, PublicKey, SecretKey, Signature};
 
     #[cfg(feature = "rand")]
@@ -947,5 +946,12 @@ mod tests {
         assert!(serde_json::from_str::<PublicKey>(invalid).is_err());
         assert!(serde_json::from_str::<SecretKey>(invalid).is_err());
         assert!(serde_json::from_str::<Signature>(invalid).is_err());
+
+        let invalid_pk_secp = "\"secp256k1:qMoRgcoXai4mBPsdbHi1wfyxF9TdbPCF4qSDQTRP3TfescSRoUdSx6nmeQoN3aiwGzwMyGXAb1gUjBTv5AY8DXjL\"";
+        assert!(serde_json::from_str::<PublicKey>(invalid_pk_secp).is_err());
+
+        let mut invalid_borsh = vec![1u8];
+        invalid_borsh.extend_from_slice(&[0xFF; 64]);
+        assert!(PublicKey::try_from_slice(&invalid_borsh).is_err())
     }
 }
