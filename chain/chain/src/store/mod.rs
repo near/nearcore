@@ -1698,16 +1698,21 @@ impl<'a> ChainStoreUpdate<'a> {
         outcomes: Vec<ExecutionOutcomeWithId>,
         proofs: Vec<MerklePath>,
     ) {
-        if !self.chain_store.save_tx_outcomes {
+        // The OutcomeIds index is needed for GC of both TransactionResultForBlock
+        // and ReceiptToTx entries, so write it when either feature is enabled.
+        let needs_index = self.chain_store.save_tx_outcomes || self.chain_store.save_receipt_to_tx;
+        if !needs_index {
             return;
         }
         let mut outcome_ids = Vec::with_capacity(outcomes.len());
         for (outcome_with_id, proof) in outcomes.into_iter().zip(proofs.into_iter()) {
             outcome_ids.push(outcome_with_id.id);
-            self.chain_store_cache_update.outcomes.insert(
-                (outcome_with_id.id, *block_hash),
-                ExecutionOutcomeWithProof { outcome: outcome_with_id.outcome, proof },
-            );
+            if self.chain_store.save_tx_outcomes {
+                self.chain_store_cache_update.outcomes.insert(
+                    (outcome_with_id.id, *block_hash),
+                    ExecutionOutcomeWithProof { outcome: outcome_with_id.outcome, proof },
+                );
+            }
         }
         self.chain_store_cache_update.outcome_ids.insert((*block_hash, shard_id), outcome_ids);
     }

@@ -583,6 +583,7 @@ impl Handler<NetworkAdversarialMessage, Option<u64>> for ClientActor {
                     self.client.runtime_adapter.clone(),
                     self.client.chain.chain_store().store(),
                     self.adv.is_archival(),
+                    self.client.config.save_tx_outcomes,
                 );
                 store_validator.set_timeout(timeout);
                 store_validator.validate();

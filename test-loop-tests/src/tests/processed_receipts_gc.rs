@@ -3,6 +3,7 @@ use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::gas::Gas;
+use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     ProcessedReceiptMetadata, Receipt, ReceiptOrigin, ReceiptSource, ReceiptToTxInfo,
     VersionedReceiptEnum,
@@ -259,6 +260,110 @@ fn test_receipt_to_tx_saved_and_gced() {
         store.get(DBCol::ReceiptToTx, local_receipt_id.as_ref()).is_none(),
         "receipt_to_tx for local receipt should be garbage collected"
     );
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+/// Tests that ReceiptToTx entries are properly garbage collected even when
+/// `save_tx_outcomes` is false. This verifies that the OutcomeIds index is
+/// still written (needed for GC) when only save_receipt_to_tx is enabled.
+#[test]
+fn test_receipt_to_tx_gc_with_outcomes_disabled() {
+    init_test_logger();
+
+    let validators_spec = create_validators_spec(1, 0);
+    let clients = validators_spec_clients(&validators_spec);
+    let user_account = create_account_id("account0");
+
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(EPOCH_LENGTH)
+        .shard_layout(ShardLayout::single_shard())
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&[user_account.clone()], Balance::from_near(1_000_000))
+        .build();
+
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store_from_genesis()
+        .clients(clients)
+        .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
+        .config_modifier(|config, _| {
+            config.save_tx_outcomes = false;
+        })
+        .build()
+        .warmup();
+
+    let signer = create_user_test_signer(&user_account);
+
+    // Send a simple transfer transaction. This produces a receipt that will
+    // have a ReceiptToTx mapping.
+    let block_hash = env.validator().head().last_block_hash;
+    let tx = SignedTransaction::send_money(
+        1,
+        user_account.clone(),
+        user_account,
+        &signer,
+        Balance::from_yoctonear(100),
+        block_hash,
+    );
+    let tx_hash = tx.get_hash();
+    env.validator().submit_tx(tx);
+
+    // Run enough blocks for the transaction to be processed.
+    env.validator_runner().run_for_number_of_blocks(5);
+
+    // Verify: outcome is NOT saved (save_tx_outcomes=false).
+    assert!(
+        env.validator().client().chain.get_execution_outcome(&tx_hash).is_err(),
+        "outcomes should not be saved when save_tx_outcomes is false"
+    );
+
+    // Find ReceiptToTx entries by iterating the column. Since outcomes are disabled,
+    // we cannot use run_until_outcome_available to discover receipt IDs.
+    let store = env.validator().store();
+    let receipt_to_tx_entries: Vec<(CryptoHash, ReceiptToTxInfo)> = store
+        .iter_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx)
+        .map(|(key, info)| {
+            let receipt_id = CryptoHash::try_from(key.as_ref()).unwrap();
+            (receipt_id, info)
+        })
+        .collect();
+
+    // There should be at least one entry from our transaction.
+    let matching_entries: Vec<_> = receipt_to_tx_entries
+        .iter()
+        .filter(|(_, info)| match info {
+            ReceiptToTxInfo::V1(v1) => matches!(
+                &v1.origin,
+                ReceiptOrigin::FromTransaction(origin) if origin.tx_hash == tx_hash
+            ),
+        })
+        .collect();
+    assert!(
+        !matching_entries.is_empty(),
+        "receipt_to_tx entries should exist for the transaction even with save_tx_outcomes=false"
+    );
+
+    let receipt_ids: Vec<CryptoHash> =
+        matching_entries.iter().map(|(receipt_id, _)| *receipt_id).collect();
+
+    // Store validator now understands index-only mode (save_tx_outcomes=false),
+    // so it skips the TransactionResultForBlock check for OutcomeIds entries.
+    #[cfg(feature = "test_features")]
+    env.validator_mut().validate_store();
+
+    // Run enough epochs for GC to clean up.
+    let num_blocks = EPOCH_LENGTH * GC_NUM_EPOCHS_TO_KEEP + 1;
+    env.validator_runner().run_for_number_of_blocks(num_blocks as usize);
+
+    // Verify ReceiptToTx entries have been garbage collected.
+    let store = env.validator().store();
+    for receipt_id in &receipt_ids {
+        assert!(
+            store.get(DBCol::ReceiptToTx, receipt_id.as_ref()).is_none(),
+            "receipt_to_tx for {receipt_id} should be garbage collected"
+        );
+    }
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

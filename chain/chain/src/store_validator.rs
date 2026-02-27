@@ -84,6 +84,7 @@ pub struct StoreValidator {
     timeout: Option<i64>,
     start_time: Instant,
     pub is_archival: bool,
+    pub save_tx_outcomes: bool,
     pub errors: Vec<ErrorMessage>,
     tests: u64,
 }
@@ -96,6 +97,7 @@ impl StoreValidator {
         runtime: Arc<dyn RuntimeAdapter>,
         store: Store,
         is_archival: bool,
+        save_tx_outcomes: bool,
     ) -> Self {
         let epoch_sync_boundary =
             store.epoch_store().get_epoch_sync_proof().unwrap().map(|epoch_sync_proof| {
@@ -111,6 +113,7 @@ impl StoreValidator {
             timeout: None,
             start_time: Clock::real().now(),
             is_archival,
+            save_tx_outcomes,
             errors: vec![],
             tests: 0,
         }
@@ -235,12 +238,16 @@ impl StoreValidator {
                     let (block_hash, _) = get_block_shard_id_rev(key_ref)?;
                     let outcome_ids = Vec::<CryptoHash>::try_from_slice(value_ref)?;
                     // TransactionResultForBlock should exist for outcome ID and block hash
-                    self.check(
-                        &validate::outcome_by_outcome_id_exists,
-                        &block_hash,
-                        &outcome_ids,
-                        col,
-                    );
+                    // (only when save_tx_outcomes is enabled; otherwise OutcomeIds entries
+                    // exist without corresponding TransactionResultForBlock entries).
+                    if self.save_tx_outcomes {
+                        self.check(
+                            &validate::outcome_by_outcome_id_exists,
+                            &block_hash,
+                            &outcome_ids,
+                            col,
+                        );
+                    }
                     // Block which can be indexed by Outcome block_hash exists
                     self.check(&validate::outcome_id_block_exists, &block_hash, &outcome_ids, col);
                 }
@@ -472,6 +479,7 @@ mod tests {
                 runtime,
                 store,
                 false,
+                true,
             ),
         )
     }
