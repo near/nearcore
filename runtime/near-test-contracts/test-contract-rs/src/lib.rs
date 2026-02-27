@@ -76,13 +76,29 @@ extern "C" {
     fn promise_batch_action_create_account(promise_index: u64);
     fn promise_batch_action_deploy_contract(promise_index: u64, code_len: u64, code_ptr: u64);
     #[cfg(feature = "latest_protocol")]
-    fn promise_batch_action_deploy_global_contract(promise_index: u64, code_len: u64, code_ptr: u64);
+    fn promise_batch_action_deploy_global_contract(
+        promise_index: u64,
+        code_len: u64,
+        code_ptr: u64,
+    );
     #[cfg(feature = "latest_protocol")]
-    fn promise_batch_action_deploy_global_contract_by_account_id(promise_index: u64, code_len: u64, code_ptr: u64);
+    fn promise_batch_action_deploy_global_contract_by_account_id(
+        promise_index: u64,
+        code_len: u64,
+        code_ptr: u64,
+    );
     #[cfg(feature = "latest_protocol")]
-    fn promise_batch_action_use_global_contract(promise_index: u64, code_hash_len: u64, code_hash_ptr: u64);
+    fn promise_batch_action_use_global_contract(
+        promise_index: u64,
+        code_hash_len: u64,
+        code_hash_ptr: u64,
+    );
     #[cfg(feature = "latest_protocol")]
-    fn promise_batch_action_use_global_contract_by_account_id(promise_index: u64, account_id_len: u64, account_id_ptr: u64);
+    fn promise_batch_action_use_global_contract_by_account_id(
+        promise_index: u64,
+        account_id_len: u64,
+        account_id_ptr: u64,
+    );
     fn promise_batch_action_function_call(
         promise_index: u64,
         method_name_len: u64,
@@ -209,6 +225,27 @@ extern "C" {
         public_key_len: u64,
         public_key_ptr: u64,
         amount_ptr: u64,
+    );
+
+    #[cfg(feature = "nightly")]
+    fn promise_batch_action_add_gas_key_with_full_access(
+        promise_index: u64,
+        public_key_len: u64,
+        public_key_ptr: u64,
+        num_nonces: u64,
+    );
+
+    #[cfg(feature = "nightly")]
+    fn promise_batch_action_add_gas_key_with_function_call(
+        promise_index: u64,
+        public_key_len: u64,
+        public_key_ptr: u64,
+        num_nonces: u64,
+        allowance_ptr: u64,
+        receiver_id_len: u64,
+        receiver_id_ptr: u64,
+        method_names_len: u64,
+        method_names_ptr: u64,
     );
 }
 
@@ -615,11 +652,7 @@ pub unsafe fn fibonacci() {
 }
 
 fn fib(n: u8) -> u64 {
-    if n < 2 {
-        n as u64
-    } else {
-        fib(n - 2) + fib(n - 1)
-    }
+    if n < 2 { n as u64 } else { fib(n - 2) + fib(n - 1) }
 }
 
 #[unsafe(no_mangle)]
@@ -698,11 +731,7 @@ fn internal_recurse(n: u64) -> u64 {
         n
     } else {
         let a = internal_recurse(n - 1) + 1;
-        if a % 2 == 1 {
-            (a + n) / 2
-        } else {
-            a
-        }
+        if a % 2 == 1 { (a + n) / 2 } else { a }
     }
 }
 
@@ -947,6 +976,46 @@ fn call_promise() {
                     beneficiary_id.as_ptr() as u64,
                 );
                 promise_index
+            } else if let Some(_action) = arg.get("action_add_gas_key_with_full_access") {
+                #[cfg(feature = "nightly")]
+                {
+                    let promise_index = _action["promise_index"].as_i64().unwrap() as u64;
+                    let public_key = from_base64(_action["public_key"].as_str().unwrap());
+                    let num_nonces = _action["num_nonces"].as_i64().unwrap() as u64;
+                    promise_batch_action_add_gas_key_with_full_access(
+                        promise_index,
+                        public_key.len() as u64,
+                        public_key.as_ptr() as u64,
+                        num_nonces,
+                    );
+                    promise_index
+                }
+                #[cfg(not(feature = "nightly"))]
+                unimplemented!()
+            } else if let Some(_action) = arg.get("action_add_gas_key_with_function_call") {
+                #[cfg(feature = "nightly")]
+                {
+                    let promise_index = _action["promise_index"].as_i64().unwrap() as u64;
+                    let public_key = from_base64(_action["public_key"].as_str().unwrap());
+                    let num_nonces = _action["num_nonces"].as_i64().unwrap() as u64;
+                    let allowance = _action["allowance"].as_str().unwrap().parse::<u128>().unwrap();
+                    let receiver_id = _action["receiver_id"].as_str().unwrap().as_bytes();
+                    let method_names = _action["method_names"].as_str().unwrap().as_bytes();
+                    promise_batch_action_add_gas_key_with_function_call(
+                        promise_index,
+                        public_key.len() as u64,
+                        public_key.as_ptr() as u64,
+                        num_nonces,
+                        &allowance as *const u128 as *const u64 as u64,
+                        receiver_id.len() as u64,
+                        receiver_id.as_ptr() as u64,
+                        method_names.len() as u64,
+                        method_names.as_ptr() as u64,
+                    );
+                    promise_index
+                }
+                #[cfg(not(feature = "nightly"))]
+                unimplemented!()
             } else {
                 unimplemented!()
             };

@@ -450,11 +450,20 @@ fn test_gas_key_deposit_failed() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
-/// Test that a contract can fund a gas key using the
-/// `promise_batch_action_transfer_to_gas_key` host function.
-#[test]
-#[cfg_attr(not(feature = "nightly"), ignore)]
-fn test_gas_key_transfer_host_function() {
+struct HostFunctionTestSetup {
+    env: TestLoopEnv,
+    account: AccountId,
+    nonce: u64,
+}
+
+impl HostFunctionTestSetup {
+    fn next_nonce(&mut self) -> u64 {
+        self.nonce += 1;
+        self.nonce
+    }
+}
+
+fn setup_host_function_test() -> HostFunctionTestSetup {
     init_test_logger();
 
     let user_accounts = create_account_ids(["account0"]);
@@ -468,7 +477,7 @@ fn test_gas_key_transfer_host_function() {
         .build()
         .warmup();
 
-    let account = &user_accounts[0];
+    let account = user_accounts[0].clone();
     let mut nonce = 0u64;
     let mut next_nonce = || {
         nonce += 1;
@@ -479,13 +488,28 @@ fn test_gas_key_transfer_host_function() {
     let block_hash = env.rpc_node().head().last_block_hash;
     let deploy_tx = SignedTransaction::deploy_contract(
         next_nonce(),
-        account,
+        &account,
         near_test_contracts::nightly_rs_contract().to_vec(),
-        &create_user_test_signer(account),
+        &create_user_test_signer(&account),
         block_hash,
     );
     env.rpc_runner().run_tx(deploy_tx, Duration::seconds(5));
     env.rpc_runner().run_for_number_of_blocks(1);
+
+    HostFunctionTestSetup { env, account, nonce }
+}
+
+/// Test that a contract can fund a gas key using the
+/// `promise_batch_action_transfer_to_gas_key` host function.
+#[test]
+#[cfg_attr(not(feature = "nightly"), ignore)]
+fn test_gas_key_transfer_host_function() {
+    let setup = setup_host_function_test();
+    let HostFunctionTestSetup { mut env, account, mut nonce } = setup;
+    let mut next_nonce = || {
+        nonce += 1;
+        nonce
+    };
 
     // Create a gas key on account
     let gas_key_signer: Signer =
@@ -495,7 +519,7 @@ fn test_gas_key_transfer_host_function() {
         next_nonce(),
         account.clone(),
         account.clone(),
-        &create_user_test_signer(account),
+        &create_user_test_signer(&account),
         vec![Action::AddKey(Box::new(AddKeyAction {
             public_key: gas_key_signer.public_key(),
             access_key: AccessKey::gas_key_full_access(3),
@@ -512,7 +536,7 @@ fn test_gas_key_transfer_host_function() {
         next_nonce(),
         account.clone(),
         account.clone(),
-        &create_user_test_signer(account),
+        &create_user_test_signer(&account),
         vec![Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
             public_key: gas_key_signer.public_key(),
             deposit: initial_gas_key_fund,
@@ -524,8 +548,8 @@ fn test_gas_key_transfer_host_function() {
 
     // Record gas key balance and account balance before the host function call
     let (_, gas_key_balance_before) =
-        query_gas_key_and_balance(&env.rpc_node(), account, &gas_key_signer.public_key());
-    let account_balance_before = env.rpc_node().view_account_query(account).unwrap().amount;
+        query_gas_key_and_balance(&env.rpc_node(), &account, &gas_key_signer.public_key());
+    let account_balance_before = env.rpc_node().view_account_query(&account).unwrap().amount;
 
     // Call the contract's call_promise function to exercise the transfer_to_gas_key host function.
     let host_fn_deposit = Balance::from_millinear(10);
@@ -549,7 +573,7 @@ fn test_gas_key_transfer_host_function() {
         next_nonce(),
         account.clone(),
         account.clone(),
-        &create_user_test_signer(account),
+        &create_user_test_signer(&account),
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: method_name.to_string(),
             args: input_data,
@@ -569,17 +593,18 @@ fn test_gas_key_transfer_host_function() {
 
     // Verify gas key balance increased by the deposit amount
     let (_, gas_key_balance_after) =
-        query_gas_key_and_balance(&env.rpc_node(), account, &gas_key_signer.public_key());
+        query_gas_key_and_balance(&env.rpc_node(), &account, &gas_key_signer.public_key());
     assert_eq!(gas_key_balance_after, gas_key_balance_before.checked_add(host_fn_deposit).unwrap());
 
     // Verify account balance decreased by exactly deposit + tokens_burnt - reward.
     // The runtime gives 30% of gas_burnt_for_function_call * gas_price back to the account.
     // gas_burnt_for_function_call = receipt gas_burnt - exec overhead (new_action_receipt +
     // function_call action fees). The overhead uses method_name + args byte count.
-    let account_balance_after = env.rpc_node().view_account_query(account).unwrap().amount;
+    let account_balance_after = env.rpc_node().view_account_query(&account).unwrap().amount;
     let tokens_burnt = total_tokens_burnt(&outcome);
     let runtime_config =
         env.rpc_node().client().runtime_adapter.get_runtime_config(PROTOCOL_VERSION);
+    let gas_price = Balance::from_yoctonear(1);
     let fee_helper = FeeHelper::new(runtime_config.clone(), gas_price);
     let fc_receipt_gas_burnt = outcome.receipts_outcome[0].outcome.gas_burnt;
     let fc_overhead = fee_helper.function_call_exec_gas((method_name.len() + fc_args_len) as u64);
@@ -597,4 +622,338 @@ fn test_gas_key_transfer_host_function() {
     );
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));
+}
+
+/// Test that a contract can create a gas key with full access using the host function.
+#[test]
+#[cfg_attr(not(feature = "nightly"), ignore)]
+fn test_gas_key_add_full_access_host_function() {
+    let mut setup = setup_host_function_test();
+    let account = setup.account.clone();
+
+    let gas_key_signer: Signer =
+        InMemorySigner::from_seed(account.clone(), KeyType::ED25519, "new_gas_key").into();
+
+    let num_nonces = 3u64;
+    let public_key_base64 = near_primitives_core::serialize::to_base64(
+        &borsh::to_vec(&gas_key_signer.public_key()).unwrap(),
+    );
+    let input_data = serde_json::json!([
+        {"batch_create": {"account_id": account.as_str()}, "id": 0},
+        {"action_add_gas_key_with_full_access": {
+            "promise_index": 0,
+            "public_key": public_key_base64,
+            "num_nonces": num_nonces,
+        }, "id": 0},
+    ]);
+    let input_data = serde_json::to_vec(&input_data).unwrap();
+
+    let block_hash = get_shared_block_hash(&setup.env.node_datas, &setup.env.test_loop.data);
+    let call_tx = SignedTransaction::from_actions(
+        setup.next_nonce(),
+        account.clone(),
+        account.clone(),
+        &create_user_test_signer(&account),
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "call_promise".to_string(),
+            args: input_data,
+            gas: Gas::from_teragas(100),
+            deposit: Balance::ZERO,
+        }))],
+        block_hash,
+    );
+    let outcome = setup.env.rpc_runner().execute_tx(call_tx, Duration::seconds(5)).unwrap();
+    setup.env.rpc_runner().run_for_number_of_blocks(1);
+
+    assert!(
+        matches!(outcome.status, FinalExecutionStatus::SuccessValue(_)),
+        "expected success, got {:?}",
+        outcome.status,
+    );
+
+    // Verify the gas key was created with correct properties
+    let (view, balance) =
+        query_gas_key_and_balance(&setup.env.rpc_node(), &account, &gas_key_signer.public_key());
+    assert_eq!(balance, Balance::ZERO);
+    assert_eq!(view.nonce, 0);
+    assert!(matches!(
+        view.permission,
+        AccessKeyPermissionView::GasKeyFullAccess { num_nonces: 3, .. }
+    ));
+
+    // Verify nonces are initialized
+    let response = setup
+        .env
+        .rpc_node()
+        .runtime_query(QueryRequest::ViewGasKeyNonces {
+            account_id: account,
+            public_key: gas_key_signer.public_key(),
+        })
+        .unwrap();
+    let QueryResponseKind::GasKeyNonces(nonces_view) = response.kind else {
+        panic!("expected GasKeyNonces response");
+    };
+    assert_eq!(nonces_view.nonces.len(), num_nonces as usize);
+
+    setup.env.shutdown_and_drain_remaining_events(Duration::seconds(5));
+}
+
+/// Test that a contract can create a gas key with function call permission using the host function.
+#[test]
+#[cfg_attr(not(feature = "nightly"), ignore)]
+fn test_gas_key_add_function_call_host_function() {
+    let mut setup = setup_host_function_test();
+    let account = setup.account.clone();
+
+    let gas_key_signer: Signer =
+        InMemorySigner::from_seed(account.clone(), KeyType::ED25519, "new_gas_key").into();
+
+    let num_nonces = 2u64;
+    let public_key_base64 = near_primitives_core::serialize::to_base64(
+        &borsh::to_vec(&gas_key_signer.public_key()).unwrap(),
+    );
+    let input_data = serde_json::json!([
+        {"batch_create": {"account_id": account.as_str()}, "id": 0},
+        {"action_add_gas_key_with_function_call": {
+            "promise_index": 0,
+            "public_key": public_key_base64,
+            "num_nonces": num_nonces,
+            "allowance": "0",
+            "receiver_id": account.as_str(),
+            "method_names": "method1,method2",
+        }, "id": 0},
+    ]);
+    let input_data = serde_json::to_vec(&input_data).unwrap();
+
+    let block_hash = get_shared_block_hash(&setup.env.node_datas, &setup.env.test_loop.data);
+    let call_tx = SignedTransaction::from_actions(
+        setup.next_nonce(),
+        account.clone(),
+        account.clone(),
+        &create_user_test_signer(&account),
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "call_promise".to_string(),
+            args: input_data,
+            gas: Gas::from_teragas(100),
+            deposit: Balance::ZERO,
+        }))],
+        block_hash,
+    );
+    let outcome = setup.env.rpc_runner().execute_tx(call_tx, Duration::seconds(5)).unwrap();
+    setup.env.rpc_runner().run_for_number_of_blocks(1);
+
+    assert!(
+        matches!(outcome.status, FinalExecutionStatus::SuccessValue(_)),
+        "expected success, got {:?}",
+        outcome.status,
+    );
+
+    // Verify the gas key was created with correct properties
+    let (view, balance) =
+        query_gas_key_and_balance(&setup.env.rpc_node(), &account, &gas_key_signer.public_key());
+    assert_eq!(balance, Balance::ZERO);
+    assert_eq!(view.nonce, 0);
+    match &view.permission {
+        AccessKeyPermissionView::GasKeyFunctionCall {
+            num_nonces: n,
+            allowance: a,
+            receiver_id: r,
+            method_names: m,
+            ..
+        } => {
+            assert_eq!(*n, num_nonces as u16);
+            assert!(a.is_none());
+            assert_eq!(r.as_str(), account.as_str());
+            assert_eq!(m, &vec!["method1".to_string(), "method2".to_string()]);
+        }
+        other => panic!("expected GasKeyFunctionCall, got {:?}", other),
+    }
+
+    // Verify nonces are initialized
+    let response = setup
+        .env
+        .rpc_node()
+        .runtime_query(QueryRequest::ViewGasKeyNonces {
+            account_id: account,
+            public_key: gas_key_signer.public_key(),
+        })
+        .unwrap();
+    let QueryResponseKind::GasKeyNonces(nonces_view) = response.kind else {
+        panic!("expected GasKeyNonces response");
+    };
+    assert_eq!(nonces_view.nonces.len(), num_nonces as usize);
+
+    setup.env.shutdown_and_drain_remaining_events(Duration::seconds(5));
+}
+
+/// Test that a nonzero allowance on a gas key function call is rejected by the verifier.
+#[test]
+#[cfg_attr(not(feature = "nightly"), ignore)]
+fn test_gas_key_add_function_call_nonzero_allowance_rejected() {
+    let mut setup = setup_host_function_test();
+    let account = setup.account.clone();
+
+    let gas_key_signer: Signer =
+        InMemorySigner::from_seed(account.clone(), KeyType::ED25519, "new_gas_key").into();
+
+    // Nonzero allowance should be rejected by verifier
+    let public_key_base64 = near_primitives_core::serialize::to_base64(
+        &borsh::to_vec(&gas_key_signer.public_key()).unwrap(),
+    );
+    let input_data = serde_json::json!([
+        {"batch_create": {"account_id": account.as_str()}, "id": 0},
+        {"action_add_gas_key_with_function_call": {
+            "promise_index": 0,
+            "public_key": public_key_base64,
+            "num_nonces": 1,
+            "allowance": "999",
+            "receiver_id": account.as_str(),
+            "method_names": "method1",
+        }, "id": 0},
+    ]);
+    let input_data = serde_json::to_vec(&input_data).unwrap();
+
+    let block_hash = get_shared_block_hash(&setup.env.node_datas, &setup.env.test_loop.data);
+    let call_tx = SignedTransaction::from_actions(
+        setup.next_nonce(),
+        account.clone(),
+        account.clone(),
+        &create_user_test_signer(&account),
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "call_promise".to_string(),
+            args: input_data,
+            gas: Gas::from_teragas(100),
+            deposit: Balance::ZERO,
+        }))],
+        block_hash,
+    );
+    let outcome = setup.env.rpc_runner().execute_tx(call_tx, Duration::seconds(5)).unwrap();
+    setup.env.rpc_runner().run_for_number_of_blocks(1);
+
+    // The receipt validation rejects the AddKey action with nonzero allowance on a gas key,
+    // causing the function call to fail with GasKeyFunctionCallAllowanceNotAllowed.
+    assert!(
+        matches!(
+            &outcome.status,
+            FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+                kind: ActionErrorKind::NewReceiptValidationError(_),
+                ..
+            }))
+        ),
+        "expected NewReceiptValidationError, got {:?}",
+        outcome.status,
+    );
+
+    // Verify no gas key was created
+    let result = setup.env.rpc_node().view_access_key_query(&account, &gas_key_signer.public_key());
+    assert!(result.is_err(), "expected gas key to not exist after failed AddKey");
+
+    setup.env.shutdown_and_drain_remaining_events(Duration::seconds(5));
+}
+
+/// Test creating a gas key via host function, funding it, then using it to send a transaction.
+#[test]
+#[cfg_attr(not(feature = "nightly"), ignore)]
+fn test_gas_key_add_then_fund_then_use() {
+    let mut setup = setup_host_function_test();
+    let account = setup.account.clone();
+
+    let gas_key_signer: Signer =
+        InMemorySigner::from_seed(account.clone(), KeyType::ED25519, "new_gas_key").into();
+
+    // Create gas key via host function
+    let num_nonces = 3u64;
+    let public_key_base64 = near_primitives_core::serialize::to_base64(
+        &borsh::to_vec(&gas_key_signer.public_key()).unwrap(),
+    );
+    let input_data = serde_json::json!([
+        {"batch_create": {"account_id": account.as_str()}, "id": 0},
+        {"action_add_gas_key_with_full_access": {
+            "promise_index": 0,
+            "public_key": public_key_base64,
+            "num_nonces": num_nonces,
+        }, "id": 0},
+    ]);
+    let input_data = serde_json::to_vec(&input_data).unwrap();
+
+    let block_hash = get_shared_block_hash(&setup.env.node_datas, &setup.env.test_loop.data);
+    let call_tx = SignedTransaction::from_actions(
+        setup.next_nonce(),
+        account.clone(),
+        account.clone(),
+        &create_user_test_signer(&account),
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "call_promise".to_string(),
+            args: input_data,
+            gas: Gas::from_teragas(100),
+            deposit: Balance::ZERO,
+        }))],
+        block_hash,
+    );
+    let outcome = setup.env.rpc_runner().execute_tx(call_tx, Duration::seconds(5)).unwrap();
+    setup.env.rpc_runner().run_for_number_of_blocks(1);
+    assert!(
+        matches!(outcome.status, FinalExecutionStatus::SuccessValue(_)),
+        "expected success creating gas key, got {:?}",
+        outcome.status,
+    );
+
+    // Fund the gas key via TransferToGasKey transaction
+    let gas_key_fund_amount = Balance::from_millinear(10);
+    let block_hash = get_shared_block_hash(&setup.env.node_datas, &setup.env.test_loop.data);
+    let fund_tx = SignedTransaction::from_actions(
+        setup.next_nonce(),
+        account.clone(),
+        account.clone(),
+        &create_user_test_signer(&account),
+        vec![Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
+            public_key: gas_key_signer.public_key(),
+            deposit: gas_key_fund_amount,
+        }))],
+        block_hash,
+    );
+    setup.env.rpc_runner().run_tx(fund_tx, Duration::seconds(5));
+    setup.env.rpc_runner().run_for_number_of_blocks(1);
+
+    // Verify gas key is funded
+    let (_, gas_key_balance) =
+        query_gas_key_and_balance(&setup.env.rpc_node(), &account, &gas_key_signer.public_key());
+    assert_eq!(gas_key_balance, gas_key_fund_amount);
+
+    // Use the gas key to send a transfer transaction
+    let nonce_index = 0;
+    let gas_key_nonce =
+        get_gas_key_nonce(&setup.env, &account, &gas_key_signer.public_key(), nonce_index);
+    let block_hash = get_shared_block_hash(&setup.env.node_datas, &setup.env.test_loop.data);
+    let transfer_amount = Balance::from_millinear(1);
+    let gas_key_tx = SignedTransaction::from_actions_v1(
+        TransactionNonce::from_nonce_and_index(gas_key_nonce + 1, nonce_index),
+        account.clone(),
+        account.clone(),
+        &gas_key_signer,
+        vec![Action::Transfer(TransferAction { deposit: transfer_amount })],
+        block_hash,
+    );
+    let outcome = setup.env.rpc_runner().execute_tx(gas_key_tx, Duration::seconds(5)).unwrap();
+    setup.env.rpc_runner().run_for_number_of_blocks(1);
+
+    assert!(
+        matches!(outcome.status, FinalExecutionStatus::SuccessValue(_)),
+        "expected success using gas key, got {:?}",
+        outcome.status,
+    );
+
+    // Verify gas key balance decreased (gas was charged)
+    let gas_cost = total_tokens_burnt(&outcome);
+    assert!(!gas_cost.is_zero());
+    let (_, gas_key_balance_after) =
+        query_gas_key_and_balance(&setup.env.rpc_node(), &account, &gas_key_signer.public_key());
+    assert_eq!(gas_key_balance_after, gas_key_fund_amount.checked_sub(gas_cost).unwrap());
+
+    // Verify nonce was updated
+    let updated_nonce =
+        get_gas_key_nonce(&setup.env, &account, &gas_key_signer.public_key(), nonce_index);
+    assert_eq!(updated_nonce, gas_key_nonce + 1);
+
+    setup.env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
