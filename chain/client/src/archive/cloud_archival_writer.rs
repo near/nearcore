@@ -19,7 +19,7 @@ use near_store::archive::cloud_storage::CloudStorage;
 use near_store::archive::cloud_storage::archive::CloudArchivingError;
 use near_store::archive::cloud_storage::retrieve::CloudRetrievalError;
 use near_store::db::{
-    CLOUD_BLOCK_HEAD_KEY, CLOUD_MIN_HEAD_KEY, CLOUD_SHARD_HEAD_PREFIX, DBTransaction,
+    CLOUD_BLOCK_HEAD_KEY, CLOUD_MIN_HEAD_KEY, DBTransaction, cloud_shard_head_key,
 };
 use near_store::{DBCol, FINAL_HEAD_KEY, Store};
 use time::Duration;
@@ -87,12 +87,6 @@ impl CloudArchivalWriterHandle {
     pub fn new() -> Self {
         Self(InterruptHandle::new())
     }
-}
-
-fn cloud_shard_head_key(shard_id: ShardId) -> Vec<u8> {
-    let mut key = CLOUD_SHARD_HEAD_PREFIX.to_vec();
-    key.extend(shard_id.to_le_bytes());
-    key
 }
 
 /// Responsible for copying finalized blocks to cloud storage.
@@ -332,18 +326,19 @@ impl CloudArchivalWriter {
     ///
     /// Three cases:
     /// 1. No external heads exist: fresh bucket, init all at hot_final_height.
-    /// 2. Some heads missing: joining writer or resharding, init missing at
-    ///    max(existing tracked heads), keep existing heads at their own heights.
-    /// 3. All heads exist: normal restart, sync each head from external.
+    /// 2. Some heads missing: joining writer, init missing at
+    ///    max(existing tracked heads).
+    /// 3. All heads exist: normal restart, sync each from external.
     ///
-    /// Each local head is set to its own resolved height so only lagging components
-    /// catch up during the archival loop.
+    /// All local heads are clamped to hot_final_height to avoid referencing
+    /// blocks this node hasn't finalized yet (e.g. when another writer is ahead).
     // TODO(cloud_archival) Cover this logic with tests.
     async fn initialize_cloud_heads(
         &self,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
     ) -> Result<(), CloudArchivalInitializationError> {
         let hot_final_height = self.get_hot_final_head_height()?;
+        // TODO(cloud_archival): support resharding
         let tracked_shard_ids = self.get_tracked_shard_ids(hot_final_height)?;
 
         let (block_head_ext, shard_heads_ext) =
@@ -403,14 +398,22 @@ impl CloudArchivalWriter {
         // a height the other components have already archived. If no heads exist
         // (fresh bucket), start from hot_final_height to skip already-finalized
         // history and only archive new blocks going forward.
+        // Clamped to hot_final_height because external heads may have been
+        // advanced by another writer beyond this node's finalized chain.
         let init_height = block_head_ext
             .into_iter()
             .chain(shard_heads_ext.iter().filter_map(|&(_, head)| head))
             .max()
-            .unwrap_or(hot_final_height);
+            .unwrap_or(hot_final_height)
+            .min(hot_final_height);
         self.upload_heads_if_missing(init_height, block_head_ext, shard_heads_ext).await?;
         self.log_initialization_status(block_head_ext, shard_heads_ext, init_height);
-        Ok(self.collect_resolved_heads(init_height, block_head_ext, shard_heads_ext))
+        Ok(self.collect_resolved_heads(
+            hot_final_height,
+            init_height,
+            block_head_ext,
+            shard_heads_ext,
+        ))
     }
 
     /// Uploads initial head values for any components that are missing in
@@ -468,8 +471,15 @@ impl CloudArchivalWriter {
 
     /// Resolves each external head to its final local height (using
     /// `init_height` for missing ones) and computes the overall minimum.
+    /// Heights are clamped to `hot_final_height` because external heads may
+    /// have been advanced by another writer beyond this node's finalized chain.
+    /// The writer will catch up naturally during the archival loop, which may
+    /// cause redundant writes for heights already archived by another writer.
+    /// This is accepted since the writes are idempotent.
+    // TODO(cloud_archival): consider skipping redundant writes by checking external heads.
     fn collect_resolved_heads(
         &self,
+        hot_final_height: BlockHeight,
         init_height: BlockHeight,
         block_head_ext: Option<BlockHeight>,
         shard_heads_ext: &[(ShardId, Option<BlockHeight>)],
@@ -480,7 +490,7 @@ impl CloudArchivalWriter {
         };
 
         let block_head_local = if self.config.archive_block_data {
-            let height = block_head_ext.unwrap_or(init_height);
+            let height = block_head_ext.unwrap_or(init_height).min(hot_final_height);
             update_min(height);
             Some(height)
         } else {
@@ -489,7 +499,7 @@ impl CloudArchivalWriter {
         let shard_heads_local: Vec<(ShardId, BlockHeight)> = shard_heads_ext
             .iter()
             .map(|&(shard_id, ext_head)| {
-                let height = ext_head.unwrap_or(init_height);
+                let height = ext_head.unwrap_or(init_height).min(hot_final_height);
                 update_min(height);
                 (shard_id, height)
             })

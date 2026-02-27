@@ -44,6 +44,12 @@ pub const CLOUD_BLOCK_HEAD_KEY: &[u8] = b"CLOUD_BLOCK_HEAD";
 pub const CLOUD_SHARD_HEAD_PREFIX: &[u8] = b"CLOUD_SHARD_HEAD:";
 pub const CLOUD_MIN_HEAD_KEY: &[u8] = b"CLOUD_MIN_HEAD";
 
+pub fn cloud_shard_head_key(shard_id: near_primitives::types::ShardId) -> Vec<u8> {
+    let mut key = CLOUD_SHARD_HEAD_PREFIX.to_vec();
+    key.extend(shard_id.to_le_bytes());
+    key
+}
+
 // `DBCol::Misc` keys
 pub const TRIE_STATE_RESHARDING_STATUS_KEY: &[u8] = b"TRIE_STATE_RESHARDING_STATUS";
 pub const LATEST_WITNESSES_INFO: &[u8] = b"LATEST_WITNESSES_INFO";
