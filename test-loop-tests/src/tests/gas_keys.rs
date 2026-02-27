@@ -457,23 +457,14 @@ fn test_gas_key_deposit_failed() {
 fn test_gas_key_transfer_host_function() {
     init_test_logger();
 
-    let epoch_length = 10;
-    let shard_layout = ShardLayout::single_shard();
     let user_accounts = create_account_ids(["account0"]);
     let initial_balance = Balance::from_near(1_000_000);
     let gas_price = Balance::from_yoctonear(1);
-    let validators_spec = create_validators_spec(shard_layout.num_shards() as usize, 0);
-    let clients = validators_spec_clients_with_rpc(&validators_spec);
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(epoch_length)
-        .validators_spec(validators_spec)
-        .add_user_accounts_simple(&user_accounts, initial_balance)
-        .gas_prices(gas_price, gas_price)
-        .build();
     let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
+        .epoch_length(10)
+        .gas_prices(gas_price, gas_price)
+        .enable_rpc()
+        .add_user_accounts(&user_accounts, initial_balance)
         .build()
         .warmup();
 
@@ -485,7 +476,7 @@ fn test_gas_key_transfer_host_function() {
     };
 
     // Deploy the nightly test contract
-    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    let block_hash = env.rpc_node().head().last_block_hash;
     let deploy_tx = SignedTransaction::deploy_contract(
         next_nonce(),
         account,
@@ -499,7 +490,7 @@ fn test_gas_key_transfer_host_function() {
     // Create a gas key on account
     let gas_key_signer: Signer =
         InMemorySigner::from_seed(account.clone(), KeyType::ED25519, "gas_key").into();
-    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    let block_hash = env.rpc_node().head().last_block_hash;
     let add_key_tx = SignedTransaction::from_actions(
         next_nonce(),
         account.clone(),
@@ -516,7 +507,7 @@ fn test_gas_key_transfer_host_function() {
 
     // Fund the gas key with an initial balance via TransferToGasKey transaction action
     let initial_gas_key_fund = Balance::from_millinear(100);
-    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    let block_hash = env.rpc_node().head().last_block_hash;
     let fund_tx = SignedTransaction::from_actions(
         next_nonce(),
         account.clone(),
@@ -536,15 +527,24 @@ fn test_gas_key_transfer_host_function() {
         query_gas_key_and_balance(&env.rpc_node(), account, &gas_key_signer.public_key());
     let account_balance_before = env.rpc_node().view_account_query(account).unwrap().amount;
 
-    // Call the contract's transfer_to_gas_key function (exercises the host function).
-    // Input format: public_key_bytes || amount_le_bytes(16)
+    // Call the contract's call_promise function to exercise the transfer_to_gas_key host function.
     let host_fn_deposit = Balance::from_millinear(10);
-    let mut input_data = borsh::to_vec(&gas_key_signer.public_key()).unwrap();
-    input_data.extend_from_slice(&host_fn_deposit.as_yoctonear().to_le_bytes());
+    let public_key_base64 = near_primitives_core::serialize::to_base64(
+        &borsh::to_vec(&gas_key_signer.public_key()).unwrap(),
+    );
+    let input_data = serde_json::json!([
+        {"batch_create": {"account_id": account.as_str()}, "id": 0},
+        {"action_transfer_to_gas_key": {
+            "promise_index": 0,
+            "public_key": public_key_base64,
+            "amount": host_fn_deposit.as_yoctonear().to_string(),
+        }, "id": 0},
+    ]);
+    let input_data = serde_json::to_vec(&input_data).unwrap();
 
-    let method_name = "transfer_to_gas_key";
+    let method_name = "call_promise";
     let fc_args_len = input_data.len();
-    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    let block_hash = env.rpc_node().head().last_block_hash;
     let call_tx = SignedTransaction::from_actions(
         next_nonce(),
         account.clone(),
