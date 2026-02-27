@@ -1,5 +1,6 @@
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::gas::Gas;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::Balance;
@@ -44,6 +45,49 @@ fn test_basic_token_transfer() {
         env.rpc_node().query_balance(&receiver),
         initial_balance.checked_add(transfer_amount).unwrap()
     );
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+/// Demonstrates deploying a contract and calling a method on it.
+#[test]
+fn test_deploy_and_call_contract() {
+    init_test_logger();
+
+    let user = create_account_id("user");
+    let mut env = TestLoopBuilder::new()
+        .enable_rpc()
+        .add_user_account(&user, Balance::from_near(10))
+        .build()
+        .warmup();
+
+    let signer = create_user_test_signer(&user);
+
+    // Deploy the test contract.
+    let deploy_tx = SignedTransaction::deploy_contract(
+        1,
+        &user,
+        near_test_contracts::rs_contract().to_vec(),
+        &signer,
+        env.rpc_node().head().last_block_hash,
+    );
+    env.rpc_runner().run_tx(deploy_tx, Duration::seconds(5));
+
+    // Call "log_something" which logs "hello".
+    let call_tx = SignedTransaction::call(
+        2,
+        user.clone(),
+        user.clone(),
+        &signer,
+        Balance::ZERO,
+        "log_something".to_owned(),
+        vec![],
+        Gas::from_teragas(300),
+        env.rpc_node().head().last_block_hash,
+    );
+    let outcome = env.rpc_runner().execute_tx(call_tx, Duration::seconds(5)).unwrap();
+
+    assert_eq!(outcome.receipts_outcome[0].outcome.logs, vec!["hello"]);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
