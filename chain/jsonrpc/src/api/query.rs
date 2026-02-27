@@ -102,6 +102,9 @@ impl RpcFrom<QueryError> for RpcQueryError {
             QueryError::UnavailableShard { requested_shard_id } => {
                 Self::UnavailableShard { requested_shard_id }
             }
+            QueryError::BlockNotProcessed { block_height, block_hash } => {
+                Self::BlockNotProcessed { block_height, block_hash }
+            }
             QueryError::UnknownBlock { block_reference } => Self::UnknownBlock { block_reference },
             QueryError::GarbageCollectedBlock { block_height, block_hash } => {
                 Self::GarbageCollectedBlock { block_height, block_hash }

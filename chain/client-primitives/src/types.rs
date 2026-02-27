@@ -366,6 +366,13 @@ pub enum QueryError {
     NoSyncedBlocks,
     #[error("The node does not track the shard ID {requested_shard_id}")]
     UnavailableShard { requested_shard_id: near_primitives::types::ShardId },
+    #[error(
+        "block #{block_height} was not yet processed by the node, try again or use finality-based queries"
+    )]
+    BlockNotProcessed {
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
     #[error("Account ID {requested_account_id} is invalid")]
     InvalidAccount {
         requested_account_id: near_primitives::types::AccountId,
