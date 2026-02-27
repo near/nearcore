@@ -279,7 +279,7 @@ impl TestLoopBuilder {
 
     fn ensure_validators_spec(mut self) -> Self {
         if self.validators_spec.is_none() {
-            self.validators_spec = Some(default_validators_spec());
+            self.validators_spec = Some(create_validators_spec(1, 0));
         }
         self
     }
@@ -406,10 +406,6 @@ impl TestLoopBuilder {
             .config_modifier(config_modifier)
             .build()
     }
-}
-
-fn default_validators_spec() -> ValidatorsSpec {
-    create_validators_spec(1, 0)
 }
 
 pub struct NodeStateBuilder<'a> {
