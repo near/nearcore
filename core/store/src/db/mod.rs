@@ -1,5 +1,6 @@
 use crate::{DBCol, deserialized_column};
 use near_fmt::{AbbrBytes, StorageKey};
+use near_primitives::types::ShardId;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -44,7 +45,7 @@ pub const CLOUD_BLOCK_HEAD_KEY: &[u8] = b"CLOUD_BLOCK_HEAD";
 pub const CLOUD_SHARD_HEAD_PREFIX: &[u8] = b"CLOUD_SHARD_HEAD:";
 pub const CLOUD_MIN_HEAD_KEY: &[u8] = b"CLOUD_MIN_HEAD";
 
-pub fn cloud_shard_head_key(shard_id: near_primitives::types::ShardId) -> Vec<u8> {
+pub fn cloud_shard_head_key(shard_id: ShardId) -> Vec<u8> {
     let mut key = CLOUD_SHARD_HEAD_PREFIX.to_vec();
     key.extend(shard_id.to_le_bytes());
     key
