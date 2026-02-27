@@ -479,18 +479,12 @@ struct AutoSetupConfig {
     user_accounts: Vec<(AccountId, Balance)>,
 }
 
-impl Default for AutoSetupConfig {
-    fn default() -> Self {
-        Self { validators_spec: None, enable_rpc: false, shard_layout: None, user_accounts: vec![] }
-    }
-}
-
 impl SetupConfig {
     /// Transitions `Undecided` to `Auto` with defaults, or returns
     /// existing `Auto` data. Panics if `Manual`.
     fn ensure_auto(&mut self) -> &mut AutoSetupConfig {
         if matches!(self, SetupConfig::Undecided) {
-            *self = SetupConfig::Auto(AutoSetupConfig::default());
+            *self = SetupConfig::Auto(AutoSetupConfig::new());
         }
         match self {
             SetupConfig::Auto(data) => data,
@@ -518,7 +512,7 @@ impl SetupConfig {
 
     fn resolve(self) -> (Genesis, Vec<AccountId>) {
         match self {
-            SetupConfig::Undecided => AutoSetupConfig::default().resolve(),
+            SetupConfig::Undecided => AutoSetupConfig::new().resolve(),
             SetupConfig::Auto(auto) => auto.resolve(),
             SetupConfig::Manual { genesis, clients } => {
                 let genesis = genesis.expect("genesis must be provided with manual setup");
@@ -530,6 +524,10 @@ impl SetupConfig {
 }
 
 impl AutoSetupConfig {
+    fn new() -> Self {
+        Self { validators_spec: None, enable_rpc: false, shard_layout: None, user_accounts: vec![] }
+    }
+
     fn resolve(self) -> (Genesis, Vec<AccountId>) {
         let validators_spec = self.validators_spec.unwrap_or_else(|| create_validators_spec(1, 0));
         let mut genesis_builder =
