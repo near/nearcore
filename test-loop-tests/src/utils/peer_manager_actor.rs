@@ -18,6 +18,10 @@ use near_network::client::{
     ProcessTxResponse, SpiceChunkEndorsementMessage,
 };
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
+use near_network::spice_data_distribution::{
+    SpiceChunkContractAccessesMessage, SpiceContractCodeRequestMessage,
+    SpiceContractCodeResponseMessage,
+};
 use near_network::spice_data_distribution::{SpiceIncomingPartialData, SpicePartialDataRequest};
 use near_network::state_witness::{
     ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
@@ -71,6 +75,9 @@ pub struct SpiceDataDistributorSenderForTestLoopNetwork {
     pub receipts: Sender<SpiceDistributorOutgoingReceipts>,
     pub incoming_data: Sender<SpiceIncomingPartialData>,
     pub data_requests: Sender<SpicePartialDataRequest>,
+    pub contract_accesses: Sender<SpiceChunkContractAccessesMessage>,
+    pub contract_code_request: Sender<SpiceContractCodeRequestMessage>,
+    pub contract_code_response: Sender<SpiceContractCodeResponseMessage>,
 }
 
 /// This message is used to allow TestLoopPeerManagerActor to construct NetworkInfo for each
@@ -753,6 +760,29 @@ fn network_message_to_spice_data_distributor_handler(
                 .senders_for_account(&my_account_id, &producer)
                 .spice_data_distributor_actor
                 .send(request);
+            None
+        }
+        NetworkRequests::SpiceChunkContractAccesses(targets, accesses) => {
+            for target in targets {
+                shared_state
+                    .senders_for_account(&my_account_id, &target)
+                    .spice_data_distributor_actor
+                    .send(SpiceChunkContractAccessesMessage(accesses.clone()));
+            }
+            None
+        }
+        NetworkRequests::SpiceContractCodeRequest(target, request) => {
+            shared_state
+                .senders_for_account(&my_account_id, &target)
+                .spice_data_distributor_actor
+                .send(SpiceContractCodeRequestMessage(request));
+            None
+        }
+        NetworkRequests::SpiceContractCodeResponse(target, response) => {
+            shared_state
+                .senders_for_account(&my_account_id, &target)
+                .spice_data_distributor_actor
+                .send(SpiceContractCodeResponseMessage(response));
             None
         }
         _ => Some(request),
