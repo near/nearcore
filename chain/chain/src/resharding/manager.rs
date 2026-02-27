@@ -73,8 +73,8 @@ impl ReshardingManager {
             return Ok(());
         }
 
-        if !matches!(next_shard_layout, ShardLayout::V2(_)) {
-            tracing::debug!(target: "resharding", ?next_shard_layout, "next shard layout is not v2, skipping");
+        if !next_shard_layout.resharding_supported() {
+            tracing::debug!(target: "resharding", ?next_shard_layout, "resharding not supported for shard layout, skipping");
             return Ok(());
         }
 
