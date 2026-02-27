@@ -575,6 +575,85 @@ fn test_promise_batch_action_transfer() {
 }
 
 #[test]
+fn test_promise_batch_action_transfer_to_gas_key() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build();
+    let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
+    let key = borsh::to_vec(
+        &"ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf".parse::<PublicKey>().unwrap(),
+    )
+    .unwrap();
+
+    let key = logic.internal_mem_write(&key);
+    let index_ptr = logic.internal_mem_write(&index.to_le_bytes()).ptr;
+    let num_110u128 = logic.internal_mem_write(&110u128.to_le_bytes());
+    let num_1u128 = logic.internal_mem_write(&1u128.to_le_bytes());
+
+    logic
+        .promise_batch_action_transfer_to_gas_key(123, key.len, key.ptr, num_110u128.ptr)
+        .expect_err("shouldn't accept not existent promise index");
+    let non_receipt =
+        logic.promise_and(index_ptr, 1u64).expect("should create a non-receipt promise");
+    logic
+        .promise_batch_action_transfer_to_gas_key(non_receipt, key.len, key.ptr, num_110u128.ptr)
+        .expect_err("shouldn't accept non-receipt promise index");
+
+    logic
+        .promise_batch_action_transfer_to_gas_key(index, key.len, key.ptr, num_110u128.ptr)
+        .expect("should add an action to transfer to gas key");
+    logic
+        .promise_batch_action_transfer_to_gas_key(index, key.len, key.ptr, num_1u128.ptr)
+        .expect_err("not enough money");
+    expect_test::expect![[r#"
+        [
+          {
+            "CreateReceipt": {
+              "receipt_indices": [],
+              "receiver_id": "rick.test"
+            }
+          },
+          {
+            "FunctionCallWeight": {
+              "receipt_index": 0,
+              "method_name": [
+                112,
+                114,
+                111,
+                109,
+                105,
+                115,
+                101,
+                95,
+                99,
+                114,
+                101,
+                97,
+                116,
+                101
+              ],
+              "args": [
+                97,
+                114,
+                103,
+                115
+              ],
+              "attached_deposit": "0",
+              "prepaid_gas": 0,
+              "gas_weight": 0
+            }
+          },
+          {
+            "TransferToGasKey": {
+              "receipt_index": 0,
+              "public_key": "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf",
+              "deposit": "110"
+            }
+          }
+        ]"#]]
+    .assert_eq(&serde_json::to_string_pretty(&vm_receipts(&logic_builder.ext)).unwrap());
+}
+
+#[test]
 fn test_promise_batch_action_stake() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build();
