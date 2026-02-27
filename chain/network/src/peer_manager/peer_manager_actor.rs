@@ -1512,7 +1512,7 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                     }.await;
 
                     if let Err(ref err) = result {
-                        tracing::info!(target: "network", ?err, peer_info = %request.peer_info, "tier3 failed to connect");
+                        tracing::debug!(target: "network", ?err, peer_info = %request.peer_info, "tier3 failed to connect");
                     }
                 }
 
