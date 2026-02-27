@@ -27,7 +27,9 @@ use near_primitives::spice_partial_data::SpicePartialData;
 use near_primitives::state_sync::{PartIdOrHeader, StateRequestAckBody};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse, PartialEncodedContractDeploys,
+    ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse,
+    PartialEncodedContractDeploys, SpiceChunkContractAccesses, SpiceContractCodeRequest,
+    SpiceContractCodeResponse,
 };
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
@@ -332,6 +334,12 @@ pub enum NetworkRequests {
     SpiceChunkEndorsement(AccountId, SpiceChunkEndorsement),
     /// Message requesting spice partial data.
     SpicePartialDataRequest { request: SpicePartialDataRequest, producer: AccountId },
+    /// SPICE: Message from chunk producer to chunk validators with code-hashes of accessed contracts.
+    SpiceChunkContractAccesses(Vec<AccountId>, SpiceChunkContractAccesses),
+    /// SPICE: Message from chunk validator to chunk producer requesting missing contract code.
+    SpiceContractCodeRequest(AccountId, SpiceContractCodeRequest),
+    /// SPICE: Message from chunk producer to chunk validator with requested contract code.
+    SpiceContractCodeResponse(AccountId, SpiceContractCodeResponse),
 }
 
 #[derive(Debug, strum::IntoStaticStr)]
