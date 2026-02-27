@@ -11,6 +11,7 @@ use near_network::client::{ProcessTxRequest, StateRequestHeader};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::ReceiptToTxInfo;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
@@ -1235,20 +1236,56 @@ fn test_receipt_to_tx_after_state_sync() {
         Duration::seconds(3),
     );
 
-    // KEY CHECK: verify ReceiptToTx entries exist BEFORE produce_chunks.
-    // At this point only set_state_finalize has run on the synced node, so
-    // any ReceiptToTx entries must come from state sync, not block processing.
-    let synced_count_before = {
+    // KEY CHECK: verify specific ReceiptToTx entries from the set_state_finalize
+    // replay window exist BEFORE produce_chunks. At this point only
+    // set_state_finalize has run on the synced node, so any ReceiptToTx entries
+    // must come from state sync, not block processing.
+    //
+    // We iterate OutcomeIds in the synced store (which can only be from
+    // set_state_finalize at this point) and verify that some outcome IDs have
+    // corresponding ReceiptToTx entries that deserialize correctly.
+    {
         let handle = env.node_datas.last().unwrap().client_sender.actor_handle();
         let client = &env.test_loop.data.get(&handle).client;
         let store = client.chain.chain_store.store().store();
-        store.iter(DBCol::ReceiptToTx).count()
-    };
-    tracing::info!(synced_count_before, "ReceiptToTx entries on synced node before produce_chunks");
-    assert!(
-        synced_count_before > 0,
-        "synced node should have ReceiptToTx entries from set_state_finalize before produce_chunks"
-    );
+
+        // Collect all outcome IDs that have ReceiptToTx entries.
+        let mut replay_receipt_ids = Vec::new();
+        for (_key, value) in store.iter(DBCol::OutcomeIds) {
+            let outcome_ids: Vec<CryptoHash> =
+                borsh::from_slice(&value).expect("OutcomeIds should deserialize");
+            for oid in &outcome_ids {
+                if store.get(DBCol::ReceiptToTx, oid.as_ref()).is_some() {
+                    replay_receipt_ids.push(*oid);
+                }
+            }
+        }
+
+        assert!(
+            !replay_receipt_ids.is_empty(),
+            "synced node should have ReceiptToTx entries from set_state_finalize replay window"
+        );
+
+        // Verify each entry deserializes to valid ReceiptToTxInfo with
+        // non-empty origin data.
+        for receipt_id in &replay_receipt_ids {
+            let info = store
+                .get_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx, receipt_id.as_ref())
+                .expect("ReceiptToTx entry should deserialize for receipt in replay window");
+            match &info {
+                ReceiptToTxInfo::V1(v1) => {
+                    assert!(
+                        !v1.receiver_account_id.as_str().is_empty(),
+                        "ReceiptToTx entry {receipt_id} should have valid receiver"
+                    );
+                }
+            }
+        }
+        tracing::info!(
+            count = replay_receipt_ids.len(),
+            "verified ReceiptToTx entries from set_state_finalize replay window"
+        );
+    }
 
     // Continue producing chunks with cross-shard transactions for several epochs.
     produce_chunks(&mut env, accounts.clone(), None);
