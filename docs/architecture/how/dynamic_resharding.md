@@ -55,13 +55,15 @@ next_next_shard_layout() -- derives ShardLayoutV3 for epoch N+2
 
 The core problem: given a shard's state trie, find an account ID boundary that divides the trie into two roughly equal halves by memory usage.
 
-NEAR's state trie is a Merkle-Patricia trie with 16-ary branching. Each node stores a cumulative `memory_usage` value for its entire subtree. The trie has four "column" subtrees sharing a common root, identified by the first nibble of the key:
-- **ACCOUNT** (column 9) -- account records
+NEAR's state trie is a Merkle-Patricia trie with 16-ary branching. Each node stores a cumulative `memory_usage` value for its entire subtree. The trie has many "column" subtrees sharing a common root, each identified by the first nibble of the key (see `trie_key::col`). Of these, only four use account ID as key or key prefix, which makes them relevant to the split algorithm (since shards are split by account ID boundaries):
+- **ACCOUNT** (column 0) -- account records
 - **CONTRACT_CODE** (column 1) -- WASM contract code
-- **ACCESS_KEY** (column 6) -- access keys
-- **CONTRACT_DATA** (column 7) -- contract key-value storage
+- **ACCESS_KEY** (column 2) -- access keys
+- **CONTRACT_DATA** (column 9) -- contract key-value storage
 
-The algorithm descends through all four subtrees simultaneously, performing a greedy binary-search-like traversal:
+The remaining columns (delayed receipts, buffered receipts, promise yields, etc.) store shard-global state not keyed by account ID, so they are not considered by the split search.
+
+The algorithm descends through the four account-keyed subtrees simultaneously, performing a greedy binary-search-like traversal:
 
 1. At each branch node, aggregate children memory usage across all four subtrees.
 2. Compute a threshold (`total_memory / 2 - left_memory`).
