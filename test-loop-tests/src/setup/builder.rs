@@ -1,6 +1,9 @@
 use itertools::Itertools;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, TestGenesisBuilder};
+use near_chain_configs::test_genesis::{
+    TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
+};
 use near_chain_configs::test_utils::TestClientConfigParams;
+use near_primitives::shard_layout::ShardLayout;
 use near_store::archive::cloud_storage::config::test_cloud_archival_config;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -16,12 +19,15 @@ use near_chain_configs::{
 };
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, Balance, NumShards};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::get_protocol_upgrade_schedule;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::{TestNodeStorage, create_test_node_storage};
 
+use crate::utils::account::{
+    create_validators_spec, validators_spec_clients, validators_spec_clients_with_rpc,
+};
 use crate::utils::peer_manager_actor::{TestLoopNetworkSharedState, UnreachableActor};
 
 use super::env::TestLoopEnv;
@@ -32,9 +38,8 @@ pub(crate) const MIN_BLOCK_PROD_TIME: u64 = 600;
 
 pub(crate) struct TestLoopBuilder {
     test_loop: TestLoopV2,
-    genesis: Option<Genesis>,
+    setup_config: SetupConfig,
     epoch_config_store: Option<EpochConfigStore>,
-    clients: Vec<AccountId>,
     /// Overrides the directory used for test loop shared data; rather than
     /// constructing fresh new tempdir, use the provided one (to test with
     /// existing data from a previous test loop run).
@@ -66,9 +71,8 @@ impl TestLoopBuilder {
     pub(crate) fn new() -> Self {
         Self {
             test_loop: TestLoopV2::new(),
-            genesis: None,
+            setup_config: SetupConfig::Undecided,
             epoch_config_store: None,
-            clients: vec![],
             test_loop_data_dir: tempfile::tempdir().unwrap(),
             cold_storage_archival_clients: HashSet::new(),
             cloud_storage_archival_clients: HashSet::new(),
@@ -93,11 +97,85 @@ impl TestLoopBuilder {
         self.test_loop.clock()
     }
 
+    // -- Old API methods (transition to Manual) --
+
     /// Set the genesis configuration for the test loop.
     pub(crate) fn genesis(mut self, genesis: Genesis) -> Self {
-        self.genesis = Some(genesis);
+        let (genesis_slot, _) = self.setup_config.ensure_manual();
+        assert!(genesis_slot.is_none(), "genesis is already set");
+        *genesis_slot = Some(genesis);
         self
     }
+
+    /// Set the clients for the test loop.
+    pub(crate) fn clients(mut self, clients: Vec<AccountId>) -> Self {
+        let (_, clients_slot) = self.setup_config.ensure_manual();
+        assert!(clients_slot.is_empty(), "clients are already set");
+        *clients_slot = clients;
+        self
+    }
+
+    // -- New API methods (transition to Auto) --
+
+    pub(crate) fn chunk_producer_per_shard(mut self) -> Self {
+        let auto = self.setup_config.ensure_auto();
+        let num_block_and_chunk_producers =
+            auto.shard_layout.as_ref().expect("shard layout should be set").num_shards() as usize;
+        self.validators(num_block_and_chunk_producers, 0)
+    }
+
+    pub(crate) fn validators(
+        self,
+        num_block_and_chunk_producers: usize,
+        num_chunk_validators_only: usize,
+    ) -> Self {
+        self.validators_spec(create_validators_spec(
+            num_block_and_chunk_producers,
+            num_chunk_validators_only,
+        ))
+    }
+
+    pub(crate) fn enable_rpc(mut self) -> Self {
+        let auto = self.setup_config.ensure_auto();
+        assert!(!auto.enable_rpc, "enable_rpc is already set");
+        auto.enable_rpc = true;
+        self
+    }
+
+    pub(crate) fn validators_spec(mut self, spec: ValidatorsSpec) -> Self {
+        let auto = self.setup_config.ensure_auto();
+        assert!(auto.validators_spec.is_none(), "validators_spec is already set");
+        auto.validators_spec = Some(spec);
+        self
+    }
+
+    pub fn num_shards(self, num_shards: usize) -> Self {
+        self.shard_layout(ShardLayout::multi_shard(num_shards as NumShards, 1))
+    }
+
+    pub fn shard_layout(mut self, layout: ShardLayout) -> Self {
+        let auto = self.setup_config.ensure_auto();
+        assert!(auto.shard_layout.is_none(), "shard_layout is already set");
+        auto.shard_layout = Some(layout);
+        self
+    }
+
+    pub fn add_user_account(mut self, account_id: AccountId, initial_balance: Balance) -> Self {
+        let auto = self.setup_config.ensure_auto();
+        auto.user_accounts.push((account_id, initial_balance));
+        self
+    }
+
+    #[allow(dead_code)]
+    pub fn add_user_accounts(mut self, accounts: &[AccountId], initial_balance: Balance) -> Self {
+        let auto = self.setup_config.ensure_auto();
+        for account_id in accounts {
+            auto.user_accounts.push((account_id.clone(), initial_balance));
+        }
+        self
+    }
+
+    // -- Shared methods (work with both API paths) --
 
     pub(crate) fn epoch_config_store(mut self, epoch_config_store: EpochConfigStore) -> Self {
         self.epoch_config_store = Some(epoch_config_store);
@@ -105,19 +183,12 @@ impl TestLoopBuilder {
     }
 
     pub(crate) fn epoch_config_store_from_genesis(self) -> Self {
-        let genesis = self.genesis.as_ref().expect("expected genesis to be set");
-        let genesis_epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-        self.epoch_config_store(genesis_epoch_config_store)
+        // noop, this is a default behavior now, to be removed
+        self
     }
 
     pub(crate) fn runtime_config_store(mut self, runtime_config_store: RuntimeConfigStore) -> Self {
         self.runtime_config_store = Some(runtime_config_store);
-        self
-    }
-
-    /// Set the clients for the test loop.
-    pub(crate) fn clients(mut self, clients: Vec<AccountId>) -> Self {
-        self.clients = clients;
         self
     }
 
@@ -175,32 +246,35 @@ impl TestLoopBuilder {
         self
     }
 
+    // -- Build --
+
     /// Build the test loop environment.
-    pub(crate) fn build(self) -> TestLoopEnv {
-        self.ensure_genesis().ensure_epoch_config_store().ensure_clients().build_impl()
+    pub(crate) fn build(mut self) -> TestLoopEnv {
+        let (genesis, clients) = self.resolve_setup_config();
+        self.build_impl(genesis, clients)
     }
 
-    fn ensure_genesis(self) -> Self {
-        assert!(self.genesis.is_some(), "Genesis must be provided to the test loop");
-        self
+    fn resolve_setup_config(&mut self) -> (Genesis, Vec<AccountId>) {
+        let setup_config = std::mem::replace(&mut self.setup_config, SetupConfig::Undecided);
+        setup_config.resolve()
     }
 
-    fn ensure_epoch_config_store(self) -> Self {
-        assert!(self.epoch_config_store.is_some(), "EpochConfigStore must be provided");
-        self
+    fn ensure_epoch_config_store(&mut self, genesis: &Genesis) {
+        if self.epoch_config_store.is_none() {
+            self.epoch_config_store =
+                Some(TestEpochConfigBuilder::build_store_from_genesis(genesis));
+        }
     }
 
-    fn ensure_clients(self) -> Self {
-        assert!(!self.clients.is_empty(), "Clients must be provided to the test loop");
+    fn build_impl(mut self, genesis: Genesis, clients: Vec<AccountId>) -> TestLoopEnv {
+        self.ensure_epoch_config_store(&genesis);
+
         assert!(
             self.cold_storage_archival_clients
-                .is_subset(&HashSet::from_iter(self.clients.iter().cloned())),
+                .is_subset(&HashSet::from_iter(clients.iter().cloned())),
             "Archival accounts must be subset of the clients"
         );
-        self
-    }
 
-    fn build_impl(self) -> TestLoopEnv {
         let warmup_pending = self.warmup_pending.clone();
         self.test_loop.send_adhoc_event("warmup_pending".into(), move |_| {
             assert!(
@@ -209,9 +283,10 @@ impl TestLoopBuilder {
             );
         });
 
-        let node_states =
-            (0..self.clients.len()).map(|idx| self.setup_node_state(idx)).collect_vec();
-        let (mut test_loop, shared_state) = self.setup_shared_state();
+        let node_states = (0..clients.len())
+            .map(|idx| self.setup_node_state(idx, &genesis, &clients))
+            .collect_vec();
+        let (mut test_loop, shared_state) = self.setup_shared_state(genesis);
         let datas = node_states
             .into_iter()
             .map(|node_state| {
@@ -223,16 +298,16 @@ impl TestLoopBuilder {
         TestLoopEnv { test_loop, node_datas: datas, shared_state }
     }
 
-    fn setup_shared_state(mut self) -> (TestLoopV2, SharedState) {
+    fn setup_shared_state(mut self, genesis: Genesis) -> (TestLoopV2, SharedState) {
         let unreachable_actor_sender =
             self.test_loop.data.register_actor("UnreachableActor", UnreachableActor {}, None);
         self.test_loop.event_denylist().lock().push("UnreachableActor".to_string());
 
-        let upgrade_schedule = self.upgrade_schedule.unwrap_or_else(|| {
-            get_protocol_upgrade_schedule(&self.genesis.as_ref().unwrap().config.chain_id)
-        });
+        let upgrade_schedule = self
+            .upgrade_schedule
+            .unwrap_or_else(|| get_protocol_upgrade_schedule(&genesis.config.chain_id));
         let shared_state = SharedState {
-            genesis: self.genesis.unwrap(),
+            genesis,
             tempdir: self.test_loop_data_dir,
             epoch_config_store: self.epoch_config_store.unwrap(),
             runtime_config_store: self.runtime_config_store,
@@ -246,9 +321,13 @@ impl TestLoopBuilder {
         (self.test_loop, shared_state)
     }
 
-    fn setup_node_state(&self, idx: usize) -> NodeSetupState {
-        let account_id = self.clients[idx].clone();
-        let genesis = self.genesis.as_ref().unwrap();
+    fn setup_node_state(
+        &self,
+        idx: usize,
+        genesis: &Genesis,
+        clients: &[AccountId],
+    ) -> NodeSetupState {
+        let account_id = clients[idx].clone();
         let enable_cold_storage = self.cold_storage_archival_clients.contains(&account_id);
         let enable_cloud_storage = self.cloud_storage_archival_clients.contains(&account_id);
         let config_modifier = |client_config: &mut ClientConfig| {
@@ -378,6 +457,94 @@ impl<'a> NodeStateBuilder<'a> {
         );
         initialize_genesis_state(storage.hot_store.clone(), &self.genesis, None);
         storage
+    }
+}
+
+/// Determines how genesis and clients are configured.
+enum SetupConfig {
+    /// Initial state before any setup methods are called.
+    /// Will be resolved to `Auto` with defaults at build time.
+    Undecided,
+    /// New API: builder auto-derives genesis and clients from high-level topology.
+    Auto(AutoSetupConfig),
+    /// Old API: manually provided genesis and clients.
+    Manual { genesis: Option<Genesis>, clients: Vec<AccountId> },
+}
+
+/// Data for auto-derived setup (new API).
+struct AutoSetupConfig {
+    validators_spec: Option<ValidatorsSpec>,
+    enable_rpc: bool,
+    shard_layout: Option<ShardLayout>,
+    user_accounts: Vec<(AccountId, Balance)>,
+}
+
+impl SetupConfig {
+    /// Transitions `Undecided` to `Auto` with defaults, or returns
+    /// existing `Auto` data. Panics if `Manual`.
+    fn ensure_auto(&mut self) -> &mut AutoSetupConfig {
+        if matches!(self, SetupConfig::Undecided) {
+            *self = SetupConfig::Auto(AutoSetupConfig::new());
+        }
+        match self {
+            SetupConfig::Auto(data) => data,
+            SetupConfig::Manual { .. } => {
+                panic!("cannot use genesis builder API when genesis/clients are manually provided")
+            }
+            SetupConfig::Undecided => unreachable!(),
+        }
+    }
+
+    /// Transitions `Undecided` to `Manual`, or returns existing `Manual`
+    /// fields. Panics if `Auto`.
+    fn ensure_manual(&mut self) -> (&mut Option<Genesis>, &mut Vec<AccountId>) {
+        if matches!(self, SetupConfig::Undecided) {
+            *self = SetupConfig::Manual { genesis: None, clients: vec![] };
+        }
+        match self {
+            SetupConfig::Manual { genesis, clients } => (genesis, clients),
+            SetupConfig::Auto { .. } => {
+                panic!("cannot manually provide genesis/clients when using genesis builder API")
+            }
+            SetupConfig::Undecided => unreachable!(),
+        }
+    }
+
+    fn resolve(self) -> (Genesis, Vec<AccountId>) {
+        match self {
+            SetupConfig::Undecided => AutoSetupConfig::new().resolve(),
+            SetupConfig::Auto(auto) => auto.resolve(),
+            SetupConfig::Manual { genesis, clients } => {
+                let genesis = genesis.expect("genesis must be provided with manual setup");
+                assert!(!clients.is_empty(), "clients must be provided with manual setup");
+                (genesis, clients)
+            }
+        }
+    }
+}
+
+impl AutoSetupConfig {
+    fn new() -> Self {
+        Self { validators_spec: None, enable_rpc: false, shard_layout: None, user_accounts: vec![] }
+    }
+
+    fn resolve(self) -> (Genesis, Vec<AccountId>) {
+        let validators_spec = self.validators_spec.unwrap_or_else(|| create_validators_spec(1, 0));
+        let mut genesis_builder =
+            TestLoopBuilder::new_genesis_builder().validators_spec(validators_spec.clone());
+        if let Some(shard_layout) = self.shard_layout {
+            genesis_builder = genesis_builder.shard_layout(shard_layout);
+        }
+        for (account_id, balance) in self.user_accounts {
+            genesis_builder = genesis_builder.add_user_account_simple(account_id, balance);
+        }
+        let genesis = genesis_builder.build();
+        let clients = if self.enable_rpc {
+            validators_spec_clients_with_rpc(&validators_spec)
+        } else {
+            validators_spec_clients(&validators_spec)
+        };
+        (genesis, clients)
     }
 }
 
