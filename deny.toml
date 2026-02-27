@@ -127,6 +127,9 @@ skip = [
     { name = "schemars", version = "^0.8" },
     { name = "schemars_derive", version = "^0.8" },
 
+    # ark-ec uses an older version of itertools
+    { name = "itertools", version = "=0.10.5" },
+
     # Bolero depends on outdated versions of these
     { name = "gimli", version = "=0.31.1" },
     { name = "object", version = "=0.36.5" },
