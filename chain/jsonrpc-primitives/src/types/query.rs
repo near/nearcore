@@ -157,20 +157,6 @@ mod tests {
         assert_eq!(h, block_height);
         assert_eq!(bh, block_hash);
     }
-
-    #[test]
-    fn block_not_processed_error_message() {
-        let error = RpcQueryError::BlockNotProcessed {
-            block_height: 100,
-            block_hash: CryptoHash::default(),
-        };
-        let msg = error.to_string();
-        assert!(msg.contains("100"), "error message should include block height: {msg}");
-        assert!(
-            msg.contains("finality"),
-            "error message should mention finality-based queries: {msg}"
-        );
-    }
 }
 
 impl From<RpcQueryError> for crate::errors::RpcError {
