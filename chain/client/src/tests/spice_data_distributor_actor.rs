@@ -1675,7 +1675,11 @@ fn test_requesting_witness_for_new_block_when_validator() {
 
     fake_runner.run_queued_actions(&mut actor);
     let requests = drain_outgoing_data_requests(&mut outgoing_rc);
-    assert!(requests.contains(&SpicePartialDataRequest { data_id, requester: witness_recipient }));
+    assert!(requests.contains(&SpicePartialDataRequest {
+        data_id,
+        requester: witness_recipient,
+        include_contract_accesses: true,
+    }));
 }
 
 #[test]
@@ -1791,7 +1795,11 @@ fn test_requesting_receipts_we_do_not_produce_for_new_block() {
 
     fake_runner.run_queued_actions(&mut actor);
     let requests = drain_outgoing_data_requests(&mut outgoing_rc);
-    assert!(requests.contains(&SpicePartialDataRequest { data_id, requester: receipts_recipient }));
+    assert!(requests.contains(&SpicePartialDataRequest {
+        data_id,
+        requester: receipts_recipient,
+        include_contract_accesses: false,
+    }));
 }
 
 #[test]
@@ -1971,7 +1979,11 @@ fn test_handling_partial_data_request_with_receipts_in_store() {
         from_shard_id: receipt_proof.1.from_shard_id,
         to_shard_id: receipt_proof.1.to_shard_id,
     };
-    actor.handle(SpicePartialDataRequest { data_id, requester: recipient.clone() });
+    actor.handle(SpicePartialDataRequest {
+        data_id,
+        requester: recipient.clone(),
+        include_contract_accesses: false,
+    });
     let (partial_data, recipients) = drain_outgoing_partial_data(&mut outgoing_rc).swap_remove(0);
     assert_eq!(recipients, HashSet::from([recipient.clone()]));
 
@@ -2015,7 +2027,11 @@ fn test_handling_partial_data_request_with_witness_in_store() {
         block_hash: *block.hash(),
         shard_id: state_witness.chunk_id().shard_id,
     };
-    actor.handle(SpicePartialDataRequest { data_id, requester: recipient.clone() });
+    actor.handle(SpicePartialDataRequest {
+        data_id,
+        requester: recipient.clone(),
+        include_contract_accesses: false,
+    });
     let (partial_data, recipients) = drain_outgoing_partial_data(&mut outgoing_rc).swap_remove(0);
     assert_eq!(recipients, HashSet::from([recipient.clone()]));
 
@@ -2056,7 +2072,11 @@ fn test_handling_partial_data_request_when_not_producer() {
         block_hash: state_witness.chunk_id().block_hash,
         shard_id: state_witness.chunk_id().shard_id,
     };
-    actor.handle(SpicePartialDataRequest { data_id, requester: recipient });
+    actor.handle(SpicePartialDataRequest {
+        data_id,
+        requester: recipient,
+        include_contract_accesses: false,
+    });
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
 }
 
@@ -2084,7 +2104,11 @@ fn test_requesting_receipts_when_not_validator() {
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
 
     let requester = AccountId::from_str("not-validator").unwrap();
-    actor.handle(SpicePartialDataRequest { data_id, requester: requester.clone() });
+    actor.handle(SpicePartialDataRequest {
+        data_id,
+        requester: requester.clone(),
+        include_contract_accesses: false,
+    });
     let (partial_data, recipients) = drain_outgoing_partial_data(&mut outgoing_rc).swap_remove(0);
     assert_eq!(recipients, HashSet::from([requester.clone()]));
 

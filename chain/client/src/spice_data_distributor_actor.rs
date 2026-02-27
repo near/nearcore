@@ -969,7 +969,14 @@ impl SpiceDataDistributorActor {
             // execution and certification heads.)
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::SpicePartialDataRequest {
-                    request: SpicePartialDataRequest { data_id: id.clone(), requester: me.clone() },
+                    request: SpicePartialDataRequest {
+                        data_id: id.clone(),
+                        requester: me.clone(),
+                        include_contract_accesses: matches!(
+                            id,
+                            SpiceDataIdentifier::Witness { .. }
+                        ),
+                    },
                     producer: producers.swap_remove(0),
                 },
             ));
@@ -1003,7 +1010,7 @@ impl SpiceDataDistributorActor {
 
     fn handle_partial_data_request(
         &mut self,
-        SpicePartialDataRequest { data_id, requester }: SpicePartialDataRequest,
+        SpicePartialDataRequest { data_id, requester, include_contract_accesses }: SpicePartialDataRequest,
     ) -> Result<(), Error> {
         let Some(signer) = self.validator_signer.get() else {
             return Err(Error::Other(
@@ -1026,6 +1033,23 @@ impl SpiceDataDistributorActor {
         // TODO(spice): Check that requester is one of the recipients and implement a
         // lower-priority way for other nodes that aren't validators (e.g. rpc nodes) to get
         // data they require.
+
+        // When the requester needs contract accesses (e.g. a chunk validator catching up
+        // after restart), send them alongside the witness parts.
+        if include_contract_accesses {
+            if let SpiceDataIdentifier::Witness { block_hash, shard_id } = &data_id {
+                let chunk_id = SpiceChunkId { block_hash: *block_hash, shard_id: *shard_id };
+                if let Some(accesses) = self.contract_accesses_cache.get(&chunk_id).cloned() {
+                    let accesses_msg = SpiceChunkContractAccesses::new(chunk_id, accesses, &signer);
+                    self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::SpiceChunkContractAccesses(
+                            vec![requester.clone()],
+                            accesses_msg,
+                        ),
+                    ));
+                }
+            }
+        }
 
         let recipients = HashSet::from([requester]);
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(

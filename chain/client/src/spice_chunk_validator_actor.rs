@@ -35,8 +35,8 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
 use near_store::adapter::StoreAdapter as _;
 
-// Each pendin chunk is up to ~80MB in the worst case (17MB witness + 64MB contracts). This results
-// in a max of ~2GB of memory used for pending chunks.
+// Each pending chunk is up to ~80MB in the worst case (17MB witness + 64MB contracts).
+// This results in a max of ~2GB of memory used for pending chunks.
 // On the other hand if the validator follows 8 shards this means 3 pending chunks per shard on
 // average, so we do not want to drop below that.
 const MAX_PENDING_CHUNKS: usize = 24;
@@ -426,8 +426,17 @@ impl SpiceChunkValidatorActor {
             ));
         }
 
-        self.pending_chunks.get_or_insert_mut(chunk_id.clone(), PendingChunkParts::new).missing =
-            Some(missing);
+        let entry = self.pending_chunks.get_or_insert_mut(chunk_id.clone(), PendingChunkParts::new);
+        // Skip if accesses were already received (e.g. from both the proactive direct send
+        // and the piggybacked response during catch-up).
+        if entry.missing.is_some() {
+            let signer = self
+                .validator_signer
+                .get()
+                .ok_or_else(|| Error::NotAValidator("no signer".to_owned()))?;
+            return self.try_finalize_chunk(&chunk_id, signer);
+        }
+        entry.missing = Some(missing);
 
         let signer = self
             .validator_signer

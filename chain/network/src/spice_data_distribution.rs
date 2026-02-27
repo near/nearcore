@@ -15,6 +15,10 @@ pub struct SpiceIncomingPartialData {
 pub struct SpicePartialDataRequest {
     pub data_id: SpiceDataIdentifier,
     pub requester: AccountId,
+    /// When true, the producer should also send contract accesses alongside the
+    /// witness data. Set by chunk validators that need accesses to validate
+    /// (e.g. after catching up on missed blocks).
+    pub include_contract_accesses: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
