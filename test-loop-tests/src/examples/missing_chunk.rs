@@ -2,11 +2,9 @@ use near_async::time::Duration;
 use near_client::NetworkAdversarialMessage;
 use near_client::client_actor::AdvProduceChunksMode;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{BlockHeight, NumShards};
 
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::{create_validators_spec, validators_spec_clients};
 use crate::utils::node::TestLoopNode;
 
 /// This test demonstrates how to trigger missing chunk at a certain height.
@@ -15,20 +13,7 @@ use crate::utils::node::TestLoopNode;
 fn missing_chunk_example_test() {
     init_test_logger();
     let missing_chunk_heigh = 8;
-    let shard_layout = ShardLayout::multi_shard(2, 1);
-    let validators_spec = create_validators_spec(2, 0);
-    let clients = validators_spec_clients(&validators_spec);
-
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .shard_layout(shard_layout)
-        .validators_spec(validators_spec)
-        .build();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .build()
-        .warmup();
+    let mut env = TestLoopBuilder::new().num_shards(2).chunk_producer_per_shard().build().warmup();
 
     let mut validator_runner = env.node_runner(0);
     // Note: waiting for height H results in chunk already produced for H+1.
@@ -58,20 +43,10 @@ fn missing_chunk_example_test() {
 #[test]
 fn missing_chunk_window_example_test() {
     init_test_logger();
-    let num_shards: NumShards = 2;
-    let shard_layout = ShardLayout::multi_shard(num_shards, 1);
-    let validators_spec = create_validators_spec(2, 0);
-    let clients = validators_spec_clients(&validators_spec);
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .shard_layout(shard_layout)
-        .validators_spec(validators_spec)
-        .build();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .build()
-        .warmup();
+
+    let num_shards = 2;
+    let mut env =
+        TestLoopBuilder::new().num_shards(num_shards).chunk_producer_per_shard().build().warmup();
 
     let window_size = 5;
     let skip_length = 2;
