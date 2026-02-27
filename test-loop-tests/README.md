@@ -8,37 +8,69 @@ allowing for synchronous testing of complex scenarios.
 
 This framework is an attempt to
 achieve the best of all our previous frameworks, to make tests powerful,
-deterministic and easy to write and understand. The doc how it works is on
-`core/async/src/test_loop.rs`.
+deterministic and easy to write and understand. The core test loop framework is in
+`core/async/src/test_loop/mod.rs`.
+
+### Directory structure
+
+- `src/setup/` — builder, environment, node setup, drop conditions
+- `src/utils/` — shared helpers (account creation, network simulation, etc.)
+- `src/examples/` — **start here** — minimal self-contained examples demonstrating the API
+- `src/tests/` — full integration tests
 
 Here's a step-by-step guide on how to create a test.
 
 ## 1. Build the environment
 
-See `test_cross_shard_token_transfer` for the minimalistic test setup example.
+`TestLoopBuilder` provides a high-level API for setting up the test environment.
+See `examples/setup.rs` for a full set of setup examples.
 
-Most important parameters are configured through the genesis.
-The main part of building the environment involves constructing genesis data,
-including the initial state, using `TestGenesisBuilder`:
+The simplest setup uses all defaults (one validator, one shard, no RPC):
 
 ```rust
-let validators_spec = create_validator_spec(4, 0);
-let clients = validator_spec_clients(&validators_spec);
+let mut env = TestLoopBuilder::new().build().warmup();
+```
+
+Configure topology with `.validators()`, `.num_shards()`, and `.enable_rpc()`:
+
+```rust
+let mut env = TestLoopBuilder::new()
+    .validators(2, 1)  // 2 block+chunk producers, 1 chunk-only validator
+    .num_shards(2)
+    .enable_rpc()
+    .build()
+    .warmup();
+```
+
+Add user accounts and override genesis parameters as needed:
+
+```rust
+let mut env = TestLoopBuilder::new()
+    .add_user_account(&user_account, Balance::from_near(10))
+    .epoch_length(10)
+    .gas_limit(Gas::from_teragas(300))
+    .protocol_version(PROTOCOL_VERSION - 1)
+    .build()
+    .warmup();
+```
+
+Other available genesis overrides: `genesis_height`, `transaction_validity_period`,
+`max_inflation_rate`, `minimum_stake_ratio`, `gas_prices`.
+
+### Manual genesis setup
+
+DO NOT USE `.genesis()`/`.clients()` unless you need direct access to the
+genesis object before passing it to the builder (e.g. to derive epoch configs
+from it). See `resharding_example_test` for such a case.
+
+```rust
+let validators_spec = create_validators_spec(1, 0);
+let clients = validators_spec_clients(&validators_spec);
 let genesis = TestLoopBuilder::new_genesis_builder()
     .validators_spec(validators_spec)
-    // ...more configuration if needed
-    // for example `add_user_accounts_simple`, `epoch_length`, etc.
     .build();
 let mut env = TestLoopBuilder::new()
     .genesis(genesis)
-    .epoch_config_store_from_genesis()
-// Or alternatively when more epoch config configuration is needed:
-// let epoch_config_store = TestEpochConfigBuilder.from_genesis(&genesis)
-//    .shuffle_shard_assignment_for_chunk_producers(true)
-//    ...more configuration
-//    .build_store_for_single_version();
-//  and then use it as part of test loop builder:
-//  .epoch_config_store(epoch_config_store)
     .clients(clients)
     .build()
     .warmup();
@@ -112,6 +144,37 @@ After that, properly shut down the test environment:
 ```rust
 env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 ```
+
+## Advanced features
+
+### Node lifecycle
+
+Nodes can be killed and restarted to test recovery scenarios.
+See `examples/restart_node.rs` for a full example.
+
+```rust
+let killed_state = env.kill_node(&identifier);
+// ... run other nodes ...
+env.restart_node(&new_identifier, killed_state);
+```
+
+## Examples
+
+The `src/examples/` directory contains minimal self-contained tests demonstrating
+key API patterns. These are the best starting point for writing new tests.
+
+| Example | Demonstrates |
+|---|---|
+| `setup.rs` | Builder API: defaults, validators, shards, user accounts, genesis overrides, manual setup |
+| `multinode.rs` | Cross-shard token transfer with multiple validators |
+| `jsonrpc.rs` | Running JSON-RPC queries |
+| `gas_limit.rs` | Gas limit behavior verification |
+| `delayed_receipts.rs` | Creating and observing delayed receipts |
+| `missing_chunk.rs` | Triggering missing chunks using adversarial messages |
+| `restart_node.rs` | Killing and restarting a node |
+| `validator_rotation.rs` | Validator rotation across epochs |
+| `resharding.rs` | Dynamic resharding (manual genesis setup) |
+| `raw_client.rs` | Low-level client setup without `TestLoopBuilder` |
 
 ## Migration
 
