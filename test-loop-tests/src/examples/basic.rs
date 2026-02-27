@@ -77,7 +77,7 @@ fn test_deploy_and_call_contract() {
     let call_tx = SignedTransaction::call(
         2,
         user.clone(),
-        user.clone(),
+        user,
         &signer,
         Balance::ZERO,
         "log_something".to_owned(),
