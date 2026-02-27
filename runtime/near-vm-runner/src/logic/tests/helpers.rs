@@ -159,6 +159,49 @@ pub(super) fn promise_batch_action_add_key_with_full_access(
     )
 }
 
+#[cfg(feature = "nightly")]
+pub(super) fn promise_batch_action_add_gas_key_with_full_access(
+    logic: &mut TestVMLogic<'_>,
+    promise_index: u64,
+    public_key: &[u8],
+    num_nonces: u64,
+) -> Result<()> {
+    let public_key = logic.internal_mem_write(public_key);
+    logic.promise_batch_action_add_gas_key_with_full_access(
+        promise_index,
+        public_key.len,
+        public_key.ptr,
+        num_nonces,
+    )
+}
+
+#[cfg(feature = "nightly")]
+pub(super) fn promise_batch_action_add_gas_key_with_function_call(
+    logic: &mut TestVMLogic<'_>,
+    promise_index: u64,
+    public_key: &[u8],
+    num_nonces: u64,
+    allowance: u128,
+    receiver_id: &[u8],
+    method_names: &[u8],
+) -> Result<()> {
+    let public_key = logic.internal_mem_write(public_key);
+    let receiver_id = logic.internal_mem_write(receiver_id);
+    let allowance = logic.internal_mem_write(&allowance.to_le_bytes());
+    let method_names = logic.internal_mem_write(method_names);
+    logic.promise_batch_action_add_gas_key_with_function_call(
+        promise_index,
+        public_key.len,
+        public_key.ptr,
+        num_nonces,
+        allowance.ptr,
+        receiver_id.len,
+        receiver_id.ptr,
+        method_names.len,
+        method_names.ptr,
+    )
+}
+
 #[macro_export]
 macro_rules! map(
     { $($key:path: $value:expr,)+ } => {

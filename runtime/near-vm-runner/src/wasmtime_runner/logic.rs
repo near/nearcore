@@ -16,8 +16,8 @@ use core::mem::size_of;
 use near_crypto::Secp256K1Signature;
 use near_parameters::vm::Config;
 use near_parameters::{
-    ActionCosts, ExtCosts, RuntimeFeesConfig, gas_key_transfer_exec_fee, gas_key_transfer_send_fee,
-    transfer_exec_fee, transfer_send_fee,
+    ActionCosts, ExtCosts, RuntimeFeesConfig, gas_key_add_key_exec_fee, gas_key_add_key_send_fee,
+    gas_key_transfer_exec_fee, gas_key_transfer_send_fee, transfer_exec_fee, transfer_send_fee,
 };
 use near_primitives_core::account::AccountContract;
 use near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
@@ -3108,6 +3108,169 @@ pub fn promise_batch_action_transfer_to_gas_key(
     )?;
     ctx.result_state.deduct_balance(amount)?;
     ctx.ext.append_action_transfer_to_gas_key(receipt_idx, public_key.decode()?, amount);
+    Ok(())
+}
+
+/// Appends `AddKey` action to the batch of actions for the given promise pointed by
+/// `promise_idx`. The access key will have `GasKeyFullAccess` permission.
+pub fn promise_batch_action_add_gas_key_with_full_access(
+    caller: &mut Caller<'_, Ctx>,
+    promise_idx: u64,
+    public_key_len: u64,
+    public_key_ptr: u64,
+    num_nonces: u64,
+) -> Result<()> {
+    let memory = get_memory(caller)?;
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+    ctx.result_state.gas_counter.pay_base(base)?;
+    if ctx.context.is_view() {
+        return Err(HostError::ProhibitedInView {
+            method_name: "promise_batch_action_add_gas_key_with_full_access".to_string(),
+        }
+        .into());
+    }
+    let public_key = get_public_key(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        &ctx.registers,
+        public_key_ptr,
+        public_key_len,
+    )?;
+    let num_nonces = u16::try_from(num_nonces).map_err(|_| HostError::IntegerOverflow)?;
+    let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
+    pay_action_base(
+        &mut ctx.result_state.gas_counter,
+        &ctx.fees_config,
+        ActionCosts::add_full_access_key,
+        sir,
+    )?;
+    pay_action_per_byte(
+        &mut ctx.result_state.gas_counter,
+        &ctx.fees_config,
+        ActionCosts::gas_key_nonce_write_base,
+        num_nonces as u64,
+        sir,
+    )?;
+    let receiver_id = ctx.ext.get_receipt_receiver(receipt_idx);
+    let burn_gas = gas_key_add_key_send_fee(&ctx.fees_config, sir);
+    let exec_fee = gas_key_add_key_exec_fee(
+        &ctx.fees_config,
+        receiver_id.len(),
+        public_key_len as usize,
+        num_nonces,
+    );
+    let use_gas = burn_gas.checked_add(exec_fee.per_byte).ok_or(HostError::IntegerOverflow)?;
+    ctx.result_state.gas_counter.pay_action_accumulated(
+        burn_gas,
+        use_gas,
+        ActionCosts::gas_key_byte,
+    )?;
+    ctx.ext.append_action_add_gas_key_with_full_access(
+        receipt_idx,
+        public_key.decode()?,
+        num_nonces,
+    );
+    Ok(())
+}
+
+/// Appends `AddKey` action to the batch of actions for the given promise pointed by
+/// `promise_idx`. The access key will have `GasKeyFunctionCall` permission.
+pub fn promise_batch_action_add_gas_key_with_function_call(
+    caller: &mut Caller<'_, Ctx>,
+    promise_idx: u64,
+    public_key_len: u64,
+    public_key_ptr: u64,
+    num_nonces: u64,
+    allowance_ptr: u64,
+    receiver_id_len: u64,
+    receiver_id_ptr: u64,
+    method_names_len: u64,
+    method_names_ptr: u64,
+) -> Result<()> {
+    let memory = get_memory(caller)?;
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+    ctx.result_state.gas_counter.pay_base(base)?;
+    if ctx.context.is_view() {
+        return Err(HostError::ProhibitedInView {
+            method_name: "promise_batch_action_add_gas_key_with_function_call".to_string(),
+        }
+        .into());
+    }
+    let public_key = get_public_key(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        &ctx.registers,
+        public_key_ptr,
+        public_key_len,
+    )?;
+    let num_nonces = u16::try_from(num_nonces).map_err(|_| HostError::IntegerOverflow)?;
+    let allowance = Balance::from_yoctonear(get_u128(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        allowance_ptr,
+    )?);
+    let allowance = if allowance > Balance::ZERO { Some(allowance) } else { None };
+    let receiver_id = read_and_parse_account_id(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        &ctx.registers,
+        &ctx.config,
+        receiver_id_ptr,
+        receiver_id_len,
+    )?;
+    let raw_method_names = get_memory_or_register(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        &ctx.registers,
+        method_names_ptr,
+        method_names_len,
+    )?;
+    let method_names = split_method_names(&raw_method_names)?;
+    let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
+    // +1 is to account for null-terminating characters.
+    let num_bytes = method_names.iter().map(|v| v.len() as u64 + 1).sum::<u64>();
+    pay_action_base(
+        &mut ctx.result_state.gas_counter,
+        &ctx.fees_config,
+        ActionCosts::add_function_call_key_base,
+        sir,
+    )?;
+    pay_action_per_byte(
+        &mut ctx.result_state.gas_counter,
+        &ctx.fees_config,
+        ActionCosts::add_function_call_key_byte,
+        num_bytes,
+        sir,
+    )?;
+    pay_action_per_byte(
+        &mut ctx.result_state.gas_counter,
+        &ctx.fees_config,
+        ActionCosts::gas_key_nonce_write_base,
+        num_nonces as u64,
+        sir,
+    )?;
+    let receipt_receiver_id = ctx.ext.get_receipt_receiver(receipt_idx);
+    let burn_gas = gas_key_add_key_send_fee(&ctx.fees_config, sir);
+    let exec_fee = gas_key_add_key_exec_fee(
+        &ctx.fees_config,
+        receipt_receiver_id.len(),
+        public_key_len as usize,
+        num_nonces,
+    );
+    let use_gas = burn_gas.checked_add(exec_fee.per_byte).ok_or(HostError::IntegerOverflow)?;
+    ctx.result_state.gas_counter.pay_action_accumulated(
+        burn_gas,
+        use_gas,
+        ActionCosts::gas_key_byte,
+    )?;
+    ctx.ext.append_action_add_gas_key_with_function_call(
+        receipt_idx,
+        public_key.decode()?,
+        num_nonces,
+        allowance,
+        receiver_id,
+        method_names,
+    )?;
     Ok(())
 }
 
