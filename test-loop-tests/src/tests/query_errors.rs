@@ -1,7 +1,6 @@
 use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_chain_configs::TrackedShardsConfig;
-use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_client::{Query, QueryError};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
@@ -11,11 +10,10 @@ use near_primitives::views::QueryRequest;
 use std::sync::Arc;
 
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::{
-    create_validators_spec, rpc_account_id, validators_spec_clients_with_rpc,
-};
 
 const VALIDATOR: &str = "validator0";
+/// Index of the RPC node when using 1 validator + enable_rpc().
+const RPC_IDX: usize = 1;
 
 /// Verifies that querying a block whose header is known (it was received) but
 /// whose `ChunkExtra` hasn't been written yet (block not yet applied) returns
@@ -24,20 +22,7 @@ const VALIDATOR: &str = "validator0";
 fn test_block_not_processed_query_error() {
     init_test_logger();
 
-    let validators_spec = create_validators_spec(1, 0);
-    let clients = validators_spec_clients_with_rpc(&validators_spec);
-    let rpc_id = rpc_account_id();
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(10)
-        .shard_layout(ShardLayout::single_shard())
-        .validators_spec(validators_spec)
-        .build();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .build()
-        .warmup();
+    let mut env = TestLoopBuilder::new().enable_rpc().build().warmup();
 
     // Get the head block from the RPC node's client.
     let rpc_idx = env.rpc_data_idx();
@@ -66,12 +51,13 @@ fn test_block_not_processed_query_error() {
         chain_store_update.commit().unwrap();
     }
 
-    // Query for the block that has a header but no ChunkExtra.
+    // Query any account on the block that has a header but no ChunkExtra.
+    let account_id: AccountId = VALIDATOR.parse().unwrap();
     let result = {
         let view_client = env.test_loop.data.get_mut(&view_client_handle);
         view_client.handle_query(Query::new(
             BlockReference::BlockId(BlockId::Hash(new_block_hash)),
-            QueryRequest::ViewAccount { account_id: rpc_id },
+            QueryRequest::ViewAccount { account_id },
         ))
     };
 
@@ -89,53 +75,26 @@ fn test_block_not_processed_query_error() {
 fn test_unavailable_shard_query_error() {
     init_test_logger();
 
-    let validator_id: AccountId = VALIDATOR.parse().unwrap();
-    let validators_spec = ValidatorsSpec::desired_roles(&[VALIDATOR], &[]);
     // 2 shards so we can have a tracked and an untracked shard on the same node.
     let boundary_account: AccountId = "boundary".parse().unwrap();
-    let shard_layout = ShardLayout::multi_shard_custom(vec![boundary_account.clone()], 1);
+    let shard_layout = ShardLayout::multi_shard_custom(vec![boundary_account], 1);
 
-    // accounts[0] is on shard 0 (before the boundary), accounts[1] is on shard 1 (after).
+    // "aaa" is on shard 0 (before the boundary), "zzz" is on shard 1 (after).
     let account_on_shard0: AccountId = "aaa".parse().unwrap();
     let account_on_shard1: AccountId = "zzz".parse().unwrap();
 
-    // Collect the shard UID for shard 0 so we can tell the RPC node to only track that one.
+    // The RPC node tracks only shard 0 (the one containing "aaa").
     let tracked_shard_uid = shard_layout.account_id_to_shard_uid(&account_on_shard0);
 
-    let rpc_id = rpc_account_id();
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(10)
+    let mut env = TestLoopBuilder::new()
         .shard_layout(shard_layout)
-        .validators_spec(validators_spec.clone())
-        .add_user_accounts_simple(
-            &[
-                validator_id.clone(),
-                account_on_shard0.clone(),
-                account_on_shard1.clone(),
-                rpc_id.clone(),
-            ],
+        .add_user_accounts(
+            &[account_on_shard0.clone(), account_on_shard1.clone()],
             Balance::from_near(1_000_000),
         )
-        .build();
-
-    let all_clients = {
-        let mut clients: Vec<AccountId> = match &validators_spec {
-            ValidatorsSpec::DesiredRoles { block_and_chunk_producers, .. } => {
-                block_and_chunk_producers.clone()
-            }
-            _ => vec![],
-        };
-        clients.push(rpc_id.clone());
-        clients
-    };
-    let rpc_idx = all_clients.iter().position(|a| a == &rpc_id).unwrap();
-
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(all_clients)
+        .enable_rpc()
         .config_modifier(move |config, client_index| {
-            if client_index != rpc_idx {
+            if client_index != RPC_IDX {
                 return;
             }
             // RPC node tracks only shard 0.
