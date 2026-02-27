@@ -2,7 +2,6 @@ use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
 
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::{create_validators_spec, validators_spec_clients};
 
 #[test]
 fn test_restart_node() {
@@ -10,18 +9,10 @@ fn test_restart_node() {
 
     // 4 validators with equal stake means that with one unavailable node
     // the chain can still make progress
-    let num_validators = 4;
-    let validators_spec = create_validators_spec(num_validators, 0);
-    let clients = validators_spec_clients(&validators_spec);
     let epoch_length = 4;
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(epoch_length)
-        .validators_spec(validators_spec)
-        .build();
     let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
+        .validators(4, 0)
+        .epoch_length(epoch_length)
         .gc_num_epochs_to_keep(20)
         .build()
         .warmup();
