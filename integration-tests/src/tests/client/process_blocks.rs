@@ -3714,6 +3714,7 @@ fn test_save_receipt_to_tx_independent_of_outcomes() {
 
 /// When both save_receipt_to_tx and save_tx_outcomes are false, neither
 /// OutcomeIds nor ReceiptToTx entries should be written (needs_index=false).
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 #[test]
 fn test_no_index_when_both_disabled() {
     init_test_logger();
