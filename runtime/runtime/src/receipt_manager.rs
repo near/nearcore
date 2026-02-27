@@ -2,7 +2,8 @@ use near_crypto::PublicKey;
 use near_primitives::action::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, DeployGlobalContractAction, DeterministicStateInitAction,
-    FunctionCallAction, StakeAction, TransferAction, UseGlobalContractAction,
+    FunctionCallAction, StakeAction, TransferAction, TransferToGasKeyAction,
+    UseGlobalContractAction,
 };
 use near_primitives::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
@@ -437,6 +438,29 @@ impl ReceiptManager {
     /// Panics if the `receipt_index` does not refer to a known receipt.
     pub(super) fn append_action_transfer(&mut self, receipt_index: ReceiptIndex, deposit: Balance) {
         self.append_action(receipt_index, Action::Transfer(TransferAction { deposit }));
+    }
+
+    /// Attach the [`TransferToGasKeyAction`] action to an existing receipt.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - an index of Receipt to append an action
+    /// * `public_key` - the public key of the gas key to fund
+    /// * `deposit` - amount of tokens to transfer to the gas key
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    pub(super) fn append_action_transfer_to_gas_key(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        public_key: PublicKey,
+        deposit: Balance,
+    ) {
+        self.append_action(
+            receipt_index,
+            Action::TransferToGasKey(Box::new(TransferToGasKeyAction { public_key, deposit })),
+        );
     }
 
     /// Attach the [`StakeAction`] action to an existing receipt.

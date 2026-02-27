@@ -9,11 +9,13 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
     Action, FunctionCallAction, SignedTransaction, TransactionNonce, TransferAction,
 };
-use near_primitives::types::{AccountId, Balance, Nonce, NonceIndex};
+use near_primitives::types::{AccountId, Balance, Gas, Nonce, NonceIndex};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     AccessKeyPermissionView, AccessKeyView, FinalExecutionOutcomeView, FinalExecutionStatus,
     QueryRequest, QueryResponseKind,
 };
+use testlib::fees_utils::FeeHelper;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
@@ -444,6 +446,155 @@ fn test_gas_key_deposit_failed() {
     let gas_key_nonce_after =
         get_gas_key_nonce(&env, sender, &gas_key_signer.public_key(), nonce_index);
     assert_eq!(gas_key_nonce_after, gas_key_nonce + 1);
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
+}
+
+/// Test that a contract can fund a gas key using the
+/// `promise_batch_action_transfer_to_gas_key` host function.
+#[test]
+#[cfg_attr(not(feature = "nightly"), ignore)]
+fn test_gas_key_transfer_host_function() {
+    init_test_logger();
+
+    let epoch_length = 10;
+    let shard_layout = ShardLayout::single_shard();
+    let user_accounts = create_account_ids(["account0"]);
+    let initial_balance = Balance::from_near(1_000_000);
+    let gas_price = Balance::from_yoctonear(1);
+    let validators_spec = create_validators_spec(shard_layout.num_shards() as usize, 0);
+    let clients = validators_spec_clients_with_rpc(&validators_spec);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(epoch_length)
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&user_accounts, initial_balance)
+        .gas_prices(gas_price, gas_price)
+        .build();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store_from_genesis()
+        .clients(clients)
+        .build()
+        .warmup();
+
+    let account = &user_accounts[0];
+    let mut nonce = 0u64;
+    let mut next_nonce = || {
+        nonce += 1;
+        nonce
+    };
+
+    // Deploy the nightly test contract
+    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    let deploy_tx = SignedTransaction::deploy_contract(
+        next_nonce(),
+        account,
+        near_test_contracts::nightly_rs_contract().to_vec(),
+        &create_user_test_signer(account),
+        block_hash,
+    );
+    env.rpc_runner().run_tx(deploy_tx, Duration::seconds(5));
+    env.rpc_runner().run_for_number_of_blocks(1);
+
+    // Create a gas key on account
+    let gas_key_signer: Signer =
+        InMemorySigner::from_seed(account.clone(), KeyType::ED25519, "gas_key").into();
+    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    let add_key_tx = SignedTransaction::from_actions(
+        next_nonce(),
+        account.clone(),
+        account.clone(),
+        &create_user_test_signer(account),
+        vec![Action::AddKey(Box::new(AddKeyAction {
+            public_key: gas_key_signer.public_key(),
+            access_key: AccessKey::gas_key_full_access(3),
+        }))],
+        block_hash,
+    );
+    env.rpc_runner().run_tx(add_key_tx, Duration::seconds(5));
+    env.rpc_runner().run_for_number_of_blocks(1);
+
+    // Fund the gas key with an initial balance via TransferToGasKey transaction action
+    let initial_gas_key_fund = Balance::from_millinear(100);
+    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    let fund_tx = SignedTransaction::from_actions(
+        next_nonce(),
+        account.clone(),
+        account.clone(),
+        &create_user_test_signer(account),
+        vec![Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
+            public_key: gas_key_signer.public_key(),
+            deposit: initial_gas_key_fund,
+        }))],
+        block_hash,
+    );
+    env.rpc_runner().run_tx(fund_tx, Duration::seconds(5));
+    env.rpc_runner().run_for_number_of_blocks(1);
+
+    // Record gas key balance and account balance before the host function call
+    let (_, gas_key_balance_before) =
+        query_gas_key_and_balance(&env.rpc_node(), account, &gas_key_signer.public_key());
+    let account_balance_before = env.rpc_node().view_account_query(account).unwrap().amount;
+
+    // Call the contract's transfer_to_gas_key function (exercises the host function).
+    // Input format: public_key_bytes || amount_le_bytes(16)
+    let host_fn_deposit = Balance::from_millinear(10);
+    let mut input_data = borsh::to_vec(&gas_key_signer.public_key()).unwrap();
+    input_data.extend_from_slice(&host_fn_deposit.as_yoctonear().to_le_bytes());
+
+    let method_name = "transfer_to_gas_key";
+    let fc_args_len = input_data.len();
+    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    let call_tx = SignedTransaction::from_actions(
+        next_nonce(),
+        account.clone(),
+        account.clone(),
+        &create_user_test_signer(account),
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: method_name.to_string(),
+            args: input_data,
+            gas: Gas::from_teragas(100),
+            deposit: Balance::ZERO,
+        }))],
+        block_hash,
+    );
+    let outcome = env.rpc_runner().execute_tx(call_tx, Duration::seconds(5)).unwrap();
+    env.rpc_runner().run_for_number_of_blocks(1);
+
+    assert!(
+        matches!(outcome.status, FinalExecutionStatus::SuccessValue(_)),
+        "expected success, got {:?}",
+        outcome.status,
+    );
+
+    // Verify gas key balance increased by the deposit amount
+    let (_, gas_key_balance_after) =
+        query_gas_key_and_balance(&env.rpc_node(), account, &gas_key_signer.public_key());
+    assert_eq!(gas_key_balance_after, gas_key_balance_before.checked_add(host_fn_deposit).unwrap());
+
+    // Verify account balance decreased by exactly deposit + tokens_burnt - reward.
+    // The runtime gives 30% of gas_burnt_for_function_call * gas_price back to the account.
+    // gas_burnt_for_function_call = receipt gas_burnt - exec overhead (new_action_receipt +
+    // function_call action fees). The overhead uses method_name + args byte count.
+    let account_balance_after = env.rpc_node().view_account_query(account).unwrap().amount;
+    let tokens_burnt = total_tokens_burnt(&outcome);
+    let runtime_config =
+        env.rpc_node().client().runtime_adapter.get_runtime_config(PROTOCOL_VERSION);
+    let fee_helper = FeeHelper::new(runtime_config.clone(), gas_price);
+    let fc_receipt_gas_burnt = outcome.receipts_outcome[0].outcome.gas_burnt;
+    let fc_overhead = fee_helper.function_call_exec_gas((method_name.len() + fc_args_len) as u64);
+    let gas_burnt_for_function_call = fc_receipt_gas_burnt.checked_sub(fc_overhead).unwrap();
+    let reward = fee_helper.gas_burnt_to_reward(gas_burnt_for_function_call);
+    assert_eq!(
+        account_balance_after,
+        account_balance_before
+            .checked_sub(host_fn_deposit)
+            .unwrap()
+            .checked_sub(tokens_burnt)
+            .unwrap()
+            .checked_add(reward)
+            .unwrap(),
+    );
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
