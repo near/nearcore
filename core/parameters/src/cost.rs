@@ -712,8 +712,9 @@ impl GasKeyAddFee {
     }
 }
 
-/// Send fee for gas_key_byte when adding a gas key (AddKey with GasKeyFullAccess
-/// or GasKeyFunctionCall permission). Covers the serialized GasKeyInfo bytes.
+/// Additional send fee for gas_key_byte when adding a gas key (AddKey with
+/// GasKeyFullAccess or GasKeyFunctionCall permission). Covers the serialized
+/// GasKeyInfo bytes.
 pub fn gas_key_add_key_send_fee(cfg: &RuntimeFeesConfig, sender_is_receiver: bool) -> Gas {
     cfg.fee(ActionCosts::gas_key_byte)
         .send_fee(sender_is_receiver)
