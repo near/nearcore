@@ -23,7 +23,7 @@ Here's a step-by-step guide on how to create a test.
 ## 1. Build the environment
 
 `TestLoopBuilder` provides a high-level API for setting up the test environment.
-See `examples/setup.rs` for a full set of setup examples.
+See `src/examples/setup.rs` for a full set of setup examples.
 
 The simplest setup uses all defaults (one validator, one shard, no RPC):
 
@@ -150,7 +150,7 @@ env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 ### Node lifecycle
 
 Nodes can be killed and restarted to test recovery scenarios, or new nodes can
-be added to a running cluster. See `examples/node_lifecycle.rs` for full examples.
+be added to a running cluster. See `src/examples/node_lifecycle.rs` for full examples.
 
 ```rust
 // Kill a node and restart it later.
@@ -167,7 +167,7 @@ env.add_node(identifier, new_node_state);
 
 #### Account helpers
 
-`utils/account.rs` provides various utilities for creating account IDs.
+`src/utils/account.rs` provides various utilities for creating account IDs.
 Use `create_account_id` instead of manual parsing:
 
 ```rust
