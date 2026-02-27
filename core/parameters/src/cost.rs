@@ -700,7 +700,7 @@ pub fn gas_key_transfer_exec_fee(
 
 /// Additional costs for adding an access key with GasKeyFunctionCall or
 /// GasKeyFullAccess permissions, split into base (`gas_key_nonce_write_base`)
-/// and per-byte (`gas_key_byte`) components across all nonces.
+/// and per-byte (`gas_key_byte`) components.
 pub struct GasKeyAddFee {
     pub base: Gas,
     pub per_byte: Gas,
