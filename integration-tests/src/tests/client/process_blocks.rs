@@ -3744,11 +3744,26 @@ fn test_no_index_when_both_disabled() {
         Balance::from_yoctonear(100),
         *genesis_block.hash(),
     );
+    let tx_hash = tx.get_hash();
     assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
 
     for i in 1..5 {
         env.produce_block(0, i);
     }
+
+    // Verify the transaction actually executed, so the negative assertions
+    // below are meaningful (not vacuously true).
+    let test1_balance = env.query_balance("test1".parse().unwrap());
+    assert!(
+        test1_balance > TESTING_INIT_BALANCE,
+        "test1 balance should increase after send_money to confirm tx executed"
+    );
+
+    // Also verify outcomes are NOT saved (locks in save_tx_outcomes=false).
+    assert_matches!(
+        env.clients[0].chain.get_execution_outcome(&tx_hash),
+        Err(near_chain::Error::DBNotFoundErr(_))
+    );
 
     let store = env.clients[0].chain.chain_store().store();
 

@@ -1206,6 +1206,28 @@ fn test_receipt_to_tx_after_state_sync() {
         }
     };
 
+    // Capture ReceiptToTx entries from source validators as the expected set.
+    // Source nodes track different shards (shuffle_shard_assignment), so union
+    // both to get full coverage.
+    let expected_entries: HashMap<CryptoHash, ReceiptToTxInfo> = {
+        let mut entries = HashMap::new();
+        for node_data in &env.node_datas {
+            let handle = node_data.client_sender.actor_handle();
+            let client = &env.test_loop.data.get(&handle).client;
+            let store = client.chain.chain_store.store().store();
+            for (key, info) in store.iter_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx) {
+                let receipt_id = CryptoHash::try_from(key.as_ref()).unwrap();
+                entries.insert(receipt_id, info);
+            }
+        }
+        entries
+    };
+    assert!(!expected_entries.is_empty(), "source validators should have ReceiptToTx entries");
+    tracing::info!(
+        count = expected_entries.len(),
+        "captured ReceiptToTx entries from source validators"
+    );
+
     // Add a new node that will sync from scratch.
     let genesis = env.shared_state.genesis.clone();
     let tempdir_path = env.shared_state.tempdir.path().to_path_buf();
@@ -1236,54 +1258,56 @@ fn test_receipt_to_tx_after_state_sync() {
         Duration::seconds(3),
     );
 
-    // KEY CHECK: verify specific ReceiptToTx entries from the set_state_finalize
-    // replay window exist BEFORE produce_chunks. At this point only
-    // set_state_finalize has run on the synced node, so any ReceiptToTx entries
-    // must come from state sync, not block processing.
+    // KEY CHECK: verify ReceiptToTx entries on the synced node match source
+    // validators BEFORE produce_chunks. At this point only set_state_finalize
+    // has run, so any entries must come from state sync.
     //
-    // We iterate OutcomeIds in the synced store (which can only be from
-    // set_state_finalize at this point) and verify that some outcome IDs have
-    // corresponding ReceiptToTx entries that deserialize correctly.
+    // Strategy:
+    // 1. Collect synced node's replay receipt IDs from OutcomeIds
+    // 2. Assert non-empty (set_state_finalize produced entries)
+    // 3. For each, require exact match in expected_entries from source
     {
         let handle = env.node_datas.last().unwrap().client_sender.actor_handle();
         let client = &env.test_loop.data.get(&handle).client;
         let store = client.chain.chain_store.store().store();
 
-        // Collect all outcome IDs that have ReceiptToTx entries.
-        let mut replay_receipt_ids = Vec::new();
+        // Collect receipt IDs that have ReceiptToTx entries on the synced node.
+        let mut synced_replay_receipt_ids = Vec::new();
         for (_key, value) in store.iter(DBCol::OutcomeIds) {
             let outcome_ids: Vec<CryptoHash> =
                 borsh::from_slice(&value).expect("OutcomeIds should deserialize");
             for oid in &outcome_ids {
                 if store.get(DBCol::ReceiptToTx, oid.as_ref()).is_some() {
-                    replay_receipt_ids.push(*oid);
+                    synced_replay_receipt_ids.push(*oid);
                 }
             }
         }
 
         assert!(
-            !replay_receipt_ids.is_empty(),
-            "synced node should have ReceiptToTx entries from set_state_finalize replay window"
+            !synced_replay_receipt_ids.is_empty(),
+            "synced node should have ReceiptToTx entries from set_state_finalize"
         );
 
-        // Verify each entry deserializes to valid ReceiptToTxInfo with
-        // non-empty origin data.
-        for receipt_id in &replay_receipt_ids {
-            let info = store
+        // Every ReceiptToTx entry on the synced node must match a source entry.
+        for receipt_id in &synced_replay_receipt_ids {
+            let synced_info = store
                 .get_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx, receipt_id.as_ref())
-                .expect("ReceiptToTx entry should deserialize for receipt in replay window");
-            match &info {
-                ReceiptToTxInfo::V1(v1) => {
-                    assert!(
-                        !v1.receiver_account_id.as_str().is_empty(),
-                        "ReceiptToTx entry {receipt_id} should have valid receiver"
-                    );
-                }
-            }
+                .expect("ReceiptToTx entry should deserialize");
+            let expected_info = expected_entries.get(receipt_id).unwrap_or_else(|| {
+                panic!(
+                    "synced node has ReceiptToTx entry {receipt_id} not found on any source validator"
+                );
+            });
+            assert_eq!(
+                &synced_info, expected_info,
+                "ReceiptToTx entry {receipt_id} on synced node should match source"
+            );
         }
+
         tracing::info!(
-            count = replay_receipt_ids.len(),
-            "verified ReceiptToTx entries from set_state_finalize replay window"
+            matched = synced_replay_receipt_ids.len(),
+            total_source = expected_entries.len(),
+            "all synced ReceiptToTx entries verified against source validators"
         );
     }
 
