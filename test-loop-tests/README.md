@@ -2,16 +2,11 @@
 
 ## TestLoopEnv
 
-`TestLoopEnv` is a framework that enables writing multi-node tests for NEAR protocol
-components. It simulates an entire blockchain environment within a single test,
-allowing for synchronous testing of complex scenarios.
+`TestLoopEnv` is a framework that enables writing multi-node tests for NEAR protocol components. It simulates an entire blockchain environment within a single test, allowing for synchronous testing of complex scenarios.
 
-This framework is an attempt to
-achieve the best of all our previous frameworks, to make tests powerful,
-deterministic and easy to write and understand. The core test loop framework is in
-`core/async/src/test_loop/mod.rs`.
+This framework is an attempt to achieve the best of all our previous frameworks, to make tests powerful, deterministic and easy to write and understand. The core test loop framework is in `core/async/src/test_loop/mod.rs`.
 
-### Directory structure
+## Directory structure
 
 - `src/setup/` — builder, environment, node setup, drop conditions
 - `src/utils/` — shared helpers (account creation, network simulation, etc.)
@@ -54,14 +49,11 @@ let mut env = TestLoopBuilder::new()
     .warmup();
 ```
 
-Other available genesis overrides: `genesis_height`, `transaction_validity_period`,
-`max_inflation_rate`, `minimum_stake_ratio`, `gas_prices`.
+Other available genesis overrides: `genesis_height`, `transaction_validity_period`, `max_inflation_rate`, `minimum_stake_ratio`, `gas_prices`.
 
 ### Manual genesis setup
 
-DO NOT USE `.genesis()`/`.clients()` unless you need direct access to the
-genesis object before passing it to the builder (e.g. to derive epoch configs
-from it). See `resharding_example_test` for such a case.
+DO NOT USE `.genesis()`/`.clients()` unless you need direct access to the genesis object before passing it to the builder (e.g. to derive epoch configs from it). See `resharding_example_test` for such a case.
 
 ```rust
 let validators_spec = create_validators_spec(1, 0);
@@ -80,13 +72,9 @@ let mut env = TestLoopBuilder::new()
 
 `TestLoopEnv` provides two main abstractions for interacting with nodes:
 
-- **`TestLoopNode`** — read-only access to a node's state (head, client, store,
-  runtime queries). Holds `&TestLoopData`, so accessors like `env.node()` take
-  `&self` and multiple nodes can be held simultaneously.
-- **`TestLoopNodeMut`** — mutable access to a node for operations like
-  `client_actor()` or `view_client_actor()`. Holds `&mut TestLoopData`.
-- **`NodeRunner`** — drives the test loop forward while observing a specific
-  node (run until a condition, produce blocks, execute transactions).
+- **`TestLoopNode`** — read-only access to a node's state (head, client, store, runtime queries). Holds `&TestLoopData`, so accessors like `env.node()` take `&self` and multiple nodes can be held simultaneously.
+- **`TestLoopNodeMut`** — mutable access to a node for operations like `client_actor()` or `view_client_actor()`. Holds `&mut TestLoopData`.
+- **`NodeRunner`** — drives the test loop forward while observing a specific node (run until a condition, produce blocks, execute transactions).
 
 Convenience accessors on `TestLoopEnv`:
 
@@ -97,8 +85,7 @@ Convenience accessors on `TestLoopEnv`:
 | `env.node(i)` / `env.node_runner(i)` | `TestLoopNode` / `NodeRunner` | Node at index `i` |
 | `env.node_for_account(id)` / `env.runner_for_account(id)` | `TestLoopNode` / `NodeRunner` | Node with given account id |
 
-Mutable node access is available via `_mut()` variants (`env.validator_mut()`,
-`env.node_mut(i)`, etc.) which return `TestLoopNodeMut`:
+Mutable node access is available via `_mut()` variants (`env.validator_mut()`, `env.node_mut(i)`, etc.) which return `TestLoopNodeMut`:
 
 ```rust
 // Access ClientActor for adversarial testing.
@@ -115,9 +102,7 @@ env.rpc_runner().run_tx(tx, Duration::seconds(5));
 env.validator_runner().run_until_head_height(10);
 ```
 
-`NodeRunner::run_until` can be used to progress the blockchain until a
-condition is met. The condition closure receives a `&TestLoopNode` for
-the associated node:
+`NodeRunner::run_until` can be used to progress the blockchain until a condition is met. The condition closure receives a `&TestLoopNode` for the associated node:
 
 ```rust
 env.validator_runner().run_until(
@@ -126,9 +111,7 @@ env.validator_runner().run_until(
 );
 ```
 
-Note: The time here is not actual real-world time. `TestLoopEnv` simulates the clock
-to ensure high speed and reproducibility of test results. This allows tests to
-run quickly while still accurately modeling time-dependent blockchain behavior.
+Note: The time here is not actual real-world time. `TestLoopEnv` simulates the clock to ensure high speed and reproducibility of test results. This allows tests to run quickly while still accurately modeling time-dependent blockchain behavior.
 
 ## 3. Assert expected outcomes
 
@@ -145,43 +128,9 @@ After that, properly shut down the test environment:
 env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 ```
 
-## Advanced features
-
-### Node lifecycle
-
-Nodes can be killed and restarted to test recovery scenarios, or new nodes can
-be added to a running cluster. See `src/examples/node_lifecycle.rs` for full examples.
-
-```rust
-// Kill a node and restart it later.
-let killed_state = env.kill_node(&identifier);
-// ... run other nodes ...
-env.restart_node(&new_identifier, killed_state);
-
-// Add a brand new non-validator node.
-let new_node_state = env.node_state_builder().account_id(&new_account_id).build();
-env.add_node(identifier, new_node_state);
-```
-
-### Utilities
-
-#### Account helpers
-
-`src/utils/account.rs` provides various utilities for creating account IDs.
-Use `create_account_id` instead of manual parsing:
-
-```rust
-// Good:
-let user = create_account_id("user");
-
-// Avoid:
-let user: AccountId = "user".parse().unwrap();
-```
-
 ## Examples
 
-The `src/examples/` directory contains minimal self-contained tests demonstrating
-key API patterns. These are the best starting point for writing new tests.
+The `src/examples/` directory contains minimal self-contained tests demonstrating key API patterns. These are the best starting point for writing new tests.
 
 | Example | Demonstrates |
 |---|---|
@@ -195,27 +144,47 @@ key API patterns. These are the best starting point for writing new tests.
 | `resharding.rs` | Dynamic resharding (manual genesis setup) |
 | `raw_client.rs` | Low-level client setup without `TestLoopBuilder` |
 
+## Advanced features
+
+### Node lifecycle
+
+Nodes can be killed and restarted to test recovery scenarios, or new nodes can be added to a running cluster. See `src/examples/node_lifecycle.rs` for full examples.
+
+```rust
+// Kill a node and restart it later.
+let killed_state = env.kill_node(&identifier);
+// ... run other nodes ...
+env.restart_node(&new_identifier, killed_state);
+
+// Add a brand new non-validator node.
+let new_node_state = env.node_state_builder().account_id(&new_account_id).build();
+env.add_node(identifier, new_node_state);
+```
+
+## Utilities
+
+### Account helpers
+
+`src/utils/account.rs` provides various utilities for creating account IDs.
+Use `create_account_id` instead of manual parsing:
+
+```rust
+// Good:
+let user = create_account_id("user");
+
+// Avoid:
+let user: AccountId = "user".parse().unwrap();
+```
+
 ## Migration
 
-For historical context, there are multiple existing ways for writing such
-tests. The following list presents these methods in order of their development:
+For historical context, there are multiple existing ways for writing such tests. The following list presents these methods in order of their development:
 
-* `setup_mock_all_validators(...)` - very powerful, spawns all
-actors required for multi-node chain to operate and supports network
-communication among them. However, very hard to understand, uses a lot of
-resources and almost not maintained.
-* pytest - quite powerful as well, spawns actual nodes in Python and uses
-exposed RPC handlers to test different behavior. Quite obsolete as well,
-exposed to flakiness.
-* different environments spawning clients: `TestEnv`, `TestReshardingEnv`, ...
-Good middle ground for testing specific features, but doesn't test actual
-network behavior. Modifications like forcing skipping chunks require a lot
-of manual intervention.
+* `setup_mock_all_validators(...)` - very powerful, spawns all actors required for multi-node chain to operate and supports network
+communication among them. However, very hard to understand, uses a lot of resources and almost not maintained.
+* pytest - quite powerful as well, spawns actual nodes in Python and uses exposed RPC handlers to test different behavior. Quite obsolete as well, exposed to flakiness.
+* different environments spawning clients: `TestEnv`, `TestReshardingEnv`, etc. Good middle ground for testing specific features, but doesn't test actual network behavior. Modifications like forcing skipping chunks require a lot of manual intervention.
 
-If test became problematic, it is encouraged to migrate it to `TestLoopEnv`.
-However, it would be _extremely_ hard to migrate the logic precisely. Instead,
-migrate tests only if they make sense to you and their current implementation
-became a huge burden. We hope that reproducing such logic in `TestLoopEnv` is
-much easier.
+If test became problematic, it is encouraged to migrate it to `TestLoopEnv`. However, it would be _extremely_ hard to migrate the logic precisely. Instead, migrate tests only if they make sense to you and their current implementation became a huge burden. We hope that reproducing such logic in `TestLoopEnv` is much easier.
 
 Enjoy!
