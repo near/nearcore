@@ -360,7 +360,7 @@ impl TestLoopBuilder {
             .upgrade_schedule
             .unwrap_or_else(|| get_protocol_upgrade_schedule(&genesis.config.chain_id));
         let shared_state = SharedState {
-            genesis: genesis,
+            genesis,
             tempdir: self.test_loop_data_dir,
             epoch_config_store: self.epoch_config_store.unwrap(),
             runtime_config_store: self.runtime_config_store,
