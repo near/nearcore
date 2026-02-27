@@ -64,6 +64,8 @@ use std::collections::VecDeque;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
+use crate::chunk_executor_actor::get_contract_accesses;
+
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {
     #[error("Near chain error: {0}")]
@@ -165,11 +167,6 @@ pub struct SpiceDataDistributorActor {
     // endorsement or receipts are validated and saved), we should get rid of this cache and rely
     // only on store to make sure we don't wait on data we already have.
     recently_decoded_data: LruCache<SpiceDataIdentifier, ()>,
-
-    /// Cache of contract accesses per SPICE chunk. Used on the producer side to validate
-    /// incoming SpiceContractCodeRequest messages (DoS mitigation — only serve contracts
-    /// that were actually accessed).
-    contract_accesses_cache: LruCache<SpiceChunkId, HashSet<CodeHash>>,
 }
 
 struct DistributionData {
@@ -347,11 +344,6 @@ impl SpiceDataDistributorActor {
         contract_code_response_validator_sender: Sender<SpiceContractCodeResponseMessage>,
     ) -> Self {
         const RECENTLY_DECODED_DATA_CACHE_SIZE: NonZeroUsize = NonZeroUsize::new(100).unwrap();
-        /// Maximum number of recent chunks for which we remember contract accesses.
-        /// Used to validate incoming contract code requests from validators.
-        /// Validators who fall behind by more than this many chunks will have their
-        /// contract code requests rejected.
-        const CONTRACT_ACCESSES_CACHE_SIZE: NonZeroUsize = NonZeroUsize::new(256).unwrap();
         const DATA_PARTS_RATIO: f64 = 0.6;
         const PENDING_PARTIAL_DATA_CAP: NonZeroUsize = NonZeroUsize::new(10).unwrap();
         Self {
@@ -371,7 +363,6 @@ impl SpiceDataDistributorActor {
             pending_partial_data: LruCache::new(PENDING_PARTIAL_DATA_CAP),
             waiting_on_data: HashMap::new(),
             recently_decoded_data: LruCache::new(RECENTLY_DECODED_DATA_CACHE_SIZE),
-            contract_accesses_cache: LruCache::new(CONTRACT_ACCESSES_CACHE_SIZE),
         }
     }
 
@@ -1032,7 +1023,9 @@ impl SpiceDataDistributorActor {
         if include_contract_accesses {
             if let SpiceDataIdentifier::Witness { block_hash, shard_id } = &data_id {
                 let chunk_id = SpiceChunkId { block_hash: *block_hash, shard_id: *shard_id };
-                if let Some(accesses) = self.contract_accesses_cache.get(&chunk_id).cloned() {
+                if let Some(accesses) =
+                    get_contract_accesses(self.chain_store.store_ref(), block_hash, *shard_id)
+                {
                     let accesses_msg = SpiceChunkContractAccesses::new(chunk_id, accesses, &signer);
                     self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                         NetworkRequests::SpiceChunkContractAccesses(
@@ -1056,9 +1049,8 @@ impl SpiceDataDistributorActor {
 
     /// Sends contract accesses (code hashes) to chunk validators so they can check their
     /// compiled contract cache and request any missing contracts.
-    /// Also caches the accesses for validating future code requests.
     fn send_contract_accesses(
-        &mut self,
+        &self,
         chunk_id: &SpiceChunkId,
         contract_accesses: HashSet<CodeHash>,
     ) -> Result<(), Error> {
@@ -1080,9 +1072,7 @@ impl SpiceDataDistributorActor {
             .collect();
 
         let accesses_msg =
-            SpiceChunkContractAccesses::new(chunk_id.clone(), contract_accesses.clone(), &signer);
-
-        self.contract_accesses_cache.push(chunk_id.clone(), contract_accesses);
+            SpiceChunkContractAccesses::new(chunk_id.clone(), contract_accesses, &signer);
 
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::SpiceChunkContractAccesses(targets, accesses_msg),
@@ -1097,7 +1087,7 @@ impl SpiceDataDistributorActor {
     /// (e.g. unknown chunk, invalid contract hash). Returns Err only on
     /// infrastructure failures (missing signer, storage errors).
     fn handle_spice_contract_code_request(
-        &mut self,
+        &self,
         request: near_primitives::stateless_validation::contract_distribution::SpiceContractCodeRequest,
     ) -> Result<(), Error> {
         let chunk_id = request.chunk_id().clone();
@@ -1135,7 +1125,11 @@ impl SpiceDataDistributorActor {
             return Ok(());
         }
 
-        let Some(valid_accesses) = self.contract_accesses_cache.get(&chunk_id) else {
+        let Some(valid_accesses) = get_contract_accesses(
+            self.chain_store.store_ref(),
+            &chunk_id.block_hash,
+            chunk_id.shard_id,
+        ) else {
             tracing::warn!(
                 target: "spice_data_distribution",
                 ?chunk_id,
