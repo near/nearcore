@@ -344,7 +344,7 @@ fn permission_exec_fees(
             fees.fee(ActionCosts::add_full_access_key).exec_fee()
         }
     };
-    // Add per-nonce write cost for gas key variants.
+    // Additional costs for adding an access key with GasKeyFunctionCall or GasKeyFullAccess permissions.
     let gas_key_info = match permission {
         AccessKeyPermission::GasKeyFullAccess(info)
         | AccessKeyPermission::GasKeyFunctionCall(info, _) => info,
