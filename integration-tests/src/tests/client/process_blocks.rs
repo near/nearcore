@@ -37,7 +37,7 @@ use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError};
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::{PartialMerkleTree, verify_hash};
-use near_primitives::receipt::DelayedReceiptIndices;
+use near_primitives::receipt::{DelayedReceiptIndices, ReceiptOrigin, ReceiptToTxInfo};
 use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
 use near_primitives::sharding::{
     ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV3, ShardChunkWithEncoding,
@@ -3535,6 +3535,324 @@ mod contract_precompilation_tests {
         // Check that contract is not cached for client 1 because of late state sync.
         assert!(
             !near_vm_runner::contract_cached(runtime_config.wasm_config, &caches[1], hash).unwrap()
+        );
+    }
+}
+
+/// When `save_receipt_to_tx` is false, no ReceiptToTx entries should be written.
+#[test]
+fn test_save_receipt_to_tx_false() {
+    init_test_logger();
+
+    let epoch_length = 5;
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
+    let mut env = TestEnv::builder(&genesis.config)
+        .save_receipt_to_tx(false)
+        .nightshade_runtimes(&genesis)
+        .build();
+
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
+    let tx = SignedTransaction::send_money(
+        1,
+        "test0".parse().unwrap(),
+        "test1".parse().unwrap(),
+        &signer,
+        Balance::from_yoctonear(100),
+        *genesis_block.hash(),
+    );
+    let tx_hash = tx.get_hash();
+    assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+
+    for i in 1..5 {
+        env.produce_block(0, i);
+    }
+
+    // Get receipt ID from the transaction outcome.
+    let outcome = env.clients[0].chain.get_execution_outcome(&tx_hash).unwrap();
+    let receipt_id = outcome.outcome_with_id.outcome.receipt_ids[0];
+
+    // Verify ReceiptToTx entry does NOT exist.
+    let store = env.clients[0].chain.chain_store().store();
+    assert!(
+        store.get_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx, receipt_id.as_ref()).is_none(),
+        "receipt_to_tx should not be saved when save_receipt_to_tx is false"
+    );
+}
+
+/// ReceiptToTx entries survive a client restart (persist to disk via ChainStore).
+#[test]
+fn test_receipt_to_tx_persists_across_restart() {
+    init_test_logger();
+
+    let epoch_length = 5;
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
+    let mut env = TestEnv::builder(&genesis.config)
+        .save_receipt_to_tx(true)
+        .real_stores()
+        .nightshade_runtimes(&genesis)
+        .build();
+
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
+    let tx = SignedTransaction::send_money(
+        1,
+        "test0".parse().unwrap(),
+        "test1".parse().unwrap(),
+        &signer,
+        Balance::from_yoctonear(100),
+        *genesis_block.hash(),
+    );
+    let tx_hash = tx.get_hash();
+    assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+
+    for i in 1..5 {
+        env.produce_block(0, i);
+    }
+
+    // Get receipt ID from the transaction outcome.
+    let outcome = env.clients[0].chain.get_execution_outcome(&tx_hash).unwrap();
+    let receipt_id = outcome.outcome_with_id.outcome.receipt_ids[0];
+
+    // Verify ReceiptToTx entry exists before restart.
+    let info_before = env.clients[0]
+        .chain
+        .chain_store()
+        .store()
+        .get_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx, receipt_id.as_ref())
+        .expect("receipt_to_tx entry should exist before restart");
+
+    // Restart the client (reloads from disk).
+    env.restart(0);
+
+    // Verify ReceiptToTx entry still exists after restart and matches.
+    let info_after = env.clients[0]
+        .chain
+        .chain_store()
+        .store()
+        .get_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx, receipt_id.as_ref())
+        .expect("receipt_to_tx entry should persist across restart");
+    assert_eq!(info_before, info_after, "receipt_to_tx entry should be identical after restart");
+}
+
+/// `save_receipt_to_tx` works independently from `save_tx_outcomes`.
+/// When `save_tx_outcomes = false` but `save_receipt_to_tx = true`, ReceiptToTx entries
+/// ARE saved while outcomes are NOT.
+#[test]
+fn test_save_receipt_to_tx_independent_of_outcomes() {
+    init_test_logger();
+
+    let epoch_length = 5;
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
+    let mut env = TestEnv::builder(&genesis.config)
+        .save_tx_outcomes(false)
+        .save_receipt_to_tx(true)
+        .nightshade_runtimes(&genesis)
+        .build();
+
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
+    let tx = SignedTransaction::send_money(
+        1,
+        "test0".parse().unwrap(),
+        "test1".parse().unwrap(),
+        &signer,
+        Balance::from_yoctonear(100),
+        *genesis_block.hash(),
+    );
+    let tx_hash = tx.get_hash();
+    assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+
+    for i in 1..5 {
+        env.produce_block(0, i);
+    }
+
+    // Verify: outcome NOT saved (save_tx_outcomes=false).
+    assert_matches!(
+        env.clients[0].chain.get_execution_outcome(&tx_hash),
+        Err(Error::DBNotFoundErr(_))
+    );
+
+    // Find the receipt ID by scanning outgoing receipts from the block where the tx was included.
+    // Since we can't use get_execution_outcome (outcomes are disabled), we look at the chain
+    // data directly: the transfer tx creates a receipt in the block it's included.
+    let store = env.clients[0].chain.chain_store().store();
+
+    // The receipt was created when the transaction was processed. With a single-shard
+    // send_money to a different account, the receipt should be in ReceiptToTx if the tx
+    // was processed. We can find receipt IDs by iterating ReceiptToTx entries whose origin
+    // is FromTransaction with matching tx_hash.
+    let mut found_receipt = false;
+    for (_key, value) in store.iter(DBCol::ReceiptToTx) {
+        let info: ReceiptToTxInfo = borsh::from_slice(&value).unwrap();
+        match &info {
+            ReceiptToTxInfo::V1(v1) => {
+                if let near_primitives::receipt::ReceiptOrigin::FromTransaction(ref origin) =
+                    v1.origin
+                {
+                    if origin.tx_hash == tx_hash {
+                        found_receipt = true;
+                        assert_eq!(
+                            v1.receiver_account_id,
+                            "test1".parse::<AccountId>().unwrap(),
+                            "receiver should be test1"
+                        );
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    assert!(found_receipt, "receipt_to_tx entry should exist even when save_tx_outcomes is false");
+}
+
+/// When both save_receipt_to_tx and save_tx_outcomes are false, neither
+/// OutcomeIds nor ReceiptToTx entries should be written (needs_index=false).
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+#[test]
+fn test_no_index_when_both_disabled() {
+    init_test_logger();
+
+    let epoch_length = 5;
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
+    let mut env = TestEnv::builder(&genesis.config)
+        .save_tx_outcomes(false)
+        .save_receipt_to_tx(false)
+        .nightshade_runtimes(&genesis)
+        .build();
+
+    // Capture baseline counts before sending the transaction.
+    let outcome_ids_before =
+        env.clients[0].chain.chain_store().store().iter(DBCol::OutcomeIds).count();
+    let receipt_to_tx_before =
+        env.clients[0].chain.chain_store().store().iter(DBCol::ReceiptToTx).count();
+
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
+    let tx = SignedTransaction::send_money(
+        1,
+        "test0".parse().unwrap(),
+        "test1".parse().unwrap(),
+        &signer,
+        Balance::from_yoctonear(100),
+        *genesis_block.hash(),
+    );
+    let tx_hash = tx.get_hash();
+    assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+
+    for i in 1..5 {
+        env.produce_block(0, i);
+    }
+
+    // Verify the transaction actually executed, so the negative assertions
+    // below are meaningful (not vacuously true).
+    let test1_balance = env.query_balance("test1".parse().unwrap());
+    assert!(
+        test1_balance > TESTING_INIT_BALANCE,
+        "test1 balance should increase after send_money to confirm tx executed"
+    );
+
+    // Also verify outcomes are NOT saved (locks in save_tx_outcomes=false).
+    assert_matches!(
+        env.clients[0].chain.get_execution_outcome(&tx_hash),
+        Err(near_chain::Error::DBNotFoundErr(_))
+    );
+
+    let store = env.clients[0].chain.chain_store().store();
+
+    // No new OutcomeIds should be written (needs_index short-circuits).
+    assert_eq!(
+        store.iter(DBCol::OutcomeIds).count(),
+        outcome_ids_before,
+        "no new OutcomeIds when both save_tx_outcomes and save_receipt_to_tx are false"
+    );
+
+    // No new ReceiptToTx should be written.
+    assert_eq!(
+        store.iter(DBCol::ReceiptToTx).count(),
+        receipt_to_tx_before,
+        "no new ReceiptToTx when save_receipt_to_tx is false"
+    );
+}
+
+/// ReceiptToTx entries survive a restart in index-only mode
+/// (save_tx_outcomes=false, save_receipt_to_tx=true).
+#[test]
+fn test_receipt_to_tx_persists_across_restart_index_only() {
+    init_test_logger();
+
+    let epoch_length = 5;
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
+    let mut env = TestEnv::builder(&genesis.config)
+        .save_tx_outcomes(false)
+        .save_receipt_to_tx(true)
+        .real_stores()
+        .nightshade_runtimes(&genesis)
+        .build();
+
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
+    let tx = SignedTransaction::send_money(
+        1,
+        "test0".parse().unwrap(),
+        "test1".parse().unwrap(),
+        &signer,
+        Balance::from_yoctonear(100),
+        *genesis_block.hash(),
+    );
+    let tx_hash = tx.get_hash();
+    assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+
+    for i in 1..5 {
+        env.produce_block(0, i);
+    }
+
+    // Find ReceiptToTx entries by iterating (can't use get_execution_outcome
+    // since save_tx_outcomes=false).
+    let our_entries: Vec<(CryptoHash, ReceiptToTxInfo)> = {
+        let store = env.clients[0].chain.chain_store().store();
+        store
+            .iter_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx)
+            .filter_map(|(key, info)| {
+                let receipt_id = CryptoHash::try_from(key.as_ref()).unwrap();
+                match &info {
+                    ReceiptToTxInfo::V1(v1) => match &v1.origin {
+                        ReceiptOrigin::FromTransaction(origin) if origin.tx_hash == tx_hash => {
+                            Some((receipt_id, info))
+                        }
+                        _ => None,
+                    },
+                }
+            })
+            .collect()
+    };
+    assert!(!our_entries.is_empty(), "should have ReceiptToTx entries before restart");
+
+    let receipt_ids: Vec<CryptoHash> = our_entries.iter().map(|(id, _)| *id).collect();
+    let infos_before: Vec<&ReceiptToTxInfo> = our_entries.iter().map(|(_, info)| info).collect();
+
+    // Restart the client (reloads from disk).
+    env.restart(0);
+
+    // Verify entries persist after restart.
+    let store = env.clients[0].chain.chain_store().store();
+    for (i, receipt_id) in receipt_ids.iter().enumerate() {
+        let info_after = store
+            .get_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx, receipt_id.as_ref())
+            .expect("receipt_to_tx should persist across restart in index-only mode");
+        assert_eq!(
+            infos_before[i], &info_after,
+            "receipt_to_tx entry should be identical after restart"
         );
     }
 }

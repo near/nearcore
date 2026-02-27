@@ -365,6 +365,7 @@ impl NightshadeRuntime {
             contract_updates: apply_result.contract_updates,
             stats: apply_result.stats,
             proposed_split,
+            receipt_to_tx: apply_result.receipt_to_tx,
         };
 
         Ok(result)

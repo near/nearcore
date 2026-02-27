@@ -7,10 +7,11 @@ use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
 use near_primitives::epoch_manager::EpochConfigStore;
-use near_primitives::receipt::ReceiptEnum;
+use near_primitives::receipt::{ReceiptEnum, ReceiptToTxInfo};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta};
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::DBCol;
 use near_vm_runner::ContractCode;
 
 use crate::setup::builder::TestLoopBuilder;
@@ -284,4 +285,91 @@ impl GlobalContractsReshardingTestEnv {
     fn shutdown(self) {
         self.env.shutdown_and_drain_remaining_events(Duration::seconds(10));
     }
+}
+
+/// Tests that GlobalContractDistribution receipts have ReceiptToTx entries, including
+/// forwarded distribution receipts that hop across shards.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_global_distribution_receipt_has_receipt_to_tx() {
+    init_test_logger();
+    let mut env = GlobalContractsReshardingTestEnv::setup();
+    let expected_new_shard_layout_height = EPOCH_LENGTH * 2 + 2;
+    let send_deploy_tx_height = expected_new_shard_layout_height - 3;
+
+    env.run_until_head_height(send_deploy_tx_height);
+
+    // Deploy global contract.
+    let deploy_user = env.users[0].clone();
+    let code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
+    let deploy_tx = deploy_global_contract(
+        &mut env.env.test_loop,
+        &env.env.node_datas,
+        &env.chunk_producer,
+        deploy_user,
+        code.code().to_vec(),
+        1,
+        GlobalContractDeployMode::CodeHash,
+    );
+
+    env.run_until_head_height(expected_new_shard_layout_height);
+    check_txs(&mut env.env.test_loop.data, &env.env.node_datas, &env.chunk_producer, &[deploy_tx]);
+
+    // Run extra blocks so forwarded distribution receipts (which hop shard-by-shard)
+    // have time to appear in chunks.
+    let extra_blocks = 10;
+    env.run_until_head_height(expected_new_shard_layout_height + extra_blocks);
+
+    // Find all GlobalContractDistribution receipts from chunks in all blocks.
+    let client = env.chunk_producer_node().client();
+    let head_height = client.chain.head().unwrap().height;
+    let mut distribution_receipt_ids = vec![];
+    for height in 1..=head_height {
+        let block = match client.chain.get_block_by_height(height) {
+            Ok(block) => block,
+            Err(_) => continue,
+        };
+        for chunk_header in block.chunks().iter() {
+            if !chunk_header.is_new_chunk() {
+                continue;
+            }
+            let chunk = match client.chain.get_chunk(&chunk_header.compute_hash()) {
+                Ok(chunk) => chunk,
+                Err(_) => continue,
+            };
+            for receipt in chunk.prev_outgoing_receipts() {
+                if let ReceiptEnum::GlobalContractDistribution(_) = receipt.receipt() {
+                    distribution_receipt_ids.push(*receipt.receipt_id());
+                }
+            }
+        }
+    }
+    assert!(
+        distribution_receipt_ids.len() > 1,
+        "expected multiple GlobalContractDistribution receipts (initial + forwarded), found {}",
+        distribution_receipt_ids.len()
+    );
+
+    // Verify that each distribution receipt has a ReceiptToTx entry.
+    let store = env.chunk_producer_node().store();
+    for receipt_id in &distribution_receipt_ids {
+        let info = store
+            .get_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx, receipt_id.as_ref())
+            .unwrap_or_else(|| {
+                panic!(
+                    "receipt_to_tx entry should exist for GlobalContractDistribution receipt {:?}",
+                    receipt_id
+                )
+            });
+        match &info {
+            ReceiptToTxInfo::V1(v1) => {
+                assert!(
+                    matches!(&v1.origin, near_primitives::receipt::ReceiptOrigin::FromReceipt(_)),
+                    "GlobalContractDistribution receipt should have FromReceipt origin"
+                );
+            }
+        }
+    }
+
+    env.shutdown();
 }

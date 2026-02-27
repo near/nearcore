@@ -9,7 +9,7 @@ use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{ReceiptEnum, VersionedReceiptEnum};
+use near_primitives::receipt::{ReceiptEnum, ReceiptToTxInfo, VersionedReceiptEnum};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
@@ -17,6 +17,7 @@ use near_primitives::trie_key::{TrieKey, col, trie_key_parsers};
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
+use near_store::DBCol;
 use near_store::adapter::StoreAdapter;
 use near_store::{ShardUId, Trie, TrieDBStorage};
 use std::str::FromStr;
@@ -627,6 +628,78 @@ fn test_skip_timeout_height() {
             .status,
         FinalExecutionStatus::SuccessValue(vec![0u8]),
     );
+
+    assert_no_promise_yield_status_in_state(&env);
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+/// Helper: finds PromiseResume receipt IDs from the outgoing receipts at the latest block.
+fn find_promise_resume_receipt_ids_from_latest_block(env: &TestLoopEnv) -> Vec<CryptoHash> {
+    let node = env.validator();
+    let client = node.client();
+    let genesis_block = client.chain.get_block_by_height(0).unwrap();
+    let epoch_id = *genesis_block.header().epoch_id();
+    let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
+    let shard_id = shard_layout.account_id_to_shard_id(&"test0".parse::<AccountId>().unwrap());
+    let last_block_hash = client.chain.head().unwrap().last_block_hash;
+    let last_block_height = client.chain.head().unwrap().height;
+
+    let mut result = vec![];
+    for receipt in client
+        .chain
+        .get_outgoing_receipts_for_shard(last_block_hash, shard_id, last_block_height)
+        .unwrap()
+    {
+        if let ReceiptEnum::PromiseResume(_) = receipt.receipt() {
+            result.push(*receipt.receipt_id());
+        }
+    }
+    result
+}
+
+/// Tests that PromiseResume receipts created by yield timeout have ReceiptToTx entries.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_yield_timeout_resume_receipt_has_receipt_to_tx() {
+    let (mut env, yield_tx_hash, _data_id) = prepare_env_with_yield(vec![], None);
+    assert!(NEXT_BLOCK_HEIGHT_AFTER_SETUP < YIELD_TIMEOUT_HEIGHT);
+
+    // Advance through blocks before timeout.
+    for block_height in NEXT_BLOCK_HEIGHT_AFTER_SETUP..YIELD_TIMEOUT_HEIGHT {
+        env.validator_runner().run_until_head_height(block_height);
+    }
+
+    // In this block the timeout fires, producing a PromiseResume receipt.
+    env.validator_runner().run_until_head_height(YIELD_TIMEOUT_HEIGHT);
+    let resume_receipt_ids = find_promise_resume_receipt_ids_from_latest_block(&env);
+    assert_eq!(resume_receipt_ids.len(), 1, "expected exactly one PromiseResume receipt");
+    let resume_receipt_id = resume_receipt_ids[0];
+
+    // In this block the resume receipt is applied and the callback executes.
+    env.validator_runner().run_until_head_height(YIELD_TIMEOUT_HEIGHT + 1);
+    assert_eq!(
+        env.validator()
+            .client()
+            .chain
+            .get_partial_transaction_result(&yield_tx_hash)
+            .unwrap()
+            .status,
+        FinalExecutionStatus::SuccessValue(vec![0u8]),
+    );
+
+    // Check that the PromiseResume receipt has a ReceiptToTx entry.
+    let store = env.validator().store();
+    let info = store
+        .get_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx, resume_receipt_id.as_ref())
+        .expect("receipt_to_tx entry should exist for PromiseResume receipt from yield timeout");
+    match &info {
+        ReceiptToTxInfo::V1(v1) => {
+            assert!(
+                matches!(&v1.origin, near_primitives::receipt::ReceiptOrigin::FromReceipt(_)),
+                "PromiseResume from yield timeout should have FromReceipt origin"
+            );
+        }
+    }
 
     assert_no_promise_yield_status_in_state(&env);
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));

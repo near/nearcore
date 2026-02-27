@@ -9,7 +9,9 @@ use near_primitives::chunk_apply_stats::{ChunkApplyStats, ChunkApplyStatsV0};
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
-use near_primitives::receipt::{ProcessedReceipt, ProcessedReceiptMetadata, Receipt};
+use near_primitives::receipt::{
+    ProcessedReceipt, ProcessedReceiptMetadata, Receipt, ReceiptToTxInfo,
+};
 use near_primitives::shard_layout::{ShardLayout, ShardUId, get_block_shard_uid};
 use near_primitives::sharding::{
     ArcedShardChunk, ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk,
@@ -281,6 +283,8 @@ pub struct ChainStore {
     save_trie_changes: bool,
     /// Whether to persist transaction outcomes on disk or not.
     save_tx_outcomes: bool,
+    /// Whether to persist receipt-to-tx origin mappings on disk or not.
+    save_receipt_to_tx: bool,
     /// Whether to persist state changes on disk or not.
     save_state_changes: bool,
     /// The maximum number of blocks for which a transaction is valid since its creation.
@@ -305,6 +309,7 @@ impl ChainStore {
             store: store.chain_store(),
             save_trie_changes,
             save_tx_outcomes: true,
+            save_receipt_to_tx: true,
             save_state_changes: true,
             transaction_validity_period,
         }
@@ -312,6 +317,10 @@ impl ChainStore {
 
     pub fn with_save_tx_outcomes(self, save_tx_outcomes: bool) -> ChainStore {
         ChainStore { save_tx_outcomes, ..self }
+    }
+
+    pub fn with_save_receipt_to_tx(self, save_receipt_to_tx: bool) -> ChainStore {
+        ChainStore { save_receipt_to_tx, ..self }
     }
 
     pub fn with_save_state_changes(self, save_state_changes: bool) -> ChainStore {
@@ -1033,6 +1042,7 @@ pub(crate) struct ChainStoreCacheUpdate {
     block_merkle_tree: HashMap<CryptoHash, Arc<PartialMerkleTree>>,
     block_ordinal_to_hash: HashMap<NumBlocks, CryptoHash>,
     processed_block_heights: HashSet<BlockHeight>,
+    receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
 }
 
 /// Provides layer to update chain without touching the underlying database.
@@ -1688,18 +1698,30 @@ impl<'a> ChainStoreUpdate<'a> {
         outcomes: Vec<ExecutionOutcomeWithId>,
         proofs: Vec<MerklePath>,
     ) {
-        if !self.chain_store.save_tx_outcomes {
+        // The OutcomeIds index is needed for GC of both TransactionResultForBlock
+        // and ReceiptToTx entries, so write it when either feature is enabled.
+        let needs_index = self.chain_store.save_tx_outcomes || self.chain_store.save_receipt_to_tx;
+        if !needs_index {
             return;
         }
         let mut outcome_ids = Vec::with_capacity(outcomes.len());
         for (outcome_with_id, proof) in outcomes.into_iter().zip(proofs.into_iter()) {
             outcome_ids.push(outcome_with_id.id);
-            self.chain_store_cache_update.outcomes.insert(
-                (outcome_with_id.id, *block_hash),
-                ExecutionOutcomeWithProof { outcome: outcome_with_id.outcome, proof },
-            );
+            if self.chain_store.save_tx_outcomes {
+                self.chain_store_cache_update.outcomes.insert(
+                    (outcome_with_id.id, *block_hash),
+                    ExecutionOutcomeWithProof { outcome: outcome_with_id.outcome, proof },
+                );
+            }
         }
         self.chain_store_cache_update.outcome_ids.insert((*block_hash, shard_id), outcome_ids);
+    }
+
+    pub fn save_receipt_to_tx(&mut self, receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>) {
+        if !self.chain_store.save_receipt_to_tx {
+            return;
+        }
+        self.chain_store_cache_update.receipt_to_tx.extend(receipt_to_tx);
     }
 
     pub fn save_trie_changes(&mut self, block_hash: CryptoHash, trie_changes: WrappedTrieChanges) {
@@ -2056,6 +2078,13 @@ impl<'a> ChainStoreUpdate<'a> {
                     &get_block_shard_id(block_hash, *shard_id),
                     &ids,
                 );
+            }
+        }
+
+        {
+            let _span = tracing::trace_span!(target: "store", "write_receipt_to_tx").entered();
+            for (receipt_id, info) in &self.chain_store_cache_update.receipt_to_tx {
+                store_update.insert_ser(DBCol::ReceiptToTx, receipt_id.as_ref(), info);
             }
         }
 

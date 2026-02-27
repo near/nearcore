@@ -8396,6 +8396,10 @@
             "description": "Save observed instances of ChunkStateWitness to the database in DBCol::LatestChunkStateWitnesses.\nSaving the latest witnesses is useful for analysis and debugging.\nThis option can cause extra load on the database and is not recommended for production use.",
             "type": "boolean"
           },
+          "save_receipt_to_tx": {
+            "description": "Whether to persist receipt-to-tx origin mappings to disk or not.",
+            "type": "boolean"
+          },
           "save_state_changes": {
             "description": "Whether to persist state changes on disk or not.",
             "type": "boolean"
@@ -8626,6 +8630,7 @@
           "archive",
           "save_trie_changes",
           "save_tx_outcomes",
+          "save_receipt_to_tx",
           "save_state_changes",
           "save_untracked_partial_chunks_parts",
           "view_client_threads",

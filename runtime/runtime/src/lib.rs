@@ -50,8 +50,9 @@ use near_primitives::errors::{
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     DataReceipt, ProcessedReceipt, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
-    ReceiptOrStateStoredReceipt, ReceiptSource, ReceiptV0, ReceivedData, VersionedActionReceipt,
-    VersionedReceiptEnum,
+    ReceiptOrStateStoredReceipt, ReceiptOrigin, ReceiptOriginReceipt, ReceiptOriginTransaction,
+    ReceiptSource, ReceiptToTxInfo, ReceiptToTxInfoV1, ReceiptV0, ReceivedData,
+    VersionedActionReceipt, VersionedReceiptEnum,
 };
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
@@ -325,6 +326,8 @@ pub struct ApplyResult {
     pub bandwidth_scheduler_state_hash: CryptoHash,
     /// Contracts accessed and deployed while applying the chunk.
     pub contract_updates: ContractUpdates,
+    /// Mapping from receipt_id to its origin (parent receipt or originating transaction).
+    pub receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
 }
 
 #[derive(Debug)]
@@ -672,6 +675,7 @@ impl Runtime {
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ChunkApplyStatsV0,
         epoch_info_provider: &dyn EpochInfoProvider,
+        receipt_to_tx: &mut Vec<(CryptoHash, ReceiptToTxInfo)>,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
         let action_receipt: VersionedActionReceipt = match receipt.versioned_receipt() {
             VersionedReceiptEnum::Action(action_receipt)
@@ -928,6 +932,16 @@ impl Runtime {
             .filter_map(|(receipt_index, mut new_receipt)| {
                 let receipt_id = apply_state.create_receipt_id(receipt.receipt_id(), receipt_index);
                 new_receipt.set_receipt_id(receipt_id);
+                receipt_to_tx.push((
+                    receipt_id,
+                    ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+                        origin: ReceiptOrigin::FromReceipt(ReceiptOriginReceipt {
+                            parent_receipt_id: *receipt.receipt_id(),
+                            parent_creator_account_id: receipt.predecessor_id().clone(),
+                        }),
+                        receiver_account_id: new_receipt.receiver_id().clone(),
+                    }),
+                ));
                 let is_action = matches!(
                     new_receipt.receipt(),
                     ReceiptEnum::Action(_)
@@ -1084,6 +1098,7 @@ impl Runtime {
             ref pipeline_manager,
             ref mut stats,
             ref mut instant_receipts,
+            ref mut receipt_to_tx,
             ..
         } = *processing_state;
         let account_id = receipt.receiver_id();
@@ -1155,6 +1170,7 @@ impl Runtime {
                                 validator_proposals,
                                 stats,
                                 epoch_info_provider,
+                                receipt_to_tx,
                             )
                             .map(Some);
                     } else {
@@ -1189,6 +1205,7 @@ impl Runtime {
                     stats,
                     account_id,
                     action_receipt,
+                    receipt_to_tx,
                 )?;
 
                 if executed.is_some() {
@@ -1251,6 +1268,7 @@ impl Runtime {
                             validator_proposals,
                             stats,
                             epoch_info_provider,
+                            receipt_to_tx,
                         )
                         .map(Some);
                 } else {
@@ -1267,6 +1285,7 @@ impl Runtime {
                     epoch_info_provider,
                     state_update,
                     receipt_sink,
+                    receipt_to_tx,
                 )?;
                 return Ok(None);
             }
@@ -1294,6 +1313,7 @@ impl Runtime {
         stats: &mut ChunkApplyStatsV0,
         account_id: &AccountId,
         action_receipt: VersionedActionReceipt<'_>,
+        receipt_to_tx: &mut Vec<(CryptoHash, ReceiptToTxInfo)>,
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
         let mut pending_data_count: u32 = 0;
         for data_id in action_receipt.input_data_ids() {
@@ -1326,6 +1346,7 @@ impl Runtime {
                     validator_proposals,
                     stats,
                     epoch_info_provider,
+                    receipt_to_tx,
                 )
                 .map(Some);
         } else {
@@ -1993,6 +2014,16 @@ impl Runtime {
                             metadata: ExecutionMetadata::V1,
                         },
                     };
+                    processing_state.receipt_to_tx.push((
+                        receipt_id,
+                        ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+                            origin: ReceiptOrigin::FromTransaction(ReceiptOriginTransaction {
+                                tx_hash: *tx_hash,
+                                sender_account_id: signer_id.clone(),
+                            }),
+                            receiver_account_id: tx.transaction.receiver_id().clone(),
+                        }),
+                    ));
                     if receipt.receiver_id() == signer_id {
                         processing_state.local_receipts.push_back(receipt);
                     } else {
@@ -2542,6 +2573,7 @@ impl Runtime {
             delayed_receipts: pending_delayed_receipts,
             prefetcher,
             processed_receipts,
+            receipt_to_tx,
             ..
         } = processing_state;
         let ProcessReceiptsResult { promise_yield_result, .. } = process_receipts_result;
@@ -2669,6 +2701,7 @@ impl Runtime {
             bandwidth_requests,
             bandwidth_scheduler_state_hash,
             contract_updates,
+            receipt_to_tx,
         })
     }
 }
@@ -2802,6 +2835,7 @@ fn missing_chunk_apply_result(
         bandwidth_requests: previous_bandwidth_requests,
         bandwidth_scheduler_state_hash: bandwidth_scheduler_output.scheduler_state_hash,
         contract_updates,
+        receipt_to_tx: vec![],
     });
 }
 
@@ -2865,6 +2899,25 @@ fn resolve_promise_yield_timeouts(
                     data: None,
                 }),
             });
+
+            // Record a ReceiptToTx entry for the new resume receipt. The parent is the
+            // yield receipt that is being timed out.
+            let yield_receipt = get_promise_yield_receipt(
+                state_update,
+                &queue_entry.account_id,
+                queue_entry.data_id,
+            )?
+            .expect("promise yield receipt should exist since contains_key was true");
+            processing_state.receipt_to_tx.push((
+                new_receipt_id,
+                ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+                    origin: ReceiptOrigin::FromReceipt(ReceiptOriginReceipt {
+                        parent_receipt_id: *yield_receipt.receipt_id(),
+                        parent_creator_account_id: yield_receipt.predecessor_id().clone(),
+                    }),
+                    receiver_account_id: queue_entry.account_id.clone(),
+                }),
+            ));
 
             // The receipt is destined for the local shard and will be placed in the outgoing
             // receipts buffer. It is possible that there is already an outgoing receipt resolving
@@ -2995,6 +3048,7 @@ impl<'a> ApplyProcessingState<'a> {
             incoming_receipts,
             delayed_receipts,
             processed_receipts: Vec::new(),
+            receipt_to_tx: Vec::new(),
         }
     }
 }
@@ -3019,6 +3073,7 @@ struct ApplyProcessingReceiptState<'a> {
     delayed_receipts: DelayedReceiptQueueWrapper<'a>,
     pipeline_manager: pipelining::ReceiptPreparationPipeline,
     processed_receipts: Vec<ProcessedReceipt>,
+    receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
 }
 
 trait MaybeRefReceipt {
@@ -3195,6 +3250,7 @@ pub mod estimator {
             state_update.contract_storage(),
             epoch_info_provider.chain_id(),
         );
+        let mut receipt_to_tx = Vec::new();
         let apply_result = Runtime {}.apply_action_receipt(
             state_update,
             apply_state,
@@ -3205,6 +3261,7 @@ pub mod estimator {
             validator_proposals,
             stats,
             epoch_info_provider,
+            &mut receipt_to_tx,
         );
         let new_outgoing_receipts =
             receipt_sink.finalize_stats_get_outgoing_receipts(&mut stats.receipt_sink);

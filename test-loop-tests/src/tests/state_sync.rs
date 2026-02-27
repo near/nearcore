@@ -11,6 +11,7 @@ use near_network::client::{ProcessTxRequest, StateRequestHeader};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::ReceiptToTxInfo;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
@@ -18,6 +19,8 @@ use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Nonce, NumSeats, ShardId,
 };
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
+use near_store::DBCol;
+use near_store::adapter::StoreAdapter as _;
 
 use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
 use crate::setup::drop_condition::DropCondition;
@@ -1133,4 +1136,183 @@ fn slow_test_state_sync_no_parts_provided() {
     );
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
+}
+
+/// Tests that ReceiptToTx entries are correctly persisted by set_state_finalize
+/// during state sync.
+///
+/// Sets up a multi-node network with shuffled shard assignments, sends cross-shard
+/// transactions (including a late batch near the epoch boundary to ensure receipt
+/// traffic at the sync point), then adds a new node that state-syncs. Verifies
+/// the synced node has ReceiptToTx entries BEFORE produce_chunks, proving
+/// set_state_finalize correctly persists receipt_to_tx mappings (not just
+/// normal block processing).
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_receipt_to_tx_after_state_sync() {
+    init_test_logger();
+
+    let TestState { mut env, mut accounts, .. } = setup_initial_blockchain(
+        2,                  // num_validators
+        2,                  // num_block_producer_seats
+        2,                  // num_chunk_producer_seats
+        2,                  // num_shards
+        true,               // generate_shard_accounts
+        HashMap::default(), // chunks_produced
+        None,               // skip_block_sync_height_delta
+        &None,              // extra_node_shard_schedule
+        PROTOCOL_VERSION,
+    );
+
+    // Continuously send cross-shard transactions while advancing toward the
+    // sync hash. This ensures there is receipt traffic in-flight at the sync
+    // point (rather than sending a single batch that gets fully processed
+    // before the epoch boundary).
+    let sync_hash = {
+        let mut last_height = {
+            let handle = env.node_datas[0].client_sender.actor_handle();
+            let client = &env.test_loop.data.get(&handle).client;
+            client.chain.head().unwrap().height
+        };
+
+        loop {
+            // Send a batch of cross-shard transactions.
+            if let Some(accounts) = accounts.as_mut() {
+                send_txs_between_shards(&mut env.test_loop, &env.node_datas, accounts);
+            }
+
+            // Advance one block.
+            env.test_loop.run_until(
+                |data| {
+                    let handle = env.node_datas[0].client_sender.actor_handle();
+                    let client = &data.get(&handle).client;
+                    client.chain.head().unwrap().height > last_height
+                },
+                Duration::seconds(5),
+            );
+
+            let handle = env.node_datas[0].client_sender.actor_handle();
+            let client = &env.test_loop.data.get(&handle).client;
+            let tip = client.chain.head().unwrap();
+            last_height = tip.height;
+
+            // Check if sync hash is available.
+            if tip.epoch_id != Default::default() {
+                if let Some(hash) = client.chain.get_sync_hash(&tip.last_block_hash).unwrap() {
+                    break hash;
+                }
+            }
+        }
+    };
+
+    // Capture ReceiptToTx entries from source validators as the expected set.
+    // Source nodes track different shards (shuffle_shard_assignment), so union
+    // both to get full coverage.
+    let expected_entries: HashMap<CryptoHash, ReceiptToTxInfo> = {
+        let mut entries = HashMap::new();
+        for node_data in &env.node_datas {
+            let handle = node_data.client_sender.actor_handle();
+            let client = &env.test_loop.data.get(&handle).client;
+            let store = client.chain.chain_store.store().store();
+            for (key, info) in store.iter_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx) {
+                let receipt_id = CryptoHash::try_from(key.as_ref()).unwrap();
+                entries.insert(receipt_id, info);
+            }
+        }
+        entries
+    };
+    assert!(!expected_entries.is_empty(), "source validators should have ReceiptToTx entries");
+    tracing::info!(
+        count = expected_entries.len(),
+        "captured ReceiptToTx entries from source validators"
+    );
+
+    // Add a new node that will sync from scratch.
+    let genesis = env.shared_state.genesis.clone();
+    let tempdir_path = env.shared_state.tempdir.path().to_path_buf();
+    let account_id: AccountId = "sync-from-scratch".parse().unwrap();
+    let new_node_state = NodeStateBuilder::new(genesis, tempdir_path)
+        .account_id(account_id.clone())
+        .config_modifier(move |config| {
+            config.block_fetch_horizon = 5;
+            config.tracked_shards_config = TrackedShardsConfig::AllShards;
+        })
+        .build();
+    env.add_node(account_id.as_str(), new_node_state);
+
+    // Wait for the syncing node to catch up via state sync.
+    env.test_loop.run_until(
+        |data| {
+            let handle = env.node_datas.last().unwrap().client_sender.actor_handle();
+            let client = &data.get(&handle).client;
+            let new_tip = client.chain.head().unwrap();
+            if new_tip.height > GENESIS_HEIGHT {
+                let sync_header = client.chain.get_block_header(&sync_hash).unwrap();
+                assert!(new_tip.last_block_hash == *sync_header.prev_hash());
+                true
+            } else {
+                false
+            }
+        },
+        Duration::seconds(3),
+    );
+
+    // KEY CHECK: verify ReceiptToTx entries on the synced node match source
+    // validators BEFORE produce_chunks. At this point only set_state_finalize
+    // has run, so any entries must come from state sync.
+    //
+    // Strategy:
+    // 1. Collect synced node's replay receipt IDs from OutcomeIds
+    // 2. Assert non-empty (set_state_finalize produced entries)
+    // 3. For each, require exact match in expected_entries from source
+    {
+        let handle = env.node_datas.last().unwrap().client_sender.actor_handle();
+        let client = &env.test_loop.data.get(&handle).client;
+        let store = client.chain.chain_store.store().store();
+
+        // Collect receipt IDs that have ReceiptToTx entries on the synced node.
+        let mut synced_replay_receipt_ids = Vec::new();
+        for (_key, value) in store.iter(DBCol::OutcomeIds) {
+            let outcome_ids: Vec<CryptoHash> =
+                borsh::from_slice(&value).expect("OutcomeIds should deserialize");
+            for oid in &outcome_ids {
+                if store.get(DBCol::ReceiptToTx, oid.as_ref()).is_some() {
+                    synced_replay_receipt_ids.push(*oid);
+                }
+            }
+        }
+
+        assert!(
+            !synced_replay_receipt_ids.is_empty(),
+            "synced node should have ReceiptToTx entries from set_state_finalize"
+        );
+
+        // Every ReceiptToTx entry on the synced node must match a source entry.
+        for receipt_id in &synced_replay_receipt_ids {
+            let synced_info = store
+                .get_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx, receipt_id.as_ref())
+                .expect("ReceiptToTx entry should deserialize");
+            let expected_info = expected_entries.get(receipt_id).unwrap_or_else(|| {
+                panic!(
+                    "synced node has ReceiptToTx entry {receipt_id} not found on any source validator"
+                );
+            });
+            assert_eq!(
+                &synced_info, expected_info,
+                "ReceiptToTx entry {receipt_id} on synced node should match source"
+            );
+        }
+
+        tracing::info!(
+            matched = synced_replay_receipt_ids.len(),
+            total_source = expected_entries.len(),
+            "all synced ReceiptToTx entries verified against source validators"
+        );
+    }
+
+    // Continue producing chunks with cross-shard transactions for several epochs.
+    produce_chunks(&mut env, accounts.clone(), None);
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }

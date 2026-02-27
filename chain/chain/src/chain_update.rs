@@ -159,6 +159,8 @@ impl<'a> ChainUpdate<'a> {
                     apply_result.outcomes,
                     outcome_paths,
                 );
+                // Save receipt-to-tx origin mappings.
+                self.chain_store_update.save_receipt_to_tx(apply_result.receipt_to_tx);
                 if should_save_state_transition_data {
                     self.chain_store_update.save_state_transition_data(
                         *block_hash,
@@ -208,6 +210,8 @@ impl<'a> ChainUpdate<'a> {
                     shard_uid.shard_id(),
                     apply_result.stats,
                 );
+                // Save receipt-to-tx origin mappings (defensive; old chunks return empty vec).
+                self.chain_store_update.save_receipt_to_tx(apply_result.receipt_to_tx);
             }
         };
         Ok(())
@@ -591,6 +595,8 @@ impl<'a> ChainUpdate<'a> {
             apply_result.outcomes,
             outcome_proofs,
         );
+        // Save receipt-to-tx origin mappings.
+        self.chain_store_update.save_receipt_to_tx(apply_result.receipt_to_tx);
         // Saving all incoming receipts.
         for receipt_proof_response in receipt_proof_responses {
             self.chain_store_update.save_incoming_receipt(
@@ -679,6 +685,8 @@ impl<'a> ChainUpdate<'a> {
             &shard_uid,
             new_chunk_extra.into(),
         );
+        // Save receipt-to-tx origin mappings (defensive; old chunks return empty vec).
+        self.chain_store_update.save_receipt_to_tx(apply_result.receipt_to_tx);
         Ok(true)
     }
 

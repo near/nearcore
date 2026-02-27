@@ -337,6 +337,11 @@ pub enum DBCol {
     /// - *Rows*: block + shard
     /// - *Content type*: Vec of [near_primitives::receipt::ProcessedReceiptMetadata]
     ProcessedReceiptIds,
+    /// Mapping from receipt hash to its origin information (parent receipt or originating transaction).
+    /// Used to enable reverse lookups from receipt_id to the originating transaction hash.
+    /// - *Rows*: receipt hash (CryptoHash)
+    /// - *Content type*: [near_primitives::receipt::ReceiptToTxInfo]
+    ReceiptToTx,
     /// Mapping from Block Hash + Target Shard Id + Source Shard Id to Receipt Proof.
     /// The receipts result from applying the chunk on the source shard of the corresponding block.
     /// The key includes the target shard first to enable prefix queries for retrieving all incoming
@@ -441,7 +446,8 @@ impl DBCol {
             | DBCol::Chunks
             | DBCol::InvalidChunks
             | DBCol::PartialChunks
-            | DBCol::TransactionResultForBlock => true,
+            | DBCol::TransactionResultForBlock
+            | DBCol::ReceiptToTx => true,
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::UncertifiedChunks
             | DBCol::ExecutionResults
@@ -529,7 +535,8 @@ impl DBCol {
             | DBCol::TransactionResultForBlock
             | DBCol::Transactions
             | DBCol::StateShardUIdMapping
-            | DBCol::ChunkApplyStats => true,
+            | DBCol::ChunkApplyStats
+            | DBCol::ReceiptToTx => true,
             #[cfg(feature = "protocol_feature_spice")]
             | DBCol::ReceiptProofs => true,
             #[cfg(feature = "protocol_feature_spice")]
@@ -690,6 +697,7 @@ impl DBCol {
             DBCol::StateSyncNewChunks => &[DBKeyType::BlockHash],
             DBCol::ChunkApplyStats => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             DBCol::ProcessedReceiptIds => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            DBCol::ReceiptToTx => &[DBKeyType::ReceiptHash],
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::ReceiptProofs => &[DBKeyType::BlockHash, DBKeyType::ShardId, DBKeyType::ShardId],
             #[cfg(feature = "protocol_feature_spice")]

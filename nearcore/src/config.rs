@@ -296,6 +296,11 @@ pub struct Config {
     /// - All shards are tracked (i.e. node is an RPC node).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_tx_outcomes: Option<bool>,
+    /// Whether to persist `ReceiptToTxInfo` objects into `DBCol::ReceiptToTx`.
+    /// Enables reverse lookups from receipt_id to originating transaction hash.
+    /// If set to `None`, defaults to the same value as `save_tx_outcomes`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub save_receipt_to_tx: Option<bool>,
     /// Whether to persist state changes on disk or not.
     /// If `None`, defaults to true (persist).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -462,6 +467,7 @@ impl Default for Config {
             save_trie_changes: None,
             save_state_changes: None,
             save_tx_outcomes: None,
+            save_receipt_to_tx: None,
             save_untracked_partial_chunks_parts: None,
             log_summary_style: LogSummaryStyle::Colored,
             log_summary_period: default_log_summary_period(),
@@ -731,6 +737,9 @@ impl NearConfig {
                 cloud_archival_writer: config.cloud_archival_writer,
                 save_trie_changes: config.save_trie_changes.unwrap_or(!config.archive),
                 save_tx_outcomes: config.save_tx_outcomes.unwrap_or(is_archive_or_rpc),
+                save_receipt_to_tx: config
+                    .save_receipt_to_tx
+                    .unwrap_or_else(|| config.save_tx_outcomes.unwrap_or(is_archive_or_rpc)),
                 save_state_changes: config.save_state_changes.unwrap_or(true),
                 save_untracked_partial_chunks_parts: config
                     .save_untracked_partial_chunks_parts
