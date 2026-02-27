@@ -1,4 +1,4 @@
-use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
+use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::execute_money_transfers;
@@ -57,12 +57,8 @@ fn slow_test_sync_from_genesis() {
     );
 
     // Add new node
-    let genesis = shared_state.genesis.clone();
-    let tempdir_path = shared_state.tempdir.path().to_path_buf();
-    let new_node_state = NodeStateBuilder::new(genesis, tempdir_path)
-        .account_id(accounts[NUM_CLIENTS].clone())
-        .build();
     let mut env = TestLoopEnv { test_loop, node_datas, shared_state };
+    let new_node_state = env.node_state_builder().account_id(accounts[NUM_CLIENTS].clone()).build();
     env.add_node(accounts[NUM_CLIENTS].as_str(), new_node_state);
 
     // Check that the new node will reach a high height as well.

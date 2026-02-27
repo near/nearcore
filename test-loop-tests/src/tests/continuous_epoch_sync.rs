@@ -10,7 +10,7 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::epoch_store::EpochStoreAdapter;
 
-use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
+use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{create_validators_spec, validators_spec_clients};
 
 // Test that epoch sync proof is correctly updated after each epoch.
@@ -214,11 +214,10 @@ fn test_epoch_sync_bootstrap_fresh_node() {
     env.node_runner(0).run_until_head_height(target_height);
 
     // Create a fresh node with genesis-only store.
-    let genesis = env.shared_state.genesis.clone();
-    let tempdir_path = env.shared_state.tempdir.path().to_path_buf();
     let identifier = "fresh_node";
     let account_id: AccountId = "fresh_node".parse().unwrap();
-    let node_state = NodeStateBuilder::new(genesis, tempdir_path)
+    let node_state = env
+        .node_state_builder()
         .account_id(account_id)
         .config_modifier(|config| {
             config.block_header_fetch_horizon = 8;

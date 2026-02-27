@@ -15,7 +15,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockHeightDelta};
 use near_store::adapter::StoreAdapter;
 
-use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
+use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{BalanceMismatchError, execute_money_transfers};
@@ -78,11 +78,10 @@ fn setup_initial_blockchain(transaction_validity_period: BlockHeightDelta) -> Te
 }
 
 fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> TestLoopEnv {
-    let genesis = env.shared_state.genesis.clone();
-    let tempdir_path = env.shared_state.tempdir.path().to_path_buf();
     let identifier = format!("account{}", env.node_datas.len());
     let account_id = identifier.parse().unwrap();
-    let node_state = NodeStateBuilder::new(genesis, tempdir_path)
+    let node_state = env
+        .node_state_builder()
         .account_id(account_id)
         .config_modifier(|config| {
             // Enable epoch sync, and make the horizon small enough to trigger it.
