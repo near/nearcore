@@ -203,6 +203,7 @@ expression: config_view
     "global_contract_host_fns": true,
     "reftypes_bulk_memory": true,
     "deterministic_account_ids": true,
+    "gas_key_host_fns": false,
     "storage_get_mode": "FlatStorage",
     "fix_contract_loading_cost": true,
     "implicit_account_creation": true,

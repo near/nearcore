@@ -274,6 +274,7 @@ discard_custom_sections: false
 global_contract_host_fns: false
 reftypes_bulk_memory: false
 deterministic_account_ids: false
+gas_key_host_fns: false
 
 # TODO What should be the config for testnet?
 

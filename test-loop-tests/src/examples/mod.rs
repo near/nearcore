@@ -6,8 +6,8 @@ mod jsonrpc;
 #[cfg(feature = "test_features")]
 mod missing_chunk;
 mod multinode;
+mod node_lifecycle;
 mod raw_client;
 mod resharding;
-mod restart_node;
 mod setup;
 mod validator_rotation;
