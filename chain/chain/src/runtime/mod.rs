@@ -521,7 +521,8 @@ impl NightshadeRuntime {
     }
 
     /// Check if dynamic resharding should be scheduled for the given shard and compute the trie
-    /// split. The `epoch_id` and `protocol_version` are at `prev_block_hash`.
+    /// split. Returns `Some(TrieSplit)` if the shard should be split, `None` otherwise.
+    /// Called during `apply_transactions` for every chunk application.
     fn compute_proposed_split(
         &self,
         shard_trie: &Trie,
@@ -1619,7 +1620,9 @@ fn congestion_control_accepts_transaction(
     Ok(shard_accepts_transactions.is_yes())
 }
 
-/// Check if dynamic resharding should be scheduled for the given shard.
+/// Check if the given shard should be split based on `DynamicReshardingConfig` thresholds.
+/// Checks (in priority order): max shard count, force-split list, block-split list,
+/// memory threshold, and minimum child size. Returns `Some(TrieSplit)` on approval.
 fn check_dynamic_resharding(
     shard_trie: &Trie,
     shard_id: ShardId,

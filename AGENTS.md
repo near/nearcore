@@ -35,6 +35,11 @@
 - Run exact command `RUSTFLAGS="-D warnings" cargo clippy --all-features --all-targets`
 - Never run clippy on individual packages
 
+## Dynamic Resharding
+
+- When working on dynamic resharding-related code, read `docs/architecture/how/dynamic_resharding.md` first to understand the feature design and data flow.
+- Keep that document up to date when making changes to dynamic resharding code.
+
 ## OpenAPI Spec
 
 - Do NOT update the OpenAPI spec unless explicitly asked.
