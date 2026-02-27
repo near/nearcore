@@ -2,7 +2,7 @@ use near_async::time::Duration;
 use near_client::NetworkAdversarialMessage;
 use near_client::client_actor::AdvProduceChunksMode;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::types::{BlockHeight, NumShards};
+use near_primitives::types::BlockHeight;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::node::TestLoopNode;
