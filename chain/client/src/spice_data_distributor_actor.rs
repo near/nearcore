@@ -1029,17 +1029,33 @@ impl SpiceDataDistributorActor {
         if include_contract_accesses {
             if let SpiceDataIdentifier::Witness { block_hash, shard_id } = &data_id {
                 let chunk_id = SpiceChunkId { block_hash: *block_hash, shard_id: *shard_id };
-                if let Some(accesses) =
-                    get_contract_accesses(self.chain_store.store_ref(), block_hash, *shard_id)
-                {
-                    let accesses_msg = SpiceChunkContractAccesses::new(chunk_id, accesses, &signer);
-                    self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                        NetworkRequests::SpiceChunkContractAccesses(
-                            vec![requester.clone()],
-                            accesses_msg,
-                        ),
-                    ));
-                }
+                let accesses = match get_contract_accesses(
+                    self.chain_store.store_ref(),
+                    block_hash,
+                    *shard_id,
+                ) {
+                    Some(accesses) => accesses,
+                    None => {
+                        // If the witness exists but contract accesses are missing (e.g. due to
+                        // upgrade/corruption), send an explicit empty accesses message so that
+                        // the validator-side state machine can unblock instead of waiting
+                        // indefinitely for accesses that will never arrive.
+                        tracing::warn!(
+                            target: "spice_data_distribution",
+                            ?data_id,
+                            ?requester,
+                            "missing contract accesses for witness; sending empty accesses"
+                        );
+                        Default::default()
+                    }
+                };
+                let accesses_msg = SpiceChunkContractAccesses::new(chunk_id, accesses, &signer);
+                self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::SpiceChunkContractAccesses(
+                        vec![requester.clone()],
+                        accesses_msg,
+                    ),
+                ));
             }
         }
 

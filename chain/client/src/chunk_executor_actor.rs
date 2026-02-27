@@ -1047,7 +1047,7 @@ pub(crate) fn save_contract_accesses(
 ) {
     let mut store_update = chain_store.store().store_update();
     let key = get_contract_accesses_key(block_hash, shard_id);
-    let value: Vec<&CodeHash> = contract_accesses.iter().collect();
+    let value: Vec<CodeHash> = contract_accesses.iter().cloned().collect();
     let value = borsh::to_vec(&value).unwrap();
     store_update.set(DBCol::contract_accesses(), &key, &value);
     store_update.commit();
