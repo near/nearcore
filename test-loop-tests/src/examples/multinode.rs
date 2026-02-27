@@ -6,7 +6,9 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::Balance;
 
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::create_account_ids;
+use crate::utils::account::{
+    create_account_ids, create_validators_spec, validators_spec_clients_with_rpc,
+};
 
 // Demonstrates the most basic multinode test loop setup
 // and sends tokens between accounts
@@ -15,13 +17,20 @@ fn test_cross_shard_token_transfer() {
     init_test_logger();
 
     let boundary_accounts = create_account_ids(["account01"]).to_vec();
+    let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
     let user_accounts = create_account_ids(["account0", "account1"]);
     let initial_balance = Balance::from_near(1_000_000);
+    let validators_spec = create_validators_spec(shard_layout.num_shards() as usize, 0);
+    let clients = validators_spec_clients_with_rpc(&validators_spec);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .shard_layout(shard_layout)
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&user_accounts, initial_balance)
+        .build();
     let mut env = TestLoopBuilder::new()
-        .shard_layout(ShardLayout::multi_shard_custom(boundary_accounts, 1))
-        .chunk_producer_per_shard()
-        .enable_rpc()
-        .add_user_accounts(&user_accounts, initial_balance)
+        .genesis(genesis)
+        .epoch_config_store_from_genesis()
+        .clients(clients)
         .build()
         .warmup();
 

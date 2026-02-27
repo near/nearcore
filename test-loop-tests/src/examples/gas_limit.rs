@@ -11,7 +11,9 @@ use near_primitives::views::FinalExecutionStatus;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::account::create_account_id;
+use crate::utils::account::{
+    create_account_id, create_validators_spec, validators_spec_clients_with_rpc,
+};
 
 /// Test that verifies gas limit behavior: burning 998 TGas succeeds while
 /// burning 1001 TGas results in a failed receipt.
@@ -20,9 +22,17 @@ fn test_gas_limit() {
     init_test_logger();
 
     let user_account = create_account_id("user");
+    let validators_spec = create_validators_spec(1, 0);
+    let clients = validators_spec_clients_with_rpc(&validators_spec);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .shard_layout_single_shard()
+        .validators_spec(validators_spec)
+        .add_user_account_simple(user_account.clone(), Balance::from_near(10))
+        .build();
     let mut env = TestLoopBuilder::new()
-        .add_user_account(&user_account, Balance::from_near(10))
-        .enable_rpc()
+        .genesis(genesis)
+        .epoch_config_store_from_genesis()
+        .clients(clients)
         .build()
         .warmup();
 

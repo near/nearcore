@@ -1,12 +1,9 @@
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::gas::Gas;
 use near_primitives::types::Balance;
-use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives_core::num_rational::Rational32;
 
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::{create_account_id, create_validators_spec, validators_spec_clients};
+use crate::utils::account::create_account_id;
 
 /// Demonstrates the most basic single-validator test loop env setup.
 /// Uses all defaults: one validator, one shard, no RPC.
@@ -80,67 +77,6 @@ fn test_setup_user_account() {
         TestLoopBuilder::new().add_user_account(&user_account, initial_balance).build().warmup();
 
     assert_eq!(env.validator().query_balance(&user_account), initial_balance);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(1));
-}
-
-/// Demonstrates overriding genesis parameters with non-default values
-#[test]
-fn test_setup_genesis_overrides() {
-    init_test_logger();
-
-    let epoch_length = 42;
-    let gas_limit = Gas::from_teragas(333);
-    let protocol_version = PROTOCOL_VERSION - 1;
-    let genesis_height = 100;
-    let transaction_validity_period = 50;
-    let max_inflation_rate = Rational32::new(1, 10);
-    let minimum_stake_ratio = Rational32::new(1, 100);
-    let min_gas_price = Balance::from_yoctonear(100_000_000);
-    let max_gas_price = Balance::from_yoctonear(10_000_000_000);
-
-    let env = TestLoopBuilder::new()
-        .epoch_length(epoch_length)
-        .gas_limit(gas_limit)
-        .protocol_version(protocol_version)
-        .genesis_height(genesis_height)
-        .transaction_validity_period(transaction_validity_period)
-        .max_inflation_rate(max_inflation_rate)
-        .minimum_stake_ratio(minimum_stake_ratio)
-        .gas_prices(min_gas_price, max_gas_price)
-        .build()
-        .warmup();
-
-    let genesis_config = &env.shared_state.genesis.config;
-    assert_eq!(genesis_config.epoch_length, epoch_length);
-    assert_eq!(genesis_config.gas_limit, gas_limit);
-    assert_eq!(genesis_config.protocol_version, protocol_version);
-    assert_eq!(genesis_config.genesis_height, genesis_height);
-    assert_eq!(genesis_config.transaction_validity_period, transaction_validity_period);
-    assert_eq!(genesis_config.max_inflation_rate, max_inflation_rate);
-    assert_eq!(genesis_config.minimum_stake_ratio, minimum_stake_ratio);
-    assert_eq!(genesis_config.min_gas_price, min_gas_price);
-    assert_eq!(genesis_config.max_gas_price, max_gas_price);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(1));
-}
-
-/// Demonstrates manually providing genesis and clients via `.genesis()` and `.clients()`.
-///
-/// DO NOT USE THIS API unless you need direct access to the genesis object before
-/// passing it to the builder (e.g. to derive epoch configs from it). See
-/// `resharding_example_test` for such a case. In all other cases, prefer the
-/// high-level builder API shown in the examples above.
-#[test]
-fn test_setup_manual_genesis() {
-    init_test_logger();
-
-    let validators_spec = create_validators_spec(1, 0);
-    let clients = validators_spec_clients(&validators_spec);
-    let genesis = TestLoopBuilder::new_genesis_builder().validators_spec(validators_spec).build();
-    let mut env = TestLoopBuilder::new().genesis(genesis).clients(clients).build().warmup();
-
-    env.validator_runner().run_for_number_of_blocks(1);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(1));
 }

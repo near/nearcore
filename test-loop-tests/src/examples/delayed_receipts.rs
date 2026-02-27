@@ -11,7 +11,9 @@ use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Balance, Nonce};
 
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::create_account_id;
+use crate::utils::account::{
+    create_account_id, create_validators_spec, validators_spec_clients_with_rpc,
+};
 
 /// Example test that creates a chunk which, when applied, creates a delayed receipt.
 /// Requires "test_features" feature to be enabled in order to use `burn_gas_raw`
@@ -21,11 +23,19 @@ fn delayed_receipt_example_test() {
     init_test_logger();
 
     let user_account = create_account_id("user");
+    let validators_spec = create_validators_spec(1, 0);
+    let clients = validators_spec_clients_with_rpc(&validators_spec);
     let gas_limit = Gas::from_teragas(300);
-    let mut env = TestLoopBuilder::new()
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .shard_layout_single_shard()
+        .validators_spec(validators_spec)
         .gas_limit(gas_limit)
-        .add_user_account(&user_account, Balance::from_near(10))
-        .enable_rpc()
+        .add_user_account_simple(user_account.clone(), Balance::from_near(10))
+        .build();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store_from_genesis()
+        .clients(clients)
         .build()
         .warmup();
 
