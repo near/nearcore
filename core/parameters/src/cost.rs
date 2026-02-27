@@ -727,8 +727,9 @@ pub fn gas_key_add_key_exec_fee(
     cfg: &RuntimeFeesConfig,
     account_id_len: usize,
     public_key_len: usize,
-    num_nonces: u64,
+    num_nonces: NonceIndex,
 ) -> GasKeyAddFee {
+    let num_nonces = num_nonces as u64;
     let base =
         cfg.fee(ActionCosts::gas_key_nonce_write_base).exec_fee().checked_mul(num_nonces).unwrap();
     let nonce_key_len =

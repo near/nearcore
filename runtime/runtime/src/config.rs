@@ -350,12 +350,8 @@ fn permission_exec_fees(
         | AccessKeyPermission::GasKeyFunctionCall(info, _) => info,
         _ => return key_fee,
     };
-    let nonce_fee = gas_key_add_key_exec_fee(
-        fees,
-        account_id.len(),
-        public_key.len(),
-        gas_key_info.num_nonces as u64,
-    );
+    let nonce_fee =
+        gas_key_add_key_exec_fee(fees, account_id.len(), public_key.len(), gas_key_info.num_nonces);
     key_fee.checked_add(nonce_fee.total()).unwrap()
 }
 
