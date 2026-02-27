@@ -411,7 +411,7 @@ impl TestLoopBuilder {
         };
         let tempdir_path = self.test_loop_data_dir.path().to_path_buf();
         NodeStateBuilder::new(genesis.clone(), tempdir_path)
-            .account_id(account_id.clone())
+            .account_id(&account_id)
             .cold_storage(enable_cold_storage)
             .cloud_storage(enable_cloud_storage)
             .config_modifier(config_modifier)
@@ -441,8 +441,8 @@ impl<'a> NodeStateBuilder<'a> {
         }
     }
 
-    pub fn account_id(mut self, account_id: AccountId) -> Self {
-        self.account_id = Some(account_id);
+    pub fn account_id(mut self, account_id: &AccountId) -> Self {
+        self.account_id = Some(account_id.clone());
         self
     }
 

@@ -1,3 +1,4 @@
+use super::builder::NodeStateBuilder;
 use super::drop_condition::DropCondition;
 use super::setup::setup_client;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
@@ -237,5 +238,11 @@ impl TestLoopEnv {
 
     pub fn rpc_data_idx(&self) -> usize {
         self.account_data_idx(&rpc_account_id())
+    }
+
+    pub fn node_state_builder(&self) -> NodeStateBuilder<'_> {
+        let genesis = self.shared_state.genesis.clone();
+        let tempdir_path = self.shared_state.tempdir.path().to_path_buf();
+        NodeStateBuilder::new(genesis, tempdir_path)
     }
 }
