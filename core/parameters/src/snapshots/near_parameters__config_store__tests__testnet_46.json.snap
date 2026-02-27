@@ -204,6 +204,7 @@ snapshot_kind: text
     "global_contract_host_fns": false,
     "reftypes_bulk_memory": false,
     "deterministic_account_ids": false,
+    "gas_key_host_fns": false,
     "storage_get_mode": "Trie",
     "fix_contract_loading_cost": false,
     "implicit_account_creation": true,
