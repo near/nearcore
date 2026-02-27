@@ -180,8 +180,7 @@ let user: AccountId = "user".parse().unwrap();
 
 For historical context, there are multiple existing ways for writing such tests. The following list presents these methods in order of their development:
 
-* `setup_mock_all_validators(...)` - very powerful, spawns all actors required for multi-node chain to operate and supports network
-communication among them. However, very hard to understand, uses a lot of resources and almost not maintained.
+* `setup_mock_all_validators(...)` - very powerful, spawns all actors required for multi-node chain to operate and supports network communication among them. However, very hard to understand, uses a lot of resources and almost not maintained.
 * pytest - quite powerful as well, spawns actual nodes in Python and uses exposed RPC handlers to test different behavior. Quite obsolete as well, exposed to flakiness.
 * different environments spawning clients: `TestEnv`, `TestReshardingEnv`, etc. Good middle ground for testing specific features, but doesn't test actual network behavior. Modifications like forcing skipping chunks require a lot of manual intervention.
 
