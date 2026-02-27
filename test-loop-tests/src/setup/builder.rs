@@ -147,11 +147,13 @@ impl TestLoopBuilder {
     }
 
     pub(crate) fn enable_rpc(mut self) -> Self {
+        assert!(!self.enable_rpc, "enable_rpc is already set");
         self.enable_rpc = true;
         self
     }
 
     pub(crate) fn validators_spec(mut self, spec: ValidatorsSpec) -> Self {
+        assert!(self.validators_spec.is_none(), "validators_spec is already set");
         self.validators_spec = Some(spec);
         self
     }
@@ -167,6 +169,7 @@ impl TestLoopBuilder {
     }
 
     pub fn shard_layout(mut self, shard_layout: ShardLayout) -> Self {
+        assert!(self.shard_layout.is_none(), "shard_layout is already set");
         self.shard_layout = Some(shard_layout);
         self
     }
