@@ -1,7 +1,7 @@
 use crate::runtime_group_tools::RuntimeGroup;
 
 use near_crypto::InMemorySigner;
-use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
+use near_primitives::account::{AccessKeyPermission, FunctionCallPermission, GasKeyInfo};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, ActionReceiptV2, ReceiptEnum};
 use near_primitives::serialize::to_base64;
@@ -1297,8 +1297,6 @@ fn test_refund_to() {
 #[cfg(feature = "nightly")]
 #[test]
 fn test_create_account_add_gas_key_full_access() {
-    use near_primitives::account::GasKeyInfo;
-
     let group = RuntimeGroup::new(3, 2, near_test_contracts::nightly_rs_contract());
     let signer_sender = group.signers[0].clone();
     let signer_receiver = group.signers[1].clone();
@@ -1381,8 +1379,6 @@ fn test_create_account_add_gas_key_full_access() {
 #[cfg(feature = "nightly")]
 #[test]
 fn test_create_account_add_gas_key_function_call() {
-    use near_primitives::account::GasKeyInfo;
-
     let group = RuntimeGroup::new(3, 2, near_test_contracts::nightly_rs_contract());
     let signer_sender = group.signers[0].clone();
     let signer_receiver = group.signers[1].clone();
