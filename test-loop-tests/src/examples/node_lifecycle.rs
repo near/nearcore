@@ -57,14 +57,14 @@ fn test_add_node() {
     // Add a new non-validator tracking node
     let identifier = "new_node";
     let new_account_id = create_account_id(identifier);
-    let new_node_state = env.node_state_builder().account_id(new_account_id.clone()).build();
+    let new_node_state = env.node_state_builder().account_id(&new_account_id).build();
     env.add_node(identifier, new_node_state);
 
     // Let the network run so the new node can catch up
     env.node_runner(0).run_for_number_of_blocks(5);
 
     // Verify the new node synced to the same height as a validator
-    assert_eq!(env.node_for_account(&new_account_id).head().height, env.node(0).head().height,);
+    assert_eq!(env.node_for_account(&new_account_id).head().height, env.node(0).head().height);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

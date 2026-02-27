@@ -239,8 +239,7 @@ pub fn bootstrap_reader_at_height(
     reader_id: &AccountId,
     target_block_height: BlockHeight,
 ) {
-    let node_state =
-        env.node_state_builder().account_id(reader_id.clone()).cloud_storage(true).build();
+    let node_state = env.node_state_builder().account_id(reader_id).cloud_storage(true).build();
     env.add_node(reader_id.as_ref(), node_state);
 
     let cloud_storage = get_cloud_storage(env, reader_id);

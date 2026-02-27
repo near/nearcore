@@ -457,7 +457,7 @@ fn run_test_with_added_node(state: TestState) {
     let account_id: AccountId = "sync-from-scratch".parse().unwrap();
     let new_node_state = env
         .node_state_builder()
-        .account_id(account_id.clone())
+        .account_id(&account_id)
         .config_modifier(move |config| {
             // Lower the threshold at which state sync is chosen over block sync
             config.block_fetch_horizon = 5;
@@ -1073,7 +1073,7 @@ fn slow_test_state_sync_no_parts_provided() {
     let account_id: AccountId = "sync-no-parts".parse().unwrap();
     let new_node_state = env
         .node_state_builder()
-        .account_id(account_id.clone())
+        .account_id(&account_id)
         .config_modifier(move |config| {
             // Lower the threshold at which state sync is chosen over block sync
             config.block_fetch_horizon = 5;

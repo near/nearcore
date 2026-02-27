@@ -58,7 +58,7 @@ fn slow_test_sync_from_genesis() {
 
     // Add new node
     let mut env = TestLoopEnv { test_loop, node_datas, shared_state };
-    let new_node_state = env.node_state_builder().account_id(accounts[NUM_CLIENTS].clone()).build();
+    let new_node_state = env.node_state_builder().account_id(&accounts[NUM_CLIENTS]).build();
     env.add_node(accounts[NUM_CLIENTS].as_str(), new_node_state);
 
     // Check that the new node will reach a high height as well.

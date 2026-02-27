@@ -218,7 +218,7 @@ fn test_epoch_sync_bootstrap_fresh_node() {
     let account_id: AccountId = "fresh_node".parse().unwrap();
     let node_state = env
         .node_state_builder()
-        .account_id(account_id)
+        .account_id(&account_id)
         .config_modifier(|config| {
             config.block_header_fetch_horizon = 8;
             config.block_fetch_horizon = 3;
