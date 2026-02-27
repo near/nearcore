@@ -3144,27 +3144,15 @@ pub fn promise_batch_action_add_gas_key_with_full_access(
         ActionCosts::add_full_access_key,
         sir,
     )?;
-    pay_action_per_byte(
-        &mut ctx.result_state.gas_counter,
-        &ctx.fees_config,
-        ActionCosts::gas_key_nonce_write_base,
-        num_nonces as u64,
-        sir,
-    )?;
     let receiver_id = ctx.ext.get_receipt_receiver(receipt_idx);
-    let burn_gas = gas_key_add_key_send_fee(&ctx.fees_config, sir);
+    let send_fee = gas_key_add_key_send_fee(&ctx.fees_config, sir);
     let exec_fee = gas_key_add_key_exec_fee(
         &ctx.fees_config,
         receiver_id.len(),
         public_key_len as usize,
         num_nonces,
     );
-    let use_gas = burn_gas.checked_add(exec_fee.per_byte).ok_or(HostError::IntegerOverflow)?;
-    ctx.result_state.gas_counter.pay_action_accumulated(
-        burn_gas,
-        use_gas,
-        ActionCosts::gas_key_byte,
-    )?;
+    ctx.result_state.gas_counter.pay_gas_key_add_key_fees(send_fee, &exec_fee)?;
     ctx.ext.append_action_add_gas_key_with_full_access(
         receipt_idx,
         public_key.decode()?,
@@ -3242,27 +3230,15 @@ pub fn promise_batch_action_add_gas_key_with_function_call(
         num_bytes,
         sir,
     )?;
-    pay_action_per_byte(
-        &mut ctx.result_state.gas_counter,
-        &ctx.fees_config,
-        ActionCosts::gas_key_nonce_write_base,
-        num_nonces as u64,
-        sir,
-    )?;
     let receipt_receiver_id = ctx.ext.get_receipt_receiver(receipt_idx);
-    let burn_gas = gas_key_add_key_send_fee(&ctx.fees_config, sir);
+    let send_fee = gas_key_add_key_send_fee(&ctx.fees_config, sir);
     let exec_fee = gas_key_add_key_exec_fee(
         &ctx.fees_config,
         receipt_receiver_id.len(),
         public_key_len as usize,
         num_nonces,
     );
-    let use_gas = burn_gas.checked_add(exec_fee.per_byte).ok_or(HostError::IntegerOverflow)?;
-    ctx.result_state.gas_counter.pay_action_accumulated(
-        burn_gas,
-        use_gas,
-        ActionCosts::gas_key_byte,
-    )?;
+    ctx.result_state.gas_counter.pay_gas_key_add_key_fees(send_fee, &exec_fee)?;
     ctx.ext.append_action_add_gas_key_with_function_call(
         receipt_idx,
         public_key.decode()?,

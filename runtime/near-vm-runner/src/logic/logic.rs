@@ -2909,21 +2909,15 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         let num_nonces = u16::try_from(num_nonces).map_err(|_| HostError::IntegerOverflow)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         self.pay_action_base(ActionCosts::add_full_access_key, sir)?;
-        self.pay_action_per_byte(ActionCosts::gas_key_nonce_write_base, num_nonces as u64, sir)?;
         let receiver_id = self.ext.get_receipt_receiver(receipt_idx);
-        let burn_gas = gas_key_add_key_send_fee(&self.fees_config, sir);
+        let send_fee = gas_key_add_key_send_fee(&self.fees_config, sir);
         let exec_fee = gas_key_add_key_exec_fee(
             &self.fees_config,
             receiver_id.len(),
             public_key_len as usize,
             num_nonces,
         );
-        let use_gas = burn_gas.checked_add(exec_fee.per_byte).ok_or(HostError::IntegerOverflow)?;
-        self.result_state.gas_counter.pay_action_accumulated(
-            burn_gas,
-            use_gas,
-            ActionCosts::gas_key_byte,
-        )?;
+        self.result_state.gas_counter.pay_gas_key_add_key_fees(send_fee, &exec_fee)?;
         self.ext.append_action_add_gas_key_with_full_access(
             receipt_idx,
             public_key.decode()?,
@@ -2978,21 +2972,15 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         let num_bytes = method_names.iter().map(|v| v.len() as u64 + 1).sum::<u64>();
         self.pay_action_base(ActionCosts::add_function_call_key_base, sir)?;
         self.pay_action_per_byte(ActionCosts::add_function_call_key_byte, num_bytes, sir)?;
-        self.pay_action_per_byte(ActionCosts::gas_key_nonce_write_base, num_nonces as u64, sir)?;
         let receipt_receiver_id = self.ext.get_receipt_receiver(receipt_idx);
-        let burn_gas = gas_key_add_key_send_fee(&self.fees_config, sir);
+        let send_fee = gas_key_add_key_send_fee(&self.fees_config, sir);
         let exec_fee = gas_key_add_key_exec_fee(
             &self.fees_config,
             receipt_receiver_id.len(),
             public_key_len as usize,
             num_nonces,
         );
-        let use_gas = burn_gas.checked_add(exec_fee.per_byte).ok_or(HostError::IntegerOverflow)?;
-        self.result_state.gas_counter.pay_action_accumulated(
-            burn_gas,
-            use_gas,
-            ActionCosts::gas_key_byte,
-        )?;
+        self.result_state.gas_counter.pay_gas_key_add_key_fees(send_fee, &exec_fee)?;
         self.ext.append_action_add_gas_key_with_function_call(
             receipt_idx,
             public_key.decode()?,
