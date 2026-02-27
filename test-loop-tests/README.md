@@ -15,7 +15,7 @@ Here's a step-by-step guide on how to create a test.
 
 ## 1. Build the environment
 
-See `test_cross_shard_token_transfer` for the minimalistic test setup example.
+See `test_basic_token_transfer` for the minimalistic test setup example.
 
 Most important parameters are configured through the genesis.
 The main part of building the environment involves constructing genesis data,

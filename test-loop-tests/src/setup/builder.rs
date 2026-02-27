@@ -227,7 +227,28 @@ impl TestLoopBuilder {
         self
     }
 
-    pub fn add_user_accounts(mut self, accounts: &[AccountId], initial_balance: Balance) -> Self {
+    /// Adds multiple user accounts with the same initial balance.
+    /// Accepts any collection that yields `&AccountId`:
+    ///
+    /// ```ignore
+    /// // Array of references:
+    /// let sender = create_account_id("sender");
+    /// let receiver = create_account_id("receiver");
+    /// builder.add_user_accounts([&sender, &receiver], balance)
+    ///
+    /// // Slice of owned accounts:
+    /// let accounts: Vec<AccountId> = vec![create_account_id("sender")];
+    /// builder.add_user_accounts(&accounts, balance)
+    ///
+    /// // Iterator:
+    /// let accounts: HashSet<AccountId> = HashSet::new();
+    /// builder.add_user_accounts(accounts.iter(), balance)
+    /// ```
+    pub fn add_user_accounts<'a>(
+        mut self,
+        accounts: impl IntoIterator<Item = &'a AccountId>,
+        initial_balance: Balance,
+    ) -> Self {
         let auto = self.setup_config.ensure_auto();
         for account_id in accounts {
             auto.user_accounts.push((account_id.clone(), initial_balance));

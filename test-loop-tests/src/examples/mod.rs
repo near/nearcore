@@ -1,11 +1,10 @@
+mod basic;
 #[cfg(feature = "test_features")]
 mod delayed_receipts;
 #[cfg(feature = "test_features")]
 mod gas_limit;
-mod jsonrpc;
 #[cfg(feature = "test_features")]
 mod missing_chunk;
-mod multinode;
 mod node_lifecycle;
 mod raw_client;
 mod resharding;
