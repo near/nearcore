@@ -149,13 +149,33 @@ env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 
 ### Node lifecycle
 
-Nodes can be killed and restarted to test recovery scenarios.
-See `examples/restart_node.rs` for a full example.
+Nodes can be killed and restarted to test recovery scenarios, or new nodes can
+be added to a running cluster. See `examples/node_lifecycle.rs` for full examples.
 
 ```rust
+// Kill a node and restart it later.
 let killed_state = env.kill_node(&identifier);
 // ... run other nodes ...
 env.restart_node(&new_identifier, killed_state);
+
+// Add a brand new non-validator node.
+let new_node_state = env.node_state_builder().account_id(&new_account_id).build();
+env.add_node(identifier, new_node_state);
+```
+
+### Utilities
+
+#### Account helpers
+
+`utils/account.rs` provides various utilities for creating account IDs.
+Use `create_account_id` instead of manual parsing:
+
+```rust
+// Good:
+let user = create_account_id("user");
+
+// Avoid:
+let user: AccountId = "user".parse().unwrap();
 ```
 
 ## Examples
@@ -165,13 +185,12 @@ key API patterns. These are the best starting point for writing new tests.
 
 | Example | Demonstrates |
 |---|---|
+| `basic.rs` | Token transfer, contract deploy & call, JSON-RPC queries |
 | `setup.rs` | Builder API: defaults, validators, shards, user accounts, genesis overrides, manual setup |
-| `multinode.rs` | Cross-shard token transfer with multiple validators |
-| `jsonrpc.rs` | Running JSON-RPC queries |
+| `node_lifecycle.rs` | Killing/restarting a node, adding a new node to a running cluster |
 | `gas_limit.rs` | Gas limit behavior verification |
 | `delayed_receipts.rs` | Creating and observing delayed receipts |
 | `missing_chunk.rs` | Triggering missing chunks using adversarial messages |
-| `restart_node.rs` | Killing and restarting a node |
 | `validator_rotation.rs` | Validator rotation across epochs |
 | `resharding.rs` | Dynamic resharding (manual genesis setup) |
 | `raw_client.rs` | Low-level client setup without `TestLoopBuilder` |
