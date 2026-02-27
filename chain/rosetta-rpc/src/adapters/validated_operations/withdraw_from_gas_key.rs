@@ -50,7 +50,7 @@ impl TryFrom<crate::models::Operation> for WithdrawFromGasKeyOperation {
                 "WITHDRAW_FROM_GAS_KEY operations must have NEAR currency".to_string(),
             ));
         }
-        let amount = if amount.value.is_positive() {
+        let amount = if amount.value.is_non_negative() {
             Balance::from_yoctonear(amount.value.absolute_difference())
         } else {
             return Err(required_fields_error());

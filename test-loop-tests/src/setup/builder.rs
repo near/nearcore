@@ -19,9 +19,11 @@ use near_chain_configs::{
 };
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
-use near_primitives::types::{AccountId, Balance, NumShards};
+use near_primitives::gas::Gas;
+use near_primitives::types::{AccountId, Balance, BlockHeight, NumBlocks, NumShards};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
-use near_primitives::version::get_protocol_upgrade_schedule;
+use near_primitives::version::{ProtocolVersion, get_protocol_upgrade_schedule};
+use near_primitives_core::num_rational::Rational32;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::{TestNodeStorage, create_test_node_storage};
 
@@ -160,14 +162,93 @@ impl TestLoopBuilder {
         self
     }
 
-    pub fn add_user_account(mut self, account_id: AccountId, initial_balance: Balance) -> Self {
+    pub fn epoch_length(mut self, epoch_length: u64) -> Self {
         let auto = self.setup_config.ensure_auto();
-        auto.user_accounts.push((account_id, initial_balance));
+        assert!(auto.epoch_length.is_none(), "epoch_length is already set");
+        auto.epoch_length = Some(epoch_length);
         self
     }
 
-    #[allow(dead_code)]
-    pub fn add_user_accounts(mut self, accounts: &[AccountId], initial_balance: Balance) -> Self {
+    pub fn gas_limit(mut self, gas_limit: Gas) -> Self {
+        let auto = self.setup_config.ensure_auto();
+        assert!(auto.gas_limit.is_none(), "gas_limit is already set");
+        auto.gas_limit = Some(gas_limit);
+        self
+    }
+
+    pub fn protocol_version(mut self, protocol_version: ProtocolVersion) -> Self {
+        let auto = self.setup_config.ensure_auto();
+        assert!(auto.protocol_version.is_none(), "protocol_version is already set");
+        auto.protocol_version = Some(protocol_version);
+        self
+    }
+
+    pub fn genesis_height(mut self, genesis_height: BlockHeight) -> Self {
+        let auto = self.setup_config.ensure_auto();
+        assert!(auto.genesis_height.is_none(), "genesis_height is already set");
+        auto.genesis_height = Some(genesis_height);
+        self
+    }
+
+    pub fn transaction_validity_period(mut self, transaction_validity_period: NumBlocks) -> Self {
+        let auto = self.setup_config.ensure_auto();
+        assert!(
+            auto.transaction_validity_period.is_none(),
+            "transaction_validity_period is already set"
+        );
+        auto.transaction_validity_period = Some(transaction_validity_period);
+        self
+    }
+
+    pub fn max_inflation_rate(mut self, max_inflation_rate: Rational32) -> Self {
+        let auto = self.setup_config.ensure_auto();
+        assert!(auto.max_inflation_rate.is_none(), "max_inflation_rate is already set");
+        auto.max_inflation_rate = Some(max_inflation_rate);
+        self
+    }
+
+    pub fn minimum_stake_ratio(mut self, minimum_stake_ratio: Rational32) -> Self {
+        let auto = self.setup_config.ensure_auto();
+        assert!(auto.minimum_stake_ratio.is_none(), "minimum_stake_ratio is already set");
+        auto.minimum_stake_ratio = Some(minimum_stake_ratio);
+        self
+    }
+
+    pub fn gas_prices(mut self, min: Balance, max: Balance) -> Self {
+        let auto = self.setup_config.ensure_auto();
+        assert!(auto.gas_prices.is_none(), "gas_prices is already set");
+        auto.gas_prices = Some((min, max));
+        self
+    }
+
+    pub fn add_user_account(mut self, account_id: &AccountId, initial_balance: Balance) -> Self {
+        let auto = self.setup_config.ensure_auto();
+        auto.user_accounts.push((account_id.clone(), initial_balance));
+        self
+    }
+
+    /// Adds multiple user accounts with the same initial balance.
+    /// Accepts any collection that yields `&AccountId`:
+    ///
+    /// ```ignore
+    /// // Array of references:
+    /// let sender = create_account_id("sender");
+    /// let receiver = create_account_id("receiver");
+    /// builder.add_user_accounts([&sender, &receiver], balance)
+    ///
+    /// // Slice of owned accounts:
+    /// let accounts: Vec<AccountId> = vec![create_account_id("sender")];
+    /// builder.add_user_accounts(&accounts, balance)
+    ///
+    /// // Iterator:
+    /// let accounts: HashSet<AccountId> = HashSet::new();
+    /// builder.add_user_accounts(accounts.iter(), balance)
+    /// ```
+    pub fn add_user_accounts<'a>(
+        mut self,
+        accounts: impl IntoIterator<Item = &'a AccountId>,
+        initial_balance: Balance,
+    ) -> Self {
         let auto = self.setup_config.ensure_auto();
         for account_id in accounts {
             auto.user_accounts.push((account_id.clone(), initial_balance));
@@ -351,7 +432,7 @@ impl TestLoopBuilder {
         };
         let tempdir_path = self.test_loop_data_dir.path().to_path_buf();
         NodeStateBuilder::new(genesis.clone(), tempdir_path)
-            .account_id(account_id.clone())
+            .account_id(&account_id)
             .cold_storage(enable_cold_storage)
             .cloud_storage(enable_cloud_storage)
             .config_modifier(config_modifier)
@@ -381,8 +462,8 @@ impl<'a> NodeStateBuilder<'a> {
         }
     }
 
-    pub fn account_id(mut self, account_id: AccountId) -> Self {
-        self.account_id = Some(account_id);
+    pub fn account_id(mut self, account_id: &AccountId) -> Self {
+        self.account_id = Some(account_id.clone());
         self
     }
 
@@ -477,6 +558,14 @@ struct AutoSetupConfig {
     enable_rpc: bool,
     shard_layout: Option<ShardLayout>,
     user_accounts: Vec<(AccountId, Balance)>,
+    epoch_length: Option<u64>,
+    gas_limit: Option<Gas>,
+    protocol_version: Option<ProtocolVersion>,
+    genesis_height: Option<BlockHeight>,
+    transaction_validity_period: Option<NumBlocks>,
+    max_inflation_rate: Option<Rational32>,
+    minimum_stake_ratio: Option<Rational32>,
+    gas_prices: Option<(Balance, Balance)>,
 }
 
 impl SetupConfig {
@@ -525,7 +614,20 @@ impl SetupConfig {
 
 impl AutoSetupConfig {
     fn new() -> Self {
-        Self { validators_spec: None, enable_rpc: false, shard_layout: None, user_accounts: vec![] }
+        Self {
+            validators_spec: None,
+            enable_rpc: false,
+            shard_layout: None,
+            user_accounts: vec![],
+            epoch_length: None,
+            gas_limit: None,
+            protocol_version: None,
+            genesis_height: None,
+            transaction_validity_period: None,
+            max_inflation_rate: None,
+            minimum_stake_ratio: None,
+            gas_prices: None,
+        }
     }
 
     fn resolve(self) -> (Genesis, Vec<AccountId>) {
@@ -534,6 +636,31 @@ impl AutoSetupConfig {
             TestLoopBuilder::new_genesis_builder().validators_spec(validators_spec.clone());
         if let Some(shard_layout) = self.shard_layout {
             genesis_builder = genesis_builder.shard_layout(shard_layout);
+        }
+        if let Some(epoch_length) = self.epoch_length {
+            genesis_builder = genesis_builder.epoch_length(epoch_length);
+        }
+        if let Some(gas_limit) = self.gas_limit {
+            genesis_builder = genesis_builder.gas_limit(gas_limit);
+        }
+        if let Some(protocol_version) = self.protocol_version {
+            genesis_builder = genesis_builder.protocol_version(protocol_version);
+        }
+        if let Some(genesis_height) = self.genesis_height {
+            genesis_builder = genesis_builder.genesis_height(genesis_height);
+        }
+        if let Some(transaction_validity_period) = self.transaction_validity_period {
+            genesis_builder =
+                genesis_builder.transaction_validity_period(transaction_validity_period);
+        }
+        if let Some(max_inflation_rate) = self.max_inflation_rate {
+            genesis_builder = genesis_builder.max_inflation_rate(max_inflation_rate);
+        }
+        if let Some(minimum_stake_ratio) = self.minimum_stake_ratio {
+            genesis_builder = genesis_builder.minimum_stake_ratio(minimum_stake_ratio);
+        }
+        if let Some((min, max)) = self.gas_prices {
+            genesis_builder = genesis_builder.gas_prices(min, max);
         }
         for (account_id, balance) in self.user_accounts {
             genesis_builder = genesis_builder.add_user_account_simple(account_id, balance);

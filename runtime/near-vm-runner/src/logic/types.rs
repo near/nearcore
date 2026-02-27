@@ -41,13 +41,13 @@ pub enum PromiseResult {
     Failed,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum GlobalContractDeployMode {
     CodeHash,
     AccountId,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum GlobalContractIdentifier {
     CodeHash(CryptoHash),
     AccountId(AccountId),

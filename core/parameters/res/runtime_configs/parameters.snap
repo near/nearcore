@@ -265,3 +265,4 @@ action_use_global_contract_per_identifier_byte
 - execution:              64_572_944
 global_contract_host_fns                true
 deterministic_account_ids               true
+gas_key_host_fns                        false

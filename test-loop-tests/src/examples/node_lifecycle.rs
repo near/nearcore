@@ -2,7 +2,7 @@ use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
 
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::{create_validators_spec, validators_spec_clients};
+use crate::utils::account::create_account_id;
 
 #[test]
 fn test_restart_node() {
@@ -10,18 +10,10 @@ fn test_restart_node() {
 
     // 4 validators with equal stake means that with one unavailable node
     // the chain can still make progress
-    let num_validators = 4;
-    let validators_spec = create_validators_spec(num_validators, 0);
-    let clients = validators_spec_clients(&validators_spec);
     let epoch_length = 4;
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(epoch_length)
-        .validators_spec(validators_spec)
-        .build();
     let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
+        .validators(4, 0)
+        .epoch_length(epoch_length)
         .gc_num_epochs_to_keep(20)
         .build()
         .warmup();
@@ -49,19 +41,30 @@ fn test_restart_node() {
 
     assert_eq!(env.node_for_account(&restart_account).head().height, env.node(1).head().height);
 
-    /*
-    // TODO(pugachag): add a separate test for adding new node based on the code below
-    // Add new node
-    let genesis = env.shared_state.genesis.clone();
-    let tempdir_path = env.shared_state.tempdir.path().to_path_buf();
-    let new_node_state = NodeStateBuilder::new(genesis, tempdir_path)
-        .account_id(accounts[NUM_CLIENTS].clone())
-        .build();
-    env.add_node(accounts[NUM_CLIENTS].as_str(), new_node_state);
-    env.test_loop.run_for(Duration::seconds(3 * epoch_length as i64));
-    */
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
 
-    // Give the test a chance to finish off remaining events in the event loop, which can
-    // be important for properly shutting down the nodes.
+#[test]
+fn test_add_node() {
+    init_test_logger();
+
+    let mut env =
+        TestLoopBuilder::new().validators(4, 0).gc_num_epochs_to_keep(20).build().warmup();
+
+    // Let the chain progress for a few blocks
+    env.node_runner(0).run_for_number_of_blocks(10);
+
+    // Add a new non-validator tracking node
+    let identifier = "new_node";
+    let new_account_id = create_account_id(identifier);
+    let new_node_state = env.node_state_builder().account_id(&new_account_id).build();
+    env.add_node(identifier, new_node_state);
+
+    // Let the network run so the new node can catch up
+    env.node_runner(0).run_for_number_of_blocks(5);
+
+    // Verify the new node synced to the same height as a validator
+    assert_eq!(env.node_for_account(&new_account_id).head().height, env.node(0).head().height);
+
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
