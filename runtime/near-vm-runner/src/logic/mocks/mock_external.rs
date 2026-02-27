@@ -17,7 +17,7 @@ use std::sync::Arc;
 #[allow(dead_code)] // The value is never read because this is a mock.
 struct GasWeightSer(u64);
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum MockAction {
     CreateReceipt {
         receipt_indices: Vec<ReceiptIndex>,
