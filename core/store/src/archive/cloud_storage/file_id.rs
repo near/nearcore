@@ -27,7 +27,7 @@ impl CloudStorage {
         let (mut dir_path, file_name) = match file_id {
             CloudStorageFileID::BlockHead => ("metadata".into(), "block_head".into()),
             CloudStorageFileID::ShardHead(shard_id) => {
-                ("metadata".into(), format!("shard_head/{shard_id}"))
+                ("metadata/shard_head".into(), format!("{shard_id}"))
             }
             CloudStorageFileID::Epoch(epoch_id) => {
                 (format!("epoch_id={}", epoch_id.0), "epoch_data".into())
