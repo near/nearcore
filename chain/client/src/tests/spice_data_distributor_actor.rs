@@ -55,7 +55,7 @@ use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 use crate::chunk_executor_actor::{
-    ExecutorIncomingUnverifiedReceipts, save_receipt_proof, save_witness,
+    ExecutorIncomingUnverifiedReceipts, save_contract_accesses, save_receipt_proof, save_witness,
 };
 use crate::spice_chunk_validator_actor::SpiceChunkStateWitnessMessage;
 use crate::spice_data_distributor_actor::{
@@ -2134,4 +2134,66 @@ fn test_requesting_receipts_when_not_validator() {
     };
     assert_eq!(block.hash(), &reconstructed_block_hash);
     assert_eq!(receipt_proof, reconstructed_receipt_proof);
+}
+
+/// Verifies that contract accesses are served from the persistent store during catch-up
+/// when the in-memory LRU cache has been evicted.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_contract_accesses_served_from_store_on_catchup() {
+    use near_primitives::stateless_validation::contract_distribution::CodeHash;
+
+    let (_genesis, chain) = setup(2, 0);
+    let block = latest_block(&chain);
+
+    let state_witness = new_test_witness(&block);
+    save_witness(
+        &chain.chain_store,
+        block.hash(),
+        state_witness.chunk_id().shard_id,
+        &state_witness,
+    );
+
+    // Persist contract accesses to the store (simulating what the executor does),
+    // but do NOT send them through the actor (so the in-memory cache stays empty).
+    let contract_accesses: HashSet<CodeHash> =
+        HashSet::from([CodeHash(hash(&[1])), CodeHash(hash(&[2]))]);
+    save_contract_accesses(
+        &chain.chain_store,
+        block.hash(),
+        state_witness.chunk_id().shard_id,
+        &contract_accesses,
+    );
+
+    let producer = witness_producer_accounts(&chain, &block, &state_witness).swap_remove(0);
+    let (_incoming_data, recipient) = witness_incoming_data(&chain, &block);
+
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    // Create a fresh actor — its cache is empty, so accesses must come from the store.
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
+
+    let data_id = SpiceDataIdentifier::Witness {
+        block_hash: *block.hash(),
+        shard_id: state_witness.chunk_id().shard_id,
+    };
+    actor.handle(SpicePartialDataRequest {
+        data_id,
+        requester: recipient.clone(),
+        include_contract_accesses: true,
+    });
+
+    // Collect all outgoing messages and find the contract accesses message.
+    let mut found_accesses = false;
+    while let Ok(message) = outgoing_rc.try_recv() {
+        if let OutgoingMessage::NetworkRequests {
+            request: NetworkRequests::SpiceChunkContractAccesses(targets, accesses_msg),
+        } = message
+        {
+            assert_eq!(targets, vec![recipient.clone()]);
+            let received: HashSet<CodeHash> = accesses_msg.contracts().iter().cloned().collect();
+            assert_eq!(received, contract_accesses);
+            found_accesses = true;
+        }
+    }
+    assert!(found_accesses, "expected contract accesses message to be sent from store fallback");
 }

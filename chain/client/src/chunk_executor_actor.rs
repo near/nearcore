@@ -52,6 +52,7 @@ use near_primitives::types::ChunkExecutionResultHash;
 use near_primitives::types::SpiceChunkId;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{Gas, ShardId};
+use near_primitives::utils::get_contract_accesses_key;
 use near_primitives::utils::get_receipt_proof_key;
 use near_primitives::utils::get_receipt_proof_target_shard_prefix;
 use near_primitives::utils::get_witnesses_key;
@@ -696,6 +697,7 @@ impl ChunkExecutorActor {
             self.create_witness(block, apply_result, shard_id, execution_result_hash)?;
 
         save_witness(&self.chain_store, block.hash(), shard_id, &state_witness);
+        save_contract_accesses(&self.chain_store, block.hash(), shard_id, &contract_accesses);
         self.data_distributor_adapter
             .send(SpiceDistributorStateWitness { state_witness, contract_accesses });
 
@@ -1035,6 +1037,30 @@ pub fn get_witness(
 ) -> Option<SpiceChunkStateWitness> {
     let key = get_witnesses_key(block_hash, shard_id);
     store.get_ser(DBCol::witnesses(), &key)
+}
+
+pub(crate) fn save_contract_accesses(
+    chain_store: &ChainStoreAdapter,
+    block_hash: &CryptoHash,
+    shard_id: ShardId,
+    contract_accesses: &HashSet<CodeHash>,
+) {
+    let mut store_update = chain_store.store().store_update();
+    let key = get_contract_accesses_key(block_hash, shard_id);
+    let value: Vec<&CodeHash> = contract_accesses.iter().collect();
+    let value = borsh::to_vec(&value).unwrap();
+    store_update.set(DBCol::contract_accesses(), &key, &value);
+    store_update.commit();
+}
+
+pub fn get_contract_accesses(
+    store: &Store,
+    block_hash: &CryptoHash,
+    shard_id: ShardId,
+) -> Option<HashSet<CodeHash>> {
+    let key = get_contract_accesses_key(block_hash, shard_id);
+    let accesses: Arc<Vec<CodeHash>> = store.caching_get_ser(DBCol::contract_accesses(), &key)?;
+    Some(accesses.iter().cloned().collect())
 }
 
 pub fn get_receipt_proof(

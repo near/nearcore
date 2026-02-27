@@ -587,10 +587,6 @@ fn valid_witness_message(
     )
 }
 
-fn make_code_hash(data: &[u8]) -> CodeHash {
-    CodeHash(near_primitives::hash::hash(data))
-}
-
 fn make_contract_accesses(block: &Block, hashes: HashSet<CodeHash>) -> SpiceChunkContractAccesses {
     make_contract_accesses_with_signer(block, hashes, "test-validator")
 }
@@ -647,8 +643,6 @@ fn invalid_witness_message(
         receipts_hash,
     )
 }
-
-// ===== Contract distribution tests =====
 
 /// Empty accesses message signals no contracts needed — witness should finalize immediately.
 #[test]
@@ -708,8 +702,8 @@ fn test_contract_accesses_sends_request_for_missing() {
     let head = actor.chain_store.head().unwrap();
     let block = actor.chain_store.get_block(&head.last_block_hash).unwrap();
 
-    let hash_a = make_code_hash(b"contract_a");
-    let hash_b = make_code_hash(b"contract_b");
+    let hash_a: CodeHash = hash(b"contract_a").into();
+    let hash_b: CodeHash = hash(b"contract_b").into();
     let accesses = make_contract_accesses(&block, HashSet::from([hash_a.clone(), hash_b.clone()]));
     actor.handle(SpiceChunkContractAccessesMessage(accesses));
 
