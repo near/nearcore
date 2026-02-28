@@ -44,9 +44,13 @@ pub enum CloudArchivalInitializationError {
     #[error("IO error while initializing cloud archival: {message}")]
     IOError { message: String },
     #[error(
-        "GC tail: {gc_tail}, exceeds GC stop height: {gc_stop_height} for the cloud head: {cloud_head}"
+        "GC tail: {gc_tail}, exceeds GC stop height: {gc_stop_height:?} for the cloud min head: {min_head}"
     )]
-    CloudHeadTooOld { cloud_head: BlockHeight, gc_stop_height: BlockHeight, gc_tail: BlockHeight },
+    CloudHeadTooOld {
+        min_head: BlockHeight,
+        gc_stop_height: Option<BlockHeight>,
+        gc_tail: BlockHeight,
+    },
     #[error("Chain error: {error}")]
     ChainError { error: near_chain_primitives::Error },
     #[error("Error when updating cloud archival during initialization: {error}")]
@@ -376,10 +380,7 @@ impl CloudArchivalWriter {
         let (block_head_local, shard_heads_local, min_height_local) =
             self.collect_resolved_heads(hot_final_height, block_head_ext, &shard_heads_ext);
 
-        // GC check only when local min head doesn't exist (fresh writer setup).
-        if self.get_cloud_min_head_local()?.is_none() {
-            self.ensure_cloud_head_available_for_archiving(runtime_adapter, min_height_local)?;
-        }
+        self.ensure_cloud_head_available_for_archiving(runtime_adapter, min_height_local)?;
 
         self.log_initialization_status(block_head_ext, &shard_heads_ext, hot_final_height);
         self.set_local_heads(block_head_local, &shard_heads_local, min_height_local)?;
@@ -506,19 +507,33 @@ impl CloudArchivalWriter {
         Ok(tracked_shards.iter().map(|uid| uid.shard_id()).collect())
     }
 
-    /// Ensures `cloud_head` is not older than GC stop; returns `CloudHeadTooOld` otherwise.
+    /// Ensures the cloud min head has not been garbage collected.
+    /// We check against `gc_stop_height` (not just `gc_tail`) because the
+    /// writer needs data from the entire epoch containing `min_head` -
+    /// `gc_stop_height` is the earliest height whose epoch data is guaranteed
+    /// to be retained.
     fn ensure_cloud_head_available_for_archiving(
         &self,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
-        cloud_head: BlockHeight,
+        min_head: BlockHeight,
     ) -> Result<(), CloudArchivalInitializationError> {
-        let block_hash = self.hot_store.chain_store().get_block_hash_by_height(cloud_head)?;
-        let gc_stop_height = runtime_adapter.get_gc_stop_height(&block_hash);
         let gc_tail = self.hot_store.chain_store().tail();
-        if gc_tail > gc_stop_height {
+        if min_head < gc_tail {
             return Err(CloudArchivalInitializationError::CloudHeadTooOld {
-                cloud_head,
-                gc_stop_height,
+                min_head,
+                gc_stop_height: None,
+                gc_tail,
+            });
+        }
+        let hot_final_height = self.get_hot_final_head_height()?;
+        assert!(min_head < hot_final_height, "guaranteed by collect_resolved_heads");
+        let block_hash = self.hot_store.chain_store().get_block_hash_by_height(min_head)?;
+        let gc_stop_height = runtime_adapter.get_gc_stop_height(&block_hash);
+        // gc_stop_height at or below genesis means GC hasn't started yet.
+        if gc_tail > gc_stop_height && gc_stop_height > self.genesis_height {
+            return Err(CloudArchivalInitializationError::CloudHeadTooOld {
+                min_head,
+                gc_stop_height: Some(gc_stop_height),
                 gc_tail,
             });
         }
