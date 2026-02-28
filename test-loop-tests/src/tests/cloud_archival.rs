@@ -330,6 +330,27 @@ fn test_cloud_archival_lagging_shard_catchup() {
     );
 }
 
+/// Verifies that the writer fails cleanly when a shard's external head
+/// is set back far enough that the data has already been garbage collected.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_lagging_shard_beyond_gc() {
+    let shard_ids = all_test_shard_ids();
+    let lag_at_height = MIN_NUM_EPOCHS_TO_WAIT * MIN_EPOCH_LENGTH;
+    // Lag so big that the lagging height is below the GC tail.
+    let lag_blocks = lag_at_height - 5;
+    test_cloud_archival_base(
+        TestCloudArchivalParametersBuilder::default()
+            .num_epochs_to_wait(2 * MIN_NUM_EPOCHS_TO_WAIT)
+            .test_action(Some(TestAction::LaggingShardCatchup {
+                at_height: lag_at_height,
+                shard_id: shard_ids[2],
+                lag_blocks,
+            }))
+            .build(),
+    );
+}
+
 /// Verifies that a second writer can join mid-operation.
 ///
 /// Setup: writer_a tracks shards {0,1} from the start; writer_b joins at
