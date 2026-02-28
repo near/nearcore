@@ -365,6 +365,7 @@ impl CloudArchivalWriter {
     /// Missing components start at `hot_final_height`. `CLOUD_MIN_HEAD` is
     /// clamped to `hot_final_height` because it is stored as `Tip` and
     /// needs a block header.
+    // TODO(cloud_archival) Cover this logic with tests.
     async fn initialize_cloud_heads(
         &self,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
