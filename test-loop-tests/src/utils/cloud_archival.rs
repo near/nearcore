@@ -68,17 +68,25 @@ pub fn gc_and_heads_sanity_checks(
     writer: &WriterConfig,
     split_store_enabled: bool,
     num_gced_blocks: Option<BlockHeightDelta>,
+    min_expected_cloud_head: BlockHeight,
 ) {
-    let cloud_head = get_cloud_head(env, &writer.id);
+    let cloud_min_head = get_cloud_min_head(env, &writer.id);
     let node = env.node_for_account(&writer.id);
     let client = node.client();
     let chain_store = client.chain.chain_store();
     let epoch_store = chain_store.epoch_store();
 
-    // Check if the first block of the epoch containing `cloud_head` is not gc-ed.
-    let cloud_head_hash = chain_store.get_block_hash_by_height(cloud_head).unwrap();
-    let cloud_head_block_info = epoch_store.get_block_info(&cloud_head_hash).unwrap();
-    epoch_store.get_block_info(cloud_head_block_info.epoch_first_block()).unwrap();
+    // Check if the first block of the epoch containing `cloud_min_head` is not gc-ed.
+    let cloud_min_head_hash = chain_store.get_block_hash_by_height(cloud_min_head).unwrap();
+    let cloud_min_head_block_info = epoch_store.get_block_info(&cloud_min_head_hash).unwrap();
+    epoch_store.get_block_info(cloud_min_head_block_info.epoch_first_block()).unwrap();
+
+    assert!(
+        cloud_min_head >= min_expected_cloud_head,
+        "cloud_min_head {} below min_expected_cloud_head {}",
+        cloud_min_head,
+        min_expected_cloud_head,
+    );
 
     let gc_tail = chain_store.tail();
     if split_store_enabled {
@@ -86,7 +94,7 @@ pub fn gc_and_heads_sanity_checks(
         let cold_head_height = cold_head.unwrap().height;
         assert!(cold_head_height > gc_tail);
     }
-    assert!(cloud_head > gc_tail);
+    assert!(cloud_min_head > gc_tail);
     if let Some(min_gc_tail) = num_gced_blocks {
         assert!(gc_tail >= min_gc_tail);
     } else {
@@ -131,8 +139,8 @@ pub fn pause_and_resume_writer_with_sanity_checks(
 ) {
     // Run the node so that the cloud head advances a bit, but remains within the first epoch.
     run_node_until(&mut env, &writer.id, epoch_length);
-    let cloud_head = get_cloud_head(&env, &writer.id);
-    assert!(2 < cloud_head && cloud_head + 1 < epoch_length);
+    let cloud_min_head = get_cloud_min_head(&env, &writer.id);
+    assert!(2 < cloud_min_head && cloud_min_head + 1 < epoch_length);
 
     // Stop the writer and let the node reach `resume_height` while the writer is paused.
     get_writer_handle(&env, &writer.id).0.stop();
@@ -141,7 +149,7 @@ pub fn pause_and_resume_writer_with_sanity_checks(
     env.runner_for_account(&writer.id).run_until_head_height(resume_height);
 
     // Run sanity checks.
-    gc_and_heads_sanity_checks(env, writer, split_store_enabled, None);
+    gc_and_heads_sanity_checks(env, writer, split_store_enabled, None, 1);
 
     // Resume the writer and restart the node.
     get_writer_handle(&env, &writer.id).0.resume();
@@ -158,7 +166,7 @@ pub fn simulate_lagging_shard(
     shard_id: ShardId,
     lag_blocks: BlockHeight,
 ) {
-    let cloud_head = get_cloud_head(env, writer_id);
+    let cloud_min_head = get_cloud_min_head(env, writer_id);
     let cloud_storage = get_cloud_storage(env, writer_id);
     let node_data = env.get_node_data_by_account_id(writer_id);
     let identifier = node_data.identifier.clone();
@@ -166,7 +174,7 @@ pub fn simulate_lagging_shard(
     let node_state = env.kill_node(&identifier);
 
     // Overwrite the external shard head to simulate a lagging shard.
-    let lagging_height = cloud_head - lag_blocks;
+    let lagging_height = cloud_min_head - lag_blocks;
     execute_future(cloud_storage.update_cloud_shard_head(shard_id, lagging_height)).unwrap();
 
     // Restart the node; the writer will set local heads from external state
@@ -219,7 +227,7 @@ fn get_cloud_storage(env: &TestLoopEnv, archival_id: &AccountId) -> Arc<CloudSto
     cloud_storage.clone().unwrap()
 }
 
-fn get_cloud_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockHeight {
+fn get_cloud_min_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockHeight {
     let hot_store = get_hot_store(env, writer_id);
     hot_store.get_ser::<Tip>(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY).unwrap().height
 }
@@ -315,13 +323,13 @@ pub fn snapshots_sanity_check(
 
     // Epoch data is uploaded by the cloud archival writer at the last block of each
     // epoch, so it covers all epochs fully passed by the cloud head.
-    let cloud_head_tip: Tip =
+    let cloud_min_head_tip: Tip =
         store.get_ser(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY).expect("cloud head should exist");
-    let cloud_head_epoch_info = EpochInfo::try_from_slice(
-        &store.get(DBCol::EpochInfo, cloud_head_tip.epoch_id.as_ref()).unwrap(),
+    let cloud_min_head_epoch_info = EpochInfo::try_from_slice(
+        &store.get(DBCol::EpochInfo, cloud_min_head_tip.epoch_id.as_ref()).unwrap(),
     )
     .unwrap();
-    let expected_epoch_data = HashSet::from_iter(1..cloud_head_epoch_info.epoch_height());
+    let expected_epoch_data = HashSet::from_iter(1..cloud_min_head_epoch_info.epoch_height());
     assert_eq!(epoch_heights_with_epoch_data, expected_epoch_data);
 }
 

@@ -179,16 +179,24 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
 
     // Final sanity checks for all writers.
     println!("Final sanity checks");
+    let min_expected_cloud_head = target_height - MIN_EPOCH_LENGTH;
     for writer in &params.writers {
         gc_and_heads_sanity_checks(
             &env,
             writer,
             params.enable_cold_storage,
             Some(MIN_EPOCH_LENGTH),
+            min_expected_cloud_head,
         );
     }
     if let Some(writer) = &added_writer {
-        gc_and_heads_sanity_checks(&env, writer, false, Some(MIN_EPOCH_LENGTH));
+        gc_and_heads_sanity_checks(
+            &env,
+            writer,
+            false,
+            Some(MIN_EPOCH_LENGTH),
+            min_expected_cloud_head,
+        );
     }
 
     for (height, expected_shards) in &params.check_data_at_heights {
@@ -214,7 +222,7 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
-/// Verifies that `cloud_head` progresses without crashes.
+/// Verifies that `cloud_min_head` progresses without crashes.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
@@ -240,7 +248,7 @@ fn test_cloud_archival_misconfigured_writer_panics() {
     );
 }
 
-/// Verifies that both `cloud_head` and `cold_head` progress with cold DB enabled.
+/// Verifies that both `cloud_min_head` and `cold_head` progress with cold DB enabled.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
@@ -251,15 +259,15 @@ fn test_cloud_archival_with_cold() {
 }
 
 /// Verifies that while the cloud writer is paused, GC stop never exceeds the first block
-/// of the epoch containing `cloud_head` and the writer catches up after resuming.
+/// of the epoch containing the cloud head and the writer catches up after resuming.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_resume() {
     let gc_period_num_blocks = MIN_GC_NUM_EPOCHS_TO_KEEP * MIN_EPOCH_LENGTH;
     // Pause the cloud writer long enough so that, if it were possible, GC could overtake
-    // `cloud_head`. Place `cloud_head` in the middle of the epoch so that the first block
-    // of the epoch containing `cloud_head` could potentially be garbage collected.
+    // the cloud head. Place it in the middle of the epoch so that the first block
+    // of its epoch could potentially be garbage collected.
     let pause_duration_blocks = 2 * gc_period_num_blocks + MIN_EPOCH_LENGTH / 2;
     // After resuming writer, wait one more GC window to expose potential crash.
     let num_epochs_to_wait = 3 * MIN_GC_NUM_EPOCHS_TO_KEEP;
@@ -333,6 +341,7 @@ fn test_cloud_archival_lagging_shard_catchup() {
 /// Verifies that the writer fails cleanly when a shard's external head
 /// is set back far enough that the data has already been garbage collected.
 #[test]
+#[should_panic(expected = "below min_expected_cloud_head")]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_lagging_shard_beyond_gc() {
     let shard_ids = all_test_shard_ids();
