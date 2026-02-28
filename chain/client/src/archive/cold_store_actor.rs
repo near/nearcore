@@ -129,7 +129,7 @@ impl ColdStoreActor {
         shard_tracker: ShardTracker,
         keep_going: Arc<AtomicBool>,
     ) -> Self {
-        debug_assert!(shard_tracker.is_valid_for_cold_store());
+        debug_assert!(shard_tracker.tracks_non_empty_subset_of_shards());
         ColdStoreActor {
             split_storage_config,
             genesis_height,
@@ -430,7 +430,7 @@ pub fn create_cold_store_actor(
     let hot_tail_height = hot_store.chain_store().tail();
 
     sanity_check(cold_head_height, hot_final_head_height, hot_tail_height)?;
-    debug_assert!(shard_tracker.is_valid_for_cold_store());
+    debug_assert!(shard_tracker.tracks_non_empty_subset_of_shards());
 
     tracing::info!(target: "cold_store", "creating the cold store actor");
 
