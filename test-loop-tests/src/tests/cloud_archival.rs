@@ -41,7 +41,7 @@ enum TestAction {
     /// Pause the writer, run for the given number of blocks, then resume.
     PauseAndResume { pause_duration_blocks: BlockHeightDelta },
     /// Kill writer, set back one shard's external head, restart.
-    LaggingShardCatchup { shard_id: ShardId, lag_blocks: BlockHeight },
+    LaggingShardCatchup { at_height: BlockHeight, shard_id: ShardId, lag_blocks: BlockHeight },
     /// Add a new writer node mid-test.
     AddWriter { after_epochs: u64, config: WriterConfig },
     /// Add a reader node after the main run and bootstrap from cloud storage.
@@ -157,13 +157,8 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
                     params.enable_cold_storage,
                 );
             }
-            TestAction::LaggingShardCatchup { shard_id, lag_blocks } => {
-                // Run for MIN_NUM_EPOCHS_TO_WAIT epochs before simulating the lag.
-                // This ensures cloud archival has progressed far enough that GC is
-                // active, so the lagging shard catchup exercises the real recovery
-                // path (re-archiving from data that is about to be garbage-collected).
-                let first_phase_height = MIN_NUM_EPOCHS_TO_WAIT * MIN_EPOCH_LENGTH;
-                run_node_until(&mut env, &first_writer_id, first_phase_height);
+            TestAction::LaggingShardCatchup { at_height, shard_id, lag_blocks } => {
+                run_node_until(&mut env, &first_writer_id, at_height);
                 simulate_lagging_shard(&mut env, &first_writer_id, shard_id, lag_blocks);
             }
             TestAction::AddWriter { after_epochs, config } => {
@@ -316,21 +311,20 @@ fn test_cloud_archival_use_snapshot() {
 fn test_cloud_archival_lagging_shard_catchup() {
     let shard_ids = all_test_shard_ids();
     let all_shards = shard_ids.clone();
-    // Height at the end of the first phase (before simulating the lag). Same
-    // calculation as in `test_cloud_archival_base` for `LaggingShardCatchup`.
-    let first_phase_height = MIN_NUM_EPOCHS_TO_WAIT * MIN_EPOCH_LENGTH;
+    let lag_at_height = MIN_NUM_EPOCHS_TO_WAIT * MIN_EPOCH_LENGTH;
     let lag_blocks = 5;
     test_cloud_archival_base(
         TestCloudArchivalParametersBuilder::default()
             .num_epochs_to_wait(2 * MIN_NUM_EPOCHS_TO_WAIT)
             .test_action(Some(TestAction::LaggingShardCatchup {
+                at_height: lag_at_height,
                 shard_id: shard_ids[2],
                 lag_blocks,
             }))
             .check_data_at_heights(vec![
-                (first_phase_height - lag_blocks, all_shards.clone()),
-                (first_phase_height - 1, all_shards.clone()),
-                (first_phase_height + MIN_EPOCH_LENGTH, all_shards),
+                (lag_at_height - lag_blocks, all_shards.clone()),
+                (lag_at_height - 1, all_shards.clone()),
+                (lag_at_height + MIN_EPOCH_LENGTH, all_shards),
             ])
             .build(),
     );
@@ -374,7 +368,7 @@ fn test_cloud_archival_writer_joins_later() {
                 (MIN_EPOCH_LENGTH / 2, writer_a_shards.clone()),
                 (MIN_EPOCH_LENGTH, writer_a_shards),
                 // After writer_b catches up: all shards are archived.
-                (join_height + MIN_EPOCH_LENGTH + 1, all_test_shard_ids()),
+                (join_height + MIN_EPOCH_LENGTH / 2, all_test_shard_ids()),
             ])
             .build(),
     );

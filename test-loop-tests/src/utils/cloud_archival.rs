@@ -169,8 +169,8 @@ pub fn simulate_lagging_shard(
     let lagging_height = cloud_head - lag_blocks;
     execute_future(cloud_storage.update_cloud_shard_head(shard_id, lagging_height)).unwrap();
 
-    // Restart the node; the writer will detect the lagging shard head during
-    // initialize_cloud_heads and re-archive from lagging_height onward.
+    // Restart the node; the writer will set local heads from external state
+    // and the archival loop will catch up the lagging shard.
     let new_identifier = format!("{}-restart", identifier);
     env.restart_node(&new_identifier, node_state);
 }
