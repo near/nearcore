@@ -1,16 +1,17 @@
 use std::collections::HashSet;
 
 use near_async::time::Duration;
-use near_chain_configs::CloudArchivalWriterConfig;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta};
+use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ShardId};
+use near_store::ShardUId;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::cloud_archival::{
-    bootstrap_reader_at_height, check_account_balance, check_data_at_height,
-    gc_and_heads_sanity_checks, pause_and_resume_writer_with_sanity_checks, run_node_until,
+    WriterConfig, add_writer_node, apply_writer_settings, bootstrap_reader_at_height,
+    check_account_balance, check_data_at_height, gc_and_heads_sanity_checks,
+    pause_and_resume_writer_with_sanity_checks, run_node_until, simulate_lagging_shard,
     snapshots_sanity_check,
 };
 
@@ -23,40 +24,70 @@ const MIN_NUM_EPOCHS_TO_WAIT: u64 = MIN_GC_NUM_EPOCHS_TO_KEEP + 1;
 const TEST_USER_ACCOUNT: &str = "user_account";
 const TEST_USER_BALANCE: Balance = Balance::from_near(42);
 
+fn test_shard_layout() -> ShardLayout {
+    ShardLayout::multi_shard(3, 3)
+}
+
+fn all_test_shard_uids() -> Vec<ShardUId> {
+    test_shard_layout().shard_uids().collect()
+}
+
+fn all_test_shard_ids() -> Vec<ShardId> {
+    test_shard_layout().shard_ids().collect()
+}
+
+/// Action to execute during the test.
+enum TestAction {
+    /// Pause the writer, run for the given number of blocks, then resume.
+    PauseAndResume { pause_duration_blocks: BlockHeightDelta },
+    /// Kill writer, set back one shard's external head, restart.
+    LaggingShardCatchup { at_height: BlockHeight, shard_id: ShardId, lag_blocks: BlockHeight },
+    /// Add a new writer node mid-test.
+    AddWriter { after_epochs: u64, config: WriterConfig },
+    /// Add a reader node after the main run and bootstrap from cloud storage.
+    BootstrapReader { at_height: BlockHeight },
+}
+
 /// Parameters controlling the behavior of cloud archival tests.
 #[derive(derive_builder::Builder)]
 #[builder(pattern = "owned", build_fn(skip))]
 struct TestCloudArchivalParameters {
-    /// If true, disables the cloud archival writer for this test.
-    disable_writer: bool,
-    /// Number of epochs the test should run; must be at least
-    /// `MINIMUM_NUM_EPOCHS_TO_WAIT`.
+    /// Writer nodes to create at test start. Default: single writer with all shards.
+    writers: Vec<WriterConfig>,
+    /// Number of epochs the test should run; must be at least `MIN_NUM_EPOCHS_TO_WAIT`.
     num_epochs_to_wait: u64,
     /// Whether to run the cold-store loop.
     enable_cold_storage: bool,
-    /// Number of blocks for which the cloud archival writer should be paused.
-    pause_writer_for_num_of_blocks: Option<BlockHeightDelta>,
-    /// If set, verify that data at the block height was archived.
-    check_data_at_height: Option<BlockHeight>,
-    bootstrap_reader_at_height: Option<BlockHeight>,
+    /// Optional action to execute during the test.
+    test_action: Option<TestAction>,
+    /// (height, expected_shards) pairs — verifies that block data and exactly
+    /// the listed shards have data archived at each height.
+    check_data_at_heights: Vec<(BlockHeight, Vec<ShardId>)>,
 }
 
 impl TestCloudArchivalParametersBuilder {
     fn build(self) -> TestCloudArchivalParameters {
         let num_epochs_to_wait = self.num_epochs_to_wait.unwrap_or(MIN_NUM_EPOCHS_TO_WAIT);
         assert!(num_epochs_to_wait >= MIN_NUM_EPOCHS_TO_WAIT);
-        let disable_writer = self.disable_writer.unwrap_or_default();
-        if disable_writer {
-            assert!(self.pause_writer_for_num_of_blocks.is_none());
-        }
+
+        let writers = match self.writers {
+            Some(writers) => {
+                assert!(!writers.is_empty(), "writers list must not be empty");
+                writers
+            }
+            None => vec![WriterConfig {
+                id: "archival".parse().unwrap(),
+                archive_block_data: true,
+                tracked_shards: all_test_shard_uids(),
+            }],
+        };
 
         TestCloudArchivalParameters {
-            disable_writer,
+            writers,
             num_epochs_to_wait,
             enable_cold_storage: self.enable_cold_storage.unwrap_or(false),
-            pause_writer_for_num_of_blocks: self.pause_writer_for_num_of_blocks.unwrap_or_default(),
-            check_data_at_height: self.check_data_at_height.unwrap_or(None),
-            bootstrap_reader_at_height: self.bootstrap_reader_at_height.unwrap_or(None),
+            test_action: self.test_action.flatten(),
+            check_data_at_heights: self.check_data_at_heights.unwrap_or_default(),
         }
     }
 }
@@ -65,7 +96,7 @@ impl TestCloudArchivalParametersBuilder {
 fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
     init_test_logger();
 
-    let shard_layout = ShardLayout::multi_shard(3, 3);
+    let shard_layout = test_shard_layout();
     let user_account: AccountId = TEST_USER_ACCOUNT.parse().unwrap();
     let validator_id: AccountId = "cp0".parse().unwrap();
     let validators_spec = ValidatorsSpec::desired_roles(&[validator_id.as_str()], &[]);
@@ -77,77 +108,121 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
 
-    let archival_id: AccountId = "archival".parse().unwrap();
-    let all_clients = vec![archival_id.clone(), validator_id];
-    let mut cold_storage_archival_clients = HashSet::<AccountId>::new();
-    if params.enable_cold_storage {
-        cold_storage_archival_clients.insert(archival_id.clone());
-    }
-    let cloud_storage_archival_clients = [archival_id.clone()].into_iter().collect();
-    let archival_index = all_clients.iter().position(|id| id == &archival_id).unwrap();
+    // Writers first (order must match writer_configs for config_modifier indexing),
+    // validator last.
+    let mut all_clients: Vec<AccountId> = params.writers.iter().map(|w| w.id.clone()).collect();
+    let validator_index = all_clients.len();
+    all_clients.push(validator_id.clone());
+    assert_eq!(all_clients[validator_index], validator_id, "validator must be at validator_index");
+    let cloud_archival_clients: HashSet<AccountId> =
+        params.writers.iter().map(|w| w.id.clone()).collect();
 
-    let mut builder = TestLoopBuilder::new()
+    let cold_storage_archival_clients =
+        if params.enable_cold_storage { cloud_archival_clients.clone() } else { HashSet::new() };
+
+    // Capture writer configs for the config_modifier closure.
+    let writer_configs: Vec<(bool, Vec<ShardUId>)> =
+        params.writers.iter().map(|w| (w.archive_block_data, w.tracked_shards.clone())).collect();
+    let builder = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(all_clients)
         .cold_storage_archival_clients(cold_storage_archival_clients)
-        .cloud_storage_archival_clients(cloud_storage_archival_clients)
-        .gc_num_epochs_to_keep(MIN_GC_NUM_EPOCHS_TO_KEEP);
-
-    if !params.disable_writer {
-        builder = builder.config_modifier(move |config, client_index| {
-            if client_index != archival_index {
-                return;
+        .cloud_storage_archival_clients(cloud_archival_clients)
+        .gc_num_epochs_to_keep(MIN_GC_NUM_EPOCHS_TO_KEEP)
+        .config_modifier(move |config, client_index| {
+            if let Some((archive_block_data, tracked_shards)) = writer_configs.get(client_index) {
+                apply_writer_settings(config, *archive_block_data, tracked_shards);
             }
-            config.cloud_archival_writer =
-                Some(CloudArchivalWriterConfig { archive_block_data: true, ..Default::default() });
+            // Keep all blocks on the validator so new nodes can always block-sync.
+            if client_index == validator_index {
+                config.gc.gc_num_epochs_to_keep = 1000;
+            }
         });
-    }
 
     let mut env = builder.build().warmup();
 
-    if let Some(resume_height) = params.pause_writer_for_num_of_blocks {
-        pause_and_resume_writer_with_sanity_checks(
-            &mut env,
-            resume_height,
-            MIN_EPOCH_LENGTH,
-            &archival_id,
+    let first_writer_id = params.writers[0].id.clone();
+
+    let mut added_writer: Option<WriterConfig> = None;
+    let mut reader_at_height: Option<BlockHeight> = None;
+    if let Some(action) = params.test_action {
+        match action {
+            TestAction::PauseAndResume { pause_duration_blocks } => {
+                pause_and_resume_writer_with_sanity_checks(
+                    &mut env,
+                    pause_duration_blocks,
+                    MIN_EPOCH_LENGTH,
+                    &params.writers[0],
+                    params.enable_cold_storage,
+                );
+            }
+            TestAction::LaggingShardCatchup { at_height, shard_id, lag_blocks } => {
+                run_node_until(&mut env, &first_writer_id, at_height);
+                simulate_lagging_shard(&mut env, &first_writer_id, shard_id, lag_blocks);
+            }
+            TestAction::AddWriter { after_epochs, config } => {
+                let add_at_height = after_epochs * MIN_EPOCH_LENGTH;
+                run_node_until(&mut env, &first_writer_id, add_at_height);
+                add_writer_node(&mut env, &config);
+                added_writer = Some(config);
+            }
+            TestAction::BootstrapReader { at_height } => {
+                reader_at_height = Some(at_height);
+            }
+        }
+    }
+
+    // Run to target height.
+    let target_height = params.num_epochs_to_wait * MIN_EPOCH_LENGTH;
+    run_node_until(&mut env, &first_writer_id, target_height);
+
+    // Final sanity checks for all writers.
+    println!("Final sanity checks");
+    let min_expected_cloud_head = target_height - MIN_EPOCH_LENGTH;
+    for writer in &params.writers {
+        gc_and_heads_sanity_checks(
+            &env,
+            writer,
             params.enable_cold_storage,
+            Some(MIN_EPOCH_LENGTH),
+            min_expected_cloud_head,
+        );
+    }
+    if let Some(writer) = &added_writer {
+        gc_and_heads_sanity_checks(
+            &env,
+            writer,
+            false,
+            Some(MIN_EPOCH_LENGTH),
+            min_expected_cloud_head,
         );
     }
 
-    let target_height = params.num_epochs_to_wait * MIN_EPOCH_LENGTH;
-    run_node_until(&mut env, &archival_id, target_height);
-
-    println!("Final sanity checks");
-    gc_and_heads_sanity_checks(
+    for (height, expected_shards) in &params.check_data_at_heights {
+        check_data_at_height(&env, &first_writer_id, *height, expected_shards);
+    }
+    snapshots_sanity_check(
         &env,
-        &archival_id,
-        params.enable_cold_storage,
-        Some(MIN_EPOCH_LENGTH),
+        &first_writer_id,
+        params.num_epochs_to_wait,
+        &params.writers[0].tracked_shards,
     );
 
-    if let Some(block_height) = params.check_data_at_height {
-        check_data_at_height(&env, &archival_id, block_height);
-    }
-    snapshots_sanity_check(&env, &archival_id, params.num_epochs_to_wait);
-
-    let reader_id: AccountId = "reader".parse().unwrap();
-    if let Some(target_block_height) = params.bootstrap_reader_at_height {
+    if let Some(target_block_height) = reader_at_height {
+        let reader_id: AccountId = "reader".parse().unwrap();
         bootstrap_reader_at_height(&mut env, &reader_id, target_block_height);
         check_account_balance(&env, &reader_id, &user_account, TEST_USER_BALANCE);
         // Kill the reader node immediately after bootstrapping. We only want to
         // verify that state sync + delta application produces the correct state.
-        // If left running, the reader tries to sync to the latest chain head and
-        // requests blocks from cp0 that have already been garbage collected.
         env.kill_node(reader_id.as_ref());
     }
-    env.test_loop.run_for(Duration::seconds(5));
 
+    env.test_loop.run_for(Duration::seconds(5));
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
-/// Verifies that `cloud_head` progresses without crashes.
+/// Verifies that `cloud_min_head` progresses without crashes.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
@@ -155,7 +230,25 @@ fn test_cloud_archival_basic() {
     test_cloud_archival_base(TestCloudArchivalParametersBuilder::default().build());
 }
 
-/// Verifies that both `cloud_head` and `cold_head` progress with cold DB enabled.
+/// Verifies that a writer configured with no block archiving and no tracked shards
+/// panics during initialization. The panic originates from the assertion in
+/// `create_cloud_archival_writer`, which requires at least one tracked component.
+#[test]
+#[should_panic(expected = "cloud archival writer must track at least one component")]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_misconfigured_writer_panics() {
+    test_cloud_archival_base(
+        TestCloudArchivalParametersBuilder::default()
+            .writers(vec![WriterConfig {
+                id: "archival".parse().unwrap(),
+                archive_block_data: false,
+                tracked_shards: vec![],
+            }])
+            .build(),
+    );
+}
+
+/// Verifies that both `cloud_min_head` and `cold_head` progress with cold DB enabled.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
@@ -166,22 +259,22 @@ fn test_cloud_archival_with_cold() {
 }
 
 /// Verifies that while the cloud writer is paused, GC stop never exceeds the first block
-/// of the epoch containing `cloud_head` and the writer catches up after resuming.
+/// of the epoch containing the cloud head and the writer catches up after resuming.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_resume() {
     let gc_period_num_blocks = MIN_GC_NUM_EPOCHS_TO_KEEP * MIN_EPOCH_LENGTH;
     // Pause the cloud writer long enough so that, if it were possible, GC could overtake
-    // `cloud_head`. Place `cloud_head` in the middle of the epoch so that the first block
-    // of the epoch containing `cloud_head` could potentially be garbage collected.
-    let resume_writer_after_num_blocks = Some(2 * gc_period_num_blocks + MIN_EPOCH_LENGTH / 2);
+    // the cloud head. Place it in the middle of the epoch so that the first block
+    // of its epoch could potentially be garbage collected.
+    let pause_duration_blocks = 2 * gc_period_num_blocks + MIN_EPOCH_LENGTH / 2;
     // After resuming writer, wait one more GC window to expose potential crash.
     let num_epochs_to_wait = 3 * MIN_GC_NUM_EPOCHS_TO_KEEP;
     test_cloud_archival_base(
         TestCloudArchivalParametersBuilder::default()
             .num_epochs_to_wait(num_epochs_to_wait)
-            .pause_writer_for_num_of_blocks(resume_writer_after_num_blocks)
+            .test_action(Some(TestAction::PauseAndResume { pause_duration_blocks }))
             .build(),
     );
 }
@@ -191,9 +284,15 @@ fn test_cloud_archival_resume() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_read_data_at_height() {
-    let block_height = Some(MIN_EPOCH_LENGTH / 2);
+    let all_shards = all_test_shard_ids();
     test_cloud_archival_base(
-        TestCloudArchivalParametersBuilder::default().check_data_at_height(block_height).build(),
+        TestCloudArchivalParametersBuilder::default()
+            .check_data_at_heights(vec![
+                (2, all_shards.clone()),
+                (MIN_EPOCH_LENGTH / 2, all_shards.clone()),
+                (MIN_EPOCH_LENGTH + 1, all_shards),
+            ])
+            .build(),
     );
 }
 
@@ -204,11 +303,162 @@ fn test_cloud_archival_read_data_at_height() {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_use_snapshot() {
     let epochs_num = 3 + MIN_GC_NUM_EPOCHS_TO_KEEP;
-    let block_height = MIN_EPOCH_LENGTH + MIN_EPOCH_LENGTH / 2;
+    let at_height = MIN_EPOCH_LENGTH + MIN_EPOCH_LENGTH / 2;
     test_cloud_archival_base(
         TestCloudArchivalParametersBuilder::default()
             .num_epochs_to_wait(epochs_num)
-            .bootstrap_reader_at_height(Some(block_height))
+            .test_action(Some(TestAction::BootstrapReader { at_height }))
+            .build(),
+    );
+}
+
+/// Verifies that a writer recovers when one shard's external head lags behind.
+/// The writer re-archives the lagging shard's data idempotently on restart.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_lagging_shard_catchup() {
+    let shard_ids = all_test_shard_ids();
+    let all_shards = shard_ids.clone();
+    let lag_at_height = MIN_NUM_EPOCHS_TO_WAIT * MIN_EPOCH_LENGTH;
+    let lag_blocks = 5;
+    test_cloud_archival_base(
+        TestCloudArchivalParametersBuilder::default()
+            .num_epochs_to_wait(2 * MIN_NUM_EPOCHS_TO_WAIT)
+            .test_action(Some(TestAction::LaggingShardCatchup {
+                at_height: lag_at_height,
+                shard_id: shard_ids[2],
+                lag_blocks,
+            }))
+            .check_data_at_heights(vec![
+                (lag_at_height - lag_blocks, all_shards.clone()),
+                (lag_at_height - 1, all_shards.clone()),
+                (lag_at_height + MIN_EPOCH_LENGTH, all_shards),
+            ])
+            .build(),
+    );
+}
+
+/// Verifies that the writer fails cleanly when a shard's external head
+/// is set back far enough that the data has already been garbage collected.
+#[test]
+#[should_panic(expected = "below min_expected_cloud_head")]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_lagging_shard_beyond_gc() {
+    let shard_ids = all_test_shard_ids();
+    let lag_at_height = MIN_NUM_EPOCHS_TO_WAIT * MIN_EPOCH_LENGTH;
+    // Lag so big that the lagging height is below the GC tail.
+    let lag_blocks = lag_at_height - 5;
+    test_cloud_archival_base(
+        TestCloudArchivalParametersBuilder::default()
+            .num_epochs_to_wait(2 * MIN_NUM_EPOCHS_TO_WAIT)
+            .test_action(Some(TestAction::LaggingShardCatchup {
+                at_height: lag_at_height,
+                shard_id: shard_ids[2],
+                lag_blocks,
+            }))
+            .build(),
+    );
+}
+
+/// Verifies that a second writer can join mid-operation.
+///
+/// Setup: writer_a tracks shards {0,1} from the start; writer_b joins at
+/// epoch 2 with shards {1,2}. Shard 1 overlaps to exercise idempotent writes
+/// to cloud storage.
+///
+/// On join, writer_b reads existing external heads (from writer_a) and
+/// initializes its missing components (shard 2) at `hot_final_height`.
+/// Writer_b only archives shard 2 from its join height onward — no backfill.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_writer_joins_later() {
+    let shard_uids = all_test_shard_uids();
+    let shard_ids = all_test_shard_ids();
+    let writer_a_shards = vec![shard_ids[0], shard_ids[1]];
+    let join_epoch = 2;
+    let join_height = join_epoch * MIN_EPOCH_LENGTH;
+    test_cloud_archival_base(
+        TestCloudArchivalParametersBuilder::default()
+            .writers(vec![WriterConfig {
+                id: "writer_a".parse().unwrap(),
+                archive_block_data: true,
+                tracked_shards: vec![shard_uids[0], shard_uids[1]],
+            }])
+            .num_epochs_to_wait(2 * MIN_NUM_EPOCHS_TO_WAIT)
+            .test_action(Some(TestAction::AddWriter {
+                after_epochs: join_epoch,
+                config: WriterConfig {
+                    id: "writer_b".parse().unwrap(),
+                    archive_block_data: false,
+                    tracked_shards: vec![shard_uids[1], shard_uids[2]],
+                },
+            }))
+            .check_data_at_heights(vec![
+                // Before writer_b joins: only writer_a's shards are archived.
+                (MIN_EPOCH_LENGTH / 2, writer_a_shards.clone()),
+                (MIN_EPOCH_LENGTH, writer_a_shards),
+                // After writer_b catches up: all shards are archived.
+                (join_height + MIN_EPOCH_LENGTH / 2, all_test_shard_ids()),
+            ])
+            .build(),
+    );
+}
+
+/// Verifies that two writers archiving the same components do not conflict.
+///
+/// Both writers track all shards and archive block data. In production, writers
+/// may run concurrently on different machines. Data uploads are idempotent:
+/// both writers produce the same deterministic block/shard data for a given
+/// height, so concurrent uploads are harmless.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_multi_writer_same_shards() {
+    test_cloud_archival_base(
+        TestCloudArchivalParametersBuilder::default()
+            .writers(vec![
+                WriterConfig {
+                    id: "writer_a".parse().unwrap(),
+                    archive_block_data: true,
+                    tracked_shards: all_test_shard_uids(),
+                },
+                WriterConfig {
+                    id: "writer_b".parse().unwrap(),
+                    archive_block_data: true,
+                    tracked_shards: all_test_shard_uids(),
+                },
+            ])
+            .check_data_at_heights(vec![
+                (2, all_test_shard_ids()),
+                (MIN_EPOCH_LENGTH + 1, all_test_shard_ids()),
+            ])
+            .build(),
+    );
+}
+
+/// Verifies that two writers with disjoint shard assignments produce
+/// complete coverage: block data from writer A, shard data split across both.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_multi_writer_disjoint_shards() {
+    let shard_uids = all_test_shard_uids();
+    test_cloud_archival_base(
+        TestCloudArchivalParametersBuilder::default()
+            .writers(vec![
+                WriterConfig {
+                    id: "writer_a".parse().unwrap(),
+                    archive_block_data: true,
+                    tracked_shards: vec![shard_uids[0], shard_uids[1]],
+                },
+                WriterConfig {
+                    id: "writer_b".parse().unwrap(),
+                    archive_block_data: false,
+                    tracked_shards: vec![shard_uids[2]],
+                },
+            ])
+            .check_data_at_heights(vec![
+                (2, all_test_shard_ids()),
+                (MIN_EPOCH_LENGTH + 1, all_test_shard_ids()),
+            ])
             .build(),
     );
 }
