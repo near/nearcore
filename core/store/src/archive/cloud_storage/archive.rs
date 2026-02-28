@@ -83,6 +83,9 @@ impl CloudStorage {
     }
 
     /// Persists the block head to external storage.
+    // TODO(cloud_archival): Unconditional write can regress the external head
+    // when a lagging writer shares the same component with an ahead writer.
+    // Consider a read-before-write guard (read current, only write if greater).
     pub async fn update_cloud_block_head(
         &self,
         head: BlockHeight,
@@ -93,6 +96,7 @@ impl CloudStorage {
     }
 
     /// Persists a shard head to external storage.
+    // TODO(cloud_archival): Same regression risk as update_cloud_block_head.
     pub async fn update_cloud_shard_head(
         &self,
         shard_id: ShardId,
