@@ -15,7 +15,6 @@ use near_indexer::{
 use near_o11y::testonly::init_test_logger;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{AccountId, Balance, Finality, Nonce, NumBlocks};
@@ -27,9 +26,7 @@ use tokio::sync::mpsc;
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
-use crate::utils::account::{
-    create_account_id, create_validators_spec, validators_spec_clients_with_rpc,
-};
+use crate::utils::account::create_account_id;
 
 #[test]
 fn test_indexer_basic() {
@@ -358,22 +355,13 @@ const TX_VALIDITY_PERIOD: NumBlocks = 5;
 const GAS_LIMIT: Gas = Gas::from_teragas(300);
 
 fn setup() -> TestLoopEnv {
-    let validators_spec = create_validators_spec(1, 0);
-    let clients = validators_spec_clients_with_rpc(&validators_spec);
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .shard_layout(ShardLayout::single_shard())
-        .validators_spec(validators_spec)
+    TestLoopBuilder::new()
+        .enable_rpc()
         .gas_limit(GAS_LIMIT)
-        .add_user_account_simple(user_account(), Balance::from_near(1000))
+        .add_user_account(&user_account(), Balance::from_near(1000))
         .transaction_validity_period(TX_VALIDITY_PERIOD)
-        .build();
-    let env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
         .build()
-        .warmup();
-    env
+        .warmup()
 }
 
 fn start_indexer(env: &TestLoopEnv, sync_mode: SyncModeEnum) -> mpsc::Receiver<StreamerMessage> {
