@@ -4,7 +4,6 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::account::AccessKey;
 use near_primitives::action::{AddKeyAction, TransferToGasKeyAction};
 use near_primitives::errors::{ActionError, ActionErrorKind, TxExecutionError};
-use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
     Action, FunctionCallAction, SignedTransaction, TransactionNonce, TransferAction,
@@ -19,9 +18,7 @@ use testlib::fees_utils::FeeHelper;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::account::{
-    create_account_ids, create_validators_spec, validators_spec_clients_with_rpc,
-};
+use crate::utils::account::create_account_ids;
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::get_shared_block_hash;
 
@@ -87,22 +84,14 @@ fn test_gas_key_transaction() {
     init_test_logger();
 
     let epoch_length = 10;
-    let shard_layout = ShardLayout::single_shard();
     let user_accounts = create_account_ids(["account0", "account1", "account2", "account3"]);
     let initial_balance = Balance::from_near(1_000_000);
     let gas_price = Balance::from_yoctonear(1);
-    let validators_spec = create_validators_spec(shard_layout.num_shards() as usize, 0);
-    let clients = validators_spec_clients_with_rpc(&validators_spec);
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(epoch_length)
-        .validators_spec(validators_spec)
-        .add_user_accounts_simple(&user_accounts, initial_balance)
-        .gas_prices(gas_price, gas_price)
-        .build();
     let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
+        .enable_rpc()
+        .epoch_length(epoch_length)
+        .add_user_accounts(&user_accounts, initial_balance)
+        .gas_prices(gas_price, gas_price)
         .build()
         .warmup();
 
@@ -195,22 +184,14 @@ fn test_gas_key_refund() {
     init_test_logger();
 
     let epoch_length = 10;
-    let shard_layout = ShardLayout::single_shard();
     let user_accounts = create_account_ids(["account0", "account1"]);
     let initial_balance = Balance::from_near(1_000_000);
     let gas_price = Balance::from_yoctonear(1);
-    let validators_spec = create_validators_spec(shard_layout.num_shards() as usize, 0);
-    let clients = validators_spec_clients_with_rpc(&validators_spec);
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(epoch_length)
-        .validators_spec(validators_spec)
-        .add_user_accounts_simple(&user_accounts, initial_balance)
-        .gas_prices(gas_price, gas_price)
-        .build();
     let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
+        .enable_rpc()
+        .epoch_length(epoch_length)
+        .add_user_accounts(&user_accounts, initial_balance)
+        .gas_prices(gas_price, gas_price)
         .build()
         .warmup();
 
@@ -313,22 +294,14 @@ fn test_gas_key_deposit_failed() {
     init_test_logger();
 
     let epoch_length = 10;
-    let shard_layout = ShardLayout::single_shard();
     let user_accounts = create_account_ids(["account0", "account1"]);
     let initial_balance = Balance::from_near(1_000_000);
     let gas_price = Balance::from_yoctonear(1);
-    let validators_spec = create_validators_spec(shard_layout.num_shards() as usize, 0);
-    let clients = validators_spec_clients_with_rpc(&validators_spec);
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(epoch_length)
-        .validators_spec(validators_spec)
-        .add_user_accounts_simple(&user_accounts, initial_balance)
-        .gas_prices(gas_price, gas_price)
-        .build();
     let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
+        .enable_rpc()
+        .epoch_length(epoch_length)
+        .add_user_accounts(&user_accounts, initial_balance)
+        .gas_prices(gas_price, gas_price)
         .build()
         .warmup();
 
@@ -397,6 +370,8 @@ fn test_gas_key_deposit_failed() {
     let tx_hash = gas_key_tx.get_hash();
 
     // Insert directly into the tx pool.
+    let epoch_id = env.validator().head().epoch_id;
+    let shard_layout = env.validator().client().epoch_manager.get_shard_layout(&epoch_id).unwrap();
     let shard_uid = shard_layout.account_id_to_shard_uid(sender);
     let validated_tx = ValidatedTransaction::new_for_test(gas_key_tx);
     env.node(0)

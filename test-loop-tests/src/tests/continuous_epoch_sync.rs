@@ -11,7 +11,6 @@ use near_store::adapter::StoreAdapter;
 use near_store::adapter::epoch_store::EpochStoreAdapter;
 
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::{create_validators_spec, validators_spec_clients};
 
 // Test that epoch sync proof is correctly updated after each epoch.
 // Validate the updated proof against derive_epoch_sync_proof_from_last_block.
@@ -24,19 +23,7 @@ fn test_epoch_sync_proof_update() {
 
     init_test_logger();
     let epoch_length = 10;
-    let validators_spec = create_validators_spec(1, 0);
-    let clients = validators_spec_clients(&validators_spec);
-
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(epoch_length)
-        .validators_spec(validators_spec)
-        .build();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .build()
-        .warmup();
+    let mut env = TestLoopBuilder::new().epoch_length(epoch_length).build().warmup();
 
     let epoch_store = env.validator().client().chain.chain_store.epoch_store();
 
@@ -68,19 +55,7 @@ fn test_epoch_sync_proof_update_with_forks() {
 
     init_test_logger();
     let epoch_length = 10;
-    let validators_spec = create_validators_spec(1, 0);
-    let clients = validators_spec_clients(&validators_spec);
-
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(epoch_length)
-        .validators_spec(validators_spec)
-        .build();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .build()
-        .warmup();
+    let mut env = TestLoopBuilder::new().epoch_length(epoch_length).build().warmup();
 
     // Run for 5 epochs
     for _ in 0..5 {
@@ -136,19 +111,8 @@ fn test_epoch_sync_stale_node_triggers_reset() {
     init_test_logger();
     let epoch_length = 10;
     // Use 4 validators so 3 remaining can continue after node 0 is killed.
-    let validators_spec = create_validators_spec(4, 0);
-    let clients = validators_spec_clients(&validators_spec);
-
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(epoch_length)
-        .validators_spec(validators_spec)
-        .build();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .build()
-        .warmup();
+    let mut env =
+        TestLoopBuilder::new().validators(4, 0).epoch_length(epoch_length).build().warmup();
 
     // Run all nodes to height 30 (3 epochs), then kill node 0.
     let kill_height = 3 * epoch_length;
@@ -195,19 +159,8 @@ fn test_epoch_sync_bootstrap_fresh_node() {
 
     init_test_logger();
     let epoch_length = 10;
-    let validators_spec = create_validators_spec(4, 0);
-    let clients = validators_spec_clients(&validators_spec);
-
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(epoch_length)
-        .validators_spec(validators_spec)
-        .build();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .build()
-        .warmup();
+    let mut env =
+        TestLoopBuilder::new().validators(4, 0).epoch_length(epoch_length).build().warmup();
 
     // Run for 8 epochs (80 blocks), well past the default 4-epoch horizon (40 blocks).
     let target_height = 8 * epoch_length;

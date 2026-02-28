@@ -98,25 +98,9 @@ fn prepare_env() -> TestLoopEnv {
     let test_account: AccountId = "test0".parse().unwrap();
     let test_account_signer = create_user_test_signer(&test_account).into();
 
-    let shard_layout = ShardLayout::single_shard();
-    let user_accounts = vec![test_account.clone()];
-    let initial_balance = Balance::from_near(1_000_000);
-    let validators_spec = ValidatorsSpec::DesiredRoles {
-        block_and_chunk_producers: vec!["validator0".parse().unwrap()],
-        chunk_validators_only: Vec::new(),
-    };
-    let clients = validators_spec_clients(&validators_spec);
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .shard_layout(shard_layout)
-        .validators_spec(validators_spec)
-        .genesis_height(0)
-        .add_user_accounts_simple(&user_accounts, initial_balance)
-        .build();
-
     let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
+        .genesis_height(0)
+        .add_user_account(&test_account, Balance::from_near(1_000_000))
         .skip_warmup()
         .build();
 

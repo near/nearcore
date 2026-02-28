@@ -1,5 +1,4 @@
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::serialize::to_base64;
 use near_primitives::test_utils::create_user_test_signer;
@@ -7,25 +6,13 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, BlockId};
 
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::{create_validators_spec, validators_spec_clients_with_rpc};
 
 /// Get a block by height using jsonrpc
 #[test]
 fn test_rpc_block_by_height() {
     init_test_logger();
 
-    let validators_spec = create_validators_spec(1, 0);
-    let clients = validators_spec_clients_with_rpc(&validators_spec);
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(10)
-        .validators_spec(validators_spec)
-        .build();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .build()
-        .warmup();
+    let mut env = TestLoopBuilder::new().enable_rpc().epoch_length(10).build().warmup();
 
     let result = env
         .rpc_runner()
@@ -43,17 +30,10 @@ fn test_rpc_broadcast_tx_commit_transfer() {
     init_test_logger();
 
     let validator_account: AccountId = "validator0".parse().unwrap();
-    let validators_spec = ValidatorsSpec::desired_roles(&[validator_account.as_str()], &[]);
-    let clients = validators_spec_clients_with_rpc(&validators_spec);
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(10)
-        .validators_spec(validators_spec)
-        .add_user_accounts_simple(&[validator_account.clone()], Balance::from_near(1_000))
-        .build();
     let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
+        .enable_rpc()
+        .epoch_length(10)
+        .add_user_account(&validator_account, Balance::from_near(1_000))
         .build()
         .warmup();
 
