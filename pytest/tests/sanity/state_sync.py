@@ -94,7 +94,9 @@ assert catch_up_height in boot_heights, "%s not in %s" % (catch_up_height,
 tracker.reset(
 )  # the transition might have happened before we initialized the tracker
 if catch_up_height >= 100:
-    assert tracker.check("transition to state sync")
+    # With ContinuousEpochSync the node may use epoch sync instead of state sync.
+    assert tracker.check("transition to state sync") or tracker.check(
+        "bootstrapped from epoch sync")
 elif catch_up_height <= 30:
     assert not tracker.check("transition to state sync")
 

@@ -87,7 +87,7 @@ class StateSyncMissingChunks(unittest.TestCase):
 
             if height == rpc_start_height:
                 logger.info("Starting the rpc node")
-                rpc_node.start()
+                rpc_node.start_with_epoch_sync_restart()
 
             if height <= rpc_start_height:
                 continue

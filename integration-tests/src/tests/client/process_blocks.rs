@@ -1473,7 +1473,7 @@ fn test_reject_block_headers_during_epoch_sync() {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_gc_tail_update() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    let epoch_length = 2;
+    let epoch_length = 5;
     genesis.config.epoch_length = epoch_length;
     genesis.config.transaction_validity_period = epoch_length * 2;
     let mut env =

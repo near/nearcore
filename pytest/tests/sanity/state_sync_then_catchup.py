@@ -95,6 +95,13 @@ def main():
     )
     node_config_sync["tracked_shards_config.Schedule"] = [[0], [0], [1], [2],
                                                           [3], [1], [2], [3]]
+    # Use a shorter p2p timeout so that lost state sync responses are retried
+    # quickly. The default 500ms can be too tight when a brief peer disconnection
+    # causes the response to be dropped during a Tier3 connection race.
+    node_config_sync["consensus.state_sync_p2p_timeout"] = {
+        "secs": 0,
+        "nanos": 200000000
+    }
 
     config = load_config()
     near_root, node_dirs = init_cluster(1, 1, 4, config,

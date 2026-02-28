@@ -59,16 +59,14 @@ nodes[2].kill()
 node0_height, _ = utils.wait_for_blocks(nodes[0], target=TARGET_HEIGHT)
 
 logger.info('Restart node 1')
-nodes[1].start(boot_node=nodes[1])
-time.sleep(2)
+nodes[1].start_with_epoch_sync_restart(boot_node=nodes[1])
 
 for height, _ in utils.poll_blocks(nodes[1], timeout=TIMEOUT):
     if height >= node0_height and len(nodes[0].validators()) < 3:
         break
 
 logger.info('Restart node 2')
-nodes[2].start(boot_node=nodes[2])
-time.sleep(2)
+nodes[2].start_with_epoch_sync_restart(boot_node=nodes[2])
 
 target = nodes[0].get_latest_block().height
 utils.wait_for_blocks(nodes[2], target=target)

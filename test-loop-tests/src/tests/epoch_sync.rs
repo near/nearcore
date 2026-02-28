@@ -13,6 +13,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockHeightDelta};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreAdapter;
 
 use crate::setup::builder::TestLoopBuilder;
@@ -310,10 +311,9 @@ fn slow_test_initial_epoch_sync_proof_sanity() {
     let proof = env.derive_epoch_sync_proof(0);
     let final_head_height = env.chain_final_head_height(0);
     sanity_check_epoch_sync_proof(&proof, final_head_height, &env.shared_state.genesis.config, 2);
-    // Requesting the proof should not have persisted the proof on disk. This is intentional;
-    // it is to reduce the stateful-ness of the system so that we may modify the way the proof
-    // is presented in the future (for e.g. bug fixes) without a DB migration.
-    env.assert_epoch_sync_proof_existence_on_disk(0, false);
+
+    let proof_exists = ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION);
+    env.assert_epoch_sync_proof_existence_on_disk(0, proof_exists);
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
@@ -339,8 +339,8 @@ fn slow_test_epoch_sync_proof_sanity_from_epoch_synced_node() {
     assert_eq!(final_head_height_old, final_head_height_new);
     assert_eq!(old_proof, new_proof);
 
-    // On the original node we should have no proof but all headers.
-    env.assert_epoch_sync_proof_existence_on_disk(0, false);
+    let proof_exists = ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION);
+    env.assert_epoch_sync_proof_existence_on_disk(0, proof_exists);
     env.assert_header_existence(0, env.shared_state.genesis.config.genesis_height + 1, true);
 
     // On the new node we should have a proof but missing headers for the old epochs.

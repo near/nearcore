@@ -515,6 +515,11 @@ pub(crate) fn canonical_prev_block_validity(
             prev_hash
         );
         let prev_height = prev_header.height();
+        // The previous block may be below the epoch sync boundary even if the
+        // current block is not. Skip the check in that case.
+        if sv.inner.is_height_below_epoch_sync_boundary(&prev_height) {
+            return Ok(());
+        }
         let same_prev_hash = unwrap_or_err_db!(
             sv.store.get_ser::<CryptoHash>(DBCol::BlockHeight, &index_to_bytes(prev_height)),
             "Can't get prev Block Hash from DBCol::BlockHeight by Height, {:?}, {:?}",

@@ -26,6 +26,11 @@ TARGET_HEIGHT3 = EPOCH_LENGTH * 3 * (NUM_GC_EPOCHS + 1)
 
 node_config = state_sync_lib.get_state_sync_config_combined()
 node_config["gc_num_epochs_to_keep"] = NUM_GC_EPOCHS
+# Set a small epoch sync horizon so that the gap (4 epochs = 120 blocks) always
+# exceeds the horizon (3 epochs = 90 blocks), ensuring stale detection triggers.
+node_config["epoch_sync"] = {
+    "epoch_sync_horizon_num_epochs": 3,
+}
 
 nodes = start_cluster(
     4, 0, 1, None,
@@ -50,10 +55,9 @@ nodes[1].kill()
 node0_height, _ = utils.wait_for_blocks(nodes[0], target=TARGET_HEIGHT1)
 
 logger.info('Starting back node 1')
-nodes[1].start(boot_node=nodes[1])
+nodes[1].start_with_epoch_sync_restart(boot_node=nodes[1])
 # State Sync makes the storage seem inconsistent.
 nodes[1].stop_checking_store()
-time.sleep(3)
 
 node1_height, _ = utils.wait_for_blocks(nodes[1], target=node0_height)
 
@@ -67,10 +71,9 @@ nodes[1].kill()
 node0_height, _ = utils.wait_for_blocks(nodes[0], target=TARGET_HEIGHT2)
 
 logger.info('Restart node 1')
-nodes[1].start(boot_node=nodes[1])
+nodes[1].start_with_epoch_sync_restart(boot_node=nodes[1])
 # State Sync makes the storage seem inconsistent.
 nodes[1].stop_checking_store()
-time.sleep(3)
 
 node1_height, _ = utils.wait_for_blocks(nodes[1],
                                         target=node0_height + EPOCH_LENGTH)
@@ -91,16 +94,20 @@ assert blocks_count > 0
 time.sleep(1)
 
 # all old data should be GCed
-blocks_count = 0
 for height in range(1, 15):
     logger.info(f'Check old block at height {height}')
     block0 = nodes[0].json_rpc('block', [height], timeout=15)
     block1 = nodes[1].json_rpc('block', [height], timeout=15)
-    assert block0 == block1, (
-        f'old block at height: {height}, block0: {block0}, block1: {block1}')
-    if 'result' in block0:
-        blocks_count += 1
-assert blocks_count == 0
+    # After epoch sync data reset, error messages differ between nodes:
+    # node0 (GC'd): "BLOCK: <hash>" (BlockHeight exists, Block GC'd)
+    # node1 (reset): "BLOCK HEIGHT: <n>" (BlockHeight doesn't exist)
+    # Both should return UNKNOWN_BLOCK errors.
+    assert 'error' in block0, f'expected error for GC\'d block at height {height}, got: {block0}'
+    assert 'error' in block1, f'expected error for missing block at height {height}, got: {block1}'
+    assert block0['error']['cause'][
+        'name'] == 'UNKNOWN_BLOCK', f'unexpected error for block0 at height {height}: {block0}'
+    assert block1['error']['cause'][
+        'name'] == 'UNKNOWN_BLOCK', f'unexpected error for block1 at height {height}: {block1}'
 
 # all data after first sync should be GCed
 blocks_count = 0
