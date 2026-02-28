@@ -47,7 +47,6 @@ fn slow_test_tx_inclusion() {
         HashMap::from_iter([(1, 0..15)].into_iter());
 
     // 2 producers, 2 validators, 1 rpc node, 4 shards, 20 accounts (account{i}) with 10k NEAR each.
-    // Taken from standard_setup_1()
     let num_clients = 5;
     let num_producers = 2;
     let num_validators = 2;
