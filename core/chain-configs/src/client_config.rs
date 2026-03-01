@@ -811,6 +811,11 @@ pub struct ClientConfig {
     /// genesis file.  The value only affects the RPCs without influencing the
     /// protocol thus changing it per-node doesn’t affect the blockchain.
     pub max_gas_burnt_view: Option<Gas>,
+    /// Max burnt gas per regular transaction.  If present, overrides value
+    /// from runtime parameters for localnet/sandbox chains ONLY.
+    /// This allows testing with custom gas limits in local environments.
+    /// Value is ignored for mainnet, testnet and other production chains.
+    pub max_gas_burnt: Option<Gas>,
     /// Re-export storage layer statistics as prometheus metrics.
     pub enable_statistics_export: bool,
     /// Number of threads to execute background migration work in client.

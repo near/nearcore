@@ -95,6 +95,7 @@ impl NightshadeRuntime {
         epoch_manager: Arc<EpochManagerHandle>,
         trie_viewer_state_size_limit: Option<u64>,
         max_gas_burnt_view: Option<Gas>,
+        max_gas_burnt: Option<Gas>,
         runtime_config_store: Option<RuntimeConfigStore>,
         gc_num_epochs_to_keep: u64,
         trie_config: TrieConfig,
@@ -104,7 +105,10 @@ impl NightshadeRuntime {
     ) -> Arc<Self> {
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
-            None => RuntimeConfigStore::for_chain_id(&genesis_config.chain_id),
+            None => RuntimeConfigStore::for_chain_id_with_override(
+                &genesis_config.chain_id,
+                max_gas_burnt,
+            ),
         };
 
         let runtime = Runtime::new();

@@ -205,5 +205,6 @@ pub fn indexer_init_configs(
         params.boot_nodes.as_deref(),
         params.max_gas_burnt_view,
         None,
+        None,
     )
 }

@@ -3,7 +3,7 @@ use crate::config::{
 };
 use crate::parameter_table::{ParameterTable, ParameterTableDiff};
 use crate::vm;
-use near_primitives_core::types::{Balance, ProtocolVersion};
+use near_primitives_core::types::{Balance, Gas, ProtocolVersion};
 use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use std::collections::BTreeMap;
 use std::ops::Bound;
@@ -218,6 +218,42 @@ impl RuntimeConfigStore {
             }
             _ => Self::new(None),
         }
+    }
+
+    /// Create store of runtime configs with optional max_gas_burnt override.
+    /// 
+    /// The override only applies to localnet and sandbox chains for testing purposes.
+    /// For production chains (mainnet, testnet), the override is ignored.
+    pub fn for_chain_id_with_override(
+        chain_id: &str,
+        max_gas_burnt_override: Option<Gas>,
+    ) -> Self {
+        let mut config_store = Self::for_chain_id(chain_id);
+
+        // Only apply override for non-production chains
+        let is_production_chain = matches!(
+            chain_id,
+            near_primitives_core::chains::MAINNET
+                | near_primitives_core::chains::TESTNET
+                | near_primitives_core::chains::MOCKNET
+                | near_primitives_core::chains::BENCHMARKNET
+                | near_primitives_core::chains::CONGESTION_CONTROL_TEST
+        );
+
+        if !is_production_chain {
+            if let Some(max_gas_burnt) = max_gas_burnt_override {
+                // Apply the override to all protocol versions in the store
+                for (_protocol_version, config) in config_store.store.iter_mut() {
+                    let mut new_config = RuntimeConfig::clone(config);
+                    let mut wasm_config = vm::Config::clone(&new_config.wasm_config);
+                    wasm_config.limit_config.max_gas_burnt = max_gas_burnt;
+                    new_config.wasm_config = Arc::new(wasm_config);
+                    *config = Arc::new(new_config);
+                }
+            }
+        }
+
+        config_store
     }
 
     /// Constructs test store.
@@ -441,5 +477,59 @@ mod tests {
         let store = RuntimeConfigStore::for_chain_id(near_primitives_core::chains::BENCHMARKNET);
         let config = store.get_config(PROTOCOL_VERSION);
         assert_eq!(config.witness_config.main_storage_proof_size_soft_limit, u64::MAX);
+    }
+
+    #[test]
+    fn test_max_gas_burnt_override_localnet() {
+        // Test that max_gas_burnt override works for localnet
+        let custom_gas = Gas::from_gas(500_000_000_000_000);
+        let store = RuntimeConfigStore::for_chain_id_with_override("localnet", Some(custom_gas));
+        
+        // Check that all protocol versions have the custom max_gas_burnt
+        for (_, config) in &store.store {
+            assert_eq!(config.wasm_config.limit_config.max_gas_burnt, custom_gas);
+        }
+    }
+
+    #[test]
+    fn test_max_gas_burnt_override_ignored_for_mainnet() {
+        // Test that max_gas_burnt override is ignored for mainnet
+        let custom_gas = Gas::from_gas(500_000_000_000_000);
+        let store_with_override = RuntimeConfigStore::for_chain_id_with_override(
+            near_primitives_core::chains::MAINNET,
+            Some(custom_gas),
+        );
+        let store_without_override = RuntimeConfigStore::for_chain_id(
+            near_primitives_core::chains::MAINNET,
+        );
+        
+        // Check that mainnet configs are identical regardless of override
+        for protocol_version in store_with_override.store.keys() {
+            let config_with = store_with_override.get_config(*protocol_version);
+            let config_without = store_without_override.get_config(*protocol_version);
+            assert_eq!(
+                config_with.wasm_config.limit_config.max_gas_burnt,
+                config_without.wasm_config.limit_config.max_gas_burnt,
+                "max_gas_burnt should not be overridden for mainnet at protocol version {}",
+                protocol_version
+            );
+        }
+    }
+
+    #[test]
+    fn test_max_gas_burnt_no_override() {
+        // Test that when no override is provided, defaults are used
+        let store = RuntimeConfigStore::for_chain_id_with_override("localnet", None);
+        let default_store = RuntimeConfigStore::for_chain_id("localnet");
+        
+        // Check that configs are identical when no override is provided
+        for protocol_version in store.store.keys() {
+            let config = store.get_config(*protocol_version);
+            let default_config = default_store.get_config(*protocol_version);
+            assert_eq!(
+                config.wasm_config.limit_config.max_gas_burnt,
+                default_config.wasm_config.limit_config.max_gas_burnt
+            );
+        }
     }
 }
