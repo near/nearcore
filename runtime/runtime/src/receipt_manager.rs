@@ -12,7 +12,7 @@ use near_primitives::errors::{IntegerOverflowError, RuntimeError};
 use near_primitives::receipt::DataReceiver;
 use near_primitives_core::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce};
+use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce, NonceIndex};
 use near_vm_runner::logic::HostError;
 use near_vm_runner::logic::VMLogicError;
 use near_vm_runner::logic::types::{
@@ -461,6 +461,57 @@ impl ReceiptManager {
             receipt_index,
             Action::TransferToGasKey(Box::new(TransferToGasKeyAction { public_key, deposit })),
         );
+    }
+
+    /// Attach the [`AddKeyAction`] action to an existing receipt, creating a gas key with
+    /// full access permission.
+    pub(super) fn append_action_add_gas_key_with_full_access(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        public_key: PublicKey,
+        num_nonces: NonceIndex,
+    ) {
+        self.append_action(
+            receipt_index,
+            Action::AddKey(Box::new(AddKeyAction {
+                public_key,
+                access_key: AccessKey::gas_key_full_access(num_nonces),
+            })),
+        );
+    }
+
+    /// Attach the [`AddKeyAction`] action to an existing receipt, creating a gas key with
+    /// function call permission.
+    pub(super) fn append_action_add_gas_key_with_function_call(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        public_key: PublicKey,
+        num_nonces: NonceIndex,
+        allowance: Option<Balance>,
+        receiver_id: AccountId,
+        method_names: Vec<Vec<u8>>,
+    ) -> Result<(), VMLogicError> {
+        self.append_action(
+            receipt_index,
+            Action::AddKey(Box::new(AddKeyAction {
+                public_key,
+                access_key: AccessKey::gas_key_function_call(
+                    num_nonces,
+                    FunctionCallPermission {
+                        allowance,
+                        receiver_id: receiver_id.into(),
+                        method_names: method_names
+                            .into_iter()
+                            .map(|method_name| {
+                                String::from_utf8(method_name)
+                                    .map_err(|_| HostError::InvalidMethodName)
+                            })
+                            .collect::<std::result::Result<Vec<_>, _>>()?,
+                    },
+                ),
+            })),
+        );
+        Ok(())
     }
 
     /// Attach the [`StakeAction`] action to an existing receipt.

@@ -4,7 +4,7 @@ use super::types::{GlobalContractDeployMode, GlobalContractIdentifier, ReceiptIn
 use crate::logic::types::ActionIndex;
 use near_crypto::PublicKey;
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce};
+use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce, NonceIndex};
 use std::borrow::Cow;
 
 /// Representation of the address slice of guest memory.
@@ -475,6 +475,50 @@ pub trait External {
         public_key: PublicKey,
         deposit: Balance,
     );
+
+    /// Attach the [`AddKeyAction`] action to an existing receipt, creating a gas key with
+    /// full access permission.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - an index of Receipt to append an action
+    /// * `public_key` - a public key for the gas key
+    /// * `num_nonces` - number of nonce slots for the gas key
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    fn append_action_add_gas_key_with_full_access(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        public_key: PublicKey,
+        num_nonces: NonceIndex,
+    );
+
+    /// Attach the [`AddKeyAction`] action to an existing receipt, creating a gas key with
+    /// function call permission.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - an index of Receipt to append an action
+    /// * `public_key` - a public key for the gas key
+    /// * `num_nonces` - number of nonce slots for the gas key
+    /// * `allowance` - amount of tokens allowed to spend by this access key
+    /// * `receiver_id` - a contract which will be allowed to call with this access key
+    /// * `method_names` - a list of method names allowed to call with this access key (empty = any method)
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    fn append_action_add_gas_key_with_function_call(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        public_key: PublicKey,
+        num_nonces: NonceIndex,
+        allowance: Option<Balance>,
+        receiver_id: AccountId,
+        method_names: Vec<Vec<u8>>,
+    ) -> Result<(), VMLogicError>;
 
     /// Attach the [`StakeAction`] action to an existing receipt.
     ///

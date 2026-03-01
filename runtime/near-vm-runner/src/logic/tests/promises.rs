@@ -610,3 +610,93 @@ fn test_promise_batch_action_state_init() {
         ]
     );
 }
+
+#[cfg(feature = "nightly")]
+#[test]
+fn test_promise_batch_action_add_gas_key_with_full_access() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build();
+    let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
+    let index_ptr = logic.internal_mem_write(&index.to_le_bytes()).ptr;
+    let key = borsh::to_vec(&test_public_key()).unwrap();
+    let num_nonces = 4u64;
+
+    promise_batch_action_add_gas_key_with_full_access(&mut logic, 123, &key, num_nonces)
+        .expect_err("shouldn't accept non-existent promise index");
+    let non_receipt =
+        logic.promise_and(index_ptr, 1u64).expect("should create a non-receipt promise");
+    promise_batch_action_add_gas_key_with_full_access(&mut logic, non_receipt, &key, num_nonces)
+        .expect_err("shouldn't accept non-receipt promise index");
+
+    promise_batch_action_add_gas_key_with_full_access(&mut logic, index, &key, num_nonces)
+        .expect("should add gas key");
+    let actions = assert_promise_create_preamble(&logic_builder.ext.action_log, "rick.test");
+    assert_eq!(
+        actions,
+        &[MockAction::AddGasKeyWithFullAccess {
+            receipt_index: 0,
+            public_key: test_public_key(),
+            num_nonces: 4,
+        }]
+    );
+}
+
+#[cfg(feature = "nightly")]
+#[test]
+fn test_promise_batch_action_add_gas_key_with_function_call() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build();
+    let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
+    let index_ptr = logic.internal_mem_write(&index.to_le_bytes()).ptr;
+    let key = borsh::to_vec(&test_public_key()).unwrap();
+    let num_nonces = 2u64;
+    let allowance = 999u128;
+    let receiver_id = b"sam";
+    let method_names = b"foo,bar";
+
+    promise_batch_action_add_gas_key_with_function_call(
+        &mut logic,
+        123,
+        &key,
+        num_nonces,
+        allowance,
+        receiver_id,
+        method_names,
+    )
+    .expect_err("shouldn't accept non-existent promise index");
+    let non_receipt =
+        logic.promise_and(index_ptr, 1u64).expect("should create a non-receipt promise");
+    promise_batch_action_add_gas_key_with_function_call(
+        &mut logic,
+        non_receipt,
+        &key,
+        num_nonces,
+        allowance,
+        receiver_id,
+        method_names,
+    )
+    .expect_err("shouldn't accept non-receipt promise index");
+
+    promise_batch_action_add_gas_key_with_function_call(
+        &mut logic,
+        index,
+        &key,
+        num_nonces,
+        allowance,
+        receiver_id,
+        method_names,
+    )
+    .expect("should add gas key");
+    let actions = assert_promise_create_preamble(&logic_builder.ext.action_log, "rick.test");
+    assert_eq!(
+        actions,
+        &[MockAction::AddGasKeyWithFunctionCall {
+            receipt_index: 0,
+            public_key: test_public_key(),
+            num_nonces: 2,
+            allowance: Some(Balance::from_yoctonear(999)),
+            receiver_id: "sam".parse().unwrap(),
+            method_names: vec![b"foo".to_vec(), b"bar".to_vec()],
+        }]
+    );
+}
