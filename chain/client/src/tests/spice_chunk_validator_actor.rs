@@ -42,15 +42,38 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::get_genesis_state_roots;
 use node_runtime::SignedValidPeriodTransactions;
 use parking_lot::RwLock;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+
+use near_network::spice_data_distribution::SpiceChunkContractAccessesMessage;
+use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::stateless_validation::contract_distribution::{
+    CodeHash, SpiceChunkContractAccesses,
+};
 
 use crate::spice_chunk_validator_actor::{SpiceChunkStateWitnessMessage, SpiceChunkValidatorActor};
 
 const TEST_RECEIPTS: Vec<Receipt> = Vec::new();
 const GAS_LIMIT: Gas = Gas::from_teragas(300);
+
+/// Look up the chunk producer account name for the first shard in the given block.
+fn chunk_producer_for_block(actor: &TestActor, block: &Block) -> String {
+    let key = ChunkProductionKey {
+        epoch_id: *block.header().epoch_id(),
+        shard_id: block.chunks()[0].shard_id(),
+        height_created: block.header().height(),
+    };
+    actor.epoch_manager.get_chunk_producer_info(&key).unwrap().account_id().to_string()
+}
+
+/// Send an empty contract accesses message for a block, signaling no contracts are needed.
+fn send_empty_accesses(actor: &mut TestActor, block: &Block) {
+    let producer = chunk_producer_for_block(actor, block);
+    let accesses = make_contract_accesses_with_signer(block, HashSet::new(), &producer);
+    actor.handle(SpiceChunkContractAccessesMessage(accesses));
+}
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
@@ -67,6 +90,7 @@ fn test_valid_witness_adds_endorsement_to_core_state() {
     let post_state_root = witness_message.witness.main_state_transition().post_state_root;
 
     assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_none());
+    send_empty_accesses(&mut actor, &block);
     actor.handle(witness_message.span_wrap());
 
     let block_execution_results =
@@ -102,6 +126,7 @@ fn test_valid_witness_sends_endorsements() {
     let post_state_root = witness_message.witness.main_state_transition().post_state_root;
 
     assert_matches!(actor.network_rc.try_recv(), Err(TryRecvError::Empty));
+    send_empty_accesses(&mut actor, &block);
     actor.handle(witness_message.span_wrap());
     let msg = actor.network_rc.try_recv().unwrap();
     // Since we shouldn't send endorsement to ourselves we should only send one endorsement.
@@ -188,6 +213,8 @@ fn test_witness_arriving_before_block() {
         &mut BlockProcessingArtifact::default(),
     )
     .unwrap();
+    // Accesses arrive after block is processed (epoch info now available).
+    send_empty_accesses(&mut actor, &block);
     actor.handle(ProcessedBlock { block_hash: *block.hash() });
     assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_some());
 }
@@ -204,6 +231,7 @@ fn test_witness_arriving_before_execution_results_for_parent() {
 
     let witness_message = valid_witness_message(&actor, &block, &prev_block, &starting_state_root);
 
+    send_empty_accesses(&mut actor, &block);
     actor.handle(witness_message.span_wrap());
     assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_none());
 
@@ -234,6 +262,7 @@ fn test_witness_arriving_before_block_and_execution_results() {
         &mut BlockProcessingArtifact::default(),
     )
     .unwrap();
+    send_empty_accesses(&mut actor, &block);
     actor.handle(ProcessedBlock { block_hash: *block.hash() });
     assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_none());
 
@@ -558,6 +587,40 @@ fn valid_witness_message(
     )
 }
 
+fn make_contract_accesses(block: &Block, hashes: HashSet<CodeHash>) -> SpiceChunkContractAccesses {
+    make_contract_accesses_with_signer(block, hashes, "test-validator")
+}
+
+fn make_contract_accesses_with_signer(
+    block: &Block,
+    hashes: HashSet<CodeHash>,
+    signer_name: &str,
+) -> SpiceChunkContractAccesses {
+    let signer = create_test_signer(signer_name);
+    let chunk_id =
+        SpiceChunkId { block_hash: *block.hash(), shard_id: block.chunks()[0].shard_id() };
+    SpiceChunkContractAccesses::new(chunk_id, hashes, &signer)
+}
+
+/// Drain all SpiceContractCodeRequest messages from network_rc, returning the set of
+/// requested code hashes from each request.
+fn drain_contract_requests(
+    network_rc: &mut UnboundedReceiver<PeerManagerMessageRequest>,
+) -> Vec<HashSet<CodeHash>> {
+    let mut requests = Vec::new();
+    while let Ok(msg) = network_rc.try_recv() {
+        match msg {
+            PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::SpiceContractCodeRequest(_, request),
+            ) => {
+                requests.push(request.contracts().iter().cloned().collect());
+            }
+            _ => {}
+        }
+    }
+    requests
+}
+
 fn invalid_witness_message(
     actor: &TestActor,
     block: &Block,
@@ -579,4 +642,98 @@ fn invalid_witness_message(
         receipt_proofs,
         receipts_hash,
     )
+}
+
+/// Empty accesses message signals no contracts needed — witness should finalize immediately.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_empty_contract_accesses_finalizes_witness() {
+    let mut actor = setup();
+    let head = actor.chain_store.head().unwrap();
+    let block = actor.chain_store.get_block(&head.last_block_hash).unwrap();
+    let prev_block = actor.chain_store.get_block(&head.prev_block_hash).unwrap();
+
+    let starting_state_root = test_starting_state_root(&actor);
+    record_execution_results(&actor, &prev_block, starting_state_root);
+
+    let witness_message = valid_witness_message(&actor, &block, &prev_block, &starting_state_root);
+
+    // Send empty accesses then witness.
+    let accesses = make_contract_accesses(&block, HashSet::new());
+    actor.handle(SpiceChunkContractAccessesMessage(accesses));
+    actor.handle(witness_message.span_wrap());
+
+    // No contract requests should be sent.
+    assert_matches!(drain_contract_requests(&mut actor.network_rc).as_slice(), []);
+
+    // Witness should be finalized (endorsement recorded).
+    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_some());
+}
+
+/// Witness arrives before accesses with no contracts — still finalizes.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_witness_before_empty_accesses() {
+    let mut actor = setup();
+    let head = actor.chain_store.head().unwrap();
+    let block = actor.chain_store.get_block(&head.last_block_hash).unwrap();
+    let prev_block = actor.chain_store.get_block(&head.prev_block_hash).unwrap();
+
+    let starting_state_root = test_starting_state_root(&actor);
+    record_execution_results(&actor, &prev_block, starting_state_root);
+
+    let witness_message = valid_witness_message(&actor, &block, &prev_block, &starting_state_root);
+
+    // Witness first, then empty accesses.
+    actor.handle(witness_message.span_wrap());
+    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_none());
+
+    let accesses = make_contract_accesses(&block, HashSet::new());
+    actor.handle(SpiceChunkContractAccessesMessage(accesses));
+
+    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_some());
+}
+
+/// Contract accesses with missing contracts sends a request.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_contract_accesses_sends_request_for_missing() {
+    let mut actor = setup();
+    let head = actor.chain_store.head().unwrap();
+    let block = actor.chain_store.get_block(&head.last_block_hash).unwrap();
+
+    let hash_a: CodeHash = hash(b"contract_a").into();
+    let hash_b: CodeHash = hash(b"contract_b").into();
+    let accesses = make_contract_accesses(&block, HashSet::from([hash_a.clone(), hash_b.clone()]));
+    actor.handle(SpiceChunkContractAccessesMessage(accesses));
+
+    let requests = drain_contract_requests(&mut actor.network_rc);
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0], HashSet::from([hash_a, hash_b]));
+}
+
+/// Contract accesses signed by a non-chunk-producer are rejected — no requests are sent,
+/// and the chunk does not finalize.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_contract_accesses_invalid_signature_rejected() {
+    let mut actor = setup();
+    let head = actor.chain_store.head().unwrap();
+    let block = actor.chain_store.get_block(&head.last_block_hash).unwrap();
+    let prev_block = actor.chain_store.get_block(&head.prev_block_hash).unwrap();
+
+    let starting_state_root = test_starting_state_root(&actor);
+    record_execution_results(&actor, &prev_block, starting_state_root);
+
+    let witness_message = valid_witness_message(&actor, &block, &prev_block, &starting_state_root);
+
+    // Sign accesses with a key that does not belong to the chunk producer.
+    let accesses =
+        make_contract_accesses_with_signer(&block, HashSet::new(), "not-a-chunk-producer");
+    actor.handle(SpiceChunkContractAccessesMessage(accesses));
+    actor.handle(witness_message.span_wrap());
+
+    // No contract requests should be sent, and no endorsement should be recorded.
+    assert!(drain_contract_requests(&mut actor.network_rc).is_empty());
+    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_none());
 }

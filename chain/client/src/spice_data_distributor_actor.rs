@@ -22,7 +22,11 @@ use near_chain::spice_core_writer_actor::ProcessedBlock;
 use near_chain_configs::MutableValidatorSigner;
 use near_chain_primitives::ApplyChunksMode;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_network::spice_data_distribution::SpiceChunkContractAccessesMessage;
+use near_network::spice_data_distribution::SpiceContractCodeRequestMessage;
+use near_network::spice_data_distribution::SpiceContractCodeResponseMessage;
 use near_network::spice_data_distribution::SpiceIncomingPartialData;
 use near_network::spice_data_distribution::SpicePartialDataRequest;
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
@@ -42,15 +46,22 @@ use near_primitives::spice_partial_data::SpiceDataIdentifier;
 use near_primitives::spice_partial_data::SpiceDataPart;
 use near_primitives::spice_partial_data::SpicePartialData;
 use near_primitives::spice_partial_data::SpiceVerifiedPartialData;
+use near_primitives::stateless_validation::contract_distribution::{
+    CodeBytes, CodeHash, SpiceChunkContractAccesses, SpiceContractCodeResponse,
+};
 use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness;
 use near_primitives::types::AccountId;
 use near_primitives::types::EpochId;
 use near_primitives::types::ShardId;
+use near_primitives::types::SpiceChunkId;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::adapter::trie_store::TrieStoreAdapter;
+use near_store::{TrieDBStorage, TrieStorage};
 
 use crate::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
+use crate::chunk_executor_actor::get_contract_accesses;
 use crate::chunk_executor_actor::get_receipt_proof;
 use crate::chunk_executor_actor::get_witness;
 use crate::chunk_executor_actor::receipt_proof_exists;
@@ -94,6 +105,8 @@ pub(crate) enum Error {
     DataIsIrrelevant(SpiceDataIdentifier),
     #[error("error decoding the data: {0}")]
     DecodeError(std::io::Error),
+    #[error("store io error")]
+    StoreIoError(std::io::Error),
     #[error("other error: {0}")]
     Other(&'static str),
 }
@@ -139,6 +152,10 @@ pub struct SpiceDataDistributorActor {
     network_adapter: PeerManagerAdapter,
     executor_sender: Sender<ExecutorIncomingUnverifiedReceipts>,
     witness_validator_sender: Sender<SpanWrapped<SpiceChunkStateWitnessMessage>>,
+    /// Forwarding senders for messages that are routed through the distributor
+    /// (via SpiceDataDistributorSenderForNetwork) but ultimately handled by the validator actor.
+    contract_accesses_validator_sender: Sender<SpiceChunkContractAccessesMessage>,
+    contract_code_response_validator_sender: Sender<SpiceContractCodeResponseMessage>,
 
     /// Spice Partial Data which we cannot decode or validate yet because of missing corresponding block.
     /// Key is block hash, value is data with sender
@@ -198,6 +215,7 @@ pub struct SpiceDistributorOutgoingReceipts {
 #[derive(Debug)]
 pub struct SpiceDistributorStateWitness {
     pub state_witness: SpiceChunkStateWitness,
+    pub contract_accesses: HashSet<CodeHash>,
 }
 
 impl Handler<SpiceDistributorOutgoingReceipts> for SpiceDataDistributorActor {
@@ -225,9 +243,19 @@ impl Handler<SpiceDistributorOutgoingReceipts> for SpiceDataDistributorActor {
 impl Handler<SpiceDistributorStateWitness> for SpiceDataDistributorActor {
     fn handle(
         &mut self,
-        SpiceDistributorStateWitness { state_witness }: SpiceDistributorStateWitness,
+        SpiceDistributorStateWitness { state_witness, contract_accesses }: SpiceDistributorStateWitness,
     ) {
-        let chunk_id = state_witness.chunk_id();
+        let chunk_id = state_witness.chunk_id().clone();
+
+        // Always send contract accesses to chunk validators before distributing the witness.
+        // Even when empty, this signals to validators that no contracts need to be fetched,
+        // unblocking witness validation. Sending before the witness allows validators to
+        // check their compiled contract cache and request missing contracts in parallel
+        // with witness reassembly.
+        if let Err(err) = self.send_contract_accesses(&chunk_id, contract_accesses) {
+            tracing::error!(target: "spice_data_distribution", ?err, ?chunk_id, "failed to send contract accesses");
+        }
+
         let data_id = SpiceDataIdentifier::Witness {
             block_hash: chunk_id.block_hash,
             shard_id: chunk_id.shard_id,
@@ -267,6 +295,31 @@ impl Handler<SpicePartialDataRequest> for SpiceDataDistributorActor {
     }
 }
 
+impl Handler<SpiceContractCodeRequestMessage> for SpiceDataDistributorActor {
+    fn handle(
+        &mut self,
+        SpiceContractCodeRequestMessage(request): SpiceContractCodeRequestMessage,
+    ) {
+        if let Err(err) = self.handle_spice_contract_code_request(request) {
+            tracing::error!(target: "spice_data_distribution", ?err, "failure when handling contract code request");
+        }
+    }
+}
+
+// These messages are routed through the distributor (via SpiceDataDistributorSenderForNetwork)
+// but are ultimately handled by the SpiceChunkValidatorActor. Forward them.
+impl Handler<SpiceChunkContractAccessesMessage> for SpiceDataDistributorActor {
+    fn handle(&mut self, msg: SpiceChunkContractAccessesMessage) {
+        self.contract_accesses_validator_sender.send(msg);
+    }
+}
+
+impl Handler<SpiceContractCodeResponseMessage> for SpiceDataDistributorActor {
+    fn handle(&mut self, msg: SpiceContractCodeResponseMessage) {
+        self.contract_code_response_validator_sender.send(msg);
+    }
+}
+
 impl Handler<ProcessedBlock> for SpiceDataDistributorActor {
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
         if let Err(err) = self.start_waiting_on_data(&block_hash) {
@@ -288,6 +341,8 @@ impl SpiceDataDistributorActor {
         network_adapter: PeerManagerAdapter,
         executor_sender: Sender<ExecutorIncomingUnverifiedReceipts>,
         witness_validator_sender: Sender<SpanWrapped<SpiceChunkStateWitnessMessage>>,
+        contract_accesses_validator_sender: Sender<SpiceChunkContractAccessesMessage>,
+        contract_code_response_validator_sender: Sender<SpiceContractCodeResponseMessage>,
     ) -> Self {
         const RECENTLY_DECODED_DATA_CACHE_SIZE: NonZeroUsize = NonZeroUsize::new(100).unwrap();
         const DATA_PARTS_RATIO: f64 = 0.6;
@@ -304,6 +359,8 @@ impl SpiceDataDistributorActor {
             network_adapter,
             executor_sender,
             witness_validator_sender,
+            contract_accesses_validator_sender,
+            contract_code_response_validator_sender,
             pending_partial_data: LruCache::new(PENDING_PARTIAL_DATA_CAP),
             waiting_on_data: HashMap::new(),
             recently_decoded_data: LruCache::new(RECENTLY_DECODED_DATA_CACHE_SIZE),
@@ -902,7 +959,14 @@ impl SpiceDataDistributorActor {
             // execution and certification heads.)
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::SpicePartialDataRequest {
-                    request: SpicePartialDataRequest { data_id: id.clone(), requester: me.clone() },
+                    request: SpicePartialDataRequest {
+                        data_id: id.clone(),
+                        requester: me.clone(),
+                        include_contract_accesses: matches!(
+                            id,
+                            SpiceDataIdentifier::Witness { .. }
+                        ),
+                    },
                     producer: producers.swap_remove(0),
                 },
             ));
@@ -936,7 +1000,7 @@ impl SpiceDataDistributorActor {
 
     fn handle_partial_data_request(
         &mut self,
-        SpicePartialDataRequest { data_id, requester }: SpicePartialDataRequest,
+        SpicePartialDataRequest { data_id, requester, include_contract_accesses }: SpicePartialDataRequest,
     ) -> Result<(), Error> {
         let Some(signer) = self.validator_signer.get() else {
             return Err(Error::Other(
@@ -960,12 +1024,186 @@ impl SpiceDataDistributorActor {
         // lower-priority way for other nodes that aren't validators (e.g. rpc nodes) to get
         // data they require.
 
+        // When the requester needs contract accesses (e.g. a chunk validator catching up
+        // after restart), send them alongside the witness parts.
+        if include_contract_accesses {
+            if let SpiceDataIdentifier::Witness { block_hash, shard_id } = &data_id {
+                let chunk_id = SpiceChunkId { block_hash: *block_hash, shard_id: *shard_id };
+                let accesses = match get_contract_accesses(
+                    self.chain_store.store_ref(),
+                    block_hash,
+                    *shard_id,
+                ) {
+                    Some(accesses) => accesses,
+                    None => {
+                        // If the witness exists but contract accesses are missing (e.g. due to
+                        // upgrade/corruption), send an explicit empty accesses message so that
+                        // the validator-side state machine can unblock instead of waiting
+                        // indefinitely for accesses that will never arrive.
+                        tracing::warn!(
+                            target: "spice_data_distribution",
+                            ?data_id,
+                            ?requester,
+                            "missing contract accesses for witness; sending empty accesses"
+                        );
+                        Default::default()
+                    }
+                };
+                let accesses_msg = SpiceChunkContractAccesses::new(chunk_id, accesses, &signer);
+                self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::SpiceChunkContractAccesses(
+                        vec![requester.clone()],
+                        accesses_msg,
+                    ),
+                ));
+            }
+        }
+
         let recipients = HashSet::from([requester]);
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::SpicePartialData {
                 partial_data: SpicePartialData::new(data_id, data.commitment, data.parts, &signer),
                 recipients,
             },
+        ));
+        Ok(())
+    }
+
+    /// Sends contract accesses (code hashes) to chunk validators so they can check their
+    /// compiled contract cache and request any missing contracts.
+    fn send_contract_accesses(
+        &self,
+        chunk_id: &SpiceChunkId,
+        contract_accesses: HashSet<CodeHash>,
+    ) -> Result<(), Error> {
+        let Some(signer) = self.validator_signer.get() else {
+            return Err(Error::Other("trying to send contract accesses without validator_signer"));
+        };
+
+        let block = self.chain_store.get_block(&chunk_id.block_hash)?;
+        let epoch_id = block.header().epoch_id();
+        let validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
+            epoch_id,
+            chunk_id.shard_id,
+            block.header().height(),
+        )?;
+        let targets: Vec<AccountId> = validator_assignments
+            .ordered_chunk_validators()
+            .into_iter()
+            .filter(|v| v != signer.validator_id())
+            .collect();
+
+        let accesses_msg =
+            SpiceChunkContractAccesses::new(chunk_id.clone(), contract_accesses, &signer);
+
+        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::SpiceChunkContractAccesses(targets, accesses_msg),
+        ));
+        Ok(())
+    }
+
+    /// Handles a request from a chunk validator for missing contract code.
+    /// Validates that the requested contracts were actually accessed in the chunk,
+    /// retrieves contract bytes from trie storage, and sends the response.
+    /// Returns Ok(()) both on success and when the request is silently dropped
+    /// (e.g. unknown chunk, invalid contract hash). Returns Err only on
+    /// infrastructure failures (missing signer, storage errors).
+    fn handle_spice_contract_code_request(
+        &self,
+        request: near_primitives::stateless_validation::contract_distribution::SpiceContractCodeRequest,
+    ) -> Result<(), Error> {
+        let chunk_id = request.chunk_id().clone();
+        let requester = request.requester().clone();
+
+        // Fetch block early — needed for both validation and storage lookup below.
+        let block = self.chain_store.get_block(&chunk_id.block_hash)?;
+        let epoch_id = block.header().epoch_id();
+
+        // Verify requester is a chunk validator for this chunk.
+        let assignments = self.epoch_manager.get_chunk_validator_assignments(
+            epoch_id,
+            chunk_id.shard_id,
+            block.header().height(),
+        )?;
+        if !assignments.contains(&requester) {
+            tracing::warn!(
+                target: "spice_data_distribution",
+                ?chunk_id,
+                ?requester,
+                "contract code request from non-chunk-validator"
+            );
+            return Ok(());
+        }
+
+        // Verify request signature.
+        let validator = self.epoch_manager.get_validator_by_account_id(epoch_id, &requester)?;
+        if !request.verify_signature(validator.public_key()) {
+            tracing::warn!(
+                target: "spice_data_distribution",
+                ?chunk_id,
+                ?requester,
+                "invalid contract code request signature"
+            );
+            return Ok(());
+        }
+
+        let Some(valid_accesses) = get_contract_accesses(
+            self.chain_store.store_ref(),
+            &chunk_id.block_hash,
+            chunk_id.shard_id,
+        ) else {
+            tracing::warn!(
+                target: "spice_data_distribution",
+                ?chunk_id,
+                ?requester,
+                "received contract code request for unknown chunk"
+            );
+            return Ok(());
+        };
+
+        let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), chunk_id.shard_id, epoch_id)?;
+        let storage =
+            TrieDBStorage::new(TrieStoreAdapter::new(self.chain_store.store()), shard_uid);
+
+        let mut contracts = Vec::new();
+        for contract_hash in request.contracts() {
+            if !valid_accesses.contains(contract_hash) {
+                tracing::warn!(
+                    target: "spice_data_distribution",
+                    ?chunk_id,
+                    ?contract_hash,
+                    "requested contract was not accessed in this chunk"
+                );
+                return Ok(());
+            }
+            match storage.retrieve_raw_bytes(&contract_hash.0) {
+                Ok(bytes) => contracts.push(CodeBytes(bytes)),
+                Err(near_store::StorageError::MissingTrieValue(_)) => {
+                    tracing::warn!(
+                        target: "spice_data_distribution",
+                        ?contract_hash,
+                        ?chunk_id,
+                        "requested contract hash is not present in storage"
+                    );
+                    return Ok(());
+                }
+                Err(err) => {
+                    tracing::error!(
+                        target: "spice_data_distribution",
+                        ?err,
+                        ?contract_hash,
+                        ?chunk_id,
+                        "storage error retrieving contract bytes"
+                    );
+                    return Err(Error::Other("storage error retrieving contract bytes"));
+                }
+            }
+        }
+
+        let response =
+            SpiceContractCodeResponse::encode(chunk_id, &contracts).map_err(Error::StoreIoError)?;
+        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::SpiceContractCodeResponse(requester, response),
         ));
         Ok(())
     }
