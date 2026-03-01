@@ -43,7 +43,7 @@ def random_workload_until(target, nonce, keys, node0, node1, target_node):
             )
             last_height = height
 
-        last_block_hash = node0.get_latest_block().hash_bytes
+        last_block_hash = last_block.hash_bytes
         if random.random() < 0.5:
             # Make a transfer between shards.
             # The goal is to generate cross-shard receipts.
@@ -53,22 +53,22 @@ def random_workload_until(target, nonce, keys, node0, node1, target_node):
             ])
             payment_tx = transaction.sign_payment_tx(key_from, account_to, 1,
                                                      nonce, last_block_hash)
-            node0.send_tx(payment_tx).get('result')
+            target_node.send_tx(payment_tx).get('result')
         elif (len(keys) > 100 and random.random() < 0.5) or len(keys) > 1000:
             # Do some flat storage reads, but only if we have enough keys populated.
             key = keys[random.randint(0, len(keys) - 1)]
             for node in [node0, node1]:
                 call_function('read', key, nonce, node.signer_key,
-                              last_block_hash, node0)
+                              last_block_hash, target_node)
                 call_function('read', key, nonce, node.signer_key,
-                              last_block_hash, node0)
+                              last_block_hash, target_node)
         else:
             # Generate some data for flat storage reads
             key = random_u64()
             keys.append(key)
             for node in [node0, node1]:
                 call_function('write', key, nonce, node.signer_key,
-                              last_block_hash, node0)
+                              last_block_hash, target_node)
     return nonce, keys
 
 
