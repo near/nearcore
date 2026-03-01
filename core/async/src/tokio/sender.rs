@@ -33,7 +33,7 @@ where
             function: Box::new(function),
         };
         if let Err(_) = self.send_message(message) {
-            tracing::info!(target: "tokio_runtime", seq, "ignoring sync message, receiving actor is being shut down");
+            tracing::debug!(target: "tokio_runtime", seq, "ignoring sync message, receiving actor is being shut down");
         }
     }
 }
