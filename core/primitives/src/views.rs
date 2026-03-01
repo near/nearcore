@@ -4,11 +4,10 @@
 //! type gets changed, the view should preserve the old shape and only re-map the necessary bits
 //! from the source structure in the relevant `From<SourceStruct>` impl.
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
-use crate::action::delegate::{DelegateAction, SignedDelegateAction};
+use crate::action::delegate::DelegateAction;
 use crate::action::{
-    DeployGlobalContractAction, DeterministicStateInitAction, GlobalContractDeployMode,
-    GlobalContractIdentifier, TransferToGasKeyAction, UseGlobalContractAction,
-    WithdrawFromGasKeyAction,
+    GlobalContractDeployMode,
+    GlobalContractIdentifier,
 };
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
@@ -19,10 +18,7 @@ use crate::errors::TxExecutionError;
 use crate::hash::{CryptoHash, hash};
 use crate::merkle::{MerklePath, combine_hash};
 use crate::network::PeerId;
-use crate::receipt::{
-    ActionReceipt, ActionReceiptV2, DataReceipt, DataReceiver, GlobalContractDistributionReceipt,
-    Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt, VersionedReceiptEnum,
-};
+use crate::receipt::{Receipt, ReceiptEnum, VersionedActionReceipt, VersionedReceiptEnum};
 use crate::serialize::dec_format;
 use crate::sharding::shard_chunk_header_inner::{ShardChunkHeaderInnerV4, ShardChunkHeaderInnerV5};
 use crate::sharding::{
@@ -31,10 +27,8 @@ use crate::sharding::{
 };
 use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use crate::transaction::{
-    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithIdAndProof,
-    ExecutionStatus, FunctionCallAction, PartialExecutionOutcome, PartialExecutionStatus,
-    SignedTransaction, StakeAction, TransferAction,
+    Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithIdAndProof, ExecutionStatus,
+    PartialExecutionOutcome, PartialExecutionStatus, SignedTransaction,
 };
 use crate::trie_split::TrieSplit;
 use crate::types::{
@@ -51,9 +45,7 @@ use near_parameters::config::CongestionControlConfig;
 use near_parameters::view::CongestionControlConfigView;
 use near_parameters::{ActionCosts, ExtCosts};
 use near_primitives_core::account::{AccountContract, GasKeyInfo};
-use near_primitives_core::deterministic_account_id::{
-    DeterministicAccountStateInit, DeterministicAccountStateInitV1,
-};
+
 use near_primitives_core::types::NonceIndex;
 use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
@@ -1403,12 +1395,21 @@ impl From<GlobalContractIdentifierView> for GlobalContractIdentifier {
 pub enum ActionView {
     CreateAccount = 0,
     DeployContract {
+        /// DEPRECATED: This field never contained the actual contract code bytes.
+        /// It always contained the hash of the code. Use `code_hash` instead.
+        /// This field is kept for backward compatibility and will be removed in the future.
+        #[deprecated(
+            since = "0.20.1",
+            note = "This field never contained the actual contract code bytes. It always contained the hash of the code. Use `code_hash` instead."
+        )]
         #[serde_as(as = "Base64")]
         #[cfg_attr(
             feature = "schemars",
             schemars(schema_with = "crate::serialize::base64_schema")
         )]
         code: Vec<u8>,
+        /// The hash of the deployed contract code.
+        code_hash: CryptoHash,
     } = 1,
     FunctionCall {
         method_name: String,
@@ -1438,20 +1439,38 @@ pub enum ActionView {
         signature: Signature,
     } = 8,
     DeployGlobalContract {
+        /// DEPRECATED: This field never contained the actual contract code bytes.
+        /// It always contained the hash of the code. Use `code_hash` instead.
+        /// This field is kept for backward compatibility and will be removed in the future.
+        #[deprecated(
+            since = "0.20.1",
+            note = "This field never contained the actual contract code bytes. It always contained the hash of the code. Use `code_hash` instead."
+        )]
         #[serde_as(as = "Base64")]
         #[cfg_attr(
             feature = "schemars",
             schemars(schema_with = "crate::serialize::base64_schema")
         )]
         code: Vec<u8>,
+        /// The hash of the deployed contract code.
+        code_hash: CryptoHash,
     } = 9,
     DeployGlobalContractByAccountId {
+        /// DEPRECATED: This field never contained the actual contract code bytes.
+        /// It always contained the hash of the code. Use `code_hash` instead.
+        /// This field is kept for backward compatibility and will be removed in the future.
+        #[deprecated(
+            since = "0.20.1",
+            note = "This field never contained the actual contract code bytes. It always contained the hash of the code. Use `code_hash` instead."
+        )]
         #[serde_as(as = "Base64")]
         #[cfg_attr(
             feature = "schemars",
             schemars(schema_with = "crate::serialize::base64_schema")
         )]
         code: Vec<u8>,
+        /// The hash of the deployed contract code.
+        code_hash: CryptoHash,
     } = 10,
     UseGlobalContract {
         code_hash: CryptoHash,
@@ -1481,8 +1500,10 @@ impl From<Action> for ActionView {
         match action {
             Action::CreateAccount(_) => ActionView::CreateAccount,
             Action::DeployContract(action) => {
-                let code = hash(&action.code).as_ref().to_vec();
-                ActionView::DeployContract { code }
+                let code_hash = hash(&action.code);
+                #[allow(deprecated)]
+                let code = code_hash.as_ref().to_vec();
+                ActionView::DeployContract { code, code_hash }
             }
             Action::FunctionCall(action) => ActionView::FunctionCall {
                 method_name: action.method_name,
@@ -1507,11 +1528,15 @@ impl From<Action> for ActionView {
                 signature: action.signature,
             },
             Action::DeployGlobalContract(action) => {
-                let code = hash(&action.code).as_ref().to_vec();
+                let code_hash = hash(&action.code);
+                #[allow(deprecated)]
+                let code = code_hash.as_ref().to_vec();
                 match action.deploy_mode {
-                    GlobalContractDeployMode::CodeHash => ActionView::DeployGlobalContract { code },
+                    GlobalContractDeployMode::CodeHash => {
+                        ActionView::DeployGlobalContract { code, code_hash }
+                    }
                     GlobalContractDeployMode::AccountId => {
-                        ActionView::DeployGlobalContractByAccountId { code }
+                        ActionView::DeployGlobalContractByAccountId { code, code_hash }
                     }
                 }
             }
@@ -1544,82 +1569,6 @@ impl From<Action> for ActionView {
     }
 }
 
-impl TryFrom<ActionView> for Action {
-    type Error = Box<dyn std::error::Error + Send + Sync>;
-
-    fn try_from(action_view: ActionView) -> Result<Self, Self::Error> {
-        Ok(match action_view {
-            ActionView::CreateAccount => Action::CreateAccount(CreateAccountAction {}),
-            ActionView::DeployContract { code } => {
-                Action::DeployContract(DeployContractAction { code })
-            }
-            ActionView::FunctionCall { method_name, args, gas, deposit } => {
-                Action::FunctionCall(Box::new(FunctionCallAction {
-                    method_name,
-                    args: args.into(),
-                    gas,
-                    deposit,
-                }))
-            }
-            ActionView::Transfer { deposit } => Action::Transfer(TransferAction { deposit }),
-            ActionView::Stake { stake, public_key } => {
-                Action::Stake(Box::new(StakeAction { stake, public_key }))
-            }
-            ActionView::AddKey { public_key, access_key } => {
-                Action::AddKey(Box::new(AddKeyAction { public_key, access_key: access_key.into() }))
-            }
-            ActionView::DeleteKey { public_key } => {
-                Action::DeleteKey(Box::new(DeleteKeyAction { public_key }))
-            }
-            ActionView::DeleteAccount { beneficiary_id } => {
-                Action::DeleteAccount(DeleteAccountAction { beneficiary_id })
-            }
-            ActionView::Delegate { delegate_action, signature } => {
-                Action::Delegate(Box::new(SignedDelegateAction { delegate_action, signature }))
-            }
-            ActionView::DeployGlobalContract { code } => {
-                Action::DeployGlobalContract(DeployGlobalContractAction {
-                    code: code.into(),
-                    deploy_mode: GlobalContractDeployMode::CodeHash,
-                })
-            }
-            ActionView::DeployGlobalContractByAccountId { code } => {
-                Action::DeployGlobalContract(DeployGlobalContractAction {
-                    code: code.into(),
-                    deploy_mode: GlobalContractDeployMode::AccountId,
-                })
-            }
-            ActionView::UseGlobalContract { code_hash } => {
-                Action::UseGlobalContract(Box::new(UseGlobalContractAction {
-                    contract_identifier: GlobalContractIdentifier::CodeHash(code_hash),
-                }))
-            }
-            ActionView::UseGlobalContractByAccountId { account_id } => {
-                Action::UseGlobalContract(Box::new(UseGlobalContractAction {
-                    contract_identifier: GlobalContractIdentifier::AccountId(account_id),
-                }))
-            }
-            ActionView::DeterministicStateInit { code, data, deposit } => {
-                let code = GlobalContractIdentifier::from(code);
-                Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
-                    state_init: DeterministicAccountStateInit::V1(
-                        DeterministicAccountStateInitV1 { code, data },
-                    ),
-                    deposit,
-                }))
-            }
-            ActionView::TransferToGasKey { public_key, deposit } => {
-                Action::TransferToGasKey(Box::new(TransferToGasKeyAction { public_key, deposit }))
-            }
-            ActionView::WithdrawFromGasKey { public_key, amount } => {
-                Action::WithdrawFromGasKey(Box::new(WithdrawFromGasKeyAction {
-                    public_key,
-                    amount,
-                }))
-            }
-        })
-    }
-}
 
 #[derive(
     BorshSerialize,
@@ -2396,111 +2345,6 @@ impl ReceiptEnumView {
             is_promise_yield,
             refund_to: action_receipt.refund_to().clone(),
         }
-    }
-}
-
-impl TryFrom<ReceiptView> for Receipt {
-    type Error = Box<dyn std::error::Error + Send + Sync>;
-
-    fn try_from(receipt_view: ReceiptView) -> Result<Self, Self::Error> {
-        Ok(Receipt::V0(ReceiptV0 {
-            predecessor_id: receipt_view.predecessor_id,
-            receiver_id: receipt_view.receiver_id,
-            receipt_id: receipt_view.receipt_id,
-            receipt: match receipt_view.receipt {
-                ReceiptEnumView::Action {
-                    signer_id,
-                    signer_public_key,
-                    gas_price,
-                    output_data_receivers,
-                    input_data_ids,
-                    actions,
-                    is_promise_yield,
-                    refund_to,
-                } => {
-                    let output_data_receivers: Vec<_> = output_data_receivers
-                        .into_iter()
-                        .map(|data_receiver_view| DataReceiver {
-                            data_id: data_receiver_view.data_id,
-                            receiver_id: data_receiver_view.receiver_id,
-                        })
-                        .collect();
-                    let input_data_ids: Vec<CryptoHash> =
-                        input_data_ids.into_iter().map(Into::into).collect();
-                    let actions = actions
-                        .into_iter()
-                        .map(TryInto::try_into)
-                        .collect::<Result<Vec<_>, _>>()?;
-                    // Note that this is not consistent with how `new_receipts` are
-                    // created by the runtime - there we always create ActionReceiptV2.
-                    // ActionReceiptV2 without refund_to becomes V1 after a roundtrip
-                    // through views. This will be fixed with #14709.
-                    if refund_to.is_some() {
-                        let action_receipt = ActionReceiptV2 {
-                            signer_id,
-                            signer_public_key,
-                            gas_price,
-                            output_data_receivers,
-                            input_data_ids,
-                            actions,
-                            refund_to,
-                        };
-                        if is_promise_yield {
-                            ReceiptEnum::PromiseYieldV2(action_receipt)
-                        } else {
-                            ReceiptEnum::ActionV2(action_receipt)
-                        }
-                    } else {
-                        let action_receipt = ActionReceipt {
-                            signer_id,
-                            signer_public_key,
-                            gas_price,
-                            output_data_receivers,
-                            input_data_ids,
-                            actions,
-                        };
-                        if is_promise_yield {
-                            ReceiptEnum::PromiseYield(action_receipt)
-                        } else {
-                            ReceiptEnum::Action(action_receipt)
-                        }
-                    }
-                }
-                ReceiptEnumView::Data { data_id, data, is_promise_resume } => {
-                    let data_receipt = DataReceipt { data_id, data };
-
-                    if is_promise_resume {
-                        ReceiptEnum::PromiseResume(data_receipt)
-                    } else {
-                        ReceiptEnum::Data(data_receipt)
-                    }
-                }
-                ReceiptEnumView::GlobalContractDistribution {
-                    id,
-                    target_shard,
-                    already_delivered_shards,
-                    code,
-                    nonce,
-                } => {
-                    let receipt = match nonce {
-                        Some(nonce) => GlobalContractDistributionReceipt::new_v2(
-                            id,
-                            target_shard,
-                            already_delivered_shards,
-                            code.into(),
-                            nonce,
-                        ),
-                        None => GlobalContractDistributionReceipt::new_v1(
-                            id,
-                            target_shard,
-                            already_delivered_shards,
-                            code.into(),
-                        ),
-                    };
-                    ReceiptEnum::GlobalContractDistribution(receipt)
-                }
-            },
-        }))
     }
 }
 
