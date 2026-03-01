@@ -447,7 +447,7 @@ impl PeerManagerActor {
             .filter_map(|p| p.full_peer_info().into())
             .collect();
 
-        // This finds max height among peers, and returns one peer close to such height.
+        // This finds max height among peers, and returns all peers close to such height.
         let max_height = match infos.iter().map(|i| i.highest_block_height).max() {
             Some(height) => height,
             None => return vec![],
@@ -475,8 +475,9 @@ impl PeerManagerActor {
             return HashSet::new();
         };
         let my_height = chain_info.block.header().height();
-        // Find all peers whose height is below `highest_peer_horizon` from max height peer(s).
-        // or the ones we don't have height information yet
+        // Find all peers whose last known height lags behind our height by more than
+        // UNRELIABLE_PEER_HORIZON blocks. Peers without known height are currently treated
+        // as reliable.
         self.state
             .tier2
             .load()
