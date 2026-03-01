@@ -146,13 +146,19 @@ impl ChunkTrackingStats {
         let created_by = epoch_manager
             .get_epoch_id_from_prev_block(&self.prev_block_hash)
             .and_then(|epoch_id| {
-                epoch_manager
-                    .get_chunk_producer_info(&ChunkProductionKey {
-                        epoch_id,
-                        height_created: self.height_created,
-                        shard_id: self.shard_id,
-                    })
-                    .map(|info| info.take_account_id())
+                let key = ChunkProductionKey {
+                    epoch_id,
+                    height_created: self.height_created,
+                    shard_id: self.shard_id,
+                };
+                match epoch_manager
+                    .get_chunk_producer_by_prev_block_hash(&self.prev_block_hash, self.shard_id)
+                {
+                    Ok(p) => Ok(p.take_account_id()),
+                    Err(_) => {
+                        epoch_manager.get_chunk_producer_info(&key).map(|p| p.take_account_id())
+                    }
+                }
             })
             .ok();
         let request_duration = if let Some(requested_timestamp) = self.requested_timestamp {

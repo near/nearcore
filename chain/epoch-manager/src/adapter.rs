@@ -467,6 +467,29 @@ pub trait EpochManagerAdapter: Send + Sync {
         Ok(epoch_info.get_validator(validator_id))
     }
 
+    /// Chunk producer info resolved from `prev_block_hash` for the given shard.
+    /// Looks up the epoch and height internally from the block hash.
+    /// This is the authoritative lookup method when the prev block is known.
+    fn get_chunk_producer_by_prev_block_hash(
+        &self,
+        prev_block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<ValidatorStake, EpochError> {
+        let block_info = self.get_block_info(prev_block_hash)?;
+        let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
+        let height = block_info.height() + 1;
+        let epoch_info = self.get_epoch_info(&epoch_id)?;
+        let shard_layout = self.get_shard_layout(&epoch_id)?;
+        let Some(validator_id) = epoch_info.sample_chunk_producer(&shard_layout, shard_id, height)
+        else {
+            return Err(EpochError::ChunkProducerSelectionError(format!(
+                "Invalid shard {} for height {}",
+                shard_id, height,
+            )));
+        };
+        Ok(epoch_info.get_validator(validator_id))
+    }
+
     /// Gets the chunk validators for a given height and shard.
     fn get_chunk_validator_assignments(
         &self,

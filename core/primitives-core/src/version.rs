@@ -360,6 +360,10 @@ pub enum ProtocolFeature {
     /// deterministic account IDs are enabled.
     /// NEP: https://github.com/near/NEPs/pull/616
     FixDeterministicAccountIdCreation,
+    /// Include prev_block_hash in PartialEncodedStateWitness, ChunkContractAccesses,
+    /// and PartialEncodedContractDeploys wire types to enable block-hash-based
+    /// chunk producer lookup for validation.
+    BlockHashInPartialWitness,
     /// Nonce-based idempotency for global contract distribution receipts. Each
     /// distribution carries an auto-incremented nonce. Any distribution receipt
     /// with a nonce less than the one already stored will be dropped. This
@@ -488,6 +492,7 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::GasKeys => 149,
+            ProtocolFeature::BlockHashInPartialWitness => 84,
             ProtocolFeature::DynamicResharding => 150,
 
             // Spice is setup to include nightly, but not be part of it for now so that features

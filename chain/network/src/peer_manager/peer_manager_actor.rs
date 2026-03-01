@@ -1175,6 +1175,7 @@ impl PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple) => {
+                use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
                 let Some(partial_witness) = validator_witness_tuple.first().map(|(_, w)| w) else {
                     return NetworkResponses::NoResponse;
                 };
@@ -1189,10 +1190,18 @@ impl PeerManagerActor {
                 .entered();
 
                 for (chunk_validator, partial_witness) in validator_witness_tuple {
+                    let body = match partial_witness {
+                        VersionedPartialEncodedStateWitness::V1(w) => {
+                            T1MessageBody::PartialEncodedStateWitness(w)
+                        }
+                        VersionedPartialEncodedStateWitness::V2(w) => {
+                            T1MessageBody::PartialEncodedStateWitnessV2(w)
+                        }
+                    };
                     self.state.send_message_to_account(
                         &self.clock,
                         &chunk_validator,
-                        T1MessageBody::PartialEncodedStateWitness(partial_witness).into(),
+                        body.into(),
                     );
                 }
                 NetworkResponses::NoResponse
@@ -1201,6 +1210,7 @@ impl PeerManagerActor {
                 chunk_validators,
                 partial_witness,
             ) => {
+                use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
                 let _span = tracing::debug_span!(target: "network",
                     "send partial_encoded_state_witness_forward",
                     height = partial_witness.chunk_production_key().height_created,
@@ -1210,11 +1220,18 @@ impl PeerManagerActor {
                 )
                 .entered();
                 for chunk_validator in chunk_validators {
+                    let body = match partial_witness.clone() {
+                        VersionedPartialEncodedStateWitness::V1(w) => {
+                            T1MessageBody::PartialEncodedStateWitnessForward(w)
+                        }
+                        VersionedPartialEncodedStateWitness::V2(w) => {
+                            T1MessageBody::PartialEncodedStateWitnessForwardV2(w)
+                        }
+                    };
                     self.state.send_message_to_account(
                         &self.clock,
                         &chunk_validator,
-                        T1MessageBody::PartialEncodedStateWitnessForward(partial_witness.clone())
-                            .into(),
+                        body.into(),
                     );
                 }
                 NetworkResponses::NoResponse
