@@ -16,6 +16,13 @@ pub enum RpcQueryError {
     #[error("The node does not track the shard ID {requested_shard_id}")]
     UnavailableShard { requested_shard_id: near_primitives::types::ShardId },
     #[error(
+        "block #{block_height} was not yet processed by the node, try again or use finality-based queries"
+    )]
+    BlockNotProcessed {
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
+    #[error(
         "The data for block #{block_height} is garbage collected on this node, use an archival node to fetch historical data"
     )]
     GarbageCollectedBlock {
@@ -131,6 +138,24 @@ mod tests {
         let rt: RpcQueryResponse = serde_json::from_value(value).expect("must deserialize");
         let QueryResponseKind::GasKeyNonces(view) = rt.kind else { panic!("wrong variant") };
         assert_eq!(view.nonces, vec![1]);
+    }
+
+    #[test]
+    fn block_not_processed_error_serialization() {
+        let block_hash = CryptoHash::default();
+        let block_height = 42u64;
+        let error = RpcQueryError::BlockNotProcessed { block_height, block_hash };
+
+        let value = serde_json::to_value(&error).expect("must serialize");
+        assert_eq!(value["name"], "BLOCK_NOT_PROCESSED");
+        assert_eq!(value["info"]["block_height"], block_height);
+
+        let rt: RpcQueryError = serde_json::from_value(value).expect("must deserialize");
+        let RpcQueryError::BlockNotProcessed { block_height: h, block_hash: bh } = rt else {
+            panic!("wrong variant")
+        };
+        assert_eq!(h, block_height);
+        assert_eq!(bh, block_hash);
     }
 }
 

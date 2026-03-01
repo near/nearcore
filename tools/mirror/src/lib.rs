@@ -344,6 +344,7 @@ impl From<QueryError> for ChainError {
     fn from(err: QueryError) -> Self {
         match err {
             QueryError::UnavailableShard { .. }
+            | QueryError::BlockNotProcessed { .. }
             | QueryError::UnknownAccount { .. }
             | QueryError::NoContractCode { .. }
             | QueryError::UnknownAccessKey { .. }

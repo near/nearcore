@@ -1,3 +1,144 @@
+ Downloading crates ...
+  Downloaded dyn-clone v1.0.19
+  Downloaded ref-cast v1.0.24
+  Downloaded schemars_derive v0.8.22
+  Downloaded schemars v0.8.22
+  Downloaded ref-cast-impl v1.0.24
+  Downloaded schemars v1.2.1
+  Downloaded schemars_derive v1.2.1
+  Downloaded serde_derive_internals v0.29.1
+   Compiling num-traits v0.2.19
+   Compiling libc v0.2.175
+   Compiling cfg-if v1.0.0
+   Compiling serde v1.0.219
+   Compiling typenum v1.15.0
+   Compiling itoa v1.0.11
+   Compiling equivalent v1.0.1
+   Compiling indexmap v2.7.0
+   Compiling jobserver v0.1.32
+   Compiling generic-array v0.14.5
+   Compiling serde_derive_internals v0.29.1
+   Compiling ryu v1.0.10
+   Compiling serde_json v1.0.143
+   Compiling toml_edit v0.22.22
+   Compiling cc v1.2.16
+   Compiling fnv v1.0.7
+   Compiling strsim v0.11.1
+   Compiling memchr v2.7.5
+   Compiling darling_core v0.20.10
+   Compiling proc-macro-crate v3.2.0
+   Compiling crypto-common v0.1.3
+   Compiling block-buffer v0.10.2
+   Compiling dyn-clone v1.0.19
+   Compiling once_cell v1.19.0
+   Compiling ref-cast v1.0.24
+   Compiling subtle v2.6.1
+   Compiling digest v0.10.7
+   Compiling ref-cast-impl v1.0.24
+   Compiling iana-time-zone v0.1.61
+   Compiling borsh-derive v1.5.3
+   Compiling chrono v0.4.41
+   Compiling schemars_derive v1.2.1
+   Compiling cpufeatures v0.2.11
+   Compiling getrandom v0.2.15
+   Compiling num-bigint v0.3.3
+   Compiling zstd-sys v2.0.10+zstd.1.5.6
+   Compiling darling_macro v0.20.10
+   Compiling thiserror v2.0.16
+   Compiling rand_core v0.6.4
+   Compiling sha2 v0.10.6
+   Compiling darling v0.20.10
+   Compiling num-integer v0.1.46
+   Compiling syn v1.0.103
+   Compiling near-schema-checker-core v0.0.0 (/home/runner/work/nearcore/nearcore/core/schema-checker/schema-checker-core)
+   Compiling crunchy v0.2.2
+   Compiling near-schema-checker-lib v0.0.0 (/home/runner/work/nearcore/nearcore/core/schema-checker/schema-checker-lib)
+   Compiling serde_with_macros v3.0.0
+   Compiling borsh v1.5.3
+   Compiling curve25519-dalek v4.1.3
+   Compiling derive_more v2.0.1
+   Compiling schemars v1.2.1
+   Compiling near-account-id v2.0.0
+   Compiling secp256k1-sys v0.8.1
+   Compiling lock_api v0.4.13
+   Compiling static_assertions v1.1.0
+   Compiling base64 v0.21.0
+   Compiling bs58 v0.4.0
+   Compiling ppv-lite86 v0.2.16
+   Compiling rand_chacha v0.3.1
+   Compiling serde_with v3.0.0
+   Compiling tracing-core v0.1.34
+   Compiling enum-map v2.7.3
+   Compiling arbitrary v1.4.1
+   Compiling near-token v0.3.2
+   Compiling near-gas v0.3.2
+   Compiling num-rational v0.3.2
+   Compiling hex v0.4.3
+   Compiling scopeguard v1.1.0
+   Compiling powerfmt v0.2.0
+   Compiling hashbrown v0.15.2
+   Compiling pin-project-lite v0.2.16
+   Compiling smallvec v1.15.1
+   Compiling signature v2.2.0
+   Compiling byteorder v1.4.3
+   Compiling uint v0.9.5
+   Compiling ed25519 v2.2.3
+   Compiling parking_lot_core v0.9.11
+   Compiling tracing v0.1.41
+   Compiling deranged v0.3.11
+   Compiling near-primitives-core v0.0.0 (/home/runner/work/nearcore/nearcore/core/primitives-core)
+   Compiling anyhow v1.0.95
+   Compiling rand v0.8.5
+   Compiling fixed-hash v0.7.0
+   Compiling derive_builder_core v0.20.2
+   Compiling tap v1.0.1
+   Compiling json_comments v0.2.1
+   Compiling unsafe-libyaml v0.2.10
+   Compiling time-core v0.1.2
+   Compiling num-conv v0.1.0
+   Compiling time v0.3.36
+   Compiling strum_macros v0.24.0
+   Compiling derive_builder_macro v0.20.2
+   Compiling serde_yaml v0.9.29
+   Compiling strum v0.24.0
+   Compiling near-config-utils v0.0.0 (/home/runner/work/nearcore/nearcore/utils/config)
+   Compiling wyz v0.5.1
+   Compiling primitive-types v0.10.1
+   Compiling secp256k1 v0.27.0
+   Compiling ed25519-dalek v2.2.0
+   Compiling parking_lot v0.12.1
+   Compiling radium v0.7.0
+   Compiling blake2 v0.10.6
+   Compiling keccak v0.1.6
+   Compiling near-stdx v0.0.0 (/home/runner/work/nearcore/nearcore/utils/stdx)
+   Compiling either v1.6.1
+   Compiling funty v2.0.0
+   Compiling itertools v0.14.0
+   Compiling bitvec v1.0.1
+   Compiling sha3 v0.10.6
+   Compiling near-crypto v0.0.0 (/home/runner/work/nearcore/nearcore/core/crypto)
+   Compiling near-time v0.0.0 (/home/runner/work/nearcore/nearcore/core/time)
+   Compiling near-parameters v0.0.0 (/home/runner/work/nearcore/nearcore/core/parameters)
+   Compiling derive_builder v0.20.2
+   Compiling near-fmt v0.0.0 (/home/runner/work/nearcore/nearcore/utils/fmt)
+   Compiling ordered-float v4.2.0
+   Compiling bytesize v1.1.0
+   Compiling bytes v1.11.1
+   Compiling schemars v0.8.22
+   Compiling schemars_derive v0.8.22
+   Compiling log v0.4.27
+   Compiling zstd-safe v7.1.0
+   Compiling zstd v0.13.1
+   Compiling near-primitives v0.0.0 (/home/runner/work/nearcore/nearcore/core/primitives)
+   Compiling okapi v0.7.0 (https://github.com/near/near-okapi-fork.git?rev=fd7de89e130ab99a546f04e3faefcd53044f98d0#fd7de89e)
+   Compiling near-chain-primitives v0.0.0 (/home/runner/work/nearcore/nearcore/chain/chain-primitives)
+   Compiling near-chain-configs v0.0.0 (/home/runner/work/nearcore/nearcore/core/chain-configs)
+   Compiling near-chunks-primitives v0.0.0 (/home/runner/work/nearcore/nearcore/chain/chunks-primitives)
+   Compiling near-client-primitives v0.0.0 (/home/runner/work/nearcore/nearcore/chain/client-primitives)
+   Compiling near-jsonrpc-primitives v0.0.0 (/home/runner/work/nearcore/nearcore/chain/jsonrpc-primitives)
+   Compiling near-jsonrpc-openapi-spec v0.0.0 (/home/runner/work/nearcore/nearcore/chain/jsonrpc/openapi)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 27s
+     Running `target/debug/near-jsonrpc-openapi-spec`
 {
   "openapi": "3.0.0",
   "info": {
@@ -14253,6 +14394,38 @@
               "name": {
                 "enum": [
                   "UNAVAILABLE_SHARD"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "BLOCK_NOT_PROCESSED"
                 ],
                 "type": "string"
               }

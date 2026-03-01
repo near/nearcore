@@ -38,6 +38,7 @@ mod optimistic_block;
 mod process_blocks;
 mod processed_receipts_gc;
 mod protocol_upgrade;
+mod query_errors;
 mod reject_outdated_blocks;
 mod resharding_v3;
 mod shutdown_signal;

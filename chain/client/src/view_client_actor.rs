@@ -387,6 +387,12 @@ impl ViewClientActor {
                                 block_height: header.height(),
                                 block_hash: *header.hash(),
                             }
+                        } else if self.shard_tracker.cares_about_shard(header.prev_hash(), shard_id)
+                        {
+                            QueryError::BlockNotProcessed {
+                                block_height: header.height(),
+                                block_hash: *header.hash(),
+                            }
                         } else {
                             QueryError::UnavailableShard { requested_shard_id: shard_id }
                         }

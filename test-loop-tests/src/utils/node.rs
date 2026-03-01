@@ -119,10 +119,14 @@ impl<'a> TestLoopNode<'a> {
         receipt_id
     }
 
-    pub fn runtime_query(&self, query: QueryRequest) -> Result<QueryResponse, QueryError> {
+    pub fn query(&self, query: Query) -> Result<QueryResponse, QueryError> {
         let handle = self.node_data.view_client_sender.actor_handle();
         let view_client: &ViewClientActor = self.data.get(&handle);
-        view_client.handle_query(Query::new(
+        view_client.handle_query(query)
+    }
+
+    pub fn runtime_query(&self, query: QueryRequest) -> Result<QueryResponse, QueryError> {
+        self.query(Query::new(
             near_primitives::types::BlockReference::Finality(
                 near_primitives::types::Finality::None,
             ),

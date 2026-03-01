@@ -72,6 +72,7 @@ pub fn get_next_nonce(
         match node.view_access_key_query(account_id, &signer.public_key()) {
             Ok(access_key) => return access_key.nonce + 1,
             Err(QueryError::UnavailableShard { .. }) => continue,
+            Err(QueryError::BlockNotProcessed { .. }) => continue,
             Err(err) => panic!("unexpected query error: {err:?}"),
         }
     }
@@ -90,6 +91,7 @@ fn query_balance_from_any_node(
         match node.view_account_query(account_id) {
             Ok(account_view) => return account_view.amount,
             Err(QueryError::UnavailableShard { .. }) => continue,
+            Err(QueryError::BlockNotProcessed { .. }) => continue,
             Err(err) => panic!("unexpected query error: {err:?}"),
         }
     }
