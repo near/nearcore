@@ -1,5 +1,5 @@
-//! This file contains standard setups for test loop tests.
-//! Using TestLoopBuilder gives a lot of flexibility, but sometimes you just need some basic blockchain.
+//! Helpers for test loop tests related to epoch configuration and protocol upgrades.
+//! Provides utilities for deriving new epoch configs/shard layouts and constructing upgrade voting schedules.
 
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::shard_layout::ShardLayout;
