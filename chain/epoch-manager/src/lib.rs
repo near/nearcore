@@ -26,10 +26,12 @@ use near_primitives::types::{
     EpochInfoProvider, ProtocolVersion, ShardId, ValidatorId, ValidatorInfoIdentifier,
     ValidatorKickoutReason, ValidatorStats,
 };
+use near_primitives::utils::get_block_shard_id;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
+use near_store::DBCol;
 use near_store::Store;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::epoch_store::{EpochStoreAdapter, EpochStoreUpdateAdapter};
@@ -949,6 +951,40 @@ impl EpochManager {
         Ok(store_update)
     }
 
+    /// Write baseline (non-blacklisted) chunk producer entries to
+    /// `DBCol::ChunkProducers` in a separate store transaction.
+    ///
+    /// In production, `save_chunk_producers_for_header` writes these entries
+    /// (with blacklist applied) in the chain store update batch. This method
+    /// is for test utilities that call `record_block_info` /
+    /// `add_validator_proposals` without going through the full Chain path.
+    pub fn save_default_chunk_producers(&self, block_hash: &CryptoHash) -> Result<(), EpochError> {
+        // Replicate get_epoch_id_from_prev_block logic (that method lives on
+        // the EpochManagerAdapter trait, not on EpochManager directly).
+        let epoch_id = if self.is_next_block_epoch_start(block_hash)? {
+            self.get_next_epoch_id(block_hash)?
+        } else {
+            self.get_epoch_id(block_hash)?
+        };
+        let shard_layout = self.get_shard_layout(&epoch_id)?;
+        let epoch_info = self.get_epoch_info(&epoch_id)?;
+        let block_info = self.get_block_info(block_hash)?;
+        let height = block_info.height() + 1;
+
+        let mut store_update = self.store.store_ref().store_update();
+        for shard_id in shard_layout.shard_ids() {
+            if let Some(validator_id) =
+                epoch_info.sample_chunk_producer(&shard_layout, shard_id, height)
+            {
+                let validator_stake = epoch_info.get_validator(validator_id);
+                let key = get_block_shard_id(block_hash, shard_id);
+                store_update.insert_ser(DBCol::ChunkProducers, &key, &validator_stake);
+            }
+        }
+        store_update.commit();
+        Ok(())
+    }
+
     /// Returns settlement of all block producers in current epoch
     pub fn get_all_block_producers_settlement(
         &self,
@@ -1491,6 +1527,68 @@ impl EpochManager {
     }
 }
 
+// --- Early chunk producer kickout constants ---
+
+/// Minimum number of missed chunks before a validator can be blacklisted on a shard.
+const EARLY_KICKOUT_MIN_MISSES: u64 = 20;
+
+/// Production ratio threshold: a validator is blacklisted when
+/// `produced * DENOMINATOR < expected * NUMERATOR`.
+const EARLY_KICKOUT_PRODUCTION_THRESHOLD_NUMERATOR: u64 = 95;
+const EARLY_KICKOUT_PRODUCTION_THRESHOLD_DENOMINATOR: u64 = 100;
+
+/// Compute per-shard chunk producer blacklists based on the aggregator's shard tracker stats.
+///
+/// A validator is blacklisted on a shard when:
+///   - `missed >= EARLY_KICKOUT_MIN_MISSES`  (where `missed = expected - produced`)
+///   - AND `produced * 100 < expected * 95`   (i.e. production ratio < 95%)
+///
+/// If *all* producers for a shard would be blacklisted, that shard's entry is
+/// omitted from the result (safety valve — caller falls through to the original
+/// deterministic `sample_chunk_producer`).
+pub fn compute_chunk_producer_blacklist(
+    shard_tracker: &HashMap<ShardId, HashMap<ValidatorId, ChunkStats>>,
+    epoch_info: &EpochInfo,
+    shard_layout: &ShardLayout,
+) -> HashMap<ShardId, HashSet<ValidatorId>> {
+    let mut result = HashMap::new();
+
+    for (shard_id, validators) in shard_tracker {
+        let shard_index = match shard_layout.get_shard_index(*shard_id) {
+            Ok(idx) => idx,
+            Err(_) => continue,
+        };
+        let settlement = match epoch_info.chunk_producers_settlement().get(shard_index) {
+            Some(s) => s,
+            None => continue,
+        };
+
+        let mut blacklisted = HashSet::new();
+        for (&validator_id, stats) in validators {
+            let produced = stats.produced();
+            let expected = stats.expected();
+            if expected == 0 {
+                continue;
+            }
+            let missed = expected.saturating_sub(produced);
+            if missed >= EARLY_KICKOUT_MIN_MISSES
+                && produced * EARLY_KICKOUT_PRODUCTION_THRESHOLD_DENOMINATOR
+                    < expected * EARLY_KICKOUT_PRODUCTION_THRESHOLD_NUMERATOR
+            {
+                blacklisted.insert(validator_id);
+            }
+        }
+
+        // Safety valve: if all chunk producers for this shard are blacklisted,
+        // don't blacklist anyone — fall through to original sampling.
+        if !blacklisted.is_empty() && blacklisted.len() < settlement.len() {
+            result.insert(*shard_id, blacklisted);
+        }
+    }
+
+    result
+}
+
 /// Private utilities for EpochManager.
 impl EpochManager {
     /// Returns true if the next block after the given block will be in the next epoch.
@@ -1778,28 +1876,89 @@ impl EpochManager {
             }
 
             let prev_hash = *block_info.prev_hash();
-            let (prev_height, prev_epoch) = match self.get_block_info(&prev_hash) {
-                Ok(info) => (info.height(), *info.epoch_id()),
-                Err(EpochError::MissingBlock(_)) => {
-                    // In the case of epoch sync, we may not have the BlockInfo for the last final block
-                    // of the epoch. In this case, check for this special case.
-                    // TODO(11931): think of a better way to do this.
-                    let chain_store = self.store.chain_store();
-                    let tip = chain_store.header_head().expect("Tip not found");
-                    let block_header = chain_store
-                        .get_block_header(&tip.prev_block_hash)
-                        .expect("BlockHeader for prev block of tip not found in store");
-                    if block_header.prev_hash() == block_info.hash() {
-                        (block_info.height() - 1, *block_info.epoch_id())
-                    } else {
-                        return Err(EpochError::MissingBlock(prev_hash));
+            let (prev_height, prev_epoch, prev_block_info_missing) =
+                match self.get_block_info(&prev_hash) {
+                    Ok(info) => (info.height(), *info.epoch_id(), false),
+                    Err(EpochError::MissingBlock(_)) => {
+                        // In the case of epoch sync, we may not have the BlockInfo for the last final block
+                        // of the epoch. In this case, check for this special case.
+                        // TODO(11931): think of a better way to do this.
+                        let chain_store = self.store.chain_store();
+                        let tip = chain_store.header_head().expect("Tip not found");
+                        let block_header = chain_store
+                            .get_block_header(&tip.prev_block_hash)
+                            .expect("BlockHeader for prev block of tip not found in store");
+                        if block_header.prev_hash() == block_info.hash() {
+                            (block_info.height() - 1, *block_info.epoch_id(), true)
+                        } else {
+                            return Err(EpochError::MissingBlock(prev_hash));
+                        }
+                    }
+                    Err(e) => return Err(e),
+                };
+
+            // Build chunk producer overrides from DBCol::ChunkProducers.
+            // When early kickout replaces a blacklisted producer, the DB entry
+            // will differ from sample_chunk_producer. When no DB entry exists
+            // and the feature is OFF (protocol < 150), the map is empty and
+            // update_tail falls back to sample_chunk_producer.
+            // When EarlyChunkProducerKickout is enabled, every shard MUST have
+            // a DB entry — a missing entry indicates a bug in the write path.
+            let chunk_producer_overrides: HashMap<ShardId, ValidatorId> = shard_layout
+                .shard_ids()
+                .filter_map(|shard_id| {
+                    let key = get_block_shard_id(&prev_hash, shard_id);
+                    let validator_stake: ValidatorStake =
+                        self.store.store_ref().get_ser(DBCol::ChunkProducers, &key)?;
+                    let validator_id = epoch_info.get_validator_id(validator_stake.account_id())?;
+                    Some((shard_id, *validator_id))
+                })
+                .collect();
+
+            // Invariant: when EarlyChunkProducerKickout is enabled,
+            // save_chunk_producers_for_header should have written DB entries for
+            // all shards. A missing entry means attribution may be wrong.
+            if ProtocolFeature::EarlyChunkProducerKickout.enabled(epoch_info.protocol_version()) {
+                for shard_id in shard_layout.shard_ids() {
+                    if !chunk_producer_overrides.contains_key(&shard_id) {
+                        if prev_block_info_missing {
+                            // Epoch sync bootstrap stores a bounded set of BlockInfo entries and
+                            // may not have full historical coverage at the boundary. In that case
+                            // we allow fallback to sampling for this step.
+                            tracing::warn!(
+                                target: "epoch_manager",
+                                ?prev_hash,
+                                %shard_id,
+                                "Missing DBCol::ChunkProducers at epoch-sync boundary; \
+                                 falling back to sample_chunk_producer"
+                            );
+                            continue;
+                        }
+                        tracing::error!(
+                            target: "epoch_manager",
+                            ?prev_hash,
+                            %shard_id,
+                            "Missing DBCol::ChunkProducers entry when EarlyChunkProducerKickout \
+                             is enabled; falling back to sample_chunk_producer which may give \
+                             wrong attribution"
+                        );
+                        debug_assert!(
+                            false,
+                            "Missing DBCol::ChunkProducers for shard {shard_id} at \
+                             prev_hash {prev_hash}"
+                        );
                     }
                 }
-                Err(e) => return Err(e),
-            };
+            }
 
             let block_info = self.get_block_info(&cur_hash)?;
-            aggregator.update_tail(&block_info, &epoch_info, &shard_layout, prev_height);
+            aggregator.update_tail(
+                &block_info,
+                &epoch_info,
+                &shard_layout,
+                prev_height,
+                &chunk_producer_overrides,
+            );
 
             if prev_hash == self.epoch_info_aggregator.last_block_hash {
                 // We’ve reached sync point of the old aggregator.  If old

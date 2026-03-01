@@ -67,6 +67,7 @@ impl EpochInfoAggregator {
         epoch_info: &EpochInfo,
         shard_layout: &ShardLayout,
         prev_block_height: BlockHeight,
+        chunk_producer_overrides: &HashMap<ShardId, ValidatorId>,
     ) {
         let _span = tracing::debug_span!(target: "epoch_tracker", "update_tail", prev_block_height)
             .entered();
@@ -102,9 +103,12 @@ impl EpochInfoAggregator {
 
         for (shard_index, mask) in block_info.chunk_mask().iter().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
-            let chunk_producer_id = epoch_info
-                .sample_chunk_producer(shard_layout, shard_id, prev_block_height + 1)
-                .unwrap();
+            let chunk_producer_id =
+                chunk_producer_overrides.get(&shard_id).copied().unwrap_or_else(|| {
+                    epoch_info
+                        .sample_chunk_producer(shard_layout, shard_id, prev_block_height + 1)
+                        .unwrap()
+                });
             let tracker = self.shard_tracker.entry(shard_id).or_insert_with(HashMap::new);
             tracker
                 .entry(chunk_producer_id)

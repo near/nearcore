@@ -76,7 +76,6 @@ use near_primitives::sharding::{
     StateSyncInfo,
 };
 use near_primitives::state_sync::ReceiptProofResponse;
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize,
 };
@@ -85,7 +84,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId, ShardIndex,
 };
-use near_primitives::utils::MaybeValidated;
+use near_primitives::utils::{MaybeValidated, get_block_shard_id};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
@@ -378,6 +377,56 @@ fn validate_block_proposals(block: &Block) -> Result<(), Error> {
             return Err(Error::InvalidValidatorProposals);
         }
     }
+    Ok(())
+}
+
+/// Compute and persist chunk producers for all shards at height `header.height()+1`.
+/// Pre-populates the `ChunkProducers` DB column so that future lookups via
+/// `get_chunk_producer_info` can read directly from DB.
+///
+/// When `EarlyChunkProducerKickout` is enabled, applies the mid-epoch blacklist
+/// from `EpochInfoAggregator` stats: blacklisted producers are skipped and a
+/// replacement is sampled from the remaining settlement. If all producers for a
+/// shard are blacklisted, falls through to the original `sample_chunk_producer`.
+pub(crate) fn save_chunk_producers_for_header(
+    epoch_manager: &dyn EpochManagerAdapter,
+    header: &BlockHeader,
+    chain_store_update: &mut ChainStoreUpdate,
+) -> Result<(), Error> {
+    let prev_block_hash = header.hash();
+    let epoch_id = match epoch_manager.get_epoch_id_from_prev_block(prev_block_hash) {
+        Ok(id) => id,
+        Err(_) => return Ok(()),
+    };
+    let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+    let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
+    let height = header.height() + 1;
+
+    // Compute blacklist when the feature is enabled.
+    let blacklist =
+        if ProtocolFeature::EarlyChunkProducerKickout.enabled(epoch_info.protocol_version()) {
+            epoch_manager.get_chunk_producer_blacklist(&epoch_id)?
+        } else {
+            Default::default()
+        };
+
+    let mut store_update = chain_store_update.store().store_update();
+    for shard_id in shard_layout.shard_ids() {
+        let validator_id = if let Some(excluded) = blacklist.get(&shard_id) {
+            // Try sampling with exclusions; None means all producers blacklisted (safety valve).
+            epoch_info
+                .sample_chunk_producer_excluding(&shard_layout, shard_id, height, excluded)
+                .or_else(|| epoch_info.sample_chunk_producer(&shard_layout, shard_id, height))
+        } else {
+            epoch_info.sample_chunk_producer(&shard_layout, shard_id, height)
+        };
+        if let Some(validator_id) = validator_id {
+            let validator_stake = epoch_info.get_validator(validator_id);
+            let key = get_block_shard_id(prev_block_hash, shard_id);
+            store_update.insert_ser(DBCol::ChunkProducers, &key, &validator_stake);
+        }
+    }
+    chain_store_update.merge(store_update);
     Ok(())
 }
 
@@ -789,13 +838,8 @@ impl Chain {
                 if chunk_header.shard_id() != shard_id {
                     return Err(Error::InvalidShardId(chunk_header.shard_id()));
                 }
-                let parent_hash = block.header().prev_hash();
-                let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
-                if !verify_chunk_header_signature_with_epoch_manager(
-                    epoch_manager,
-                    &chunk_header,
-                    epoch_id,
-                )? {
+                if !verify_chunk_header_signature_with_epoch_manager(epoch_manager, &chunk_header)?
+                {
                     byzantine_assert!(false);
                     return Err(Error::InvalidChunk(format!(
                         "Invalid chunk header signature for shard {}, chunk hash: {:?}",
@@ -1516,6 +1560,7 @@ impl Chain {
                 *header.random_value(),
             )?;
             chain_store_update.merge(epoch_manager_update.into());
+            save_chunk_producers_for_header(&*self.epoch_manager, header, &mut chain_store_update)?;
             chain_store_update.commit()?;
         }
 
@@ -3407,15 +3452,14 @@ impl Chain {
         // Create the callback only when this node is the chunk producer for the next height. It's
         // used only for early prepare transactions, doesn't make sense to call it if the node isn't
         // a chunk producer.
-        let cpk = ChunkProductionKey {
-            shard_id: shard_uid.shard_id(),
-            epoch_id: epoch_id,
-            height_created: block.height + 1,
-        };
         let Some(signer) = self.validator_signer.get() else {
             return None;
         };
-        let Ok(producer) = self.epoch_manager.get_chunk_producer_info(&cpk) else {
+        let Ok(producer) = self.epoch_manager.get_chunk_producer_for_height(
+            &epoch_id,
+            block.height + 1,
+            shard_uid.shard_id(),
+        ) else {
             return None;
         };
         if signer.validator_id() != producer.account_id() {

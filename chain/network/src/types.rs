@@ -29,7 +29,7 @@ use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse, PartialEncodedContractDeploys,
 };
-use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
+use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 use near_primitives::transaction::SignedTransaction;
@@ -307,9 +307,9 @@ pub enum NetworkRequests {
     /// Message for a chunk endorsement, sent by a chunk validator to the block producer.
     ChunkEndorsement(AccountId, ChunkEndorsement),
     /// Message from chunk producer to set of chunk validators to send state witness part.
-    PartialEncodedStateWitness(Vec<(AccountId, PartialEncodedStateWitness)>),
+    PartialEncodedStateWitness(Vec<(AccountId, VersionedPartialEncodedStateWitness)>),
     /// Message from chunk validator to all other chunk validators to forward state witness part.
-    PartialEncodedStateWitnessForward(Vec<AccountId>, PartialEncodedStateWitness),
+    PartialEncodedStateWitnessForward(Vec<AccountId>, VersionedPartialEncodedStateWitness),
     /// Requests an epoch sync
     EpochSyncRequest { peer_id: PeerId },
     /// Response to an epoch sync request

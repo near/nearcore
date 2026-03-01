@@ -8,18 +8,20 @@ use near_primitives::block::BlockHeader;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_sync::{
-    EpochSyncProof, EpochSyncProofCurrentEpochData, EpochSyncProofEpochData,
-    EpochSyncProofLastEpochData, EpochSyncProofV1, should_use_versioned_bp_hash_format,
+    BoundaryChunkProducer, EpochSyncProof, EpochSyncProofCurrentEpochData, EpochSyncProofEpochData,
+    EpochSyncProofLastEpochData, EpochSyncProofV1, EpochSyncProofV2,
+    should_use_versioned_bp_hash_format,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeightDelta, EpochId};
-use near_primitives::version::BLOCK_HEADER_V3_PROTOCOL_VERSION;
-use near_store::Store;
+use near_primitives::utils::get_block_shard_id_rev;
+use near_primitives::version::{BLOCK_HEADER_V3_PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::epoch_store::{EpochStoreAdapter, EpochStoreUpdateAdapter};
 use near_store::merkle_proof::MerkleProofAccess;
+use near_store::{DBCol, Store};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use tracing::instrument;
 
@@ -102,8 +104,14 @@ fn create_epoch_sync_proof_from_prev_proof(
         get_epoch_sync_proof_current_epoch_data(&store.chain_store(), &last_block_info)?;
 
     tracing::debug!(?last_epoch, ?current_epoch, "new epoch sync proof data");
-    let proof = EpochSyncProofV1 { all_epochs, last_epoch, current_epoch };
-    Ok(EpochSyncProof::V1(proof))
+    let v1 = EpochSyncProofV1 { all_epochs, last_epoch, current_epoch };
+    let target_protocol_version = v1.last_epoch.next_epoch_info.protocol_version();
+    if ProtocolFeature::EarlyChunkProducerKickout.enabled(target_protocol_version) {
+        let boundary_chunk_producers = read_boundary_chunk_producers(store, &v1);
+        Ok(EpochSyncProof::V2(EpochSyncProofV2 { v1, boundary_chunk_producers }))
+    } else {
+        Ok(EpochSyncProof::V1(v1))
+    }
 }
 
 /// Validates that the existing epoch sync proof is consistent with the new epoch to be added.
@@ -255,9 +263,14 @@ pub fn derive_epoch_sync_proof_from_last_block(
     let all_epochs = derive_all_epochs_data(store, last_block_hash, existing_epoch_sync_proof)?;
     let last_epoch = get_epoch_sync_proof_last_epoch_data(store, &last_block_hash_in_prev_epoch)?;
     let current_epoch = get_epoch_sync_proof_current_epoch_data(&chain_store, &last_block_info)?;
-    let proof = EpochSyncProofV1 { all_epochs, last_epoch, current_epoch };
-
-    Ok(EpochSyncProof::V1(proof))
+    let v1 = EpochSyncProofV1 { all_epochs, last_epoch, current_epoch };
+    let target_protocol_version = v1.last_epoch.next_epoch_info.protocol_version();
+    if ProtocolFeature::EarlyChunkProducerKickout.enabled(target_protocol_version) {
+        let boundary_chunk_producers = read_boundary_chunk_producers(store, &v1);
+        Ok(EpochSyncProof::V2(EpochSyncProofV2 { v1, boundary_chunk_producers }))
+    } else {
+        Ok(EpochSyncProof::V1(v1))
+    }
 }
 
 // Derives the EpochSyncProofEpochData from the genesis epoch up to the epoch of the last_block_hash provided.
@@ -303,6 +316,39 @@ fn derive_all_epochs_data(
     assert!(!all_epochs_including_old_proof.is_empty(), "not enough epochs to epoch sync");
 
     Ok(all_epochs_including_old_proof)
+}
+
+/// Reads the actual chunk producer assignments from `DBCol::ChunkProducers` for
+/// the boundary blocks that the syncing node will need after epoch sync.
+///
+/// If the source node predates the `ChunkProducers` column (or entries are missing
+/// for any block), the returned vec is simply shorter — the consumer falls back to
+/// `save_default_chunk_producers` when it receives an empty vec.
+fn read_boundary_chunk_producers(
+    store: &EpochStoreAdapter,
+    proof: &EpochSyncProofV1,
+) -> Vec<BoundaryChunkProducer> {
+    let boundary_block_hashes = [
+        *proof.last_epoch.first_block_in_epoch.hash(),
+        *proof.last_epoch.second_last_block_in_epoch.prev_hash(),
+        *proof.current_epoch.second_last_block_header_in_prev_epoch.hash(),
+        *proof.current_epoch.last_block_header_in_prev_epoch.hash(),
+        *proof.current_epoch.first_block_header_in_epoch.hash(),
+    ];
+
+    let mut entries = Vec::new();
+    for block_hash in boundary_block_hashes {
+        for (key, chunk_producer) in store
+            .store_ref()
+            .iter_prefix_ser::<ValidatorStake>(DBCol::ChunkProducers, block_hash.as_ref())
+        {
+            let Ok((_parsed_hash, shard_id)) = get_block_shard_id_rev(&key) else {
+                continue;
+            };
+            entries.push(BoundaryChunkProducer { block_hash, shard_id, chunk_producer });
+        }
+    }
+    entries
 }
 
 /// Retrieves the EpochSyncProofLastEpochData from the store given the last block hash of the epoch.

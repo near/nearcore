@@ -312,6 +312,9 @@ pub fn setup_epoch_manager_with_block_and_chunk_producers(
         epoch_manager.get_all_chunk_producers(&EpochId::default()).unwrap();
     assert_eq!(actual_chunk_producers.len(), block_producers.len() + chunk_only_producers.len());
     epoch_manager
+        .save_default_chunk_producers(&CryptoHash::default())
+        .expect("chunk producer save for genesis failed");
+    epoch_manager
 }
 
 pub fn record_block_with_final_block_hash(
@@ -356,6 +359,7 @@ pub fn record_block_with_final_block_hash(
         )
         .unwrap()
         .commit();
+    epoch_manager.save_default_chunk_producers(&cur_h).expect("chunk producer save failed");
 }
 
 pub fn record_block(
@@ -410,6 +414,7 @@ pub fn record_block_with_version(
         )
         .unwrap()
         .commit();
+    epoch_manager.save_default_chunk_producers(&cur_h).expect("chunk producer save failed");
 }
 
 pub fn record_blocks<F>(
@@ -466,5 +471,7 @@ pub fn block_info(
 }
 
 pub fn record_with_block_info(epoch_manager: &mut EpochManager, block_info: BlockInfo) {
+    let block_hash = *block_info.hash();
     epoch_manager.record_block_info(block_info, [0; 32]).unwrap().commit();
+    epoch_manager.save_default_chunk_producers(&block_hash).expect("chunk producer save failed");
 }

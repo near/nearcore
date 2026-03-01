@@ -636,6 +636,7 @@ mod tests {
             )
             .unwrap()
             .commit();
+        epoch_manager.save_default_chunk_producers(&cur_h).expect("chunk producer save failed");
     }
 
     // Simulates block production over the given height range using the specified protocol version and block hashes.

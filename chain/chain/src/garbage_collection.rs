@@ -1291,6 +1291,8 @@ impl<'a> ChainStoreUpdate<'a> {
             // Note that StateSyncHashes should not ever have too many keys in them
             // because we remove unneeded keys as we add new ones.
             | DBCol::StateSyncHashes
+            // ChunkProducers will be non-recomputable once dynamic sampling ships.
+            | DBCol::ChunkProducers
             => unreachable!(),
         }
         self.merge(store_update);

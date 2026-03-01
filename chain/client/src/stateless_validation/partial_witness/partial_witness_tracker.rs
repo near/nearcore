@@ -17,7 +17,7 @@ use near_primitives::reed_solomon::{
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::contract_distribution::{CodeBytes, CodeHash};
-use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
+use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize, EncodedChunkStateWitness,
 };
@@ -80,7 +80,7 @@ struct CacheEntry {
 }
 
 enum CacheUpdate {
-    WitnessPart(PartialEncodedStateWitness, Arc<ReedSolomonEncoder>),
+    WitnessPart(VersionedPartialEncodedStateWitness, Arc<ReedSolomonEncoder>),
     AccessedContractHashes(HashSet<CodeHash>),
     AccessedContractCodes(Vec<CodeBytes>),
 }
@@ -146,7 +146,7 @@ impl CacheEntry {
 
     fn process_witness_part(
         &mut self,
-        partial_witness: PartialEncodedStateWitness,
+        partial_witness: VersionedPartialEncodedStateWitness,
         encoder: Arc<ReedSolomonEncoder>,
     ) {
         let _span = tracing::debug_span!(
@@ -372,7 +372,7 @@ impl PartialEncodedStateWitnessTracker {
 
     pub fn store_partial_encoded_state_witness(
         &self,
-        partial_witness: PartialEncodedStateWitness,
+        partial_witness: VersionedPartialEncodedStateWitness,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?partial_witness, "store_partial_encoded_state_witness");
         let key = partial_witness.chunk_production_key();
