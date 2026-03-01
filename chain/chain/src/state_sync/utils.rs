@@ -7,7 +7,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::types::{EpochHeight, EpochId};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use near_store::db::CLOUD_HEAD_KEY;
+use near_store::db::CLOUD_MIN_HEAD_KEY;
 use near_store::{DBCol, Store, StoreUpdate};
 use std::sync::Arc;
 
@@ -102,7 +102,7 @@ fn should_keep_sync_hash(
 
 /// Returns the epoch height of the cloud head, if cloud archival is active.
 fn cloud_head_epoch_height(store: &Store) -> Option<EpochHeight> {
-    let cloud_head_tip: Option<Tip> = store.get_ser(DBCol::BlockMisc, CLOUD_HEAD_KEY);
+    let cloud_head_tip: Option<Tip> = store.get_ser(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY);
     let epoch_info = store.epoch_store().get_epoch_info(&cloud_head_tip?.epoch_id).ok()?;
     Some(epoch_info.epoch_height())
 }

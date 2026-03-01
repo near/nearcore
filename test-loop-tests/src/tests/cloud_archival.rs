@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use near_async::time::Duration;
+use near_chain_configs::CloudArchivalWriterConfig;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
@@ -98,7 +99,8 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
             if client_index != archival_index {
                 return;
             }
-            config.cloud_archival_writer = Some(Default::default());
+            config.cloud_archival_writer =
+                Some(CloudArchivalWriterConfig { archive_block_data: true, ..Default::default() });
         });
     }
 

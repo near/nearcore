@@ -19,7 +19,7 @@ use near_primitives::types::{
 };
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::{BlockData, CloudStorage};
-use near_store::db::CLOUD_HEAD_KEY;
+use near_store::db::CLOUD_MIN_HEAD_KEY;
 use near_store::flat::FlatStorageManager;
 use near_store::trie::AccessOptions;
 use near_store::{
@@ -129,7 +129,7 @@ fn get_cloud_storage(env: &TestLoopEnv, archival_id: &AccountId) -> Arc<CloudSto
 
 fn get_cloud_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockHeight {
     let hot_store = get_hot_store(env, writer_id);
-    hot_store.get_ser::<Tip>(DBCol::BlockMisc, CLOUD_HEAD_KEY).unwrap().height
+    hot_store.get_ser::<Tip>(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY).unwrap().height
 }
 
 /// Runs tests to verify that data for the block height exists in the archive.
@@ -209,7 +209,7 @@ pub fn snapshots_sanity_check(
     // Epoch data is uploaded by the cloud archival writer at the last block of each
     // epoch, so it covers all epochs fully passed by the cloud head.
     let cloud_head_tip: Tip =
-        store.get_ser(DBCol::BlockMisc, CLOUD_HEAD_KEY).expect("cloud head should exist");
+        store.get_ser(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY).expect("cloud head should exist");
     let cloud_head_epoch_info = EpochInfo::try_from_slice(
         &store.get(DBCol::EpochInfo, cloud_head_tip.epoch_id.as_ref()).unwrap(),
     )

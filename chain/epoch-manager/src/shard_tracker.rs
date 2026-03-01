@@ -293,10 +293,11 @@ impl ShardTracker {
         self.tracked_shards_config.tracks_all_shards()
     }
 
-    /// Returns whether the tracker configuration is valid for cold store. Currently it is only valid if it
-    /// tracks given non-empty subset of shards. Tracking based on `Accounts` is likely to work as well, but
-    /// this hasn't been fully tested or verified yet. Consider enabling support after proper validation.
-    pub fn is_valid_for_cold_store(&self) -> bool {
+    /// Returns whether the tracker is configured to track a non-empty subset of
+    /// shards. Currently only `AllShards` or a non-empty `Shards` list qualify.
+    /// Tracking based on `Accounts` is likely to work as well, but this hasn't
+    /// been fully tested or verified yet.
+    pub fn tracks_non_empty_subset_of_shards(&self) -> bool {
         self.tracked_shards_config.tracks_non_empty_subset_of_shards()
     }
 

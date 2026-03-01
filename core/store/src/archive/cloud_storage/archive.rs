@@ -1,6 +1,6 @@
 use near_primitives::errors::EpochError;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::types::{BlockHeight, EpochId};
+use near_primitives::types::{BlockHeight, EpochId, ShardId};
 
 use crate::Store;
 use crate::archive::cloud_storage::CloudStorage;
@@ -82,9 +82,29 @@ impl CloudStorage {
         self.upload(file_id, blob).await
     }
 
-    /// Persists the cloud head to external storage.
-    pub async fn update_cloud_head(&self, head: BlockHeight) -> Result<(), CloudArchivingError> {
-        self.upload(CloudStorageFileID::Head, borsh::to_vec(&head).unwrap()).await
+    /// Persists the block head to external storage.
+    // TODO(cloud_archival): Unconditional write can regress the external head
+    // when a lagging writer shares the same component with an ahead writer.
+    // Consider a read-before-write guard (read current, only write if greater).
+    pub async fn update_cloud_block_head(
+        &self,
+        head: BlockHeight,
+    ) -> Result<(), CloudArchivingError> {
+        let file_id = CloudStorageFileID::BlockHead;
+        let blob = borsh::to_vec(&head).unwrap();
+        self.upload(file_id, blob).await
+    }
+
+    /// Persists a shard head to external storage.
+    // TODO(cloud_archival): Same regression risk as update_cloud_block_head.
+    pub async fn update_cloud_shard_head(
+        &self,
+        shard_id: ShardId,
+        head: BlockHeight,
+    ) -> Result<(), CloudArchivingError> {
+        let file_id = CloudStorageFileID::ShardHead(shard_id);
+        let blob = borsh::to_vec(&head).unwrap();
+        self.upload(file_id, blob).await
     }
 
     /// Uploads the given value to the external cloud storage under the specified
