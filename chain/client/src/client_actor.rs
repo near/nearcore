@@ -362,25 +362,6 @@ impl messaging::Actor for ClientActor {
     fn start_actor(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
         self.start(ctx);
     }
-
-    /// Wrapper for processing an actor message which must be called after receiving it.
-    /// This calls check_triggers first; see the doc of check_triggers for details.
-    fn wrap_handler<M, R>(
-        &mut self,
-        msg: M,
-        ctx: &mut dyn DelayedActionRunner<Self>,
-        f: impl FnOnce(&mut Self, M, &mut dyn DelayedActionRunner<Self>) -> R,
-    ) -> R {
-        self.check_triggers(ctx);
-        let _span = tracing::debug_span!(target: "client", "NetworkClientMessage").entered();
-        let msg_type = std::any::type_name::<M>();
-        metrics::CLIENT_MESSAGES_COUNT.with_label_values(&[msg_type]).inc();
-        let timer =
-            metrics::CLIENT_MESSAGES_PROCESSING_TIME.with_label_values(&[msg_type]).start_timer();
-        let res = f(self, msg, ctx);
-        timer.observe_duration();
-        res
-    }
 }
 
 /// Before stateless validation we require validators to track all shards, see
@@ -1264,7 +1245,7 @@ impl ClientActor {
     }
 
     fn schedule_triggers(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
-        let wait = self.check_triggers(ctx);
+        let wait = self.check_triggers();
 
         ctx.run_later("ClientActor schedule_triggers", wait, move |act, ctx| {
             act.schedule_triggers(ctx);
@@ -1275,15 +1256,16 @@ impl ClientActor {
     /// Triggers are important functions of client, like running single step of state sync or
     /// checking if we can produce a block.
     ///
-    /// It is called before processing an actor message and also in schedule_triggers.
-    /// This is to ensure all triggers enjoy higher priority than any actor message.
-    /// Otherwise, due to FIFO message handling, these important triggers will be delayed
-    /// if there are still pending messages to handle. Because of that we handle scheduling
-    /// triggers with custom `run_timer` function instead of `run_later`.
+    /// It is called in schedule_triggers. The actor framework processes timed
+    /// messages before other messages (if their deadline has elapsed).
+    /// Internally, the time to next trigger is calculated by calling
+    /// `run_timer` function instead of `run_later`.
+    ///
+    ///  TODO: Remove `run_timer`as `run_later` already has priority over other messages.
     ///
     /// Returns the delay before the next time `check_triggers` should be called, which is
     /// min(time until the closest trigger, 1 second).
-    fn check_triggers(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) -> Duration {
+    fn check_triggers(&mut self) -> Duration {
         let _span = tracing::debug_span!(target: "client", "check_triggers").entered();
         if let Some(config_updater) = &mut self.config_updater {
             let update_result = config_updater.try_update(
@@ -1327,8 +1309,7 @@ impl ClientActor {
             self.sync_timer_next_attempt = self.run_timer(
                 self.sync_wait_period(),
                 self.sync_timer_next_attempt,
-                ctx,
-                |act, _| act.run_sync_step(),
+                |act| act.run_sync_step(),
                 "sync",
             );
 
@@ -1337,8 +1318,7 @@ impl ClientActor {
             self.doomslug_timer_next_attempt = self.run_timer(
                 self.client.config.doomslug_step_period,
                 self.doomslug_timer_next_attempt,
-                ctx,
-                |act, _| act.try_doomslug_timer(),
+                |act| act.try_doomslug_timer(),
                 "doomslug",
             );
             delay = core::cmp::min(delay, self.doomslug_timer_next_attempt - now)
@@ -1349,8 +1329,7 @@ impl ClientActor {
             self.block_production_next_attempt = self.run_timer(
                 self.client.config.block_production_tracking_delay,
                 self.block_production_next_attempt,
-                ctx,
-                |act, _ctx| act.try_handle_block_production(),
+                |act| act.try_handle_block_production(),
                 "block_production",
             );
 
@@ -1364,8 +1343,7 @@ impl ClientActor {
         self.log_summary_timer_next_attempt = self.run_timer(
             self.client.config.log_summary_period,
             self.log_summary_timer_next_attempt,
-            ctx,
-            |act, _ctx| act.log_summary(),
+            |act| act.log_summary(),
             "log_summary",
         );
         delay = core::cmp::min(delay, self.log_summary_timer_next_attempt - now);
@@ -1727,16 +1705,9 @@ impl ClientActor {
 
     /// Runs given callback if the time now is at least `next_attempt`.
     /// Returns time for next run which should be made based on given `delay` between runs.
-    fn run_timer<F>(
-        &mut self,
-        delay: Duration,
-        next_attempt: Utc,
-        ctx: &mut dyn DelayedActionRunner<Self>,
-        f: F,
-        timer_label: &str,
-    ) -> Utc
+    fn run_timer<F>(&mut self, delay: Duration, next_attempt: Utc, f: F, timer_label: &str) -> Utc
     where
-        F: FnOnce(&mut Self, &mut dyn DelayedActionRunner<Self>) + 'static,
+        F: FnOnce(&mut Self) + 'static,
     {
         let now = self.clock.now_utc();
         if now < next_attempt {
@@ -1745,7 +1716,7 @@ impl ClientActor {
 
         let timer =
             metrics::CLIENT_TRIGGER_TIME_BY_TYPE.with_label_values(&[timer_label]).start_timer();
-        f(self, ctx);
+        f(self);
         timer.observe_duration();
 
         now + delay
