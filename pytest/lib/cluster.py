@@ -1165,7 +1165,6 @@ def apply_config_changes(node_dir: str,
     # when None.
     allowed_missing_configs = (
         'archive',
-        'consensus.block_fetch_horizon',
         'consensus.block_header_fetch_horizon',
         'consensus.min_block_production_delay',
         'consensus.max_block_production_delay',

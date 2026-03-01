@@ -334,7 +334,6 @@ impl Client {
         let block_sync = BlockSync::new(
             clock.clone(),
             network_adapter.clone(),
-            config.block_fetch_horizon,
             config.archive,
             config.state_sync_enabled,
         );

@@ -88,8 +88,6 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
             config.epoch_sync.epoch_sync_horizon_num_epochs = 3;
             // Make header sync horizon small enough to trigger it.
             config.block_header_fetch_horizon = 8;
-            // Make block sync horizon small enough to trigger it.
-            config.block_fetch_horizon = 3;
         })
         .build();
     env.add_node(&identifier, node_state);
