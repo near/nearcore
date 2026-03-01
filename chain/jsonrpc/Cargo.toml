@@ -21,9 +21,12 @@ tokio.workspace = true
 tower-http.workspace = true
 tracing.workspace = true
 
+reqwest.workspace = true
+
 near-async.workspace = true
 near-chain-configs.workspace = true
 near-client-primitives.workspace = true
+near-epoch-manager.workspace = true
 near-primitives.workspace = true
 near-client.workspace = true
 near-network.workspace = true
@@ -44,6 +47,7 @@ nightly = [
     "near-chain-configs/nightly",
     "near-client-primitives/nightly",
     "near-client/nightly",
+    "near-epoch-manager/nightly",
     "near-jsonrpc-adversarial-primitives/nightly",
     "near-jsonrpc-client-internal/nightly",
     "near-jsonrpc-primitives/nightly",

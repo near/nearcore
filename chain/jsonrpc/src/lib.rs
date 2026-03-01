@@ -71,6 +71,7 @@ use near_network::tcp::{self, ListenerAddr};
 use near_o11y::metrics::{Encoder, TextEncoder, prometheus};
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockId, BlockReference};
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
@@ -80,17 +81,19 @@ use near_primitives::views::{
     StateChangesKindsView, StateChangesView, TxExecutionStatus, TxStatusView,
 };
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 
 mod api;
 mod metrics;
+pub mod pool;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
@@ -125,6 +128,10 @@ fn default_enable_debug_rpc() -> bool {
     false
 }
 
+fn default_pool_forward_timeout_secs() -> u64 {
+    10
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct RpcConfig {
     pub addr: tcp::ListenerAddr,
@@ -142,6 +149,13 @@ pub struct RpcConfig {
     // be read from this directory, instead of the contents compiled into the binary. This allows
     // for quick iterative development.
     pub experimental_debug_pages_src_path: Option<String>,
+    /// Pool of peer RPC nodes for forwarding queries to shards this node doesn't track.
+    /// Maps shard_uid (e.g. "s6.v3") to peer address (e.g. "http://10.0.0.2:3030").
+    #[serde(default)]
+    pub pool: Option<HashMap<ShardUId, String>>,
+    /// Timeout in seconds for forwarding queries to pool peers.
+    #[serde(default = "default_pool_forward_timeout_secs")]
+    pub pool_forward_timeout_secs: u64,
 }
 
 impl Default for RpcConfig {
@@ -154,6 +168,8 @@ impl Default for RpcConfig {
             limits_config: Default::default(),
             enable_debug_rpc: false,
             experimental_debug_pages_src_path: None,
+            pool: None,
+            pool_forward_timeout_secs: default_pool_forward_timeout_secs(),
         }
     }
 }
@@ -161,6 +177,11 @@ impl Default for RpcConfig {
 impl RpcConfig {
     pub fn new(addr: tcp::ListenerAddr) -> Self {
         RpcConfig { addr, ..Default::default() }
+    }
+
+    pub fn with_pool(mut self, pool: HashMap<ShardUId, String>) -> Self {
+        self.pool = Some(pool);
+        self
     }
 }
 
@@ -208,7 +229,7 @@ impl near_jsonrpc_primitives::types::transactions::RpcTransactionError {
 /// This function processes response from query method to introduce
 /// backward compatible response in case of specific errors
 #[allow(clippy::result_large_err)]
-fn process_query_response(
+pub(crate) fn process_query_response(
     query_response: Result<
         near_jsonrpc_primitives::types::query::RpcQueryResponse,
         near_jsonrpc_primitives::types::query::RpcQueryError,
@@ -335,13 +356,16 @@ struct JsonRpcHandler {
     debug_pages_src_path: Option<PathBuf>,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
     block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
+    pool: Arc<OnceLock<pool::RpcPool>>,
 }
 
 impl JsonRpcHandler {
-    async fn process(&self, message: Message) -> Message {
+    async fn process(&self, message: Message, is_forwarded: bool) -> Message {
         let id = message.id();
         match message {
-            Message::Request(request) => Message::response(id, self.process_request(request).await),
+            Message::Request(request) => {
+                Message::response(id, self.process_request(request, is_forwarded).await)
+            }
             _ => Message::error(RpcError::parse_error(
                 "JSON RPC Request format was expected".to_owned(),
             )),
@@ -350,9 +374,13 @@ impl JsonRpcHandler {
 
     // `process_request` increments affected metrics but the request processing is done by
     // `process_request_internal`.
-    async fn process_request(&self, request: Request) -> Result<Value, RpcError> {
+    async fn process_request(
+        &self,
+        request: Request,
+        is_forwarded: bool,
+    ) -> Result<Value, RpcError> {
         let timer = Instant::now();
-        let (metrics_name, response) = self.process_request_internal(request).await;
+        let (metrics_name, response) = self.process_request_internal(request, is_forwarded).await;
 
         metrics::HTTP_RPC_REQUEST_COUNT.with_label_values(&[&metrics_name]).inc();
         metrics::RPC_PROCESSING_TIME
@@ -374,12 +402,36 @@ impl JsonRpcHandler {
     async fn process_request_internal(
         &self,
         request: Request,
+        is_forwarded: bool,
     ) -> (String, Result<Value, RpcError>) {
         let method_name = request.method.to_string();
         let request = match self.process_adversarial_request_internal(request).await {
             Ok(response) => return (method_name, response),
             Err(request) => request,
         };
+
+        // Pool routing: forward or fan-out before local dispatch.
+        if !is_forwarded {
+            if let Some(pool) = self.pool.get() {
+                let routing = pool.route(&request.method, &request.params);
+                match routing {
+                    pool::RoutingDecision::Forward(shard_uid) => {
+                        let message = Message::Request(request.clone());
+                        if let Some(result) =
+                            pool.forward_to_shard(shard_uid, &message, &request.method).await
+                        {
+                            return (method_name, result);
+                        }
+                        // No peer or local shard — fall through to local execution.
+                    }
+                    pool::RoutingDecision::FanOut => {
+                        let result = self.execute_fan_out(request.clone(), pool).await;
+                        return (method_name, result);
+                    }
+                    pool::RoutingDecision::Local => {}
+                }
+            }
+        }
 
         let request = match self.process_basic_requests_internal(request).await {
             Ok(response) => return (method_name, response),
@@ -413,12 +465,96 @@ impl JsonRpcHandler {
                         "query_view_global_contract_code_by_account_id"
                     }
                 };
-                (metrics_name.to_string(), process_query_response(self.query(params).await))
+                let result = process_query_response(self.query(params).await);
+                (metrics_name.to_string(), result)
             }
             _ => {
                 ("UNSUPPORTED_METHOD".to_string(), Err(RpcError::method_not_found(request.method)))
             }
         }
+    }
+
+    /// Execute a fan-out request: run locally and on all pool peers, then merge results.
+    async fn execute_fan_out(
+        &self,
+        request: Request,
+        pool: &pool::RpcPool,
+    ) -> Result<Value, RpcError> {
+        let method = request.method.clone();
+        metrics::RPC_POOL_FANOUT_TOTAL.with_label_values(&[&method]).inc();
+
+        let message = Message::Request(request.clone());
+
+        // Run local execution and remote fan-out concurrently.
+        let (local_result, remote_results) = tokio::join!(
+            self.process_local_request(request),
+            pool.forward_to_all(&message, &method),
+        );
+
+        // Count partial errors from remote peers.
+        for result in &remote_results {
+            if result.is_err() {
+                metrics::RPC_POOL_FANOUT_PARTIAL_ERRORS.with_label_values(&[&method]).inc();
+            }
+        }
+
+        Self::merge_fan_out_results(&method, local_result, remote_results)
+    }
+
+    /// Execute a request locally, handling both basic methods and `query`.
+    /// Used as the local leg of fan-out execution.
+    async fn process_local_request(&self, request: Request) -> Result<Value, RpcError> {
+        match self.process_basic_requests_internal(request).await {
+            Ok(result) => result,
+            Err(request) => match request.method.as_ref() {
+                "query" => {
+                    let params: RpcQueryRequest = RpcRequest::parse(request.params)?;
+                    process_query_response(self.query(params).await)
+                }
+                _ => Err(RpcError::method_not_found(request.method)),
+            },
+        }
+    }
+
+    /// Merge fan-out results from local and remote peers.
+    ///
+    /// For `block_effects`/`EXPERIMENTAL_changes_in_block` and `changes`/`EXPERIMENTAL_changes`,
+    /// responses have the shape `{"block_hash": ..., "changes": [...]}`.
+    /// We take `block_hash` from the local result and concatenate all `changes` arrays.
+    fn merge_fan_out_results(
+        method: &str,
+        local_result: Result<Value, RpcError>,
+        remote_results: Vec<Result<Value, RpcError>>,
+    ) -> Result<Value, RpcError> {
+        let mut local_value = local_result?;
+
+        // Collect changes from all successful remote results.
+        let local_changes = local_value.get_mut("changes").and_then(|v| v.as_array_mut());
+
+        if let Some(local_changes) = local_changes {
+            for (i, result) in remote_results.into_iter().enumerate() {
+                match result {
+                    Ok(remote_value) => {
+                        if let Some(remote_changes) =
+                            remote_value.get("changes").and_then(|v| v.as_array())
+                        {
+                            local_changes.extend(remote_changes.iter().cloned());
+                        }
+                    }
+                    Err(err) => {
+                        tracing::warn!(
+                            target: "jsonrpc",
+                            method = method,
+                            peer_index = i,
+                            error = %err,
+                            "Fan-out: peer returned error, skipping"
+                        );
+                    }
+                }
+            }
+        }
+
+        Ok(local_value)
     }
 
     async fn process_basic_requests_internal(
@@ -1752,9 +1888,11 @@ async fn handle_unknown_block(request: Message, handler: State<Arc<JsonRpcHandle
 
 async fn rpc_handler(
     State(handler): State<Arc<JsonRpcHandler>>,
+    headers: axum::http::HeaderMap,
     Json(request): Json<Message>,
 ) -> Response {
-    let message = handler.process(request.clone()).await;
+    let is_forwarded = headers.contains_key("X-Near-Pool-Forwarded");
+    let message = handler.process(request.clone(), is_forwarded).await;
     let Message::Response(response) = &message else {
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     };
@@ -2001,15 +2139,34 @@ pub fn create_jsonrpc_app(
     block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
     #[cfg(feature = "test_features")] gc_sender: GCSenderForRpc,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
-) -> Router {
+    epoch_manager: Option<Arc<dyn near_epoch_manager::EpochManagerAdapter>>,
+    tracked_shards_config: Option<near_chain_configs::TrackedShardsConfig>,
+) -> (Router, Arc<OnceLock<pool::RpcPool>>) {
     let RpcConfig {
         cors_allowed_origins,
         polling_config,
         limits_config,
         enable_debug_rpc,
         experimental_debug_pages_src_path: debug_pages_src_path,
+        pool: pool_config,
+        pool_forward_timeout_secs,
         ..
     } = config;
+
+    // Build the RPC pool if pool config is present.
+    let pool = Arc::new(OnceLock::new());
+    if let Some(peers_config) = pool_config {
+        if let Some(epoch_manager) = epoch_manager {
+            let tracked_shards_config =
+                tracked_shards_config.unwrap_or(near_chain_configs::TrackedShardsConfig::AllShards);
+            let _ = pool.set(pool::build_pool(
+                epoch_manager,
+                tracked_shards_config,
+                peers_config,
+                std::time::Duration::from_secs(pool_forward_timeout_secs),
+            ));
+        }
+    }
 
     // Create shared state
     let handler = Arc::new(JsonRpcHandler {
@@ -2026,6 +2183,7 @@ pub fn create_jsonrpc_app(
         #[cfg(feature = "test_features")]
         gc_sender,
         block_notification_watcher,
+        pool: pool.clone(),
     });
 
     // Build router
@@ -2054,9 +2212,11 @@ pub fn create_jsonrpc_app(
             .route("/debug/pages/{page}", get(display_debug_html));
     }
 
-    app.layer(get_cors(&cors_allowed_origins))
+    let router = app
+        .layer(get_cors(&cors_allowed_origins))
         .layer(RequestBodyLimitLayer::new(limits_config.json_payload_max_size))
-        .with_state(handler)
+        .with_state(handler);
+    (router, pool)
 }
 
 /// Starts HTTP server(s) listening for RPC requests.
@@ -2079,6 +2239,8 @@ pub async fn start_http(
     #[cfg(feature = "test_features")] gc_sender: GCSenderForRpc,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
     future_spawner: &dyn FutureSpawner,
+    epoch_manager: Option<Arc<dyn near_epoch_manager::EpochManagerAdapter>>,
+    tracked_shards_config: Option<near_chain_configs::TrackedShardsConfig>,
 ) {
     let addr = config.addr;
     let prometheus_addr = config.prometheus_addr.clone().filter(|it| it != &addr.to_string());
@@ -2086,7 +2248,7 @@ pub async fn start_http(
     tracing::info!(target: "network", %addr, "starting http server");
 
     // Create the axum app using the extracted function
-    let app = create_jsonrpc_app(
+    let (app, _pool) = create_jsonrpc_app(
         clock,
         config,
         genesis_config,
@@ -2098,6 +2260,8 @@ pub async fn start_http(
         #[cfg(feature = "test_features")]
         gc_sender,
         entity_debug_handler,
+        epoch_manager,
+        tracked_shards_config,
     );
 
     // Bind to socket here, so callers can be sure they can connect once this function returns.
