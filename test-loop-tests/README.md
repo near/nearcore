@@ -137,6 +137,7 @@ The `src/examples/` directory contains minimal self-contained tests demonstratin
 | `basic.rs` | Token transfer, contract deploy & call, JSON-RPC queries |
 | `setup.rs` | Builder API: defaults, validators, shards, user accounts, genesis overrides, manual setup |
 | `node_lifecycle.rs` | Killing/restarting a node, adding a new node to a running cluster |
+| `archival.rs` | Archival node with cold storage |
 | `gas_limit.rs` | Gas limit behavior verification |
 | `delayed_receipts.rs` | Creating and observing delayed receipts |
 | `missing_chunk.rs` | Triggering missing chunks using adversarial messages |

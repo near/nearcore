@@ -27,7 +27,8 @@ use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::{TestNodeStorage, create_test_node_storage};
 
 use crate::utils::account::{
-    create_validators_spec, validators_spec_clients, validators_spec_clients_with_rpc,
+    archival_account_id, create_validators_spec, validators_spec_clients,
+    validators_spec_clients_with_rpc,
 };
 use crate::utils::peer_manager_actor::{TestLoopNetworkSharedState, UnreachableActor};
 
@@ -135,6 +136,13 @@ impl TestLoopBuilder {
         let auto = self.setup_config.ensure_auto();
         assert!(!auto.enable_rpc, "enable_rpc is already set");
         auto.enable_rpc = true;
+        self
+    }
+
+    pub(crate) fn enable_archival_node(mut self, kind: ArchivalKind) -> Self {
+        let auto = self.setup_config.ensure_auto();
+        assert!(auto.archival_node.is_none(), "archival_node is already set");
+        auto.archival_node = Some(kind);
         self
     }
 
@@ -563,6 +571,7 @@ enum SetupConfig {
 struct AutoSetupConfig {
     validators_spec: Option<ValidatorsSpec>,
     enable_rpc: bool,
+    archival_node: Option<ArchivalKind>,
     shard_layout: Option<ShardLayout>,
     user_accounts: Vec<(AccountId, Balance)>,
     epoch_length: Option<u64>,
@@ -624,6 +633,7 @@ impl AutoSetupConfig {
         Self {
             validators_spec: None,
             enable_rpc: false,
+            archival_node: None,
             shard_layout: None,
             user_accounts: vec![],
             epoch_length: None,
@@ -678,10 +688,16 @@ impl AutoSetupConfig {
         } else {
             validators_spec_clients(&validators_spec)
         };
-        let clients = account_ids
+        let mut clients: Vec<ClientSpec> = account_ids
             .into_iter()
             .map(|account_id| ClientSpec { account_id, client_type: ClientType::Regular })
             .collect();
+        if let Some(kind) = self.archival_node {
+            clients.push(ClientSpec {
+                account_id: archival_account_id(),
+                client_type: ClientType::Archival(kind),
+            });
+        }
         (genesis, clients)
     }
 }
