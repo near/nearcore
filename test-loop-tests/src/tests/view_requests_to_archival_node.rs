@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use itertools::Itertools;
 use near_async::messaging::Handler;
@@ -62,8 +62,7 @@ fn slow_test_view_requests_to_archival_node() {
     let all_clients: Vec<AccountId> =
         accounts.iter().take(NUM_VALIDATORS + 1).cloned().collect_vec();
     // Contains the account of the non-validator archival node.
-    let archival_clients: HashSet<AccountId> =
-        vec![all_clients[NUM_VALIDATORS].clone()].into_iter().collect();
+    let archival_clients: Vec<AccountId> = vec![all_clients[NUM_VALIDATORS].clone()];
     let boundary_accounts =
         ["account3", "account5", "account7"].iter().map(|a| a.parse().unwrap()).collect();
     let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
