@@ -150,7 +150,7 @@ impl<'a> ConfigValidator<'a> {
         }
         if state_sync.parts_compression_lvl < -22 || state_sync.parts_compression_lvl > 22 {
             let error_message = format!(
-                "'config.state_sync.dump.parts_compression_lvl': {}, should be an integer between -22 and 22.",
+                "'config.state_sync.parts_compression_lvl': {}, should be an integer between -22 and 22.",
                 state_sync.parts_compression_lvl,
             );
             self.validation_errors.push_config_semantics_error(error_message);
