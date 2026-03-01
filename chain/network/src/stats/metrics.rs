@@ -42,7 +42,7 @@ impl<L: Labels> Gauge<L> {
 
     /// Adds a point represented by `labels` to the gauge.
     /// Returns a guard of the point - when the guard is dropped
-    /// the point is removed from the gauge.
+    /// the value of the corresponding gauge time series is decremented.
     pub fn new_point(&'static self, labels: &L) -> GaugePoint {
         let point = self.inner.with_label_values(labels.values().as_ref());
         point.inc();
@@ -444,11 +444,12 @@ fn record_routed_msg_latency(
 }
 
 // The routed message reached its destination. If the number of hops is known, then update the
-// corresponding metric.
+// corresponding metric. The number of hops is capped at MAX_NUM_HOPS to prevent excessive memory usage.
 fn record_routed_msg_hops(msg: &RoutedMessage) {
     const MAX_NUM_HOPS: u32 = 20;
     // We assume that the number of hops is small.
-    // As long as the number of hops is below 10, this metric will not consume too much memory.
+    // As long as the number of hops is bounded by MAX_NUM_HOPS, this metric will not consume
+    // too much memory.
     let num_hops = std::cmp::min(MAX_NUM_HOPS, msg.num_hops());
     NETWORK_ROUTED_MSG_NUM_HOPS
         .with_label_values(&[msg.body_variant(), &num_hops.to_string()])
