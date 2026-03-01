@@ -134,6 +134,7 @@ The `src/examples/` directory contains minimal self-contained tests demonstratin
 
 | Example | Demonstrates |
 |---|---|
+| `archival.rs` | Archival node with cold storage, GC behavior verification |
 | `basic.rs` | Token transfer, contract deploy & call, JSON-RPC queries |
 | `setup.rs` | Builder API: defaults, validators, shards, user accounts, genesis overrides, manual setup |
 | `node_lifecycle.rs` | Killing/restarting a node, adding a new node to a running cluster |

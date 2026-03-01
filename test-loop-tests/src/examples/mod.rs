@@ -1,3 +1,4 @@
+mod archival;
 mod basic;
 #[cfg(feature = "test_features")]
 mod delayed_receipts;
