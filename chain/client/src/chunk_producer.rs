@@ -25,7 +25,7 @@ use near_primitives::merkle::{MerklePath, merklize};
 use near_primitives::optimistic_block::{CachedShardUpdateKey, OptimisticBlockKeySource};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkWithEncoding};
-use near_primitives::stateless_validation::ChunkProductionKey;
+
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
@@ -156,11 +156,7 @@ impl ChunkProducer {
     ) -> Result<Option<ProduceChunkResult>, Error> {
         let chunk_proposer = self
             .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
-                epoch_id: *epoch_id,
-                height_created: next_height,
-                shard_id,
-            })
+            .get_chunk_producer_info(prev_block.hash(), shard_id)
             .unwrap()
             .take_account_id();
         if signer.validator_id() != &chunk_proposer {

@@ -10,7 +10,6 @@ use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::utils::from_timestamp;
 use std::collections::HashSet;
@@ -237,11 +236,11 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
             }
             for shard_id in shard_layout.shard_ids() {
                 let chunk_producer = epoch_manager
-                    .get_chunk_producer_info(&ChunkProductionKey {
-                        epoch_id,
-                        height_created: block.header().prev_height().unwrap() + 1,
+                    .get_chunk_producer_for_height(
+                        &epoch_id,
+                        block.header().prev_height().unwrap() + 1,
                         shard_id,
-                    })
+                    )
                     .unwrap()
                     .take_account_id();
 

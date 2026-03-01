@@ -13,7 +13,6 @@ use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
@@ -165,15 +164,8 @@ fn test_producer_sending_large_encoded_length_chunks() {
                 } => {
                     let header = partial_encoded_chunk.header;
 
-                    let epoch_id = epoch_manager
-                        .get_epoch_id_from_prev_block(header.prev_block_hash())
-                        .unwrap();
                     let chunk_producer_info = epoch_manager
-                        .get_chunk_producer_info(&ChunkProductionKey {
-                            shard_id: header.shard_id(),
-                            epoch_id,
-                            height_created: header.height_created(),
-                        })
+                        .get_chunk_producer_info(header.prev_block_hash(), header.shard_id())
                         .unwrap();
                     let signer = create_test_signer(chunk_producer_info.account_id().as_str());
                     let new_encoded_length = u64::MAX;
