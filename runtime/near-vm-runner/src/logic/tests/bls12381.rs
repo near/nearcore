@@ -646,6 +646,18 @@ mod tests {
         slow_test_bls12381_p2_sum_incorrect_input_fuzzer
     );
 
+    #[test]
+    fn test_bls12381_sum_x0_fuzzer() {
+        let mut zero_x_uncompress = vec![0u8; 2 * 48];
+        zero_x_uncompress[2 * 48 - 1] = 2;
+
+        let zero_x_point = G1Operations::deserialize_g(zero_x_uncompress);
+        bolero::check!().with_type().for_each(|p: &E1Point| {
+            check_sum_p1(p.p, zero_x_point);
+            check_sum_p1(p.p, zero_x_point.neg());
+        });
+    }
+
     macro_rules! test_bls12381_memory_limit {
         (
             $namespace_name:ident,
@@ -845,6 +857,17 @@ mod tests {
         test_bls12381_error_g2_encoding
     );
 
+    #[test]
+    fn test_bls12381_mul_x0_fuzzer() {
+        let mut zero_x_uncompress = vec![0u8; 2 * 48];
+        zero_x_uncompress[2 * 48 - 1] = 2;
+        bolero::check!().with_type().for_each(|n: &Scalar| {
+            let mut n_vec: [u8; 32] = [0u8; 32];
+            n.p.serialize_with_flags(n_vec.as_mut_slice(), EmptyFlags).unwrap();
+            run_bls12381_fn!(bls12381_g1_multiexp, [zero_x_uncompress.clone(), n_vec.to_vec()], 1);
+        });
+    }
+
     fn add_p_y(point: &G1Affine) -> Vec<u8> {
         let mut ybig: Fq = *point.y().unwrap();
         ybig = ybig.add(&Fq::from_str(P).unwrap());
@@ -959,11 +982,13 @@ mod tests {
             $GOp:ident,
             $GPoint:ident,
             $EPoint:ident,
+            $EnotGPoint:ident,
             $GAffine:ident,
             $POINT_LEN:expr,
             $bls12381_decompress:ident,
             $add_p:ident,
             $test_bls12381_decompress:ident,
+            $test_bls12381_decompress_not_G:ident,
             $test_bls12381_decompress_many_points:ident,
             $test_bls12381_decompress_incorrect_input:ident
         ) => {
@@ -985,6 +1010,21 @@ mod tests {
                 let res1 = $GOp::decompress_p(vec![zero1.clone()]);
 
                 assert_eq!(res1, $GOp::serialize_uncompressed_g(&zero1));
+            }
+
+            #[test]
+            fn $test_bls12381_decompress_not_G() {
+                bolero::check!().with_type().for_each(|p1: &$EnotGPoint| {
+                    let res1 = $GOp::decompress_p(vec![p1.p.clone()]);
+                    assert_eq!(res1, $GOp::serialize_uncompressed_g(&p1.p));
+
+                    let p1_neg = p1.p.neg();
+                    let res1_neg = $GOp::decompress_p(vec![p1_neg.clone().into()]);
+
+                    assert_eq!(res1[0..$POINT_LEN], res1_neg[0..$POINT_LEN]);
+                    assert_ne!(res1[$POINT_LEN..], res1_neg[$POINT_LEN..]);
+                    assert_eq!(res1_neg, $GOp::serialize_uncompressed_g(&p1_neg.into()));
+                });
             }
 
             #[test]
@@ -1047,15 +1087,27 @@ mod tests {
         };
     }
 
+    #[test]
+    fn test_bls12381_decompress_x_0() {
+        let mut zero_x = vec![0u8; 48];
+        zero_x[0] = 0x80;
+        let res1 = run_bls12381_fn!(bls12381_p1_decompress, [zero_x]);
+        let mut zero_x_uncompress = vec![0u8; 2 * 48];
+        zero_x_uncompress[2 * 48 - 1] = 2;
+        assert_eq!(res1, zero_x_uncompress);
+    }
+
     test_bls12381_decompress!(
         G1Operations,
         G1Point,
         E1Point,
+        EnotG1Point,
         G1Affine,
         48,
         bls12381_p1_decompress,
         add_p_x,
         slow_test_bls12381_p1_decompress_fuzzer,
+        slow_test_bls12381_p1_decompress_not_g1_fuzzer,
         slow_test_bls12381_p1_decompress_many_points_fuzzer,
         slow_test_bls12381_p1_decompress_incorrect_input_fuzzer
     );
@@ -1064,11 +1116,13 @@ mod tests {
         G2Operations,
         G2Point,
         E2Point,
+        EnotG2Point,
         G2Affine,
         96,
         bls12381_p2_decompress,
         add2_p_x,
         slow_test_bls12381_p2_decompress_fuzzer,
+        slow_test_bls12381_p2_decompress_not_g2_fuzzer,
         slow_test_bls12381_p2_decompress_many_points_fuzzer,
         slow_test_bls12381_p2_decompress_incorrect_input_fuzzer
     );
@@ -1196,6 +1250,11 @@ mod tests {
             )| {
                 assert_eq!(pairing_check(vec![p1_not_from_g1.p], vec![p2.p]), 1);
                 assert_eq!(pairing_check(vec![p1.p], vec![p2_not_from_g2.p]), 1);
+
+                let mut zero_x_uncompress = vec![0u8; 2 * 48];
+                zero_x_uncompress[2 * 48 - 1] = 2;
+                let zero_x_point = G1Operations::deserialize_g(zero_x_uncompress);
+                assert_eq!(pairing_check(vec![zero_x_point], vec![p2.p]), 1);
 
                 let p1_ser = G1Operations::serialize_uncompressed_g(&p1.p).to_vec();
                 let p2_ser = G2Operations::serialize_uncompressed_g(&p2.p).to_vec();
