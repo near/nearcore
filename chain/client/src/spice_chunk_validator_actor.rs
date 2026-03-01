@@ -268,6 +268,7 @@ impl SpiceChunkValidatorActor {
             &prev_block_execution_results,
             self.epoch_manager.as_ref(),
             &self.chain_store,
+            &self.core_reader,
         )?;
 
         let epoch_manager = self.epoch_manager.clone();
