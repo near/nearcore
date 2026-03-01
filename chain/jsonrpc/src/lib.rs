@@ -396,6 +396,23 @@ impl JsonRpcHandler {
         response
     }
 
+    /// Try to forward or fan-out the request via the pool.
+    /// Returns `Some(result)` if handled by the pool, `None` if local execution needed.
+    async fn maybe_forward_request(&self, request: &Request) -> Option<Result<Value, RpcError>> {
+        let pool = self.pool.get()?;
+        let routing = pool.route(&request.method, &request.params);
+        match routing {
+            pool::RoutingDecision::Forward(shard_uid) => {
+                let message = Message::Request(request.clone());
+                pool.forward_to_shard(shard_uid, &message, &request.method).await
+            }
+            pool::RoutingDecision::FanOut => {
+                Some(self.execute_fan_out(request.clone(), pool).await)
+            }
+            pool::RoutingDecision::Local => None,
+        }
+    }
+
     /// Processes the request without updating any metrics.
     /// Returns metrics name (method name with optional details as a suffix)
     /// and the result of the execution.
@@ -412,24 +429,8 @@ impl JsonRpcHandler {
 
         // Pool routing: forward or fan-out before local dispatch.
         if !is_forwarded {
-            if let Some(pool) = self.pool.get() {
-                let routing = pool.route(&request.method, &request.params);
-                match routing {
-                    pool::RoutingDecision::Forward(shard_uid) => {
-                        let message = Message::Request(request.clone());
-                        if let Some(result) =
-                            pool.forward_to_shard(shard_uid, &message, &request.method).await
-                        {
-                            return (method_name, result);
-                        }
-                        // No peer or local shard — fall through to local execution.
-                    }
-                    pool::RoutingDecision::FanOut => {
-                        let result = self.execute_fan_out(request.clone(), pool).await;
-                        return (method_name, result);
-                    }
-                    pool::RoutingDecision::Local => {}
-                }
+            if let Some(result) = self.maybe_forward_request(&request).await {
+                return (method_name, result);
             }
         }
 

@@ -60,7 +60,7 @@ pub enum RoutingDecision {
 pub struct RpcPool {
     /// Returns the shard layout for the current protocol version.
     /// Called per request so it reflects any runtime changes (e.g. resharding).
-    get_shard_layout: Box<dyn Fn() -> ShardLayout + Send + Sync>,
+    get_shard_layout_fn: Box<dyn Fn() -> ShardLayout + Send + Sync>,
     /// Which shards the local node tracks (used to decide local vs. remote).
     tracked_shards_config: TrackedShardsConfig,
     /// Remote peers keyed by shard_uid.
@@ -73,7 +73,7 @@ pub struct RpcPool {
 
 impl RpcPool {
     pub fn new(
-        get_shard_layout: Box<dyn Fn() -> ShardLayout + Send + Sync>,
+        get_shard_layout_fn: Box<dyn Fn() -> ShardLayout + Send + Sync>,
         tracked_shards_config: TrackedShardsConfig,
         peers: HashMap<ShardUId, Arc<dyn RpcNodeHandle>>,
         unique_peers: Vec<Arc<dyn RpcNodeHandle>>,
@@ -85,7 +85,29 @@ impl RpcPool {
             num_unique_peers = unique_peers.len(),
             "RPC pool initialized"
         );
-        Self { get_shard_layout, tracked_shards_config, peers, unique_peers }
+        let pool = Self { get_shard_layout_fn, tracked_shards_config, peers, unique_peers };
+        if let Err(uncovered) = pool.validate_coverage() {
+            panic!("RPC pool misconfigured: no coverage for shards {uncovered:?}");
+        }
+        pool
+    }
+
+    /// Check that every shard in the current layout is either tracked locally
+    /// or has a configured peer. Returns the list of uncovered shards on failure.
+    fn validate_coverage(&self) -> Result<(), Vec<ShardUId>> {
+        let shard_layout = self.get_shard_layout();
+        let uncovered: Vec<ShardUId> = shard_layout
+            .shard_uids()
+            .filter(|shard_uid| {
+                !self.is_local_shard(&shard_layout, *shard_uid)
+                    && !self.peers.contains_key(shard_uid)
+            })
+            .collect();
+        if uncovered.is_empty() { Ok(()) } else { Err(uncovered) }
+    }
+
+    fn get_shard_layout(&self) -> ShardLayout {
+        (self.get_shard_layout_fn)()
     }
 
     /// Determine how to route a request based on method name and params.
@@ -149,19 +171,25 @@ impl RpcPool {
 
     /// Forward a request to a specific shard's peer node.
     ///
-    /// Returns `None` if the shard is local or no peer is configured (caller should execute locally).
-    /// Returns `Some(result)` if the request was forwarded to a peer.
+    /// Returns `None` if the shard is local (caller should execute locally).
+    /// Returns `Some(Ok(...))` if the request was forwarded successfully.
+    /// Returns `Some(Err(...))` if the shard is remote but no peer is configured or forwarding failed.
     pub async fn forward_to_shard(
         &self,
         shard_uid: ShardUId,
         request: &Message,
         method: &str,
     ) -> Option<Result<Value, RpcError>> {
-        let shard_layout = (self.get_shard_layout)();
+        let shard_layout = self.get_shard_layout();
         if self.is_local_shard(&shard_layout, shard_uid) {
             return None;
         }
-        let peer = self.peers.get(&shard_uid)?;
+        let Some(peer) = self.peers.get(&shard_uid) else {
+            return Some(Err(RpcError::new_internal_error(
+                None,
+                format!("no route found for shard {shard_uid}"),
+            )));
+        };
         let shard_id_str = shard_uid.to_string();
         metrics::RPC_POOL_FORWARD_TOTAL.with_label_values(&[method, &shard_id_str]).inc();
         let timer = std::time::Instant::now();
@@ -205,17 +233,12 @@ impl RpcPool {
         results
     }
 
-    /// Whether this pool has any unique peers (used to decide if fan-out is useful).
-    pub fn has_peers(&self) -> bool {
-        !self.unique_peers.is_empty()
-    }
-
     /// Resolve account_id to a RoutingDecision.
     fn resolve_shard_for_account(&self, account_id: &str) -> RoutingDecision {
         let Ok(account_id) = account_id.parse::<AccountId>() else {
             return RoutingDecision::Local;
         };
-        let shard_layout = (self.get_shard_layout)();
+        let shard_layout = self.get_shard_layout();
         let shard_uid = shard_layout.account_id_to_shard_uid(&account_id);
         RoutingDecision::Forward(shard_uid)
     }
@@ -308,7 +331,7 @@ impl RpcPool {
         };
 
         let shard_id = ShardId::new(n);
-        let shard_layout = (self.get_shard_layout)();
+        let shard_layout = self.get_shard_layout();
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         RoutingDecision::Forward(shard_uid)
     }
@@ -336,7 +359,7 @@ pub fn build_pool(
     peers_config: HashMap<ShardUId, String>,
     forward_timeout: Duration,
 ) -> RpcPool {
-    let get_shard_layout = Box::new(move || {
+    let get_shard_layout_fn = Box::new(move || {
         epoch_manager
             .get_static_shard_layout_for_protocol_version(
                 near_primitives::version::PROTOCOL_VERSION,
@@ -363,7 +386,7 @@ pub fn build_pool(
 
     let unique_peers: Vec<Arc<dyn RpcNodeHandle>> = nodes_by_addr.into_values().collect();
 
-    RpcPool::new(get_shard_layout, tracked_shards_config, peers, unique_peers)
+    RpcPool::new(get_shard_layout_fn, tracked_shards_config, peers, unique_peers)
 }
 
 #[cfg(test)]
@@ -404,8 +427,8 @@ mod tests {
         peers: HashMap<ShardUId, Arc<dyn RpcNodeHandle>>,
         unique_peers: Vec<Arc<dyn RpcNodeHandle>>,
     ) -> RpcPool {
-        let get_shard_layout = Box::new(move || shard_layout.clone());
-        RpcPool::new(get_shard_layout, tracked_shards_config, peers, unique_peers)
+        let get_shard_layout_fn = Box::new(move || shard_layout.clone());
+        RpcPool::new(get_shard_layout_fn, tracked_shards_config, peers, unique_peers)
     }
 
     // --- Routing decision tests ---
@@ -667,19 +690,37 @@ mod tests {
         assert_eq!(peer_b_ref.calls(), 1);
     }
 
+    #[test]
+    #[should_panic(expected = "RPC pool misconfigured: no coverage for shards")]
+    fn test_validate_coverage_panics_on_missing_shards() {
+        // NoShards + no peers => every shard is uncovered => panic
+        make_test_pool(
+            ShardLayout::single_shard(),
+            TrackedShardsConfig::NoShards,
+            HashMap::new(),
+            vec![],
+        );
+    }
+
     #[tokio::test]
     async fn test_forward_to_shard_fallback_no_peer() {
         let shard_layout = ShardLayout::single_shard();
         let shard_uid = shard_layout.shard_uids().next().unwrap();
 
-        // No peers configured
-        let pool =
-            make_test_pool(shard_layout, TrackedShardsConfig::NoShards, HashMap::new(), vec![]);
+        // Cover the shard with a peer so validation passes.
+        let remote: Arc<dyn RpcNodeHandle> = Arc::new(MockNode::new("remote"));
+        let mut peers: HashMap<ShardUId, Arc<dyn RpcNodeHandle>> = HashMap::new();
+        peers.insert(shard_uid, Arc::clone(&remote));
 
+        let pool = make_test_pool(shard_layout, TrackedShardsConfig::NoShards, peers, vec![]);
+
+        // Forward to a fabricated shard_uid that has no peer entry.
+        let fake_shard_uid = ShardUId::new(99, ShardId::new(0));
         let msg = Message::request("query".to_string(), Value::Null);
-        let result = pool.forward_to_shard(shard_uid, &msg, "query").await;
+        let result = pool.forward_to_shard(fake_shard_uid, &msg, "query").await;
 
-        // No peer -> None, caller should execute locally
-        assert!(result.is_none());
+        // No peer for a remote shard -> error
+        let err = result.expect("expected Some for remote shard with no peer").unwrap_err();
+        assert_eq!(err.code, -32_000);
     }
 }
