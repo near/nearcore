@@ -953,6 +953,8 @@ impl<'a> ChainStoreUpdate<'a> {
             // TODO(spice): Add other relevant columns here
             #[cfg(feature = "protocol_feature_spice")]
             self.gc_col(DBCol::witnesses(), &block_shard_id);
+            #[cfg(feature = "protocol_feature_spice")]
+            self.gc_col(DBCol::contract_accesses(), &block_shard_id);
 
             // delete DBCol::ChunkExtra based on shard_uid since it's indexed by shard_uid in the storage
             self.gc_col(DBCol::ChunkExtra, &block_shard_id);
@@ -1253,6 +1255,10 @@ impl<'a> ChainStoreUpdate<'a> {
             }
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::UncertifiedChunks => {
+                store_update.delete(col, key);
+            }
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::ContractAccesses => {
                 store_update.delete(col, key);
             }
             DBCol::DbVersion
