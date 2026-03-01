@@ -1,7 +1,8 @@
 use borsh::BorshDeserialize;
 use near_async::ActorSystem;
 use near_chain::Provenance;
-use near_chain_configs::{Genesis, MutableConfigValue};
+use near_chain_configs::MutableConfigValue;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_client::ProcessTxResponse;
 use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_crypto::{InMemorySigner, KeyType, Signer};
@@ -121,10 +122,13 @@ fn test_storage_after_commit_of_cold_update() {
     let epoch_length = 5;
     let max_height = epoch_length * 4;
 
-    let mut genesis = Genesis::test(vec![test0(), test1()], 1);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.transaction_validity_period = epoch_length * 2;
-    genesis.config.min_gas_price = Balance::ZERO;
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(epoch_length)
+        .gas_prices(Balance::ZERO, Balance::from_yoctonear(1_000_000_000))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple(test0(), Balance::from_near(1_000_000_000))
+        .add_user_account_simple(test1(), Balance::from_near(1_000_000_000))
+        .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
@@ -239,9 +243,11 @@ fn test_cold_db_head_update() {
     let epoch_length = 5;
     let max_height = epoch_length * 10;
 
-    let mut genesis = Genesis::test(vec![test0(), test1()], 1);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.transaction_validity_period = epoch_length * 2;
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(epoch_length)
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple(test1(), Balance::from_near(1_000_000_000))
+        .build();
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let hot_store = &storage.get_hot_store();
     let cold_store = &storage.get_cold_store().unwrap();
@@ -280,10 +286,13 @@ fn test_cold_db_copy_with_height_skips() {
 
     let skips = HashSet::from([1, 4, 5, 7, 11, 14, 16, 19]);
 
-    let mut genesis = Genesis::test(vec![test0(), test1()], 1);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.transaction_validity_period = epoch_length * 2;
-    genesis.config.min_gas_price = Balance::ZERO;
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(epoch_length)
+        .gas_prices(Balance::ZERO, Balance::from_yoctonear(1_000_000_000))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple(test0(), Balance::from_near(1_000_000_000))
+        .add_user_account_simple(test1(), Balance::from_near(1_000_000_000))
+        .build();
     let mut env = TestEnv::builder(&genesis.config)
         .nightshade_runtimes_congestion_control_disabled(&genesis)
         .build();
@@ -389,9 +398,12 @@ fn test_initial_copy_to_cold(batch_size: usize) {
     let epoch_length = 5;
     let max_height = epoch_length * 4;
 
-    let mut genesis = Genesis::test(vec![test0(), test1()], 1);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.transaction_validity_period = epoch_length * 2;
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(epoch_length)
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple(test0(), Balance::from_near(1_000_000_000))
+        .add_user_account_simple(test1(), Balance::from_near(1_000_000_000))
+        .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);
@@ -476,9 +488,12 @@ fn test_cold_loop_on_gc_boundary() {
 
     let epoch_length = 5;
 
-    let mut genesis = Genesis::test(vec![test0(), test1()], 1);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.transaction_validity_period = epoch_length * 2;
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(epoch_length)
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple(test0(), Balance::from_near(1_000_000_000))
+        .add_user_account_simple(test1(), Balance::from_near(1_000_000_000))
+        .build();
 
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let hot_store = &storage.get_hot_store();

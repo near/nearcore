@@ -84,6 +84,9 @@ pub const MAX_INFLATION_RATE: Rational32 = Rational32::new_raw(1, 20);
 /// Initial and minimum gas price.
 pub const MIN_GAS_PRICE: Balance = Balance::from_yoctonear(100_000_000);
 
+/// Maximum gas price.
+pub const MAX_GAS_PRICE: Balance = Balance::from_millinear(10);
+
 /// Expected number of blocks per year
 pub const NUM_BLOCKS_PER_YEAR: u64 = 365 * 24 * 60 * 60;
 

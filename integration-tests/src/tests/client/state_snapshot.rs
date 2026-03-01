@@ -1,7 +1,7 @@
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
 use near_chain::{ChainStoreAccess, Provenance};
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, Signer};
 use near_o11y::testonly::init_test_logger;
@@ -126,7 +126,10 @@ fn test_maybe_open_state_snapshot_garbage_snapshot() {
 #[test]
 fn test_state_snapshot_disabled() -> anyhow::Result<()> {
     init_test_logger();
-    let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(5)
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .build();
     let env = TestEnv::builder(&genesis.config)
         .clients_count(1)
         .real_stores()
@@ -219,7 +222,10 @@ fn delete_content_at_path(path: &str) -> std::io::Result<()> {
 // transaction creating an account.
 fn slow_test_make_state_snapshot() {
     init_test_logger();
-    let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(5)
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .build();
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(1)
         .use_state_snapshots()

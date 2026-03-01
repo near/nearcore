@@ -1,6 +1,7 @@
 use assert_matches::assert_matches;
 use near_chain::Provenance;
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
+use near_chain_configs::test_utils::TESTING_INIT_BALANCE;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, Signer};
 use near_parameters::RuntimeConfigStore;
@@ -11,7 +12,6 @@ use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::Gas;
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::FinalExecutionStatus;
 
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
@@ -31,10 +31,11 @@ fn test_storage_proof_size_limit() {
     let user_account: AccountId = "test1".parse().unwrap();
     let runtime_config_store = RuntimeConfigStore::new(None);
     let mut env = {
-        let mut genesis = Genesis::test(vec![contract_account.clone(), user_account.clone()], 1);
-        genesis.config.epoch_length = epoch_length;
-        genesis.config.transaction_validity_period = epoch_length * 2;
-        genesis.config.protocol_version = PROTOCOL_VERSION;
+        let genesis = TestGenesisBuilder::new()
+            .epoch_length(epoch_length)
+            .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+            .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
+            .build();
         TestEnv::builder(&genesis.config)
             .nightshade_runtimes_with_runtime_config_store(&genesis, vec![runtime_config_store])
             .build()

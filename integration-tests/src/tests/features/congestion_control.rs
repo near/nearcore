@@ -1,5 +1,6 @@
 use assert_matches::assert_matches;
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
+use near_chain_configs::test_utils::TESTING_INIT_BALANCE;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
@@ -59,13 +60,17 @@ fn set_default_congestion_control(config_store: &RuntimeConfigStore, config: &mu
 /// The test version of runtime has custom gas cost.
 fn setup_test_runtime(_sender_id: AccountId, protocol_version: ProtocolVersion) -> TestEnv {
     let accounts = TestEnvBuilder::make_accounts(1);
-    let mut genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
-    genesis.config.epoch_length = 10;
-    genesis.config.transaction_validity_period = 20;
-    genesis.config.protocol_version = protocol_version;
-
-    // Chain must be sharded to test cross-shard congestion control.
-    genesis.config.shard_layout = ShardLayout::multi_shard(4, 3);
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(10)
+        .validators_spec(ValidatorsSpec::desired_roles(
+            &accounts.iter().map(|a| a.as_str()).collect::<Vec<_>>(),
+            &[],
+        ))
+        .add_user_account_simple("near".parse().unwrap(), TESTING_INIT_BALANCE)
+        // Chain must be sharded to test cross-shard congestion control.
+        .shard_layout(ShardLayout::multi_shard(4, 3))
+        .protocol_version(protocol_version)
+        .build();
 
     let config_store = RuntimeConfigStore::new(None);
     let mut config = RuntimeConfig::test_protocol_version(protocol_version);

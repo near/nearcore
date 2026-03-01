@@ -10,6 +10,7 @@ use crate::types::{AcceptedBlock, ChainConfig, ChainGenesis};
 use crate::{ApplyChunksSpawner, DoomslugThresholdMode};
 use crate::{BlockProcessingArtifact, Provenance};
 use near_async::time::Clock;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::{Genesis, MutableConfigValue};
 use near_chain_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -19,6 +20,7 @@ use near_primitives::block::Block;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::optimistic_block::BlockToApply;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
@@ -29,7 +31,6 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::DBCol;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
-use num_rational::Ratio;
 
 use near_async::messaging::{IntoMultiSender, noop};
 
@@ -50,14 +51,12 @@ pub fn get_chain_with_epoch_length_and_num_shards(
     epoch_length: NumBlocks,
     num_shards: NumShards,
 ) -> Chain {
-    let mut genesis = Genesis::test_sharded(
-        clock.clone(),
-        vec!["test1".parse::<AccountId>().unwrap()],
-        1,
-        vec![1; num_shards as usize],
-    );
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.transaction_validity_period = epoch_length * 2;
+    let genesis = TestGenesisBuilder::new()
+        .genesis_time_from_clock(&clock)
+        .epoch_length(epoch_length)
+        .shard_layout(ShardLayout::multi_shard(num_shards, 0))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test1"], &[]))
+        .build();
     get_chain_with_genesis(clock, genesis)
 }
 
@@ -140,20 +139,14 @@ pub fn setup_with_tx_validity_period(
     epoch_length: u64,
 ) -> (Chain, Arc<EpochManagerHandle>, Arc<NightshadeRuntime>, Arc<ValidatorSigner>) {
     let store = create_test_store();
-    let mut genesis = Genesis::test_sharded(
-        clock.clone(),
-        vec!["test".parse::<AccountId>().unwrap()],
-        1,
-        vec![1; 1],
-    );
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.transaction_validity_period = tx_validity_period;
-    genesis.config.gas_limit = Gas::from_gas(1_000_000);
-    genesis.config.min_gas_price = Balance::from_yoctonear(100);
-    genesis.config.max_gas_price = Balance::from_yoctonear(1_000_000_000);
-    genesis.config.total_supply = Balance::from_yoctonear(1_000_000_000);
-    genesis.config.gas_price_adjustment_rate = Ratio::from_integer(0);
-    genesis.config.protocol_version = PROTOCOL_VERSION;
+    let genesis = TestGenesisBuilder::new()
+        .genesis_time_from_clock(&clock)
+        .epoch_length(epoch_length)
+        .transaction_validity_period(tx_validity_period)
+        .gas_limit(Gas::from_gas(1_000_000))
+        .gas_prices(Balance::from_yoctonear(100), Balance::from_yoctonear(1_000_000_000))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test"], &[]))
+        .build();
     let tempdir = tempfile::tempdir().unwrap();
     initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);

@@ -4,11 +4,11 @@
 use std::collections::HashSet;
 
 use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_parameters::RuntimeConfig;
-use near_primitives::shard_layout::ShardUId;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_record::{StateRecord, state_record_to_account_id};
-use near_primitives::types::AccountId;
-use near_primitives::types::StateRoot;
+use near_primitives::types::{AccountId, Balance, StateRoot};
 use near_store::genesis::GenesisStateApplier;
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{ShardTries, TrieUpdate};
@@ -18,11 +18,17 @@ use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 pub const TEST_SHARD_UID: ShardUId = ShardUId { version: 1, shard_id: 0 };
 
 pub fn get_runtime_and_trie() -> (Runtime, ShardTries, StateRoot) {
-    let mut genesis = Genesis::test_sharded_new_version(
-        vec![alice_account(), bob_account(), "carol.near".parse().unwrap()],
-        3,
-        vec![3],
-    );
+    let mut genesis = TestGenesisBuilder::new()
+        .epoch_length(5)
+        .shard_layout(ShardLayout::multi_shard(1, 1))
+        .validators_spec(ValidatorsSpec::desired_roles(
+            &["alice.near", "bob.near", "carol.near"],
+            &[],
+        ))
+        .add_user_account_simple(alice_account(), Balance::from_near(1_000_000_000))
+        .add_user_account_simple(bob_account(), Balance::from_near(1_000_000_000))
+        .add_user_account_simple("carol.near".parse().unwrap(), Balance::from_near(1_000_000_000))
+        .build();
     add_test_contract(&mut genesis, &"test.contract".parse().unwrap());
     get_runtime_and_trie_from_genesis(&genesis)
 }

@@ -2,7 +2,7 @@ use crate::utils::genesis_helpers::genesis_block;
 use near_async::ActorSystem;
 use near_async::messaging::{CanSend, CanSendAsync};
 use near_async::time::Duration;
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::test_utils::TESTING_INIT_STAKE;
 use near_client::{GetBlock, ProcessTxRequest};
 use near_crypto::InMemorySigner;
@@ -10,6 +10,7 @@ use near_network::tcp;
 use near_network::test_utils::{convert_boot_nodes, wait_or_timeout};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::Balance;
 use near_store::db::RocksDB;
 use nearcore::{load_test_config, start_with_config};
 use std::ops::ControlFlow;
@@ -24,10 +25,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 async fn ultra_slow_test_sync_state_stake_change() {
     init_integration_logger();
 
-    let mut genesis = Genesis::test(vec!["test1".parse().unwrap()], 1);
     let epoch_length = 20;
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.transaction_validity_period = epoch_length * 2;
+    let mut genesis = TestGenesisBuilder::new()
+        .epoch_length(epoch_length)
+        .validators_spec(ValidatorsSpec::desired_roles(&["test1"], &[]))
+        .add_user_account_simple("test1".parse().unwrap(), Balance::from_near(1_000_000_000))
+        .build();
     genesis.config.block_producer_kickout_threshold = 80;
 
     let (port1, port2) =

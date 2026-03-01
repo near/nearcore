@@ -516,8 +516,7 @@ impl TrieStateResharderMetrics {
 mod tests {
     use bytesize::ByteSize;
     use itertools::Itertools;
-    use near_async::time::Clock;
-    use near_chain_configs::Genesis;
+    use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
     use near_epoch_manager::EpochManager;
     use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
     use near_primitives::trie_key::TrieKey;
@@ -574,12 +573,11 @@ mod tests {
     ///     where memtries need to be loaded from flat storage during resume().
     fn setup_test(create_memtries: bool) -> TestSetup {
         let shard_layout = ShardLayout::single_shard();
-        let genesis = Genesis::from_accounts(
-            Clock::real(),
-            vec!["aa".parse().unwrap()],
-            1,
-            shard_layout.clone(),
-        );
+        let genesis = TestGenesisBuilder::new()
+            .epoch_length(5)
+            .validators_spec(ValidatorsSpec::desired_roles(&["aa"], &[]))
+            .shard_layout(shard_layout.clone())
+            .build();
         let tempdir = tempfile::tempdir().unwrap();
         let store = create_test_store();
 

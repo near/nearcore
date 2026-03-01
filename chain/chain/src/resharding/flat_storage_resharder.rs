@@ -962,7 +962,8 @@ mod tests {
     use assert_matches::assert_matches;
     use near_async::messaging::{IntoMultiSender, noop};
     use near_async::time::Clock;
-    use near_chain_configs::{Genesis, MutableConfigValue, ReshardingHandle, TrackedShardsConfig};
+    use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
+    use near_chain_configs::{MutableConfigValue, ReshardingHandle, TrackedShardsConfig};
     use near_epoch_manager::EpochManager;
     use near_epoch_manager::shard_tracker::ShardTracker;
     use near_o11y::testonly::init_test_logger;
@@ -1003,12 +1004,11 @@ mod tests {
 
     fn setup_test() -> (FlatStorageResharder, ParentSplitParameters) {
         let shard_layout = simple_shard_layout();
-        let genesis = Genesis::from_accounts(
-            Clock::real(),
-            vec!["aa".parse().unwrap(), "mm".parse().unwrap(), "vv".parse().unwrap()],
-            1,
-            shard_layout.clone(),
-        );
+        let genesis = TestGenesisBuilder::new()
+            .epoch_length(5)
+            .validators_spec(ValidatorsSpec::desired_roles(&["aa", "mm", "vv"], &[]))
+            .shard_layout(shard_layout.clone())
+            .build();
         let tempdir = tempfile::tempdir().unwrap();
         let store = create_test_store();
         initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
