@@ -61,6 +61,10 @@ const EPOCH_CACHE_SIZE: usize = 50;
 const BLOCK_CACHE_SIZE: usize = 1000;
 const AGGREGATOR_SAVE_PERIOD: u64 = 1000;
 
+// Maximum number of chunks a validator can miss before being excluded from chunk production
+// TODO: Move this to EpochConfig as part of MVP expansion
+const MAX_MISSED_CHUNKS_THRESHOLD: u64 = 5;
+
 /// In the current architecture, various components have access to the same
 /// shared mutable instance of [`EpochManager`]. This handle manages locking
 /// required for such access.
@@ -1708,6 +1712,43 @@ impl EpochManager {
         } else {
             Ok(self.epoch_info_aggregator.clone())
         }
+    }
+
+    /// Returns the current epoch info aggregator's epoch ID and last block hash.
+    pub fn get_current_aggregator_info(&self) -> (EpochId, CryptoHash) {
+        (self.epoch_info_aggregator.epoch_id, self.epoch_info_aggregator.last_block_hash)
+    }
+
+    /// Returns a set of validators that have missed more than the threshold number of chunks
+    /// in the current epoch.
+    pub fn get_excluded_chunk_producers(
+        &self,
+        epoch_id: &EpochId,
+        last_block_hash: &CryptoHash,
+    ) -> Result<HashSet<ValidatorId>, EpochError> {
+        let aggregator = self.get_epoch_info_aggregator_upto_last(last_block_hash)?;
+
+        if aggregator.epoch_id != *epoch_id {
+            return Ok(HashSet::new());
+        }
+
+        let mut excluded = HashSet::new();
+
+        let mut validator_missed_chunks: HashMap<ValidatorId, u64> = HashMap::new();
+        for (_shard_id, validator_map) in &aggregator.shard_tracker {
+            for (validator_id, stats) in validator_map {
+                let missed = stats.expected().saturating_sub(stats.produced());
+                *validator_missed_chunks.entry(*validator_id).or_insert(0) += missed;
+            }
+        }
+
+        for (validator_id, total_missed) in validator_missed_chunks {
+            if total_missed > MAX_MISSED_CHUNKS_THRESHOLD {
+                excluded.insert(validator_id);
+            }
+        }
+
+        Ok(excluded)
     }
 
     /// Aggregates epoch info between last final block and given block.
