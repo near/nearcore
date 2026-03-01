@@ -8,7 +8,8 @@
 		"schedule": [
 			{ "tps": 1000, "duration_s": 180 },
 			{ "tps": 2000, "duration_s": 180 },
-			{ "tps": 5000, "duration_s": 60 }
+			{ "tps": 5000, "duration_s": 60 },
+			{ "tps": 10000, "duration_s": 9999999 }
 		],
 		"controller": {
 			"target_block_production_time_s": 0.6,

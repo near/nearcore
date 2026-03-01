@@ -245,6 +245,8 @@ pub struct Config {
     pub rosetta_rpc: Option<RosettaRpcConfig>,
     #[cfg(feature = "tx_generator")]
     pub tx_generator: Option<near_transactions_generator::Config>,
+    #[cfg(feature = "rpc_probe")]
+    pub rpc_probe: Option<near_rpc_probe::Config>,
     pub telemetry: TelemetryConfig,
     pub network: near_network::config_json::Config,
     pub consensus: Consensus,
@@ -448,6 +450,8 @@ impl Default for Config {
             rosetta_rpc: None,
             #[cfg(feature = "tx_generator")]
             tx_generator: None,
+            #[cfg(feature = "rpc_probe")]
+            rpc_probe: None,
             telemetry: TelemetryConfig::default(),
             network: Default::default(),
             consensus: Consensus::default(),
@@ -662,6 +666,8 @@ pub struct NearConfig {
     pub client_config: ClientConfig,
     #[cfg(feature = "tx_generator")]
     pub tx_generator: Option<near_transactions_generator::Config>,
+    #[cfg(feature = "rpc_probe")]
+    pub rpc_probe: Option<near_rpc_probe::Config>,
     pub network_config: NetworkConfig,
     #[cfg(feature = "json_rpc")]
     pub rpc_config: Option<RpcConfig>,
@@ -780,6 +786,8 @@ impl NearConfig {
             },
             #[cfg(feature = "tx_generator")]
             tx_generator: config.tx_generator,
+            #[cfg(feature = "rpc_probe")]
+            rpc_probe: config.rpc_probe,
             network_config: NetworkConfig::new(
                 config.network,
                 network_key_pair.secret_key,
