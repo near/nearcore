@@ -78,8 +78,6 @@ fn get_gas_key_nonce(
 }
 
 #[test]
-// TODO(gas-keys): Remove "nightly" once stable supports gas keys.
-#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_gas_key_transaction() {
     init_test_logger();
 
@@ -178,8 +176,6 @@ fn test_gas_key_transaction() {
 }
 
 #[test]
-// TODO(gas-keys): Remove "nightly" once stable supports gas keys.
-#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_gas_key_refund() {
     init_test_logger();
 
@@ -285,7 +281,6 @@ fn test_gas_key_refund() {
 /// tx directly into the pool and using ProduceWithoutTxVerification mode.
 #[test]
 #[cfg(feature = "test_features")]
-#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_gas_key_deposit_failed() {
     use near_client::NetworkAdversarialMessage;
     use near_client::client_actor::AdvProduceChunksMode;
