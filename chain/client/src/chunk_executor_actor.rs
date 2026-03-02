@@ -637,6 +637,14 @@ impl ChunkExecutorActor {
                 // RPC nodes can still apply chunks and tracks multiple shards.
                 continue;
             };
+
+            // only distribute witness and receipts if we are the chunk producer for the shard
+            let epoch_producers =
+                self.epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, shard_id)?;
+            if !epoch_producers.contains(my_signer.validator_id()) {
+                continue;
+            }
+
             self.send_outgoing_receipts(&block, receipt_proofs);
             self.distribute_witness(&block, my_signer, new_chunk_result, outgoing_receipts_root)?;
         }
