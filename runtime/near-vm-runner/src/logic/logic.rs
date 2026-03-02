@@ -2891,6 +2891,11 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// * If `public_key_len + public_key_ptr` points outside the memory of the guest or host
     /// returns `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
+    ///
+    /// # Cost
+    ///
+    /// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading public key from memory + gas key add_key send and exec fees`
+    /// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes`
     pub fn promise_batch_action_add_gas_key_with_full_access(
         &mut self,
         promise_idx: u64,
@@ -2929,6 +2934,9 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// Appends `AddKey` action to the batch of actions for the given promise pointed by
     /// `promise_idx`. The access key will have `GasKeyFunctionCall` permission.
     ///
+    /// The `method_names` parameter is a comma-separated list of method names that the gas key
+    /// is allowed to call.
+    ///
     /// # Errors
     ///
     /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
@@ -2939,6 +2947,12 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// `receiver_id_len + receiver_id_ptr` or `method_names_len + method_names_ptr` points outside
     /// the memory of the guest or host returns `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
+    ///
+    /// # Cost
+    ///
+    /// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading vector from memory
+    ///  + cost of reading u128, method_names and public key from the memory + cost of reading and parsing account name + gas key add_key send and exec fees`
+    /// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes`
     pub fn promise_batch_action_add_gas_key_with_function_call(
         &mut self,
         promise_idx: u64,
