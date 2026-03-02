@@ -5,7 +5,6 @@ use near_chain_configs::test_genesis::{
 use near_chain_configs::test_utils::TestClientConfigParams;
 use near_primitives::shard_layout::ShardLayout;
 use near_store::archive::cloud_storage::config::test_cloud_archival_config;
-use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -28,7 +27,8 @@ use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::{TestNodeStorage, create_test_node_storage};
 
 use crate::utils::account::{
-    create_validators_spec, validators_spec_clients, validators_spec_clients_with_rpc,
+    archival_account_id, create_validators_spec, validators_spec_clients,
+    validators_spec_clients_with_rpc,
 };
 use crate::utils::peer_manager_actor::{TestLoopNetworkSharedState, UnreachableActor};
 
@@ -46,12 +46,6 @@ pub(crate) struct TestLoopBuilder {
     /// constructing fresh new tempdir, use the provided one (to test with
     /// existing data from a previous test loop run).
     test_loop_data_dir: TempDir,
-    /// Accounts whose clients should be configured as cold DB split store archival node.
-    /// This should be a subset of the accounts in the `clients` list.
-    cold_storage_archival_clients: HashSet<AccountId>,
-    /// Accounts whose clients should be configured as a cloud archival node.
-    /// This should be a subset of the accounts in the `clients` list.
-    cloud_storage_archival_clients: HashSet<AccountId>,
     /// Number of latest epochs to keep before garbage collecting associated data.
     gc_num_epochs_to_keep: Option<u64>,
     /// The store of runtime configurations to be passed into runtime adapters.
@@ -76,8 +70,6 @@ impl TestLoopBuilder {
             setup_config: SetupConfig::Undecided,
             epoch_config_store: None,
             test_loop_data_dir: tempfile::tempdir().unwrap(),
-            cold_storage_archival_clients: HashSet::new(),
-            cloud_storage_archival_clients: HashSet::new(),
             gc_num_epochs_to_keep: None,
             runtime_config_store: None,
             config_modifier: None,
@@ -113,7 +105,10 @@ impl TestLoopBuilder {
     pub(crate) fn clients(mut self, clients: Vec<AccountId>) -> Self {
         let (_, clients_slot) = self.setup_config.ensure_manual();
         assert!(clients_slot.is_empty(), "clients are already set");
-        *clients_slot = clients;
+        *clients_slot = clients
+            .into_iter()
+            .map(|account_id| ClientSpec { account_id, client_type: ClientType::Regular })
+            .collect();
         self
     }
 
@@ -141,6 +136,13 @@ impl TestLoopBuilder {
         let auto = self.setup_config.ensure_auto();
         assert!(!auto.enable_rpc, "enable_rpc is already set");
         auto.enable_rpc = true;
+        self
+    }
+
+    pub(crate) fn enable_archival_node(mut self, kind: ArchivalKind) -> Self {
+        let auto = self.setup_config.ensure_auto();
+        assert!(auto.archival_node.is_none(), "archival_node is already set");
+        auto.archival_node = Some(kind);
         self
     }
 
@@ -227,10 +229,59 @@ impl TestLoopBuilder {
         self
     }
 
-    pub fn add_user_accounts(mut self, accounts: &[AccountId], initial_balance: Balance) -> Self {
+    /// Adds multiple user accounts with the same initial balance.
+    /// Accepts any collection that yields `&AccountId`:
+    ///
+    /// ```ignore
+    /// // Array of references:
+    /// let sender = create_account_id("sender");
+    /// let receiver = create_account_id("receiver");
+    /// builder.add_user_accounts([&sender, &receiver], balance)
+    ///
+    /// // Slice of owned accounts:
+    /// let accounts: Vec<AccountId> = vec![create_account_id("sender")];
+    /// builder.add_user_accounts(&accounts, balance)
+    ///
+    /// // Iterator:
+    /// let accounts: HashSet<AccountId> = HashSet::new();
+    /// builder.add_user_accounts(accounts.iter(), balance)
+    /// ```
+    pub fn add_user_accounts<'a>(
+        mut self,
+        accounts: impl IntoIterator<Item = &'a AccountId>,
+        initial_balance: Balance,
+    ) -> Self {
         let auto = self.setup_config.ensure_auto();
         for account_id in accounts {
             auto.user_accounts.push((account_id.clone(), initial_balance));
+        }
+        self
+    }
+
+    /// Set the accounts whose clients should be configured as cold DB split store archival nodes in the test loop.
+    /// These accounts must already be in the `clients` list.
+    pub(crate) fn cold_storage_archival_clients(self, accounts: Vec<AccountId>) -> Self {
+        self.set_archival_clients(accounts, ClientType::enable_archival_cold)
+    }
+
+    /// Set the accounts whose clients should be configured as cloud archival nodes in the test loop.
+    /// These accounts must already be in the `clients` list.
+    pub(crate) fn cloud_storage_archival_clients(self, accounts: Vec<AccountId>) -> Self {
+        self.set_archival_clients(accounts, ClientType::enable_archival_cloud)
+    }
+
+    fn set_archival_clients(
+        mut self,
+        accounts: Vec<AccountId>,
+        type_setter: fn(&mut ClientType),
+    ) -> Self {
+        let (_, clients) = self.setup_config.ensure_manual();
+        for account_id in &accounts {
+            let client = clients
+                .iter_mut()
+                .find(|c| &c.account_id == account_id)
+                .unwrap_or_else(|| panic!("client {account_id} not found"));
+            type_setter(&mut client.client_type);
         }
         self
     }
@@ -249,20 +300,6 @@ impl TestLoopBuilder {
 
     pub(crate) fn runtime_config_store(mut self, runtime_config_store: RuntimeConfigStore) -> Self {
         self.runtime_config_store = Some(runtime_config_store);
-        self
-    }
-
-    /// Set the accounts whose clients should be configured as cold DB split store archival nodes in the test loop.
-    /// These accounts should be a subset of the accounts provided to the `clients` method.
-    pub(crate) fn cold_storage_archival_clients(mut self, clients: HashSet<AccountId>) -> Self {
-        self.cold_storage_archival_clients = clients;
-        self
-    }
-
-    /// Set the accounts whose clients should be configured as cloud archival nodes in the test loop.
-    /// These accounts should be a subset of the accounts provided to the `clients` method.
-    pub(crate) fn cloud_storage_archival_clients(mut self, clients: HashSet<AccountId>) -> Self {
-        self.cloud_storage_archival_clients = clients;
         self
     }
 
@@ -314,7 +351,7 @@ impl TestLoopBuilder {
         self.build_impl(genesis, clients)
     }
 
-    fn resolve_setup_config(&mut self) -> (Genesis, Vec<AccountId>) {
+    fn resolve_setup_config(&mut self) -> (Genesis, Vec<ClientSpec>) {
         let setup_config = std::mem::replace(&mut self.setup_config, SetupConfig::Undecided);
         setup_config.resolve()
     }
@@ -326,14 +363,8 @@ impl TestLoopBuilder {
         }
     }
 
-    fn build_impl(mut self, genesis: Genesis, clients: Vec<AccountId>) -> TestLoopEnv {
+    fn build_impl(mut self, genesis: Genesis, clients: Vec<ClientSpec>) -> TestLoopEnv {
         self.ensure_epoch_config_store(&genesis);
-
-        assert!(
-            self.cold_storage_archival_clients
-                .is_subset(&HashSet::from_iter(clients.iter().cloned())),
-            "Archival accounts must be subset of the clients"
-        );
 
         let warmup_pending = self.warmup_pending.clone();
         self.test_loop.send_adhoc_event("warmup_pending".into(), move |_| {
@@ -385,11 +416,16 @@ impl TestLoopBuilder {
         &self,
         idx: usize,
         genesis: &Genesis,
-        clients: &[AccountId],
+        clients: &[ClientSpec],
     ) -> NodeSetupState {
-        let account_id = clients[idx].clone();
-        let enable_cold_storage = self.cold_storage_archival_clients.contains(&account_id);
-        let enable_cloud_storage = self.cloud_storage_archival_clients.contains(&account_id);
+        let client = &clients[idx];
+        let account_id = client.account_id.clone();
+        let (enable_cold_storage, enable_cloud_storage) = match &client.client_type {
+            ClientType::Regular => (false, false),
+            ClientType::Archival(ArchivalKind::Cold) => (true, false),
+            ClientType::Archival(ArchivalKind::Cloud) => (false, true),
+            ClientType::Archival(ArchivalKind::ColdAndCloud) => (true, true),
+        };
         let config_modifier = |client_config: &mut ClientConfig| {
             if let Some(num_epochs) = self.gc_num_epochs_to_keep {
                 client_config.gc.gc_num_epochs_to_keep = num_epochs;
@@ -528,13 +564,14 @@ enum SetupConfig {
     /// New API: builder auto-derives genesis and clients from high-level topology.
     Auto(AutoSetupConfig),
     /// Old API: manually provided genesis and clients.
-    Manual { genesis: Option<Genesis>, clients: Vec<AccountId> },
+    Manual { genesis: Option<Genesis>, clients: Vec<ClientSpec> },
 }
 
 /// Data for auto-derived setup (new API).
 struct AutoSetupConfig {
     validators_spec: Option<ValidatorsSpec>,
     enable_rpc: bool,
+    archival_node: Option<ArchivalKind>,
     shard_layout: Option<ShardLayout>,
     user_accounts: Vec<(AccountId, Balance)>,
     epoch_length: Option<u64>,
@@ -565,7 +602,7 @@ impl SetupConfig {
 
     /// Transitions `Undecided` to `Manual`, or returns existing `Manual`
     /// fields. Panics if `Auto`.
-    fn ensure_manual(&mut self) -> (&mut Option<Genesis>, &mut Vec<AccountId>) {
+    fn ensure_manual(&mut self) -> (&mut Option<Genesis>, &mut Vec<ClientSpec>) {
         if matches!(self, SetupConfig::Undecided) {
             *self = SetupConfig::Manual { genesis: None, clients: vec![] };
         }
@@ -578,7 +615,7 @@ impl SetupConfig {
         }
     }
 
-    fn resolve(self) -> (Genesis, Vec<AccountId>) {
+    fn resolve(self) -> (Genesis, Vec<ClientSpec>) {
         match self {
             SetupConfig::Undecided => AutoSetupConfig::new().resolve(),
             SetupConfig::Auto(auto) => auto.resolve(),
@@ -596,6 +633,7 @@ impl AutoSetupConfig {
         Self {
             validators_spec: None,
             enable_rpc: false,
+            archival_node: None,
             shard_layout: None,
             user_accounts: vec![],
             epoch_length: None,
@@ -609,7 +647,7 @@ impl AutoSetupConfig {
         }
     }
 
-    fn resolve(self) -> (Genesis, Vec<AccountId>) {
+    fn resolve(self) -> (Genesis, Vec<ClientSpec>) {
         let validators_spec = self.validators_spec.unwrap_or_else(|| create_validators_spec(1, 0));
         let mut genesis_builder =
             TestLoopBuilder::new_genesis_builder().validators_spec(validators_spec.clone());
@@ -645,13 +683,68 @@ impl AutoSetupConfig {
             genesis_builder = genesis_builder.add_user_account_simple(account_id, balance);
         }
         let genesis = genesis_builder.build();
-        let clients = if self.enable_rpc {
+        let account_ids = if self.enable_rpc {
             validators_spec_clients_with_rpc(&validators_spec)
         } else {
             validators_spec_clients(&validators_spec)
         };
+        let mut clients: Vec<ClientSpec> = account_ids
+            .into_iter()
+            .map(|account_id| ClientSpec { account_id, client_type: ClientType::Regular })
+            .collect();
+        if let Some(kind) = self.archival_node {
+            clients.push(ClientSpec {
+                account_id: archival_account_id(),
+                client_type: ClientType::Archival(kind),
+            });
+        }
         (genesis, clients)
     }
+}
+
+#[derive(Clone)]
+pub(crate) enum ArchivalKind {
+    Cold,
+    Cloud,
+    ColdAndCloud,
+}
+
+#[derive(Clone)]
+pub(crate) enum ClientType {
+    Regular,
+    Archival(ArchivalKind),
+}
+
+impl ClientType {
+    fn enable_archival_cold(&mut self) {
+        match self {
+            ClientType::Archival(ArchivalKind::Cloud) => {
+                *self = ClientType::Archival(ArchivalKind::ColdAndCloud)
+            }
+            ClientType::Archival(ArchivalKind::Cold | ArchivalKind::ColdAndCloud) => {
+                panic!("cold storage is already enabled")
+            }
+            _ => *self = ClientType::Archival(ArchivalKind::Cold),
+        }
+    }
+
+    fn enable_archival_cloud(&mut self) {
+        match self {
+            ClientType::Archival(ArchivalKind::Cold) => {
+                *self = ClientType::Archival(ArchivalKind::ColdAndCloud)
+            }
+            ClientType::Archival(ArchivalKind::Cloud | ArchivalKind::ColdAndCloud) => {
+                panic!("cloud storage is already enabled")
+            }
+            _ => *self = ClientType::Archival(ArchivalKind::Cloud),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct ClientSpec {
+    pub account_id: AccountId,
+    pub client_type: ClientType,
 }
 
 fn default_testloop_state_sync_config(tempdir: &PathBuf) -> StateSyncConfig {

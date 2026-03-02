@@ -1,6 +1,5 @@
 use near_async::messaging::Handler;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_client::GetStateChanges;
 use near_crypto::{KeyType, SecretKey};
 use near_o11y::testonly::init_test_logger;
@@ -12,7 +11,6 @@ use near_primitives::views::{StateChangeValueView, StateChangesRequestView};
 use near_primitives_core::account::AccessKey;
 
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::validators_spec_clients_with_rpc;
 use crate::utils::transactions::get_shared_block_hash;
 
 #[test]
@@ -21,20 +19,12 @@ fn test_access_key_changes_includes_gas_key_nonces() {
     init_test_logger();
 
     let epoch_length = 10;
-    let accounts: Vec<AccountId> = (0..3).map(|i| format!("account{i}").parse().unwrap()).collect();
-    let validators: Vec<&str> = accounts.iter().take(2).map(|a| a.as_str()).collect();
-    let submitter = accounts[2].clone();
-    let validators_spec = ValidatorsSpec::desired_roles(&validators, &[]);
-    let clients = validators_spec_clients_with_rpc(&validators_spec);
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(epoch_length)
-        .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
-        .build();
+    let submitter: AccountId = "account2".parse().unwrap();
     let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
+        .validators(2, 0)
+        .enable_rpc()
+        .epoch_length(epoch_length)
+        .add_user_account(&submitter, Balance::from_near(1_000_000))
         .build()
         .warmup();
 

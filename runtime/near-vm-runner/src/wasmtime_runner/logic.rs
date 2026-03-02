@@ -3113,6 +3113,21 @@ pub fn promise_batch_action_transfer_to_gas_key(
 
 /// Appends `AddKey` action to the batch of actions for the given promise pointed by
 /// `promise_idx`. The access key will have `GasKeyFullAccess` permission.
+///
+/// # Errors
+///
+/// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+/// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+/// `promise_and` returns `CannotAppendActionToJointPromise`.
+/// * If the given public key is not a valid (e.g. wrong length) returns `InvalidPublicKey`.
+/// * If `public_key_len + public_key_ptr` points outside the memory of the guest or host
+/// returns `MemoryAccessViolation`.
+/// * If called as view function returns `ProhibitedInView`.
+///
+/// # Cost
+///
+/// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading public key from memory + gas key send fee`
+/// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes + gas key exec fee`
 pub fn promise_batch_action_add_gas_key_with_full_access(
     caller: &mut Caller<'_, Ctx>,
     promise_idx: u64,
@@ -3163,6 +3178,26 @@ pub fn promise_batch_action_add_gas_key_with_full_access(
 
 /// Appends `AddKey` action to the batch of actions for the given promise pointed by
 /// `promise_idx`. The access key will have `GasKeyFunctionCall` permission.
+///
+/// The `method_names` parameter is a comma-separated list of method names that the gas key
+/// is allowed to call.
+///
+/// # Errors
+///
+/// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+/// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+/// `promise_and` returns `CannotAppendActionToJointPromise`.
+/// * If the given public key is not a valid (e.g. wrong length) returns `InvalidPublicKey`.
+/// * If `public_key_len + public_key_ptr`, `allowance_ptr + 16`,
+/// `receiver_id_len + receiver_id_ptr` or `method_names_len + method_names_ptr` points outside
+/// the memory of the guest or host returns `MemoryAccessViolation`.
+/// * If called as view function returns `ProhibitedInView`.
+///
+/// # Cost
+///
+/// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading vector from memory
+///  + cost of reading u128, method_names and public key from the memory + cost of reading and parsing account name + gas key send fee`
+/// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes + gas key exec fee`
 pub fn promise_batch_action_add_gas_key_with_function_call(
     caller: &mut Caller<'_, Ctx>,
     promise_idx: u64,

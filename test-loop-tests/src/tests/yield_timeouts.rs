@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_client::Client;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::config::TEST_CONFIG_YIELD_TIMEOUT_LENGTH;
@@ -10,7 +9,6 @@ use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ReceiptEnum, VersionedReceiptEnum};
-use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::{TrieKey, col, trie_key_parsers};
@@ -23,7 +21,6 @@ use std::str::FromStr;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::account::validators_spec_clients;
 
 // The height of the block in which the promise yield is created.
 const YIELD_CREATE_HEIGHT: u64 = 4;
@@ -181,27 +178,6 @@ fn prepare_env_with_yield(
     let test_account: AccountId = "test0".parse().unwrap();
     let test_account_signer = create_user_test_signer(&test_account).into();
 
-    let shard_layout = ShardLayout::single_shard();
-    let user_accounts = vec![test_account.clone()];
-    let initial_balance = Balance::from_near(1_000_000);
-    let validators_spec = ValidatorsSpec::DesiredRoles {
-        block_and_chunk_producers: vec!["validator0".parse().unwrap()],
-        chunk_validators_only: Vec::new(),
-    };
-    let clients = validators_spec_clients(&validators_spec);
-
-    let genesis = {
-        let mut genesis_builder = TestLoopBuilder::new_genesis_builder()
-            .shard_layout(shard_layout)
-            .validators_spec(validators_spec)
-            .genesis_height(0)
-            .add_user_accounts_simple(&user_accounts, initial_balance);
-        if let Some(gas_limit) = test_env_gas_limit {
-            genesis_builder = genesis_builder.gas_limit(Gas::from_gas(gas_limit));
-        }
-        genesis_builder.build()
-    };
-
     let runtime_config = RuntimeConfig::test();
     assert_eq!(
         runtime_config.wasm_config.limit_config.yield_timeout_length_in_blocks,
@@ -209,13 +185,15 @@ fn prepare_env_with_yield(
     );
     let runtime_config_store = RuntimeConfigStore::with_one_config(runtime_config);
 
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
+    let mut builder = TestLoopBuilder::new()
+        .genesis_height(0)
+        .add_user_account(&test_account, Balance::from_near(1_000_000))
         .runtime_config_store(runtime_config_store)
-        .skip_warmup()
-        .build();
+        .skip_warmup();
+    if let Some(gas_limit) = test_env_gas_limit {
+        builder = builder.gas_limit(Gas::from_gas(gas_limit));
+    }
+    let mut env = builder.build();
 
     assert_eq!(env.validator().head().height, 0);
 
