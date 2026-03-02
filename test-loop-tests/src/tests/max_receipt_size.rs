@@ -1,5 +1,4 @@
 use assert_matches::assert_matches;
-use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain::{ReceiptFilter, get_incoming_receipts_for_shard};
 use near_o11y::testonly::init_test_logger;
@@ -12,94 +11,82 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::AccountId;
-use near_primitives::types::Balance;
-use near_primitives::types::Gas;
+use near_primitives::types::{Balance, Gas};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 
-use crate::setup::env::TestLoopEnv;
-use crate::setup::state::NodeExecutionData;
+use crate::setup::builder::TestLoopBuilder;
+use crate::utils::account::create_account_id;
+use crate::utils::node::TestLoopNode;
 use crate::utils::receipts::action_receipt_v1_to_latest;
-use crate::utils::setups::standard_setup_1;
-use crate::utils::transactions::{TransactionRunner, execute_tx, get_shared_block_hash, run_tx};
 
 /// Generating receipts larger than the size limit should cause the transaction to fail.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn slow_test_max_receipt_size() {
+fn test_max_receipt_size() {
     init_test_logger();
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = standard_setup_1();
 
-    let account0: AccountId = "account0".parse().unwrap();
-    let account0_signer = &create_user_test_signer(&account0).into();
-    let rpc_id = "account4".parse().unwrap();
+    let account = create_account_id("account0");
+    let account_signer = create_user_test_signer(&account);
+    let mut env = TestLoopBuilder::new()
+        .enable_rpc()
+        .add_user_account(&account, Balance::from_near(10_000))
+        .build()
+        .warmup();
 
     // We can't test receipt limit by submitting large transactions because we hit the transaction size limit
     // before hitting the receipt size limit.
     let large_tx = SignedTransaction::deploy_contract(
         100,
-        &account0,
+        &account,
         vec![0u8; 2_000_000],
-        account0_signer,
-        get_shared_block_hash(&node_datas, &test_loop.data),
+        &account_signer,
+        env.rpc_node().head().last_block_hash,
     );
-    let large_tx_exec_res = execute_tx(
-        &mut test_loop,
-        &rpc_id,
-        TransactionRunner::new(large_tx, true),
-        &node_datas,
-        Duration::seconds(5),
-    );
+    let large_tx_exec_res = env.rpc_runner().execute_tx(large_tx, Duration::seconds(5));
     assert_matches!(large_tx_exec_res, Err(InvalidTxError::TransactionSizeExceeded { .. }));
 
     // Let's test it by running a contract that generates a large receipt.
     let deploy_contract_tx = SignedTransaction::deploy_contract(
         101,
-        &account0,
+        &account,
         near_test_contracts::rs_contract().into(),
-        &account0_signer,
-        get_shared_block_hash(&node_datas, &test_loop.data),
+        &account_signer,
+        env.rpc_node().head().last_block_hash,
     );
-    run_tx(&mut test_loop, &rpc_id, deploy_contract_tx, &node_datas, Duration::seconds(5));
+    env.rpc_runner().run_tx(deploy_contract_tx, Duration::seconds(5));
 
     // Calling generate_large_receipt({"account_id": "account0", "method_name": "noop", "total_args_size": 3000000})
     // will generate a receipt that has ~3_000_000 bytes. It'll be a single receipt with multiple FunctionCall actions.
     // 3MB is still under the limit, so this should succeed.
     let large_receipt_tx = SignedTransaction::call(
         102,
-        account0.clone(),
-        account0.clone(),
-        &account0_signer,
+        account.clone(),
+        account.clone(),
+        &account_signer,
         Balance::ZERO,
         "generate_large_receipt".into(),
         r#"{"account_id": "account0", "method_name": "noop", "total_args_size": 3000000}"#.into(),
         Gas::from_teragas(300),
-        get_shared_block_hash(&node_datas, &test_loop.data),
+        env.rpc_node().head().last_block_hash,
     );
-    run_tx(&mut test_loop, &rpc_id, large_receipt_tx, &node_datas, Duration::seconds(5));
+    env.rpc_runner().run_tx(large_receipt_tx, Duration::seconds(5));
 
     // Generating a receipt that is 5 MB should fail, it's above the receipt size limit.
     let too_large_receipt_tx = SignedTransaction::call(
         103,
-        account0.clone(),
-        account0.clone(),
-        &account0_signer,
+        account.clone(),
+        account.clone(),
+        &account_signer,
         Balance::ZERO,
         "generate_large_receipt".into(),
         r#"{"account_id": "account0", "method_name": "noop", "total_args_size": 5000000}"#.into(),
         Gas::from_teragas(300),
-        get_shared_block_hash(&node_datas, &test_loop.data),
+        env.rpc_node().head().last_block_hash,
     );
-    let too_large_receipt_tx_exec_res = execute_tx(
-        &mut test_loop,
-        &rpc_id,
-        TransactionRunner::new(too_large_receipt_tx, true),
-        &node_datas,
-        Duration::seconds(5),
-    )
-    .unwrap();
+    let too_large_receipt_tx_exec_res =
+        env.rpc_runner().execute_tx(too_large_receipt_tx, Duration::seconds(5)).unwrap();
 
     match too_large_receipt_tx_exec_res.status {
         FinalExecutionStatus::Failure(TxExecutionError::ActionError(action_error)) => {
@@ -125,20 +112,19 @@ fn slow_test_max_receipt_size() {
     // 1 + 2 + 3 + 4 = 10
     let sum_4_tx = SignedTransaction::call(
         104,
-        account0.clone(),
-        account0,
-        &account0_signer,
+        account.clone(),
+        account,
+        &account_signer,
         Balance::ZERO,
         "sum_n".into(),
         5_u64.to_le_bytes().to_vec(),
         Gas::from_teragas(300),
-        get_shared_block_hash(&node_datas, &test_loop.data),
+        env.rpc_node().head().last_block_hash,
     );
-    let sum_4_res = run_tx(&mut test_loop, &rpc_id, sum_4_tx, &node_datas, Duration::seconds(5));
+    let sum_4_res = env.rpc_runner().run_tx(sum_4_tx, Duration::seconds(5));
     assert_eq!(sum_4_res, 10u64.to_le_bytes().to_vec());
 
-    TestLoopEnv { test_loop, node_datas, shared_state }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 // A function call will generate a new receipt. Size of this receipt will be equal to
@@ -151,11 +137,14 @@ fn slow_test_max_receipt_size() {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_max_receipt_size_promise_return() {
     init_test_logger();
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = standard_setup_1();
 
-    let account: AccountId = "account0".parse().unwrap();
-    let account_signer = &create_user_test_signer(&account).into();
-    let rpc_id = "account4".parse().unwrap();
+    let account = create_account_id("account0");
+    let account_signer = create_user_test_signer(&account);
+    let mut env = TestLoopBuilder::new()
+        .enable_rpc()
+        .add_user_account(&account, Balance::from_near(10_000))
+        .build()
+        .warmup();
 
     // Deploy the test contract
     let deploy_contract_tx = SignedTransaction::deploy_contract(
@@ -163,9 +152,9 @@ fn test_max_receipt_size_promise_return() {
         &account,
         near_test_contracts::rs_contract().into(),
         &account_signer,
-        get_shared_block_hash(&node_datas, &test_loop.data),
+        env.rpc_node().head().last_block_hash,
     );
-    run_tx(&mut test_loop, &rpc_id, deploy_contract_tx, &node_datas, Duration::seconds(5));
+    env.rpc_runner().run_tx(deploy_contract_tx, Duration::seconds(5));
 
     // User calls a contract method
     // Contract method creates a DAG with two promises: [A -then-> B]
@@ -207,9 +196,9 @@ fn test_max_receipt_size_promise_return() {
         "max_receipt_size_promise_return_method1".into(),
         format!("{{\"args_size\": {}}}", args_size).into(),
         Gas::from_teragas(300),
-        get_shared_block_hash(&node_datas, &test_loop.data),
+        env.rpc_node().head().last_block_hash,
     );
-    run_tx(&mut test_loop, &rpc_id, large_receipt_tx, &node_datas, Duration::seconds(5));
+    env.rpc_runner().run_tx(large_receipt_tx, Duration::seconds(5));
 
     // Make sure that the last promise in the DAG was called
     let assert_test_completed = SignedTransaction::call(
@@ -221,14 +210,13 @@ fn test_max_receipt_size_promise_return() {
         "assert_test_completed".into(),
         "".into(),
         Gas::from_teragas(300),
-        get_shared_block_hash(&node_datas, &test_loop.data),
+        env.rpc_node().head().last_block_hash,
     );
-    run_tx(&mut test_loop, &rpc_id, assert_test_completed, &node_datas, Duration::seconds(5));
+    env.rpc_runner().run_tx(assert_test_completed, Duration::seconds(5));
 
-    assert_oversized_receipt_occurred(&test_loop, &node_datas);
+    assert_oversized_receipt_occurred(&env.validator());
 
-    TestLoopEnv { test_loop, node_datas, shared_state }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Return a value that is as large as max_receipt_size. The value will be wrapped in a data receipt
@@ -241,11 +229,14 @@ fn test_max_receipt_size_promise_return() {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_max_receipt_size_value_return() {
     init_test_logger();
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = standard_setup_1();
 
-    let account: AccountId = "account0".parse().unwrap();
-    let account_signer = &create_user_test_signer(&account).into();
-    let rpc_id = "account4".parse().unwrap();
+    let account = create_account_id("account0");
+    let account_signer = create_user_test_signer(&account);
+    let mut env = TestLoopBuilder::new()
+        .enable_rpc()
+        .add_user_account(&account, Balance::from_near(10_000))
+        .build()
+        .warmup();
 
     // Deploy the test contract
     let deploy_contract_tx = SignedTransaction::deploy_contract(
@@ -253,9 +244,9 @@ fn test_max_receipt_size_value_return() {
         &account,
         near_test_contracts::rs_contract().into(),
         &account_signer,
-        get_shared_block_hash(&node_datas, &test_loop.data),
+        env.rpc_node().head().last_block_hash,
     );
-    run_tx(&mut test_loop, &rpc_id, deploy_contract_tx, &node_datas, Duration::seconds(5));
+    env.rpc_runner().run_tx(deploy_contract_tx, Duration::seconds(5));
 
     let max_receipt_size = 4_194_304;
 
@@ -269,9 +260,9 @@ fn test_max_receipt_size_value_return() {
         "max_receipt_size_value_return_method".into(),
         format!("{{\"value_size\": {}}}", max_receipt_size).into(),
         Gas::from_teragas(300),
-        get_shared_block_hash(&node_datas, &test_loop.data),
+        env.rpc_node().head().last_block_hash,
     );
-    run_tx(&mut test_loop, &rpc_id, large_receipt_tx, &node_datas, Duration::seconds(5));
+    env.rpc_runner().run_tx(large_receipt_tx, Duration::seconds(5));
 
     // Make sure that the last promise in the DAG was called
     let assert_test_completed = SignedTransaction::call(
@@ -283,14 +274,13 @@ fn test_max_receipt_size_value_return() {
         "assert_test_completed".into(),
         "".into(),
         Gas::from_teragas(300),
-        get_shared_block_hash(&node_datas, &test_loop.data),
+        env.rpc_node().head().last_block_hash,
     );
-    run_tx(&mut test_loop, &rpc_id, assert_test_completed, &node_datas, Duration::seconds(5));
+    env.rpc_runner().run_tx(assert_test_completed, Duration::seconds(5));
 
-    assert_oversized_receipt_occurred(&test_loop, &node_datas);
+    assert_oversized_receipt_occurred(&env.validator());
 
-    TestLoopEnv { test_loop, node_datas, shared_state }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Yielding produces a new action receipt, resuming produces a new data receipt.
@@ -298,11 +288,14 @@ fn test_max_receipt_size_value_return() {
 #[test]
 fn test_max_receipt_size_yield_resume() {
     init_test_logger();
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = standard_setup_1();
 
-    let account: AccountId = "account0".parse().unwrap();
-    let account_signer = &create_user_test_signer(&account).into();
-    let rpc_id = "account4".parse().unwrap();
+    let account = create_account_id("account0");
+    let account_signer = create_user_test_signer(&account);
+    let mut env = TestLoopBuilder::new()
+        .enable_rpc()
+        .add_user_account(&account, Balance::from_near(10_000))
+        .build()
+        .warmup();
 
     // Deploy the test contract
     let deploy_contract_tx = SignedTransaction::deploy_contract(
@@ -310,9 +303,9 @@ fn test_max_receipt_size_yield_resume() {
         &account,
         near_test_contracts::rs_contract().into(),
         &account_signer,
-        get_shared_block_hash(&node_datas, &test_loop.data),
+        env.rpc_node().head().last_block_hash,
     );
-    run_tx(&mut test_loop, &rpc_id, deploy_contract_tx, &node_datas, Duration::seconds(50));
+    env.rpc_runner().run_tx(deploy_contract_tx, Duration::seconds(50));
 
     let max_receipt_size = 4_194_304;
 
@@ -327,16 +320,10 @@ fn test_max_receipt_size_yield_resume() {
         "yield_with_large_args".into(),
         format!("{{\"args_size\": {}}}", max_receipt_size).into(),
         Gas::from_teragas(300),
-        get_shared_block_hash(&node_datas, &test_loop.data),
+        env.rpc_node().head().last_block_hash,
     );
-    let yield_receipt_res = execute_tx(
-        &mut test_loop,
-        &rpc_id,
-        TransactionRunner::new(yield_receipt_tx, true),
-        &node_datas,
-        Duration::seconds(10),
-    )
-    .unwrap();
+    let yield_receipt_res =
+        env.rpc_runner().execute_tx(yield_receipt_tx, Duration::seconds(10)).unwrap();
 
     let expected_size = if ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
         4194504
@@ -367,16 +354,10 @@ fn test_max_receipt_size_yield_resume() {
         "resume_with_large_payload".into(),
         format!("{{\"payload_size\": {}}}", 2000).into(),
         Gas::from_teragas(300),
-        get_shared_block_hash(&node_datas, &test_loop.data),
+        env.rpc_node().head().last_block_hash,
     );
-    let resume_receipt_res = execute_tx(
-        &mut test_loop,
-        &rpc_id,
-        TransactionRunner::new(resume_receipt_tx, true),
-        &node_datas,
-        Duration::seconds(5),
-    )
-    .unwrap();
+    let resume_receipt_res =
+        env.rpc_runner().execute_tx(resume_receipt_tx, Duration::seconds(5)).unwrap();
 
     let expected_resume_status =
         FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
@@ -387,14 +368,12 @@ fn test_max_receipt_size_yield_resume() {
         }));
     assert_eq!(resume_receipt_res.status, expected_resume_status);
 
-    TestLoopEnv { test_loop, node_datas, shared_state }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Assert that there was an incoming receipt with size above max_receipt_size
-fn assert_oversized_receipt_occurred(test_loop: &TestLoopV2, node_datas: &[NodeExecutionData]) {
-    let client_handle = node_datas[0].client_sender.actor_handle();
-    let client = &test_loop.data.get(&client_handle).client;
+fn assert_oversized_receipt_occurred(node: &TestLoopNode<'_>) {
+    let client = node.client();
     let chain = &client.chain;
     let epoch_manager = &*client.epoch_manager;
 

@@ -1,60 +1,11 @@
-//! This file contains standard setups for test loop tests.
-//! Using TestLoopBuilder gives a lot of flexibility, but sometimes you just need some basic blockchain.
+//! Helpers for test loop tests related to epoch configuration and protocol upgrades.
+//! Provides utilities for deriving new epoch configs/shard layouts and constructing upgrade voting schedules.
 
-use itertools::Itertools;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, Balance};
+use near_primitives::types::AccountId;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_vm_runner::logic::ProtocolVersion;
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::env::TestLoopEnv;
-
-/// 2 producers, 2 validators, 1 rpc node, 4 shards, 20 accounts (account{i}) with 10k NEAR each.
-pub fn standard_setup_1() -> TestLoopEnv {
-    let num_clients = 5;
-    let num_producers = 2;
-    let num_validators = 2;
-    let num_rpc = 1;
-    let accounts =
-        (0..20).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
-    let clients = accounts.iter().take(num_clients).cloned().collect_vec();
-
-    // split the clients into producers, validators, and rpc nodes
-    let tmp = clients.clone();
-    let (producers, tmp) = tmp.split_at(num_producers);
-    let (validators, tmp) = tmp.split_at(num_validators);
-    let (rpcs, tmp) = tmp.split_at(num_rpc);
-    assert!(tmp.is_empty());
-
-    let producers = producers.iter().map(|account| account.as_str()).collect_vec();
-    let validators = validators.iter().map(|account| account.as_str()).collect_vec();
-    let [_rpc_id] = rpcs else { panic!("Expected exactly one rpc node") };
-
-    let epoch_length = 10;
-    let boundary_accounts =
-        ["account3", "account5", "account7"].iter().map(|&a| a.parse().unwrap()).collect();
-    let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
-    let validators_spec = ValidatorsSpec::desired_roles(&producers, &validators);
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(epoch_length)
-        .shard_layout(shard_layout)
-        .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, Balance::from_near(10_000))
-        .genesis_height(10000)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
-        .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-    TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
-        .build()
-        .warmup()
-}
 
 pub fn derive_new_epoch_config_from_boundary(
     base_epoch_config: &EpochConfig,
