@@ -2894,8 +2894,8 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     ///
     /// # Cost
     ///
-    /// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading public key from memory + gas key add_key send and exec fees`
-    /// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes`
+    /// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading public key from memory + gas key send fee`
+    /// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes + gas key exec fee`
     pub fn promise_batch_action_add_gas_key_with_full_access(
         &mut self,
         promise_idx: u64,
@@ -2951,8 +2951,8 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// # Cost
     ///
     /// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading vector from memory
-    ///  + cost of reading u128, method_names and public key from the memory + cost of reading and parsing account name + gas key add_key send and exec fees`
-    /// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes`
+    ///  + cost of reading u128, method_names and public key from the memory + cost of reading and parsing account name + gas key send fee`
+    /// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes + gas key exec fee`
     pub fn promise_batch_action_add_gas_key_with_function_call(
         &mut self,
         promise_idx: u64,

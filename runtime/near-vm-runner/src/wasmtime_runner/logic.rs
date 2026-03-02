@@ -3126,8 +3126,8 @@ pub fn promise_batch_action_transfer_to_gas_key(
 ///
 /// # Cost
 ///
-/// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading public key from memory + gas key add_key send and exec fees`
-/// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes`
+/// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading public key from memory + gas key send fee`
+/// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes + gas key exec fee`
 pub fn promise_batch_action_add_gas_key_with_full_access(
     caller: &mut Caller<'_, Ctx>,
     promise_idx: u64,
@@ -3196,8 +3196,8 @@ pub fn promise_batch_action_add_gas_key_with_full_access(
 /// # Cost
 ///
 /// `burnt_gas := base + dispatch action base fee + dispatch action per byte fee * num bytes + cost of reading vector from memory
-///  + cost of reading u128, method_names and public key from the memory + cost of reading and parsing account name + gas key add_key send and exec fees`
-/// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes`
+///  + cost of reading u128, method_names and public key from the memory + cost of reading and parsing account name + gas key send fee`
+/// `used_gas := burnt_gas + exec action base fee + exec action per byte fee * num bytes + gas key exec fee`
 pub fn promise_batch_action_add_gas_key_with_function_call(
     caller: &mut Caller<'_, Ctx>,
     promise_idx: u64,
