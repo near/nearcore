@@ -1148,8 +1148,6 @@ fn slow_test_state_sync_no_parts_provided() {
 /// set_state_finalize correctly persists receipt_to_tx mappings (not just
 /// normal block processing).
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_receipt_to_tx_after_state_sync() {
     init_test_logger();
 

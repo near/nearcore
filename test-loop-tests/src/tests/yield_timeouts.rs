@@ -659,7 +659,6 @@ fn find_promise_resume_receipt_ids_from_latest_block(env: &TestLoopEnv) -> Vec<C
 
 /// Tests that PromiseResume receipts created by yield timeout have ReceiptToTx entries.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_yield_timeout_resume_receipt_has_receipt_to_tx() {
     let (mut env, yield_tx_hash, _data_id) = prepare_env_with_yield(vec![], None);
     assert!(NEXT_BLOCK_HEIGHT_AFTER_SETUP < YIELD_TIMEOUT_HEIGHT);

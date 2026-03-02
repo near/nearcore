@@ -290,7 +290,6 @@ impl GlobalContractsReshardingTestEnv {
 /// Tests that GlobalContractDistribution receipts have ReceiptToTx entries, including
 /// forwarded distribution receipts that hop across shards.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_global_distribution_receipt_has_receipt_to_tx() {
     init_test_logger();
     let mut env = GlobalContractsReshardingTestEnv::setup();
