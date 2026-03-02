@@ -159,7 +159,6 @@ pub(super) fn promise_batch_action_add_key_with_full_access(
     )
 }
 
-#[cfg(feature = "nightly")]
 pub(super) fn promise_batch_action_add_gas_key_with_full_access(
     logic: &mut TestVMLogic<'_>,
     promise_index: u64,
@@ -175,7 +174,6 @@ pub(super) fn promise_batch_action_add_gas_key_with_full_access(
     )
 }
 
-#[cfg(feature = "nightly")]
 pub(super) fn promise_batch_action_add_gas_key_with_function_call(
     logic: &mut TestVMLogic<'_>,
     promise_index: u64,

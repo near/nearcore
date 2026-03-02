@@ -611,7 +611,6 @@ fn test_promise_batch_action_state_init() {
     );
 }
 
-#[cfg(feature = "nightly")]
 #[test]
 fn test_promise_batch_action_add_gas_key_with_full_access() {
     let mut logic_builder = VMLogicBuilder::default();
@@ -641,7 +640,6 @@ fn test_promise_batch_action_add_gas_key_with_full_access() {
     );
 }
 
-#[cfg(feature = "nightly")]
 #[test]
 fn test_promise_batch_action_add_gas_key_with_function_call() {
     let mut logic_builder = VMLogicBuilder::default();
