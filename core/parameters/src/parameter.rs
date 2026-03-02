@@ -247,6 +247,9 @@ pub enum Parameter {
 
     // Flag to enabled deterministic account ids
     DeterministicAccountIds,
+
+    // Flag to enable gas key host functions
+    GasKeyHostFns,
 }
 
 #[derive(

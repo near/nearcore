@@ -1,7 +1,9 @@
 use crate::parameter::Parameter;
 use enum_map::{EnumMap, enum_map};
 use near_account_id::AccountType;
-use near_primitives_core::types::{Balance, Compute, Gas};
+use near_primitives_core::account::{AccessKey, GasKeyInfo};
+use near_primitives_core::trie_key::access_key_key_len;
+use near_primitives_core::types::{Balance, Compute, Gas, NonceIndex};
 use near_schema_checker_lib::ProtocolSchema;
 use num_rational::Rational32;
 
@@ -646,4 +648,100 @@ pub fn transfer_send_fee(
             .checked_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver))
             .unwrap(),
     }
+}
+
+/// Gas fee split into base and per-byte components, so callers can attribute
+/// them to separate `ActionCosts` in the gas profile.
+pub struct GasKeyTransferFee {
+    pub base: Gas,
+    pub per_byte: Gas,
+}
+
+impl GasKeyTransferFee {
+    pub fn total(&self) -> Gas {
+        self.base.checked_add(self.per_byte).unwrap()
+    }
+}
+
+/// Send fee for TransferToGasKey / WithdrawFromGasKey actions.
+/// Based on the public key length (what the sender sees).
+pub fn gas_key_transfer_send_fee(
+    cfg: &RuntimeFeesConfig,
+    sender_is_receiver: bool,
+    public_key_len: usize,
+) -> GasKeyTransferFee {
+    let base = cfg.fee(ActionCosts::gas_key_transfer_base).send_fee(sender_is_receiver);
+    let per_byte = cfg
+        .fee(ActionCosts::gas_key_byte)
+        .send_fee(sender_is_receiver)
+        .checked_mul(public_key_len as u64)
+        .unwrap();
+    GasKeyTransferFee { base, per_byte }
+}
+
+/// Exec fee for TransferToGasKey / WithdrawFromGasKey actions.
+/// Based on the access key trie key length + estimated value length (what the
+/// receiver needs to read/write in the trie).
+pub fn gas_key_transfer_exec_fee(
+    cfg: &RuntimeFeesConfig,
+    account_id_len: usize,
+    public_key_len: usize,
+) -> GasKeyTransferFee {
+    let base = cfg.fee(ActionCosts::gas_key_transfer_base).exec_fee();
+    let trie_key_len = access_key_key_len(account_id_len, public_key_len);
+    let estimated_value_len = AccessKey::min_gas_key_borsh_len();
+    let per_byte = cfg
+        .fee(ActionCosts::gas_key_byte)
+        .exec_fee()
+        .checked_mul((trie_key_len + estimated_value_len) as u64)
+        .unwrap();
+    GasKeyTransferFee { base, per_byte }
+}
+
+/// Additional costs for adding an access key with GasKeyFunctionCall or
+/// GasKeyFullAccess permissions, split into base (`gas_key_nonce_write_base`)
+/// and per-byte (`gas_key_byte`) components.
+pub struct GasKeyAddFee {
+    pub base: Gas,
+    pub per_byte: Gas,
+}
+
+impl GasKeyAddFee {
+    pub fn total(&self) -> Gas {
+        self.base.checked_add(self.per_byte).unwrap()
+    }
+}
+
+/// Additional send fee for gas_key_byte when adding a gas key (AddKey with
+/// GasKeyFullAccess or GasKeyFunctionCall permission). Covers the serialized
+/// GasKeyInfo bytes.
+pub fn gas_key_add_key_send_fee(cfg: &RuntimeFeesConfig, sender_is_receiver: bool) -> Gas {
+    cfg.fee(ActionCosts::gas_key_byte)
+        .send_fee(sender_is_receiver)
+        .checked_mul(GasKeyInfo::borsh_len() as u64)
+        .unwrap()
+}
+
+/// Exec fee when adding a gas key with `num_nonces` nonces, split into base
+/// and per-byte components. Each nonce writes a trie entry of
+/// (access_key_key_len + NonceIndex) key bytes and NONCE_VALUE_LEN value bytes.
+pub fn gas_key_add_key_exec_fee(
+    cfg: &RuntimeFeesConfig,
+    account_id_len: usize,
+    public_key_len: usize,
+    num_nonces: NonceIndex,
+) -> GasKeyAddFee {
+    let num_nonces = num_nonces as u64;
+    let base =
+        cfg.fee(ActionCosts::gas_key_nonce_write_base).exec_fee().checked_mul(num_nonces).unwrap();
+    let nonce_key_len =
+        access_key_key_len(account_id_len, public_key_len) + std::mem::size_of::<NonceIndex>();
+    let per_byte = cfg
+        .fee(ActionCosts::gas_key_byte)
+        .exec_fee()
+        .checked_mul((nonce_key_len + AccessKey::NONCE_VALUE_LEN) as u64)
+        .unwrap()
+        .checked_mul(num_nonces)
+        .unwrap();
+    GasKeyAddFee { base, per_byte }
 }

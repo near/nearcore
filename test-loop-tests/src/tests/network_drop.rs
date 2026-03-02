@@ -6,7 +6,6 @@ use parking_lot::RwLock;
 use rand::{Rng, SeedableRng};
 
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::{create_validators_spec, validators_spec_clients};
 
 const TARGET_HEIGHT: u64 = 20;
 const DROP_RATIO_NUMERATOR: u32 = 1;
@@ -20,15 +19,7 @@ fn network_drop_random_messages() {
     let rng: rand::rngs::StdRng = rand::rngs::StdRng::seed_from_u64(42);
     let rng = Arc::new(RwLock::new(rng));
 
-    let validators_spec = create_validators_spec(3, 0);
-    let clients = validators_spec_clients(&validators_spec);
-    let genesis = TestLoopBuilder::new_genesis_builder().validators_spec(validators_spec).build();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .build()
-        .warmup();
+    let mut env = TestLoopBuilder::new().validators(3, 0).build().warmup();
 
     // Configure the PeerActors to drop some events. This is actually a bit
     // unrealistic on the network level because we use a reliable transport
