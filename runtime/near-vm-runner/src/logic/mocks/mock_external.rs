@@ -17,7 +17,7 @@ use std::sync::Arc;
 #[allow(dead_code)] // The value is never read because this is a mock.
 struct GasWeightSer(u64);
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum MockAction {
     CreateReceipt {
         receipt_indices: Vec<ReceiptIndex>,
@@ -55,6 +55,11 @@ pub enum MockAction {
     },
     Transfer {
         receipt_index: ReceiptIndex,
+        deposit: Balance,
+    },
+    TransferToGasKey {
+        receipt_index: ReceiptIndex,
+        public_key: near_crypto::PublicKey,
         deposit: Balance,
     },
     Stake {
@@ -337,6 +342,15 @@ impl External for MockedExternal {
 
     fn append_action_transfer(&mut self, receipt_index: ReceiptIndex, deposit: Balance) {
         self.action_log.push(MockAction::Transfer { receipt_index, deposit });
+    }
+
+    fn append_action_transfer_to_gas_key(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        public_key: near_crypto::PublicKey,
+        deposit: Balance,
+    ) {
+        self.action_log.push(MockAction::TransferToGasKey { receipt_index, public_key, deposit });
     }
 
     fn append_action_stake(

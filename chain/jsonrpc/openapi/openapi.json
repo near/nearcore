@@ -20073,6 +20073,10 @@
             "description": "See [VMConfig::fix_contract_loading_cost](crate::vm::Config::fix_contract_loading_cost).",
             "type": "boolean"
           },
+          "gas_key_host_fns": {
+            "description": "See [VMConfig::gas_key_host_fns](crate::vm::Config::gas_key_host_fns).",
+            "type": "boolean"
+          },
           "global_contract_host_fns": {
             "description": "See [VMConfig::global_contract_host_fns](crate::vm::Config::global_contract_host_fns).",
             "type": "boolean"

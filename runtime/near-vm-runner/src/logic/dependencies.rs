@@ -458,6 +458,24 @@ pub trait External {
     /// Panics if the `receipt_index` does not refer to a known receipt.
     fn append_action_transfer(&mut self, receipt_index: ReceiptIndex, deposit: Balance);
 
+    /// Attach the [`TransferToGasKeyAction`] action to an existing receipt.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - an index of Receipt to append an action
+    /// * `public_key` - the public key of the gas key to fund
+    /// * `deposit` - amount of tokens to transfer to the gas key
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    fn append_action_transfer_to_gas_key(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        public_key: PublicKey,
+        deposit: Balance,
+    );
+
     /// Attach the [`StakeAction`] action to an existing receipt.
     ///
     /// # Arguments

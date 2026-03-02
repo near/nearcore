@@ -7,7 +7,7 @@ use near_primitives::types::{AccountId, Balance};
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::client_queries::ClientQueries;
+use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::execute_money_transfers;
 
 /// Runs chain with sequence of chunks with empty state changes, long enough to
@@ -69,23 +69,21 @@ fn test_load_memtrie_after_empty_chunks() {
     // Find client currently tracking shard with index 0.
     let shard_uid = shard_layout.shard_uids().next().unwrap();
     let shard_id = shard_uid.shard_id();
-    let clients = node_datas
+    let tracked_shards_per_node = node_datas
         .iter()
-        .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
+        .map(|node_data| TestLoopNode { data: &test_loop.data, node_data }.tracked_shards())
         .collect_vec();
-    let idx = {
-        let current_tracked_shards = clients.tracked_shards_for_each_client();
-        tracing::info!(?current_tracked_shards, "current tracked shards");
-        current_tracked_shards
-            .iter()
-            .enumerate()
-            .find_map(|(idx, shards)| if shards.contains(&shard_id) { Some(idx) } else { None })
-            .expect("Not found any client tracking shard 0")
-    };
+    tracing::info!(?tracked_shards_per_node, "current tracked shards");
+    let idx = tracked_shards_per_node
+        .iter()
+        .enumerate()
+        .find_map(|(idx, shards)| if shards.contains(&shard_id) { Some(idx) } else { None })
+        .expect("Not found any client tracking shard 0");
 
     // Unload memtrie and load it back, check that it doesn't panic.
-    clients[idx].runtime_adapter.get_tries().unload_memtrie(&shard_uid);
-    clients[idx]
+    let client = TestLoopNode { data: &test_loop.data, node_data: &node_datas[idx] }.client();
+    client.runtime_adapter.get_tries().unload_memtrie(&shard_uid);
+    client
         .runtime_adapter
         .get_tries()
         .load_memtrie(&shard_uid, None, true)

@@ -1,6 +1,6 @@
-use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
+use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::client_queries::ClientQueries;
+use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::execute_money_transfers;
 use itertools::Itertools;
 use near_async::time::Duration;
@@ -39,13 +39,10 @@ fn slow_test_sync_from_genesis() {
         .build()
         .warmup();
 
-    let first_epoch_tracked_shards = {
-        let clients = node_datas
-            .iter()
-            .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
-            .collect_vec();
-        clients.tracked_shards_for_each_client()
-    };
+    let first_epoch_tracked_shards = node_datas
+        .iter()
+        .map(|node_data| TestLoopNode { data: &test_loop.data, node_data }.tracked_shards())
+        .collect_vec();
     tracing::info!(?first_epoch_tracked_shards, "first epoch tracked shards");
 
     execute_money_transfers(&mut test_loop, &node_datas, &accounts).unwrap();
@@ -60,12 +57,8 @@ fn slow_test_sync_from_genesis() {
     );
 
     // Add new node
-    let genesis = shared_state.genesis.clone();
-    let tempdir_path = shared_state.tempdir.path().to_path_buf();
-    let new_node_state = NodeStateBuilder::new(genesis, tempdir_path)
-        .account_id(accounts[NUM_CLIENTS].clone())
-        .build();
     let mut env = TestLoopEnv { test_loop, node_datas, shared_state };
+    let new_node_state = env.node_state_builder().account_id(&accounts[NUM_CLIENTS]).build();
     env.add_node(accounts[NUM_CLIENTS].as_str(), new_node_state);
 
     // Check that the new node will reach a high height as well.

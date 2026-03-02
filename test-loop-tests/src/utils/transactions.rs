@@ -13,7 +13,7 @@ use near_async::test_loop::futures::TestLoopFutureSpawner;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain::Error;
-use near_client::{Client, ProcessTxResponse, RpcHandlerActor};
+use near_client::{Client, ProcessTxResponse, QueryError, RpcHandlerActor};
 use near_crypto::Signer;
 use near_network::client::ProcessTxRequest;
 use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
@@ -23,16 +23,14 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, BlockHeight, Gas};
-use near_primitives::views::{
-    FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
-};
+use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
 use parking_lot::Mutex;
 
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
 
-use super::client_queries::ClientQueries;
 use super::get_node_data;
+use super::node::TestLoopNode;
 
 /// See `execute_money_transfers`. Debug is implemented so .unwrap() can print
 /// the error.
@@ -69,21 +67,33 @@ pub fn get_next_nonce(
     account_id: &AccountId,
 ) -> u64 {
     let signer: Signer = create_user_test_signer(&account_id);
-    let clients = node_datas
-        .iter()
-        .map(|data| &test_loop_data.get(&data.client_sender.actor_handle()).client)
-        .collect_vec();
-    let response = clients.runtime_query(
-        account_id,
-        QueryRequest::ViewAccessKey {
-            account_id: account_id.clone(),
-            public_key: signer.public_key(),
-        },
-    );
-    let QueryResponseKind::AccessKey(access_key) = response.kind else {
-        panic!("Expected AccessKey response");
-    };
-    access_key.nonce + 1
+    for node_data in node_datas {
+        let node = TestLoopNode { data: test_loop_data, node_data };
+        match node.view_access_key_query(account_id, &signer.public_key()) {
+            Ok(access_key) => return access_key.nonce + 1,
+            Err(QueryError::UnavailableShard { .. }) => continue,
+            Err(err) => panic!("unexpected query error: {err:?}"),
+        }
+    }
+    panic!("no node tracks the shard for account {account_id}");
+}
+
+/// Query the balance of an account, trying each node until one that tracks the
+/// account's shard is found.
+fn query_balance_from_any_node(
+    test_loop_data: &TestLoopData,
+    node_datas: &[NodeExecutionData],
+    account_id: &AccountId,
+) -> Balance {
+    for node_data in node_datas {
+        let node = TestLoopNode { data: test_loop_data, node_data };
+        match node.view_account_query(account_id) {
+            Ok(account_view) => return account_view.amount,
+            Err(QueryError::UnavailableShard { .. }) => continue,
+            Err(err) => panic!("unexpected query error: {err:?}"),
+        }
+    }
+    panic!("no node tracks the shard for account {account_id}");
 }
 
 /// Execute money transfers within given `TestLoop` between given accounts.
@@ -110,16 +120,13 @@ pub(crate) fn execute_money_transfers_with_delay(
     accounts: &[AccountId],
     delay: Duration,
 ) -> Result<(), BalanceMismatchError> {
-    let clients = node_datas
-        .iter()
-        .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
-        .collect_vec();
     let mut balances = accounts
         .iter()
-        .map(|account| (account.clone(), clients.query_balance(&account)))
+        .map(|account| {
+            (account.clone(), query_balance_from_any_node(&test_loop.data, node_datas, account))
+        })
         .collect::<HashMap<_, _>>();
-    let num_clients = clients.len();
-    drop(clients);
+    let num_clients = node_datas.len();
 
     let node_data = Arc::new(node_datas.to_vec());
 
@@ -161,13 +168,9 @@ pub(crate) fn execute_money_transfers_with_delay(
     // TODO: consider explicitly waiting for all execution outcomes.
     test_loop.run_for(Duration::milliseconds(300 * accounts.len() as i64 + 20_000));
 
-    let clients = node_data
-        .iter()
-        .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
-        .collect_vec();
     for account in accounts {
         let expected = *balances.get(account).unwrap();
-        let actual = clients.query_balance(&account);
+        let actual = query_balance_from_any_node(&test_loop.data, node_datas, account);
         if expected != actual {
             return Err(BalanceMismatchError { account: account.clone(), expected, actual });
         }

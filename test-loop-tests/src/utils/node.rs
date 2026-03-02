@@ -21,7 +21,7 @@ use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, Balance, BlockHeight, ShardId};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccessKeyView, AccountView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest,
@@ -152,6 +152,27 @@ impl<'a> TestLoopNode<'a> {
             panic!("unexpected query response type")
         };
         Ok(access_key_view)
+    }
+
+    pub fn query_balance(&self, account_id: &AccountId) -> Balance {
+        self.view_account_query(account_id).unwrap().amount
+    }
+
+    pub fn tracked_shards(&self) -> Vec<ShardId> {
+        let client = self.client();
+        let head = client.chain.head().unwrap();
+        let all_shard_ids = client.epoch_manager.shard_ids(&head.epoch_id).unwrap();
+        let validator_signer = client.validator_signer.get().unwrap();
+        let account_id = validator_signer.validator_id();
+        all_shard_ids
+            .into_iter()
+            .filter(|shard_id| {
+                client
+                    .epoch_manager
+                    .cares_about_shard_from_prev_block(&head.prev_block_hash, account_id, *shard_id)
+                    .unwrap()
+            })
+            .collect()
     }
 
     pub fn submit_tx(&self, tx: SignedTransaction) {

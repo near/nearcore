@@ -121,25 +121,25 @@ pub(crate) struct SignedDiff<T>
 where
     T: Copy + PartialEq,
 {
-    is_positive: bool,
+    is_non_negative: bool,
     absolute_difference: T,
 }
 
 impl From<u64> for SignedDiff<u64> {
     fn from(value: u64) -> Self {
-        Self { is_positive: true, absolute_difference: value }
+        Self { is_non_negative: true, absolute_difference: value }
     }
 }
 
 impl From<u128> for SignedDiff<u128> {
     fn from(value: u128) -> Self {
-        Self { is_positive: true, absolute_difference: value }
+        Self { is_non_negative: true, absolute_difference: value }
     }
 }
 
 impl From<i64> for SignedDiff<u128> {
     fn from(value: i64) -> Self {
-        Self { is_positive: value >= 0, absolute_difference: value.unsigned_abs() as u128 }
+        Self { is_non_negative: value >= 0, absolute_difference: value.unsigned_abs() as u128 }
     }
 }
 
@@ -149,14 +149,14 @@ where
 {
     pub fn cmp(lhs: T, rhs: T) -> Self {
         if lhs <= rhs {
-            Self { is_positive: true, absolute_difference: rhs - lhs }
+            Self { is_non_negative: true, absolute_difference: rhs - lhs }
         } else {
-            Self { is_positive: false, absolute_difference: lhs - rhs }
+            Self { is_non_negative: false, absolute_difference: lhs - rhs }
         }
     }
 
-    pub fn is_positive(&self) -> bool {
-        self.is_positive
+    pub fn is_non_negative(&self) -> bool {
+        self.is_non_negative
     }
 
     pub fn absolute_difference(&self) -> T {
@@ -172,7 +172,7 @@ where
         write!(
             f,
             "{}{}",
-            if self.is_positive { "" } else { "-" },
+            if self.is_non_negative { "" } else { "-" },
             self.absolute_difference.to_string()
         )
     }
@@ -194,7 +194,7 @@ where
     type Output = Self;
 
     fn neg(mut self) -> Self::Output {
-        self.is_positive = !self.is_positive;
+        self.is_non_negative = !self.is_non_negative;
         self
     }
 }
@@ -223,13 +223,13 @@ where
         let string_value = <String as serde::Deserialize>::deserialize(deserializer)?;
         let mut chars_value = string_value.chars();
         if let Some(first_char) = chars_value.next() {
-            let (is_positive, absolute_difference) = if first_char == '-' {
+            let (is_non_negative, absolute_difference) = if first_char == '-' {
                 (false, chars_value.as_str())
             } else {
                 (true, string_value.as_str())
             };
             Ok(Self {
-                is_positive,
+                is_non_negative,
                 absolute_difference: absolute_difference.parse().map_err(|err| {
                     serde::de::Error::invalid_value(
                         serde::de::Unexpected::Other(&format!(

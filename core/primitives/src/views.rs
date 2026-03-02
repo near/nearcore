@@ -1158,10 +1158,9 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             validator_proposals: inner.prev_validator_proposals().map(Into::into).collect(),
             congestion_info: Some(inner.congestion_info().into()),
             bandwidth_requests: inner.bandwidth_requests().cloned(),
-            proposed_split: match &inner {
-                ShardChunkHeaderInner::V5(v5) => Some(v5.proposed_split.clone()),
-                _ => None,
-            },
+            proposed_split: inner
+                .has_proposed_split_field()
+                .then(|| inner.proposed_split().cloned()),
             signature,
         }
     }
@@ -1171,6 +1170,8 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
     fn from(view: ChunkHeaderView) -> Self {
         let prev_validator_proposals =
             view.validator_proposals.into_iter().map(Into::into).collect();
+        // TODO: store the version in ChunkHeaderView instead of guessing it
+        // from which fields are populated.
         let inner = match (view.proposed_split, view.bandwidth_requests, view.congestion_info) {
             (Some(proposed_split), Some(bandwidth_requests), Some(congestion_info)) => {
                 ShardChunkHeaderInner::V5(ShardChunkHeaderInnerV5 {
@@ -1211,7 +1212,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                     bandwidth_requests,
                 })
             }
-            (_, None, Some(congestion_info)) => {
+            (None, None, Some(congestion_info)) => {
                 ShardChunkHeaderInner::V3(ShardChunkHeaderInnerV3 {
                     prev_block_hash: view.prev_block_hash,
                     prev_state_root: view.prev_state_root,
@@ -1229,7 +1230,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                     congestion_info: congestion_info.into(),
                 })
             }
-            _ => ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
+            (None, None, None) => ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
                 prev_block_hash: view.prev_block_hash,
                 prev_state_root: view.prev_state_root,
                 prev_outcome_root: view.outcome_root,
@@ -1244,6 +1245,13 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                 tx_root: view.tx_root,
                 prev_validator_proposals,
             }),
+            (proposed_split, bandwidth_requests, congestion_info) => unreachable!(
+                "unexpected combination of chunk header view fields: \
+                 proposed_split={}, bandwidth_requests={}, congestion_info={}",
+                proposed_split.is_some(),
+                bandwidth_requests.is_some(),
+                congestion_info.is_some(),
+            ),
         };
         let mut header = ShardChunkHeaderV3 {
             inner,

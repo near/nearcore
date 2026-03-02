@@ -202,6 +202,14 @@ extern "C" {
 
     #[cfg(feature = "test_features")]
     fn burn_gas(gas: u64);
+
+    #[cfg(feature = "nightly")]
+    fn promise_batch_action_transfer_to_gas_key(
+        promise_index: u64,
+        public_key_len: u64,
+        public_key_ptr: u64,
+        amount_ptr: u64,
+    );
 }
 
 const TGAS: u64 = 1_000_000_000_000;
@@ -911,6 +919,25 @@ fn call_promise() {
                     beneficiary_id.as_ptr() as u64,
                 );
                 promise_index
+            } else if let Some(action) = arg.get("action_transfer_to_gas_key") {
+                let promise_index = action["promise_index"].as_i64().unwrap() as u64;
+                let public_key = from_base64(action["public_key"].as_str().unwrap());
+                let amount = action["amount"].as_str().unwrap().parse::<u128>().unwrap();
+                #[cfg(feature = "nightly")]
+                {
+                    promise_batch_action_transfer_to_gas_key(
+                        promise_index,
+                        public_key.len() as u64,
+                        public_key.as_ptr() as u64,
+                        &amount as *const u128 as *const u64 as u64,
+                    );
+                    promise_index
+                }
+                #[cfg(not(feature = "nightly"))]
+                {
+                    let _ = (promise_index, public_key, amount);
+                    unimplemented!()
+                }
             } else if let Some(action) = arg.get("set_refund_to") {
                 let promise_index = action["promise_index"].as_i64().unwrap() as u64;
                 let beneficiary_id = action["beneficiary_id"].as_str().unwrap().as_bytes();
