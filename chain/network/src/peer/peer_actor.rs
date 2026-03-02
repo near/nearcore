@@ -1223,7 +1223,7 @@ impl PeerActor {
                             let mut my_public_addr = self.network_state.my_public_addr.write();
                             *my_public_addr = Some(addr);
                             tracing::info!(target: "network", %addr, "discovered own public address for tier3 state sync");
-                            crate::stats::metrics::TIER3_PUBLIC_ADDR
+                            metrics::TIER3_PUBLIC_ADDR
                                 .with_label_values(&[&addr.to_string()])
                                 .set(1);
                         }
