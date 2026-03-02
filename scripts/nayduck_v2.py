@@ -90,10 +90,12 @@ Usage examples
     nayduck_v2.py cancel 4078
 """
 
+import argparse
 import getpass
 import json
 import os
 import pathlib
+import requests
 import subprocess
 import sys
 import time
@@ -212,7 +214,6 @@ def _get_auth_code() -> typing.Tuple[pathlib.Path, str]:
 
 def _api_get(path: str) -> dict:
     """Unauthenticated GET to NayDuck API. Raises NayduckError on failure."""
-    import requests
     try:
         res = requests.get(NAYDUCK_BASE_HREF + path, timeout=30)
     except requests.RequestException as e:
@@ -224,7 +225,6 @@ def _api_get(path: str) -> dict:
 
 def _api_post(path: str, **kwargs) -> dict:
     """Authenticated POST to NayDuck API. Re-prompts on 401."""
-    import requests
     code_path, code = _get_auth_code()
     while True:
         try:
@@ -248,7 +248,6 @@ def _api_post(path: str, **kwargs) -> dict:
 
 def _fetch_log(url: str) -> str:
     """Fetch raw log content from a URL. Raises NayduckError on failure."""
-    import requests
     try:
         res = requests.get(url, timeout=60)
     except requests.RequestException as e:
@@ -324,8 +323,7 @@ def _git_branch(sha: str = "") -> str:
 
 def api_get_runs(limit=20, branch=None, pr=None) -> typing.List[dict]:
     """Fetch recent runs, optionally filtered by branch or PR number."""
-    fetch = min(max(limit * 3, 100), 100) if (branch or pr) else min(limit, 100)
-    data = _api_get(f"/api/runs?limit={fetch}")
+    data = _api_get(f"/api/runs?limit={min(limit, 100)}")
     filt = f"pr-{pr}" if pr else branch
     if filt:
         data = [r for r in data if filt in r.get("branch", "")]
@@ -375,8 +373,13 @@ def api_fetch_log(test_id: int, log_type=None, fetch_all=False):
         trace = [l for l in logs if l.get("stack_trace")]
         stderr = [l for l in logs if l.get("type") == "stderr"]
         pick = [trace[0]] if trace else [stderr[0]] if stderr else [logs[0]]
-    return [(l.get("type", "?"), _fetch_log(_log_url(l.get("storage", ""))))
-            for l in pick]
+    results = []
+    for l in pick:
+        storage = l.get("storage", "")
+        if not storage:
+            raise NayduckError(f"log '{l.get('type', '?')}' has no storage URL")
+        results.append((l.get("type", "?"), _fetch_log(_log_url(storage))))
+    return results
 
 
 def api_schedule_run(branch, sha, tests) -> dict:
@@ -671,7 +674,6 @@ def cmd_retry(args):
 
 
 def _build_parser():
-    import argparse
     parser = argparse.ArgumentParser(
         prog="nayduck_v2.py",
         description="NayDuck CLI — inspect runs, view logs, schedule and "
@@ -694,7 +696,7 @@ def _build_parser():
                    default=20,
                    help="Max runs (default 20).")
     p.add_argument("--branch", help="Filter by branch substring.")
-    p.add_argument("--pr", help="Filter by PR number.")
+    p.add_argument("--pr", type=int, help="Filter by PR number.")
     p.add_argument("--json", action="store_true", help="Output raw JSON.")
     p.set_defaults(func=cmd_runs)
 
