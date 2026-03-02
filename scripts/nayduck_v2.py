@@ -324,9 +324,9 @@ def _git_branch(sha: str = "") -> str:
 def api_get_runs(limit=20, branch=None, pr=None) -> typing.List[dict]:
     """Fetch recent runs, optionally filtered by branch or PR number."""
     data = _api_get(f"/api/runs?limit={min(limit, 100)}")
-    filt = f"pr-{pr}" if pr else branch
-    if filt:
-        data = [r for r in data if filt in r.get("branch", "")]
+    filtered = f"pr-{pr}" if pr else branch
+    if filtered:
+        data = [r for r in data if filtered in r.get("branch", "")]
     return data[:limit]
 
 
