@@ -3,7 +3,9 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::AccessKey;
 use near_primitives::action::{AddKeyAction, TransferToGasKeyAction};
-use near_primitives::errors::{ActionError, ActionErrorKind, TxExecutionError};
+use near_primitives::errors::{
+    ActionError, ActionErrorKind, ActionsValidationError, ReceiptValidationError, TxExecutionError,
+};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
@@ -454,6 +456,7 @@ struct HostFunctionTestSetup {
     env: TestLoopEnv,
     account: AccountId,
     nonce: u64,
+    gas_price: Balance,
 }
 
 impl HostFunctionTestSetup {
@@ -496,7 +499,7 @@ fn setup_host_function_test() -> HostFunctionTestSetup {
     env.rpc_runner().run_tx(deploy_tx, Duration::seconds(5));
     env.rpc_runner().run_for_number_of_blocks(1);
 
-    HostFunctionTestSetup { env, account, nonce }
+    HostFunctionTestSetup { env, account, nonce, gas_price }
 }
 
 /// Test that a contract can fund a gas key using the
@@ -505,7 +508,7 @@ fn setup_host_function_test() -> HostFunctionTestSetup {
 #[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_gas_key_transfer_host_function() {
     let setup = setup_host_function_test();
-    let HostFunctionTestSetup { mut env, account, mut nonce } = setup;
+    let HostFunctionTestSetup { mut env, account, mut nonce, gas_price } = setup;
     let mut next_nonce = || {
         nonce += 1;
         nonce
@@ -604,7 +607,6 @@ fn test_gas_key_transfer_host_function() {
     let tokens_burnt = total_tokens_burnt(&outcome);
     let runtime_config =
         env.rpc_node().client().runtime_adapter.get_runtime_config(PROTOCOL_VERSION);
-    let gas_price = Balance::from_yoctonear(1);
     let fee_helper = FeeHelper::new(runtime_config.clone(), gas_price);
     let fc_receipt_gas_burnt = outcome.receipts_outcome[0].outcome.gas_burnt;
     let fc_overhead = fee_helper.function_call_exec_gas((method_name.len() + fc_args_len) as u64);
@@ -676,10 +678,12 @@ fn test_gas_key_add_full_access_host_function() {
         query_gas_key_and_balance(&setup.env.rpc_node(), &account, &gas_key_signer.public_key());
     assert_eq!(balance, Balance::ZERO);
     assert_eq!(view.nonce, 0);
-    assert!(matches!(
-        view.permission,
-        AccessKeyPermissionView::GasKeyFullAccess { num_nonces: 3, .. }
-    ));
+    let AccessKeyPermissionView::GasKeyFullAccess { num_nonces: view_num_nonces, .. } =
+        view.permission
+    else {
+        panic!("expected GasKeyFullAccess, got {:?}", view.permission);
+    };
+    assert_eq!(view_num_nonces, num_nonces as u16);
 
     // Verify nonces are initialized
     let response = setup
@@ -835,11 +839,15 @@ fn test_gas_key_add_function_call_nonzero_allowance_rejected() {
         matches!(
             &outcome.status,
             FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
-                kind: ActionErrorKind::NewReceiptValidationError(_),
+                kind: ActionErrorKind::NewReceiptValidationError(
+                    ReceiptValidationError::ActionsValidation(
+                        ActionsValidationError::GasKeyFunctionCallAllowanceNotAllowed,
+                    ),
+                ),
                 ..
             }))
         ),
-        "expected NewReceiptValidationError, got {:?}",
+        "expected GasKeyFunctionCallAllowanceNotAllowed, got {:?}",
         outcome.status,
     );
 
