@@ -3715,6 +3715,9 @@ fn test_save_receipt_to_tx_independent_of_outcomes() {
 /// When both save_receipt_to_tx and save_tx_outcomes are false, neither
 /// OutcomeIds nor ReceiptToTx entries should be written (needs_index=false).
 #[test]
+// TestEnv doesn't support spice: produce_block() calls compute_state_root()
+// which accesses prev_state_root on SpiceTxOnly chunk headers, causing a panic.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_no_index_when_both_disabled() {
     init_test_logger();
 

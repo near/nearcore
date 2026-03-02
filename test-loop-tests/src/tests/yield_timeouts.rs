@@ -210,8 +210,13 @@ fn prepare_env_with_yield(
     );
     env.validator().submit_tx(deploy_contract_tx.clone());
 
-    // Allow two blocks for the contract to be deployed
-    env.validator_runner().run_until_head_height(2);
+    // Allow two blocks for the contract to be deployed.
+    // With spice, execution is async so we must wait for execution, not just consensus.
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        env.validator_runner().run_until_executed_height(2);
+    } else {
+        env.validator_runner().run_until_head_height(2);
+    }
     assert!(matches!(
         env.validator()
             .client()
@@ -238,7 +243,11 @@ fn prepare_env_with_yield(
     );
     let yield_tx_hash = yield_transaction.get_hash();
     env.validator().submit_tx(yield_transaction);
-    env.validator_runner().run_until_head_height(4);
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        env.validator_runner().run_until_executed_height(4);
+    } else {
+        env.validator_runner().run_until_head_height(4);
+    }
     assert!(matches!(
         env.validator()
             .client()
@@ -647,13 +656,22 @@ fn test_yield_timeout_resume_receipt_has_receipt_to_tx() {
     }
 
     // In this block the timeout fires, producing a PromiseResume receipt.
-    env.validator_runner().run_until_head_height(YIELD_TIMEOUT_HEIGHT);
+    // With spice, we must wait for execution to complete before querying results.
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        env.validator_runner().run_until_executed_height(YIELD_TIMEOUT_HEIGHT);
+    } else {
+        env.validator_runner().run_until_head_height(YIELD_TIMEOUT_HEIGHT);
+    }
     let resume_receipt_ids = find_promise_resume_receipt_ids_from_latest_block(&env);
     assert_eq!(resume_receipt_ids.len(), 1, "expected exactly one PromiseResume receipt");
     let resume_receipt_id = resume_receipt_ids[0];
 
     // In this block the resume receipt is applied and the callback executes.
-    env.validator_runner().run_until_head_height(YIELD_TIMEOUT_HEIGHT + 1);
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        env.validator_runner().run_until_executed_height(YIELD_TIMEOUT_HEIGHT + 1);
+    } else {
+        env.validator_runner().run_until_head_height(YIELD_TIMEOUT_HEIGHT + 1);
+    }
     assert_eq!(
         env.validator()
             .client()
