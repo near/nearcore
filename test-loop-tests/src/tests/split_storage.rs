@@ -1,9 +1,12 @@
 use near_async::messaging::Handler;
 use near_async::time::Duration;
-use near_client::GetSplitStorageInfo;
+use near_chain_configs::TrackedShardsConfig;
+use near_client::{GetBlock, GetSplitStorageInfo};
 use near_o11y::testonly::init_test_logger;
+use near_primitives::types::{BlockId, BlockReference};
 
 use crate::setup::builder::{ArchivalKind, TestLoopBuilder};
+use crate::utils::account::create_account_id;
 
 /// Tests that an archival node with cold storage (split storage) has its cold
 /// head advancing close to the final head. This is a migration of the pytest
@@ -48,59 +51,83 @@ fn test_split_storage_cold_head_advances() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
-/// Tests that a killed-and-restarted archival node with cold storage can
-/// catch up with the rest of the network. Inspired by the pytest
-/// `split_storage.py::step2_archival_node_sync_test`.
+/// Tests that a killed-and-restarted archival node with cold storage can catch
+/// up from another archival node when the chain has advanced past the GC period.
+/// Inspired by the pytest `split_storage.py::step2_archival_node_sync_test`.
 ///
-/// 1. Kill the archival node after a few blocks.
-/// 2. Let validators advance the chain.
-/// 3. Restart the archival node and verify it catches up.
+/// 1. Set up a validator, the primary archival node, and a second archival node.
+/// 2. Kill the second archival node after a few blocks.
+/// 3. Advance the chain well past the GC period so the validator GCs old blocks.
+/// 4. Restart the second archival and verify it catches up from the primary one.
 #[test]
-fn test_split_storage_archival_node_restart() {
+fn test_split_storage_archival_node_sync() {
     init_test_logger();
 
-    let epoch_length = 10;
+    let epoch_length = 5;
+    let gc_num_epochs_to_keep = 3;
     let mut env = TestLoopBuilder::new()
-        .validators(2, 0)
         .epoch_length(epoch_length)
         .enable_archival_node(ArchivalKind::Cold)
-        .gc_num_epochs_to_keep(20)
+        .gc_num_epochs_to_keep(gc_num_epochs_to_keep)
         .build()
         .warmup();
 
-    // Let the archival node progress a bit.
-    let kill_height = 2 * epoch_length;
-    env.archival_runner().run_until_head_height(kill_height);
+    // Add a second archival node right after warmup (small gap, will catch up
+    // during normal block production).
+    let archival2_identifier = "archival2";
+    let archival2 = create_account_id(archival2_identifier);
+    let archival2_state = env
+        .node_state_builder()
+        .account_id(&archival2)
+        .cold_storage(true)
+        .config_modifier(move |config| {
+            config.tracked_shards_config = TrackedShardsConfig::AllShards;
+            config.gc.gc_num_epochs_to_keep = gc_num_epochs_to_keep;
+        })
+        .build();
+    env.add_node(archival2_identifier, archival2_state);
 
-    // Kill the archival node.
-    let archival_data = &env.node_datas.last().unwrap();
-    let archival_identifier = archival_data.identifier.clone();
-    let archival_account = archival_data.account_id.clone();
-    let killed_state = env.kill_node(&archival_identifier);
+    let kill_height = env.validator().head().height + 1;
+    env.runner_for_account(&archival2).run_until_head_height(kill_height);
 
-    // Let validators advance the chain while archival is down.
-    let restart_height = kill_height + 2 * epoch_length;
-    env.node_runner(0).run_until_head_height(restart_height);
+    let killed_state = env.kill_node(archival2_identifier);
 
-    // Restart the archival node.
-    let new_identifier = format!("{}-restart", archival_identifier);
-    env.restart_node(&new_identifier, killed_state);
+    // Advance the chain well past the GC period while the second archival is down.
+    let target_height = kill_height + epoch_length * (gc_num_epochs_to_keep + 1);
+    env.validator_runner().run_until_head_height(target_height);
+
+    // Confirm the validator has GC'd an early block.
+    let test_height = kill_height + 1;
+    let early_block_req = GetBlock(BlockReference::BlockId(BlockId::Height(test_height)));
+    let validator_result = env.validator_mut().view_client_actor().handle(early_block_req.clone());
+    assert!(validator_result.is_err(), "validator should have GC'd block at height {test_height}");
+
+    // Restart the second archival — it must catch up the missing blocks
+    // from the primary archival node (the validator no longer has them).
+    let archival2_restart_identifier = format!("{}-restart", archival2_identifier);
+    env.restart_node(&archival2_restart_identifier, killed_state);
 
     // Give the restarted node time to catch up.
-    env.node_runner(0).run_for_number_of_blocks(15);
+    env.validator_runner().run_for_number_of_blocks(15);
 
-    let archival_height = env.node_for_account(&archival_account).head().height;
+    let archival2_height = env.node_for_account(&archival2).head().height;
     assert!(
-        archival_height > restart_height,
-        "restarted archival node should advance past restart height \
-         ({archival_height} vs {restart_height})"
+        archival2_height > target_height,
+        "restarted archival node should advance past target height \
+         ({archival2_height} vs {target_height})"
+    );
+
+    // Confirm the restarted archival has the early block the validator GC'd.
+    let archival2_result =
+        env.node_for_account_mut(&archival2).view_client_actor().handle(early_block_req);
+    assert!(
+        archival2_result.is_ok(),
+        "restarted archival should have block at height {test_height}"
     );
 
     // Verify cold storage is still functional after restart.
-    let info = env
-        .node_for_account_mut(&archival_account)
-        .view_client_actor()
-        .handle(GetSplitStorageInfo {});
+    let info =
+        env.node_for_account_mut(&archival2).view_client_actor().handle(GetSplitStorageInfo {});
     let info = info.unwrap();
     assert_eq!(info.hot_db_kind.as_deref(), Some("Hot"));
     assert!(info.cold_head_height.is_some(), "cold head should be set after restart");
