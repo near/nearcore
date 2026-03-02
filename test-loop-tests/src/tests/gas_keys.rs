@@ -753,21 +753,20 @@ fn test_gas_key_add_function_call_host_function() {
         query_gas_key_and_balance(&setup.env.rpc_node(), &account, &gas_key_signer.public_key());
     assert_eq!(balance, Balance::ZERO);
     assert_eq!(view.nonce, 0);
-    match &view.permission {
-        AccessKeyPermissionView::GasKeyFunctionCall {
-            num_nonces: n,
-            allowance: a,
-            receiver_id: r,
-            method_names: m,
-            ..
-        } => {
-            assert_eq!(*n, num_nonces as u16);
-            assert!(a.is_none());
-            assert_eq!(r.as_str(), account.as_str());
-            assert_eq!(m, &vec!["method1".to_string(), "method2".to_string()]);
-        }
-        other => panic!("expected GasKeyFunctionCall, got {:?}", other),
-    }
+    let AccessKeyPermissionView::GasKeyFunctionCall {
+        num_nonces: gas_key_num_nonces,
+        allowance,
+        receiver_id,
+        method_names,
+        ..
+    } = &view.permission
+    else {
+        panic!("expected GasKeyFunctionCall, got {:?}", view.permission);
+    };
+    assert_eq!(*gas_key_num_nonces, num_nonces as u16);
+    assert!(allowance.is_none());
+    assert_eq!(receiver_id.as_str(), account.as_str());
+    assert_eq!(method_names, &vec!["method1".to_string(), "method2".to_string()]);
 
     // Verify nonces are initialized
     let response = setup
