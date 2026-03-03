@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::Poll;
 
 use itertools::Itertools;
@@ -10,6 +11,7 @@ use near_chain::spice_core::get_last_certified_block_header;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::{GetBlock, ProcessTxRequest, Query, QueryError};
 use near_client_primitives::types::GetBlockError;
+use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -815,6 +817,95 @@ fn test_spice_chain_with_missing_chunks() {
         assert_eq!(got_balance, want_balance);
         assert_ne!(*balance_change, 0);
     }
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+/// Verifies that validator-only nodes (non-chunk-producers) do not emit
+/// SpiceDistributorOutgoingReceipts / SpiceDistributorStateWitness messages.
+/// These nodes track and execute shards but should not distribute witnesses
+/// or receipt proofs since only chunk producers are allowed to do so.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_validator_only_does_not_distribute_witness_and_receipts() {
+    init_test_logger();
+
+    let num_producers = 2;
+    let num_validators = 2;
+
+    let mut env =
+        TestLoopBuilder::new().validators(num_producers, num_validators).num_shards(2).build();
+
+    // Register override handlers on validator-only nodes to track any
+    // SpicePartialData messages they attempt to send. These messages are the
+    // downstream network effect of handling SpiceDistributorOutgoingReceipts
+    // and SpiceDistributorStateWitness, so their absence proves no distribution
+    // happened.
+    let spice_data_sent_count = Arc::new(AtomicUsize::new(0));
+    for i in num_producers..env.node_datas.len() {
+        let node_data = &env.node_datas[i];
+        let counter = spice_data_sent_count.clone();
+        let peer_actor = env.test_loop.data.get_mut(&node_data.peer_manager_sender.actor_handle());
+        peer_actor.register_override_handler(Box::new(move |request| {
+            if matches!(&request, NetworkRequests::SpicePartialData { .. }) {
+                counter.fetch_add(1, Ordering::SeqCst);
+            }
+            Some(request)
+        }));
+    }
+
+    let mut env = env.warmup();
+
+    // Run long enough for multiple blocks to be executed across all shards.
+    env.node_runner(0).run_until_head_height_with_timeout(15, Duration::seconds(20));
+
+    assert_eq!(
+        spice_data_sent_count.load(Ordering::SeqCst),
+        0,
+        "validator-only nodes must not distribute witnesses or receipt proofs"
+    );
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+/// Verifies that validator-only nodes (non-chunk-producers) still send
+/// SpiceChunkEndorsement messages even though they do not distribute witnesses
+/// or receipt proofs.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_validator_only_sends_endorsements() {
+    init_test_logger();
+
+    let num_producers = 2;
+    let num_validators = 2;
+
+    let mut env =
+        TestLoopBuilder::new().validators(num_producers, num_validators).num_shards(2).build();
+
+    // Register override handlers on validator-only nodes to count outgoing
+    // SpiceChunkEndorsement messages.
+    let endorsement_count = Arc::new(AtomicUsize::new(0));
+    for i in num_producers..env.node_datas.len() {
+        let node_data = &env.node_datas[i];
+        let counter = endorsement_count.clone();
+        let peer_actor = env.test_loop.data.get_mut(&node_data.peer_manager_sender.actor_handle());
+        peer_actor.register_override_handler(Box::new(move |request| {
+            if matches!(&request, NetworkRequests::SpiceChunkEndorsement(..)) {
+                counter.fetch_add(1, Ordering::SeqCst);
+            }
+            Some(request)
+        }));
+    }
+
+    let mut env = env.warmup();
+
+    // Run long enough for multiple blocks to be executed across all shards.
+    env.node_runner(0).run_until_head_height_with_timeout(15, Duration::seconds(20));
+
+    assert!(
+        endorsement_count.load(Ordering::SeqCst) > 0,
+        "validator-only nodes must send chunk endorsements"
+    );
+
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
