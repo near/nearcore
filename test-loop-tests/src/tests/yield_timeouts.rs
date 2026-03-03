@@ -12,7 +12,7 @@ use near_primitives::receipt::{ReceiptEnum, ReceiptToTxInfo, VersionedReceiptEnu
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::{TrieKey, col, trie_key_parsers};
-use near_primitives::types::{AccountId, Balance};
+use near_primitives::types::{AccountId, Balance, ShardId};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 use near_store::DBCol;
@@ -693,6 +693,7 @@ fn test_yield_timeout_resume_receipt_has_receipt_to_tx() {
                 matches!(&v1.origin, near_primitives::receipt::ReceiptOrigin::FromReceipt(_)),
                 "PromiseResume from yield timeout should have FromReceipt origin"
             );
+            assert_eq!(v1.shard_id, ShardId::new(0), "shard_id should be 0 in single-shard setup");
         }
     }
 

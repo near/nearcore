@@ -220,6 +220,7 @@ fn test_receipt_to_tx_saved_and_gced() {
                 assert_eq!(origin.sender_account_id, user_account, "sender should match");
             });
             assert_eq!(v1.receiver_account_id, user_account, "receiver should match");
+            assert_eq!(v1.shard_id, ShardId::new(0), "shard_id should be 0 in single-shard setup");
         }
     }
 
@@ -233,6 +234,7 @@ fn test_receipt_to_tx_saved_and_gced() {
                 assert_eq!(origin.parent_receipt_id, local_receipt_id,
                     "parent should be the local receipt");
             });
+            assert_eq!(v1.shard_id, ShardId::new(0), "shard_id should be 0 in single-shard setup");
         }
     }
 

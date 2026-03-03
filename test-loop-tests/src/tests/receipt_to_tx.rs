@@ -4,7 +4,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ReceiptOrigin, ReceiptToTxInfo};
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{Balance, Gas};
+use near_primitives::types::{Balance, Gas, ShardId};
 use near_store::DBCol;
 
 use crate::setup::builder::TestLoopBuilder;
@@ -103,6 +103,8 @@ fn test_receipt_to_tx_persists_across_restart() {
         .store()
         .get_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx, receipt_id.as_ref())
         .expect("receipt_to_tx entry should exist before restart");
+    let ReceiptToTxInfo::V1(v1) = &info_before;
+    assert_eq!(v1.shard_id, ShardId::new(0), "shard_id should be 0 in single-shard setup");
 
     // Kill and restart the node.
     let killed_node_state = env.kill_node(&restart_identifier);
@@ -426,6 +428,8 @@ fn test_refund_receipt_has_receipt_to_tx() {
         .expect("refund receipt should have a ReceiptToTx entry");
 
     let ReceiptToTxInfo::V1(v1) = &info;
+    assert_eq!(v1.shard_id, ShardId::new(0), "shard_id should be 0 in single-shard setup");
+    assert_eq!(v1.receiver_account_id, user_account, "receiver should be the user account");
     match &v1.origin {
         ReceiptOrigin::FromReceipt(origin) => {
             assert_eq!(
