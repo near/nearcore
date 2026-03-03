@@ -1331,6 +1331,10 @@ impl ForkNetworkCommand {
     /// that land in the correct shard.
     fn shard_account_prefixes(shard_layout: &ShardLayout) -> Vec<AccountId> {
         let boundary_account_ids = shard_layout.boundary_accounts().clone();
+        if boundary_account_ids.is_empty() {
+            // Single shard — return one prefix that lands in the only shard.
+            return vec!["00".parse::<AccountId>().unwrap()];
+        }
         let first_boundary_account_id = boundary_account_ids[0].clone();
         let first_account_id =
             "0".repeat(first_boundary_account_id.len()).parse::<AccountId>().unwrap();
