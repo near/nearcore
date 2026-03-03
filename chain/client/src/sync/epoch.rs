@@ -238,7 +238,7 @@ impl EpochSync {
     fn apply_validated_proof(
         &self,
         status: &mut SyncStatus,
-        chain: &mut Chain,
+        chain: &Chain,
         proof: EpochSyncProofV1,
         epoch_manager: &dyn EpochManagerAdapter,
     ) -> Result<(), Error> {
@@ -614,7 +614,13 @@ impl Handler<EpochSyncResponseMessage> for ClientActor {
         }
 
         // If the proof is valid but the node is stale (data beyond genesis), shut down for data reset immediately
-        let tip_height = self.client.chain.header_head().unwrap().height;
+        let tip_height = match self.client.chain.header_head() {
+            Ok(head) => head.height,
+            Err(err) => {
+                tracing::error!(?err, "failed to read header head while handling epoch sync proof");
+                return;
+            }
+        };
         let genesis_height = self.client.chain.genesis().height();
         if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION)
             && tip_height != genesis_height
