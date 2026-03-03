@@ -196,16 +196,22 @@ fn test_no_index_when_both_disabled() {
         .build()
         .warmup();
 
-    // Capture baseline counts before sending the transaction.
+    // Capture baselines before sending the transaction.
     let outcome_ids_before = env.validator().store().iter(DBCol::OutcomeIds).count();
     let receipt_to_tx_before = env.validator().store().iter(DBCol::ReceiptToTx).count();
 
     let signer = create_user_test_signer(&user_account);
+    let nonce_before = env
+        .validator()
+        .view_access_key_query(&user_account, &signer.public_key())
+        .expect("access key should exist")
+        .nonce;
+
     let block_hash = env.validator().head().last_block_hash;
     let tx = SignedTransaction::send_money(
         1,
         user_account.clone(),
-        user_account,
+        user_account.clone(),
         &signer,
         Balance::from_yoctonear(100),
         block_hash,
@@ -223,9 +229,13 @@ fn test_no_index_when_both_disabled() {
         "outcomes should not be saved when save_tx_outcomes is false"
     );
 
-    // Verify the transaction actually executed by checking the nonce was consumed:
-    // the pending tx was removed from the pool, and blocks were produced that included it.
-    // With 10+ blocks produced since submission, the tx is certainly processed.
+    // Verify the transaction actually executed by checking the nonce advanced.
+    let nonce_after = env
+        .validator()
+        .view_access_key_query(&user_account, &signer.public_key())
+        .expect("access key should exist")
+        .nonce;
+    assert!(nonce_after > nonce_before, "nonce should have advanced after tx execution");
 
     let store = env.validator().store();
 
