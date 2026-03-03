@@ -314,6 +314,15 @@ pub(crate) static ROUTED_MESSAGE_DROPPED: LazyLock<IntCounterVec> = LazyLock::ne
     .unwrap()
 });
 
+pub(crate) static TIER3_PUBLIC_ADDR: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "near_tier3_public_addr",
+        "Own public address advertised in tier3 state sync requests",
+        &["addr"],
+    )
+    .unwrap()
+});
+
 pub(crate) static PEER_REACHABLE: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_peer_reachable",
