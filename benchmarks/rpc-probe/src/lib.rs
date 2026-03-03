@@ -1,6 +1,11 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
+use near_jsonrpc_primitives::errors::RpcError;
+use near_jsonrpc_primitives::types::query::RpcQueryRequest;
+use near_primitives::types::{AccountId, BlockReference, Finality};
+use near_primitives::views::QueryRequest;
 use serde::{Deserialize, Serialize};
 
 pub mod metrics;
@@ -31,7 +36,7 @@ impl Default for Config {
 
 #[derive(Deserialize, Debug, Clone)]
 struct ProbeAccount {
-    account_id: String,
+    account_id: AccountId,
     /// Used by write probes to query nonce via view_access_key.
     #[allow(dead_code)]
     public_key: String,
@@ -82,17 +87,13 @@ fn load_accounts(path: &Path) -> Vec<ProbeAccount> {
 }
 
 async fn probe_loop(config: Config, accounts: Vec<ProbeAccount>) {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()
-        .expect("failed to build HTTP client");
+    let client = Arc::new(near_jsonrpc_client_internal::new_client(&config.rpc_url));
 
     let interval = Duration::from_secs_f64(config.interval_s);
-    let rpc_url = config.rpc_url.clone();
     let mut account_idx: usize = 0;
 
     tracing::info!(target: "rpc-probe",
-        rpc_url = %rpc_url,
+        rpc_url = %config.rpc_url,
         interval_s = config.interval_s,
         startup_delay_s = config.startup_delay_s,
         num_accounts = accounts.len(),
@@ -111,77 +112,43 @@ async fn probe_loop(config: Config, accounts: Vec<ProbeAccount>) {
         // Spawn each probe as a fire-and-forget task so slow probes don't
         // block the ticker or delay each other.
         let gas_client = client.clone();
-        let gas_url = rpc_url.clone();
         tokio::spawn(async move {
-            let body = serde_json::json!({
-                "jsonrpc": "2.0",
-                "id": "rpc-probe",
-                "method": "gas_price",
-                "params": [null]
-            });
-            probe_rpc(&gas_client, &gas_url, "gas_price", body).await;
+            let start = std::time::Instant::now();
+            let result = gas_client.gas_price(None).await;
+            record_probe("gas_price", start, &result);
         });
 
         if !accounts.is_empty() {
             let account_id = accounts[account_idx % accounts.len()].account_id.clone();
             let view_client = client.clone();
-            let view_url = rpc_url.clone();
             tokio::spawn(async move {
-                let body = serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "id": "rpc-probe",
-                    "method": "query",
-                    "params": {
-                        "request_type": "view_account",
-                        "finality": "optimistic",
-                        "account_id": account_id
-                    }
-                });
-                probe_rpc(&view_client, &view_url, "view_account", body).await;
+                let start = std::time::Instant::now();
+                let result = view_client
+                    .query(RpcQueryRequest {
+                        block_reference: BlockReference::Finality(Finality::None),
+                        request: QueryRequest::ViewAccount { account_id },
+                    })
+                    .await;
+                record_probe("view_account", start, &result);
             });
             account_idx = account_idx.wrapping_add(1);
         }
     }
 }
 
-/// Send a JSON-RPC request, measure full round-trip latency (including body
-/// parsing), and record metrics.
-async fn probe_rpc(client: &reqwest::Client, rpc_url: &str, method: &str, body: serde_json::Value) {
-    let start = std::time::Instant::now();
-    let result = client.post(rpc_url).json(&body).send().await;
-
-    let ok = match result {
-        Ok(resp) if resp.status().is_success() => match resp.json::<serde_json::Value>().await {
-            Ok(json) if json.get("error").is_some() => {
-                tracing::debug!(target: "rpc-probe",
-                        method, error = %json["error"], "probe returned rpc error");
-                false
-            }
-            Ok(_) => true,
-            Err(err) => {
-                tracing::warn!(target: "rpc-probe",
-                        method, ?err, "failed to parse response");
-                false
-            }
-        },
-        Ok(resp) => {
-            tracing::warn!(target: "rpc-probe",
-                method, status = %resp.status(), "probe non-success status");
-            false
+/// Record probe latency and success/error metrics.
+fn record_probe<T>(method: &str, start: std::time::Instant, result: &Result<T, RpcError>) {
+    let elapsed = start.elapsed();
+    match result {
+        Ok(_) => {
+            tracing::debug!(target: "rpc-probe", method, latency_ms = elapsed.as_millis(), "probe ok");
+            metrics::RPC_PROBE_LATENCY.with_label_values(&[method]).observe(elapsed.as_secs_f64());
+            metrics::RPC_PROBE_SUCCESS_TOTAL.with_label_values(&[method]).inc();
         }
         Err(err) => {
-            tracing::warn!(target: "rpc-probe", method, ?err, "probe failed");
-            false
+            tracing::debug!(target: "rpc-probe", method, %err, "probe error");
+            metrics::RPC_PROBE_ERROR_TOTAL.with_label_values(&[method]).inc();
         }
-    };
-
-    let elapsed = start.elapsed();
-    if ok {
-        tracing::debug!(target: "rpc-probe", method, latency_ms = elapsed.as_millis(), "probe ok");
-        metrics::RPC_PROBE_LATENCY.with_label_values(&[method]).observe(elapsed.as_secs_f64());
-        metrics::RPC_PROBE_SUCCESS_TOTAL.with_label_values(&[method]).inc();
-    } else {
-        metrics::RPC_PROBE_ERROR_TOTAL.with_label_values(&[method]).inc();
     }
 }
 
