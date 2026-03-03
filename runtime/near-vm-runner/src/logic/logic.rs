@@ -7,7 +7,7 @@ use super::types::{
     GlobalContractDeployMode, GlobalContractIdentifier, PromiseIndex, PromiseResult, ReceiptIndex,
     ReturnData,
 };
-use super::utils::split_method_names;
+use super::utils::{null_terminated_method_names_len, split_method_names};
 use super::{HostError, VMLogicError};
 use crate::ProfileDataV3;
 use crate::bls12381_impl;
@@ -2982,8 +2982,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         let raw_method_names = get_memory_or_register!(self, method_names_ptr, method_names_len)?;
         let method_names = split_method_names(&raw_method_names)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
-        // +1 is to account for null-terminating characters.
-        let num_bytes = method_names.iter().map(|v| v.len() as u64 + 1).sum::<u64>();
+        let num_bytes = null_terminated_method_names_len(&method_names);
         self.pay_action_base(ActionCosts::add_function_call_key_base, sir)?;
         self.pay_action_per_byte(ActionCosts::add_function_call_key_byte, num_bytes, sir)?;
         let receipt_receiver_id = self.ext.get_receipt_receiver(receipt_idx);
@@ -3134,8 +3133,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
-        // +1 is to account for null-terminating characters.
-        let num_bytes = method_names.iter().map(|v| v.len() as u64 + 1).sum::<u64>();
+        let num_bytes = null_terminated_method_names_len(&method_names);
         self.pay_action_base(ActionCosts::add_function_call_key_base, sir)?;
         self.pay_action_per_byte(ActionCosts::add_function_call_key_byte, num_bytes, sir)?;
 

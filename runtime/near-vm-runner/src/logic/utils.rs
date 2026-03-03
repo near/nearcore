@@ -1,5 +1,10 @@
 use super::HostError;
 
+/// Total byte length of method names including a null terminator per name.
+pub(crate) fn null_terminated_method_names_len(method_names: &[Vec<u8>]) -> u64 {
+    method_names.iter().map(|v| v.len() as u64 + 1).sum()
+}
+
 /// Uses `,` separator to split `method_names` into a vector of method names.
 /// Returns an empty vec if the empty slice is given.
 /// Throws `HostError::EmptyMethodName` in case there is an empty method name inside.
