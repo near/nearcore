@@ -60,4 +60,11 @@ mod tests {
     fn test_split_empty_method_name_comma_only() {
         assert_eq!(split_method_names(b","), Err(HostError::EmptyMethodName));
     }
+
+    #[test]
+    fn test_null_terminated_method_names_len() {
+        assert_eq!(null_terminated_method_names_len(&[]), 0);
+        assert_eq!(null_terminated_method_names_len(&[b"hello".to_vec()]), 6);
+        assert_eq!(null_terminated_method_names_len(&[b"hello".to_vec(), b"world".to_vec()]), 12,);
+    }
 }
