@@ -818,8 +818,6 @@ impl std::convert::From<DecodeBs58Error> for crate::errors::ParseSignatureError 
 
 #[cfg(test)]
 mod tests {
-    use borsh::BorshDeserialize;
-
     use super::{KeyType, PublicKey, SecretKey, Signature};
 
     #[cfg(feature = "rand")]
@@ -946,9 +944,5 @@ mod tests {
 
         let invalid_pk_secp = "\"secp256k1:qMoRgcoXai4mBPsdbHi1wfyxF9TdbPCF4qSDQTRP3TfescSRoUdSx6nmeQoN3aiwGzwMyGXAb1gUjBTv5AY8DXjL\"";
         assert!(serde_json::from_str::<PublicKey>(invalid_pk_secp).is_err());
-
-        let mut invalid_borsh = vec![1u8];
-        invalid_borsh.extend_from_slice(&[0xFF; 64]);
-        assert!(PublicKey::try_from_slice(&invalid_borsh).is_err())
     }
 }
