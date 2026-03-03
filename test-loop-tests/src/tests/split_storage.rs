@@ -1,7 +1,9 @@
+use assert_matches::assert_matches;
 use near_async::messaging::Handler;
 use near_async::time::Duration;
 use near_chain_configs::TrackedShardsConfig;
 use near_client::{GetBlock, GetSplitStorageInfo};
+use near_client_primitives::types::GetBlockError;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::types::{BlockId, BlockReference};
 
@@ -9,8 +11,7 @@ use crate::setup::builder::{ArchivalKind, TestLoopBuilder};
 use crate::utils::account::create_account_id;
 
 /// Tests that an archival node with cold storage (split storage) has its cold
-/// head advancing close to the final head. This is a migration of the pytest
-/// `split_storage.py::step1_base_case_test`.
+/// head advancing close to the final head.
 #[test]
 fn test_split_storage_cold_head_advances() {
     init_test_logger();
@@ -53,7 +54,6 @@ fn test_split_storage_cold_head_advances() {
 
 /// Tests that a killed-and-restarted archival node with cold storage can catch
 /// up from another archival node when the chain has advanced past the GC period.
-/// Inspired by the pytest `split_storage.py::step2_archival_node_sync_test`.
 ///
 /// 1. Set up a validator, the primary archival node, and a second archival node.
 /// 2. Kill the second archival node after a few blocks.
@@ -100,7 +100,7 @@ fn test_split_storage_archival_node_sync() {
     let test_height = kill_height + 1;
     let early_block_req = GetBlock(BlockReference::BlockId(BlockId::Height(test_height)));
     let validator_result = env.validator_mut().view_client_actor().handle(early_block_req.clone());
-    assert!(validator_result.is_err(), "validator should have GC'd block at height {test_height}");
+    assert_matches!(validator_result, Err(GetBlockError::UnknownBlock { .. }));
 
     // Restart the second archival — it must catch up the missing blocks
     // from the primary archival node (the validator no longer has them).
