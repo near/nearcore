@@ -88,6 +88,19 @@ pub enum MockAction {
         public_key: near_crypto::PublicKey,
         nonce: u64,
     },
+    AddGasKeyWithFullAccess {
+        receipt_index: ReceiptIndex,
+        public_key: near_crypto::PublicKey,
+        num_nonces: u16,
+    },
+    AddGasKeyWithFunctionCall {
+        receipt_index: ReceiptIndex,
+        public_key: near_crypto::PublicKey,
+        num_nonces: u16,
+        allowance: Option<Balance>,
+        receiver_id: AccountId,
+        method_names: Vec<Vec<u8>>,
+    },
     YieldCreate {
         data_id: CryptoHash,
         receiver_id: AccountId,
@@ -351,6 +364,39 @@ impl External for MockedExternal {
         deposit: Balance,
     ) {
         self.action_log.push(MockAction::TransferToGasKey { receipt_index, public_key, deposit });
+    }
+
+    fn append_action_add_gas_key_with_full_access(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        public_key: near_crypto::PublicKey,
+        num_nonces: near_primitives_core::types::NonceIndex,
+    ) {
+        self.action_log.push(MockAction::AddGasKeyWithFullAccess {
+            receipt_index,
+            public_key,
+            num_nonces,
+        });
+    }
+
+    fn append_action_add_gas_key_with_function_call(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        public_key: near_crypto::PublicKey,
+        num_nonces: near_primitives_core::types::NonceIndex,
+        allowance: Option<Balance>,
+        receiver_id: AccountId,
+        method_names: Vec<Vec<u8>>,
+    ) -> Result<(), crate::logic::VMLogicError> {
+        self.action_log.push(MockAction::AddGasKeyWithFunctionCall {
+            receipt_index,
+            public_key,
+            num_nonces,
+            allowance,
+            receiver_id,
+            method_names,
+        });
+        Ok(())
     }
 
     fn append_action_stake(

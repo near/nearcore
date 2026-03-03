@@ -468,6 +468,38 @@ impl<'a> External for RuntimeExt<'a> {
         self.receipt_manager.append_action_transfer_to_gas_key(receipt_index, public_key, deposit);
     }
 
+    fn append_action_add_gas_key_with_full_access(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        public_key: near_crypto::PublicKey,
+        num_nonces: near_primitives::types::NonceIndex,
+    ) {
+        self.receipt_manager.append_action_add_gas_key_with_full_access(
+            receipt_index,
+            public_key,
+            num_nonces,
+        )
+    }
+
+    fn append_action_add_gas_key_with_function_call(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        public_key: near_crypto::PublicKey,
+        num_nonces: near_primitives::types::NonceIndex,
+        allowance: Option<Balance>,
+        receiver_id: AccountId,
+        method_names: Vec<Vec<u8>>,
+    ) -> Result<(), VMLogicError> {
+        self.receipt_manager.append_action_add_gas_key_with_function_call(
+            receipt_index,
+            public_key,
+            num_nonces,
+            allowance,
+            receiver_id,
+            method_names,
+        )
+    }
+
     fn append_action_stake(
         &mut self,
         receipt_index: ReceiptIndex,
