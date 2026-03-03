@@ -50,7 +50,7 @@ use near_primitives::types::{
     Finality, MaybeBlockId, ShardId, SyncCheckpoint, TransactionOrReceiptId,
     ValidatorInfoIdentifier,
 };
-use near_primitives::version::ProtocolFeature;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView, ExecutionStatusView,
@@ -355,7 +355,26 @@ impl ViewClientActor {
         Ok(windows)
     }
 
+    /// Returns true if the given block height has been garbage collected on this non-archive node.
+    fn is_block_gc(&self, block_height: BlockHeight) -> bool {
+        if self.config.archive {
+            return false;
+        }
+        match self.chain.head() {
+            Ok(tip) => block_height < self.runtime.get_gc_stop_height(&tip.last_block_hash),
+            Err(_) => false,
+        }
+    }
+
     pub fn handle_query(&self, msg: Query) -> Result<QueryResponse, QueryError> {
+        // For height-based queries, check upfront whether the block has been garbage collected.
+        if let BlockReference::BlockId(BlockId::Height(h)) = &msg.block_reference {
+            if self.is_block_gc(*h) {
+                let block_hash = self.chain.get_block_hash_by_height(*h).unwrap_or_default();
+                return Err(QueryError::GarbageCollectedBlock { block_height: *h, block_hash });
+            }
+        }
+
         let header = self.get_block_header_by_reference(&msg.block_reference);
         let header = match header {
             Ok(Some(header)) => Ok(header),
@@ -376,23 +395,22 @@ impl ViewClientActor {
             shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, header.epoch_id())
                 .map_err(|err| QueryError::InternalError { error_message: err.to_string() })?;
 
-        let tip = self.chain.head();
         let chunk_extra =
             self.chain.get_chunk_extra(header.hash(), &shard_uid).map_err(|err| match err {
-                near_chain::near_chain_primitives::Error::DBNotFoundErr(_) => match tip {
-                    Ok(tip) => {
-                        let gc_stop_height = self.runtime.get_gc_stop_height(&tip.last_block_hash);
-                        if !self.config.archive && header.height() < gc_stop_height {
-                            QueryError::GarbageCollectedBlock {
-                                block_height: header.height(),
-                                block_hash: *header.hash(),
-                            }
-                        } else {
-                            QueryError::UnavailableShard { requested_shard_id: shard_id }
+                near_chain::near_chain_primitives::Error::DBNotFoundErr(_) => {
+                    // After ContinuousEpochSync is enabled, since block headers would be GC'd
+                    // there'll be no way for us to tell whether a block hash is GC'd or just unknown.
+                    if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION)
+                        && self.is_block_gc(header.height())
+                    {
+                        QueryError::GarbageCollectedBlock {
+                            block_height: header.height(),
+                            block_hash: *header.hash(),
                         }
+                    } else {
+                        QueryError::UnavailableShard { requested_shard_id: shard_id }
                     }
-                    Err(err) => QueryError::InternalError { error_message: err.to_string() },
-                },
+                }
                 near_chain::near_chain_primitives::Error::IOErr(error) => {
                     QueryError::InternalError { error_message: error.to_string() }
                 }
