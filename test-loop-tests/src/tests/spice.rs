@@ -831,20 +831,9 @@ fn test_spice_validator_only_does_not_distribute() {
 
     let num_producers = 2;
     let num_validators = 2;
-    let validators_spec = create_validators_spec(num_producers, num_validators);
-    let clients = validators_spec_clients(&validators_spec);
 
-    let shard_layout = ShardLayout::multi_shard(2, 0);
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .validators_spec(validators_spec)
-        .shard_layout(shard_layout)
-        .build();
-
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients.clone())
-        .build();
+    let mut env =
+        TestLoopBuilder::new().validators(num_producers, num_validators).num_shards(2).build();
 
     // Register override handlers on validator-only nodes to track any
     // SpicePartialData messages they attempt to send. These messages are the
@@ -852,7 +841,7 @@ fn test_spice_validator_only_does_not_distribute() {
     // and SpiceDistributorStateWitness, so their absence proves no distribution
     // happened.
     let spice_data_sent_count = Arc::new(AtomicUsize::new(0));
-    for i in num_producers..clients.len() {
+    for i in num_producers..env.node_datas.len() {
         let node_data = &env.node_datas[i];
         let counter = spice_data_sent_count.clone();
         let peer_actor = env.test_loop.data.get_mut(&node_data.peer_manager_sender.actor_handle());
@@ -867,7 +856,7 @@ fn test_spice_validator_only_does_not_distribute() {
     let mut env = env.warmup();
 
     // Run long enough for multiple blocks to be executed across all shards.
-    env.node_runner(0).run_until(|node| node.head().height > 15, Duration::seconds(20));
+    env.node_runner(0).run_until_head_height_with_timeout(15, Duration::seconds(20));
 
     assert_eq!(
         spice_data_sent_count.load(Ordering::SeqCst),
