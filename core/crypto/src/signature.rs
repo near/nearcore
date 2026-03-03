@@ -246,12 +246,9 @@ impl BorshDeserialize for PublicKey {
             KeyType::ED25519 => {
                 Ok(PublicKey::ED25519(ED25519PublicKey(BorshDeserialize::deserialize_reader(rd)?)))
             }
-            KeyType::SECP256K1 => {
-                let data: [u8; 64] = BorshDeserialize::deserialize_reader(rd)?;
-                let pk = Secp256K1PublicKey::try_from(data.as_slice())
-                    .map_err(|err| Error::new(ErrorKind::InvalidData, err.to_string()))?;
-                Ok(Self::SECP256K1(pk))
-            }
+            KeyType::SECP256K1 => Ok(PublicKey::SECP256K1(Secp256K1PublicKey(
+                BorshDeserialize::deserialize_reader(rd)?,
+            ))),
         }
     }
 }
