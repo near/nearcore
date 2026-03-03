@@ -219,6 +219,7 @@ extern "C" {
     #[cfg(feature = "test_features")]
     fn burn_gas(gas: u64);
 
+    // TODO(gas-keys): Remove "nightly" once stable supports gas keys.
     #[cfg(feature = "nightly")]
     fn promise_batch_action_transfer_to_gas_key(
         promise_index: u64,
@@ -227,6 +228,7 @@ extern "C" {
         amount_ptr: u64,
     );
 
+    // TODO(gas-keys): Remove "nightly" once stable supports gas keys.
     #[cfg(feature = "nightly")]
     fn promise_batch_action_add_gas_key_with_full_access(
         promise_index: u64,
@@ -235,6 +237,7 @@ extern "C" {
         num_nonces: u64,
     );
 
+    // TODO(gas-keys): Remove "nightly" once stable supports gas keys.
     #[cfg(feature = "nightly")]
     fn promise_batch_action_add_gas_key_with_function_call(
         promise_index: u64,
@@ -952,21 +955,13 @@ fn call_promise() {
                 let promise_index = action["promise_index"].as_i64().unwrap() as u64;
                 let public_key = from_base64(action["public_key"].as_str().unwrap());
                 let amount = action["amount"].as_str().unwrap().parse::<u128>().unwrap();
-                #[cfg(feature = "nightly")]
-                {
-                    promise_batch_action_transfer_to_gas_key(
-                        promise_index,
-                        public_key.len() as u64,
-                        public_key.as_ptr() as u64,
-                        &amount as *const u128 as *const u64 as u64,
-                    );
-                    promise_index
-                }
-                #[cfg(not(feature = "nightly"))]
-                {
-                    let _ = (promise_index, public_key, amount);
-                    unimplemented!()
-                }
+                promise_batch_action_transfer_to_gas_key(
+                    promise_index,
+                    public_key.len() as u64,
+                    public_key.as_ptr() as u64,
+                    &amount as *const u128 as *const u64 as u64,
+                );
+                promise_index
             } else if let Some(action) = arg.get("set_refund_to") {
                 let promise_index = action["promise_index"].as_i64().unwrap() as u64;
                 let beneficiary_id = action["beneficiary_id"].as_str().unwrap().as_bytes();
@@ -976,46 +971,36 @@ fn call_promise() {
                     beneficiary_id.as_ptr() as u64,
                 );
                 promise_index
-            } else if let Some(_action) = arg.get("action_add_gas_key_with_full_access") {
-                #[cfg(feature = "nightly")]
-                {
-                    let promise_index = _action["promise_index"].as_i64().unwrap() as u64;
-                    let public_key = from_base64(_action["public_key"].as_str().unwrap());
-                    let num_nonces = _action["num_nonces"].as_i64().unwrap() as u64;
-                    promise_batch_action_add_gas_key_with_full_access(
-                        promise_index,
-                        public_key.len() as u64,
-                        public_key.as_ptr() as u64,
-                        num_nonces,
-                    );
-                    promise_index
-                }
-                #[cfg(not(feature = "nightly"))]
-                unimplemented!()
-            } else if let Some(_action) = arg.get("action_add_gas_key_with_function_call") {
-                #[cfg(feature = "nightly")]
-                {
-                    let promise_index = _action["promise_index"].as_i64().unwrap() as u64;
-                    let public_key = from_base64(_action["public_key"].as_str().unwrap());
-                    let num_nonces = _action["num_nonces"].as_i64().unwrap() as u64;
-                    let allowance = _action["allowance"].as_str().unwrap().parse::<u128>().unwrap();
-                    let receiver_id = _action["receiver_id"].as_str().unwrap().as_bytes();
-                    let method_names = _action["method_names"].as_str().unwrap().as_bytes();
-                    promise_batch_action_add_gas_key_with_function_call(
-                        promise_index,
-                        public_key.len() as u64,
-                        public_key.as_ptr() as u64,
-                        num_nonces,
-                        &allowance as *const u128 as *const u64 as u64,
-                        receiver_id.len() as u64,
-                        receiver_id.as_ptr() as u64,
-                        method_names.len() as u64,
-                        method_names.as_ptr() as u64,
-                    );
-                    promise_index
-                }
-                #[cfg(not(feature = "nightly"))]
-                unimplemented!()
+            } else if let Some(action) = arg.get("action_add_gas_key_with_full_access") {
+                let promise_index = action["promise_index"].as_i64().unwrap() as u64;
+                let public_key = from_base64(action["public_key"].as_str().unwrap());
+                let num_nonces = action["num_nonces"].as_i64().unwrap() as u64;
+                promise_batch_action_add_gas_key_with_full_access(
+                    promise_index,
+                    public_key.len() as u64,
+                    public_key.as_ptr() as u64,
+                    num_nonces,
+                );
+                promise_index
+            } else if let Some(action) = arg.get("action_add_gas_key_with_function_call") {
+                let promise_index = action["promise_index"].as_i64().unwrap() as u64;
+                let public_key = from_base64(action["public_key"].as_str().unwrap());
+                let num_nonces = action["num_nonces"].as_i64().unwrap() as u64;
+                let allowance = action["allowance"].as_str().unwrap().parse::<u128>().unwrap();
+                let receiver_id = action["receiver_id"].as_str().unwrap().as_bytes();
+                let method_names = action["method_names"].as_str().unwrap().as_bytes();
+                promise_batch_action_add_gas_key_with_function_call(
+                    promise_index,
+                    public_key.len() as u64,
+                    public_key.as_ptr() as u64,
+                    num_nonces,
+                    &allowance as *const u128 as *const u64 as u64,
+                    receiver_id.len() as u64,
+                    receiver_id.as_ptr() as u64,
+                    method_names.len() as u64,
+                    method_names.as_ptr() as u64,
+                );
+                promise_index
             } else {
                 unimplemented!()
             };
@@ -2012,4 +1997,39 @@ pub unsafe fn resume_with_large_payload() {
         resolve_data.as_ptr() as u64,
     );
     assert_eq!(success, 1);
+}
+
+// TODO(gas-keys): Remove once stable supports gas keys.
+#[cfg(not(feature = "nightly"))]
+fn promise_batch_action_transfer_to_gas_key(
+    _promise_index: u64,
+    _public_key_len: u64,
+    _public_key_ptr: u64,
+    _amount_ptr: u64,
+) {
+}
+
+// TODO(gas-keys): Remove once stable supports gas keys.
+#[cfg(not(feature = "nightly"))]
+fn promise_batch_action_add_gas_key_with_full_access(
+    _promise_index: u64,
+    _public_key_len: u64,
+    _public_key_ptr: u64,
+    _num_nonces: u64,
+) {
+}
+
+// TODO(gas-keys): Remove once stable supports gas keys.
+#[cfg(not(feature = "nightly"))]
+fn promise_batch_action_add_gas_key_with_function_call(
+    _promise_index: u64,
+    _public_key_len: u64,
+    _public_key_ptr: u64,
+    _num_nonces: u64,
+    _allowance_ptr: u64,
+    _receiver_id_len: u64,
+    _receiver_id_ptr: u64,
+    _method_names_len: u64,
+    _method_names_ptr: u64,
+) {
 }
