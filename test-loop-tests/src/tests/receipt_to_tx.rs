@@ -411,6 +411,14 @@ fn test_refund_receipt_has_receipt_to_tx() {
     );
     let refund_receipt_id = action_outcome.outcome.receipt_ids[0];
 
+    // Verify it is actually a refund receipt (predecessor is "system").
+    let refund_receipt = env.validator().receipt(refund_receipt_id);
+    assert!(
+        refund_receipt.predecessor_id().is_system(),
+        "expected a system refund receipt, got predecessor {:?}",
+        refund_receipt.predecessor_id()
+    );
+
     // Verify the refund receipt has a ReceiptToTx entry with FromReceipt origin.
     let store = env.validator().store();
     let info = store
