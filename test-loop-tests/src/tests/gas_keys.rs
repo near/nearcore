@@ -482,19 +482,16 @@ fn setup_host_function_test() -> HostFunctionTestSetup {
 #[test]
 #[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_gas_key_transfer_host_function() {
-    let setup = setup_host_function_test();
-    let HostFunctionTestSetup { mut env, account, mut nonce, gas_price } = setup;
-    let mut next_nonce = || {
-        nonce += 1;
-        nonce
-    };
+    let mut setup = setup_host_function_test();
+    let account = setup.account.clone();
+    let gas_price = setup.gas_price;
 
     // Create a gas key on account
     let gas_key_signer: Signer =
         InMemorySigner::from_seed(account.clone(), KeyType::ED25519, "gas_key").into();
-    let block_hash = env.rpc_node().head().last_block_hash;
+    let block_hash = setup.env.rpc_node().head().last_block_hash;
     let add_key_tx = SignedTransaction::from_actions(
-        next_nonce(),
+        setup.next_nonce(),
         account.clone(),
         account.clone(),
         &create_user_test_signer(&account),
@@ -504,14 +501,14 @@ fn test_gas_key_transfer_host_function() {
         }))],
         block_hash,
     );
-    env.rpc_runner().run_tx(add_key_tx, Duration::seconds(5));
-    env.rpc_runner().run_for_number_of_blocks(1);
+    setup.env.rpc_runner().run_tx(add_key_tx, Duration::seconds(5));
+    setup.env.rpc_runner().run_for_number_of_blocks(1);
 
     // Fund the gas key with an initial balance via TransferToGasKey transaction action
     let initial_gas_key_fund = Balance::from_millinear(100);
-    let block_hash = env.rpc_node().head().last_block_hash;
+    let block_hash = setup.env.rpc_node().head().last_block_hash;
     let fund_tx = SignedTransaction::from_actions(
-        next_nonce(),
+        setup.next_nonce(),
         account.clone(),
         account.clone(),
         &create_user_test_signer(&account),
@@ -521,13 +518,13 @@ fn test_gas_key_transfer_host_function() {
         }))],
         block_hash,
     );
-    env.rpc_runner().run_tx(fund_tx, Duration::seconds(5));
-    env.rpc_runner().run_for_number_of_blocks(1);
+    setup.env.rpc_runner().run_tx(fund_tx, Duration::seconds(5));
+    setup.env.rpc_runner().run_for_number_of_blocks(1);
 
     // Record gas key balance and account balance before the host function call
     let (_, gas_key_balance_before) =
-        query_gas_key_and_balance(&env.rpc_node(), &account, &gas_key_signer.public_key());
-    let account_balance_before = env.rpc_node().view_account_query(&account).unwrap().amount;
+        query_gas_key_and_balance(&setup.env.rpc_node(), &account, &gas_key_signer.public_key());
+    let account_balance_before = setup.env.rpc_node().view_account_query(&account).unwrap().amount;
 
     // Call the contract's call_promise function to exercise the transfer_to_gas_key host function.
     let host_fn_deposit = Balance::from_millinear(10);
@@ -546,9 +543,9 @@ fn test_gas_key_transfer_host_function() {
 
     let method_name = "call_promise";
     let fc_args_len = input_data.len();
-    let block_hash = env.rpc_node().head().last_block_hash;
+    let block_hash = setup.env.rpc_node().head().last_block_hash;
     let call_tx = SignedTransaction::from_actions(
-        next_nonce(),
+        setup.next_nonce(),
         account.clone(),
         account.clone(),
         &create_user_test_signer(&account),
@@ -560,8 +557,8 @@ fn test_gas_key_transfer_host_function() {
         }))],
         block_hash,
     );
-    let outcome = env.rpc_runner().execute_tx(call_tx, Duration::seconds(5)).unwrap();
-    env.rpc_runner().run_for_number_of_blocks(1);
+    let outcome = setup.env.rpc_runner().execute_tx(call_tx, Duration::seconds(5)).unwrap();
+    setup.env.rpc_runner().run_for_number_of_blocks(1);
 
     assert!(
         matches!(outcome.status, FinalExecutionStatus::SuccessValue(_)),
@@ -571,17 +568,17 @@ fn test_gas_key_transfer_host_function() {
 
     // Verify gas key balance increased by the deposit amount
     let (_, gas_key_balance_after) =
-        query_gas_key_and_balance(&env.rpc_node(), &account, &gas_key_signer.public_key());
+        query_gas_key_and_balance(&setup.env.rpc_node(), &account, &gas_key_signer.public_key());
     assert_eq!(gas_key_balance_after, gas_key_balance_before.checked_add(host_fn_deposit).unwrap());
 
     // Verify account balance decreased by exactly deposit + tokens_burnt - reward.
     // The runtime gives 30% of gas_burnt_for_function_call * gas_price back to the account.
     // gas_burnt_for_function_call = receipt gas_burnt - exec overhead (new_action_receipt +
     // function_call action fees). The overhead uses method_name + args byte count.
-    let account_balance_after = env.rpc_node().view_account_query(&account).unwrap().amount;
+    let account_balance_after = setup.env.rpc_node().view_account_query(&account).unwrap().amount;
     let tokens_burnt = total_tokens_burnt(&outcome);
     let runtime_config =
-        env.rpc_node().client().runtime_adapter.get_runtime_config(PROTOCOL_VERSION);
+        setup.env.rpc_node().client().runtime_adapter.get_runtime_config(PROTOCOL_VERSION);
     let fee_helper = FeeHelper::new(runtime_config.clone(), gas_price);
     let fc_receipt_gas_burnt = outcome.receipts_outcome[0].outcome.gas_burnt;
     let fc_overhead = fee_helper.function_call_exec_gas((method_name.len() + fc_args_len) as u64);
@@ -598,7 +595,7 @@ fn test_gas_key_transfer_host_function() {
             .unwrap(),
     );
 
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
+    setup.env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 /// Test that a contract can create a gas key with full access using the host function.
