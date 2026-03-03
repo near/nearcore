@@ -29,14 +29,12 @@ trait ChunkStateWitnessExt {
 impl ChunkStateWitnessExt for ChunkStateWitness {
     fn mut_source_receipt_proofs(&mut self) -> &mut HashMap<ChunkHash, ReceiptProof> {
         match self {
-            ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &mut witness.source_receipt_proofs,
         }
     }
 
     fn mut_chunk_header(&mut self) -> &mut ShardChunkHeader {
         match self {
-            ChunkStateWitness::V1 => unreachable!("ChunkStateWitness V1 is deprecated"),
             ChunkStateWitness::V2(witness) => &mut witness.chunk_header,
         }
     }
