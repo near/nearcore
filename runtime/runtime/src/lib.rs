@@ -196,6 +196,8 @@ pub struct ApplyState {
     pub trie_access_tracker_state: Arc<ext::AccountingState>,
     /// Whether the chunk being applied is new.
     pub is_new_chunk: bool,
+    /// Whether to record receipt-to-transaction origin mappings.
+    pub save_receipt_to_tx: bool,
     /// Congestion level on each shard based on the latest known chunk header of each shard.
     ///
     /// The map must be empty if congestion control is disabled in the previous
@@ -932,16 +934,19 @@ impl Runtime {
             .filter_map(|(receipt_index, mut new_receipt)| {
                 let receipt_id = apply_state.create_receipt_id(receipt.receipt_id(), receipt_index);
                 new_receipt.set_receipt_id(receipt_id);
-                receipt_to_tx.push((
-                    receipt_id,
-                    ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
-                        origin: ReceiptOrigin::FromReceipt(ReceiptOriginReceipt {
-                            parent_receipt_id: *receipt.receipt_id(),
-                            parent_creator_account_id: receipt.predecessor_id().clone(),
+                if apply_state.save_receipt_to_tx {
+                    receipt_to_tx.push((
+                        receipt_id,
+                        ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+                            origin: ReceiptOrigin::FromReceipt(ReceiptOriginReceipt {
+                                parent_receipt_id: *receipt.receipt_id(),
+                                parent_predecessor_id: receipt.predecessor_id().clone(),
+                            }),
+                            receiver_account_id: new_receipt.receiver_id().clone(),
+                            shard_id: apply_state.shard_id,
                         }),
-                        receiver_account_id: new_receipt.receiver_id().clone(),
-                    }),
-                ));
+                    ));
+                }
                 let is_action = matches!(
                     new_receipt.receipt(),
                     ReceiptEnum::Action(_)
@@ -2014,16 +2019,19 @@ impl Runtime {
                             metadata: ExecutionMetadata::V1,
                         },
                     };
-                    processing_state.receipt_to_tx.push((
-                        receipt_id,
-                        ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
-                            origin: ReceiptOrigin::FromTransaction(ReceiptOriginTransaction {
-                                tx_hash: *tx_hash,
-                                sender_account_id: signer_id.clone(),
+                    if processing_state.apply_state.save_receipt_to_tx {
+                        processing_state.receipt_to_tx.push((
+                            receipt_id,
+                            ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+                                origin: ReceiptOrigin::FromTransaction(ReceiptOriginTransaction {
+                                    tx_hash: *tx_hash,
+                                    sender_account_id: signer_id.clone(),
+                                }),
+                                receiver_account_id: tx.transaction.receiver_id().clone(),
+                                shard_id: processing_state.apply_state.shard_id,
                             }),
-                            receiver_account_id: tx.transaction.receiver_id().clone(),
-                        }),
-                    ));
+                        ));
+                    }
                     if receipt.receiver_id() == signer_id {
                         processing_state.local_receipts.push_back(receipt);
                     } else {
@@ -2908,16 +2916,19 @@ fn resolve_promise_yield_timeouts(
                 queue_entry.data_id,
             )?
             .expect("promise yield receipt should exist since contains_key was true");
-            processing_state.receipt_to_tx.push((
-                new_receipt_id,
-                ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
-                    origin: ReceiptOrigin::FromReceipt(ReceiptOriginReceipt {
-                        parent_receipt_id: *yield_receipt.receipt_id(),
-                        parent_creator_account_id: yield_receipt.predecessor_id().clone(),
+            if processing_state.apply_state.save_receipt_to_tx {
+                processing_state.receipt_to_tx.push((
+                    new_receipt_id,
+                    ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+                        origin: ReceiptOrigin::FromReceipt(ReceiptOriginReceipt {
+                            parent_receipt_id: *yield_receipt.receipt_id(),
+                            parent_predecessor_id: yield_receipt.predecessor_id().clone(),
+                        }),
+                        receiver_account_id: queue_entry.account_id.clone(),
+                        shard_id: processing_state.apply_state.shard_id,
                     }),
-                    receiver_account_id: queue_entry.account_id.clone(),
-                }),
-            ));
+                ));
+            }
 
             // The receipt is destined for the local shard and will be placed in the outgoing
             // receipts buffer. It is possible that there is already an outgoing receipt resolving

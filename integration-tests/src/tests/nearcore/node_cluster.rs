@@ -22,7 +22,6 @@ async fn start_nodes(
     epoch_length: BlockHeightDelta,
     genesis_height: BlockHeight,
     save_tx_outcomes: Option<bool>,
-    save_receipt_to_tx: Option<bool>,
 ) -> (
     Genesis,
     Vec<String>,
@@ -62,7 +61,6 @@ async fn start_nodes(
             near_config.client_config.tracked_shards_config = TrackedShardsConfig::AllShards;
         }
         near_config.client_config.save_tx_outcomes = save_tx_outcomes.unwrap_or(false);
-        near_config.client_config.save_receipt_to_tx = save_receipt_to_tx.unwrap_or(false);
         near_configs.push(near_config);
     }
 
@@ -89,7 +87,6 @@ pub struct NodeCluster {
     epoch_length: Option<BlockHeightDelta>,
     genesis_height: Option<BlockHeight>,
     save_tx_outcomes: Option<bool>,
-    save_receipt_to_tx: Option<bool>,
 }
 
 impl NodeCluster {
@@ -128,12 +125,6 @@ impl NodeCluster {
         self
     }
 
-    #[allow(dead_code)]
-    pub fn set_save_receipt_to_tx(mut self, save: bool) -> Self {
-        self.save_receipt_to_tx = Some(save);
-        self
-    }
-
     pub async fn run_and_then_shutdown<F, R>(self, f: F)
     where
         R: future::Future<Output = ()> + 'static,
@@ -168,7 +159,6 @@ impl NodeCluster {
             epoch_length,
             genesis_height,
             self.save_tx_outcomes,
-            self.save_receipt_to_tx,
         )
         .await;
         f(genesis, rpc_addrs, clients).await;

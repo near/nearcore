@@ -333,16 +333,19 @@ fn forward_distribution_next_shard(
     let mut next_receipt = Receipt::new_global_contract_distribution(predecessor_id, next_receipt);
     let receipt_id = apply_state.create_receipt_id(receipt.receipt_id(), 0);
     next_receipt.set_receipt_id(receipt_id);
-    receipt_to_tx.push((
-        receipt_id,
-        ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
-            origin: ReceiptOrigin::FromReceipt(ReceiptOriginReceipt {
-                parent_receipt_id: *receipt.receipt_id(),
-                parent_creator_account_id: receipt.predecessor_id().clone(),
+    if apply_state.save_receipt_to_tx {
+        receipt_to_tx.push((
+            receipt_id,
+            ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+                origin: ReceiptOrigin::FromReceipt(ReceiptOriginReceipt {
+                    parent_receipt_id: *receipt.receipt_id(),
+                    parent_predecessor_id: receipt.predecessor_id().clone(),
+                }),
+                receiver_account_id: next_receipt.receiver_id().clone(),
+                shard_id: apply_state.shard_id,
             }),
-            receiver_account_id: next_receipt.receiver_id().clone(),
-        }),
-    ));
+        ));
+    }
     receipt_sink.forward_or_buffer_receipt(next_receipt, apply_state, state_update)?;
     Ok(())
 }

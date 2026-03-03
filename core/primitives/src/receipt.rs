@@ -1300,6 +1300,7 @@ mod tests {
                 sender_account_id: "alice.near".parse().unwrap(),
             }),
             receiver_account_id: "bob.near".parse().unwrap(),
+            shard_id: ShardId::new(0),
         });
         let bytes = borsh::to_vec(&info).unwrap();
         let decoded: ReceiptToTxInfo = borsh::from_slice(&bytes).unwrap();
@@ -1311,9 +1312,10 @@ mod tests {
         let info = ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
             origin: ReceiptOrigin::FromReceipt(ReceiptOriginReceipt {
                 parent_receipt_id: CryptoHash::hash_bytes(b"parent"),
-                parent_creator_account_id: "alice.near".parse().unwrap(),
+                parent_predecessor_id: "alice.near".parse().unwrap(),
             }),
             receiver_account_id: "contract.near".parse().unwrap(),
+            shard_id: ShardId::new(1),
         });
         let bytes = borsh::to_vec(&info).unwrap();
         let decoded: ReceiptToTxInfo = borsh::from_slice(&bytes).unwrap();
@@ -1385,7 +1387,7 @@ pub struct ReceiptOriginTransaction {
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
 pub struct ReceiptOriginReceipt {
     pub parent_receipt_id: CryptoHash,
-    pub parent_creator_account_id: AccountId,
+    pub parent_predecessor_id: AccountId,
 }
 
 /// Versioned mapping from receipt_id to its origin information.
@@ -1399,4 +1401,5 @@ pub enum ReceiptToTxInfo {
 pub struct ReceiptToTxInfoV1 {
     pub origin: ReceiptOrigin,
     pub receiver_account_id: AccountId,
+    pub shard_id: ShardId,
 }

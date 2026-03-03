@@ -114,6 +114,7 @@ pub fn setup_client(
         TrieConfig::from_store_config(&store_config),
         client_config.gc.gc_num_epochs_to_keep,
         client_config.cloud_archival_writer.is_some(),
+        client_config.save_receipt_to_tx,
     );
 
     let state_snapshot = StateSnapshotActor::new(
@@ -210,6 +211,7 @@ pub fn setup_client(
                 TrieConfig::from_store_config(&store_config),
                 client_config.gc.gc_num_epochs_to_keep,
                 client_config.cloud_archival_writer.is_some(),
+                client_config.save_receipt_to_tx,
             );
             (view_epoch_manager, view_shard_tracker, view_runtime_adapter)
         } else {
