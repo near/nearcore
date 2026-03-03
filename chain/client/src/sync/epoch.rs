@@ -45,6 +45,19 @@ pub enum EpochSyncRunResult {
     NeedsDataReset,
 }
 
+/// Maximum age of an epoch sync proof, in number of epochs.
+/// Proofs older than this are rejected as too stale.
+/// This is intentionally larger than the epoch sync horizon because
+/// proofs are inherently ~2 epochs old by design (the target epoch
+/// must be finalized before a proof can be derived).
+const EPOCH_SYNC_PROOF_MAX_AGE_NUM_EPOCHS: u64 = {
+    assert!(
+        near_chain_configs::MIN_GC_NUM_EPOCHS_TO_KEEP == 3,
+        "EPOCH_SYNC_PROOF_MAX_AGE_NUM_EPOCHS must match MIN_GC_NUM_EPOCHS_TO_KEEP"
+    );
+    3
+};
+
 pub struct EpochSync {
     clock: Clock,
     network_adapter: PeerManagerAdapter,
@@ -224,7 +237,7 @@ impl EpochSync {
                 .current_epoch
                 .first_block_header_in_epoch
                 .height()
-                .saturating_add(self.config.epoch_sync_horizon_num_epochs * chain.epoch_length)
+                .saturating_add(EPOCH_SYNC_PROOF_MAX_AGE_NUM_EPOCHS * chain.epoch_length)
                 < status.source_peer_height
             {
                 tracing::error!(
