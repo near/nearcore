@@ -550,6 +550,16 @@ impl<K: std::hash::Hash + Eq, V> LruWeightedCache<K, V> {
         }
     }
 
+    #[cfg_attr(not(feature = "metrics"), allow(dead_code))]
+    fn len(&self) -> usize {
+        self.cache.len()
+    }
+
+    #[cfg_attr(not(feature = "metrics"), allow(dead_code))]
+    fn current_weight(&self) -> u64 {
+        self.current_weight
+    }
+
     fn clear(&mut self) {
         self.current_weight = 0;
         self.cache.clear();
@@ -581,6 +591,8 @@ impl AnyCache {
     pub fn clear(&self) {
         if let Some(cache) = &self.cache {
             cache.lock().clear();
+            #[cfg(feature = "metrics")]
+            crate::metrics::set_compiled_contract_cache_metrics(0, 0);
         }
     }
 
@@ -647,7 +659,10 @@ impl AnyCache {
         }
         let (weight, generated) = generate()?;
         let result = with(&*generated);
-        cache.lock().put(key, weight, generated);
+        let mut locked = cache.lock();
+        locked.put(key, weight, generated);
+        #[cfg(feature = "metrics")]
+        crate::metrics::set_compiled_contract_cache_metrics(locked.len(), locked.current_weight());
         Ok(result)
     }
 
