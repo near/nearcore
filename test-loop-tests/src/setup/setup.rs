@@ -59,6 +59,7 @@ pub fn setup_client(
     shared_state: &SharedState,
 ) -> NodeExecutionData {
     let NodeSetupState { account_id, client_config, storage } = node_state;
+    let is_archival = client_config.archive;
     let SharedState {
         genesis,
         tempdir,
@@ -583,6 +584,9 @@ pub fn setup_client(
     // Note that this can potentially overwrite an existing client with the same account_id
     // and all new messages would be redirected to the new client.
     network_shared_state.add_client(&node_data);
+    if is_archival {
+        network_shared_state.mark_archival(&node_data.peer_id);
+    }
 
     // Register all accumulated drop conditions
     for condition in drop_conditions {
