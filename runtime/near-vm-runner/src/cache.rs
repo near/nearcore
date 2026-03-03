@@ -534,9 +534,11 @@ impl<K: std::hash::Hash + Eq, V> LruWeightedCache<K, V> {
             return;
         }
 
-        // This may temporarily increase the cache weight up to twice the max.
-        self.cache.put(key, (weight, value));
-        // overflow is impossible due to assert on max_weight in new() and early return above
+        // `push` (unlike `put`) returns any evicted entry, whether it was a
+        // same-key replacement or the LRU entry dropped due to item_capacity.
+        if let Some((_, (evicted_weight, _))) = self.cache.push(key, (weight, value)) {
+            self.current_weight -= evicted_weight;
+        }
         self.current_weight += weight;
 
         while self.max_weight < self.current_weight {
@@ -918,6 +920,47 @@ mod tests {
         assert!(!cache.contains(key3), "Item 3 should have been evicted");
         assert!(!cache.contains(key4), "Item 4 should have been evicted");
         assert!(cache.contains(key5), "Item 5 should be in cache");
+    }
+
+    #[test]
+    fn lru_weighted_cache_item_capacity_eviction_tracks_weight() {
+        // Regression test: when lru::LruCache silently evicts an entry due to
+        // item_capacity, the evicted entry's weight must be subtracted from
+        // current_weight. Otherwise the tracked weight drifts upward and
+        // triggers spurious weight-based evictions.
+        let item_capacity = NonZeroUsize::new(2).unwrap();
+        let max_weight = 25;
+        let mut cache = LruWeightedCache::<&str, u32>::new(item_capacity, max_weight);
+
+        cache.put("a", 10, 1);
+        cache.put("b", 10, 2);
+        // At this point: items={a,b}, current_weight should be 20.
+
+        // Inserting "c" causes lru::LruCache to silently evict "a" (the LRU).
+        // Total actual weight is now 20 (b=10 + c=10) which fits in max_weight=25.
+        cache.put("c", 10, 3);
+
+        // "b" should still be in the cache because total weight (20) <= max_weight (25).
+        assert!(
+            cache.contains(&"b"),
+            "item 'b' was spuriously evicted due to inflated current_weight"
+        );
+        assert!(cache.contains(&"c"), "item 'c' should be in cache");
+        assert!(!cache.contains(&"a"), "item 'a' should have been evicted by item_capacity");
+    }
+
+    #[test]
+    fn lru_weighted_cache_same_key_replace_tracks_weight() {
+        let item_capacity = NonZeroUsize::new(2).unwrap();
+        let max_weight = 25;
+        let mut cache = LruWeightedCache::<&str, u32>::new(item_capacity, max_weight);
+
+        cache.put("a", 20, 1); // current_weight = 20
+        cache.put("a", 5, 2); // current_weight = 5 (old weight 20 subtracted)
+        cache.put("b", 20, 3); // current_weight = 25, fits in max_weight
+
+        assert!(cache.contains(&"a"), "item 'a' should still be in cache");
+        assert!(cache.contains(&"b"), "item 'b' should still be in cache");
     }
 
     #[cfg(feature = "test_features")]
