@@ -143,7 +143,7 @@ jobs:
         run: |
           COMMIT=$(git rev-parse HEAD)
           BRANCH=$(git branch --show-current)
-          # in case of Release triggered run, branch is empty
+          # In case of Release triggered run, branch is empty so it will be determined based on the tag.
           if [ -z "$BRANCH" ]; then
             BRANCH=$(git branch -r --contains=${GITHUB_REF_NAME} | head -n1 | cut -c3- | cut -d / -f 2)
           fi
@@ -154,18 +154,16 @@ jobs:
             TAGS+=("${GITHUB_REF_NAME}-${COMMIT}")
             if [ "${{ github.event.release.prerelease }}" = "true" ]; then
               TAGS+=("pre-release")
+              TAGS+=("testnet")
             else
               TAGS+=("release")
+              TAGS+=("mainnet")
             fi
           else
             TAGS+=("$BRANCH")
             TAGS+=("$BRANCH-${COMMIT}")
           fi
 
-          if [[ ${BRANCH} == "master" ]]; then
-            TAGS+=("latest")
-          fi
-          
           DOCKER_TAGS=()
           for tag in "${TAGS[@]}"; do
             DOCKER_TAGS+=("nearprotocol/nearcore:$tag")

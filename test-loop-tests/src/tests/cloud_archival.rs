@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
@@ -78,11 +76,9 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
 
     let archival_id: AccountId = "archival".parse().unwrap();
     let all_clients = vec![archival_id.clone(), validator_id];
-    let mut cold_storage_archival_clients = HashSet::<AccountId>::new();
-    if params.enable_cold_storage {
-        cold_storage_archival_clients.insert(archival_id.clone());
-    }
-    let cloud_storage_archival_clients = [archival_id.clone()].into_iter().collect();
+    let cold_storage_archival_clients =
+        if params.enable_cold_storage { vec![archival_id.clone()] } else { vec![] };
+    let cloud_storage_archival_clients = vec![archival_id.clone()];
     let archival_index = all_clients.iter().position(|id| id == &archival_id).unwrap();
 
     let mut builder = TestLoopBuilder::new()

@@ -23,9 +23,7 @@ use near_vm_runner::ContractCode;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::account::{
-    create_account_ids, create_validators_spec, validators_spec_clients_with_rpc,
-};
+use crate::utils::account::create_account_ids;
 use crate::utils::transactions;
 
 const GAS_PRICE: Balance = Balance::from_yoctonear(1);
@@ -239,25 +237,18 @@ impl GlobalContractsTestEnv {
 
         let boundary_accounts = create_account_ids(["account1"]).to_vec();
         let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
-        let validators_spec = create_validators_spec(2, 2);
-        let clients = validators_spec_clients_with_rpc(&validators_spec);
-
-        let genesis = TestLoopBuilder::new_genesis_builder()
-            .validators_spec(validators_spec)
-            .shard_layout(shard_layout)
-            .add_user_accounts_simple(
-                &[account_shard_0.clone(), account_shard_1.clone(), deploy_account.clone()],
-                initial_balance,
-            )
-            .add_user_account_simple(zero_balance_account.clone(), Balance::ZERO)
-            .gas_prices(GAS_PRICE, GAS_PRICE)
-            .build();
 
         let runtime_config_store = RuntimeConfigStore::new(None);
         let env = TestLoopBuilder::new()
-            .genesis(genesis)
-            .epoch_config_store_from_genesis()
-            .clients(clients)
+            .validators(2, 2)
+            .enable_rpc()
+            .shard_layout(shard_layout)
+            .add_user_accounts(
+                &[account_shard_0.clone(), account_shard_1.clone(), deploy_account.clone()],
+                initial_balance,
+            )
+            .add_user_account(&zero_balance_account, Balance::ZERO)
+            .gas_prices(GAS_PRICE, GAS_PRICE)
             .runtime_config_store(runtime_config_store.clone())
             .build()
             .warmup();
