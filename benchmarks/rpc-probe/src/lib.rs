@@ -11,7 +11,7 @@ pub struct Config {
     /// Path to a JSON array of `ProbeAccount` entries.
     pub accounts_path: PathBuf,
     /// Probe interval in seconds.
-    pub interval_s: u64,
+    pub interval_s: f64,
     /// RPC endpoint to probe.
     pub rpc_url: String,
     /// Delay in seconds before starting probes.
@@ -22,7 +22,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             accounts_path: PathBuf::new(),
-            interval_s: 5,
+            interval_s: 5.0,
             rpc_url: "http://localhost:3030".to_string(),
             startup_delay_s: 120,
         }
@@ -42,7 +42,7 @@ struct ProbeAccount {
 
 /// Start the RPC probe loop as a background tokio task.
 pub fn start(config: Config) {
-    if config.interval_s == 0 {
+    if config.interval_s <= 0.0 {
         tracing::error!(target: "rpc-probe", "interval_s must be > 0, probe disabled");
         return;
     }
@@ -87,7 +87,7 @@ async fn probe_loop(config: Config, accounts: Vec<ProbeAccount>) {
         .build()
         .expect("failed to build HTTP client");
 
-    let interval = Duration::from_secs(config.interval_s);
+    let interval = Duration::from_secs_f64(config.interval_s);
     let rpc_url = config.rpc_url.clone();
     let mut account_idx: usize = 0;
 
@@ -195,7 +195,7 @@ mod tests {
             r#"{"accounts_path": "/tmp/accounts.json", "interval_s": 10, "rpc_url": "http://localhost:4040", "startup_delay_s": 30}"#,
         )
         .unwrap();
-        assert_eq!(config.interval_s, 10);
+        assert_eq!(config.interval_s, 10.0);
         assert_eq!(config.rpc_url, "http://localhost:4040");
         assert_eq!(config.startup_delay_s, 30);
     }

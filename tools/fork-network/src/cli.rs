@@ -656,7 +656,10 @@ impl ForkNetworkCommand {
             serde_json::from_str(&std::fs::read_to_string(params_path)?)?;
         let num_accounts = params["num_accounts"].as_u64().unwrap();
         let chunk_producers = params["chunk_producers"].as_u64().unwrap();
-        let num_rpcs = params.get("rpcs").and_then(|v| v.as_u64()).unwrap_or(0);
+        let num_rpcs = match params.get("rpcs") {
+            Some(v) => v.as_u64().expect("\"rpcs\" in params.json must be a valid u64"),
+            None => 0,
+        };
         Ok((epoch_config, num_accounts, chunk_producers, num_rpcs))
     }
 
