@@ -358,20 +358,21 @@ impl Block {
         } else {
             self.chunks().compute_gas_limit_checked()?
         };
-        let expected_price = Self::compute_next_gas_price(
+        let expected_price = Self::compute_next_gas_price_checked(
             gas_price,
             gas_used,
             gas_limit,
             gas_price_adjustment_rate,
             min_gas_price,
             max_gas_price,
-        );
+        )?;
         Some(self.header().next_gas_price() == expected_price)
     }
 
     /// Computes gas price for applying chunks in the next block according to the formula:
     ///   next_gas_price = gas_price * (1 + (gas_used/gas_limit - 1/2) * adjustment_rate)
     /// and clamped between min_gas_price and max_gas_price.
+    #[deprecated(note = "use `compute_next_gas_price_checked` to avoid overflow panic")]
     pub fn compute_next_gas_price(
         gas_price: Balance,
         gas_used: Gas,
@@ -380,9 +381,28 @@ impl Block {
         min_gas_price: Balance,
         max_gas_price: Balance,
     ) -> Balance {
+        Self::compute_next_gas_price_checked(
+            gas_price,
+            gas_used,
+            gas_limit,
+            gas_price_adjustment_rate,
+            min_gas_price,
+            max_gas_price,
+        )
+        .unwrap()
+    }
+
+    pub fn compute_next_gas_price_checked(
+        gas_price: Balance,
+        gas_used: Gas,
+        gas_limit: Gas,
+        gas_price_adjustment_rate: Rational32,
+        min_gas_price: Balance,
+        max_gas_price: Balance,
+    ) -> Option<Balance> {
         // If block was skipped, the price does not change.
         if gas_limit == Gas::ZERO {
-            return gas_price;
+            return Some(gas_price);
         }
 
         let gas_used = u128::from(gas_used.as_gas());
@@ -392,21 +412,25 @@ impl Block {
 
         // This number can never be negative as long as gas_used <= gas_limit and
         // adjustment_rate_numer <= adjustment_rate_denom.
-        let numerator = 2 * adjustment_rate_denom * gas_limit
-            + 2 * adjustment_rate_numer * gas_used
-            - adjustment_rate_numer * gas_limit;
-        let denominator = 2 * adjustment_rate_denom * gas_limit;
+        let numerator = 2u128
+            .checked_mul(adjustment_rate_denom)?
+            .checked_mul(gas_limit)?
+            .checked_add(
+                2u128.checked_mul(adjustment_rate_numer)?.checked_mul(gas_used)?,
+            )?
+            .checked_sub(adjustment_rate_numer.checked_mul(gas_limit)?)?;
+        let denominator = 2u128.checked_mul(adjustment_rate_denom)?.checked_mul(gas_limit)?;
         let next_gas_price =
             U256::from(gas_price.as_yoctonear()) * U256::from(numerator) / U256::from(denominator);
 
-        Balance::from_yoctonear(
+        Some(Balance::from_yoctonear(
             next_gas_price
                 .clamp(
                     U256::from(min_gas_price.as_yoctonear()),
                     U256::from(max_gas_price.as_yoctonear()),
                 )
                 .as_u128(),
-        )
+        ))
     }
 
     pub fn validate_chunk_header_proof(
