@@ -331,7 +331,7 @@ pub struct ClientActor {
 
     /// Synchronization measure to allow graceful shutdown.
     /// Informs the system when a ClientActor gets dropped.
-    shutdown_signal: Option<broadcast::Sender<ShutdownReason>>,
+    pub(crate) shutdown_signal: Option<broadcast::Sender<ShutdownReason>>,
 
     /// Manages updating the config.
     config_updater: Option<ConfigUpdater>,
@@ -1836,12 +1836,6 @@ impl ClientActor {
             // needs access to the client.
             SyncHandlerRequest::NeedProcessBlockArtifact(block_processing_artifacts) => {
                 self.client.process_block_processing_artifact(block_processing_artifacts);
-            }
-            SyncHandlerRequest::NeedsDataReset => {
-                tracing::info!(target: "client", "stale node detected, requesting data reset for epoch sync");
-                if let Some(tx) = self.shutdown_signal.take() {
-                    let _ = tx.send(ShutdownReason::EpochSyncDataReset);
-                }
             }
         }
     }
