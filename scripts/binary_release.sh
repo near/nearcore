@@ -73,37 +73,28 @@ function upload_release_binary {
   tar_binary ${binary}
   local tar_file=${binary}.tar.gz
 
-  local release_tag=""
-  # the release commit is assigned multiple tags. Only use the tag from the git run.
+  # Do not publish the branch name for release events.
+  local upload_target=""
   if [ "${GITHUB_EVENT_NAME}" = "release" ] && [ -n "${GITHUB_REF_NAME}" ]; then
-    release_tag="${GITHUB_REF_NAME}"
+    upload_target="${GITHUB_REF_NAME}"
+  elif [ -n "${branch}" ]; then
+    upload_target="${branch}"
   fi
 
-  # TODO: Do not publish the branch name for release events.
-  local upload_targets=()
-  if [ -n "${branch}" ]; then
-    upload_targets+=("${branch}")
-  fi
-  if [ -n "${release_tag}" ] && [ "${branch}" != "${release_tag}" ]; then
-    upload_targets+=("${release_tag}")
-  fi
-
-  if [ ${#upload_targets[@]} -eq 0 ]; then
+  if [ -z "${upload_target}" ]; then
     echo "Unable to determine upload target for release artifacts" >&2
     exit 1
   fi
 
   local sources=("target/release/${binary}" "${tar_file}")
   local destinations=("${binary}" "${tar_file}")
-  
-  for target in "${upload_targets[@]}"; do  
-    for i in "${!sources[@]}"; do
-      local src=${sources[$i]}
-      local dst=${destinations[$i]}
-      upload_s3 "${src}" "${os_and_arch}/${target}/${dst}"
-      upload_s3 "${src}" "${os_and_arch}/${target}/${commit}/${dst}"
-      upload_s3 "${src}" "${os_and_arch}/${target}/${commit}/stable/${dst}"
-    done
+
+  for i in "${!sources[@]}"; do
+    local src=${sources[$i]}
+    local dst=${destinations[$i]}
+    upload_s3 "${src}" "${os_and_arch}/${upload_target}/${dst}"
+    upload_s3 "${src}" "${os_and_arch}/${upload_target}/${commit}/${dst}"
+    upload_s3 "${src}" "${os_and_arch}/${upload_target}/${commit}/stable/${dst}"
   done
 }
 

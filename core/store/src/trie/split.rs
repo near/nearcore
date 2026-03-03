@@ -41,6 +41,7 @@ const ATTACHED_DATA: [(SubtreeIdx, u8); 2] = [
     (SubtreeIdx::ContractData, ACCOUNT_DATA_SEPARATOR),
 ];
 
+/// Errors that can occur when finding the optimal trie split point.
 #[derive(Error, Debug)]
 pub enum FindSplitError {
     #[error(transparent)]
@@ -583,6 +584,9 @@ fn extension_to_nibbles(extension: &[u8]) -> SmallVec<[u8; MAX_NIBBLES]> {
     nibble_slice.iter().collect()
 }
 
+/// Find the boundary account that splits the trie into two roughly equal parts by memory usage.
+/// Works with both in-memory and disk-based tries. Used during chunk application to compute
+/// a proposed shard split for dynamic resharding.
 pub fn find_trie_split(trie: &Trie) -> FindSplitResult<TrieSplit> {
     match trie.lock_memtries() {
         Some(memtries) => {
@@ -596,6 +600,8 @@ pub fn find_trie_split(trie: &Trie) -> FindSplitResult<TrieSplit> {
     }
 }
 
+/// Return the total memory usage of the trie (the root node's `memory_usage` field).
+/// Used as a quick check before running the more expensive `find_trie_split`.
 pub fn total_mem_usage(trie: &Trie) -> FindSplitResult<u64> {
     match trie.lock_memtries() {
         Some(memtries) => {

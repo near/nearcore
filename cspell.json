@@ -77,6 +77,7 @@
         "colddb",
         "Condvar",
         "Condvars",
+        "cooldown",
         "conv",
         "cpus",
         "cranelift",

@@ -497,7 +497,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(params.clients)
-        .cold_storage_archival_clients(params.archivals.iter().cloned().collect())
+        .cold_storage_archival_clients(params.archivals.clone())
         .load_memtries_for_tracked_shards(params.load_memtries_for_tracked_shards)
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
         .build()
@@ -1223,6 +1223,7 @@ fn slow_test_resharding_v3_delayed_receipts_left_child() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "test_features"), ignore)]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_global_contract_by_hash() {
@@ -1235,6 +1236,7 @@ fn slow_test_resharding_v3_global_contract_by_hash() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "test_features"), ignore)]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_global_contract_by_account_id() {

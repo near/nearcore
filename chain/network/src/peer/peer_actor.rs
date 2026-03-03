@@ -945,6 +945,9 @@ impl PeerActor {
             (PeerStatus::Connecting { .. }, PeerMessage::Tier3Handshake(msg)) => {
                 self.process_handshake(tcp::Tier::T3, msg)
             }
+            (PeerStatus::Connecting { .. }, PeerMessage::Disconnect(_)) => {
+                // peer disconnected while connecting, ignore.
+            }
             (_, msg) => {
                 tracing::warn!(target:"network",%msg,"unexpected message during handshake")
             }

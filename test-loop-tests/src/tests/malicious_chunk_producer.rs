@@ -3,7 +3,6 @@
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::account::{create_validators_spec, validators_spec_clients};
 use crate::utils::node::TestLoopNode;
 use near_async::messaging::CanSend as _;
 use near_async::time::Duration;
@@ -151,17 +150,8 @@ fn test_producer_with_expired_transactions() {
 fn test_producer_sending_large_encoded_length_chunks() {
     init_test_logger();
 
-    let num_validators = 2;
-    let validators_spec = create_validators_spec(num_validators, 0);
-    let clients = validators_spec_clients(&validators_spec);
-    let genesis = TestLoopBuilder::new_genesis_builder().validators_spec(validators_spec).build();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .gc_num_epochs_to_keep(20)
-        .build()
-        .warmup();
+    let mut env =
+        TestLoopBuilder::new().validators(2, 0).gc_num_epochs_to_keep(20).build().warmup();
 
     let epoch_manager = env.node(0).client().epoch_manager.clone();
     let peer_manager_actor_handle = env.node_datas[0].peer_manager_sender.actor_handle();
