@@ -1920,19 +1920,6 @@ impl EpochManager {
             if ProtocolFeature::EarlyChunkProducerKickout.enabled(epoch_info.protocol_version()) {
                 for shard_id in shard_layout.shard_ids() {
                     if !chunk_producer_overrides.contains_key(&shard_id) {
-                        if prev_block_info_missing {
-                            // Epoch sync bootstrap stores a bounded set of BlockInfo entries and
-                            // may not have full historical coverage at the boundary. In that case
-                            // we allow fallback to sampling for this step.
-                            tracing::warn!(
-                                target: "epoch_manager",
-                                ?prev_hash,
-                                %shard_id,
-                                "Missing DBCol::ChunkProducers at epoch-sync boundary; \
-                                 falling back to sample_chunk_producer"
-                            );
-                            continue;
-                        }
                         tracing::error!(
                             target: "epoch_manager",
                             ?prev_hash,
