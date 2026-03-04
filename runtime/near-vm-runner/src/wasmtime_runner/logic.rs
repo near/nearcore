@@ -8,7 +8,7 @@ use crate::logic::types::{
     GlobalContractDeployMode, GlobalContractIdentifier, PromiseIndex, PromiseResult, ReceiptIndex,
     ReturnData,
 };
-use crate::logic::utils::split_method_names;
+use crate::logic::utils::{null_terminated_method_names_len, split_method_names};
 use crate::logic::vmstate::Registers;
 use crate::logic::{HostError, VMLogicError};
 use ExtCosts::*;
@@ -3250,8 +3250,7 @@ pub fn promise_batch_action_add_gas_key_with_function_call(
     )?;
     let method_names = split_method_names(&raw_method_names)?;
     let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
-    // +1 is to account for null-terminating characters.
-    let num_bytes = method_names.iter().map(|v| v.len() as u64 + 1).sum::<u64>();
+    let num_bytes = null_terminated_method_names_len(&method_names);
     pay_action_base(
         &mut ctx.result_state.gas_counter,
         &ctx.fees_config,
@@ -3457,8 +3456,7 @@ pub fn promise_batch_action_add_key_with_function_call(
 
     let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
 
-    // +1 is to account for null-terminating characters.
-    let num_bytes = method_names.iter().map(|v| v.len() as u64 + 1).sum::<u64>();
+    let num_bytes = null_terminated_method_names_len(&method_names);
     pay_action_base(
         &mut ctx.result_state.gas_counter,
         &ctx.fees_config,
