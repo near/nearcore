@@ -105,6 +105,12 @@ impl EpochInfoAggregator {
             let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
             let chunk_producer_id =
                 chunk_producer_overrides.get(&shard_id).copied().unwrap_or_else(|| {
+                    debug_assert!(
+                        !ProtocolFeature::EarlyChunkProducerKickout
+                            .enabled(epoch_info.protocol_version()),
+                        "missing chunk producer override for shard {shard_id} \
+                         with EarlyChunkProducerKickout enabled"
+                    );
                     epoch_info
                         .sample_chunk_producer(shard_layout, shard_id, prev_block_height + 1)
                         .unwrap()

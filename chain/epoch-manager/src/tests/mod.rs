@@ -4251,11 +4251,20 @@ fn test_update_tail_with_chunk_producer_overrides() {
     let shard_0 = shard_ids[0];
     let original_cp = epoch_info.sample_chunk_producer(&shard_layout, shard_0, 1).unwrap();
 
-    // Pick a different validator as the override.
+    // Pick a different validator as the override for shard_0.
     let override_cp = if original_cp == 0 { 1 } else { 0 };
 
+    // Populate overrides for all shards. Shard 0 gets the override; the rest
+    // use the original sample_chunk_producer value.
     let mut overrides = HashMap::new();
-    overrides.insert(shard_0, override_cp);
+    for &shard_id in &shard_ids {
+        if shard_id == shard_0 {
+            overrides.insert(shard_id, override_cp);
+        } else {
+            let cp = epoch_info.sample_chunk_producer(&shard_layout, shard_id, 1).unwrap();
+            overrides.insert(shard_id, cp);
+        }
+    }
 
     // Create a BlockInfo with all chunks produced (chunk_mask all true).
     let block_info_val = block_info(
