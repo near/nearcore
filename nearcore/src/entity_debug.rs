@@ -456,12 +456,14 @@ impl EntityDebugHandlerImpl {
                     .epoch_manager
                     .get_shard_layout(&epoch_id)
                     .context("Getting shard layout")?;
-                // RPC query by (epoch_id, height) — no block hash in API.
+                let prev_block_hash: CryptoHash = store
+                    .get_ser(DBCol::BlockHeight, &index_to_bytes(block_height.saturating_sub(1)))
+                    .context("looking up block hash at height - 1")?;
                 let chunk_producers = shard_layout
                     .shard_ids()
                     .map(|shard_id| {
                         self.epoch_manager
-                            .get_chunk_producer_for_height(&epoch_id, block_height, shard_id)
+                            .get_chunk_producer_info_best_effort(&prev_block_hash, shard_id)
                             .map(|info| info.take_account_id())
                             .context("Getting chunk producer")
                     })

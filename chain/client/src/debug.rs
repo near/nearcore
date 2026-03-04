@@ -726,9 +726,13 @@ impl ClientActor {
                 let mut production = ProductionAtHeight::default();
 
                 // The block may be in the last epoch from head, we need to account for that.
-                if let Ok(header) = self.client.chain.get_block_header_by_height(height) {
-                    epoch_id = *header.epoch_id();
-                }
+                let prev_hash =
+                    if let Ok(header) = self.client.chain.get_block_header_by_height(height) {
+                        epoch_id = *header.epoch_id();
+                        Some(*header.prev_hash())
+                    } else {
+                        None
+                    };
 
                 // And if we are the block (or chunk) producer for this height - collect some timing info.
                 let block_producer = self
@@ -750,11 +754,13 @@ impl ClientActor {
                 }
 
                 for shard_id in shard_ids {
-                    // Iterates over a range including future heights — no block hash available.
-                    let chunk_producer = self
-                        .client
-                        .epoch_manager
-                        .get_chunk_producer_for_height(&epoch_id, height, shard_id)
+                    let chunk_producer = prev_hash
+                        .and_then(|h| {
+                            self.client
+                                .epoch_manager
+                                .get_chunk_producer_info_best_effort(&h, shard_id)
+                                .ok()
+                        })
                         .map(|info| info.take_account_id().to_string())
                         .unwrap_or_default();
                     if chunk_producer == validator_id {

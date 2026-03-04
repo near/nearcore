@@ -3455,7 +3455,7 @@ impl Chain {
         let Some(signer) = self.validator_signer.get() else {
             return None;
         };
-        // Speculative next height — no block hash available for strict lookup.
+        // Block not yet saved — neither ChunkProducers DB nor BlockInfo available.
         let Ok(producer) = self.epoch_manager.get_chunk_producer_for_height(
             &epoch_id,
             block.height + 1,

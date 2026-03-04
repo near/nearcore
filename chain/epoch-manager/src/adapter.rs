@@ -1153,7 +1153,10 @@ impl EpochManagerAdapter for EpochManagerHandle {
                 return Ok(validator_stake);
             }
         }
-        // DB miss — always fall back to computation regardless of feature flags.
+        // DB miss — fall back to computation with current blacklist (best-effort).
+        // The blacklist used here is the latest available (current aggregator state),
+        // not the historical blacklist at the specific block — but for speculative/debug
+        // use this is the best available approximation.
         tracing::warn!(
             target: "epoch_manager",
             %prev_block_hash,
@@ -1165,8 +1168,15 @@ impl EpochManagerAdapter for EpochManagerHandle {
         let height = block_info.height() + 1;
         let epoch_info = self.get_epoch_info(&epoch_id)?;
         let shard_layout = self.get_shard_layout(&epoch_id)?;
-        let Some(validator_id) = epoch_info.sample_chunk_producer(&shard_layout, shard_id, height)
-        else {
+
+        // Apply the current blacklist (from epoch_info_aggregator).
+        let blacklist = self.get_chunk_producer_blacklist(&epoch_id)?;
+        let validator_id = if let Some(excluded) = blacklist.get(&shard_id) {
+            epoch_info.sample_chunk_producer_excluding(&shard_layout, shard_id, height, excluded)
+        } else {
+            epoch_info.sample_chunk_producer(&shard_layout, shard_id, height)
+        };
+        let Some(validator_id) = validator_id else {
             return Err(EpochError::ChunkProducerSelectionError(format!(
                 "Invalid shard {} for height {}",
                 shard_id, height,
