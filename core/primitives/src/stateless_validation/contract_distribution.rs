@@ -1,7 +1,7 @@
 use super::ChunkProductionKey;
 #[cfg(feature = "solomon")]
 use crate::reed_solomon::{ReedSolomonEncoderDeserialize, ReedSolomonEncoderSerialize};
-use crate::types::SignatureDifferentiator;
+use crate::types::{SignatureDifferentiator, SpiceChunkId};
 use crate::{utils::compression::CompressedData, validator_signer::ValidatorSigner};
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
@@ -518,8 +518,6 @@ impl PartialEncodedContractDeploysInner {
 // SPICE-specific contract distribution types.
 // These mirror the non-SPICE types above but are keyed by SpiceChunkId instead of ChunkProductionKey.
 
-use crate::types::SpiceChunkId;
-
 /// Contains contracts (as code-hashes) accessed during the application of a SPICE chunk.
 /// Sent by the chunk producer to chunk validators so they can request missing code.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
@@ -626,22 +624,40 @@ impl SpiceContractCodeRequestInner {
 
 /// Response from a chunk producer to a SPICE chunk validator with the requested contract code.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
-pub struct SpiceContractCodeResponse {
-    chunk_id: SpiceChunkId,
-    compressed_contracts: CompressedContractCode,
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+pub enum SpiceContractCodeResponse {
+    V1(SpiceContractCodeResponseV1) = 0,
 }
 
 impl SpiceContractCodeResponse {
     pub fn encode(chunk_id: SpiceChunkId, contracts: &Vec<CodeBytes>) -> std::io::Result<Self> {
-        let (compressed_contracts, _size) = CompressedContractCode::encode(contracts)?;
-        Ok(Self { chunk_id, compressed_contracts })
+        SpiceContractCodeResponseV1::encode(chunk_id, contracts).map(|v1| Self::V1(v1))
     }
 
     pub fn chunk_id(&self) -> &SpiceChunkId {
-        &self.chunk_id
+        match self {
+            Self::V1(v1) => &v1.chunk_id,
+        }
     }
 
     pub fn decompress_contracts(&self) -> std::io::Result<Vec<CodeBytes>> {
-        self.compressed_contracts.decode().map(|(data, _size)| data)
+        let compressed_contracts = match self {
+            Self::V1(v1) => &v1.compressed_contracts,
+        };
+        compressed_contracts.decode().map(|(data, _size)| data)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct SpiceContractCodeResponseV1 {
+    chunk_id: SpiceChunkId,
+    compressed_contracts: CompressedContractCode,
+}
+
+impl SpiceContractCodeResponseV1 {
+    pub fn encode(chunk_id: SpiceChunkId, contracts: &Vec<CodeBytes>) -> std::io::Result<Self> {
+        let (compressed_contracts, _size) = CompressedContractCode::encode(contracts)?;
+        Ok(Self { chunk_id, compressed_contracts })
     }
 }

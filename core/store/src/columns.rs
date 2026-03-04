@@ -377,10 +377,10 @@ pub enum DBCol {
     #[cfg(feature = "protocol_feature_spice")]
     UncertifiedChunks,
     /// Stores contract accesses (code hashes) per SPICE chunk.
-    /// Used to serve contract accesses during catch-up when the in-memory LRU cache
-    /// has evicted the entry.
+    /// Used to validate the contract code requests and accompany the witness in the catch-up
+    /// dataflow. Written down together with the witness.
     /// - *Rows*: (BlockHash || ShardId)
-    /// - *Content type*: `Vec<CodeHash>` (borsh-serialized)
+    /// - *Content type*: `Vec<CodeHash>`
     #[cfg(feature = "protocol_feature_spice")]
     ContractAccesses,
 }
