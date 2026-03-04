@@ -5,11 +5,12 @@ use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ContractCodeRequest, PartialEncodedContractDeploys,
 };
 use near_primitives::stateless_validation::partial_witness::{
-    MAX_COMPRESSED_STATE_WITNESS_SIZE, PartialEncodedStateWitness,
+    MAX_COMPRESSED_STATE_WITNESS_SIZE, VersionedPartialEncodedStateWitness,
 };
 use near_primitives::types::{AccountId, BlockHeightDelta};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -62,7 +63,7 @@ macro_rules! require_relevant {
 /// These include checks based on epoch_id validity, witness size, height_created, distance from chain head, etc.
 pub fn validate_partial_encoded_state_witness(
     epoch_manager: &dyn EpochManagerAdapter,
-    partial_witness: &PartialEncodedStateWitness,
+    partial_witness: &VersionedPartialEncodedStateWitness,
     validator_account_id: &AccountId,
     store: &Store,
 ) -> Result<ChunkRelevance, Error> {
@@ -104,8 +105,12 @@ pub fn validate_partial_encoded_state_witness(
         store,
     )?);
 
-    let chunk_producer =
-        epoch_manager.get_chunk_producer_info(&partial_witness.chunk_production_key())?;
+    let key = partial_witness.chunk_production_key();
+    let chunk_producer = get_chunk_producer(
+        epoch_manager,
+        &key,
+        partial_witness.prev_block_hash(),
+    )?;
     if !partial_witness.verify(chunk_producer.public_key()) {
         return Err(Error::InvalidPartialChunkStateWitness("Invalid signature".to_string()));
     }
@@ -120,7 +125,11 @@ pub fn validate_partial_encoded_contract_deploys(
 ) -> Result<ChunkRelevance, Error> {
     let key = partial_deploys.chunk_production_key();
     require_relevant!(validate_chunk_relevant(epoch_manager, key, store)?);
-    let chunk_producer = epoch_manager.get_chunk_producer_info(key)?;
+    let chunk_producer = get_chunk_producer(
+        epoch_manager,
+        key,
+        partial_deploys.prev_block_hash(),
+    )?;
     if !partial_deploys.verify_signature(chunk_producer.public_key()) {
         return Err(Error::Other("Invalid contract deploys signature".to_owned()));
     }
@@ -330,9 +339,33 @@ fn validate_witness_contract_accesses_signature(
     epoch_manager: &dyn EpochManagerAdapter,
     accesses: &ChunkContractAccesses,
 ) -> Result<(), Error> {
-    let chunk_producer = epoch_manager.get_chunk_producer_info(accesses.chunk_production_key())?;
+    let key = accesses.chunk_production_key();
+    let chunk_producer = get_chunk_producer(
+        epoch_manager,
+        key,
+        accesses.prev_block_hash(),
+    )?;
     if !accesses.verify_signature(chunk_producer.public_key()) {
         return Err(Error::Other("Invalid witness contract accesses signature".to_owned()));
     }
     Ok(())
+}
+
+/// Helper to look up chunk producer using try-authoritative/fallback pattern.
+/// When `prev_block_hash` is available (V2 messages), try the authoritative
+/// `get_chunk_producer_info(prev_block_hash)` first, falling back to
+/// height-based lookup on MissingBlock (orphan case).
+/// When `prev_block_hash` is None (V1 messages), use height-based lookup.
+fn get_chunk_producer(
+    epoch_manager: &dyn EpochManagerAdapter,
+    key: &ChunkProductionKey,
+    prev_block_hash: Option<&CryptoHash>,
+) -> Result<near_primitives::types::validator_stake::ValidatorStake, Error> {
+    match prev_block_hash {
+        Some(hash) => match epoch_manager.get_chunk_producer_by_prev_block_hash(hash, key.shard_id) {
+            Ok(p) => Ok(p),
+            Err(_) => Ok(epoch_manager.get_chunk_producer_info(key)?),
+        },
+        None => Ok(epoch_manager.get_chunk_producer_info(key)?),
+    }
 }

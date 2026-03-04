@@ -14,7 +14,9 @@ use near_primitives::stateless_validation::contract_distribution::ChunkContractA
 use near_primitives::stateless_validation::contract_distribution::ContractCodeRequest;
 use near_primitives::stateless_validation::contract_distribution::ContractCodeResponse;
 use near_primitives::stateless_validation::contract_distribution::PartialEncodedContractDeploys;
-use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
+use near_primitives::stateless_validation::partial_witness::{
+    PartialEncodedStateWitness, PartialEncodedStateWitnessV2,
+};
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 pub use peer::*;
@@ -589,6 +591,12 @@ impl TieredMessageBody {
                 T1MessageBody::PartialEncodedStateWitnessForward(partial_encoded_state_witness)
                     .into()
             }
+            RoutedMessageBody::PartialEncodedStateWitnessV2(w) => {
+                T1MessageBody::PartialEncodedStateWitnessV2(w).into()
+            }
+            RoutedMessageBody::PartialEncodedStateWitnessForwardV2(w) => {
+                T1MessageBody::PartialEncodedStateWitnessForwardV2(w).into()
+            }
             RoutedMessageBody::VersionedChunkEndorsement(chunk_endorsement) => {
                 T1MessageBody::VersionedChunkEndorsement(chunk_endorsement).into()
             }
@@ -665,6 +673,8 @@ pub enum T1MessageBody {
     SpicePartialData(SpicePartialData) = 9,
     SpiceChunkEndorsement(SpiceChunkEndorsement) = 10,
     SpicePartialDataRequest(SpicePartialDataRequest) = 11,
+    PartialEncodedStateWitnessV2(PartialEncodedStateWitnessV2) = 12,
+    PartialEncodedStateWitnessForwardV2(PartialEncodedStateWitnessV2) = 13,
 }
 
 impl T1MessageBody {
@@ -681,6 +691,8 @@ impl T1MessageBody {
         match self {
             T1MessageBody::PartialEncodedStateWitness(_)
             | T1MessageBody::PartialEncodedStateWitnessForward(_)
+            | T1MessageBody::PartialEncodedStateWitnessV2(_)
+            | T1MessageBody::PartialEncodedStateWitnessForwardV2(_)
             | T1MessageBody::VersionedChunkEndorsement(_) => true,
             _ => false,
         }
@@ -767,6 +779,8 @@ pub enum RoutedMessageBody {
     StateRequestAck(StateRequestAck) = 34,
     SpiceChunkEndorsement(SpiceChunkEndorsement) = 35,
     SpicePartialDataRequest(SpicePartialDataRequest) = 36,
+    PartialEncodedStateWitnessV2(PartialEncodedStateWitnessV2) = 37,
+    PartialEncodedStateWitnessForwardV2(PartialEncodedStateWitnessV2) = 38,
 }
 
 impl RoutedMessageBody {
@@ -791,6 +805,8 @@ impl RoutedMessageBody {
         match self {
             RoutedMessageBody::PartialEncodedStateWitness(_)
             | RoutedMessageBody::PartialEncodedStateWitnessForward(_)
+            | RoutedMessageBody::PartialEncodedStateWitnessV2(_)
+            | RoutedMessageBody::PartialEncodedStateWitnessForwardV2(_)
             | RoutedMessageBody::VersionedChunkEndorsement(_) => true,
             _ => false,
         }
@@ -840,6 +856,12 @@ impl fmt::Debug for RoutedMessageBody {
             }
             RoutedMessageBody::PartialEncodedStateWitnessForward(_) => {
                 write!(f, "PartialEncodedStateWitnessForward")
+            }
+            RoutedMessageBody::PartialEncodedStateWitnessV2(_) => {
+                write!(f, "PartialEncodedStateWitnessV2")
+            }
+            RoutedMessageBody::PartialEncodedStateWitnessForwardV2(_) => {
+                write!(f, "PartialEncodedStateWitnessForwardV2")
             }
             RoutedMessageBody::VersionedChunkEndorsement(_) => {
                 write!(f, "VersionedChunkEndorsement")
@@ -905,6 +927,12 @@ impl From<TieredMessageBody> for RoutedMessageBody {
                     RoutedMessageBody::PartialEncodedStateWitnessForward(
                         partial_encoded_state_witness,
                     )
+                }
+                T1MessageBody::PartialEncodedStateWitnessV2(w) => {
+                    RoutedMessageBody::PartialEncodedStateWitnessV2(w)
+                }
+                T1MessageBody::PartialEncodedStateWitnessForwardV2(w) => {
+                    RoutedMessageBody::PartialEncodedStateWitnessForwardV2(w)
                 }
                 T1MessageBody::VersionedChunkEndorsement(chunk_endorsement) => {
                     RoutedMessageBody::VersionedChunkEndorsement(chunk_endorsement)

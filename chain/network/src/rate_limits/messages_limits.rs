@@ -214,10 +214,12 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
                 T1MessageBody::PartialEncodedChunkForward(_) => {
                     Some((PartialEncodedChunkForward, 1))
                 }
-                T1MessageBody::PartialEncodedStateWitness(_) => {
+                T1MessageBody::PartialEncodedStateWitness(_)
+                | T1MessageBody::PartialEncodedStateWitnessV2(_) => {
                     Some((PartialEncodedStateWitness, 1))
                 }
-                T1MessageBody::PartialEncodedStateWitnessForward(_) => {
+                T1MessageBody::PartialEncodedStateWitnessForward(_)
+                | T1MessageBody::PartialEncodedStateWitnessForwardV2(_) => {
                     Some((PartialEncodedStateWitnessForward, 1))
                 }
                 T1MessageBody::ChunkContractAccesses(_) => Some((ChunkContractAccesses, 1)),

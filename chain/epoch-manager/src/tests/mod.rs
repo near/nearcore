@@ -3721,3 +3721,143 @@ fn test_get_shard_uids_pending_resharding_double_same() {
     ]);
     assert_eq!(shard_uids, vec![s1].into_iter().collect::<HashSet<_>>());
 }
+
+/// Tests that `get_chunk_producer_by_prev_block_hash` resolves the correct
+/// chunk producer on two forks that are in different epochs at the same height.
+///
+/// Setup: epoch_length=5, 10 initial validators, "newcomer" stakes in epoch 1.
+///
+/// Fork A (normal finality, last_final = height-2):
+///   Epoch 1: h[1]–h[5]. Boundary at h[5] (last_final=3, 3+3=6 >= 6).
+///   Epoch 2: h[6]–h[10]. Boundary at h[10] (last_final=8, 8+3=11 >= 11).
+///   Epoch 3: starts at h[11]. Newcomer joins (proposal in epoch 1, T+2 delay).
+///
+/// Fork B (stalled finality, last_final stays at 2):
+///   Never leaves epoch 1 because 2+3 = 5 < 6.
+///
+/// At the same height (14), fork A is in epoch 3 (with newcomer) and fork B
+/// is in epoch 1 (without). `get_chunk_producer_by_prev_block_hash` returns
+/// different chunk producers — proving height alone is ambiguous and the
+/// block-hash-based lookup is required.
+#[test]
+fn test_chunk_producer_by_prev_block_hash_fork_scenario() {
+    let amount_staked = Balance::from_yoctonear(1_000_000);
+    let validators: Vec<(AccountId, Balance)> =
+        (0..10).map(|i| (format!("test{}", i).parse().unwrap(), amount_staked)).collect();
+    let epoch_length = 5;
+    let num_shards = 4;
+    let num_block_producer_seats = 11; // Room for the newcomer.
+    let epoch_manager = setup_default_epoch_manager(
+        validators,
+        epoch_length,
+        num_shards,
+        num_block_producer_seats,
+        0, // No kickout so all validators survive.
+        0,
+    )
+    .into_handle();
+
+    // Helper: record a block with a custom last_finalized_height.
+    let record_block_with_finality =
+        |prev_h: CryptoHash, cur_h: CryptoHash, height: u64, last_finalized_height: u64| {
+            let epoch_id = epoch_manager.get_epoch_id(&prev_h).unwrap();
+            let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+            let chunk_endorsements = ChunkEndorsementsBitmap::from_endorsements(
+                shard_layout
+                    .shard_ids()
+                    .map(|shard_id| {
+                        let assignments = epoch_manager
+                            .get_chunk_validator_assignments(&epoch_id, shard_id, height)
+                            .unwrap();
+                        vec![true; assignments.assignments().iter().len()]
+                    })
+                    .collect(),
+            );
+            epoch_manager
+                .write()
+                .record_block_info(
+                    BlockInfo::new(
+                        cur_h,
+                        height,
+                        last_finalized_height,
+                        prev_h,
+                        prev_h,
+                        vec![],
+                        vec![],
+                        DEFAULT_TOTAL_SUPPLY,
+                        PROTOCOL_VERSION,
+                        PROTOCOL_VERSION,
+                        height * NUM_NS_IN_SECOND,
+                        chunk_endorsements,
+                        None,
+                    ),
+                    [0; 32],
+                )
+                .unwrap()
+                .commit();
+        };
+
+    // Common prefix: heights 0–4. Newcomer stakes at height 1 (epoch 1).
+    let h = hash_range(16);
+    record_block(&mut epoch_manager.write(), CryptoHash::default(), h[0], 0, vec![]);
+    let newcomer_stake =
+        vec![stake("newcomer".parse().unwrap(), Balance::from_yoctonear(1_000_000))];
+    record_block(&mut epoch_manager.write(), h[0], h[1], 1, newcomer_stake);
+    for i in 2..=4 {
+        record_block(&mut epoch_manager.write(), h[i - 1], h[i], i as u64, vec![]);
+    }
+
+    // Fork A: normal finality (last_final = height - 2). Heights 5–14.
+    // Progresses through epochs 1 → 2 → 3. Newcomer joins in epoch 3.
+    let ha: Vec<CryptoHash> = h.iter().map(|x| hash(x.as_ref())).collect();
+    for i in 5..=14 {
+        let prev = if i == 5 { h[4] } else { ha[i - 1] };
+        record_block(&mut epoch_manager.write(), prev, ha[i], i as u64, vec![]);
+    }
+
+    // Fork B: stalled finality (last_final stays at 2). Heights 5–14.
+    // Never leaves epoch 1 because 2+3 = 5 < estimated_next = 6.
+    let hb: Vec<CryptoHash> = ha.iter().map(|x| hash(x.as_ref())).collect();
+    for i in 5..=14 {
+        let prev = if i == 5 { h[4] } else { hb[i - 1] };
+        record_block_with_finality(prev, hb[i], i as u64, 2);
+    }
+
+    // Both fork tips are at height 14 but in different epochs.
+    let epoch_a = epoch_manager.get_epoch_id_from_prev_block(&ha[14]).unwrap();
+    let epoch_b = epoch_manager.get_epoch_id_from_prev_block(&hb[14]).unwrap();
+    assert_ne!(epoch_a, epoch_b, "Forks should be in different epochs at the same height");
+
+    // "newcomer" is in fork A's epoch but not fork B's.
+    let validators_a: Vec<_> = epoch_manager
+        .get_epoch_info(&epoch_a)
+        .unwrap()
+        .validators_iter()
+        .map(|v| v.account_id().to_string())
+        .collect();
+    let validators_b: Vec<_> = epoch_manager
+        .get_epoch_info(&epoch_b)
+        .unwrap()
+        .validators_iter()
+        .map(|v| v.account_id().to_string())
+        .collect();
+    assert!(validators_a.contains(&"newcomer".to_string()));
+    assert!(!validators_b.contains(&"newcomer".to_string()));
+
+    // The key assertion: at the same height, the two fork tips produce
+    // different chunk producers for at least one shard.
+    let shard_layout = epoch_manager.get_shard_layout(&epoch_a).unwrap();
+    let mut found_difference = false;
+    for shard_id in shard_layout.shard_ids() {
+        let cp_a = epoch_manager.get_chunk_producer_by_prev_block_hash(&ha[14], shard_id).unwrap();
+        let cp_b = epoch_manager.get_chunk_producer_by_prev_block_hash(&hb[14], shard_id).unwrap();
+        if cp_a != cp_b {
+            found_difference = true;
+            break;
+        }
+    }
+    assert!(
+        found_difference,
+        "Expected different chunk producers on different forks at the same height"
+    );
+}
