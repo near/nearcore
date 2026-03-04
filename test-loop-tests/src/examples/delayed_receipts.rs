@@ -8,7 +8,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::gas::Gas;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
-use near_primitives::types::{Balance, Nonce};
+use near_primitives::types::Balance;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_account_id;
@@ -29,27 +29,18 @@ fn delayed_receipt_example_test() {
         .build()
         .warmup();
 
-    let mut nonce: Nonce = 0;
-    let mut next_nonce = || {
-        nonce += 1;
-        nonce
-    };
-
-    let deploy_test_contract_tx = SignedTransaction::deploy_contract(
-        next_nonce(),
-        &user_account,
-        near_test_contracts::rs_contract().to_vec(),
-        &create_user_test_signer(&user_account),
-        env.rpc_node().head().last_block_hash,
-    );
-    env.rpc_runner().run_tx(deploy_test_contract_tx, Duration::seconds(2));
+    let deploy_tx = env.rpc_node().tx_deploy_test_contract(&user_account);
+    env.rpc_runner().run_tx(deploy_tx, Duration::seconds(2));
 
     // Each transaction generates local receipt consuming more than a half
     // the chunk space, so chunk can only fit 2 such receipts.
+    // These 3 transactions are submitted in batch, so nonces must be managed
+    // manually (auto-nonce would return the same value for all three).
     let gas_to_burn = gas_limit.checked_div(2).unwrap().checked_add(Gas::from_gas(1)).unwrap();
+    let mut nonce = env.rpc_node().get_next_nonce(&user_account);
     let txs = repeat_with(|| {
-        SignedTransaction::call(
-            next_nonce(),
+        let tx = SignedTransaction::call(
+            nonce,
             user_account.clone(),
             user_account.clone(),
             &create_user_test_signer(&user_account),
@@ -58,7 +49,9 @@ fn delayed_receipt_example_test() {
             gas_to_burn.as_gas().to_le_bytes().to_vec(),
             gas_limit,
             env.rpc_node().head().last_block_hash,
-        )
+        );
+        nonce += 1;
+        tx
     })
     .take(3)
     .collect_vec();
