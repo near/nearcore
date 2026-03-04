@@ -58,8 +58,7 @@ Present the plan to the user and get confirmation before writing code.
 
 - Delete the original pytest file
 - Remove its entries from `nightly/pytest-sanity.txt` (check for both regular and `--features nightly` variants, and commented-out spice variants)
-- Search for any other references to the pytest filename:
-  `grep -r "<pytest_filename>" nightly/ scripts/ .github/`
+- Search for any other references to the pytest filename
 
 ## 7. Summary
 
