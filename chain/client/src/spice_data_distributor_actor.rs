@@ -42,6 +42,7 @@ use near_primitives::spice_partial_data::SpiceDataIdentifier;
 use near_primitives::spice_partial_data::SpiceDataPart;
 use near_primitives::spice_partial_data::SpicePartialData;
 use near_primitives::spice_partial_data::SpiceVerifiedPartialData;
+use near_primitives::stateless_validation::contract_distribution::CodeHash;
 use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness;
 use near_primitives::types::AccountId;
 use near_primitives::types::EpochId;
@@ -198,6 +199,7 @@ pub struct SpiceDistributorOutgoingReceipts {
 #[derive(Debug)]
 pub struct SpiceDistributorStateWitness {
     pub state_witness: SpiceChunkStateWitness,
+    pub contract_accesses: HashSet<CodeHash>,
 }
 
 impl Handler<SpiceDistributorOutgoingReceipts> for SpiceDataDistributorActor {
@@ -225,7 +227,7 @@ impl Handler<SpiceDistributorOutgoingReceipts> for SpiceDataDistributorActor {
 impl Handler<SpiceDistributorStateWitness> for SpiceDataDistributorActor {
     fn handle(
         &mut self,
-        SpiceDistributorStateWitness { state_witness }: SpiceDistributorStateWitness,
+        SpiceDistributorStateWitness { state_witness, contract_accesses: _ }: SpiceDistributorStateWitness,
     ) {
         let chunk_id = state_witness.chunk_id();
         let data_id = SpiceDataIdentifier::Witness {
