@@ -43,13 +43,7 @@ Present the plan to the user and get confirmation before writing code.
 ## 4. Write the test
 
 - Create `test-loop-tests/src/tests/<test_name>.rs`
-- Follow these conventions:
-  - Use `init_test_logger()` at the start of each test
-  - Use the `TestLoopBuilder` high-level API (avoid manual genesis unless necessary)
-  - Use `use` declarations, not fully qualified paths
-  - Don't capitalize string literal messages
-  - End each test with `env.shutdown_and_drain_remaining_events(Duration::seconds(20))`
-  - Add doc comments explaining what each test verifies and which pytest it migrates
+- Follow the instructions in `test-loop-tests/README.md`
 - Register the module in `test-loop-tests/src/tests/mod.rs` (keep alphabetical order)
 
 ## 5. Verify
