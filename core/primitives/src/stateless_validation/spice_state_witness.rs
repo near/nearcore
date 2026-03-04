@@ -110,6 +110,12 @@ impl SpiceChunkStateWitness {
         }
     }
 
+    pub fn mut_main_state_transition(&mut self) -> &mut SpiceChunkStateTransition {
+        match self {
+            Self::V1(witness) => &mut witness.main_state_transition,
+        }
+    }
+
     pub fn source_receipt_proofs(&self) -> &HashMap<ShardId, ReceiptProof> {
         match self {
             Self::V1(witness) => &witness.source_receipt_proofs,

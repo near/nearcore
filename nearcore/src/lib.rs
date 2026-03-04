@@ -295,6 +295,8 @@ fn spawn_spice_actors(
         network_adapter.clone(),
         chunk_executor_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
+        spice_chunk_validator_adapter.as_sender(),
+        spice_chunk_validator_adapter.as_sender(),
     );
     let spice_data_distributor_addr = actor_system.spawn_tokio_actor(spice_data_distributor_actor);
     spice_data_distributor_adapter.bind(spice_data_distributor_addr);

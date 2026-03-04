@@ -650,7 +650,6 @@ fn test_restart_validator_node() {
     let future_spawner = env.test_loop.future_spawner("TransactionRunner");
 
     let start_height = env.node_for_account(&producer).head().height;
-    let producer_identifier = env.get_node_data_by_account_id(&producer).identifier.clone();
     env.runner_for_account(&producer).run_until(
         |node| {
             let client = node.client();
@@ -664,7 +663,7 @@ fn test_restart_validator_node() {
         Duration::seconds(5),
     );
 
-    let new_node_identifier = format!("{}-restart", producer_identifier);
+    let new_node_identifier = format!("{}-restart", validator_identifier);
     env.restart_node(&new_node_identifier, killed_node_state);
     // After restart new node_datas are created.
 
