@@ -792,6 +792,116 @@ fn collapse_cartesian_products(schemas: &mut serde_json::Map<String, serde_json:
     }
 }
 
+/// Collects top-level properties from a variant object (which may have direct
+/// `properties` or nested `allOf` members with `properties`).
+fn collect_properties_from_variant(
+    variant: &serde_json::Value,
+) -> Vec<(String, serde_json::Value, bool)> {
+    let mut result = Vec::new();
+    // Direct properties on the variant
+    if let Some(props) = variant.get("properties").and_then(|p| p.as_object()) {
+        let required: Vec<String> = variant
+            .get("required")
+            .and_then(|r| serde_json::from_value(r.clone()).ok())
+            .unwrap_or_default();
+        for (name, schema) in props {
+            result.push((name.clone(), schema.clone(), required.contains(name)));
+        }
+    }
+    // allOf members within the variant (e.g. RpcTransactionStatusRequest)
+    if let Some(all_of) = variant.get("allOf").and_then(|a| a.as_array()) {
+        for member in all_of {
+            if let Some(props) = member.get("properties").and_then(|p| p.as_object()) {
+                let required: Vec<String> = member
+                    .get("required")
+                    .and_then(|r| serde_json::from_value(r.clone()).ok())
+                    .unwrap_or_default();
+                for (name, schema) in props {
+                    result.push((name.clone(), schema.clone(), required.contains(name)));
+                }
+            }
+        }
+    }
+    result
+}
+
+/// Extracts top-level properties from a request schema and returns them as
+/// OpenRPC content descriptors. Handles four schema shapes:
+/// - Empty objects → empty params
+/// - Direct `properties` → one content descriptor per property
+/// - `oneOf` → collect properties across all variants, mark all optional
+/// - `allOf` with `$ref`s → resolve refs, recursively extract and merge
+fn extract_params_from_schema(
+    schema: &serde_json::Value,
+    all_schemas: &serde_json::Map<String, serde_json::Value>,
+) -> Vec<serde_json::Value> {
+    let mut seen = std::collections::BTreeMap::<String, (serde_json::Value, bool)>::new();
+
+    if let Some(properties) = schema.get("properties").and_then(|p| p.as_object()) {
+        // Direct properties
+        let required: Vec<String> = schema
+            .get("required")
+            .and_then(|r| serde_json::from_value(r.clone()).ok())
+            .unwrap_or_default();
+        for (name, prop_schema) in properties {
+            seen.insert(name.clone(), (prop_schema.clone(), required.contains(name)));
+        }
+    } else if let Some(one_of) = schema.get("oneOf").and_then(|o| o.as_array()) {
+        // oneOf variants — collect all properties, none globally required.
+        // When the same property appears in multiple variants with different
+        // schemas (e.g. `request_type` with different `const` values), drop
+        // variant-specific constraints and keep just the type.
+        for variant in one_of {
+            for (name, prop_schema, _required) in collect_properties_from_variant(variant) {
+                seen.entry(name.clone())
+                    .and_modify(|(existing, _)| {
+                        if *existing != prop_schema {
+                            // Schemas differ across variants — generalize to just the type
+                            let mut generic = serde_json::Map::new();
+                            if let Some(t) = prop_schema.get("type") {
+                                generic.insert("type".to_string(), t.clone());
+                            } else if let Some(t) = existing.get("type") {
+                                generic.insert("type".to_string(), t.clone());
+                            }
+                            *existing = serde_json::Value::Object(generic);
+                        }
+                    })
+                    .or_insert((prop_schema, false));
+            }
+        }
+    } else if let Some(all_of) = schema.get("allOf").and_then(|a| a.as_array()) {
+        // allOf with $refs — resolve each ref and recursively extract
+        for member in all_of {
+            let resolved = if let Some(ref_path) = member.get("$ref").and_then(|r| r.as_str()) {
+                let ref_name = ref_path.rsplit('/').next().unwrap_or("");
+                all_schemas.get(ref_name).cloned().unwrap_or(json!({}))
+            } else {
+                member.clone()
+            };
+            for (name, prop_schema, required) in
+                extract_params_from_schema(&resolved, all_schemas).into_iter().filter_map(|cd| {
+                    let name = cd.get("name")?.as_str()?.to_string();
+                    let prop_schema = cd.get("schema")?.clone();
+                    let required = cd.get("required").and_then(|r| r.as_bool()).unwrap_or(false);
+                    Some((name, prop_schema, required))
+                })
+            {
+                seen.entry(name).or_insert((prop_schema, required));
+            }
+        }
+    }
+
+    seen.into_iter()
+        .map(|(name, (prop_schema, required))| {
+            json!({
+                "name": name,
+                "required": required,
+                "schema": prop_schema,
+            })
+        })
+        .collect()
+}
+
 /// Generates the OpenRPC specification.
 pub fn generate_openrpc() -> serde_json::Value {
     let mut methods = Vec::new();
@@ -850,26 +960,17 @@ pub fn generate_openrpc() -> serde_json::Value {
             .insert(result_name.clone(), clean_schema(result_schema.as_value(), &result_name));
 
         // Build OpenRPC method object
-        // NEAR uses by-name params where the entire params object is passed
-        // We represent this as a single content descriptor referencing the request schema
         let mut method = serde_json::Map::new();
         method.insert("name".to_string(), json!(method_name));
         method.insert("summary".to_string(), json!(summary));
         method.insert("paramStructure".to_string(), json!("by-name"));
 
-        // Single param that references the full request type schema
-        // The schema itself defines what properties are valid
-        method.insert(
-            "params".to_string(),
-            json!([
-                {
-                    "name": "request",
-                    "description": format!("Request parameters for {}", method_name),
-                    "required": true,
-                    "schema": { "$ref": format!("#/components/schemas/{}", params_name) }
-                }
-            ]),
-        );
+        // Extract individual params from the request schema so that
+        // by-name params match the actual top-level JSON keys the RPC expects.
+        // Without this, OpenRPC consumers would wrap params in a "request" key.
+        let params_schema = all_schemas.get(&params_name).cloned().unwrap_or(json!({}));
+        let params = extract_params_from_schema(&params_schema, all_schemas);
+        method.insert("params".to_string(), json!(params));
 
         // Result content descriptor
         method.insert(

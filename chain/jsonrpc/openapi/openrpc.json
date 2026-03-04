@@ -12557,11 +12557,24 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for block",
-          "name": "request",
-          "required": true,
+          "name": "block_id",
+          "required": false,
           "schema": {
-            "$ref": "#/components/schemas/RpcBlockRequest"
+            "$ref": "#/components/schemas/BlockId"
+          }
+        },
+        {
+          "name": "finality",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/Finality"
+          }
+        },
+        {
+          "name": "sync_checkpoint",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/SyncCheckpoint"
           }
         }
       ],
@@ -12583,11 +12596,24 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for chunk",
-          "name": "request",
-          "required": true,
+          "name": "block_id",
+          "required": false,
           "schema": {
-            "$ref": "#/components/schemas/RpcChunkRequest"
+            "$ref": "#/components/schemas/BlockId"
+          }
+        },
+        {
+          "name": "chunk_id",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        {
+          "name": "shard_id",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/ShardId"
           }
         }
       ],
@@ -12609,11 +12635,17 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for gas_price",
-          "name": "request",
-          "required": true,
+          "name": "block_id",
+          "required": false,
           "schema": {
-            "$ref": "#/components/schemas/RpcGasPriceRequest"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BlockId"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       ],
@@ -12635,11 +12667,22 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for send_tx",
-          "name": "request",
+          "name": "signed_tx_base64",
           "required": true,
           "schema": {
-            "$ref": "#/components/schemas/RpcSendTransactionRequest"
+            "$ref": "#/components/schemas/SignedTransaction"
+          }
+        },
+        {
+          "name": "wait_until",
+          "required": false,
+          "schema": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TxExecutionStatus"
+              }
+            ],
+            "default": "EXECUTED_OPTIMISTIC"
           }
         }
       ],
@@ -12661,11 +12704,36 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for tx",
-          "name": "request",
-          "required": true,
+          "name": "sender_account_id",
+          "required": false,
           "schema": {
-            "$ref": "#/components/schemas/RpcTransactionStatusRequest"
+            "$ref": "#/components/schemas/AccountId"
+          }
+        },
+        {
+          "name": "signed_tx_base64",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/SignedTransaction"
+          }
+        },
+        {
+          "name": "tx_hash",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        {
+          "name": "wait_until",
+          "required": false,
+          "schema": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TxExecutionStatus"
+              }
+            ],
+            "default": "EXECUTED_OPTIMISTIC"
           }
         }
       ],
@@ -12685,16 +12753,7 @@
     {
       "name": "status",
       "paramStructure": "by-name",
-      "params": [
-        {
-          "description": "Request parameters for status",
-          "name": "request",
-          "required": true,
-          "schema": {
-            "$ref": "#/components/schemas/RpcStatusRequest"
-          }
-        }
-      ],
+      "params": [],
       "result": {
         "name": "result",
         "schema": {
@@ -12713,11 +12772,24 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for validators",
-          "name": "request",
-          "required": true,
+          "name": "block_id",
+          "required": false,
           "schema": {
-            "$ref": "#/components/schemas/RpcValidatorRequest"
+            "$ref": "#/components/schemas/BlockId"
+          }
+        },
+        {
+          "name": "epoch_id",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/EpochId"
+          }
+        },
+        {
+          "name": "latest",
+          "required": false,
+          "schema": {
+            "type": "null"
           }
         }
       ],
@@ -12737,16 +12809,7 @@
     {
       "name": "network_info",
       "paramStructure": "by-name",
-      "params": [
-        {
-          "description": "Request parameters for network_info",
-          "name": "request",
-          "required": true,
-          "schema": {
-            "$ref": "#/components/schemas/RpcNetworkInfoRequest"
-          }
-        }
-      ],
+      "params": [],
       "result": {
         "name": "result",
         "schema": {
@@ -12763,16 +12826,7 @@
     {
       "name": "health",
       "paramStructure": "by-name",
-      "params": [
-        {
-          "description": "Request parameters for health",
-          "name": "request",
-          "required": true,
-          "schema": {
-            "$ref": "#/components/schemas/RpcHealthRequest"
-          }
-        }
-      ],
+      "params": [],
       "result": {
         "name": "result",
         "schema": {
@@ -12791,11 +12845,45 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for light_client_proof",
-          "name": "request",
-          "required": true,
+          "name": "light_client_head",
+          "required": false,
           "schema": {
-            "$ref": "#/components/schemas/RpcLightClientExecutionProofRequest"
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        {
+          "name": "receipt_id",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        {
+          "name": "receiver_id",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/AccountId"
+          }
+        },
+        {
+          "name": "sender_id",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/AccountId"
+          }
+        },
+        {
+          "name": "transaction_hash",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        {
+          "name": "type",
+          "required": false,
+          "schema": {
+            "type": "string"
           }
         }
       ],
@@ -12817,11 +12905,10 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for next_light_client_block",
-          "name": "request",
+          "name": "last_block_hash",
           "required": true,
           "schema": {
-            "$ref": "#/components/schemas/RpcLightClientNextBlockRequest"
+            "$ref": "#/components/schemas/CryptoHash"
           }
         }
       ],
@@ -12843,11 +12930,17 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for light_client_block_proof",
-          "name": "request",
+          "name": "block_hash",
           "required": true,
           "schema": {
-            "$ref": "#/components/schemas/RpcLightClientBlockProofRequest"
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        {
+          "name": "light_client_head",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/CryptoHash"
           }
         }
       ],
@@ -12869,11 +12962,24 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for EXPERIMENTAL_changes_in_block",
-          "name": "request",
-          "required": true,
+          "name": "block_id",
+          "required": false,
           "schema": {
-            "$ref": "#/components/schemas/RpcStateChangesInBlockRequest"
+            "$ref": "#/components/schemas/BlockId"
+          }
+        },
+        {
+          "name": "finality",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/Finality"
+          }
+        },
+        {
+          "name": "sync_checkpoint",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/SyncCheckpoint"
           }
         }
       ],
@@ -12898,11 +13004,58 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for EXPERIMENTAL_changes",
-          "name": "request",
-          "required": true,
+          "name": "account_ids",
+          "required": false,
           "schema": {
-            "$ref": "#/components/schemas/RpcStateChangesInBlockByTypeRequest"
+            "items": {
+              "$ref": "#/components/schemas/AccountId"
+            },
+            "type": "array"
+          }
+        },
+        {
+          "name": "block_id",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/BlockId"
+          }
+        },
+        {
+          "name": "changes_type",
+          "required": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "finality",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/Finality"
+          }
+        },
+        {
+          "name": "key_prefix_base64",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/StoreKey"
+          }
+        },
+        {
+          "name": "keys",
+          "required": false,
+          "schema": {
+            "items": {
+              "$ref": "#/components/schemas/AccountWithPublicKey"
+            },
+            "type": "array"
+          }
+        },
+        {
+          "name": "sync_checkpoint",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/SyncCheckpoint"
           }
         }
       ],
@@ -12927,11 +13080,24 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for EXPERIMENTAL_protocol_config",
-          "name": "request",
-          "required": true,
+          "name": "block_id",
+          "required": false,
           "schema": {
-            "$ref": "#/components/schemas/RpcProtocolConfigRequest"
+            "$ref": "#/components/schemas/BlockId"
+          }
+        },
+        {
+          "name": "finality",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/Finality"
+          }
+        },
+        {
+          "name": "sync_checkpoint",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/SyncCheckpoint"
           }
         }
       ],
@@ -12954,16 +13120,7 @@
     {
       "name": "EXPERIMENTAL_genesis_config",
       "paramStructure": "by-name",
-      "params": [
-        {
-          "description": "Request parameters for EXPERIMENTAL_genesis_config",
-          "name": "request",
-          "required": true,
-          "schema": {
-            "$ref": "#/components/schemas/GenesisConfigRequest"
-          }
-        }
-      ],
+      "params": [],
       "result": {
         "name": "result",
         "schema": {
@@ -12985,11 +13142,10 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for EXPERIMENTAL_receipt",
-          "name": "request",
+          "name": "receipt_id",
           "required": true,
           "schema": {
-            "$ref": "#/components/schemas/RpcReceiptRequest"
+            "$ref": "#/components/schemas/CryptoHash"
           }
         }
       ],
@@ -13014,11 +13170,10 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for EXPERIMENTAL_maintenance_windows",
-          "name": "request",
+          "name": "account_id",
           "required": true,
           "schema": {
-            "$ref": "#/components/schemas/RpcMaintenanceWindowsRequest"
+            "$ref": "#/components/schemas/AccountId"
           }
         }
       ],
@@ -13041,16 +13196,7 @@
     {
       "name": "EXPERIMENTAL_split_storage_info",
       "paramStructure": "by-name",
-      "params": [
-        {
-          "description": "Request parameters for EXPERIMENTAL_split_storage_info",
-          "name": "request",
-          "required": true,
-          "schema": {
-            "$ref": "#/components/schemas/RpcSplitStorageInfoRequest"
-          }
-        }
-      ],
+      "params": [],
       "result": {
         "name": "result",
         "schema": {
@@ -13072,11 +13218,24 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for EXPERIMENTAL_congestion_level",
-          "name": "request",
-          "required": true,
+          "name": "block_id",
+          "required": false,
           "schema": {
-            "$ref": "#/components/schemas/RpcCongestionLevelRequest"
+            "$ref": "#/components/schemas/BlockId"
+          }
+        },
+        {
+          "name": "chunk_id",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        {
+          "name": "shard_id",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/ShardId"
           }
         }
       ],
@@ -13101,11 +13260,17 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for EXPERIMENTAL_validators_ordered",
-          "name": "request",
-          "required": true,
+          "name": "block_id",
+          "required": false,
           "schema": {
-            "$ref": "#/components/schemas/RpcValidatorsOrderedRequest"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BlockId"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       ],
@@ -13128,16 +13293,7 @@
     {
       "name": "EXPERIMENTAL_client_config",
       "paramStructure": "by-name",
-      "params": [
-        {
-          "description": "Request parameters for EXPERIMENTAL_client_config",
-          "name": "request",
-          "required": true,
-          "schema": {
-            "$ref": "#/components/schemas/RpcClientConfigRequest"
-          }
-        }
-      ],
+      "params": [],
       "result": {
         "name": "result",
         "schema": {
@@ -13159,11 +13315,36 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for EXPERIMENTAL_tx_status",
-          "name": "request",
-          "required": true,
+          "name": "sender_account_id",
+          "required": false,
           "schema": {
-            "$ref": "#/components/schemas/RpcTransactionStatusRequest"
+            "$ref": "#/components/schemas/AccountId"
+          }
+        },
+        {
+          "name": "signed_tx_base64",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/SignedTransaction"
+          }
+        },
+        {
+          "name": "tx_hash",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        {
+          "name": "wait_until",
+          "required": false,
+          "schema": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TxExecutionStatus"
+              }
+            ],
+            "default": "EXECUTED_OPTIMISTIC"
           }
         }
       ],
@@ -13188,11 +13369,45 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for EXPERIMENTAL_light_client_proof",
-          "name": "request",
-          "required": true,
+          "name": "light_client_head",
+          "required": false,
           "schema": {
-            "$ref": "#/components/schemas/RpcLightClientExecutionProofRequest"
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        {
+          "name": "receipt_id",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        {
+          "name": "receiver_id",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/AccountId"
+          }
+        },
+        {
+          "name": "sender_id",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/AccountId"
+          }
+        },
+        {
+          "name": "transaction_hash",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        {
+          "name": "type",
+          "required": false,
+          "schema": {
+            "type": "string"
           }
         }
       ],
@@ -13217,11 +13432,17 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for EXPERIMENTAL_light_client_block_proof",
-          "name": "request",
+          "name": "block_hash",
           "required": true,
           "schema": {
-            "$ref": "#/components/schemas/RpcLightClientBlockProofRequest"
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        {
+          "name": "light_client_head",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/CryptoHash"
           }
         }
       ],
@@ -13246,11 +13467,31 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for EXPERIMENTAL_view_account",
-          "name": "request",
-          "required": true,
+          "name": "account_id",
+          "required": false,
           "schema": {
-            "$ref": "#/components/schemas/RpcViewAccountRequest"
+            "$ref": "#/components/schemas/AccountId"
+          }
+        },
+        {
+          "name": "block_id",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/BlockId"
+          }
+        },
+        {
+          "name": "finality",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/Finality"
+          }
+        },
+        {
+          "name": "sync_checkpoint",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/SyncCheckpoint"
           }
         }
       ],
@@ -13275,11 +13516,31 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for EXPERIMENTAL_view_code",
-          "name": "request",
-          "required": true,
+          "name": "account_id",
+          "required": false,
           "schema": {
-            "$ref": "#/components/schemas/RpcViewCodeRequest"
+            "$ref": "#/components/schemas/AccountId"
+          }
+        },
+        {
+          "name": "block_id",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/BlockId"
+          }
+        },
+        {
+          "name": "finality",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/Finality"
+          }
+        },
+        {
+          "name": "sync_checkpoint",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/SyncCheckpoint"
           }
         }
       ],
@@ -13304,11 +13565,46 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for EXPERIMENTAL_view_state",
-          "name": "request",
-          "required": true,
+          "name": "account_id",
+          "required": false,
           "schema": {
-            "$ref": "#/components/schemas/RpcViewStateRequest"
+            "$ref": "#/components/schemas/AccountId"
+          }
+        },
+        {
+          "name": "block_id",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/BlockId"
+          }
+        },
+        {
+          "name": "finality",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/Finality"
+          }
+        },
+        {
+          "name": "include_proof",
+          "required": false,
+          "schema": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        {
+          "name": "prefix_base64",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/StoreKey"
+          }
+        },
+        {
+          "name": "sync_checkpoint",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/SyncCheckpoint"
           }
         }
       ],
@@ -13333,11 +13629,38 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for EXPERIMENTAL_view_access_key",
-          "name": "request",
-          "required": true,
+          "name": "account_id",
+          "required": false,
           "schema": {
-            "$ref": "#/components/schemas/RpcViewAccessKeyRequest"
+            "$ref": "#/components/schemas/AccountId"
+          }
+        },
+        {
+          "name": "block_id",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/BlockId"
+          }
+        },
+        {
+          "name": "finality",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/Finality"
+          }
+        },
+        {
+          "name": "public_key",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/PublicKey"
+          }
+        },
+        {
+          "name": "sync_checkpoint",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/SyncCheckpoint"
           }
         }
       ],
@@ -13362,11 +13685,31 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for EXPERIMENTAL_view_access_key_list",
-          "name": "request",
-          "required": true,
+          "name": "account_id",
+          "required": false,
           "schema": {
-            "$ref": "#/components/schemas/RpcViewAccessKeyListRequest"
+            "$ref": "#/components/schemas/AccountId"
+          }
+        },
+        {
+          "name": "block_id",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/BlockId"
+          }
+        },
+        {
+          "name": "finality",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/Finality"
+          }
+        },
+        {
+          "name": "sync_checkpoint",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/SyncCheckpoint"
           }
         }
       ],
@@ -13391,11 +13734,45 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for EXPERIMENTAL_call_function",
-          "name": "request",
-          "required": true,
+          "name": "account_id",
+          "required": false,
           "schema": {
-            "$ref": "#/components/schemas/RpcCallFunctionRequest"
+            "$ref": "#/components/schemas/AccountId"
+          }
+        },
+        {
+          "name": "args_base64",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/FunctionArgs"
+          }
+        },
+        {
+          "name": "block_id",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/BlockId"
+          }
+        },
+        {
+          "name": "finality",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/Finality"
+          }
+        },
+        {
+          "name": "method_name",
+          "required": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sync_checkpoint",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/SyncCheckpoint"
           }
         }
       ],
@@ -13420,11 +13797,24 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for block_effects",
-          "name": "request",
-          "required": true,
+          "name": "block_id",
+          "required": false,
           "schema": {
-            "$ref": "#/components/schemas/RpcStateChangesInBlockRequest"
+            "$ref": "#/components/schemas/BlockId"
+          }
+        },
+        {
+          "name": "finality",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/Finality"
+          }
+        },
+        {
+          "name": "sync_checkpoint",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/SyncCheckpoint"
           }
         }
       ],
@@ -13446,11 +13836,58 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for changes",
-          "name": "request",
-          "required": true,
+          "name": "account_ids",
+          "required": false,
           "schema": {
-            "$ref": "#/components/schemas/RpcStateChangesInBlockByTypeRequest"
+            "items": {
+              "$ref": "#/components/schemas/AccountId"
+            },
+            "type": "array"
+          }
+        },
+        {
+          "name": "block_id",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/BlockId"
+          }
+        },
+        {
+          "name": "changes_type",
+          "required": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "finality",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/Finality"
+          }
+        },
+        {
+          "name": "key_prefix_base64",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/StoreKey"
+          }
+        },
+        {
+          "name": "keys",
+          "required": false,
+          "schema": {
+            "items": {
+              "$ref": "#/components/schemas/AccountWithPublicKey"
+            },
+            "type": "array"
+          }
+        },
+        {
+          "name": "sync_checkpoint",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/SyncCheckpoint"
           }
         }
       ],
@@ -13470,16 +13907,7 @@
     {
       "name": "genesis_config",
       "paramStructure": "by-name",
-      "params": [
-        {
-          "description": "Request parameters for genesis_config",
-          "name": "request",
-          "required": true,
-          "schema": {
-            "$ref": "#/components/schemas/GenesisConfigRequest"
-          }
-        }
-      ],
+      "params": [],
       "result": {
         "name": "result",
         "schema": {
@@ -13496,16 +13924,7 @@
     {
       "name": "client_config",
       "paramStructure": "by-name",
-      "params": [
-        {
-          "description": "Request parameters for client_config",
-          "name": "request",
-          "required": true,
-          "schema": {
-            "$ref": "#/components/schemas/RpcClientConfigRequest"
-          }
-        }
-      ],
+      "params": [],
       "result": {
         "name": "result",
         "schema": {
@@ -13524,11 +13943,10 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for maintenance_windows",
-          "name": "request",
+          "name": "account_id",
           "required": true,
           "schema": {
-            "$ref": "#/components/schemas/RpcMaintenanceWindowsRequest"
+            "$ref": "#/components/schemas/AccountId"
           }
         }
       ],
@@ -13551,11 +13969,22 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for broadcast_tx_async",
-          "name": "request",
+          "name": "signed_tx_base64",
           "required": true,
           "schema": {
-            "$ref": "#/components/schemas/RpcSendTransactionRequest"
+            "$ref": "#/components/schemas/SignedTransaction"
+          }
+        },
+        {
+          "name": "wait_until",
+          "required": false,
+          "schema": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TxExecutionStatus"
+              }
+            ],
+            "default": "EXECUTED_OPTIMISTIC"
           }
         }
       ],
@@ -13581,11 +14010,22 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "description": "Request parameters for broadcast_tx_commit",
-          "name": "request",
+          "name": "signed_tx_base64",
           "required": true,
           "schema": {
-            "$ref": "#/components/schemas/RpcSendTransactionRequest"
+            "$ref": "#/components/schemas/SignedTransaction"
+          }
+        },
+        {
+          "name": "wait_until",
+          "required": false,
+          "schema": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TxExecutionStatus"
+              }
+            ],
+            "default": "EXECUTED_OPTIMISTIC"
           }
         }
       ],
