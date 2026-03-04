@@ -943,14 +943,9 @@ fn test_gas_key_fee_parity() {
         setup.run_actions(vec![Action::DeleteKey(Box::new(DeleteKeyAction {
             public_key: gas_key_a_signer.public_key(),
         }))]);
-    assert!(
-        setup
-            .env
-            .rpc_node()
-            .view_access_key_query(&account, &gas_key_a_signer.public_key())
-            .is_err(),
-        "gas key A should not exist after deletion",
-    );
+    let result =
+        setup.env.rpc_node().view_access_key_query(&account, &gas_key_a_signer.public_key());
+    assert!(result.is_err(), "gas key A should not exist after deletion");
     let (_, delete_b_outcome) = setup.run_call_promise(serde_json::json!([
         {"batch_create": {"account_id": account.as_str()}, "id": 0},
         {"action_delete_key": {
@@ -960,14 +955,9 @@ fn test_gas_key_fee_parity() {
     ]));
     assert_eq!(delete_a_outcome.gas_burnt, delete_b_outcome.gas_burnt);
     assert_eq!(delete_a_outcome.tokens_burnt, delete_b_outcome.tokens_burnt);
-    assert!(
-        setup
-            .env
-            .rpc_node()
-            .view_access_key_query(&account, &gas_key_b_signer.public_key())
-            .is_err(),
-        "gas key B should not exist after deletion",
-    );
+    let result =
+        setup.env.rpc_node().view_access_key_query(&account, &gas_key_b_signer.public_key());
+    assert!(result.is_err(), "gas key B should not exist after deletion");
 
     setup.env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
