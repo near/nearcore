@@ -1,7 +1,7 @@
 use near_async::time::Duration;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
-use near_primitives::account::AccessKey;
+use near_primitives::account::{AccessKey, FunctionCallPermission};
 use near_primitives::action::{AddKeyAction, DeleteKeyAction, TransferToGasKeyAction};
 use near_primitives::errors::{
     ActionError, ActionErrorKind, ActionsValidationError, ReceiptValidationError, TxExecutionError,
@@ -886,11 +886,67 @@ fn test_gas_key_add_then_fund_then_use() {
     setup.env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
-/// Verify that adding, funding, and deleting a gas key via transaction vs host function
-/// produces identical gas_burnt and tokens_burnt on the action execution receipt.
+enum GasKeyKind {
+    FullAccess,
+    FunctionCall,
+}
+
+impl GasKeyKind {
+    fn access_key(&self, num_nonces: NonceIndex, account: &AccountId) -> AccessKey {
+        match self {
+            GasKeyKind::FullAccess => AccessKey::gas_key_full_access(num_nonces),
+            GasKeyKind::FunctionCall => AccessKey::gas_key_function_call(
+                num_nonces,
+                FunctionCallPermission {
+                    allowance: None,
+                    receiver_id: account.to_string(),
+                    method_names: vec!["method1".to_string(), "method2".to_string()],
+                },
+            ),
+        }
+    }
+
+    fn add_action_json(
+        &self,
+        num_nonces: NonceIndex,
+        account: &AccountId,
+        public_key_base64: &str,
+    ) -> serde_json::Value {
+        match self {
+            GasKeyKind::FullAccess => serde_json::json!({"action_add_gas_key_with_full_access": {
+                "promise_index": 0,
+                "public_key": public_key_base64,
+                "num_nonces": num_nonces,
+            }, "id": 0}),
+            GasKeyKind::FunctionCall => {
+                serde_json::json!({"action_add_gas_key_with_function_call": {
+                    "promise_index": 0,
+                    "public_key": public_key_base64,
+                    "num_nonces": num_nonces,
+                    "allowance": "0",
+                    "receiver_id": account.as_str(),
+                    "method_names": "method1,method2",
+                }, "id": 0})
+            }
+        }
+    }
+}
+
 #[test]
 #[cfg_attr(not(feature = "nightly"), ignore)]
-fn test_gas_key_fee_parity() {
+fn test_gas_key_fee_parity_full_access() {
+    test_gas_key_fee_parity(GasKeyKind::FullAccess);
+}
+
+#[test]
+#[cfg_attr(not(feature = "nightly"), ignore)]
+fn test_gas_key_fee_parity_function_call() {
+    test_gas_key_fee_parity(GasKeyKind::FunctionCall);
+}
+
+/// Verify that adding, funding, and deleting a gas key via transaction vs host function
+/// produces identical gas_burnt and tokens_burnt on the action execution receipt.
+fn test_gas_key_fee_parity(mode: GasKeyKind) {
     let mut setup = setup_host_function_test();
     let account = setup.account.clone();
 
@@ -907,15 +963,11 @@ fn test_gas_key_fee_parity() {
     // Add gas key A via transaction, B via host function
     let add_a_outcome = setup.run_actions(vec![Action::AddKey(Box::new(AddKeyAction {
         public_key: gas_key_a_signer.public_key(),
-        access_key: AccessKey::gas_key_full_access(num_nonces),
+        access_key: mode.access_key(num_nonces, &account),
     }))]);
     let add_b_outcome = setup.run_call_promise(serde_json::json!([
         {"batch_create": {"account_id": account.as_str()}, "id": 0},
-        {"action_add_gas_key_with_full_access": {
-            "promise_index": 0,
-            "public_key": public_key_b_base64,
-            "num_nonces": num_nonces,
-        }, "id": 0},
+        mode.add_action_json(num_nonces, &account, &public_key_b_base64),
     ]));
     assert_eq!(add_a_outcome.gas_burnt, add_b_outcome.gas_burnt);
     assert_eq!(add_a_outcome.tokens_burnt, add_b_outcome.tokens_burnt);
