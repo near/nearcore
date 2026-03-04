@@ -953,14 +953,7 @@ impl SpiceDataDistributorActor {
             // execution and certification heads.)
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::SpicePartialDataRequest {
-                    request: SpicePartialDataRequest {
-                        data_id: id.clone(),
-                        requester: me.clone(),
-                        include_contract_accesses: matches!(
-                            id,
-                            SpiceDataIdentifier::Witness { .. }
-                        ),
-                    },
+                    request: SpicePartialDataRequest { data_id: id.clone(), requester: me.clone() },
                     producer: producers.swap_remove(0),
                 },
             ));
@@ -994,7 +987,7 @@ impl SpiceDataDistributorActor {
 
     fn handle_partial_data_request(
         &mut self,
-        SpicePartialDataRequest { data_id, requester, include_contract_accesses }: SpicePartialDataRequest,
+        SpicePartialDataRequest { data_id, requester }: SpicePartialDataRequest,
     ) -> Result<(), Error> {
         let Some(signer) = self.validator_signer.get() else {
             return Err(Error::Other(
@@ -1018,16 +1011,12 @@ impl SpiceDataDistributorActor {
         // lower-priority way for other nodes that aren't validators (e.g. rpc nodes) to get
         // data they require.
 
-        // When the requester needs contract accesses (e.g. a chunk validator catching up
-        // after restart), send them alongside the witness parts.
-        if include_contract_accesses {
-            if let SpiceDataIdentifier::Witness { block_hash, shard_id } = &data_id {
-                let chunk_id = SpiceChunkId { block_hash: *block_hash, shard_id: *shard_id };
-                let accesses = match get_contract_accesses(
-                    self.chain_store.store_ref(),
-                    block_hash,
-                    *shard_id,
-                ) {
+        // For witness requests, also send contract accesses so that the requester
+        // (e.g. a chunk validator catching up after restart) can validate.
+        if let SpiceDataIdentifier::Witness { block_hash, shard_id } = &data_id {
+            let chunk_id = SpiceChunkId { block_hash: *block_hash, shard_id: *shard_id };
+            let accesses =
+                match get_contract_accesses(self.chain_store.store_ref(), block_hash, *shard_id) {
                     Some(accesses) => accesses,
                     None => {
                         // If the witness exists but contract accesses are missing (e.g. due to
@@ -1043,14 +1032,10 @@ impl SpiceDataDistributorActor {
                         Default::default()
                     }
                 };
-                let accesses_msg = SpiceChunkContractAccesses::new(chunk_id, accesses, &signer);
-                self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::SpiceChunkContractAccesses(
-                        vec![requester.clone()],
-                        accesses_msg,
-                    ),
-                ));
-            }
+            let accesses_msg = SpiceChunkContractAccesses::new(chunk_id, accesses, &signer);
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::SpiceChunkContractAccesses(vec![requester.clone()], accesses_msg),
+            ));
         }
 
         let recipients = HashSet::from([requester]);

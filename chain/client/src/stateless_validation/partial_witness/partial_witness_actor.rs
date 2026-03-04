@@ -56,6 +56,8 @@ use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
+use crate::stateless_validation::contracts_cache_contains_contract;
+
 const PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE: usize = 30;
 
 pub struct PartialWitnessActor {
@@ -667,11 +669,7 @@ impl PartialWitnessActor {
                 .contracts()
                 .iter()
                 .filter(|&hash| {
-                    !crate::stateless_validation::contracts_cache_contains_contract(
-                        contracts_cache,
-                        hash,
-                        &runtime_config,
-                    )
+                    contracts_cache_contains_contract(contracts_cache, hash, &runtime_config)
                 })
                 .cloned(),
         );
