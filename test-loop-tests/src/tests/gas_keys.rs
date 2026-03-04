@@ -6,7 +6,6 @@ use near_primitives::action::{AddKeyAction, DeleteKeyAction, TransferToGasKeyAct
 use near_primitives::errors::{
     ActionError, ActionErrorKind, ActionsValidationError, ReceiptValidationError, TxExecutionError,
 };
-use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
     Action, ExecutionOutcome, FunctionCallAction, SignedTransaction, TransactionNonce,
@@ -443,8 +442,8 @@ impl HostFunctionTestSetup {
     }
 
     /// Send a transaction with the given actions, wait for it, and return the
-    /// action receipt's (id, outcome). Panics if the transaction fails.
-    fn run_actions(&mut self, actions: Vec<Action>) -> (CryptoHash, ExecutionOutcome) {
+    /// action receipt's outcome. Panics if the transaction fails.
+    fn run_actions(&mut self, actions: Vec<Action>) -> ExecutionOutcome {
         let block_hash = get_shared_block_hash(&self.env.node_datas, &self.env.test_loop.data);
         let tx = SignedTransaction::from_actions(
             self.next_nonce(),
@@ -459,12 +458,12 @@ impl HostFunctionTestSetup {
         self.env.rpc_runner().run_for_number_of_blocks(1);
         let receipt_id = self.env.rpc_node().tx_receipt_id(tx_hash);
         let outcome = self.env.rpc_node().execution_outcome(receipt_id);
-        (outcome.id, outcome.outcome)
+        outcome.outcome
     }
 
     /// Send a `call_promise` function call, wait for it, and return the inner
-    /// action receipt's (id, outcome). Panics if the transaction fails.
-    fn run_call_promise(&mut self, input: serde_json::Value) -> (CryptoHash, ExecutionOutcome) {
+    /// action receipt's outcome. Panics if the transaction fails.
+    fn run_call_promise(&mut self, input: serde_json::Value) -> ExecutionOutcome {
         let block_hash = get_shared_block_hash(&self.env.node_datas, &self.env.test_loop.data);
         let tx = SignedTransaction::from_actions(
             self.next_nonce(),
@@ -488,7 +487,7 @@ impl HostFunctionTestSetup {
         assert!(!fc_outcome.outcome.receipt_ids.is_empty(), "expected at least one inner receipt");
         let inner_receipt_id = fc_outcome.outcome.receipt_ids[0];
         let inner_outcome = self.env.rpc_node().execution_outcome(inner_receipt_id);
-        (inner_outcome.id, inner_outcome.outcome)
+        inner_outcome.outcome
     }
 }
 
@@ -906,11 +905,11 @@ fn test_gas_key_fee_parity() {
     );
 
     // Add gas key A via transaction, B via host function
-    let (_, add_a_outcome) = setup.run_actions(vec![Action::AddKey(Box::new(AddKeyAction {
+    let add_a_outcome = setup.run_actions(vec![Action::AddKey(Box::new(AddKeyAction {
         public_key: gas_key_a_signer.public_key(),
         access_key: AccessKey::gas_key_full_access(num_nonces),
     }))]);
-    let (_, add_b_outcome) = setup.run_call_promise(serde_json::json!([
+    let add_b_outcome = setup.run_call_promise(serde_json::json!([
         {"batch_create": {"account_id": account.as_str()}, "id": 0},
         {"action_add_gas_key_with_full_access": {
             "promise_index": 0,
@@ -923,12 +922,12 @@ fn test_gas_key_fee_parity() {
 
     // Fund gas key A via transaction, B via host function
     let fund_amount = Balance::from_millinear(10);
-    let (_, fund_a_outcome) =
+    let fund_a_outcome =
         setup.run_actions(vec![Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
             public_key: gas_key_a_signer.public_key(),
             deposit: fund_amount,
         }))]);
-    let (_, fund_b_outcome) = setup.run_call_promise(serde_json::json!([
+    let fund_b_outcome = setup.run_call_promise(serde_json::json!([
         {"batch_create": {"account_id": account.as_str()}, "id": 0},
         {"action_transfer_to_gas_key": {
             "promise_index": 0,
@@ -940,14 +939,13 @@ fn test_gas_key_fee_parity() {
     assert_eq!(fund_a_outcome.tokens_burnt, fund_b_outcome.tokens_burnt);
 
     // Delete gas key A via transaction, B via host function
-    let (_, delete_a_outcome) =
-        setup.run_actions(vec![Action::DeleteKey(Box::new(DeleteKeyAction {
-            public_key: gas_key_a_signer.public_key(),
-        }))]);
+    let delete_a_outcome = setup.run_actions(vec![Action::DeleteKey(Box::new(DeleteKeyAction {
+        public_key: gas_key_a_signer.public_key(),
+    }))]);
     let result =
         setup.env.rpc_node().view_access_key_query(&account, &gas_key_a_signer.public_key());
     assert!(result.is_err(), "gas key A should not exist after deletion");
-    let (_, delete_b_outcome) = setup.run_call_promise(serde_json::json!([
+    let delete_b_outcome = setup.run_call_promise(serde_json::json!([
         {"batch_create": {"account_id": account.as_str()}, "id": 0},
         {"action_delete_key": {
             "promise_index": 0,
