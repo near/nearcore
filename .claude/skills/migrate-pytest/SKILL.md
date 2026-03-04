@@ -15,13 +15,14 @@ Follow these steps in order:
 
 - Read the target pytest file
 - Identify each distinct test scenario (steps, test methods, or test functions)
-- For each scenario, summarize:
+- For each scenario, write in details:
   - What is being tested (the behavior under test)
   - The network topology (how many validators, archival nodes, RPC nodes, observers)
   - Key configuration (epoch_length, gc settings, archive mode, split storage, etc.)
   - The sequence of actions (start nodes, wait for blocks, kill/restart, send txs, etc.)
   - The assertions (what is verified and how)
 - Present this analysis to the user before proceeding
+- Write this analysis into `<test_name>_migration.md` in the project root.
 
 ## 2. Study the test-loop framework
 
@@ -72,3 +73,4 @@ Report what was done:
 - Which pytest scenarios were migrated (and any that were intentionally simplified or skipped)
 - The new test file location and test function names
 - Approximate runtime comparison if available
+
