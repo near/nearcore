@@ -247,6 +247,23 @@ imports! {
         public_key_ptr: u64,
         amount_ptr: u64
     ] -> []>,
+    #[gas_key_host_fns] promise_batch_action_add_gas_key_with_full_access<[
+        promise_index: u64,
+        public_key_len: u64,
+        public_key_ptr: u64,
+        num_nonces: u64
+    ] -> []>,
+    #[gas_key_host_fns] promise_batch_action_add_gas_key_with_function_call<[
+        promise_index: u64,
+        public_key_len: u64,
+        public_key_ptr: u64,
+        num_nonces: u64,
+        allowance_ptr: u64,
+        receiver_id_len: u64,
+        receiver_id_ptr: u64,
+        method_names_len: u64,
+        method_names_ptr: u64
+    ] -> []>,
     // NOTE: There are intentionally no promise batch actions for
     // WithdrawFromGasKey. Actions that reduce gas key balance must only be
     // initiated via transactions, not by contracts. Otherwise, they will not be
