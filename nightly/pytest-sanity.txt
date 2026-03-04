@@ -133,10 +133,6 @@ pytest sanity/block_sync_flat_storage.py
 pytest sanity/block_sync_flat_storage.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/block_sync_flat_storage.py --features nightly,protocol_feature_spice
-pytest sanity/split_storage.py
-pytest sanity/split_storage.py --features nightly
-# TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#pytest sanity/split_storage.py --features nightly,protocol_feature_spice
 pytest sanity/state_sync_epoch_boundary.py
 pytest sanity/state_sync_epoch_boundary.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
