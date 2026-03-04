@@ -33,7 +33,6 @@ use near_primitives::epoch_info::RngSeed;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
@@ -765,11 +764,7 @@ impl TestEnv {
         let height = head.height + height_offset;
 
         epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
-                epoch_id,
-                height_created: height,
-                shard_id,
-            })
+            .get_chunk_producer_for_height(&epoch_id, height, shard_id)
             .unwrap()
             .take_account_id()
     }

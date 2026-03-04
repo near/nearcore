@@ -44,7 +44,6 @@ use near_primitives::sharding::{
 };
 use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::state_sync::StatePartKey;
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::test_utils::TestBlockBuilder;
@@ -753,11 +752,7 @@ fn test_bad_chunk_mask() {
     for height in 1..5 {
         let chunk_producer = env.clients[0]
             .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
-                epoch_id: *first_epoch_id,
-                height_created: height,
-                shard_id,
-            })
+            .get_chunk_producer_for_height(first_epoch_id, height, shard_id)
             .unwrap()
             .take_account_id();
         let block_producer =
@@ -2682,11 +2677,7 @@ fn produce_chunks(env: &mut TestEnv, epoch_id: &EpochId, height: u64) {
     for shard_id in shard_layout.shard_ids() {
         let chunk_producer = env.clients[0]
             .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
-                epoch_id: *epoch_id,
-                height_created: height,
-                shard_id,
-            })
+            .get_chunk_producer_for_height(epoch_id, height, shard_id)
             .unwrap()
             .take_account_id();
 

@@ -26,6 +26,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_primitives::block::Block;
+use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
@@ -191,11 +192,34 @@ impl ChunkValidationActor {
     }
 
     fn send_state_witness_ack(&self, witness: &ChunkStateWitness) -> Result<(), Error> {
-        let chunk_producer = self
+        let chunk_header = witness.chunk_header();
+        let chunk_producer = match self
             .epoch_manager
-            .get_chunk_producer_info(&witness.chunk_production_key())?
-            .account_id()
-            .clone();
+            .get_chunk_producer_info(chunk_header.prev_block_hash(), chunk_header.shard_id())
+        {
+            Ok(info) => info.account_id().clone(),
+            Err(EpochError::MissingBlock(_)) => {
+                // prev_block_hash not in epoch manager store, likely an orphan witness.
+                // Fall back to height-based lookup as best-effort for ack routing.
+                let cpk = witness.chunk_production_key();
+                match self.epoch_manager.get_chunk_producer_for_height(
+                    &cpk.epoch_id,
+                    cpk.height_created,
+                    cpk.shard_id,
+                ) {
+                    Ok(info) => info.account_id().clone(),
+                    Err(err) => {
+                        tracing::warn!(
+                            target: "chunk_validation",
+                            ?err,
+                            "could not resolve chunk producer for witness ack, skipping"
+                        );
+                        return Ok(());
+                    }
+                }
+            }
+            Err(err) => return Err(err.into()),
+        };
 
         // Skip sending ack to self.
         if let Some(validator_signer) = self.validator_signer.get() {
@@ -378,8 +402,10 @@ impl ChunkValidationActor {
         let chunk_production_key = state_witness.chunk_production_key();
         let shard_id = state_witness.chunk_header().shard_id();
         let chunk_header = state_witness.chunk_header().clone();
-        let chunk_producer_name =
-            self.epoch_manager.get_chunk_producer_info(&chunk_production_key)?.take_account_id();
+        let chunk_producer_name = self
+            .epoch_manager
+            .get_chunk_producer_info(&prev_block_hash, chunk_production_key.shard_id)?
+            .take_account_id();
 
         let expected_epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;

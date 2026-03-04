@@ -15,7 +15,6 @@ use near_network::types::NetworkRequests;
 use near_network::types::PeerManagerAdapter;
 use near_network::types::PeerManagerMessageRequest;
 use near_pool::InsertTransactionResult;
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::types::BlockHeightDelta;
@@ -307,11 +306,7 @@ impl RpcHandlerActor {
             let target_height = head.height + horizon - 1;
             let validator = self
                 .epoch_manager
-                .get_chunk_producer_info(&ChunkProductionKey {
-                    epoch_id: *epoch_id,
-                    height_created: target_height,
-                    shard_id,
-                })?
+                .get_chunk_producer_for_height(epoch_id, target_height, shard_id)?
                 .take_account_id();
             validators.insert(validator);
             if let Some(next_epoch_id) = &maybe_next_epoch_id {
@@ -322,11 +317,7 @@ impl RpcHandlerActor {
                 )?;
                 let validator = self
                     .epoch_manager
-                    .get_chunk_producer_info(&ChunkProductionKey {
-                        epoch_id: *next_epoch_id,
-                        height_created: target_height,
-                        shard_id: next_shard_id,
-                    })?
+                    .get_chunk_producer_for_height(next_epoch_id, target_height, next_shard_id)?
                     .take_account_id();
                 validators.insert(validator);
             }
@@ -367,11 +358,7 @@ impl RpcHandlerActor {
         for i in 1..=self.config.tx_routing_height_horizon {
             let chunk_producer = self
                 .epoch_manager
-                .get_chunk_producer_info(&ChunkProductionKey {
-                    epoch_id,
-                    height_created: head.height + i,
-                    shard_id,
-                })?
+                .get_chunk_producer_for_height(&epoch_id, head.height + i, shard_id)?
                 .take_account_id();
             if &chunk_producer == account_id {
                 return Ok(true);
