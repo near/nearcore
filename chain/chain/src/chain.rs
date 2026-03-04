@@ -554,12 +554,11 @@ impl Chain {
             .cloned()
             .collect();
 
-        let head_protocol_version = epoch_manager.get_epoch_protocol_version(&tip.epoch_id)?;
-        let shard_uids_pending_resharding = epoch_manager
-            .get_shard_uids_pending_resharding(head_protocol_version, PROTOCOL_VERSION)?;
+        let shard_uid_pending_resharding =
+            epoch_manager.get_resharding_parent_shard_uid(&tip.epoch_id, &tip.last_block_hash);
         runtime_adapter.get_tries().load_memtries_for_enabled_shards(
             &tracked_shards,
-            &shard_uids_pending_resharding,
+            shard_uid_pending_resharding.as_ref(),
             true,
         )?;
 
@@ -1877,6 +1876,10 @@ impl Chain {
 
         self.update_optimistic_blocks_pool(&block)?;
 
+        // Try to finalize any completed background memtrie loads, so they are used in the
+        // subsequent block processing.
+        self.runtime_adapter.get_tries().finalize_background_memtrie_loading();
+
         let epoch_id = block.header().epoch_id();
         let mut shards_cares_this_or_next_epoch = vec![];
         for shard_id in self.epoch_manager.shard_ids(epoch_id)? {
@@ -1921,6 +1924,7 @@ impl Chain {
         }
 
         if self.epoch_manager.is_next_block_epoch_start(block.header().prev_hash())? {
+            self.maybe_start_memtrie_preload_for_resharding(&block)?;
             // Keep in memory only these tries that we care about this or next epoch.
             self.runtime_adapter.get_tries().retain_memtries(&shards_cares_this_or_next_epoch);
         }
@@ -2139,6 +2143,38 @@ impl Chain {
 
     /// Update flat storage and memtrie for given `shard_id` and newly
     /// processed `block`.
+    /// If a resharding is upcoming (current epoch's shard layout differs from
+    /// the next epoch), start loading the parent shard's memtrie in a background
+    /// thread so it's ready by the time resharding executes.
+    fn maybe_start_memtrie_preload_for_resharding(&self, block: &Block) -> Result<(), Error> {
+        let Some(parent_shard_uid) = self
+            .epoch_manager
+            .get_resharding_parent_shard_uid(block.header().epoch_id(), block.hash())
+        else {
+            return Ok(());
+        };
+
+        if !self.shard_tracker.cares_about_shard_this_or_next_epoch(
+            block.header().prev_hash(),
+            parent_shard_uid.shard_id(),
+        ) {
+            return Ok(());
+        }
+
+        let tries = self.runtime_adapter.get_tries();
+        if tries.get_memtries(parent_shard_uid).is_some() {
+            return Ok(());
+        }
+
+        tracing::info!(
+            target: "memtrie",
+            ?parent_shard_uid,
+            "detected upcoming resharding, starting background memtrie load"
+        );
+        tries.spawn_background_memtrie_loading_for_shard(parent_shard_uid);
+        Ok(())
+    }
+
     fn update_flat_storage_and_memtrie(
         &self,
         block: &Block,

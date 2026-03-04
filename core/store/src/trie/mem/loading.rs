@@ -140,6 +140,22 @@ pub fn load_trie_from_flat_state_and_delta(
         load_trie_from_flat_state(&store, shard_uid, state_root, flat_head.height, parallelize)
             .unwrap();
 
+    apply_deltas_to_memtries(store, shard_uid, &mut memtries)?;
+
+    tracing::debug!(target: "memtrie", %shard_uid, "done loading memtries for shard");
+    Ok(memtries)
+}
+
+/// Applies all flat state deltas to the given memtries that are not already
+/// present. This is used both during initial loading and for catch-up after
+/// background memtrie loading.
+pub fn apply_deltas_to_memtries(
+    store: &Store,
+    shard_uid: ShardUId,
+    memtries: &mut MemTries,
+) -> Result<(), StorageError> {
+    let flat_store = store.flat_store();
+
     tracing::debug!(target: "memtrie", %shard_uid, "loading flat state deltas");
     // We load the deltas in order of height, so that we always have the previous state root
     // already loaded.
@@ -150,9 +166,13 @@ pub fn load_trie_from_flat_state_and_delta(
 
     tracing::debug!(target: "memtrie", %shard_uid, num_deltas = sorted_deltas.len(), "deltas to apply");
     for (height, hash, prev_hash) in sorted_deltas {
+        let new_state_root = get_state_root(store, hash, shard_uid)?;
+        // Skip deltas whose state roots are already in the memtrie.
+        if memtries.contains_root(&new_state_root) {
+            continue;
+        }
         if let Some(changes) = flat_store.get_delta(shard_uid, hash) {
             let old_state_root = get_state_root(store, prev_hash, shard_uid)?;
-            let new_state_root = get_state_root(store, hash, shard_uid)?;
 
             let mut trie_update = memtries.update(old_state_root, TrackingMode::None)?;
             for (key, value) in changes.0 {
@@ -171,8 +191,7 @@ pub fn load_trie_from_flat_state_and_delta(
         tracing::debug!(target: "memtrie", %shard_uid, %height, "applied memtrie changes for height");
     }
 
-    tracing::debug!(target: "memtrie", %shard_uid, "done loading memtries for shard");
-    Ok(memtries)
+    Ok(())
 }
 
 #[cfg(test)]

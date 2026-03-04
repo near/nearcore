@@ -211,7 +211,33 @@ When the network first enables dynamic resharding (transitioning from static to 
 
 ---
 
-## 6. Uncompleted TODOs
+## 6. Memtrie Pre-loading for Dynamic Resharding
+
+The parent shard's memtrie must be loaded when resharding executes (checked at `chain/chain/src/resharding/manager.rs`). Loading takes ~30 seconds, but we have an entire epoch (~12 hours on mainnet) between when the decision is known and when resharding executes. The pre-loading mechanism handles this with background loading:
+
+### Timeline
+
+- **Epoch N, last block**: `shard_split` embedded in block header.
+- **Epoch N -> N+1 boundary**: `finalize_epoch()` creates EpochInfo for epoch N+2 with new shard layout. At this point, `postprocess_ready_block()` in `chain/chain/src/chain.rs` detects the layout change via `maybe_start_memtrie_preload_for_resharding()` and starts a background thread to load the parent shard's memtrie from flat storage.
+- **Epoch N+1, early blocks**: The background thread completes loading (typically ~30s). On the next call to `finalize_background_memtrie_loading()` (which runs in `postprocess_ready_block()` on every block), the loaded memtrie is received from the background thread, delta catch-up is applied to bring it up to date, and it's inserted into the active memtries map.
+
+### Key implementation details
+
+- **Background thread**: Uses `std::thread::spawn` + `crossbeam::channel::bounded(1)` rather than rayon or async, because the ~30s I/O-bound load should not block rayon workers (needed for chunk application).
+- **Delta catch-up**: After the background load completes, `apply_deltas_to_memtries()` in `core/store/src/trie/mem/loading.rs` applies any flat state deltas accumulated during the loading period. Deltas whose state roots are already in the memtrie are skipped.
+- **Safe insertion**: The memtrie is inserted into the active map in `postprocess_ready_block()`, before chunk processing for that block begins. This ensures no in-flight chunk applications see an unexpected memtrie appear mid-processing.
+- **Startup fallback**: If the node restarts during epoch N+1 (after the decision but before execution), `Chain::new()` detects the pending resharding via `EpochManagerAdapter::get_resharding_parent_shard_uid()` (which compares current and next epoch shard layouts) and adds the parent shard for synchronous loading.
+- **Cancellation**: Pending loads for shards that are no longer tracked are cancelled via `retain_memtries()` when memtries are retained at epoch boundaries.
+
+### Key files
+
+- `core/store/src/trie/mem/loading.rs` -- `apply_deltas_to_memtries()` for reusable delta catch-up
+- `core/store/src/trie/shard_tries.rs` -- `spawn_background_memtrie_loading_for_shard()`, `finalize_background_memtrie_loading()`, `retain_memtries()` (cancellation)
+- `chain/chain/src/chain.rs` -- `maybe_start_memtrie_preload_for_resharding()` (epoch boundary trigger), `postprocess_ready_block()` (per-block finalization), `Chain::new()` (startup detection)
+
+---
+
+## 7. Uncompleted TODOs
 
 ### Dynamic Resharding Specific
 
@@ -219,7 +245,7 @@ When the network first enables dynamic resharding (transitioning from static to 
 
 2. **`chain/epoch-manager/src/lib.rs:663`** -- `next_next_shard_layout()` still takes `next_next_epoch_config` for backward compatibility with static-resharding tests. Should be removed once tests are migrated.
 
-3. **`chain/epoch-manager/src/adapter.rs:736`** -- `get_shard_uids_pending_resharding()` returns empty for dynamic resharding. Dynamic trie loading needs to be implemented.
+3. ~~**`chain/epoch-manager/src/adapter.rs`** -- `get_shard_uids_pending_resharding()` returns empty for dynamic resharding.~~ Resolved: removed. Memtrie pre-loading now uses `EpochManagerAdapter::get_resharding_parent_shard_uid()` to compare current vs next epoch shard layouts at epoch boundaries, startup, and state sync (see section 6).
 
 4. **`chain/epoch-manager/src/test_utils.rs:439`** -- Test utilities still create `BlockInfoV3` instead of `BlockInfoV4`.
 
