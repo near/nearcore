@@ -485,6 +485,7 @@ impl HostFunctionTestSetup {
         assert!(matches!(outcome.status, FinalExecutionStatus::SuccessValue(_)));
         let fc_receipt_id = self.env.rpc_node().tx_receipt_id(tx_hash);
         let fc_outcome = self.env.rpc_node().execution_outcome(fc_receipt_id);
+        assert!(!fc_outcome.outcome.receipt_ids.is_empty(), "expected at least one inner receipt");
         let inner_receipt_id = fc_outcome.outcome.receipt_ids[0];
         let inner_outcome = self.env.rpc_node().execution_outcome(inner_receipt_id);
         (inner_outcome.id, inner_outcome.outcome)
