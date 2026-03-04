@@ -27,7 +27,6 @@ use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::receipt::{ActionReceipt, ReceiptV0};
 use near_primitives::state::PartialState;
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction, TransferAction};
@@ -198,6 +197,9 @@ impl TestEnv {
             )
             .unwrap()
             .commit();
+        epoch_manager
+            .save_default_chunk_producers(&genesis_hash)
+            .expect("chunk producer save failed");
         Self {
             epoch_manager,
             runtime,
@@ -369,6 +371,9 @@ impl TestEnv {
             )
             .unwrap()
             .commit();
+        self.epoch_manager
+            .save_default_chunk_producers(&new_hash)
+            .expect("chunk producer save failed");
         let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(&new_hash).unwrap();
         let mut new_receipts = HashMap::<_, Vec<Receipt>>::new();
         for receipt in all_receipts {
@@ -887,6 +892,10 @@ fn test_state_sync() {
             )
             .unwrap()
             .commit();
+        new_env
+            .epoch_manager
+            .save_default_chunk_producers(&cur_hash)
+            .expect("chunk producer save failed");
         new_env.head.height = i;
         new_env.head.last_block_hash = cur_hash;
         new_env.head.prev_block_hash = prev_hash;
@@ -978,8 +987,7 @@ fn test_get_validator_info() {
 
             let em = env.runtime.epoch_manager.clone();
             let bp = em.get_block_producer_info(&epoch_id, height).unwrap();
-            let cp_key = ChunkProductionKey { epoch_id, height_created: height, shard_id };
-            let cp = em.get_chunk_producer_info(&cp_key).unwrap();
+            let cp = em.get_chunk_producer_for_height(&epoch_id, height, shard_id).unwrap();
             let stateless_validators =
                 em.get_chunk_validator_assignments(&epoch_id, shard_id, height).ok();
 

@@ -64,7 +64,6 @@ use near_primitives::sharding::{
     EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader, ShardChunkWithEncoding,
     StateSyncInfo, StateSyncInfoV1,
 };
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks};
 use near_primitives::unwrap_or_return;
@@ -887,7 +886,7 @@ impl Client {
         self.block_production_info.record_block_production(
             height,
             BlockProductionTracker::construct_chunk_collection_info(
-                height,
+                &prev_hash,
                 &epoch_id,
                 chunk_headers.len(),
                 &new_chunks,
@@ -1358,11 +1357,7 @@ impl Client {
             self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
         let chunk_producer = self
             .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
-                epoch_id,
-                height_created: chunk_header.height_created(),
-                shard_id: chunk_header.shard_id(),
-            })?
+            .get_chunk_producer_info(chunk_header.prev_block_hash(), chunk_header.shard_id())?
             .take_account_id();
         tracing::error!(
             target: "client",
@@ -1710,6 +1705,9 @@ impl Client {
         // Notify chunk validation actor about the new block for orphan witness processing
         let block_notification = BlockNotificationMessage { block: block.clone() };
         self.chunk_validation_sender.block_notification.send(block_notification.clone());
+
+        // Notify partial witness actor about the new block for pending side-channel message replay
+        self.partial_witness_adapter.block_notification.send(block_notification.clone());
 
         // Notify all subscribed watchers about the new block.
         self.block_notification_watch_sender.send_replace(Some(block_notification));

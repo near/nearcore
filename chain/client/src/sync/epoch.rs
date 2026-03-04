@@ -27,9 +27,10 @@ use near_primitives::network::PeerId;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{Balance, BlockHeight, BlockHeightDelta, EpochId};
 use near_primitives::utils::compression::CompressedData;
+use near_primitives::utils::get_block_shard_id;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
-use near_store::{Store, metrics};
+use near_store::{DBCol, Store, metrics};
 use parking_lot::Mutex;
 use rand::seq::SliceRandom;
 use std::sync::Arc;
@@ -201,13 +202,13 @@ impl EpochSync {
         source_peer: PeerId,
         epoch_manager: &dyn EpochManagerAdapter,
     ) -> Result<(), Error> {
-        let proof = proof.into_v1();
         if let SyncStatus::EpochSync(status) = status {
             if status.source_peer_id != source_peer {
                 tracing::warn!(%source_peer, expected_peer = %status.source_peer_id, "ignoring epoch sync proof from unexpected peer");
                 return Ok(());
             }
-            if proof
+            let v1 = proof.as_v1();
+            if v1
                 .current_epoch
                 .first_block_header_in_epoch
                 .height()
@@ -220,7 +221,7 @@ impl EpochSync {
                 );
                 return Ok(());
             }
-            if proof
+            if v1
                 .current_epoch
                 .first_block_header_in_epoch
                 .height()
@@ -238,15 +239,15 @@ impl EpochSync {
             return Ok(());
         }
 
-        self.verify_proof(&proof, epoch_manager)?;
+        self.verify_proof(proof.as_v1(), epoch_manager)?;
 
         let store = chain.chain_store.store();
         let mut store_update = store.store_update();
 
         // Store the EpochSyncProof, so that this node can derive a more recent EpochSyncProof
-        // to facilitate epoch sync of other nodes.
-        let proof = EpochSyncProof::V1(proof); // convert to avoid cloning
+        // to facilitate epoch sync of other nodes. Preserve the original version (V2 stays V2).
         store_update.epoch_store_update().set_epoch_sync_proof(&proof);
+        let boundary_chunk_producers = proof.boundary_chunk_producers().to_vec();
         let proof = proof.into_v1();
 
         let last_header = proof.current_epoch.first_block_header_in_epoch;
@@ -269,6 +270,13 @@ impl EpochSync {
         chain_store_update.set_final_head(&Tip::from_header(&self.genesis));
 
         chain_store_update.commit()?;
+
+        let last_epoch_first_block_hash = *proof.last_epoch.first_block_in_epoch.hash();
+        let prev_epoch_second_last_block_hash =
+            *proof.current_epoch.second_last_block_header_in_prev_epoch.hash();
+        let prev_epoch_last_block_hash =
+            *proof.current_epoch.last_block_header_in_prev_epoch.hash();
+        let current_epoch_first_block_hash = *last_header.hash();
 
         // Initialize the epoch manager with the last epoch.
         epoch_manager.init_after_epoch_sync(
@@ -315,6 +323,33 @@ impl EpochSync {
         );
 
         store_update.commit();
+
+        // Epoch sync bootstraps a bounded set of boundary blocks outside the
+        // normal block-processing path. We need ChunkProducers entries so the
+        // EpochInfoAggregator invariant holds while header sync catches up.
+        // Only seed when the feature is enabled — when it's off, ChunkProducers
+        // entries are never consulted and seeding is wasted work.
+        if ProtocolFeature::EarlyChunkProducerKickout.enabled(current_protocol_version) {
+            if boundary_chunk_producers.is_empty() {
+                // V1 proof or source node without ChunkProducers entries — seed defaults.
+                for block_hash in [
+                    last_epoch_first_block_hash,
+                    prev_epoch_second_last_block_hash,
+                    prev_epoch_last_block_hash,
+                    current_epoch_first_block_hash,
+                ] {
+                    epoch_manager.save_default_chunk_producers(&block_hash)?;
+                }
+            } else {
+                // V2 proof — write actual entries from the source node.
+                let mut cp_store_update = store.store_update();
+                for entry in &boundary_chunk_producers {
+                    let key = get_block_shard_id(&entry.block_hash, entry.shard_id);
+                    cp_store_update.insert_ser(DBCol::ChunkProducers, &key, &entry.chunk_producer);
+                }
+                cp_store_update.commit();
+            }
+        }
 
         *status = SyncStatus::EpochSyncDone;
         tracing::info!(epoch_id=?last_header.epoch_id(), "bootstrapped from epoch sync");

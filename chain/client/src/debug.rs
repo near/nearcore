@@ -22,7 +22,6 @@ use near_o11y::log_assert;
 use near_primitives::congestion_info::CongestionControl;
 use near_primitives::errors::EpochError;
 use near_primitives::state_sync::get_num_state_parts;
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::types::{
     AccountId, BlockHeight, NumShards, ShardId, ShardIndex, ValidatorInfoIdentifier,
@@ -130,7 +129,7 @@ impl BlockProductionTracker {
     }
 
     pub(crate) fn construct_chunk_collection_info(
-        block_height: BlockHeight,
+        prev_block_hash: &CryptoHash,
         epoch_id: &EpochId,
         num_shards: usize,
         new_chunks: &HashMap<ShardId, ChunkHash>,
@@ -153,11 +152,7 @@ impl BlockProductionTracker {
                 });
             } else {
                 let chunk_producer = epoch_manager
-                    .get_chunk_producer_info(&ChunkProductionKey {
-                        epoch_id: *epoch_id,
-                        height_created: block_height,
-                        shard_id,
-                    })?
+                    .get_chunk_producer_info(prev_block_hash, shard_id)?
                     .take_account_id();
                 chunk_collection_info.push(ChunkCollection {
                     chunk_producer,
@@ -635,11 +630,10 @@ impl ClientActor {
                                 chunk_producer: self
                                     .client
                                     .epoch_manager
-                                    .get_chunk_producer_info(&ChunkProductionKey {
-                                        epoch_id: *block_header.epoch_id(),
-                                        height_created: block_header.height(),
-                                        shard_id: chunk.shard_id(),
-                                    })
+                                    .get_chunk_producer_info(
+                                        block_header.prev_hash(),
+                                        chunk.shard_id(),
+                                    )
                                     .map(|info| info.take_account_id())
                                     .ok(),
                                 gas_used: chunk.prev_gas_used().as_gas(),
@@ -732,9 +726,13 @@ impl ClientActor {
                 let mut production = ProductionAtHeight::default();
 
                 // The block may be in the last epoch from head, we need to account for that.
-                if let Ok(header) = self.client.chain.get_block_header_by_height(height) {
-                    epoch_id = *header.epoch_id();
-                }
+                let prev_hash =
+                    if let Ok(header) = self.client.chain.get_block_header_by_height(height) {
+                        epoch_id = *header.epoch_id();
+                        Some(*header.prev_hash())
+                    } else {
+                        None
+                    };
 
                 // And if we are the block (or chunk) producer for this height - collect some timing info.
                 let block_producer = self
@@ -756,13 +754,12 @@ impl ClientActor {
                 }
 
                 for shard_id in shard_ids {
-                    let chunk_producer = self
-                        .client
-                        .epoch_manager
-                        .get_chunk_producer_info(&ChunkProductionKey {
-                            epoch_id,
-                            height_created: height,
-                            shard_id,
+                    let chunk_producer = prev_hash
+                        .and_then(|h| {
+                            self.client
+                                .epoch_manager
+                                .get_chunk_producer_info_best_effort(&h, shard_id)
+                                .ok()
                         })
                         .map(|info| info.take_account_id().to_string())
                         .unwrap_or_default();

@@ -187,6 +187,7 @@ fn setup(
 
     let partial_witness_sender_for_client = PartialWitnessSenderForClient {
         distribute_chunk_state_witness: partial_witness_adapter.clone().into_sender(),
+        block_notification: partial_witness_adapter.clone().into_sender(),
     };
 
     let resharding_sender = actor_system.spawn_tokio_actor(ReshardingActor::new(

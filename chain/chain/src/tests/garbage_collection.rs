@@ -133,6 +133,9 @@ fn do_fork(
             trie_changes_shards.push(trie_changes_data);
         }
         store_update.commit().unwrap();
+        epoch_manager
+            .save_default_chunk_producers(block.header().hash())
+            .expect("chunk producer save failed");
         states.push((block.clone(), prev_state_roots.clone(), trie_changes_shards));
         prev_block = block.clone();
     }
@@ -767,6 +770,10 @@ fn add_block(
         .unwrap();
     store_update.merge(epoch_manager_update.into());
     store_update.commit().unwrap();
+    chain
+        .epoch_manager
+        .save_default_chunk_producers(block.header().hash())
+        .expect("chunk producer save failed");
     *prev_block = block.clone();
 }
 

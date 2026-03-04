@@ -360,12 +360,21 @@ pub enum ProtocolFeature {
     /// deterministic account IDs are enabled.
     /// NEP: https://github.com/near/NEPs/pull/616
     FixDeterministicAccountIdCreation,
+    /// Include prev_block_hash in PartialEncodedStateWitness, ChunkContractAccesses,
+    /// and PartialEncodedContractDeploys wire types to enable block-hash-based
+    /// chunk producer lookup for validation.
+    BlockHashInPartialWitness,
     /// Nonce-based idempotency for global contract distribution receipts. Each
     /// distribution carries an auto-incremented nonce. Any distribution receipt
     /// with a nonce less than the one already stored will be dropped. This
     /// prevents race conditions in the case of multiple distribution attempts
     /// for the same contract.
     GlobalContractDistributionNonce,
+    /// Early chunk producer kickouts: dynamically blacklist underperforming
+    /// chunk producers mid-epoch based on their production ratio from the
+    /// finalized EpochInfoAggregator stats. Recovers shard liveness in minutes
+    /// instead of waiting for the next epoch boundary (~12 hours).
+    EarlyChunkProducerKickout,
     /// Use global contract for ETH implicit accounts instead of embedded WASM.
     EthImplicitGlobalContract,
     /// Process action receipts containing a single DeleteAccount action as
@@ -488,7 +497,8 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::GasKeys => 149,
-            ProtocolFeature::DynamicResharding => 150,
+            ProtocolFeature::BlockHashInPartialWitness => 84,
+            ProtocolFeature::DynamicResharding | ProtocolFeature::EarlyChunkProducerKickout => 150,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
