@@ -445,7 +445,7 @@ impl HostFunctionTestSetup {
     /// Send a transaction with the given actions, wait for it, and return the
     /// action receipt's (id, outcome). Panics if the transaction fails.
     fn run_actions(&mut self, actions: Vec<Action>) -> (CryptoHash, ExecutionOutcome) {
-        let block_hash = self.env.rpc_node().head().last_block_hash;
+        let block_hash = get_shared_block_hash(&self.env.node_datas, &self.env.test_loop.data);
         let tx = SignedTransaction::from_actions(
             self.next_nonce(),
             self.account.clone(),
@@ -465,7 +465,7 @@ impl HostFunctionTestSetup {
     /// Send a `call_promise` function call, wait for it, and return the inner
     /// action receipt's (id, outcome). Panics if the transaction fails.
     fn run_call_promise(&mut self, input: serde_json::Value) -> (CryptoHash, ExecutionOutcome) {
-        let block_hash = self.env.rpc_node().head().last_block_hash;
+        let block_hash = get_shared_block_hash(&self.env.node_datas, &self.env.test_loop.data);
         let tx = SignedTransaction::from_actions(
             self.next_nonce(),
             self.account.clone(),
