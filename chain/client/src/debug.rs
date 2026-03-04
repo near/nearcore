@@ -129,7 +129,7 @@ impl BlockProductionTracker {
     }
 
     pub(crate) fn construct_chunk_collection_info(
-        block_height: BlockHeight,
+        prev_block_hash: &CryptoHash,
         epoch_id: &EpochId,
         num_shards: usize,
         new_chunks: &HashMap<ShardId, ChunkHash>,
@@ -152,7 +152,7 @@ impl BlockProductionTracker {
                 });
             } else {
                 let chunk_producer = epoch_manager
-                    .get_chunk_producer_for_height(epoch_id, block_height, shard_id)?
+                    .get_chunk_producer_info(prev_block_hash, shard_id)?
                     .take_account_id();
                 chunk_collection_info.push(ChunkCollection {
                     chunk_producer,
@@ -630,7 +630,7 @@ impl ClientActor {
                                 chunk_producer: self
                                     .client
                                     .epoch_manager
-                                    .get_chunk_producer_info_best_effort(
+                                    .get_chunk_producer_info(
                                         block_header.prev_hash(),
                                         chunk.shard_id(),
                                     )
@@ -750,6 +750,7 @@ impl ClientActor {
                 }
 
                 for shard_id in shard_ids {
+                    // Iterates over a range including future heights — no block hash available.
                     let chunk_producer = self
                         .client
                         .epoch_manager

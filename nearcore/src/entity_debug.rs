@@ -127,7 +127,7 @@ impl EntityDebugHandlerImpl {
                     .ok_or_else(|| anyhow!("Chunk not found"))?;
                 let author = self
                     .epoch_manager
-                    .get_chunk_producer_info_best_effort(chunk.prev_block(), chunk.shard_id())?
+                    .get_chunk_producer_info(chunk.prev_block(), chunk.shard_id())?
                     .take_account_id();
                 Ok(serialize_entity(&ChunkView::from_author_chunk(author, chunk)))
             }
@@ -456,6 +456,7 @@ impl EntityDebugHandlerImpl {
                     .epoch_manager
                     .get_shard_layout(&epoch_id)
                     .context("Getting shard layout")?;
+                // RPC query by (epoch_id, height) — no block hash in API.
                 let chunk_producers = shard_layout
                     .shard_ids()
                     .map(|shard_id| {

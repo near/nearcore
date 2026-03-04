@@ -193,6 +193,7 @@ impl ChunkValidationActor {
 
     fn send_state_witness_ack(&self, witness: &ChunkStateWitness) -> Result<(), Error> {
         let chunk_header = witness.chunk_header();
+        // Best-effort: orphan witnesses may have MissingBlock, falls back to height-based lookup.
         let chunk_producer = match self.epoch_manager.get_chunk_producer_info_best_effort(
             chunk_header.prev_block_hash(),
             chunk_header.shard_id(),

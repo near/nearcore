@@ -886,7 +886,7 @@ impl Client {
         self.block_production_info.record_block_production(
             height,
             BlockProductionTracker::construct_chunk_collection_info(
-                height,
+                &prev_hash,
                 &epoch_id,
                 chunk_headers.len(),
                 &new_chunks,

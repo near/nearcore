@@ -651,6 +651,7 @@ impl ShardsManagerActor {
                 return Ok(true);
             }
         }
+        // Speculative next height — no block hash available for strict lookup.
         let chunk_producer = self
             .epoch_manager
             .get_chunk_producer_for_height(&epoch_id, next_chunk_height, shard_id)?
@@ -1978,6 +1979,7 @@ impl ShardsManagerActor {
         let shard_id = chunk_header.shard_id();
         let mut accounts_forwarded_to = HashSet::new();
         accounts_forwarded_to.insert(me.clone());
+        // Speculative next height — no block hash available for strict lookup.
         let next_chunk_producer = self
             .epoch_manager
             .get_chunk_producer_for_height(epoch_id, current_chunk_height + 1, shard_id)?

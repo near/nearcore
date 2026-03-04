@@ -304,6 +304,7 @@ impl RpcHandlerActor {
             .chain(vec![self.config.tx_routing_height_horizon * 2].into_iter())
         {
             let target_height = head.height + horizon - 1;
+            // Speculative future height — no block hash available for strict lookup.
             let validator = self
                 .epoch_manager
                 .get_chunk_producer_for_height(epoch_id, target_height, shard_id)?
@@ -315,6 +316,7 @@ impl RpcHandlerActor {
                     tx.transaction.signer_id(),
                     next_epoch_id,
                 )?;
+                // Speculative future height in next epoch — no block hash available.
                 let validator = self
                     .epoch_manager
                     .get_chunk_producer_for_height(next_epoch_id, target_height, next_shard_id)?
@@ -356,6 +358,7 @@ impl RpcHandlerActor {
         };
 
         for i in 1..=self.config.tx_routing_height_horizon {
+            // Speculative future height — no block hash available for strict lookup.
             let chunk_producer = self
                 .epoch_manager
                 .get_chunk_producer_for_height(&epoch_id, head.height + i, shard_id)?

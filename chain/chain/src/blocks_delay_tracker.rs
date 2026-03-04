@@ -142,6 +142,7 @@ impl ChunkTrackingStats {
         } else {
             ChunkProcessingStatus::NeedToRequest
         };
+        // Best-effort: chunk may arrive before its block is processed (race condition).
         let created_by = epoch_manager
             .get_chunk_producer_info_best_effort(&self.prev_block_hash, self.shard_id)
             .map(|info| info.take_account_id())
