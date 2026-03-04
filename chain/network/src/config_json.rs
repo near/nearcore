@@ -306,7 +306,7 @@ pub struct ExperimentalConfig {
 
     /// If set, overrides the auto-discovered public address used for Tier3
     /// state sync connections. Format: "IP:port" (e.g. "203.0.113.5:24567").
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tier3_public_addr: Option<SocketAddr>,
 
     /// See `NetworkConfig`.
