@@ -401,7 +401,6 @@ mod tests {
     use super::*;
 
     use near_crypto::{InMemorySigner, KeyType, Signer};
-    use near_primitives::action::TransferAction;
     use near_primitives::transaction::SignedTransaction;
 
     const TEST_SHARD_UID: ShardUId = ShardUId { version: 0, shard_id: 0 };
