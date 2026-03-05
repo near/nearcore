@@ -1322,9 +1322,9 @@ pub struct ChunkExecutionResult {
 pub struct BlockExecutionResults(pub HashMap<ShardId, Arc<ChunkExecutionResult>>);
 
 impl BlockExecutionResults {
-    pub fn compute_gas_limit(&self) -> Gas {
-        self.0.iter().fold(Gas::ZERO, |acc, (_shard_id, execution_result)| {
-            acc.checked_add(execution_result.chunk_extra.gas_limit()).unwrap()
+    pub fn compute_gas_limit_checked(&self) -> Option<Gas> {
+        self.0.iter().try_fold(Gas::ZERO, |acc, (_shard_id, execution_result)| {
+            acc.checked_add(execution_result.chunk_extra.gas_limit())
         })
     }
 }
