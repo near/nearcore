@@ -561,17 +561,22 @@ impl Client {
         let config = self.runtime_adapter.get_runtime_config(protocol_version);
         let prev_block_header = self.chain.get_block_header(block.header().prev_hash())?;
         let gas_price = prev_block_header.next_gas_price();
-        let mut ptq = self.chunk_producer.pending_transaction_queue.lock();
 
         // Remove certified chunks (core statements in this block).
-        for (chunk_id, _) in block.spice_core_statements().iter_execution_results() {
-            let cert_epoch_id = self.epoch_manager.get_epoch_id(&chunk_id.block_hash)?;
-            let shard_uid =
-                shard_id_to_uid(self.epoch_manager.as_ref(), chunk_id.shard_id, &cert_epoch_id)?;
-            let Some(queue) = ptq.get_mut(&shard_uid) else {
-                continue;
-            };
-            queue.remove_certified_chunk(&chunk_id.block_hash);
+        {
+            let mut ptq = self.chunk_producer.pending_transaction_queue.lock();
+            for (chunk_id, _) in block.spice_core_statements().iter_execution_results() {
+                let cert_epoch_id = self.epoch_manager.get_epoch_id(&chunk_id.block_hash)?;
+                let shard_uid = shard_id_to_uid(
+                    self.epoch_manager.as_ref(),
+                    chunk_id.shard_id,
+                    &cert_epoch_id,
+                )?;
+                let Some(queue) = ptq.get_mut(&shard_uid) else {
+                    continue;
+                };
+                queue.remove_certified_chunk(&chunk_id.block_hash);
+            }
         }
 
         // Add new block's chunk transactions.
@@ -586,6 +591,7 @@ impl Client {
             }
             let chunk = self.chain.get_chunk(&chunk_header.chunk_hash())?;
             let transactions = chunk.to_transactions();
+            let mut ptq = self.chunk_producer.pending_transaction_queue.lock();
             ptq.get_or_create(shard_uid).add_chunk_transactions(
                 *block.hash(),
                 transactions,
