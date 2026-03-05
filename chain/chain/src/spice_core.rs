@@ -101,7 +101,7 @@ impl SpiceCoreReader {
         self.chain_store.store().caching_get_ser(DBCol::execution_results(), &key)
     }
 
-    fn get_uncertified_chunks(
+    pub fn get_uncertified_chunks(
         &self,
         block_hash: &CryptoHash,
     ) -> Result<Vec<SpiceUncertifiedChunkInfo>, Error> {
