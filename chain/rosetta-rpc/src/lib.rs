@@ -776,7 +776,7 @@ async fn construction_payloads(
         unsigned_transaction: unsigned_transaction.into(),
         payloads: vec![models::SigningPayload {
             account_identifier: signer_account_id.into(),
-            signature_type: Some(signer_public_access_key.key_type().into()),
+            signature_type: Some(signer_public_access_key.key_type().try_into()?),
             hex_bytes: transaction_hash.as_ref().to_vec().into(),
         }],
     }))

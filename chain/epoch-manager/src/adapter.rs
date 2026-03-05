@@ -606,16 +606,13 @@ pub trait EpochManagerAdapter: Send + Sync {
         let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
         if self.will_shard_layout_change(parent_hash)? {
             let shard_layout = self.get_shard_layout(&next_epoch_id)?;
-            // The expect below may be triggered when the protocol version
-            // changes by multiple versions at once and multiple shard layout
-            // changes are captured. In this case the shards from the original
-            // shard layout are not valid parents in the final shard layout.
-            //
-            // This typically occurs in tests that are pegged to start at a
-            // certain protocol version and then upgrade to stable.
-            let split_shards = shard_layout
-                .get_children_shards_ids(shard_id)
-                .unwrap_or_else(|| panic!("all shard layouts expect the first one must have a split map, shard_id={shard_id}, shard_layout={shard_layout:?}"));
+            // With dynamic resharding, multiple shard layout changes can happen within the
+            // GC window. Callers like gc_state() may pass shard IDs from old epochs that were
+            // split several epochs ago. Return false since no validator is assigned to a shard
+            // that no longer exists.
+            let Some(split_shards) = shard_layout.get_children_shards_ids(shard_id) else {
+                return Ok(false);
+            };
             for next_shard_id in split_shards {
                 if self.cares_about_shard_in_epoch(&next_epoch_id, account_id, next_shard_id)? {
                     return Ok(true);
