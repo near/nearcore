@@ -48,7 +48,7 @@ use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::sharding::ShardProof;
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::{
-    CodeBytes, CodeHash, SpiceContractCodeRequest, SpiceContractCodeResponse,
+    CodeHash, SpiceContractCodeRequest,
 };
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -2246,7 +2246,7 @@ fn test_contract_code_request_invalid_signature_rejected() {
     let request_a =
         SpiceContractCodeRequest::new(chunk_id.clone(), HashSet::new(), &validator_signer);
     let request_b = SpiceContractCodeRequest::new(
-        chunk_id.clone(),
+        chunk_id,
         HashSet::from([CodeHash(hash(&[1]))]),
         &validator_signer,
     );
@@ -2294,7 +2294,7 @@ fn test_contract_code_request_invalid_contract_hash_rejected() {
     // Request a contract hash that was NOT accessed in the chunk.
     let hash_b = CodeHash(hash(&[2]));
     let request =
-        SpiceContractCodeRequest::new(chunk_id.clone(), HashSet::from([hash_b]), &validator_signer);
+        SpiceContractCodeRequest::new(chunk_id, HashSet::from([hash_b]), &validator_signer);
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
