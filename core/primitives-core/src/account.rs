@@ -115,6 +115,10 @@ impl AccountContract {
         matches!(self, Self::None)
     }
 
+    pub fn is_some(&self) -> bool {
+        !self.is_none()
+    }
+
     pub fn is_local(&self) -> bool {
         matches!(self, Self::Local(_))
     }
