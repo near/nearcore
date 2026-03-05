@@ -4,6 +4,7 @@ use near_async::messaging::Handler;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::{ActorSystem, messaging};
 use near_chain::check_transaction_validity_period;
+use near_chain::types::PendingConstraints;
 use near_chain::types::RuntimeAdapter;
 use near_chain::types::Tip;
 use near_chain_configs::MutableValidatorSigner;
@@ -212,6 +213,7 @@ impl RpcHandlerActor {
                     state_root,
                     &validated_tx,
                     protocol_version,
+                    &PendingConstraints::default(),
                 ) {
                     tracing::debug!(target: "client", ?err, "invalid tx");
                     return Ok(ProcessTxResponse::InvalidTx(err));
