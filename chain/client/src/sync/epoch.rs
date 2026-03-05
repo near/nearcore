@@ -54,6 +54,8 @@ pub struct EpochSync {
     genesis: BlockHeader,
     async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
     config: EpochSyncConfig,
+    /// Whether this node is archival. Archival nodes must not do epoch sync.
+    archive: bool,
     /// The last epoch sync proof and the epoch ID it was computed for.
     /// We reuse the same proof as long as the current epoch ID is the same.
     last_epoch_sync_response_cache: Arc<Mutex<Option<(EpochId, CompressedEpochSyncProof)>>>,
@@ -68,6 +70,7 @@ impl EpochSync {
         genesis: BlockHeader,
         async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
         config: EpochSyncConfig,
+        archive: bool,
         store: &Store,
     ) -> Self {
         let my_own_epoch_sync_boundary_block_header = store
@@ -82,6 +85,7 @@ impl EpochSync {
             genesis,
             async_computation_spawner,
             config,
+            archive,
             last_epoch_sync_response_cache: Arc::new(Mutex::new(None)),
             my_own_epoch_sync_boundary_block_header,
         }
@@ -139,6 +143,42 @@ impl EpochSync {
         Ok(proof)
     }
 
+    /// Returns true if the node is far enough behind that epoch sync is needed.
+    /// Pure query — does not mutate any state. Used by the v2 handler's
+    /// `decide_initial_phase()` and internally by `run()`.
+    ///
+    /// Checks three conditions in order:
+    /// 1. Horizon: is `header_head + epoch_sync_horizon` < `highest_height`?
+    /// 2. Archival: archival nodes must not skip blocks via epoch sync.
+    /// 3. Stale gate: non-genesis nodes can only epoch sync when SyncV2 is enabled.
+    pub fn is_epoch_sync_needed(
+        &self,
+        chain: &Chain,
+        highest_height: BlockHeight,
+    ) -> Result<bool, Error> {
+        let tip_height = chain.chain_store().header_head()?.height;
+        let horizon = self.config.epoch_sync_horizon_num_epochs * chain.epoch_length;
+        // Within the epoch sync horizon — header/block sync is sufficient.
+        if tip_height + horizon >= highest_height {
+            return Ok(false);
+        }
+        // Archival nodes must process every block; epoch sync would skip them.
+        if self.archive {
+            tracing::debug!(tip_height, highest_height, "skipping epoch sync: archival node");
+            return Ok(false);
+        }
+        // Without SyncV2, only fresh (genesis) nodes may epoch sync. Stale nodes
+        // (tip beyond genesis) must not — there is no handler to manage the
+        // post-epoch-sync pipeline (headers → state → blocks).
+        if !ProtocolFeature::SyncV2.enabled(PROTOCOL_VERSION)
+            && tip_height != chain.genesis().height()
+        {
+            return Ok(false);
+        }
+        tracing::debug!(tip_height, highest_height, horizon, "epoch sync needed");
+        Ok(true)
+    }
+
     /// Performs the epoch sync logic if applicable in the current state of the blockchain.
     /// This is periodically called by the client actor.
     pub fn run(
@@ -148,18 +188,7 @@ impl EpochSync {
         highest_height: BlockHeight,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<(), Error> {
-        let tip_height = chain.chain_store().header_head()?.height;
-        // If the node is within the epoch sync horizon, no action needed.
-        if tip_height + self.config.epoch_sync_horizon_num_epochs * chain.epoch_length
-            >= highest_height
-        {
-            return Ok(());
-        }
-        if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION)
-            && tip_height != chain.genesis().height()
-        {
-            // If continuous epoch sync is not enabled, we don't do epoch sync for nodes with stale data.
-            // Early return if the node is NOT fresh, i.e. tip_height is beyond genesis.
+        if !self.is_epoch_sync_needed(chain, highest_height)? {
             return Ok(());
         }
         match status {
@@ -644,9 +673,7 @@ impl Handler<EpochSyncResponseMessage> for ClientActor {
             }
         };
         let genesis_height = self.client.chain.genesis().height();
-        if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION)
-            && tip_height != genesis_height
-        {
+        if ProtocolFeature::SyncV2.enabled(PROTOCOL_VERSION) && tip_height != genesis_height {
             tracing::info!("stale node validated epoch sync proof, requesting data reset");
             if let Some(tx) = self.shutdown_signal.take() {
                 let _ = tx.send(ShutdownReason::EpochSyncDataReset);

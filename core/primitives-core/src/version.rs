@@ -372,6 +372,10 @@ pub enum ProtocolFeature {
     /// instant receipts, executing them immediately after the receipt that
     /// produced them rather than sending them as outgoing receipts.
     InstantDeleteAccount,
+    /// SyncV2: Clean state machine for node syncing.
+    /// Single pipeline: Epoch → Headers → State → Blocks.
+    /// Replaces the v1 sync handler with explicit phase transitions.
+    SyncV2,
 }
 
 impl ProtocolFeature {
@@ -495,6 +499,7 @@ impl ProtocolFeature {
             ProtocolFeature::Spice => 180,
 
             // Place features that are not yet in Nightly below this line.
+            ProtocolFeature::SyncV2 => 151,
             ProtocolFeature::ContinuousEpochSync => 201,
         }
     }
@@ -514,7 +519,7 @@ pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 80;
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 84;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 150;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 151;
 
 // TODO(spice): Once spice is mature and close to release make it part of nightly - at the point in
 // time cargo feature for spice should be removed as well.

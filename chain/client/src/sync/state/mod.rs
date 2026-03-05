@@ -458,6 +458,7 @@ pub enum StateSyncShardResult {
     Completed,
 }
 
+
 /// Abstracts away the source of state sync headers and parts. Only one instance is kept per
 /// state sync, NOT per shard.
 pub(self) trait StateSyncDownloadSource: Send + Sync + 'static {

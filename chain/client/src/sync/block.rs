@@ -277,6 +277,46 @@ impl BlockSync {
         Ok(())
     }
 
+    /// Request blocks if due. Does not check `state_needed` or update
+    /// SyncStatus — those responsibilities belong to the v2 handler.
+    /// The v2 handler calls this during the BlockSync phase alongside
+    /// `header_sync.run_v2()`.
+    pub fn run_v2(
+        &mut self,
+        chain: &Chain,
+        highest_height_peers: &[HighestHeightPeerInfo],
+        max_block_requests: usize,
+    ) -> Result<(), near_chain::Error> {
+        tracing::debug!("Entering BlockSync::run_v2");
+        let head = chain.head()?;
+        match self.block_request_due(&head) {
+            BlockRequestDue::Request => {
+                self.block_sync(chain, highest_height_peers, max_block_requests)?;
+            }
+            BlockRequestDue::Wait => {}
+        }
+        Ok(())
+    }
+
+    /// Simplified due-check: only considers head freshness and timeout.
+    /// Unlike `block_sync_due()`, does NOT call `check_state_needed()`
+    /// because the v2 handler determines the sync path upfront.
+    fn block_request_due(&self, head: &Tip) -> BlockRequestDue {
+        match &self.last_request {
+            None => BlockRequestDue::Request,
+            Some(request) => {
+                let head_got_updated = head.last_block_hash != request.head;
+                let timeout = self.clock.now_utc() - request.when
+                    > Duration::milliseconds(BLOCK_REQUEST_TIMEOUT_MS);
+                if head_got_updated || timeout {
+                    BlockRequestDue::Request
+                } else {
+                    BlockRequestDue::Wait
+                }
+            }
+        }
+    }
+
     /// Checks if we should run block sync and ask for more full blocks.
     /// Block sync is due either if the chain head has changed since the last request
     /// or if time since the last request is > BLOCK_REQUEST_TIMEOUT_MS
@@ -317,4 +357,10 @@ enum BlockSyncDue {
     WaitForBlock,
     /// Too far behind, drop BlockSync and do StateSync instead.
     StateSync,
+}
+
+/// Whether blocks should be requested (v2, without state sync check).
+enum BlockRequestDue {
+    Request,
+    Wait,
 }
