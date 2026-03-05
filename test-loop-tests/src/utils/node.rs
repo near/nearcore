@@ -14,10 +14,13 @@ use near_client::{Client, ProcessTxRequest, Query, QueryError, ViewClientActor};
 use near_crypto::PublicKey;
 use near_jsonrpc::client::JsonRpcClient;
 use near_jsonrpc_primitives::errors::RpcError;
+use near_primitives::action::Action;
 use near_primitives::errors::InvalidTxError;
+use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ShardChunk;
+use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
@@ -179,6 +182,121 @@ impl<'a> TestLoopNode<'a> {
         let process_tx_request =
             ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
         self.node_data.rpc_handler_sender.send(process_tx_request);
+    }
+
+    /// Build a signed transaction from raw actions, auto-determining nonce,
+    /// signer, and block hash from the node's current state.
+    #[allow(dead_code)]
+    pub fn tx_from_actions(
+        &self,
+        signer_id: &AccountId,
+        receiver_id: &AccountId,
+        actions: Vec<Action>,
+    ) -> SignedTransaction {
+        SignedTransaction::from_actions(
+            self.get_next_nonce(signer_id),
+            signer_id.clone(),
+            receiver_id.clone(),
+            &create_user_test_signer(signer_id),
+            actions,
+            self.head().last_block_hash,
+        )
+    }
+
+    /// Build a transfer transaction.
+    pub fn tx_send_money(
+        &self,
+        sender_id: &AccountId,
+        receiver_id: &AccountId,
+        amount: Balance,
+    ) -> SignedTransaction {
+        SignedTransaction::send_money(
+            self.get_next_nonce(sender_id),
+            sender_id.clone(),
+            receiver_id.clone(),
+            &create_user_test_signer(sender_id),
+            amount,
+            self.head().last_block_hash,
+        )
+    }
+
+    /// Build a deploy-contract transaction (sender == contract account).
+    pub fn tx_deploy_contract(&self, contract_id: &AccountId, code: Vec<u8>) -> SignedTransaction {
+        SignedTransaction::deploy_contract(
+            self.get_next_nonce(contract_id),
+            contract_id,
+            code,
+            &create_user_test_signer(contract_id),
+            self.head().last_block_hash,
+        )
+    }
+
+    /// Deploy the standard test contract (`near_test_contracts::rs_contract`).
+    pub fn tx_deploy_test_contract(&self, contract_id: &AccountId) -> SignedTransaction {
+        self.tx_deploy_contract(contract_id, near_test_contracts::rs_contract().to_vec())
+    }
+
+    /// Build a function-call transaction.
+    pub fn tx_call(
+        &self,
+        sender_id: &AccountId,
+        contract_id: &AccountId,
+        method_name: &str,
+        args: Vec<u8>,
+        deposit: Balance,
+        gas: Gas,
+    ) -> SignedTransaction {
+        SignedTransaction::call(
+            self.get_next_nonce(sender_id),
+            sender_id.clone(),
+            contract_id.clone(),
+            &create_user_test_signer(sender_id),
+            deposit,
+            method_name.to_owned(),
+            args,
+            gas,
+            self.head().last_block_hash,
+        )
+    }
+
+    /// Build a create-account transaction.
+    pub fn tx_create_account(
+        &self,
+        originator: &AccountId,
+        new_account_id: &AccountId,
+        amount: Balance,
+    ) -> SignedTransaction {
+        SignedTransaction::create_account(
+            self.get_next_nonce(originator),
+            originator.clone(),
+            new_account_id.clone(),
+            amount,
+            create_user_test_signer(new_account_id).public_key(),
+            &create_user_test_signer(originator),
+            self.head().last_block_hash,
+        )
+    }
+
+    /// Build a delete-account transaction.
+    pub fn tx_delete_account(
+        &self,
+        account_id: &AccountId,
+        beneficiary_id: &AccountId,
+    ) -> SignedTransaction {
+        SignedTransaction::delete_account(
+            self.get_next_nonce(account_id),
+            account_id.clone(),
+            account_id.clone(),
+            beneficiary_id.clone(),
+            &create_user_test_signer(account_id),
+            self.head().last_block_hash,
+        )
+    }
+
+    pub fn get_next_nonce(&self, account_id: &AccountId) -> u64 {
+        let signer = create_user_test_signer(account_id);
+        let access_key = self.view_access_key_query(account_id, &signer.public_key()).unwrap();
+        access_key.nonce + 1
     }
 }
 
