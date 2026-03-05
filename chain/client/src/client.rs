@@ -607,13 +607,11 @@ impl Client {
         shard_tracker: &ShardTracker,
         head_hash: &CryptoHash,
     ) -> Result<(), Error> {
-        let mut ptq = pending_transaction_queue.lock();
-        ptq.clear();
-
         let head_block = chain.get_block(head_hash)?;
         if !head_block.is_spice_block() {
             return Ok(());
         }
+        pending_transaction_queue.lock().clear();
 
         let uncertified_chunks = chain.spice_core_reader.get_uncertified_chunks(head_hash)?;
         let mut uncertified_block_hashes: HashSet<CryptoHash> = HashSet::new();
@@ -662,7 +660,7 @@ impl Client {
                     continue;
                 };
                 let transactions = chunk.to_transactions();
-                ptq.get_or_create(shard_uid).add_chunk_transactions(
+                pending_transaction_queue.lock().get_or_create(shard_uid).add_chunk_transactions(
                     *block_hash,
                     transactions,
                     &config,
