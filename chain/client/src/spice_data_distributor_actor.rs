@@ -1109,9 +1109,39 @@ impl SpiceDataDistributorActor {
             .start_timer();
         let requester = request.requester().clone();
 
+        // Fetch block early — needed for both validation and storage lookup below.
+        let block_header = self.chain_store.get_block_header(&chunk_id.block_hash)?;
+        let epoch_id = block_header.epoch_id();
+
+        // Verify request signature before any other checks to prevent cache pollution.
+        let validator = self.epoch_manager.get_validator_by_account_id(epoch_id, &requester)?;
+        if !request.verify_signature(validator.public_key()) {
+            tracing::warn!(
+                target: "spice_data_distribution",
+                ?chunk_id,
+                ?requester,
+                "invalid contract code request signature"
+            );
+            return Ok(());
+        }
+
+        // Verify requester is a chunk validator for this chunk.
+        let assignments = self.epoch_manager.get_chunk_validator_assignments(
+            epoch_id,
+            chunk_id.shard_id,
+            block_header.height(),
+        )?;
+        if !assignments.contains(&requester) {
+            tracing::warn!(
+                target: "spice_data_distribution",
+                ?chunk_id,
+                ?requester,
+                "contract code request from non-chunk-validator"
+            );
+            return Ok(());
+        }
+
         // Deduplicate repeated requests from the same requester for the same chunk.
-        // TODO(spice): we push the data to the cache before checking request validity/relevance,
-        // so the malicious actor can pollute the cache.
         // TODO(spice): This mirrors the current approach in non-spice data flow. There may be
         // valid reasons to re-request the contract codes. We could rather rate-limit these
         // requests.
@@ -1126,38 +1156,6 @@ impl SpiceDataDistributorActor {
             return Ok(());
         }
         self.processed_contract_code_requests.push(dedup_key, ());
-
-        // Fetch block early — needed for both validation and storage lookup below.
-        let block = self.chain_store.get_block(&chunk_id.block_hash)?;
-        let epoch_id = block.header().epoch_id();
-
-        // Verify requester is a chunk validator for this chunk.
-        let assignments = self.epoch_manager.get_chunk_validator_assignments(
-            epoch_id,
-            chunk_id.shard_id,
-            block.header().height(),
-        )?;
-        if !assignments.contains(&requester) {
-            tracing::warn!(
-                target: "spice_data_distribution",
-                ?chunk_id,
-                ?requester,
-                "contract code request from non-chunk-validator"
-            );
-            return Ok(());
-        }
-
-        // Verify request signature.
-        let validator = self.epoch_manager.get_validator_by_account_id(epoch_id, &requester)?;
-        if !request.verify_signature(validator.public_key()) {
-            tracing::warn!(
-                target: "spice_data_distribution",
-                ?chunk_id,
-                ?requester,
-                "invalid contract code request signature"
-            );
-            return Ok(());
-        }
 
         let Some(valid_accesses) = get_contract_accesses(
             self.chain_store.store_ref(),
