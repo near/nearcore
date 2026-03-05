@@ -1,6 +1,6 @@
 use crate::config::{TransactionCost, total_prepaid_gas};
 use crate::near_primitives::account::Account;
-use crate::{AccessKeyUpdate, TxVerdict, VerificationResult};
+use crate::{AccessKeyUpdate, PendingConstraints, TxVerdict, VerificationResult};
 use near_crypto::PublicKey;
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_parameters::RuntimeConfig;
@@ -287,6 +287,7 @@ pub fn verify_and_charge_tx_ephemeral(
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
     protocol_version: ProtocolVersion,
+    pending: &PendingConstraints,
 ) -> TxVerdict {
     // It's the caller's responsibility to NOT call this function for transactions with
     // nonce_index (i.e. gas key transactions).
@@ -311,18 +312,25 @@ pub fn verify_and_charge_tx_ephemeral(
     } = *transaction_cost;
     let account_id = tx.signer_id();
     let tx_nonce = tx.nonce().nonce();
-    if let Err(e) = verify_nonce(tx_nonce, access_key.nonce, block_height) {
+    let effective_nonce = std::cmp::max(access_key.nonce, pending.max_nonce);
+    if let Err(e) = verify_nonce(tx_nonce, effective_nonce, block_height) {
         return TxVerdict::Failed(e);
     }
 
-    let balance = account.amount();
-    let Some(new_amount) = balance.checked_sub(total_cost) else {
+    // saturating_sub is fine here: on the consensus path pending constraints
+    // are always default (zero), so the subtraction is exact. On the RPC /
+    // chunk-production path it is best-effort and does not affect consensus.
+    let available_balance = account.amount().saturating_sub(pending.paid_from_balance);
+    if available_balance < total_cost {
         return TxVerdict::Failed(InvalidTxError::NotEnoughBalance {
             signer_id: account_id.clone(),
-            balance,
+            balance: available_balance,
             cost: total_cost,
         });
-    };
+    }
+    // Debit only this tx's cost, not the pending amount (which was already
+    // charged in prior chunks and will be applied at execution time).
+    let new_amount = account.amount().checked_sub(total_cost).unwrap();
 
     let new_allowance = match check_and_compute_new_allowance(
         access_key,
@@ -388,6 +396,7 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
     tx: &Transaction,
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
+    pending: &PendingConstraints,
 ) -> TxVerdict {
     // It's the caller's responsibility to ONLY call this function for transactions with
     // nonce_index (i.e. gas key transactions).
@@ -424,18 +433,38 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
     }
 
     let tx_nonce = tx.nonce().nonce();
-    if let Err(e) = verify_nonce(tx_nonce, current_nonce, block_height) {
+    let effective_nonce = std::cmp::max(current_nonce, pending.max_nonce);
+    if let Err(e) = verify_nonce(tx_nonce, effective_nonce, block_height) {
         return TxVerdict::Failed(e);
     }
 
-    // Check gas key has enough balance for gas costs
-    let Some(new_gas_key_balance) = gas_key_info.balance.checked_sub(gas_cost) else {
+    // Check gas key has enough balance for gas costs, accounting for
+    // pending gas key costs (prior gas key txs + pending WithdrawFromGasKey).
+    // Unlike account balance, gas key balance only changes through transactions
+    // that PTQ explicitly tracks, so pending should never exceed the balance.
+    let Some(available_gas_key_balance) =
+        gas_key_info.balance.checked_sub(pending.paid_from_gas_key)
+    else {
+        tracing::error!(
+            target: "runtime",
+            balance = %gas_key_info.balance,
+            paid_from_gas_key = %pending.paid_from_gas_key,
+            "pending gas key costs exceed gas key balance"
+        );
         return TxVerdict::Failed(InvalidTxError::NotEnoughGasKeyBalance {
             signer_id: account_id.clone(),
             balance: gas_key_info.balance,
             cost: gas_cost,
         });
     };
+    if available_gas_key_balance < gas_cost {
+        return TxVerdict::Failed(InvalidTxError::NotEnoughGasKeyBalance {
+            signer_id: account_id.clone(),
+            balance: available_gas_key_balance,
+            cost: gas_cost,
+        });
+    }
+    let new_gas_key_balance = gas_key_info.balance.checked_sub(gas_cost).unwrap();
 
     // Validate FunctionCall permission constraints if applicable
     if let Some(function_call_permission) = access_key.permission.function_call_permission() {
@@ -454,25 +483,31 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
         access_key_update: gas_key_update,
     };
 
-    // Check account has enough balance for deposits
-    let account_balance = account.amount();
-    let Some(new_account_amount) = account_balance.checked_sub(deposit_cost) else {
+    // Check account has enough balance for deposits, accounting for
+    // pending balance costs from prior txs. saturating_sub is fine: on the
+    // consensus path pending constraints are always default (zero), so the
+    // subtraction is exact. On the RPC / chunk-production path it is
+    // best-effort.
+    let available_balance = account.amount().saturating_sub(pending.paid_from_balance);
+    if available_balance < deposit_cost {
         return TxVerdict::DepositFailed {
-            result: make_result(account_balance),
+            result: make_result(account.amount()),
             error: InvalidTxError::NotEnoughBalanceForDeposit {
                 signer_id: account_id.clone(),
-                balance: account_balance,
+                balance: available_balance,
                 cost: deposit_cost,
                 reason: DepositCostFailureReason::NotEnoughBalance,
             },
         };
-    };
+    }
+    // Debit only this tx's deposit cost, not the pending amount.
+    let new_account_amount = account.amount().checked_sub(deposit_cost).unwrap();
 
     match check_storage_stake(account, new_account_amount, config) {
         Ok(()) => {}
         Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
             return TxVerdict::DepositFailed {
-                result: make_result(account_balance),
+                result: make_result(account.amount()),
                 error: InvalidTxError::NotEnoughBalanceForDeposit {
                     signer_id: account_id.clone(),
                     balance: new_account_amount,
@@ -1223,6 +1258,7 @@ mod tests {
             &cost,
             None,
             current_protocol_version,
+            &PendingConstraints::default(),
         ) else {
             panic!("expected Failed verdict");
         };
@@ -1258,6 +1294,7 @@ mod tests {
                 tx,
                 &transaction_cost,
                 block_height,
+                &PendingConstraints::default(),
             )
         } else {
             verify_and_charge_tx_ephemeral(
@@ -1268,6 +1305,7 @@ mod tests {
                 &transaction_cost,
                 block_height,
                 current_protocol_version,
+                &PendingConstraints::default(),
             )
         };
         let result = match verdict {
@@ -3317,6 +3355,7 @@ mod tests {
             tx,
             &cost,
             None,
+            &PendingConstraints::default(),
         ) else {
             panic!("expected DepositFailed");
         };
@@ -3380,6 +3419,7 @@ mod tests {
             tx,
             &cost,
             None,
+            &PendingConstraints::default(),
         ) else {
             panic!("expected DepositFailed");
         };
