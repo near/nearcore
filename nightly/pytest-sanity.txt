@@ -82,11 +82,6 @@ pytest --timeout=10m sanity/state_sync_routed.py manytx 115 --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest --timeout=10m sanity/state_sync_routed.py manytx 115 --features nightly,protocol_feature_spice
 
-pytest sanity/single_shard_tracking.py
-pytest sanity/single_shard_tracking.py --features nightly
-# TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#pytest sanity/single_shard_tracking.py --features nightly,protocol_feature_spice
-
 pytest --timeout=15m sanity/state_sync_massive.py
 pytest --timeout=15m sanity/state_sync_massive.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
