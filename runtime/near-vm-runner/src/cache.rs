@@ -309,13 +309,18 @@ impl FilesystemContractRuntimeCache {
         // The constant is chosen somewhat arbitrarily.
         let expected_cache_item_count = memcache_expected_item_count * 4;
 
+        let any_cache = AnyCache::new(
+            expected_cache_item_count,
+            memcache_expected_item_count as u64 * AVG_COMPILED_CONTRACT_WEIGHT,
+        );
+        #[cfg(feature = "metrics")]
+        let any_cache = any_cache
+            .with_identifier(format!("filesystem_{}", contract_cache_path.as_ref().display()));
+
         Ok(Self {
             state: Arc::new(FilesystemContractRuntimeCacheState {
                 dir,
-                any_cache: AnyCache::new(
-                    expected_cache_item_count,
-                    memcache_expected_item_count as u64 * AVG_COMPILED_CONTRACT_WEIGHT,
-                ),
+                any_cache,
                 test_temp_dir: None,
             }),
         })
@@ -575,6 +580,10 @@ impl<K: std::hash::Hash + Eq, V> LruWeightedCache<K, V> {
 /// Used primarily for storage of artifacts on a per-VM basis.
 pub struct AnyCache {
     cache: Option<Mutex<LruWeightedCache<CryptoHash, Box<AnyCacheValue>>>>,
+    /// Optional identifier for this cache instance, used as a label when reporting metrics.
+    /// Metrics are only reported when this is set.
+    #[cfg(feature = "metrics")]
+    identifier: Option<String>,
 }
 
 impl AnyCache {
@@ -585,7 +594,15 @@ impl AnyCache {
             } else {
                 None
             },
+            #[cfg(feature = "metrics")]
+            identifier: None,
         }
+    }
+
+    #[cfg(feature = "metrics")]
+    fn with_identifier(mut self, identifier: String) -> Self {
+        self.identifier = Some(identifier);
+        self
     }
 
     pub fn clear(&self) {
@@ -593,7 +610,9 @@ impl AnyCache {
             let mut cache_guard = cache.lock();
             cache_guard.clear();
             #[cfg(feature = "metrics")]
-            crate::metrics::set_compiled_contract_cache_metrics(0, 0);
+            if let Some(id) = &self.identifier {
+                crate::metrics::set_compiled_contract_cache_metrics(id, 0, 0);
+            }
         }
     }
 
@@ -663,7 +682,13 @@ impl AnyCache {
         let mut locked = cache.lock();
         locked.put(key, weight, generated);
         #[cfg(feature = "metrics")]
-        crate::metrics::set_compiled_contract_cache_metrics(locked.len(), locked.current_weight());
+        if let Some(id) = &self.identifier {
+            crate::metrics::set_compiled_contract_cache_metrics(
+                id,
+                locked.len(),
+                locked.current_weight(),
+            );
+        }
         Ok(result)
     }
 
