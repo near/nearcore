@@ -588,7 +588,8 @@ impl AnyCache {
 
     pub fn clear(&self) {
         if let Some(cache) = &self.cache {
-            cache.lock().clear();
+            let mut cache_guard = cache.lock();
+            cache_guard.clear();
             #[cfg(feature = "metrics")]
             crate::metrics::set_compiled_contract_cache_metrics(0, 0);
         }
