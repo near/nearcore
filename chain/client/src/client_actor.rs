@@ -54,7 +54,7 @@ use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::{ShardedTransactionPool, ShardsManagerResponse};
 use near_client_primitives::types::{
     BlockNotificationMessage, Error, GetClientConfig, GetClientConfigError, GetNetworkInfo,
-    NetworkInfoResponse, StateSyncStatus, Status, StatusError, StatusSyncInfo, SyncStatus,
+    NetworkInfoResponse, Status, StatusError, StatusSyncInfo, SyncStatus,
 };
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -691,10 +691,8 @@ impl Handler<SpanWrapped<StateResponseReceived>> for ClientActor {
         // Get the download that matches the shard_id and hash
 
         // ... It could be that the state was requested by the state sync
-        if let SyncStatus::StateSync(StateSyncStatus { sync_hash, .. }) =
-            &mut self.client.sync_handler.sync_status
-        {
-            if hash == *sync_hash {
+        if let Some(state_sync_status) = &self.client.sync_handler.state_sync_status {
+            if hash == state_sync_status.sync_hash {
                 if let Err(err) =
                     self.client.sync_handler.state_sync.apply_peer_message(peer_id, state_response)
                 {
@@ -847,7 +845,7 @@ impl Handler<SpanWrapped<Status>, Result<StatusResponse, StatusError>> for Clien
                 sync_status: format!(
                     "{} ({})",
                     self.client.sync_handler.sync_status.as_variant_name(),
-                    display_sync_status(&self.client.sync_handler.sync_status, &head),
+                    display_sync_status(&self.client.sync_handler, &head),
                 ),
                 catchup_status: self.client.get_catchup_status()?,
                 current_head_status: head.as_ref().into(),
@@ -1788,7 +1786,7 @@ impl ClientActor {
                 if currently_syncing {
                     // Initial transition out of "syncing" state.
                     tracing::debug!(target: "sync", prev_sync_status = ?self.client.sync_handler.sync_status, "disabling sync");
-                    self.client.sync_handler.sync_status.update(SyncStatus::NoSync);
+                    self.client.sync_handler.set_sync_status(SyncStatus::NoSync);
                     // Announce this client's account id if their epoch is coming up.
                     let head = match self.client.chain.head() {
                         Ok(v) => v,
@@ -1863,11 +1861,10 @@ impl ClientActor {
     ///
     /// Returns whether the node is syncing its state.
     fn maybe_receive_state_sync_blocks(&mut self, block: Arc<Block>) -> bool {
-        let SyncStatus::StateSync(StateSyncStatus { sync_hash, .. }) =
-            self.client.sync_handler.sync_status
-        else {
+        let Some(state_sync_status) = &self.client.sync_handler.state_sync_status else {
             return false;
         };
+        let sync_hash = state_sync_status.sync_hash;
 
         let Ok(header) = self.client.chain.get_block_header(&sync_hash) else {
             return true;

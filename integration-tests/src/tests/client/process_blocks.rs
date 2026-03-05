@@ -1433,7 +1433,6 @@ fn test_reject_block_headers_during_epoch_sync() {
     }
 
     let sync_client = &mut env.clients[1];
-    let status = &mut sync_client.sync_handler.sync_status;
     let chain = &sync_client.chain;
     let highest_height =
         sync_client.config.epoch_sync.epoch_sync_horizon_num_epochs * epoch_length + 1;
@@ -1446,17 +1445,15 @@ fn test_reject_block_headers_during_epoch_sync() {
         peer_info: PeerInfo::random(),
     }];
 
-    // Running epoch sync, sets SyncStatus::EpochSync
+    // Running epoch sync, sends a request and returns RequestSent.
+    use near_client::sync::epoch::EpochSyncAction;
     assert_matches!(
-        sync_client.sync_handler.epoch_sync.run(
-            status,
-            chain,
-            highest_height,
-            &highest_height_peers
-        ),
-        Ok(()),
+        sync_client.sync_handler.epoch_sync.run(chain, highest_height, &highest_height_peers),
+        Ok(EpochSyncAction::RequestSent { .. }),
         "Epoch sync failure"
     );
+    // Simulate the status update that the handler would do.
+    sync_client.sync_handler.set_sync_status(near_client_primitives::types::SyncStatus::EpochSync);
 
     let headers = blocks.iter().map(|b| b.header().clone().into()).collect::<Vec<_>>();
     // actual attempt to sync headers during ongoing epoch sync

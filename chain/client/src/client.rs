@@ -331,13 +331,7 @@ impl Client {
             config.header_sync_expected_height_per_second,
             config.expected_shutdown.clone(),
         );
-        let block_sync = BlockSync::new(
-            clock.clone(),
-            network_adapter.clone(),
-            config.block_fetch_horizon,
-            config.archive,
-            config.state_sync_enabled,
-        );
+        let block_sync = BlockSync::new(clock.clone(), network_adapter.clone(), config.archive);
 
         let state_sync = StateSync::new(
             clock.clone(),
@@ -1454,7 +1448,7 @@ impl Client {
         &mut self,
         headers: Vec<Arc<BlockHeader>>,
     ) -> Result<(), near_chain::Error> {
-        if matches!(self.sync_handler.sync_status, SyncStatus::EpochSync(_)) {
+        if self.sync_handler.sync_status == SyncStatus::EpochSync {
             return Err(near_chain::Error::Other(
                 "Cannot sync block headers during an epoch sync".to_owned(),
             ));

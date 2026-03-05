@@ -173,9 +173,9 @@ impl BlockProductionTracker {
 impl Handler<DebugStatus, Result<DebugStatusResponse, StatusError>> for ClientActor {
     fn handle(&mut self, msg: DebugStatus) -> Result<DebugStatusResponse, StatusError> {
         match msg {
-            DebugStatus::SyncStatus => Ok(DebugStatusResponse::SyncStatus(
-                self.client.sync_handler.sync_status.clone().into(),
-            )),
+            DebugStatus::SyncStatus => {
+                Ok(DebugStatusResponse::SyncStatus(self.client.sync_handler.sync_status_view()))
+            }
             DebugStatus::TrackedShards => {
                 Ok(DebugStatusResponse::TrackedShards(self.get_tracked_shards_view()?))
             }

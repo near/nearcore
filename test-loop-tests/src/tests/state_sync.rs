@@ -1093,7 +1093,7 @@ fn slow_test_state_sync_no_parts_provided() {
     env.test_loop.run_until(
         |data| {
             let client = &data.get(&syncing_handle).client;
-            let is_state_sync = matches!(client.sync_handler.sync_status, SyncStatus::StateSync(_));
+            let is_state_sync = client.sync_handler.sync_status == SyncStatus::StateSync;
             if is_state_sync {
                 tracing::debug!("Node entered state sync");
             }

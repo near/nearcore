@@ -9,7 +9,6 @@ use near_primitives::types::{
 };
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, LightClientBlockLiteView, QueryRequest, StateChangesRequestView,
-    StateSyncStatusView, SyncStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use near_time::Duration;
@@ -106,47 +105,26 @@ impl StateSyncStatus {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct EpochSyncStatus {
-    pub source_peer_height: BlockHeight,
-    pub source_peer_id: PeerId,
-    pub attempt_time: near_time::Utc,
-}
-
 /// Various status sync can be in, whether it's fast sync or archival.
-#[derive(Clone, Debug, strum::AsRefStr)]
+/// This is a data-free enum — variant-specific data lives on `SyncHandler`
+/// (sync_progress, state_sync_status) and component structs (EpochSync::last_request).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, strum::AsRefStr)]
 pub enum SyncStatus {
     /// Initial state. Not enough peers to do anything yet.
     AwaitingPeers,
     /// Not syncing / Done syncing.
     NoSync,
-    /// Syncing using light-client headers to a recent epoch
-    EpochSync(EpochSyncStatus),
+    /// Syncing using light-client headers to a recent epoch.
+    EpochSync,
     EpochSyncDone,
     /// Downloading block headers for fast sync.
-    HeaderSync {
-        /// Height at the beginning of header sync.
-        /// Used only for reporting the progress of the sync.
-        start_height: BlockHeight,
-        /// Current header head height.
-        current_height: BlockHeight,
-        /// Highest height of our peers.
-        highest_height: BlockHeight,
-    },
+    HeaderSync,
     /// State sync, with different states of state sync for different shards.
-    StateSync(StateSyncStatus),
+    StateSync,
     /// Sync state across all shards is done.
     StateSyncDone,
     /// Download and process blocks until the head reaches the head of the network.
-    BlockSync {
-        /// Header head height at the beginning.
-        /// Used only for reporting the progress of the sync.
-        start_height: BlockHeight,
-        /// Current head height.
-        current_height: BlockHeight,
-        /// Highest height of our peers.
-        highest_height: BlockHeight,
-    },
+    BlockSync,
 }
 
 impl SyncStatus {
@@ -157,10 +135,7 @@ impl SyncStatus {
 
     /// True if currently engaged in syncing the chain.
     pub fn is_syncing(&self) -> bool {
-        match self {
-            SyncStatus::NoSync => false,
-            _ => true,
-        }
+        *self != SyncStatus::NoSync
     }
 
     pub fn repr(&self) -> u8 {
@@ -172,63 +147,12 @@ impl SyncStatus {
             // Represent NoSync as 0 because it is the state of a normal well-behaving node.
             SyncStatus::NoSync => 0,
             SyncStatus::AwaitingPeers => 1,
-            SyncStatus::EpochSync { .. } => 2,
-            SyncStatus::EpochSyncDone { .. } => 3,
-            SyncStatus::HeaderSync { .. } => 4,
-            SyncStatus::StateSync(_) => 5,
+            SyncStatus::EpochSync => 2,
+            SyncStatus::EpochSyncDone => 3,
+            SyncStatus::HeaderSync => 4,
+            SyncStatus::StateSync => 5,
             SyncStatus::StateSyncDone => 6,
-            SyncStatus::BlockSync { .. } => 7,
-        }
-    }
-
-    pub fn start_height(&self) -> Option<BlockHeight> {
-        match self {
-            SyncStatus::HeaderSync { start_height, .. } => Some(*start_height),
-            SyncStatus::BlockSync { start_height, .. } => Some(*start_height),
-            _ => None,
-        }
-    }
-
-    pub fn update(&mut self, new_value: Self) {
-        let _span =
-            tracing::debug_span!(target: "sync", "update_sync_status", old_value = ?self, ?new_value)
-                .entered();
-        *self = new_value;
-    }
-}
-
-impl From<SyncStatus> for SyncStatusView {
-    fn from(status: SyncStatus) -> Self {
-        match status {
-            SyncStatus::AwaitingPeers => SyncStatusView::AwaitingPeers,
-            SyncStatus::NoSync => SyncStatusView::NoSync,
-            SyncStatus::EpochSync(status) => SyncStatusView::EpochSync {
-                source_peer_height: status.source_peer_height,
-                source_peer_id: status.source_peer_id.to_string(),
-                attempt_time: status.attempt_time.to_string(),
-            },
-            SyncStatus::EpochSyncDone => SyncStatusView::EpochSyncDone,
-            SyncStatus::HeaderSync { start_height, current_height, highest_height } => {
-                SyncStatusView::HeaderSync { start_height, current_height, highest_height }
-            }
-            SyncStatus::StateSync(state_sync_status) => {
-                SyncStatusView::StateSync(StateSyncStatusView {
-                    sync_hash: state_sync_status.sync_hash,
-                    shard_sync_status: state_sync_status
-                        .sync_status
-                        .iter()
-                        .map(|(shard_id, shard_sync_status)| {
-                            (*shard_id, shard_sync_status.to_string())
-                        })
-                        .collect(),
-                    download_tasks: state_sync_status.download_tasks,
-                    computation_tasks: state_sync_status.computation_tasks,
-                })
-            }
-            SyncStatus::StateSyncDone => SyncStatusView::StateSyncDone,
-            SyncStatus::BlockSync { start_height, current_height, highest_height } => {
-                SyncStatusView::BlockSync { start_height, current_height, highest_height }
-            }
+            SyncStatus::BlockSync => 7,
         }
     }
 }

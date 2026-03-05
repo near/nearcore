@@ -5,7 +5,7 @@ use near_async::time::Clock;
 use near_chain::types::Tip;
 use near_chain::{BlockHeader, Chain, ChainStoreAccess, Error};
 use near_chain_configs::EpochSyncConfig;
-use near_client_primitives::types::{EpochSyncStatus, SyncStatus};
+use near_client_primitives::types::SyncStatus;
 use near_crypto::Signature;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::epoch_sync::{
@@ -35,6 +35,22 @@ use rand::seq::SliceRandom;
 use std::sync::Arc;
 use tracing::instrument;
 
+/// What happened when `EpochSync::run()` was called.
+#[derive(Debug)]
+pub enum EpochSyncAction {
+    /// Nothing to do — not needed, or waiting for a response (not timed out).
+    None,
+    /// Sent a new epoch sync request to a peer.
+    RequestSent { peer_id: PeerId, peer_height: BlockHeight },
+}
+
+/// Tracks the last epoch sync request sent to a peer.
+pub struct EpochSyncRequest {
+    pub peer_id: PeerId,
+    pub peer_height: BlockHeight,
+    pub time: near_async::time::Utc,
+}
+
 pub struct EpochSync {
     clock: Clock,
     network_adapter: PeerManagerAdapter,
@@ -46,6 +62,9 @@ pub struct EpochSync {
     last_epoch_sync_response_cache: Arc<Mutex<Option<(EpochId, CompressedEpochSyncProof)>>>,
     // See `my_own_epoch_sync_boundary_block_header()`.
     my_own_epoch_sync_boundary_block_header: Option<Arc<BlockHeader>>,
+    /// Tracks the last epoch sync request for timeout/retry logic.
+    /// Replaces the timeout state that was previously stored in `SyncStatus::EpochSync`.
+    last_request: Option<EpochSyncRequest>,
 }
 
 impl EpochSync {
@@ -71,6 +90,7 @@ impl EpochSync {
             config,
             last_epoch_sync_response_cache: Arc::new(Mutex::new(None)),
             my_own_epoch_sync_boundary_block_header,
+            last_request: None,
         }
     }
 
@@ -79,6 +99,11 @@ impl EpochSync {
     /// epoch sync.
     pub fn my_own_epoch_sync_boundary_block_header(&self) -> Option<&BlockHeader> {
         self.my_own_epoch_sync_boundary_block_header.as_deref()
+    }
+
+    /// Returns the last epoch sync request info for display purposes.
+    pub fn last_request(&self) -> Option<&EpochSyncRequest> {
+        self.last_request.as_ref()
     }
 
     /// Derives an epoch sync proof for a recent epoch, that can be directly used to bootstrap
@@ -126,38 +151,52 @@ impl EpochSync {
         Ok(proof)
     }
 
+    /// Pure check: does this node need epoch sync?
+    /// Checks both the horizon distance and epoch sync eligibility.
+    /// Without ContinuousEpochSync, only fresh (genesis-height) nodes can epoch sync.
+    /// Does not send requests or modify state.
+    pub fn need_epoch_sync(&self, chain: &Chain, highest_height: BlockHeight) -> bool {
+        let tip_height = match chain.chain_store().header_head() {
+            Ok(tip) => tip.height,
+            Err(_) => return false,
+        };
+        let genesis_height = chain.genesis().height();
+        let epoch_length = chain.epoch_length;
+        // Not far enough behind — no epoch sync needed.
+        if tip_height + self.config.epoch_sync_horizon_num_epochs * epoch_length >= highest_height {
+            return false;
+        }
+        // Without ContinuousEpochSync, only fresh (genesis-height) nodes can epoch sync.
+        if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION)
+            && tip_height != genesis_height
+        {
+            return false;
+        }
+        true
+    }
+
     /// Performs the epoch sync logic if applicable in the current state of the blockchain.
     /// This is periodically called by the client actor.
+    ///
+    /// Returns `EpochSyncAction::RequestSent` when a new request was sent (initial or retry),
+    /// `EpochSyncAction::None` when epoch sync is not needed or we're still waiting for a response.
+    /// The caller is responsible for updating `sync_status` based on the action.
     pub fn run(
-        &self,
-        status: &mut SyncStatus,
+        &mut self,
         chain: &Chain,
         highest_height: BlockHeight,
         highest_height_peers: &[HighestHeightPeerInfo],
-    ) -> Result<(), Error> {
-        let tip_height = chain.chain_store().header_head()?.height;
-        // If the node is within the epoch sync horizon, no action needed.
-        if tip_height + self.config.epoch_sync_horizon_num_epochs * chain.epoch_length
-            >= highest_height
-        {
-            return Ok(());
+    ) -> Result<EpochSyncAction, Error> {
+        if !self.need_epoch_sync(chain, highest_height) {
+            return Ok(EpochSyncAction::None);
         }
-        if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION)
-            && tip_height != chain.genesis().height()
-        {
-            // If continuous epoch sync is not enabled, we don't do epoch sync for nodes with stale data.
-            // Early return if the node is NOT fresh, i.e. tip_height is beyond genesis.
-            return Ok(());
-        }
-        match status {
-            SyncStatus::EpochSync(status) => {
-                if status.attempt_time + self.config.timeout_for_epoch_sync < self.clock.now_utc() {
-                    tracing::warn!(source_peer_id = %status.source_peer_id, "epoch sync from peer timed out, retrying");
-                } else {
-                    return Ok(());
-                }
+
+        // If we already have a request in-flight that hasn't timed out, wait.
+        if let Some(ref request) = self.last_request {
+            if request.time + self.config.timeout_for_epoch_sync >= self.clock.now_utc() {
+                return Ok(EpochSyncAction::None);
             }
-            _ => {}
+            tracing::warn!(source_peer_id = %request.peer_id, "epoch sync from peer timed out, retrying");
         }
 
         // TODO(#11976): Implement a more robust logic for picking a peer to request epoch sync from.
@@ -167,17 +206,19 @@ impl EpochSync {
 
         tracing::info!(peer_id=?peer.peer_info.id, "bootstrapping node via epoch sync");
 
-        *status = SyncStatus::EpochSync(EpochSyncStatus {
-            source_peer_id: peer.peer_info.id.clone(),
-            source_peer_height: peer.highest_block_height,
-            attempt_time: self.clock.now_utc(),
+        let peer_id = peer.peer_info.id.clone();
+        let peer_height = peer.highest_block_height;
+        self.last_request = Some(EpochSyncRequest {
+            peer_id: peer_id.clone(),
+            peer_height,
+            time: self.clock.now_utc(),
         });
 
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::EpochSyncRequest { peer_id: peer.peer_info.id.clone() },
+            NetworkRequests::EpochSyncRequest { peer_id: peer_id.clone() },
         ));
 
-        Ok(())
+        Ok(EpochSyncAction::RequestSent { peer_id, peer_height })
     }
 
     /// Validates an epoch sync proof: checks peer identity, proof freshness,
@@ -186,45 +227,44 @@ impl EpochSync {
     /// should be silently ignored (wrong peer, too recent, too old, unexpected).
     fn validate_proof(
         &self,
-        status: &SyncStatus,
         chain: &Chain,
         proof: &EpochSyncProofV1,
         source_peer: &PeerId,
         epoch_manager: &dyn EpochManagerAdapter,
     ) -> Result<bool, Error> {
-        if let SyncStatus::EpochSync(status) = status {
-            if status.source_peer_id != *source_peer {
-                tracing::warn!(%source_peer, expected_peer = %status.source_peer_id, "ignoring epoch sync proof from unexpected peer");
-                return Ok(false);
-            }
-            if proof
-                .current_epoch
-                .first_block_header_in_epoch
-                .height()
-                .saturating_add(chain.epoch_length.max(chain.transaction_validity_period()))
-                >= status.source_peer_height
-            {
-                tracing::error!(
-                    %source_peer,
-                    "ignoring epoch sync proof from peer that is too recent"
-                );
-                return Ok(false);
-            }
-            if proof
-                .current_epoch
-                .first_block_header_in_epoch
-                .height()
-                .saturating_add(self.config.epoch_sync_horizon_num_epochs * chain.epoch_length)
-                < status.source_peer_height
-            {
-                tracing::error!(
-                    %source_peer,
-                    "ignoring epoch sync proof from peer that is too old"
-                );
-                return Ok(false);
-            }
-        } else {
-            tracing::warn!(%source_peer, "ignoring unexpected epoch sync proof");
+        let Some(ref request) = self.last_request else {
+            tracing::warn!(%source_peer, "ignoring unexpected epoch sync proof (no request pending)");
+            return Ok(false);
+        };
+
+        if request.peer_id != *source_peer {
+            tracing::warn!(%source_peer, expected_peer = %request.peer_id, "ignoring epoch sync proof from unexpected peer");
+            return Ok(false);
+        }
+        if proof
+            .current_epoch
+            .first_block_header_in_epoch
+            .height()
+            .saturating_add(chain.epoch_length.max(chain.transaction_validity_period()))
+            >= request.peer_height
+        {
+            tracing::error!(
+                %source_peer,
+                "ignoring epoch sync proof from peer that is too recent"
+            );
+            return Ok(false);
+        }
+        if proof
+            .current_epoch
+            .first_block_header_in_epoch
+            .height()
+            .saturating_add(self.config.epoch_sync_horizon_num_epochs * chain.epoch_length)
+            < request.peer_height
+        {
+            tracing::error!(
+                %source_peer,
+                "ignoring epoch sync proof from peer that is too old"
+            );
             return Ok(false);
         }
 
@@ -233,11 +273,11 @@ impl EpochSync {
         Ok(true)
     }
 
-    /// Applies a previously validated epoch sync proof to the store and updates
-    /// sync status. Must only be called after `validate_proof` returns `Ok(true)`.
+    /// Applies a previously validated epoch sync proof to the store.
+    /// Must only be called after `validate_proof` returns `Ok(true)`.
+    /// Does not update sync_status — the caller is responsible for that.
     fn apply_validated_proof(
         &self,
-        status: &mut SyncStatus,
         chain: &Chain,
         proof: EpochSyncProofV1,
         epoch_manager: &dyn EpochManagerAdapter,
@@ -318,7 +358,6 @@ impl EpochSync {
 
         store_update.commit();
 
-        *status = SyncStatus::EpochSyncDone;
         tracing::info!(epoch_id=?last_header.epoch_id(), "bootstrapped from epoch sync");
 
         Ok(())
@@ -599,7 +638,6 @@ impl Handler<EpochSyncResponseMessage> for ClientActor {
 
         // Validate the proof without writing anything to the store.
         match self.client.sync_handler.epoch_sync.validate_proof(
-            &self.client.sync_handler.sync_status,
             &self.client.chain,
             &proof,
             &msg.from_peer,
@@ -634,12 +672,13 @@ impl Handler<EpochSyncResponseMessage> for ClientActor {
 
         // Apply the validated proof to the store.
         if let Err(err) = self.client.sync_handler.epoch_sync.apply_validated_proof(
-            &mut self.client.sync_handler.sync_status,
-            &mut self.client.chain,
+            &self.client.chain,
             proof,
             self.client.epoch_manager.as_ref(),
         ) {
             tracing::error!(?err, "failed to apply epoch sync proof");
+            return;
         }
+        self.client.sync_handler.set_sync_status(SyncStatus::EpochSyncDone);
     }
 }

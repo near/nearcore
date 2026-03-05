@@ -1,11 +1,11 @@
 use crate::config_updater::ConfigUpdater;
+use crate::sync::handler::SyncHandler;
 use crate::{SyncStatus, metrics};
 use itertools::Itertools;
 use lru::LruCache;
 use near_async::messaging::Sender;
 use near_async::time::{Clock, Instant};
 use near_chain_configs::ClientConfig;
-use near_client_primitives::types::StateSyncStatus;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::NetworkInfo;
 use near_primitives::block::Tip;
@@ -364,7 +364,7 @@ impl InfoHelper {
 
         self.info(
             &head,
-            &client.sync_handler.sync_status,
+            &client.sync_handler,
             client.get_catchup_status().unwrap_or_default(),
             node_id,
             network_info,
@@ -386,7 +386,7 @@ impl InfoHelper {
     fn info(
         &mut self,
         head: &Tip,
-        sync_status: &SyncStatus,
+        sync_handler: &SyncHandler,
         catchup_status: Vec<CatchupStatusView>,
         node_id: &PeerId,
         network_info: &NetworkInfo,
@@ -399,8 +399,9 @@ impl InfoHelper {
         signer: &Option<Arc<ValidatorSigner>>,
     ) {
         let s = |num| if num == 1 { "" } else { "s" };
+        let sync_status = &sync_handler.sync_status;
 
-        let sync_status_log = display_sync_status(sync_status, head);
+        let sync_status_log = display_sync_status(sync_handler, head);
         let validator_info_log = validator_info
             .as_ref()
             .map(|info| {
@@ -696,65 +697,58 @@ pub fn log_catchup_status(catchup_status: Vec<CatchupStatusView>) {
     }
 }
 
-pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
+pub fn display_sync_status(sync_handler: &SyncHandler, head: &Tip) -> String {
+    let sync_status = sync_handler.sync_status;
     metrics::SYNC_STATUS.set(sync_status.repr() as i64);
     match sync_status {
         SyncStatus::AwaitingPeers => format!("#{:>8} Waiting for peers", head.height),
         SyncStatus::NoSync => format!("#{:>8} {:>44}", head.height, head.last_block_hash),
-        SyncStatus::EpochSync(status) => {
-            format!("[EPOCH] {:?}", status)
+        SyncStatus::EpochSync => {
+            if let Some(req) = sync_handler.epoch_sync.last_request() {
+                format!("[EPOCH] peer={} height={} at {:?}", req.peer_id, req.peer_height, req.time)
+            } else {
+                "[EPOCH] waiting...".to_string()
+            }
         }
         SyncStatus::EpochSyncDone => "[EPOCH] Done".to_string(),
-        SyncStatus::HeaderSync { start_height, current_height, highest_height } => {
-            let percent = if highest_height <= start_height {
+        SyncStatus::HeaderSync | SyncStatus::BlockSync => {
+            let p = &sync_handler.sync_progress;
+            let label = if sync_status == SyncStatus::HeaderSync { "headers" } else { "blocks" };
+            let percent = if p.highest_height <= p.start_height {
                 0.0
             } else {
-                ((min(current_height, highest_height).saturating_sub(*start_height) * 100) as f64)
-                    / (highest_height.saturating_sub(*start_height) as f64)
+                ((min(p.current_height, p.highest_height).saturating_sub(p.start_height) * 100)
+                    as f64)
+                    / (p.highest_height.saturating_sub(p.start_height) as f64)
             };
             format!(
-                "#{:>8} Downloading headers {:.2}% ({} left; at {})",
+                "#{:>8} Downloading {} {:.2}% ({} left; at {})",
                 head.height,
+                label,
                 percent,
-                highest_height.saturating_sub(*current_height),
-                current_height
+                p.highest_height.saturating_sub(p.current_height),
+                p.current_height
             )
         }
-        SyncStatus::BlockSync { start_height, current_height, highest_height } => {
-            let percent = if highest_height <= start_height {
-                0.0
+        SyncStatus::StateSync => {
+            if let Some(ss) = &sync_handler.state_sync_status {
+                let mut res = format!("State {:?}", ss.sync_hash);
+                let mut shard_statuses: Vec<_> = ss.sync_status.iter().collect();
+                shard_statuses.sort_by_key(|(shard_id, _)| *shard_id);
+                for (shard_id, shard_status) in shard_statuses {
+                    write!(res, "[{}: {}]", shard_id, shard_status.to_string()).unwrap();
+                }
+                write!(
+                    res,
+                    " ({} downloads, {} computations)",
+                    ss.download_tasks.len(),
+                    ss.computation_tasks.len()
+                )
+                .unwrap();
+                res
             } else {
-                ((current_height - start_height) * 100) as f64
-                    / ((highest_height - start_height) as f64)
-            };
-            format!(
-                "#{:>8} Downloading blocks {:.2}% ({} left; at {})",
-                head.height,
-                percent,
-                highest_height.saturating_sub(*current_height),
-                current_height
-            )
-        }
-        SyncStatus::StateSync(StateSyncStatus {
-            sync_hash,
-            sync_status: shard_statuses,
-            download_tasks,
-            computation_tasks,
-        }) => {
-            let mut res = format!("State {:?}", sync_hash);
-            let mut shard_statuses: Vec<_> = shard_statuses.iter().collect();
-            shard_statuses.sort_by_key(|(shard_id, _)| *shard_id);
-            for (shard_id, shard_status) in shard_statuses {
-                write!(res, "[{}: {}]", shard_id, shard_status.to_string(),).unwrap();
+                "State sync initializing...".to_string()
             }
-            write!(
-                res,
-                " ({} downloads, {} computations)",
-                download_tasks.len(),
-                computation_tasks.len()
-            )
-            .unwrap();
-            res
         }
         SyncStatus::StateSyncDone => "State sync done".to_string(),
     }
