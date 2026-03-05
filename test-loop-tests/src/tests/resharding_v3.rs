@@ -39,11 +39,14 @@ use crate::utils::sharding::{
     get_shards_will_care_about, get_tracked_shards, print_and_assert_shard_accounts,
 };
 use crate::utils::transactions::{
-    check_txs, create_account, deploy_contract, deploy_global_contract, get_smallest_height_head,
+    check_txs, deploy_contract, deploy_global_contract, get_smallest_height_head,
     use_global_contract,
 };
 use crate::utils::trie_sanity::{TrieSanityCheck, check_state_shard_uid_mapping_after_resharding};
+use near_crypto::Signer;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
+use near_primitives::test_utils::create_user_test_signer;
+use near_primitives::transaction::SignedTransaction;
 
 /// Default and minimal epoch length used in resharding tests.
 const DEFAULT_EPOCH_LENGTH: u64 = 7;
@@ -1741,4 +1744,31 @@ fn slow_test_resharding_v3_delayed_receipts_gc_correctness() {
         ))
         .build();
     test_resharding_v3_base(params);
+}
+
+fn create_account(
+    env: &TestLoopEnv,
+    rpc_id: &AccountId,
+    originator: &AccountId,
+    new_account_id: &AccountId,
+    amount: Balance,
+    nonce: u64,
+) -> CryptoHash {
+    let node = env.node_for_account(rpc_id);
+    let signer = create_user_test_signer(originator);
+    let new_signer: Signer = create_user_test_signer(new_account_id);
+
+    let tx = SignedTransaction::create_account(
+        nonce,
+        originator.clone(),
+        new_account_id.clone(),
+        amount,
+        new_signer.public_key(),
+        &signer,
+        node.head().last_block_hash,
+    );
+
+    let tx_hash = tx.get_hash();
+    node.submit_tx(tx);
+    tx_hash
 }

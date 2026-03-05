@@ -178,60 +178,6 @@ pub(crate) fn execute_money_transfers_with_delay(
     Ok(())
 }
 
-pub fn create_account(
-    env: &TestLoopEnv,
-    rpc_id: &AccountId,
-    originator: &AccountId,
-    new_account_id: &AccountId,
-    amount: Balance,
-    nonce: u64,
-) -> CryptoHash {
-    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
-    let signer = create_user_test_signer(&originator);
-    let new_signer: Signer = create_user_test_signer(&new_account_id);
-
-    let tx = SignedTransaction::create_account(
-        nonce,
-        originator.clone(),
-        new_account_id.clone(),
-        amount,
-        new_signer.public_key(),
-        &signer,
-        block_hash,
-    );
-
-    let tx_hash = tx.get_hash();
-    submit_tx(&env.node_datas, rpc_id, tx);
-    tracing::debug!(target: "test", ?originator, ?new_account_id, ?tx_hash, "created account");
-    tx_hash
-}
-
-pub fn delete_account(
-    test_loop_data: &TestLoopData,
-    node_datas: &[NodeExecutionData],
-    rpc_id: &AccountId,
-    account_id: &AccountId,
-    beneficiary_id: &AccountId,
-) -> CryptoHash {
-    let signer: Signer = create_user_test_signer(&account_id).into();
-    let nonce = get_next_nonce(test_loop_data, node_datas, account_id);
-    let block_hash = get_shared_block_hash(node_datas, test_loop_data);
-
-    let tx = SignedTransaction::delete_account(
-        nonce,
-        account_id.clone(),
-        account_id.clone(),
-        beneficiary_id.clone(),
-        &signer,
-        block_hash,
-    );
-
-    let tx_hash = tx.get_hash();
-    submit_tx(node_datas, rpc_id, tx);
-    tracing::debug!(target: "test", ?account_id, ?beneficiary_id, ?tx_hash, "deleted account");
-    tx_hash
-}
-
 /// Deploy the test contract to the provided contract_id account. The contract
 /// account should already exist. The contract will be deployed from the contract
 /// account itself.
