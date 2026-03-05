@@ -3447,14 +3447,15 @@ impl Chain {
             let gas_used = chunk_headers.compute_gas_used_checked().unwrap();
             let gas_limit = chunk_headers.compute_gas_limit_checked().unwrap();
             PrepareTransactionsBlockContext {
-                next_gas_price: Block::compute_next_gas_price(
+                next_gas_price: Block::compute_next_gas_price_checked(
                     prev_block.header().next_gas_price(),
                     gas_used,
                     gas_limit,
                     self.block_economics_config.gas_price_adjustment_rate(),
                     self.block_economics_config.min_gas_price(),
                     self.block_economics_config.max_gas_price(),
-                ),
+                )
+                .unwrap(),
                 height: block.height,
                 next_epoch_id: epoch_id,
                 congestion_info: block.congestion_info.clone(),

@@ -175,14 +175,15 @@ impl Block {
             }
         }
 
-        let next_gas_price = Self::compute_next_gas_price(
+        let next_gas_price = Self::compute_next_gas_price_checked(
             prev.next_gas_price(),
             gas_used,
             gas_limit,
             gas_price_adjustment_rate,
             min_gas_price,
             max_gas_price,
-        );
+        )
+        .unwrap();
 
         let new_total_supply = prev
             .total_supply()
