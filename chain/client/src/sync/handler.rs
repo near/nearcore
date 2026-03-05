@@ -376,6 +376,7 @@ impl SyncHandler {
         let need_state_sync = self.need_state_sync(chain, header_head);
         let need_state_sync = unwrap_and_report_state_sync_result!(need_state_sync);
         if need_state_sync {
+            tracing::debug!(target: "sync", "transition to state sync");
             self.run_state_sync(
                 chain,
                 shard_tracker,
