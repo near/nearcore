@@ -1,13 +1,10 @@
-use std::iter::repeat_with;
-
 use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain::Error;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::gas::Gas;
-use near_primitives::test_utils::create_user_test_signer;
-use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
+use near_primitives::transaction::ExecutionStatus;
 use near_primitives::types::Balance;
 
 use crate::setup::builder::TestLoopBuilder;
@@ -34,27 +31,19 @@ fn delayed_receipt_example_test() {
 
     // Each transaction generates local receipt consuming more than a half
     // the chunk space, so chunk can only fit 2 such receipts.
-    // These 3 transactions are submitted in batch, so nonces must be managed
-    // manually (auto-nonce would return the same value for all three).
     let gas_to_burn = gas_limit.checked_div(2).unwrap().checked_add(Gas::from_gas(1)).unwrap();
-    let mut nonce = env.rpc_node().get_next_nonce(&user_account);
-    let txs = repeat_with(|| {
-        let tx = SignedTransaction::call(
-            nonce,
-            user_account.clone(),
-            user_account.clone(),
-            &create_user_test_signer(&user_account),
-            Balance::ZERO,
-            "burn_gas_raw".to_owned(),
-            gas_to_burn.as_gas().to_le_bytes().to_vec(),
-            gas_limit,
-            env.rpc_node().head().last_block_hash,
-        );
-        nonce += 1;
-        tx
-    })
-    .take(3)
-    .collect_vec();
+    let txs = (0..3)
+        .map(|_| {
+            env.rpc_node().tx_call(
+                &user_account,
+                &user_account,
+                "burn_gas_raw",
+                gas_to_burn.as_gas().to_le_bytes().to_vec(),
+                Balance::ZERO,
+                gas_limit,
+            )
+        })
+        .collect_vec();
     for tx in &txs {
         env.rpc_node().submit_tx(tx.clone());
     }
