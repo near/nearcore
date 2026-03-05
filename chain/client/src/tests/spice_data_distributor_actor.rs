@@ -47,14 +47,16 @@ use near_primitives::sharding::ReceiptProof;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::sharding::ShardProof;
 use near_primitives::state::PartialState;
-use near_primitives::stateless_validation::contract_distribution::CodeHash;
-use near_primitives::stateless_validation::contract_distribution::SpiceContractCodeRequest;
+use near_primitives::stateless_validation::contract_distribution::{
+    CodeBytes, CodeHash, SpiceContractCodeRequest, SpiceContractCodeResponse,
+};
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ChunkExecutionResultHash};
 use near_primitives::types::{BlockHeight, ChunkExecutionResult};
 use near_primitives::types::{ShardId, SpiceChunkId};
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::trie_store::TrieStoreAdapter;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
@@ -2219,5 +2221,153 @@ fn test_duplicate_contract_code_request_is_dropped() {
 
     // Second identical request should be deduplicated — no response.
     actor.handle(SpiceContractCodeRequestMessage(request));
+    assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_contract_code_request_invalid_signature_rejected() {
+    let (_genesis, chain) = setup(1, 1);
+    let block = latest_block(&chain);
+    let state_witness = new_test_witness(&block);
+    let chunk_id = state_witness.chunk_id().clone();
+
+    save_contract_accesses(&chain.chain_store, block.hash(), chunk_id.shard_id, &HashSet::new());
+
+    let producer = witness_producer_accounts(&chain, &block, &state_witness).swap_remove(0);
+    let validator = witness_validators(&chain, &block, &state_witness)
+        .into_iter()
+        .find(|v| v != &producer)
+        .unwrap();
+    let validator_signer = create_test_signer(validator.as_str());
+
+    // Create two requests with different contract sets but same requester/chunk_id,
+    // then swap their signatures so verification fails.
+    let request_a =
+        SpiceContractCodeRequest::new(chunk_id.clone(), HashSet::new(), &validator_signer);
+    let request_b = SpiceContractCodeRequest::new(
+        chunk_id.clone(),
+        HashSet::from([CodeHash(hash(&[1]))]),
+        &validator_signer,
+    );
+    // Borsh layout: inner bytes then signature (1 byte discriminant + 64 bytes = 65).
+    let bytes_a = borsh::to_vec(&request_a).unwrap();
+    let bytes_b = borsh::to_vec(&request_b).unwrap();
+    let sig_len = 65;
+    // Take request_a's inner with request_b's signature.
+    let mut tampered_bytes = bytes_a[..bytes_a.len() - sig_len].to_vec();
+    tampered_bytes.extend_from_slice(&bytes_b[bytes_b.len() - sig_len..]);
+    let tampered_request: SpiceContractCodeRequest = borsh::from_slice(&tampered_bytes).unwrap();
+
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
+
+    actor.handle(SpiceContractCodeRequestMessage(tampered_request));
+    // Invalid signature — no response should be sent.
+    assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_contract_code_request_invalid_contract_hash_rejected() {
+    let (_genesis, chain) = setup(1, 1);
+    let block = latest_block(&chain);
+    let state_witness = new_test_witness(&block);
+    let chunk_id = state_witness.chunk_id().clone();
+
+    // Save contract accesses with only hash_a.
+    let hash_a = CodeHash(hash(&[1]));
+    save_contract_accesses(
+        &chain.chain_store,
+        block.hash(),
+        chunk_id.shard_id,
+        &HashSet::from([hash_a]),
+    );
+
+    let producer = witness_producer_accounts(&chain, &block, &state_witness).swap_remove(0);
+    let validator = witness_validators(&chain, &block, &state_witness)
+        .into_iter()
+        .find(|v| v != &producer)
+        .unwrap();
+    let validator_signer = create_test_signer(validator.as_str());
+
+    // Request a contract hash that was NOT accessed in the chunk.
+    let hash_b = CodeHash(hash(&[2]));
+    let request =
+        SpiceContractCodeRequest::new(chunk_id.clone(), HashSet::from([hash_b]), &validator_signer);
+
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
+
+    actor.handle(SpiceContractCodeRequestMessage(request));
+    // Contract not in valid accesses — no response should be sent.
+    assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_contract_code_request_happy_path() {
+    let (_genesis, chain) = setup(1, 1);
+    let block = latest_block(&chain);
+    let state_witness = new_test_witness(&block);
+    let chunk_id = state_witness.chunk_id().clone();
+
+    let contract_bytes = b"fake-contract-wasm-bytes";
+    let contract_hash = CodeHash(hash(contract_bytes));
+
+    // Save the contract hash as an accessed contract for this chunk.
+    save_contract_accesses(
+        &chain.chain_store,
+        block.hash(),
+        chunk_id.shard_id,
+        &HashSet::from([contract_hash.clone()]),
+    );
+
+    // Store the contract bytes in trie storage so TrieDBStorage can find them.
+    let epoch_id = block.header().epoch_id();
+    let shard_layout = chain.epoch_manager.get_shard_layout(epoch_id).unwrap();
+    let shard_uid = ShardUId::from_shard_id_and_layout(chunk_id.shard_id, &shard_layout);
+    let trie_store = TrieStoreAdapter::new(chain.chain_store.store());
+    {
+        let mut update = trie_store.store_update();
+        update.increment_refcount_by(
+            shard_uid,
+            &contract_hash.0,
+            contract_bytes,
+            std::num::NonZero::new(1).unwrap(),
+        );
+        update.commit();
+    }
+
+    let producer = witness_producer_accounts(&chain, &block, &state_witness).swap_remove(0);
+    let validator = witness_validators(&chain, &block, &state_witness)
+        .into_iter()
+        .find(|v| v != &producer)
+        .unwrap();
+    let validator_signer = create_test_signer(validator.as_str());
+
+    let request = SpiceContractCodeRequest::new(
+        chunk_id.clone(),
+        HashSet::from([contract_hash]),
+        &validator_signer,
+    );
+
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
+
+    actor.handle(SpiceContractCodeRequestMessage(request));
+
+    let message = outgoing_rc.try_recv().unwrap();
+    let OutgoingMessage::NetworkRequests {
+        request: NetworkRequests::SpiceContractCodeResponse(target, response),
+    } = message
+    else {
+        panic!("expected SpiceContractCodeResponse, got {message:?}");
+    };
+    assert_eq!(target, validator);
+    assert_eq!(response.chunk_id(), &chunk_id);
+    let decoded_contracts = response.decompress_contracts().unwrap();
+    assert_eq!(decoded_contracts.len(), 1);
+    assert_eq!(&*decoded_contracts[0].0, contract_bytes.as_slice());
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
 }

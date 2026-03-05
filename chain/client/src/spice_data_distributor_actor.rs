@@ -1110,6 +1110,8 @@ impl SpiceDataDistributorActor {
         let requester = request.requester().clone();
 
         // Deduplicate repeated requests from the same requester for the same chunk.
+        // TODO(spice): we push the data to the cache before checking request validity/relevance,
+        // so the malicious actor can pollute the cache.
         // TODO(spice): This mirrors the current approach in non-spice data flow. There may be
         // valid reasons to re-request the contract codes. We could rather rate-limit these
         // requests.
