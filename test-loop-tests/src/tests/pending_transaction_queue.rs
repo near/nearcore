@@ -108,7 +108,9 @@ fn test_ptq_p_max_contract_account() {
     let tx_hashes = submit_transfers(&env, &contract_account, &receiver, &mut next_nonce, num_txs);
     // Only P_MAX txs should be included before certification.
     env.validator_runner().run_until_included(&tx_hashes[..P_MAX]);
-    assert!(!is_included_in_head(&env.validator(), &tx_hashes[P_MAX..]));
+    for tx_hash in &tx_hashes[P_MAX..] {
+        assert!(!is_included_in_head(&env.validator(), std::slice::from_ref(tx_hash)));
+    }
     // The remaining txs are included after certification advances.
     let remaining: Vec<_> = tx_hashes[P_MAX..].to_vec();
     env.validator_runner().run_until_included(&remaining);
