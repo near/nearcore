@@ -2,11 +2,10 @@ use near_async::messaging::CanSend;
 use near_async::time::{Clock, Duration, Utc};
 use near_chain::{Chain, ChainStoreAccess};
 use near_client_primitives::types::SyncStatus;
-use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter};
+use near_network::types::{PeerManagerMessageRequest, ReasonForBan};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::PeerId;
 use near_primitives::types::BlockHeight;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
@@ -294,19 +293,23 @@ impl HeaderSync {
     /// adapter. Call after `run_v2()` when banning is appropriate (e.g. during
     /// HeaderSync or BlockSync phases, but not during StateSync where
     /// banning could hurt state part downloads).
-    pub fn check_and_ban_stalling_peer(&mut self) -> Option<PeerId> {
+    pub fn check_and_ban_stalling_peer(&mut self) {
         if let Some(stalling_ts) = self.stalling_ts {
             let elapsed = self.clock.now_utc() - stalling_ts;
             if elapsed > self.stall_ban_timeout {
                 self.stalling_ts = None;
-                let peer_id = self.syncing_peer.take().map(|p| p.peer_info.id);
-                if let Some(ref peer_id) = peer_id {
+                if let Some(peer) = self.syncing_peer.take() {
+                    let peer_id = peer.peer_info.id;
                     tracing::warn!(?peer_id, ?elapsed, "header sync stalling, banning peer (v2)");
+                    self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::BanPeer {
+                            peer_id,
+                            ban_reason: ReasonForBan::ProvidedNotEnoughHeaders,
+                        },
+                    ));
                 }
-                return peer_id;
             }
         }
-        None
     }
 
     /// Returns the height that we expect to reach starting from `old_height` after `time_delta`.
