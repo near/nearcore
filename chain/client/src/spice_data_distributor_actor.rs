@@ -170,6 +170,10 @@ pub struct SpiceDataDistributorActor {
     // endorsement or receipts are validated and saved), we should get rid of this cache and rely
     // only on store to make sure we don't wait on data we already have.
     recently_decoded_data: LruCache<SpiceDataIdentifier, ()>,
+
+    /// Deduplication cache for contract code requests. Keyed by (chunk, requester)
+    /// to avoid redundant storage lookups and network responses for repeated requests.
+    processed_contract_code_requests: LruCache<(SpiceChunkId, AccountId), ()>,
 }
 
 struct DistributionData {
@@ -349,6 +353,8 @@ impl SpiceDataDistributorActor {
         const RECENTLY_DECODED_DATA_CACHE_SIZE: NonZeroUsize = NonZeroUsize::new(100).unwrap();
         const DATA_PARTS_RATIO: f64 = 0.6;
         const PENDING_PARTIAL_DATA_CAP: NonZeroUsize = NonZeroUsize::new(10).unwrap();
+        const PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE: NonZeroUsize =
+            NonZeroUsize::new(30).unwrap();
         Self {
             // TODO(spice): Evaluate whether the same data parts ratio makes sense for all data
             // distributed.
@@ -366,6 +372,9 @@ impl SpiceDataDistributorActor {
             pending_partial_data: LruCache::new(PENDING_PARTIAL_DATA_CAP),
             waiting_on_data: HashMap::new(),
             recently_decoded_data: LruCache::new(RECENTLY_DECODED_DATA_CACHE_SIZE),
+            processed_contract_code_requests: LruCache::new(
+                PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE,
+            ),
         }
     }
 
@@ -1091,7 +1100,7 @@ impl SpiceDataDistributorActor {
     /// (e.g. unknown chunk, invalid contract hash). Returns Err only on
     /// infrastructure failures (missing signer, storage errors).
     fn handle_spice_contract_code_request(
-        &self,
+        &mut self,
         request: SpiceContractCodeRequest,
     ) -> Result<(), Error> {
         let chunk_id = request.chunk_id().clone();
@@ -1099,6 +1108,22 @@ impl SpiceDataDistributorActor {
             .with_label_values(&[&chunk_id.shard_id.to_string()])
             .start_timer();
         let requester = request.requester().clone();
+
+        // Deduplicate repeated requests from the same requester for the same chunk.
+        // TODO(spice): This mirrors the current approach in non-spice data flow. There may be
+        // valid reasons to re-request the contract codes. We could rather rate-limit these
+        // requests.
+        let dedup_key = (chunk_id.clone(), requester.clone());
+        if self.processed_contract_code_requests.contains(&dedup_key) {
+            tracing::debug!(
+                target: "spice_data_distribution",
+                ?chunk_id,
+                ?requester,
+                "contract code request already processed"
+            );
+            return Ok(());
+        }
+        self.processed_contract_code_requests.push(dedup_key, ());
 
         // Fetch block early — needed for both validation and storage lookup below.
         let block = self.chain_store.get_block(&chunk_id.block_hash)?;
