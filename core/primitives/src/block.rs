@@ -415,9 +415,7 @@ impl Block {
         let numerator = 2u128
             .checked_mul(adjustment_rate_denom)?
             .checked_mul(gas_limit)?
-            .checked_add(
-                2u128.checked_mul(adjustment_rate_numer)?.checked_mul(gas_used)?,
-            )?
+            .checked_add(2u128.checked_mul(adjustment_rate_numer)?.checked_mul(gas_used)?)?
             .checked_sub(adjustment_rate_numer.checked_mul(gas_limit)?)?;
         let denominator = 2u128.checked_mul(adjustment_rate_denom)?.checked_mul(gas_limit)?;
         let next_gas_price =
