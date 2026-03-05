@@ -562,20 +562,17 @@ impl Client {
         let prev_block_header = self.chain.get_block_header(block.header().prev_hash())?;
         let gas_price = prev_block_header.next_gas_price();
 
-        // Remove certified chunks (core statements in this block).
-        {
+        // Remove newly certified blocks from the pending transaction queue.
+        let prev_uncertified =
+            self.chain.spice_core_reader.get_uncertified_chunks(block.header().prev_hash())?;
+        let certified_block_hashes = near_chain::spice_core::find_newly_certified_block_hashes(
+            &prev_uncertified,
+            block.spice_core_statements(),
+        );
+        if !certified_block_hashes.is_empty() {
             let mut ptq = self.chunk_producer.pending_transaction_queue.lock();
-            for (chunk_id, _) in block.spice_core_statements().iter_execution_results() {
-                let cert_epoch_id = self.epoch_manager.get_epoch_id(&chunk_id.block_hash)?;
-                let shard_uid = shard_id_to_uid(
-                    self.epoch_manager.as_ref(),
-                    chunk_id.shard_id,
-                    &cert_epoch_id,
-                )?;
-                let Some(queue) = ptq.get_mut(&shard_uid) else {
-                    continue;
-                };
-                queue.remove_certified_chunk(&chunk_id.block_hash);
+            for block_hash in &certified_block_hashes {
+                ptq.remove_certified_block(block_hash);
             }
         }
 

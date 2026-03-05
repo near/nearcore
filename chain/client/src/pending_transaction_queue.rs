@@ -31,6 +31,12 @@ impl ShardedPendingTransactionQueue {
         self.queues.get_mut(shard_uid)
     }
 
+    pub fn remove_certified_block(&mut self, block_hash: &CryptoHash) {
+        for queue in self.queues.values_mut() {
+            queue.remove_certified_chunk(block_hash);
+        }
+    }
+
     pub fn clear(&mut self) {
         self.queues.clear();
     }
