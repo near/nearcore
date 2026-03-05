@@ -491,10 +491,11 @@ fn test_ptq_gas_key_balance_enforcement() {
 
 /// WithdrawFromGasKey reduces available gas key balance.
 ///
-/// Create a gas key with 1 milliNEAR, submit an access key tx withdrawing
-/// the full balance, and wait for inclusion. Then submit a gas key tx via
-/// execute_tx. The PTQ counts the pending withdrawal, so the RPC rejects
-/// the gas key tx with NotEnoughGasKeyBalance.
+/// Create a gas key with 1 milliNEAR, submit two access key txs each
+/// withdrawing half the balance, and wait for inclusion. Then submit a gas
+/// key tx via execute_tx. The pending transaction queue accumulates both
+/// withdrawals, so the RPC rejects the gas key tx with
+/// NotEnoughGasKeyBalance.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_ptq_withdraw_from_gas_key() {
@@ -503,32 +504,44 @@ fn test_ptq_withdraw_from_gas_key() {
     let account = create_account_id("withdraw_account");
     let receiver = create_account_id("receiver");
     let fund_amount = Balance::from_millinear(1);
+    let half = fund_amount.checked_div(2).unwrap();
     let setup = setup_gas_key_spice_env(&account, &receiver, 1, fund_amount);
     let mut env = setup.env;
 
-    // Submit an access key tx that withdraws the full gas key balance.
+    // Submit two access key txs, each withdrawing half the gas key balance.
     let block_hash = env.validator().head().last_block_hash;
-    let withdraw_tx = SignedTransaction::from_actions(
-        setup.next_access_key_nonce,
+    let mut next_nonce = setup.next_access_key_nonce;
+    let withdraw_tx1 = SignedTransaction::from_actions(
+        next_nonce,
         account.clone(),
         account.clone(),
         &create_user_test_signer(&account),
         vec![Action::WithdrawFromGasKey(Box::new(WithdrawFromGasKeyAction {
             public_key: setup.gas_key_signer.public_key(),
-            amount: fund_amount,
+            amount: half,
         }))],
         block_hash,
     );
-    let withdraw_hash = withdraw_tx.get_hash();
-    env.validator().submit_tx(withdraw_tx);
+    next_nonce += 1;
+    let withdraw_tx2 = SignedTransaction::from_actions(
+        next_nonce,
+        account.clone(),
+        account.clone(),
+        &create_user_test_signer(&account),
+        vec![Action::WithdrawFromGasKey(Box::new(WithdrawFromGasKeyAction {
+            public_key: setup.gas_key_signer.public_key(),
+            amount: half,
+        }))],
+        block_hash,
+    );
+    let hashes = [withdraw_tx1.get_hash(), withdraw_tx2.get_hash()];
+    env.validator().submit_tx(withdraw_tx1);
+    env.validator().submit_tx(withdraw_tx2);
+    env.validator_runner().run_until_included(&hashes);
 
-    // Wait for the withdraw tx to be included so the PTQ tracks
-    // the withdrawal against the gas key balance.
-    env.validator_runner().run_until_included(&[withdraw_hash]);
-
-    // Now submit a gas key tx via execute_tx. The PTQ should count the
-    // pending withdrawal against the gas key balance, so the RPC handler
-    // should reject it with NotEnoughGasKeyBalance.
+    // Submit a gas key tx via execute_tx. The pending transaction queue
+    // should accumulate both withdrawals against the gas key balance,
+    // so the RPC handler should reject it with NotEnoughGasKeyBalance.
     let block_hash = env.validator().head().last_block_hash;
     let gas_key_tx = SignedTransaction::from_actions_v1(
         TransactionNonce::from_nonce_and_index(setup.gas_key_nonces[0] + 1, 0),
