@@ -557,9 +557,6 @@ impl Client {
         if !block.is_spice_block() {
             return Ok(());
         }
-        let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        let config = self.runtime_adapter.get_runtime_config(protocol_version);
 
         // Remove newly certified blocks from the pending transaction queue.
         let prev_uncertified =
@@ -574,6 +571,9 @@ impl Client {
         }
 
         // Add new block's chunk transactions.
+        let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let config = self.runtime_adapter.get_runtime_config(protocol_version);
         let gas_price = self.chain.get_block_header(block.header().prev_hash())?.next_gas_price();
         for chunk_header in block.chunks().iter_new() {
             let shard_id = chunk_header.shard_id();
