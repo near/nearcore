@@ -367,16 +367,69 @@ impl PendingTransactionQueue {
 
         PendingConstraints { paid_from_balance, paid_from_gas_key, max_nonce }
     }
+
+    /// Query pending state for a single transaction. Extracts the counts and
+    /// constraints needed by `PendingTxSession::check_pending`. This is called
+    /// under the lock and should be fast.
+    fn query_pending_state(
+        &self,
+        signer_id: &AccountId,
+        public_key: &PublicKey,
+        nonce_index: Option<NonceIndex>,
+    ) -> PendingStateSnapshot {
+        let pending_account = self.pending_accounts.get(signer_id);
+        let access_key_tx_count = pending_account.map(|a| a.access_key_tx_count).unwrap_or(0);
+        let deploy_tx_count = pending_account.map(|a| a.deploy_tx_count).unwrap_or(0);
+        let paid_from_balance =
+            pending_account.map(|a| a.paid_from_balance).unwrap_or(Balance::ZERO);
+
+        let gas_key = (signer_id.clone(), public_key.clone());
+        let pending_gas_key_cost =
+            self.pending_gas_key_costs.get(&gas_key).copied().unwrap_or(Balance::ZERO);
+
+        let nonce_key = (gas_key.0, gas_key.1, nonce_index);
+        let max_nonce = self.pending_nonces.get(&nonce_key).map(|n| n.max_nonce).unwrap_or(0);
+
+        PendingStateSnapshot {
+            access_key_tx_count,
+            deploy_tx_count,
+            paid_from_balance,
+            max_nonce,
+            pending_gas_key_cost,
+        }
+    }
 }
 
-/// Per-chunk-production session that combines pending transaction queue state
-/// with session-local tracking for P_MAX / deploy exclusivity constraints.
+/// Snapshot of pending state for a single transaction's signer, extracted
+/// under the lock and used outside it.
+#[derive(Default)]
+struct PendingStateSnapshot {
+    access_key_tx_count: usize,
+    deploy_tx_count: usize,
+    paid_from_balance: Balance,
+    max_nonce: Nonce,
+    pending_gas_key_cost: Balance,
+}
+
+/// Per-chunk-production session. Combines pending transaction queue state with session-local tracking
+/// for constraints NOT handled by the ephemeral TrieUpdate.
 ///
-/// This is a no-op stub that always admits transactions.
-/// The real implementation will enforce P_MAX and deploy exclusivity per NEP-611.
+/// The ephemeral TrieUpdate handles within-chunk accumulation for balance
+/// (deducts cost), gas key balance (deducts gas_key_cost), and nonces
+/// (advances after each accepted tx). The session only tracks what the
+/// ephemeral state does NOT cover:
+/// - P_MAX / deploy exclusivity counts (per account)
+/// - WithdrawFromGasKey amounts (action effects not applied by ephemeral state)
+///
+/// The session holds an `Arc<Mutex<ShardedPendingTransactionQueue>>` and acquires the lock briefly
+/// per transaction rather than holding it for the entire chunk production duration. This avoids
+/// blocking block processing and RPC handlers.
 pub struct PendingTxSession {
-    _pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
-    _shard_uid: ShardUId,
+    pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
+    shard_uid: ShardUId,
+    session_access_key_tx_counts: HashMap<AccountId, usize>,
+    session_deploy_tx_counts: HashMap<AccountId, usize>,
+    session_gas_key_withdrawals: HashMap<(AccountId, PublicKey), Balance>,
 }
 
 impl PendingTxSession {
@@ -384,15 +437,102 @@ impl PendingTxSession {
         pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
         shard_uid: ShardUId,
     ) -> Self {
-        Self { _pending_transaction_queue: pending_transaction_queue, _shard_uid: shard_uid }
+        Self {
+            pending_transaction_queue,
+            shard_uid,
+            session_access_key_tx_counts: HashMap::new(),
+            session_deploy_tx_counts: HashMap::new(),
+            session_gas_key_withdrawals: HashMap::new(),
+        }
     }
 
+    /// Check if a transaction can be admitted given pending constraints.
+    /// If admitted, updates session state and returns constraints
+    /// for the runtime's balance/nonce validation.
+    ///
+    /// Acquires the PTQ lock briefly to read pending state, then releases it.
     pub fn check_pending(
         &mut self,
-        _tx: &SignedTransaction,
-        _has_contract: HasContract,
+        tx: &SignedTransaction,
+        has_contract: HasContract,
     ) -> PendingTxCheckResult {
-        PendingTxCheckResult::Admit(PendingConstraints::default())
+        let signer_id = tx.transaction.signer_id();
+        let public_key = tx.transaction.public_key();
+        let nonce_index = tx.transaction.nonce().nonce_index();
+        let is_gas_key_tx = nonce_index.is_some();
+
+        let snapshot = {
+            let guard = self.pending_transaction_queue.lock();
+            match guard.get(&self.shard_uid) {
+                Some(ptq) => ptq.query_pending_state(signer_id, public_key, nonce_index),
+                None => PendingStateSnapshot::default(),
+            }
+        };
+
+        let session_access_key_count =
+            self.session_access_key_tx_counts.get(signer_id).copied().unwrap_or(0);
+        let session_deploy_count =
+            self.session_deploy_tx_counts.get(signer_id).copied().unwrap_or(0);
+        let total_access_key_count = snapshot.access_key_tx_count + session_access_key_count;
+        let total_deploy_count = snapshot.deploy_tx_count + session_deploy_count;
+        let tx_has_deploy = has_deploy_action(tx.transaction.actions());
+
+        // Deploy exclusivity: a deploy cannot coexist with any other access
+        // key tx (including another deploy) in the pending window.
+        if !is_gas_key_tx {
+            if total_deploy_count > 0 {
+                return PendingTxCheckResult::Skip;
+            }
+            if tx_has_deploy && total_access_key_count > 0 {
+                return PendingTxCheckResult::Skip;
+            }
+        }
+
+        // P_MAX for contract accounts.
+        if has_contract == HasContract::Yes && !is_gas_key_tx && total_access_key_count >= P_MAX {
+            return PendingTxCheckResult::Skip;
+        }
+
+        // Build constraints for runtime validation.
+        let gas_key = (signer_id.clone(), public_key.clone());
+        let session_gas_key_withdrawal =
+            self.session_gas_key_withdrawals.get(&gas_key).copied().unwrap_or(Balance::ZERO);
+        let paid_from_gas_key =
+            snapshot.pending_gas_key_cost.saturating_add(session_gas_key_withdrawal);
+
+        // Update session state optimistically (assumes tx will be accepted).
+        // If the runtime subsequently rejects the tx (e.g. insufficient
+        // balance), these counts are not rolled back. This means a rejected tx
+        // may consume a P_MAX or deploy exclusivity slot for the remainder of
+        // this chunk production session. Affected transactions are reintroduced
+        // to the pool and retried in a future chunk, so this only impacts
+        // throughput under high contention, not correctness. The risk is
+        // mitigated by the fact that check_pending is called after signature
+        // verification and basic validation, so only transactions with valid
+        // signatures can reach this point -- an adversary cannot cheaply spam
+        // rejected txs to exhaust slots.
+        if !is_gas_key_tx {
+            *self.session_access_key_tx_counts.entry(signer_id.clone()).or_insert(0) += 1;
+        }
+        if tx_has_deploy {
+            *self.session_deploy_tx_counts.entry(signer_id.clone()).or_insert(0) += 1;
+        }
+        // Track WithdrawFromGasKey amounts from this tx's actions.
+        for action in tx.transaction.actions() {
+            if let Action::WithdrawFromGasKey(withdraw) = action {
+                let entry = self
+                    .session_gas_key_withdrawals
+                    .entry((signer_id.clone(), withdraw.public_key.clone()))
+                    .or_insert(Balance::ZERO);
+                *entry = entry.saturating_add(withdraw.amount);
+            }
+        }
+
+        PendingTxCheckResult::Admit(PendingConstraints {
+            paid_from_balance: snapshot.paid_from_balance,
+            paid_from_gas_key,
+            max_nonce: snapshot.max_nonce,
+        })
     }
 }
 
@@ -401,7 +541,8 @@ mod tests {
     use super::*;
 
     use near_crypto::{InMemorySigner, KeyType, Signer};
-    use near_primitives::transaction::SignedTransaction;
+    use near_primitives::action::{DeployContractAction, TransferAction};
+    use near_primitives::transaction::{SignedTransaction, TransactionNonce};
 
     const TEST_SHARD_UID: ShardUId = ShardUId { version: 0, shard_id: 0 };
     const TEST_GAS_PRICE: Balance = Balance::from_yoctonear(100_000_000);
@@ -427,11 +568,35 @@ mod tests {
         )
     }
 
-    fn with_shard_ptq<R>(
-        sharded: &Mutex<ShardedPendingTransactionQueue>,
-        f: impl FnOnce(&mut PendingTransactionQueue) -> R,
-    ) -> R {
-        f(sharded.lock().get_or_create(TEST_SHARD_UID))
+    fn make_deploy_tx(signer: &Signer, nonce: Nonce) -> SignedTransaction {
+        SignedTransaction::from_actions(
+            nonce,
+            signer.get_account_id(),
+            signer.get_account_id(),
+            signer,
+            vec![Action::DeployContract(DeployContractAction { code: vec![0u8; 10] })],
+            CryptoHash::default(),
+        )
+    }
+
+    fn make_gas_key_deploy_tx(
+        signer: &Signer,
+        nonce: Nonce,
+        nonce_index: NonceIndex,
+    ) -> SignedTransaction {
+        SignedTransaction::from_actions_v1(
+            TransactionNonce::from_nonce_and_index(nonce, nonce_index),
+            signer.get_account_id(),
+            signer.get_account_id(),
+            signer,
+            vec![Action::DeployContract(DeployContractAction { code: vec![0u8; 10] })],
+            CryptoHash::default(),
+        )
+    }
+
+    /// Wrap a sharded PTQ in Arc<Mutex<...>>.
+    fn make_sharded_ptq() -> Arc<Mutex<ShardedPendingTransactionQueue>> {
+        Arc::new(Mutex::new(ShardedPendingTransactionQueue::new()))
     }
 
     fn add_chunk_txs(
@@ -446,8 +611,15 @@ mod tests {
         });
     }
 
-    fn make_sharded_ptq() -> Arc<Mutex<ShardedPendingTransactionQueue>> {
-        Arc::new(Mutex::new(ShardedPendingTransactionQueue::new()))
+    fn with_shard_ptq<R>(
+        sharded: &Mutex<ShardedPendingTransactionQueue>,
+        f: impl FnOnce(&mut PendingTransactionQueue) -> R,
+    ) -> R {
+        f(sharded.lock().get_or_create(TEST_SHARD_UID))
+    }
+
+    fn make_session(sharded: &Arc<Mutex<ShardedPendingTransactionQueue>>) -> PendingTxSession {
+        PendingTxSession::new(Arc::clone(sharded), TEST_SHARD_UID)
     }
 
     #[test]
@@ -503,6 +675,26 @@ mod tests {
     }
 
     #[test]
+    fn test_session_p_max_enforcement() {
+        let config = RuntimeConfig::test();
+        let sharded = make_sharded_ptq();
+        let signer = test_signer();
+        let txs: Vec<_> = (1..=P_MAX)
+            .map(|i| make_transfer_tx(&signer, "bob.near", i as Nonce, TEST_DEPOSIT))
+            .collect();
+        add_chunk_txs(&sharded, CryptoHash::hash_bytes(&[1]), &txs, &config, TEST_GAS_PRICE);
+        let next_tx = make_transfer_tx(&signer, "bob.near", (P_MAX + 1) as Nonce, TEST_DEPOSIT);
+
+        // The next access key tx from a contract account should be skipped.
+        let mut session = make_session(&sharded);
+        assert_eq!(session.check_pending(&next_tx, HasContract::Yes), PendingTxCheckResult::Skip);
+
+        // But from a non-contract account it should be admitted.
+        let mut session2 = make_session(&sharded);
+        assert!(matches!(session2.check_pending(&next_tx, HasContract::No), PendingTxCheckResult::Admit(_)));
+    }
+
+    #[test]
     fn test_clear() {
         let config = RuntimeConfig::test();
         let sharded = make_sharded_ptq();
@@ -512,6 +704,119 @@ mod tests {
 
         with_shard_ptq(&sharded, |ptq| ptq.clear());
         with_shard_ptq(&sharded, |ptq| assert!(ptq.is_empty()));
+    }
+
+    #[test]
+    fn test_deploy_exclusivity_pending_deploy_blocks_new_access_key_tx() {
+        let config = RuntimeConfig::test();
+        let sharded = make_sharded_ptq();
+        let signer = test_signer();
+        add_chunk_txs(
+            &sharded,
+            CryptoHash::hash_bytes(&[1]),
+            &[make_deploy_tx(&signer, 1)],
+            &config,
+            TEST_GAS_PRICE,
+        );
+
+        // A non-deploy access key tx should be skipped (deploy is pending).
+        let mut session = make_session(&sharded);
+        let transfer_tx = make_transfer_tx(&signer, "bob.near", 2, TEST_DEPOSIT);
+        assert_eq!(session.check_pending(&transfer_tx, HasContract::No), PendingTxCheckResult::Skip);
+    }
+
+    #[test]
+    fn test_deploy_exclusivity_pending_access_key_tx_blocks_deploy() {
+        let config = RuntimeConfig::test();
+        let sharded = make_sharded_ptq();
+        let signer = test_signer();
+        let transfer_tx = make_transfer_tx(&signer, "bob.near", 1, TEST_DEPOSIT);
+        add_chunk_txs(
+            &sharded,
+            CryptoHash::hash_bytes(&[1]),
+            &[transfer_tx],
+            &config,
+            TEST_GAS_PRICE,
+        );
+
+        // A deploy tx should be skipped (non-deploy access key tx is pending).
+        let mut session = make_session(&sharded);
+        let deploy_tx = make_deploy_tx(&signer, 2);
+        assert_eq!(session.check_pending(&deploy_tx, HasContract::No), PendingTxCheckResult::Skip);
+    }
+
+    #[test]
+    fn test_deploy_exclusivity_gas_key_deploy_blocks_access_key_tx() {
+        let config = RuntimeConfig::test();
+        let sharded = make_sharded_ptq();
+        let signer = test_signer();
+        // A gas key tx with a deploy action is pending.
+        add_chunk_txs(
+            &sharded,
+            CryptoHash::hash_bytes(&[1]),
+            &[make_gas_key_deploy_tx(&signer, 1, 0)],
+            &config,
+            TEST_GAS_PRICE,
+        );
+
+        // An access key tx should be skipped (gas key deploy is pending).
+        let mut session = make_session(&sharded);
+        let transfer_tx = make_transfer_tx(&signer, "bob.near", 2, TEST_DEPOSIT);
+        assert_eq!(session.check_pending(&transfer_tx, HasContract::No), PendingTxCheckResult::Skip);
+
+        // But another gas key tx should still be admitted.
+        let gas_key_transfer = SignedTransaction::from_actions_v1(
+            TransactionNonce::from_nonce_and_index(3, 0),
+            signer.get_account_id(),
+            "bob.near".parse().unwrap(),
+            &signer,
+            vec![Action::Transfer(TransferAction { deposit: TEST_DEPOSIT })],
+            CryptoHash::default(),
+        );
+        assert!(matches!(
+            session.check_pending(&gas_key_transfer, HasContract::No),
+            PendingTxCheckResult::Admit(_)
+        ));
+    }
+
+    #[test]
+    fn test_session_accumulates_across_calls() {
+        let sharded = make_sharded_ptq();
+        let signer = test_signer();
+        let mut session = make_session(&sharded);
+
+        // Admit P_MAX access key txs from a contract account within a single session.
+        for i in 1..=P_MAX {
+            let tx = make_transfer_tx(&signer, "bob.near", i as Nonce, TEST_DEPOSIT);
+            assert!(
+                matches!(session.check_pending(&tx, HasContract::Yes), PendingTxCheckResult::Admit(_)),
+                "tx {} should be admitted",
+                i
+            );
+        }
+        // The (P_MAX + 1)th should be skipped.
+        let tx = make_transfer_tx(&signer, "bob.near", (P_MAX + 1) as Nonce, TEST_DEPOSIT);
+        assert_eq!(session.check_pending(&tx, HasContract::Yes), PendingTxCheckResult::Skip);
+    }
+
+    #[test]
+    fn test_constraints_include_pending_balance() {
+        let config = RuntimeConfig::test();
+        let sharded = make_sharded_ptq();
+        let signer = test_signer();
+        let tx = make_transfer_tx(&signer, "bob.near", 1, TEST_DEPOSIT);
+        let expected_cost = tx_cost(&config, &tx.transaction, TEST_GAS_PRICE).unwrap().total_cost;
+        add_chunk_txs(&sharded, CryptoHash::hash_bytes(&[1]), &[tx], &config, TEST_GAS_PRICE);
+        let mut session = make_session(&sharded);
+        let next_tx = make_transfer_tx(&signer, "bob.near", 2, TEST_DEPOSIT);
+        assert_eq!(
+            session.check_pending(&next_tx, HasContract::No),
+            PendingTxCheckResult::Admit(PendingConstraints {
+                paid_from_balance: expected_cost,
+                paid_from_gas_key: Balance::ZERO,
+                max_nonce: 1,
+            }),
+        );
     }
 
     #[test]
