@@ -110,8 +110,9 @@ fn slow_test_validator_restart_under_cross_shard_load() {
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(20);
 
-    // Perform 4 kill-all/restart-all cycles.
-    for i in 0..4 {
+    // Two cycles: first tests restart after normal operation, second tests
+    // restart after a restart.
+    for i in 0..2 {
         // Collect identifiers and accounts for all validators before killing.
         let node_infos: Vec<_> = (0..NUM_CLIENTS)
             .map(|idx| {
