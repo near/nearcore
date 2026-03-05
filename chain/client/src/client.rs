@@ -402,7 +402,7 @@ impl Client {
                 &shard_tracker,
                 &head.last_block_hash,
             ) {
-                tracing::debug!(
+                tracing::error!(
                     target: "client",
                     ?err,
                     "pending transaction queue initialization on startup failed"
