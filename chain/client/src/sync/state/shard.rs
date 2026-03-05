@@ -163,8 +163,7 @@ pub(super) async fn run_state_sync_for_shard(
     // (i.e. we crashed mid-sync and are resuming), skip cleanup to preserve
     // the progress made so far.
     let flat_storage_manager = runtime.get_flat_storage_manager();
-    let flat_storage_exists =
-        flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_some();
+    let flat_storage_exists = flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_some();
     let apply_parts_started = any(0..num_parts, |part_id| {
         let key = StatePartKey(sync_hash, shard_id, part_id);
         let key_bytes = borsh::to_vec(&key).unwrap();
@@ -174,7 +173,7 @@ pub(super) async fn run_state_sync_for_shard(
         tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "not clearing flat storage before applying state parts because some parts were already applied");
     } else {
         if flat_storage_exists && apply_parts_started {
-            tracing::info!(target: "sync", ?shard_id, ?sync_hash,
+            tracing::debug!(target: "sync", ?shard_id, ?sync_hash,
                 "clearing completed flat storage and re-applying state parts");
         } else {
             tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "clearing flat storage before applying state parts");

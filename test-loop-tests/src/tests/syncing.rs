@@ -123,10 +123,8 @@ fn slow_test_validator_restart_under_cross_shard_load() {
             .collect();
 
         // Restart all validators.
-        let killed_states: Vec<_> = node_infos
-            .iter()
-            .map(|(_, identifier)| env.kill_node(identifier))
-            .collect();
+        let killed_states: Vec<_> =
+            node_infos.iter().map(|(_, identifier)| env.kill_node(identifier)).collect();
         for ((_, identifier), state) in node_infos.iter().zip(killed_states) {
             let new_id = format!("{}-restart-{}", identifier, i);
             env.restart_node(&new_id, state);
@@ -164,8 +162,7 @@ fn slow_test_validator_restart_under_cross_shard_load() {
         let anchor_hash = get_anchor_hash(&clients);
         for (j, sender) in accounts.iter().enumerate() {
             let receiver = &accounts[(j + 1) % accounts.len()];
-            let nonce =
-                get_next_nonce(&env.test_loop.data, live_nodes, sender);
+            let nonce = get_next_nonce(&env.test_loop.data, live_nodes, sender);
             let tx = SignedTransaction::send_money(
                 nonce,
                 sender.clone(),
