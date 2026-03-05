@@ -509,7 +509,6 @@ fn setup_global_contracts(
 fn test_resharding_v3_base(params: TestReshardingParameters) {
     init_test_logger();
     let mut builder = TestLoopBuilder::new();
-
     let tracked_shard_schedule = params.tracked_shard_schedule.clone();
 
     builder = builder.config_modifier(move |config, client_index| {
@@ -587,15 +586,13 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     }
 
     if params.limit_outgoing_gas || params.short_yield_timeout {
+        // RuntimeConfig::test() sets yield_timeout_length_in_blocks to a lower value
+        // (TEST_CONFIG_YIELD_TIMEOUT_LENGTH = 10). No need to set it manually for short_yield_timeout.
         let mut runtime_config = RuntimeConfig::test();
         if params.limit_outgoing_gas {
             runtime_config.congestion_control_config.max_outgoing_gas = Gas::from_teragas(100);
             runtime_config.congestion_control_config.min_outgoing_gas = Gas::from_teragas(100);
         }
-        // When short_yield_timeout is set, RuntimeConfig::test() already lowers
-        // yield_timeout_length_in_blocks from the production default of 200 to
-        // TEST_CONFIG_YIELD_TIMEOUT_LENGTH (10). This is sufficient for the yield to
-        // timeout after the resharding boundary in both static and dynamic resharding.
         let runtime_config_store = RuntimeConfigStore::with_one_config(runtime_config);
         builder = builder.runtime_config_store(runtime_config_store);
     }

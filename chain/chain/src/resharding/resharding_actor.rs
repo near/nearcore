@@ -29,11 +29,6 @@ pub struct ReshardingActor {
     /// Indicates whether resharding has started for a given parent shard.
     /// This is used to prevent resharding from being started multiple times for the same parent shard.
     resharding_started: HashSet<ShardUId>,
-    /// TEST ONLY. Tracks parent shards whose child shard flat storage statuses have been
-    /// pre-set to `CreatingChild` during the artificial delay. This ensures the
-    /// `StateSnapshotActor` can detect pending resharding before it actually starts.
-    #[cfg(feature = "test_features")]
-    child_shard_status_prepared: HashSet<ShardUId>,
     /// Takes care of performing resharding on the flat storage.
     flat_storage_resharder: FlatStorageResharder,
     /// Takes care of performing resharding on the trie state.
@@ -42,11 +37,23 @@ pub struct ReshardingActor {
     /// will be postponed by the specified number of blocks.
     #[cfg(feature = "test_features")]
     pub adv_task_delay_by_blocks: BlockHeightDelta,
+    /// TEST ONLY. Tracks parent shards whose child shard flat storage statuses have been
+    /// pre-set to `CreatingChild` during the artificial delay. This ensures the
+    /// `StateSnapshotActor` can detect pending resharding before it actually starts.
+    #[cfg(feature = "test_features")]
+    child_shard_status_prepared: HashSet<ShardUId>,
 }
 
 enum ReshardingSchedulingStatus {
     StartResharding(ReshardingSplitShardParams),
     WaitForFinalBlock,
+    /// Resharding block is final but start is artificially delayed for testing.
+    /// Contains the child shard UIDs needed to pre-set flat storage statuses.
+    #[cfg(feature = "test_features")]
+    WaitForDelay {
+        left_child_shard: ShardUId,
+        right_child_shard: ShardUId,
+    },
     AlreadyStarted,
 }
 
@@ -141,6 +148,30 @@ impl ReshardingActor {
                     },
                 );
             }
+            #[cfg(feature = "test_features")]
+            ReshardingSchedulingStatus::WaitForDelay { left_child_shard, right_child_shard } => {
+                // Pre-set child shard flat storage statuses so that
+                // `should_wait_for_resharding_split` in the `StateSnapshotActor`
+                // detects pending resharding and waits before creating a snapshot.
+                if !self.child_shard_status_prepared.contains(&parent_shard_uid) {
+                    self.flat_storage_resharder
+                        .set_child_shard_statuses_to_creating(left_child_shard, right_child_shard);
+                    self.child_shard_status_prepared.insert(parent_shard_uid);
+                    tracing::info!(
+                        target: "resharding",
+                        ?parent_shard_uid,
+                        "pre-set child shard statuses to CreatingChild during artificial delay"
+                    );
+                }
+                // The task must be retried later.
+                ctx.run_later(
+                    "ReshardingActor ScheduleResharding",
+                    Duration::milliseconds(1000),
+                    move |act, ctx| {
+                        act.schedule_resharding(parent_shard_uid, ctx);
+                    },
+                );
+            }
             // The event is already started, no need to reschedule.
             ReshardingSchedulingStatus::AlreadyStarted => {}
         }
@@ -149,7 +180,7 @@ impl ReshardingActor {
     // function to check if any one of the resharding block candidates is final
     // and part of the canonical chain.
     fn get_resharding_scheduling_status(
-        &mut self,
+        &self,
         parent_shard_uid: ShardUId,
     ) -> ReshardingSchedulingStatus {
         tracing::info!(target: "resharding", ?parent_shard_uid, "get_resharding_scheduling_status");
@@ -192,23 +223,11 @@ impl ReshardingActor {
             // This behavior is configured through `adv_task_delay_by_blocks`
             #[cfg(feature = "test_features")]
             if event.resharding_block.height + self.adv_task_delay_by_blocks > chain_final_height {
-                // Pre-set child shard flat storage statuses so that
-                // `should_wait_for_resharding_split` in the `StateSnapshotActor`
-                // detects pending resharding and waits before creating a snapshot.
-                if !self.child_shard_status_prepared.contains(&parent_shard_uid) {
-                    self.flat_storage_resharder.set_child_shard_statuses_to_creating(
-                        event.left_child_shard,
-                        event.right_child_shard,
-                    );
-                    self.child_shard_status_prepared.insert(parent_shard_uid);
-                    tracing::info!(
-                        target: "resharding",
-                        ?parent_shard_uid,
-                        "pre-set child shard statuses to CreatingChild during artificial delay"
-                    );
-                }
                 tracing::info!(target: "resharding", "resharding has been artificially postponed");
-                return ReshardingSchedulingStatus::WaitForFinalBlock;
+                return ReshardingSchedulingStatus::WaitForDelay {
+                    left_child_shard: event.left_child_shard,
+                    right_child_shard: event.right_child_shard,
+                };
             }
 
             return ReshardingSchedulingStatus::StartResharding(event.clone());

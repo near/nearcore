@@ -329,12 +329,9 @@ pub(crate) fn call_burn_gas_contract(
                     resharding_height.set(Some(tip.height));
                 }
             }
-            // Before resharding: call the test contract a few times per block.
+            // Before resharding and one block after: call the test contract a few times per block.
             // The objective is to pile up receipts (e.g. delayed).
-            // Don't send txs at the first block of the resharding epoch because the
-            // RPC client may observe it before chunk producers do, causing forwarded
-            // txs to be rejected as Expired.
-            if tip.height <= resharding_height.get().unwrap_or(1000) {
+            if tip.height <= resharding_height.get().unwrap_or(1000) + 1 {
                 for i in 0..CALLS_PER_BLOCK_HEIGHT {
                     // Note that if the number of signers and receivers is the
                     // same then the traffic will always flow the same way. It
