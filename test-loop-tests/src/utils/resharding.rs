@@ -36,8 +36,8 @@ use crate::utils::loop_action::LoopAction;
 use crate::utils::node::TestLoopNode;
 use crate::utils::sharding::{get_memtrie_for_shard, next_block_has_new_shard_layout};
 use crate::utils::transactions::{
-    check_txs, check_txs_remove_successful, get_anchor_hash, get_next_nonce, store_and_submit_tx,
-    submit_tx,
+    check_txs, check_txs_remove_successful, get_anchor_hash, get_next_nonce, get_shared_block_hash,
+    store_and_submit_tx, submit_tx,
 };
 use crate::utils::{get_node_data, retrieve_client_actor};
 use near_chain::types::Tip;
@@ -731,11 +731,30 @@ pub(crate) fn temporary_account_during_resharding(
                 }
                 // Just resharded. Delete the temporary account and set the target height
                 // high enough so that the delete account transaction will be garbage collected.
+                //
+                // We construct the tx manually instead of using node.tx_delete_account()
+                // because that method uses node.head().last_block_hash, which is the
+                // head of a single node. With shard shuffling enabled, nodes can be at
+                // different heights, and the chunk producer that processes the tx might
+                // not know about that block hash yet. Using get_shared_block_hash()
+                // picks the block at the minimum head height across all nodes, which is
+                // guaranteed to be known by every node.
                 let node = TestLoopNode {
                     data: test_loop_data,
                     node_data: get_node_data(node_datas, &client_account_id),
                 };
-                let tx = node.tx_delete_account(&temporary_account_id, &originator_id);
+                let signer =
+                    near_primitives::test_utils::create_user_test_signer(&temporary_account_id);
+                let nonce = node.get_next_nonce(&temporary_account_id);
+                let block_hash = get_shared_block_hash(node_datas, test_loop_data);
+                let tx = near_primitives::transaction::SignedTransaction::delete_account(
+                    nonce,
+                    temporary_account_id.clone(),
+                    temporary_account_id.clone(),
+                    originator_id.clone(),
+                    &signer,
+                    block_hash,
+                );
                 let tx_hash = tx.get_hash();
                 node.submit_tx(tx);
                 delete_account_tx_hash.set(Some(tx_hash));
