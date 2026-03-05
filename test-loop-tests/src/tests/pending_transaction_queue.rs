@@ -78,8 +78,9 @@ fn deploy_contract_and_certify(env: &mut TestLoopEnv, account: &AccountId) {
 
 /// P_MAX enforcement for contract accounts.
 ///
-/// Deploy a contract, then submit P_MAX + 2 transactions. The PTQ should
-/// throttle inclusion to at most P_MAX at a time from a contract account.
+/// Deploy a contract, then submit P_MAX + 2 transactions. The pending
+/// transaction queue should throttle inclusion to at most P_MAX at a time
+/// from a contract account.
 /// All transactions are eventually included after certification frees slots.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
@@ -137,12 +138,12 @@ fn test_ptq_no_p_max_for_non_contract_account() {
     env.validator_runner().run_until_included(&tx_hashes);
 }
 
-/// Nonce constraint from PTQ.
+/// Nonce constraint from pending transaction queue.
 ///
 /// Submit a transaction, wait for inclusion (but not certification). Then
 /// submit another transaction reusing the same nonce. The certified state
-/// still has the old nonce, but PTQ's max_nonce should cause the RPC to
-/// reject the replay with InvalidNonce.
+/// still has the old nonce, but the pending transaction queue's max_nonce
+/// should cause the RPC to reject the replay with InvalidNonce.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_ptq_nonce_constraint() {
@@ -173,7 +174,8 @@ fn test_ptq_nonce_constraint() {
     env.validator_runner().run_until_included(&[tx.get_hash()]);
 
     // Submit another tx reusing nonce 1. The certified state still has
-    // nonce 0, but PTQ's max_nonce should cause rejection.
+    // nonce 0, but the pending transaction queue's max_nonce should cause
+    // rejection.
     let block_hash = env.validator().head().last_block_hash;
     let replay_tx = SignedTransaction::send_money(
         1,
@@ -248,7 +250,7 @@ fn test_ptq_deploy_exclusivity() {
     env.validator_runner().run_until_included(&[transfer_hash]);
 }
 
-/// PTQ accumulates across blocks.
+/// Pending transaction queue accumulates across blocks.
 ///
 /// Submit transactions across multiple blocks. Verify that P_MAX counts
 /// transactions from all uncertified blocks, not just the latest one.
@@ -299,7 +301,7 @@ fn test_ptq_accumulates_across_blocks() {
     env.validator_runner().run_until_included(&[extra_hash]);
 }
 
-/// PTQ cleanup on certification.
+/// Pending transaction queue cleanup on certification.
 ///
 /// Submit transactions, wait for certification to advance past them, then
 /// verify new transactions from the same account are admitted freely.
@@ -421,8 +423,8 @@ fn setup_gas_key_spice_env(
 ///
 /// Create a gas key with enough balance for exactly 2 txs. Submit 2 gas key
 /// txs and wait for inclusion (but not certification). Then submit one more
-/// via execute_tx. The PTQ tracks the first 2 as pending, so the RPC rejects
-/// the third with NotEnoughGasKeyBalance.
+/// via execute_tx. The pending transaction queue tracks the first 2 as
+/// pending, so the RPC rejects the third with NotEnoughGasKeyBalance.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_ptq_gas_key_balance_enforcement() {
@@ -455,9 +457,9 @@ fn test_ptq_gas_key_balance_enforcement() {
     }
     env.validator_runner().run_until_included(&tx_hashes);
 
-    // Submit one more tx via execute_tx. The PTQ tracks the first 2 as
-    // uncertified, so the RPC handler should reject it with
-    // NotEnoughGasKeyBalance.
+    // Submit one more tx via execute_tx. The pending transaction queue
+    // tracks the first 2 as uncertified, so the RPC handler should reject
+    // it with NotEnoughGasKeyBalance.
     gas_key_nonce += 1;
     let block_hash = env.validator().head().last_block_hash;
     let tx = SignedTransaction::from_actions_v1(
@@ -595,8 +597,8 @@ fn test_ptq_gas_key_multiple_nonce_indices() {
 /// Submit an access key tx with a large deposit that nearly exhausts the
 /// account balance (1000 NEAR). Then submit a gas key tx whose deposit
 /// exceeds the remaining balance. The gas key tx's deposit is paid from the
-/// account balance, so the PTQ's paid_from_balance constraint causes
-/// the RPC to reject it with NotEnoughBalanceForDeposit.
+/// account balance, so the pending transaction queue's paid_from_balance
+/// constraint causes the RPC to reject it with NotEnoughBalanceForDeposit.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_ptq_account_balance_access_key_gas_key_combined() {
@@ -621,7 +623,7 @@ fn test_ptq_account_balance_access_key_gas_key_combined() {
     );
     env.validator().submit_tx(access_key_tx.clone());
 
-    // Wait for inclusion so the PTQ tracks paid_from_balance.
+    // Wait for inclusion so the pending transaction queue tracks paid_from_balance.
     let access_key_hash = access_key_tx.get_hash();
     env.validator_runner().run_until_included(&[access_key_hash]);
 
