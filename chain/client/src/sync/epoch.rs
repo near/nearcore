@@ -1,4 +1,4 @@
-use crate::client_actor::ClientActor;
+use crate::client_actor::{ClientActor, ShutdownReason};
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Handler};
 use near_async::time::Clock;
@@ -34,16 +34,6 @@ use parking_lot::Mutex;
 use rand::seq::SliceRandom;
 use std::sync::Arc;
 use tracing::instrument;
-
-/// Result of running `EpochSync::run()`.
-#[derive(Debug)]
-pub enum EpochSyncRunResult {
-    /// Epoch sync handled normally (either not needed, in progress, or request sent).
-    Ok,
-    /// The node has stale data and is far behind the network. The data directory
-    /// should be deleted so the node can re-bootstrap via epoch sync.
-    NeedsDataReset,
-}
 
 /// Maximum age of an epoch sync proof, in number of epochs.
 /// Proofs older than this are rejected as too stale.
@@ -157,30 +147,27 @@ impl EpochSync {
         chain: &Chain,
         highest_height: BlockHeight,
         highest_height_peers: &[HighestHeightPeerInfo],
-    ) -> Result<EpochSyncRunResult, Error> {
+    ) -> Result<(), Error> {
         let tip_height = chain.chain_store().header_head()?.height;
         // If the node is within the epoch sync horizon, no action needed.
         if tip_height + self.config.epoch_sync_horizon_num_epochs * chain.epoch_length
             >= highest_height
         {
-            return Ok(EpochSyncRunResult::Ok);
+            return Ok(());
         }
-        // If the node has data beyond genesis but is far behind the network,
-        // it needs a data reset to re-bootstrap via epoch sync.
-        if tip_height != chain.genesis().height() {
-            if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
-                return Ok(EpochSyncRunResult::NeedsDataReset);
-            }
-            // Without ContinuousEpochSync, fall through to old behavior: epoch sync
-            // only supports bootstrapping at genesis.
-            return Ok(EpochSyncRunResult::Ok);
+        if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION)
+            && tip_height != chain.genesis().height()
+        {
+            // If continuous epoch sync is not enabled, we don't do epoch sync for nodes with stale data.
+            // Early return if the node is NOT fresh, i.e. tip_height is beyond genesis.
+            return Ok(());
         }
         match status {
             SyncStatus::EpochSync(status) => {
                 if status.attempt_time + self.config.timeout_for_epoch_sync < self.clock.now_utc() {
                     tracing::warn!(source_peer_id = %status.source_peer_id, "epoch sync from peer timed out, retrying");
                 } else {
-                    return Ok(EpochSyncRunResult::Ok);
+                    return Ok(());
                 }
             }
             _ => {}
@@ -203,22 +190,25 @@ impl EpochSync {
             NetworkRequests::EpochSyncRequest { peer_id: peer.peer_info.id.clone() },
         ));
 
-        Ok(EpochSyncRunResult::Ok)
+        Ok(())
     }
 
-    pub fn apply_proof(
+    /// Validates an epoch sync proof: checks peer identity, proof freshness,
+    /// and cryptographic correctness. Does not write any data to the store.
+    /// Returns `Ok(true)` if the proof is valid, `Ok(false)` if the proof
+    /// should be silently ignored (wrong peer, too recent, too old, unexpected).
+    fn validate_proof(
         &self,
-        status: &mut SyncStatus,
-        chain: &mut Chain,
-        proof: EpochSyncProof,
-        source_peer: PeerId,
+        status: &SyncStatus,
+        chain: &Chain,
+        proof: &EpochSyncProofV1,
+        source_peer: &PeerId,
         epoch_manager: &dyn EpochManagerAdapter,
-    ) -> Result<(), Error> {
-        let proof = proof.into_v1();
+    ) -> Result<bool, Error> {
         if let SyncStatus::EpochSync(status) = status {
-            if status.source_peer_id != source_peer {
+            if status.source_peer_id != *source_peer {
                 tracing::warn!(%source_peer, expected_peer = %status.source_peer_id, "ignoring epoch sync proof from unexpected peer");
-                return Ok(());
+                return Ok(false);
             }
             if proof
                 .current_epoch
@@ -231,7 +221,7 @@ impl EpochSync {
                     %source_peer,
                     "ignoring epoch sync proof from peer that is too recent"
                 );
-                return Ok(());
+                return Ok(false);
             }
             if proof
                 .current_epoch
@@ -244,15 +234,27 @@ impl EpochSync {
                     %source_peer,
                     "ignoring epoch sync proof from peer that is too old"
                 );
-                return Ok(());
+                return Ok(false);
             }
         } else {
             tracing::warn!(%source_peer, "ignoring unexpected epoch sync proof");
-            return Ok(());
+            return Ok(false);
         }
 
-        self.verify_proof(&proof, epoch_manager)?;
+        self.verify_proof(proof, epoch_manager)?;
 
+        Ok(true)
+    }
+
+    /// Applies a previously validated epoch sync proof to the store and updates
+    /// sync status. Must only be called after `validate_proof` returns `Ok(true)`.
+    fn apply_validated_proof(
+        &self,
+        status: &mut SyncStatus,
+        chain: &Chain,
+        proof: EpochSyncProofV1,
+        epoch_manager: &dyn EpochManagerAdapter,
+    ) -> Result<(), Error> {
         let store = chain.chain_store.store();
         let mut store_update = store.store_update();
 
@@ -606,11 +608,48 @@ impl Handler<EpochSyncResponseMessage> for ClientActor {
                 return;
             }
         };
-        if let Err(err) = self.client.sync_handler.epoch_sync.apply_proof(
+        let proof = proof.into_v1();
+
+        // Validate the proof without writing anything to the store.
+        match self.client.sync_handler.epoch_sync.validate_proof(
+            &self.client.sync_handler.sync_status,
+            &self.client.chain,
+            &proof,
+            &msg.from_peer,
+            self.client.epoch_manager.as_ref(),
+        ) {
+            Ok(true) => {}
+            Ok(false) => return, // silently ignored (logged inside validate_proof)
+            Err(err) => {
+                tracing::error!(?err, "failed to validate epoch sync proof");
+                return;
+            }
+        }
+
+        // If the proof is valid but the node is stale (data beyond genesis), shut down for data reset immediately
+        let tip_height = match self.client.chain.header_head() {
+            Ok(head) => head.height,
+            Err(err) => {
+                tracing::error!(?err, "failed to read header head while handling epoch sync proof");
+                return;
+            }
+        };
+        let genesis_height = self.client.chain.genesis().height();
+        if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION)
+            && tip_height != genesis_height
+        {
+            tracing::info!("stale node validated epoch sync proof, requesting data reset");
+            if let Some(tx) = self.shutdown_signal.take() {
+                let _ = tx.send(ShutdownReason::EpochSyncDataReset);
+            }
+            return;
+        }
+
+        // Apply the validated proof to the store.
+        if let Err(err) = self.client.sync_handler.epoch_sync.apply_validated_proof(
             &mut self.client.sync_handler.sync_status,
             &mut self.client.chain,
             proof,
-            msg.from_peer,
             self.client.epoch_manager.as_ref(),
         ) {
             tracing::error!(?err, "failed to apply epoch sync proof");

@@ -4927,6 +4927,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-rpc-probe"
+version = "0.0.0"
+dependencies = [
+ "near-jsonrpc-client-internal",
+ "near-jsonrpc-primitives",
+ "near-o11y",
+ "near-primitives",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "near-schema-checker-core"
 version = "0.0.0"
 dependencies = [
@@ -5388,6 +5402,7 @@ dependencies = [
  "near-pool",
  "near-primitives",
  "near-rosetta-rpc",
+ "near-rpc-probe",
  "near-store",
  "near-telemetry",
  "near-time",

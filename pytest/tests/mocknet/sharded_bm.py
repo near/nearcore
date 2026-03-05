@@ -325,6 +325,7 @@ def handle_init(args):
     # Re-apply RPC config since apply_json_patches overwrites settings like
     # save_tx_outcomes and disable_tx_routing back to their CP-oriented values.
     configure_rpc_nodes(args)
+    configure_rpc_probe(args)
 
 
 def configure_rpc_nodes(args):
@@ -361,6 +362,32 @@ def configure_rpc_nodes(args):
         logger.info(
             f"Configured RPC {rpc_name}: shards {list(range(start_shard, end_shard))}"
         )
+
+
+def configure_rpc_probe(args):
+    """Copy probe account files to RPC nodes and write rpc_probe config into config.json."""
+    rpc_names = args.forknet_details['rpc_instance_names']
+    if not rpc_names:
+        return
+
+    probe_accounts_path = f"{BENCHNET_DIR}/user-data/probe_accounts.json"
+
+    # Copy probe_accounts.json from NEAR_HOME to BENCHNET_DIR on each RPC node.
+    run_cmd_args = copy.deepcopy(args)
+    run_cmd_args.host_filter = f"({'|'.join(rpc_names)})"
+    run_cmd_args.cmd = f"mkdir -p {BENCHNET_DIR}/user-data && cp {NEAR_HOME}/user-data/probe_accounts.json {probe_accounts_path}"
+    run_remote_cmd(CommandContext(run_cmd_args))
+
+    # Write rpc_probe config into config.json on RPC nodes only.
+    run_cmd_args2 = copy.deepcopy(args)
+    run_cmd_args2.host_filter = f"({'|'.join(rpc_names)})"
+    run_cmd_args2.cmd = (
+        f"jq --arg accounts_path {probe_accounts_path}"
+        f" '.rpc_probe.accounts_path = $accounts_path'"
+        f" {CONFIG_PATH} > tmp.$$.json && mv tmp.$$.json {CONFIG_PATH}")
+    run_remote_cmd(CommandContext(run_cmd_args2))
+
+    logger.info(f"Configured RPC probe on {len(rpc_names)} RPC nodes")
 
 
 def apply_json_patches(args):
@@ -418,6 +445,7 @@ def handle_tweak_config(args):
     upload_json_patches(args)
     apply_json_patches(args)
     configure_rpc_nodes(args)
+    configure_rpc_probe(args)
 
 
 def handle_stop(args):
@@ -434,7 +462,7 @@ def handle_reset(args):
     run_cmd_args.cmd = f"\
         find {NEAR_HOME}/data -mindepth 1 -delete && \
         rm -rf {BENCHNET_DIR} && \
-        jq 'del(.tx_generator)' {CONFIG_PATH} > tmp.$$.json && mv tmp.$$.json {CONFIG_PATH} || rm tmp.$$.json \
+        jq 'del(.tx_generator) | del(.rpc_probe)' {CONFIG_PATH} > tmp.$$.json && mv tmp.$$.json {CONFIG_PATH} || rm tmp.$$.json \
     "
 
     run_remote_cmd(CommandContext(run_cmd_args))

@@ -7,6 +7,7 @@
 * The contract runtime now allows for bulk memory instructions in Wasm code.
 
 ### Non-protocol Changes
+* Added `experimental.tier3_public_addr` network config option to manually override the auto-discovered Tier3 public address.
 
 ## [2.11.0]
 
