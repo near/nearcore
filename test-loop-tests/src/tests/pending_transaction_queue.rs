@@ -306,7 +306,8 @@ fn test_ptq_accumulates_across_blocks() {
     // Run blocks up to just before the first batch gets certified.
     // The extra tx should not get included while P_MAX uncertified txs are pending.
     let current_height = env.validator().head().height;
-    let blocks_until_certification = first_inclusion_height + execution_delay - current_height - 1;
+    let target_height = first_inclusion_height + execution_delay - 1;
+    let blocks_until_certification = target_height.saturating_sub(current_height);
     env.validator_runner().run_for_number_of_blocks(blocks_until_certification as usize);
     assert!(!is_included_in_head(&env.validator(), &[extra_hash]));
 
