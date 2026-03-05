@@ -76,7 +76,8 @@ fn slow_test_early_chunk_producer_kickout() {
                 let original = epoch_manager
                     .get_chunk_producer_for_height(&epoch_id, tip.height, shard_id)
                     .unwrap();
-                let actual = epoch_manager.get_chunk_producer_info(prev_hash, shard_id).unwrap();
+                let actual =
+                    epoch_manager.require_chunk_producer_info(prev_hash, shard_id).unwrap();
                 if original.account_id() == &stopped_account
                     && actual.account_id() != &stopped_account
                 {
@@ -118,7 +119,8 @@ fn slow_test_early_chunk_producer_kickout() {
                 let original = epoch_manager
                     .get_chunk_producer_for_height(&epoch_id, tip.height, shard_id)
                     .unwrap();
-                let actual = epoch_manager.get_chunk_producer_info(prev_hash, shard_id).unwrap();
+                let actual =
+                    epoch_manager.require_chunk_producer_info(prev_hash, shard_id).unwrap();
                 if original.account_id() == &stopped_account {
                     assert_eq!(
                         actual.account_id(),
@@ -221,7 +223,7 @@ fn slow_test_early_chunk_producer_kickout_safety_valve() {
             let original = epoch_manager
                 .get_chunk_producer_for_height(&epoch_id, tip.height, shard_id)
                 .unwrap();
-            let actual = epoch_manager.get_chunk_producer_info(prev_hash, shard_id).unwrap();
+            let actual = epoch_manager.require_chunk_producer_info(prev_hash, shard_id).unwrap();
             assert_eq!(
                 original.account_id(),
                 actual.account_id(),

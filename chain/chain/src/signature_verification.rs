@@ -50,7 +50,7 @@ pub fn verify_chunk_header_signature_with_epoch_manager_and_parts(
     prev_block_hash: &CryptoHash,
     shard_id: ShardId,
 ) -> Result<bool, Error> {
-    let chunk_producer = epoch_manager.get_chunk_producer_info(prev_block_hash, shard_id)?;
+    let chunk_producer = epoch_manager.require_chunk_producer_info(prev_block_hash, shard_id)?;
     Ok(signature.verify(chunk_hash.as_ref(), chunk_producer.public_key()))
 }
 

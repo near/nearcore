@@ -197,7 +197,7 @@ pub fn validate_contract_code_request(
 
 /// Resolves the chunk producer for signature verification.
 /// When `prev_block_hash` is available (V2 wire types), uses the DB-authoritative
-/// `get_chunk_producer_info`. When absent (V1), falls back to height-based lookup.
+/// `require_chunk_producer_info`. When absent (V1), falls back to height-based lookup.
 /// Returns `Err` if `EarlyChunkProducerKickout` is enabled but `prev_block_hash`
 /// is missing — V1 messages are invalid once the feature is active.
 fn resolve_chunk_producer(
@@ -206,7 +206,7 @@ fn resolve_chunk_producer(
     key: &ChunkProductionKey,
 ) -> Result<ValidatorStake, Error> {
     if let Some(prev_block_hash) = prev_block_hash {
-        Ok(epoch_manager.get_chunk_producer_info(prev_block_hash, key.shard_id)?)
+        Ok(epoch_manager.require_chunk_producer_info(prev_block_hash, key.shard_id)?)
     } else {
         let protocol_version = epoch_manager.get_epoch_protocol_version(&key.epoch_id)?;
         if ProtocolFeature::EarlyChunkProducerKickout.enabled(protocol_version) {

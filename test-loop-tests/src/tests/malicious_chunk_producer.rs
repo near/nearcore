@@ -186,7 +186,7 @@ fn test_producer_sending_large_encoded_length_chunks() {
                     let header = partial_encoded_chunk.header;
 
                     let chunk_producer_info = epoch_manager
-                        .get_chunk_producer_info(header.prev_block_hash(), header.shard_id())
+                        .require_chunk_producer_info(header.prev_block_hash(), header.shard_id())
                         .unwrap();
                     let signer = create_test_signer(chunk_producer_info.account_id().as_str());
                     let new_encoded_length = u64::MAX;

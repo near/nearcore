@@ -152,7 +152,7 @@ impl BlockProductionTracker {
                 });
             } else {
                 let chunk_producer = epoch_manager
-                    .get_chunk_producer_info(prev_block_hash, shard_id)?
+                    .get_chunk_producer_info_best_effort(prev_block_hash, shard_id)?
                     .take_account_id();
                 chunk_collection_info.push(ChunkCollection {
                     chunk_producer,
@@ -630,7 +630,7 @@ impl ClientActor {
                                 chunk_producer: self
                                     .client
                                     .epoch_manager
-                                    .get_chunk_producer_info(
+                                    .get_chunk_producer_info_best_effort(
                                         block_header.prev_hash(),
                                         chunk.shard_id(),
                                     )

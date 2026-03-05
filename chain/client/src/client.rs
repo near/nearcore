@@ -1357,7 +1357,7 @@ impl Client {
             self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
         let chunk_producer = self
             .epoch_manager
-            .get_chunk_producer_info(chunk_header.prev_block_hash(), chunk_header.shard_id())?
+            .require_chunk_producer_info(chunk_header.prev_block_hash(), chunk_header.shard_id())?
             .take_account_id();
         tracing::error!(
             target: "client",

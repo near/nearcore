@@ -7,8 +7,8 @@ use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::Error;
 use near_chain::types::RuntimeAdapter;
 use near_chain_configs::MutableValidatorSigner;
-use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
+use near_epoch_manager::{ChunkProducerInfoResult, EpochManagerAdapter};
 use near_network::state_witness::{
     ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
     ContractCodeResponseMessage, PartialEncodedContractDeploysMessage,
@@ -285,8 +285,9 @@ impl PartialWitnessActor {
         let Some(hash) = prev_block_hash else {
             return false;
         };
-        if self.epoch_manager.is_chunk_producer_info_in_db(hash, shard_id) {
-            return false;
+        match self.epoch_manager.get_chunk_producer_info(hash, shard_id) {
+            Ok(ChunkProducerInfoResult::Known(_)) | Err(_) => return false,
+            Ok(ChunkProducerInfoResult::Unknown) => {}
         }
         self.pending_side_channel_pool.add_pending(msg);
         true
@@ -536,7 +537,7 @@ impl PartialWitnessActor {
         let ChunkProductionKey { shard_id, epoch_id, height_created } = key;
 
         let chunk_producer = if let Some(prev_block_hash) = partial_witness.prev_block_hash() {
-            self.epoch_manager.get_chunk_producer_info(prev_block_hash, shard_id)?
+            self.epoch_manager.require_chunk_producer_info(prev_block_hash, shard_id)?
         } else {
             let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
             if ProtocolFeature::EarlyChunkProducerKickout.enabled(protocol_version) {

@@ -916,7 +916,7 @@ mod tests {
                 let chunk_producer = self
                     .chain
                     .epoch_manager
-                    .get_chunk_producer_info(prev_block.hash(), shard_id)
+                    .require_chunk_producer_info(prev_block.hash(), shard_id)
                     .unwrap();
                 let signer = create_test_signer(chunk_producer.account_id().as_str());
                 let mut chunk_header =

@@ -95,14 +95,11 @@ use near_async::time::{self, Clock};
 use near_async::tokio::TokioRuntimeHandle;
 use near_chain::byzantine_assert;
 use near_chain::near_chain_primitives::error::Error::DBNotFoundErr;
-use near_chain::signature_verification::{
-    verify_chunk_header_signature_with_epoch_manager,
-    verify_chunk_header_signature_with_epoch_manager_and_parts,
-};
 use near_chain::types::EpochManagerAdapter;
 use near_chain::validate::validate_chunk_proofs;
 use near_chain_configs::MutableValidatorSigner;
 pub use near_chunks_primitives::Error;
+use near_epoch_manager::ChunkProducerInfoResult;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{
@@ -1251,25 +1248,23 @@ impl ShardsManagerActor {
 
         // If ChunkProducers DB entry isn't available yet, treat as transient.
         // The caller caches the forward and retries later.
-        if !self
+        let chunk_producer = match self
             .epoch_manager
-            .is_chunk_producer_info_in_db(&forward.prev_block_hash, forward.shard_id)
+            .get_chunk_producer_info(&forward.prev_block_hash, forward.shard_id)?
         {
-            return Err(DBNotFoundErr(format!(
-                "chunk producer not ready for block {:?}",
-                forward.prev_block_hash
-            ))
-            .into());
-        }
+            ChunkProducerInfoResult::Known(v) => v,
+            ChunkProducerInfoResult::Unknown => {
+                return Err(DBNotFoundErr(format!(
+                    "chunk producer not ready for block {:?}",
+                    forward.prev_block_hash
+                ))
+                .into());
+            }
+        };
 
         // check signature
-        let valid_signature = verify_chunk_header_signature_with_epoch_manager_and_parts(
-            self.epoch_manager.as_ref(),
-            &forward.chunk_hash,
-            &forward.signature,
-            &forward.prev_block_hash,
-            forward.shard_id,
-        )?;
+        let valid_signature =
+            forward.signature.verify(forward.chunk_hash.as_ref(), chunk_producer.public_key());
 
         if !valid_signature {
             return Err(Error::InvalidChunkSignature);
@@ -1431,19 +1426,22 @@ impl ShardsManagerActor {
         // If the pre-computed ChunkProducers DB entry isn't available yet for
         // this (prev_block_hash, shard_id), treat as transient — the caller
         // will retry once the block is fully processed.
-        if !self
+        let chunk_producer = match self
             .epoch_manager
-            .is_chunk_producer_info_in_db(header.prev_block_hash(), header.shard_id())
+            .get_chunk_producer_info(header.prev_block_hash(), header.shard_id())?
         {
-            return Err(DBNotFoundErr(format!(
-                "chunk producer not ready for block {:?}",
-                header.prev_block_hash()
-            ))
-            .into());
-        }
+            ChunkProducerInfoResult::Known(v) => v,
+            ChunkProducerInfoResult::Unknown => {
+                return Err(DBNotFoundErr(format!(
+                    "chunk producer not ready for block {:?}",
+                    header.prev_block_hash()
+                ))
+                .into());
+            }
+        };
 
         let valid_signature =
-            verify_chunk_header_signature_with_epoch_manager(self.epoch_manager.as_ref(), header)?;
+            header.signature().verify(header.chunk_hash().as_ref(), chunk_producer.public_key());
         if !valid_signature {
             return if epoch_id_confirmed {
                 byzantine_assert!(false);
@@ -1807,17 +1805,15 @@ impl ShardsManagerActor {
 
         // If ChunkProducers DB entry isn't populated yet, return NeedBlock so
         // the caller retries after the block is fully processed.
-        if !self
-            .epoch_manager
-            .is_chunk_producer_info_in_db(header.prev_block_hash(), header.shard_id())
-        {
-            return Ok(ProcessPartialEncodedChunkResult::NeedBlock);
-        }
-
-        let chunk_producer = self
+        let chunk_producer = match self
             .epoch_manager
             .get_chunk_producer_info(header.prev_block_hash(), header.shard_id())?
-            .take_account_id();
+        {
+            ChunkProducerInfoResult::Known(v) => v.take_account_id(),
+            ChunkProducerInfoResult::Unknown => {
+                return Ok(ProcessPartialEncodedChunkResult::NeedBlock);
+            }
+        };
 
         if have_all_parts {
             self.encoded_chunks.mark_received_all_parts(&chunk_hash);

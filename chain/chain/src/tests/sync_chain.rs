@@ -73,9 +73,9 @@ fn chain_sync_headers_populates_chunk_producers_column() {
                 shard_id,
             );
 
-            // Verify consistency with get_chunk_producer_info.
+            // Verify consistency with require_chunk_producer_info.
             let from_lookup =
-                epoch_manager.get_chunk_producer_info(prev_block_hash, shard_id).unwrap();
+                epoch_manager.require_chunk_producer_info(prev_block_hash, shard_id).unwrap();
             assert_eq!(from_lookup, db_entry.unwrap());
         }
     }

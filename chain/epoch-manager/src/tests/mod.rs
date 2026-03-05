@@ -749,7 +749,7 @@ fn test_reward_multiple_shards() {
             .shard_ids()
             .map(|shard_id| {
                 let expected_chunk_producer =
-                    epoch_manager.get_chunk_producer_info(&h[i - 1], shard_id).unwrap();
+                    epoch_manager.require_chunk_producer_info(&h[i - 1], shard_id).unwrap();
                 if expected_chunk_producer.account_id() == "test1" && epoch_id == init_epoch_id {
                     expected_chunks += 1;
                     false
@@ -3868,8 +3868,8 @@ fn test_chunk_producer_by_prev_block_hash_fork_scenario() {
     let shard_layout = epoch_manager.get_shard_layout(&epoch_a).unwrap();
     let mut found_difference = false;
     for shard_id in shard_layout.shard_ids() {
-        let cp_a = epoch_manager.get_chunk_producer_info(&ha[14], shard_id).unwrap();
-        let cp_b = epoch_manager.get_chunk_producer_info(&hb[14], shard_id).unwrap();
+        let cp_a = epoch_manager.require_chunk_producer_info(&ha[14], shard_id).unwrap();
+        let cp_b = epoch_manager.require_chunk_producer_info(&hb[14], shard_id).unwrap();
         if cp_a != cp_b {
             found_difference = true;
             break;
@@ -3881,10 +3881,14 @@ fn test_chunk_producer_by_prev_block_hash_fork_scenario() {
     );
 }
 
-/// Tests that `get_chunk_producer_info` falls back to computation when the
-/// `ChunkProducers` DB column is not populated.
+/// Tests that `get_chunk_producer_info` returns `Known` when the DB column
+/// is populated (by `record_block` → `save_default_chunk_producers`) and
+/// `Unknown` for hashes that were never recorded.
 #[test]
-fn test_chunk_producer_info_fallback() {
+fn test_chunk_producer_info_known_and_unknown() {
+    use crate::adapter::ChunkProducerInfoResult;
+    use near_primitives::hash::hash;
+
     let amount_staked = Balance::from_yoctonear(1_000_000);
     let validators: Vec<(AccountId, Balance)> =
         (0..4).map(|i| (format!("test{}", i).parse().unwrap(), amount_staked)).collect();
@@ -3896,14 +3900,24 @@ fn test_chunk_producer_info_fallback() {
         record_block(&mut epoch_manager.write(), h[i - 1], h[i], i as u64, vec![]);
     }
 
-    // DB column is empty (record_block doesn't populate it).
-    // get_chunk_producer_info should fall back to computation.
+    // record_block populates the DB via save_default_chunk_producers,
+    // so get_chunk_producer_info should return Known.
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&h[3]).unwrap();
     let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
     for shard_id in shard_layout.shard_ids() {
-        let result = epoch_manager.get_chunk_producer_info(&h[3], shard_id);
-        assert!(result.is_ok(), "Fallback computation should succeed: {:?}", result.err());
+        let result = epoch_manager.get_chunk_producer_info(&h[3], shard_id).unwrap();
+        assert!(matches!(result, ChunkProducerInfoResult::Known(_)));
     }
+
+    // A hash that was never recorded should return Unknown.
+    let bogus_hash = hash(b"bogus");
+    let shard_id = shard_layout.shard_ids().next().unwrap();
+    let result = epoch_manager.get_chunk_producer_info(&bogus_hash, shard_id).unwrap();
+    assert_eq!(result, ChunkProducerInfoResult::Unknown);
+
+    // require_chunk_producer_info should fail on a missing entry.
+    let err = epoch_manager.require_chunk_producer_info(&bogus_hash, shard_id);
+    assert!(err.is_err(), "require_chunk_producer_info should fail on DB miss");
 }
 
 /// Tests that `get_chunk_producer_info` reads from the `ChunkProducers` DB
@@ -3942,8 +3956,8 @@ fn test_chunk_producer_info_db_first() {
         store_update.commit();
     }
 
-    // Now get_chunk_producer_info should read from DB.
-    let actual = epoch_manager.get_chunk_producer_info(prev_block_hash, shard_id).unwrap();
+    // Now get_chunk_producer_info should read from DB and return Known.
+    let actual = epoch_manager.require_chunk_producer_info(prev_block_hash, shard_id).unwrap();
     assert_eq!(actual, expected);
 }
 
@@ -3995,7 +4009,8 @@ fn test_chunk_producer_info_consistency() {
 
         // Verify DB-first lookup matches computation.
         for shard_id in shard_layout.shard_ids() {
-            let from_db = epoch_manager.get_chunk_producer_info(prev_block_hash, shard_id).unwrap();
+            let from_db =
+                epoch_manager.require_chunk_producer_info(prev_block_hash, shard_id).unwrap();
             let computed =
                 epoch_manager.get_chunk_producer_for_height(&epoch_id, height, shard_id).unwrap();
             assert_eq!(from_db, computed, "Mismatch at height {} shard {}", height, shard_id);
@@ -4533,13 +4548,12 @@ fn test_aggregator_panics_on_missing_db_entry() {
     let _ = em.get_epoch_info_aggregator_upto_last(&h[1]);
 }
 
-/// When `EarlyChunkProducerKickout` is enabled, the strict
-/// `get_chunk_producer_info` must return `Err` on a DB miss (and fire
-/// `debug_assert`).
+/// `require_chunk_producer_info` returns `Err` on a DB miss, while
+/// `get_chunk_producer_info` returns `Unknown`.
 #[test]
-#[should_panic(expected = "ChunkProducers DB miss")]
-#[cfg(debug_assertions)]
 fn test_chunk_producer_info_returns_err_on_missing_db_entry() {
+    use crate::adapter::ChunkProducerInfoResult;
+
     let num_shards: u64 = 4;
     let (mut em, h, epoch_id, shard_layout) = setup_kickout_epoch_manager(num_shards);
 
@@ -4547,8 +4561,14 @@ fn test_chunk_producer_info_returns_err_on_missing_db_entry() {
 
     let handle = em.into_handle();
     let shard_id = shard_layout.shard_ids().next().unwrap();
-    // The debug_assert fires before the Err return.
-    let _ = handle.get_chunk_producer_info(&h[0], shard_id);
+
+    // DB-only lookup returns Unknown.
+    let result = handle.get_chunk_producer_info(&h[0], shard_id).unwrap();
+    assert_eq!(result, ChunkProducerInfoResult::Unknown);
+
+    // Strict lookup returns Err.
+    let err = handle.require_chunk_producer_info(&h[0], shard_id);
+    assert!(err.is_err(), "require_chunk_producer_info should fail on DB miss");
 }
 
 /// The best-effort path always falls back to computation on DB miss,
