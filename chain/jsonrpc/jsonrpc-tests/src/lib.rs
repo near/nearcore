@@ -184,6 +184,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         actor_system.clone(),
         rpc_handler_config,
         client_result.tx_pool,
+        client_result.pending_transaction_queue,
         epoch_manager,
         shard_tracker,
         signer,

@@ -323,6 +323,7 @@ pub fn setup_client(
     let rpc_handler = RpcHandlerActor::new(
         rpc_handler_config,
         client_actor.client.chunk_producer.sharded_tx_pool.clone(),
+        client_actor.client.chunk_producer.pending_transaction_queue.clone(),
         epoch_manager.clone(),
         shard_tracker.clone(),
         validator_signer.clone(),

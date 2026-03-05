@@ -9,6 +9,7 @@ use crate::chunk_producer::AdvProduceChunksMode;
 use crate::chunk_producer::ChunkProducer;
 use crate::client_actor::ClientSenderForClient;
 use crate::debug::BlockProductionTracker;
+use crate::pending_transaction_queue::ShardedPendingTransactionQueue;
 use crate::spice_timer::SpiceTimer;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validation_actor::ChunkValidationSender;
@@ -73,6 +74,7 @@ use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{CatchupStatusView, DroppedReason};
+use parking_lot::Mutex;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
@@ -389,7 +391,26 @@ impl Client {
         );
 
         let chunk_distribution_network = ChunkDistributionNetwork::from_config(&config);
-        Ok(Self {
+
+        // Initialize pending transaction queue from uncertified chunks for the chain head.
+        if let Ok(head) = chain.head() {
+            if let Err(err) = Self::reinitialize_pending_transaction_queue(
+                &chunk_producer.pending_transaction_queue,
+                &chain,
+                epoch_manager.as_ref(),
+                runtime_adapter.as_ref(),
+                &shard_tracker,
+                &head.last_block_hash,
+            ) {
+                tracing::debug!(
+                    target: "client",
+                    ?err,
+                    "pending transaction queue initialization on startup failed"
+                );
+            }
+        }
+
+        let client = Self {
             #[cfg(feature = "test_features")]
             adv_produce_blocks: None,
             #[cfg(feature = "sandbox")]
@@ -438,7 +459,8 @@ impl Client {
             chunk_producer_accounts_cache: None,
             shadow_validation_reed_solomon: OnceLock::new(),
             block_notification_watch_sender,
-        })
+        };
+        Ok(client)
     }
 
     // Checks if it's been at least `stall_timeout` since the last time the head was updated, or
@@ -524,6 +546,137 @@ impl Client {
                             "reintroduced transactions");
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// Add a new block's transactions to the pending transaction queue and remove certified chunks.
+    /// Called on BlockStatus::Next.
+    fn update_pending_transaction_queue_for_block(&self, block: &Block) -> Result<(), Error> {
+        if !block.is_spice_block() {
+            return Ok(());
+        }
+        let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let config = self.runtime_adapter.get_runtime_config(protocol_version);
+        let prev_block_header = self.chain.get_block_header(block.header().prev_hash())?;
+        let gas_price = prev_block_header.next_gas_price();
+        let mut ptq = self.chunk_producer.pending_transaction_queue.lock();
+
+        // Remove certified chunks (core statements in this block).
+        for (chunk_id, _) in block.spice_core_statements().iter_execution_results() {
+            let cert_epoch_id = self.epoch_manager.get_epoch_id(&chunk_id.block_hash)?;
+            let shard_uid =
+                shard_id_to_uid(self.epoch_manager.as_ref(), chunk_id.shard_id, &cert_epoch_id)?;
+            let Some(queue) = ptq.get_mut(&shard_uid) else {
+                continue;
+            };
+            queue.remove_certified_chunk(&chunk_id.block_hash);
+        }
+
+        // Add new block's chunk transactions.
+        for chunk_header in block.chunks().iter_new() {
+            let shard_id = chunk_header.shard_id();
+            let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
+            if !self
+                .shard_tracker
+                .cares_about_shard_this_or_next_epoch(block.header().prev_hash(), shard_id)
+            {
+                continue;
+            }
+            let chunk = self.chain.get_chunk(&chunk_header.chunk_hash())?;
+            let transactions = chunk.to_transactions();
+            ptq.get_or_create(shard_uid).add_chunk_transactions(
+                *block.hash(),
+                transactions,
+                &config,
+                gas_price,
+            );
+        }
+        Ok(())
+    }
+
+    /// Re-initialize the pending transaction queue from uncertified chunks for the given chain head.
+    /// Called on startup and after reorgs.
+    fn reinitialize_pending_transaction_queue(
+        pending_transaction_queue: &Mutex<ShardedPendingTransactionQueue>,
+        chain: &Chain,
+        epoch_manager: &dyn EpochManagerAdapter,
+        runtime_adapter: &dyn RuntimeAdapter,
+        shard_tracker: &ShardTracker,
+        head_hash: &CryptoHash,
+    ) -> Result<(), Error> {
+        let mut ptq = pending_transaction_queue.lock();
+        ptq.clear();
+
+        let head_block = chain.get_block(head_hash)?;
+        if !head_block.is_spice_block() {
+            return Ok(());
+        }
+
+        let uncertified_chunks = chain.spice_core_reader.get_uncertified_chunks(head_hash)?;
+        let mut uncertified_block_hashes: HashSet<CryptoHash> = HashSet::new();
+        for chunk_info in &uncertified_chunks {
+            uncertified_block_hashes.insert(chunk_info.chunk_id.block_hash);
+        }
+
+        let total_blocks = uncertified_block_hashes.len();
+        let mut loaded_blocks = 0usize;
+        for block_hash in &uncertified_block_hashes {
+            let block = match chain.get_block(block_hash) {
+                Ok(block) => block,
+                Err(err) => {
+                    tracing::warn!(
+                        target: "client",
+                        ?block_hash,
+                        ?err,
+                        "failed to load block for pending transaction queue initialization"
+                    );
+                    continue;
+                }
+            };
+            let Ok(epoch_id) = epoch_manager.get_epoch_id(block_hash) else {
+                continue;
+            };
+            let Ok(protocol_version) = epoch_manager.get_epoch_protocol_version(&epoch_id) else {
+                continue;
+            };
+            let config = runtime_adapter.get_runtime_config(protocol_version);
+            let Ok(prev_header) = chain.get_block_header(block.header().prev_hash()) else {
+                continue;
+            };
+            let gas_price = prev_header.next_gas_price();
+
+            for chunk_header in block.chunks().iter_new() {
+                let shard_id = chunk_header.shard_id();
+                let Ok(shard_uid) = shard_id_to_uid(epoch_manager, shard_id, &epoch_id) else {
+                    continue;
+                };
+                if !shard_tracker
+                    .cares_about_shard_this_or_next_epoch(block.header().prev_hash(), shard_id)
+                {
+                    continue;
+                }
+                let Ok(chunk) = chain.get_chunk(&chunk_header.chunk_hash()) else {
+                    continue;
+                };
+                let transactions = chunk.to_transactions();
+                ptq.get_or_create(shard_uid).add_chunk_transactions(
+                    *block_hash,
+                    transactions,
+                    &config,
+                    gas_price,
+                );
+            }
+            loaded_blocks += 1;
+        }
+        if loaded_blocks < total_blocks {
+            tracing::warn!(
+                target: "client",
+                loaded_blocks,
+                total_blocks,
+                "pending transaction queue reinitialized with incomplete uncertified blocks"
+            );
         }
         Ok(())
     }
@@ -1734,6 +1887,14 @@ impl Client {
                         );
                     }
                 }
+                // Update pending transaction queue: remove certified chunks, add new block's txs.
+                if let Err(err) = self.update_pending_transaction_queue_for_block(block) {
+                    tracing::error!(
+                        target: "client",
+                        ?err,
+                        "updating pending transaction queue for block failed"
+                    );
+                }
             }
             BlockStatus::Fork => {
                 // If it's a fork, no need to reconcile transactions or produce chunks.
@@ -1797,6 +1958,22 @@ impl Client {
                             }
                         }
                     }
+                }
+
+                // Re-initialize pending transaction queue from uncertified chunks for the new head.
+                if let Err(err) = Self::reinitialize_pending_transaction_queue(
+                    &self.chunk_producer.pending_transaction_queue,
+                    &self.chain,
+                    self.epoch_manager.as_ref(),
+                    self.runtime_adapter.as_ref(),
+                    &self.shard_tracker,
+                    block.hash(),
+                ) {
+                    tracing::error!(
+                        target: "client",
+                        ?err,
+                        "re-initializing pending transaction queue after reorg failed"
+                    );
                 }
             }
         };
