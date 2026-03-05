@@ -33,6 +33,7 @@ use near_chain::chain::{
 use near_chain::orphan::OrphanMissingChunks;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::types::ReshardingSender;
+use near_chain::spice_core::find_newly_certified_block_hashes;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{ChainConfig, LatestKnown, RuntimeAdapter};
@@ -565,10 +566,8 @@ impl Client {
         // Remove newly certified blocks from the pending transaction queue.
         let prev_uncertified =
             self.chain.spice_core_reader.get_uncertified_chunks(block.header().prev_hash())?;
-        let certified_block_hashes = near_chain::spice_core::find_newly_certified_block_hashes(
-            &prev_uncertified,
-            block.spice_core_statements(),
-        );
+        let certified_block_hashes =
+            find_newly_certified_block_hashes(&prev_uncertified, block.spice_core_statements());
         if !certified_block_hashes.is_empty() {
             let mut ptq = self.chunk_producer.pending_transaction_queue.lock();
             for block_hash in &certified_block_hashes {
