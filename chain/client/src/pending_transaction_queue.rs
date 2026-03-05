@@ -691,7 +691,10 @@ mod tests {
 
         // But from a non-contract account it should be admitted.
         let mut session2 = make_session(&sharded);
-        assert!(matches!(session2.check_pending(&next_tx, HasContract::No), PendingTxCheckResult::Admit(_)));
+        assert!(matches!(
+            session2.check_pending(&next_tx, HasContract::No),
+            PendingTxCheckResult::Admit(_)
+        ));
     }
 
     #[test]
@@ -722,7 +725,10 @@ mod tests {
         // A non-deploy access key tx should be skipped (deploy is pending).
         let mut session = make_session(&sharded);
         let transfer_tx = make_transfer_tx(&signer, "bob.near", 2, TEST_DEPOSIT);
-        assert_eq!(session.check_pending(&transfer_tx, HasContract::No), PendingTxCheckResult::Skip);
+        assert_eq!(
+            session.check_pending(&transfer_tx, HasContract::No),
+            PendingTxCheckResult::Skip
+        );
     }
 
     #[test]
@@ -762,7 +768,10 @@ mod tests {
         // An access key tx should be skipped (gas key deploy is pending).
         let mut session = make_session(&sharded);
         let transfer_tx = make_transfer_tx(&signer, "bob.near", 2, TEST_DEPOSIT);
-        assert_eq!(session.check_pending(&transfer_tx, HasContract::No), PendingTxCheckResult::Skip);
+        assert_eq!(
+            session.check_pending(&transfer_tx, HasContract::No),
+            PendingTxCheckResult::Skip
+        );
 
         // But another gas key tx should still be admitted.
         let gas_key_transfer = SignedTransaction::from_actions_v1(
@@ -789,7 +798,10 @@ mod tests {
         for i in 1..=P_MAX {
             let tx = make_transfer_tx(&signer, "bob.near", i as Nonce, TEST_DEPOSIT);
             assert!(
-                matches!(session.check_pending(&tx, HasContract::Yes), PendingTxCheckResult::Admit(_)),
+                matches!(
+                    session.check_pending(&tx, HasContract::Yes),
+                    PendingTxCheckResult::Admit(_)
+                ),
                 "tx {} should be admitted",
                 i
             );
