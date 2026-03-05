@@ -450,7 +450,7 @@ impl PendingTxSession {
     /// If admitted, updates session state and returns constraints
     /// for the runtime's balance/nonce validation.
     ///
-    /// Acquires the PTQ lock briefly to read pending state, then releases it.
+    /// Acquires the pending transaction queue lock briefly to read pending state, then releases it.
     pub fn check_pending(
         &mut self,
         tx: &SignedTransaction,
@@ -594,7 +594,7 @@ mod tests {
         )
     }
 
-    /// Wrap a sharded PTQ in Arc<Mutex<...>>.
+    /// Wrap a sharded pending transaction queue in Arc<Mutex<...>>.
     fn make_sharded_ptq() -> Arc<Mutex<ShardedPendingTransactionQueue>> {
         Arc::new(Mutex::new(ShardedPendingTransactionQueue::new()))
     }
