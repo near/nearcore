@@ -84,6 +84,12 @@ impl Default for ChunkExecutorConfig {
     }
 }
 
+/// Data required for validators to initiate the chunk application
+struct ChunkExecutionData {
+    pub witness: SpiceChunkStateWitness,
+    pub code_accesses: HashSet<CodeHash>,
+}
+
 pub struct ChunkExecutorActor {
     pub(crate) chain_store: ChainStore,
     pub(crate) runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -713,8 +719,8 @@ impl ChunkExecutorActor {
             new_execution_result(*gas_limit, apply_result, outgoing_receipts_root);
         let execution_result_hash = execution_result.compute_hash();
 
-        let (state_witness, contract_accesses) =
-            self.create_witness(block, apply_result, shard_id, execution_result_hash)?;
+        let ChunkExecutionData { witness: state_witness, code_accesses: contract_accesses } =
+            self.create_chunk_execution_data(block, apply_result, shard_id, execution_result_hash)?;
 
         save_witness(&self.chain_store, block.hash(), shard_id, &state_witness);
         save_contract_accesses(&self.chain_store, block.hash(), shard_id, &contract_accesses);
@@ -724,13 +730,13 @@ impl ChunkExecutorActor {
         Ok(())
     }
 
-    fn create_witness(
+    fn create_chunk_execution_data(
         &self,
         block: &Block,
         apply_result: &ApplyChunkResult,
         shard_id: ShardId,
         execution_result_hash: ChunkExecutionResultHash,
-    ) -> Result<(SpiceChunkStateWitness, HashSet<CodeHash>), Error> {
+    ) -> Result<ChunkExecutionData, Error> {
         let block_hash = block.header().hash();
         let epoch_id = self.epoch_manager.get_epoch_id(block_hash).unwrap();
         let transactions = {
@@ -783,7 +789,7 @@ impl ChunkExecutorActor {
             transactions,
             execution_result_hash,
         );
-        Ok((state_witness, contract_accesses))
+        Ok(ChunkExecutionData { witness: state_witness, code_accesses: contract_accesses })
     }
 
     #[instrument(
@@ -1077,7 +1083,7 @@ pub(crate) fn save_contract_accesses(
     store_update.commit();
 }
 
-pub fn get_contract_accesses(
+pub(crate) fn get_contract_accesses(
     store: &Store,
     block_hash: &CryptoHash,
     shard_id: ShardId,

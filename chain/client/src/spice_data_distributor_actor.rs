@@ -45,6 +45,7 @@ use near_primitives::spice_partial_data::SpiceDataIdentifier;
 use near_primitives::spice_partial_data::SpiceDataPart;
 use near_primitives::spice_partial_data::SpicePartialData;
 use near_primitives::spice_partial_data::SpiceVerifiedPartialData;
+use near_primitives::stateless_validation::contract_distribution::SpiceContractCodeRequest;
 use near_primitives::stateless_validation::contract_distribution::{
     CodeBytes, CodeHash, SpiceChunkContractAccesses, SpiceContractCodeResponse,
 };
@@ -139,7 +140,9 @@ impl ReceiveDataError {
     }
 }
 
-// TODO(spice): Separate actor into separate sender and receiver actors.
+/// Bundles channels for all SPICE-related messages that the network layer dispatches to.
+/// Acts as a demux: handles messages it owns (partial data, etc) directly, and forwards the other
+/// message types (contract-{accesses,response}) to validator via injected senders.
 pub struct SpiceDataDistributorActor {
     chain_store: ChainStoreAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -246,7 +249,7 @@ impl Handler<SpiceDistributorStateWitness> for SpiceDataDistributorActor {
     ) {
         let chunk_id = state_witness.chunk_id().clone();
 
-        // Always send contract accesses to chunk validators before distributing the witness.
+        // Send contract accesses to chunk validators before distributing the witness.
         // Even when empty, this signals to validators that no contracts need to be fetched,
         // unblocking witness validation. Sending before the witness allows validators to
         // check their compiled contract cache and request missing contracts in parallel
@@ -1089,9 +1092,12 @@ impl SpiceDataDistributorActor {
     /// infrastructure failures (missing signer, storage errors).
     fn handle_spice_contract_code_request(
         &self,
-        request: near_primitives::stateless_validation::contract_distribution::SpiceContractCodeRequest,
+        request: SpiceContractCodeRequest,
     ) -> Result<(), Error> {
         let chunk_id = request.chunk_id().clone();
+        let _timer = near_chain::stateless_validation::metrics::PROCESS_CONTRACT_CODE_REQUEST_TIME
+            .with_label_values(&[&chunk_id.shard_id.to_string()])
+            .start_timer();
         let requester = request.requester().clone();
 
         // Fetch block early — needed for both validation and storage lookup below.
