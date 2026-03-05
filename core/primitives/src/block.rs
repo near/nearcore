@@ -315,9 +315,14 @@ impl Block {
             balance_burnt = balance_burnt.checked_add(chunk.prev_balance_burnt())?;
         }
 
-        let new_total_supply = prev_total_supply
+        let Some(new_total_supply) = prev_total_supply
             .checked_add(minted_amount.unwrap_or(Balance::ZERO))?
-            .checked_sub(balance_burnt)?;
+            .checked_sub(balance_burnt)
+        else {
+            // This corresponds to balance_burnt > prev_total_supply + minted_amount
+            // which indicates invalid balance burnt, not arithmetic overflow
+            return Some(false);
+        };
         Some(self.header().total_supply() == new_total_supply)
     }
 
