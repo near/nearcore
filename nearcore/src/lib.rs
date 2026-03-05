@@ -613,6 +613,7 @@ pub async fn start_with_config_and_synchronization_impl(
     let StartClientResult {
         client_actor,
         tx_pool,
+        pending_transaction_queue,
         chunk_endorsement_tracker,
         chunk_validation_actor,
     } = start_client(
@@ -691,6 +692,7 @@ pub async fn start_with_config_and_synchronization_impl(
         actor_system.clone(),
         rpc_handler_config,
         tx_pool,
+        pending_transaction_queue,
         view_epoch_manager.clone(),
         view_shard_tracker,
         config.validator_signer.clone(),

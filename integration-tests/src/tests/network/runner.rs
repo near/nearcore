@@ -109,7 +109,13 @@ fn setup_network_node(
     let (block_notification_watch_sender, _block_notification_watch_receiver) =
         tokio::sync::watch::channel(None);
     let adv = near_client::adversarial::Controls::default();
-    let StartClientResult { client_actor, tx_pool, chunk_endorsement_tracker, .. } = start_client(
+    let StartClientResult {
+        client_actor,
+        tx_pool,
+        pending_transaction_queue,
+        chunk_endorsement_tracker,
+        ..
+    } = start_client(
         Clock::real(),
         actor_system.clone(),
         client_config.clone(),
@@ -170,6 +176,7 @@ fn setup_network_node(
         actor_system.clone(),
         rpc_handler_config,
         tx_pool,
+        pending_transaction_queue,
         epoch_manager.clone(),
         shard_tracker.clone(),
         validator_signer.clone(),
