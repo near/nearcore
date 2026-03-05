@@ -3,7 +3,7 @@ use crate::env::test_env::TestEnv;
 use near_async::messaging::CanSend;
 use near_async::time::{FakeClock, Utc};
 use near_chain::Provenance;
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chunks::shards_manager_actor::CHUNK_REQUEST_SWITCH_TO_FULL_FETCH;
 use near_chunks::test_utils::ShardsManagerResendChunkRequests;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
@@ -11,8 +11,7 @@ use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::stateless_validation::ChunkProductionKey;
-use near_primitives::types::{AccountId, EpochId, ShardId};
-use near_primitives::utils::from_timestamp;
+use near_primitives::types::{EpochId, ShardId};
 use std::collections::HashSet;
 
 struct AdversarialBehaviorTestData {
@@ -30,23 +29,24 @@ impl AdversarialBehaviorTestData {
         let num_block_producers = 4;
         let epoch_length = EPOCH_LENGTH;
 
-        let accounts: Vec<AccountId> =
-            (0..num_clients).map(|i| format!("test{}", i).parse().unwrap()).collect();
+        let block_producers: Vec<String> =
+            (0..num_block_producers).map(|i| format!("test{}", i)).collect();
+        let chunk_only: Vec<String> =
+            (num_block_producers..num_clients).map(|i| format!("test{}", i)).collect();
         let clock = FakeClock::new(Utc::UNIX_EPOCH);
-        let mut genesis = Genesis::test(accounts, num_validators as u64);
+        let mut genesis = TestGenesisBuilder::new()
+            .epoch_length(epoch_length)
+            .genesis_time_from_clock(&clock.clock())
+            .validators_spec(ValidatorsSpec::desired_roles(
+                &block_producers.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                &chunk_only.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            ))
+            .shard_layout(ShardLayout::multi_shard(4, 3))
+            .build();
         {
             let config = &mut genesis.config;
-            config.genesis_time = from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64);
-            config.epoch_length = epoch_length;
-            config.transaction_validity_period = epoch_length * 2;
-            config.shard_layout = ShardLayout::multi_shard(4, 3);
-            config.num_block_producer_seats_per_shard = vec![
-                num_block_producers as u64,
-                num_block_producers as u64,
-                num_block_producers as u64,
-                num_block_producers as u64,
-            ];
-            config.num_block_producer_seats = num_block_producers as u64;
+            // 4 block+chunk producers + 4 chunk-only validators = 8 chunk producers total
+            config.num_chunk_producer_seats = 8;
             // Configure kickout threshold at 50%.
             config.block_producer_kickout_threshold = 50;
             config.chunk_producer_kickout_threshold = 50;

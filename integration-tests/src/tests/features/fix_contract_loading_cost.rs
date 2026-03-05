@@ -1,5 +1,5 @@
 use assert_matches::assert_matches;
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_primitives::types::{AccountId, BlockHeight, Gas};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
@@ -15,10 +15,11 @@ fn prepare_env_with_contract(
     account: AccountId,
     contract: Vec<u8>,
 ) -> TestEnv {
-    let mut genesis = Genesis::test(vec![account.clone()], 1);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.transaction_validity_period = epoch_length * 2;
-    genesis.config.protocol_version = protocol_version;
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(epoch_length)
+        .validators_spec(ValidatorsSpec::desired_roles(&[account.as_str()], &[]))
+        .protocol_version(protocol_version)
+        .build();
     let runtime_config = near_parameters::RuntimeConfigStore::new(None);
     let mut env = TestEnv::builder(&genesis.config)
         .nightshade_runtimes_with_runtime_config_store(&genesis, vec![runtime_config])

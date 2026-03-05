@@ -1,5 +1,6 @@
 use assert_matches::assert_matches;
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
+use near_chain_configs::test_utils::TESTING_INIT_BALANCE;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_network::client::ProcessTxResponse;
 use near_parameters::{ExtCostsConfig, RuntimeConfig, RuntimeConfigStore, StorageUsageConfig};
@@ -53,9 +54,11 @@ fn assert_zero_balance_account(env: &TestEnv, account_id: &AccountId) {
 #[test]
 fn test_zero_balance_account_creation() {
     let epoch_length = 1000;
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.transaction_validity_period = epoch_length * 2;
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(epoch_length)
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
+        .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
@@ -123,9 +126,11 @@ fn test_zero_balance_account_creation() {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_zero_balance_account_add_key() {
     let epoch_length = 1000;
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.transaction_validity_period = epoch_length * 2;
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(epoch_length)
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
+        .build();
     // create free runtime config for transaction costs to make it easier to assert
     // the exact amount of tokens on accounts
     let mut runtime_config = RuntimeConfig::free();

@@ -1,5 +1,5 @@
 use near_chain::Provenance;
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_crypto::KeyType;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::{Approval, ApprovalType};
@@ -25,8 +25,10 @@ fn test_processing_skips_on_forks() {
     // correspond to different block producers.
     let first_fork_heigh = 1;
     let second_fork_heigh = 3;
-    let genesis =
-        Genesis::test(["test0", "test1"].into_iter().map(|acc| acc.parse().unwrap()).collect(), 2);
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(5)
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0", "test1"], &[]))
+        .build();
     let mut env =
         TestEnv::builder_from_genesis(&genesis).clients_count(2).validator_seats(2).build();
     let b1 = env.clients[1].produce_block(first_fork_heigh).unwrap().unwrap();

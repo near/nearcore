@@ -943,8 +943,9 @@ mod tests {
     use near_chain::runtime::NightshadeRuntime;
     use near_chain::types::ChainConfig;
     use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
+    use near_chain_configs::MutableConfigValue;
+    use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
     use near_chain_configs::test_utils::TestClientConfigParams;
-    use near_chain_configs::{Genesis, MutableConfigValue};
     use near_epoch_manager::EpochManager;
     use near_epoch_manager::shard_tracker::ShardTracker;
     use near_epoch_manager::test_utils::*;
@@ -986,9 +987,10 @@ mod tests {
         let info_helper = InfoHelper::new(Clock::real(), noop().into_sender(), &config);
 
         let store = near_store::test_utils::create_test_store();
-        let mut genesis = Genesis::test(vec!["test".parse::<AccountId>().unwrap()], 1);
-        genesis.config.epoch_length = 123;
-        genesis.config.transaction_validity_period = 123 * 2;
+        let genesis = TestGenesisBuilder::new()
+            .epoch_length(123)
+            .validators_spec(ValidatorsSpec::desired_roles(&["test"], &[]))
+            .build();
         let tempdir = tempfile::tempdir().unwrap();
         initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);

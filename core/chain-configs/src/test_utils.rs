@@ -6,11 +6,11 @@ use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
-use near_primitives::types::{AccountId, AccountInfo, Balance, Gas, NumSeats, NumShards};
+use near_primitives::types::{AccountId, AccountInfo, Balance, NumSeats};
 use near_primitives::utils::{from_timestamp, generate_random_string};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_time::{Clock, Duration};
-use num_rational::{Ratio, Rational32};
+use num_rational::Rational32;
 
 use crate::{
     ClientConfig, EpochSyncConfig, FAST_EPOCH_LENGTH, GAS_PRICE_ADJUSTMENT_RATE, GCConfig, Genesis,
@@ -37,24 +37,6 @@ pub const TESTING_INIT_BALANCE: Balance = Balance::from_near(1_000_000_000);
 pub const TESTING_INIT_STAKE: Balance = Balance::from_near(50_000_000);
 
 pub const TEST_STATE_SYNC_TIMEOUT: i64 = 5;
-
-impl GenesisConfig {
-    pub fn test(clock: Clock) -> Self {
-        GenesisConfig {
-            genesis_time: from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64),
-            genesis_height: 0,
-            gas_limit: Gas::from_teragas(1000),
-            min_gas_price: Balance::ZERO,
-            max_gas_price: Balance::from_yoctonear(1_000_000_000),
-            total_supply: Balance::from_yoctonear(1_000_000_000),
-            gas_price_adjustment_rate: Ratio::from_integer(0),
-            transaction_validity_period: 100,
-            epoch_length: 5,
-            protocol_version: PROTOCOL_VERSION,
-            ..Default::default()
-        }
-    }
-}
 
 impl Genesis {
     // Creates new genesis with a given set of accounts and shard layout.
@@ -156,44 +138,6 @@ impl Genesis {
             ..Default::default()
         };
         Genesis::new(config, records.into()).unwrap()
-    }
-
-    pub fn test(accounts: Vec<AccountId>, num_validator_seats: NumSeats) -> Self {
-        Self::from_accounts(
-            Clock::real(),
-            accounts,
-            num_validator_seats,
-            ShardLayout::single_shard(),
-        )
-    }
-
-    pub fn test_sharded(
-        clock: Clock,
-        accounts: Vec<AccountId>,
-        num_validator_seats: NumSeats,
-        num_validator_seats_per_shard: Vec<NumSeats>,
-    ) -> Self {
-        let num_shards = num_validator_seats_per_shard.len() as NumShards;
-        Self::from_accounts(
-            clock,
-            accounts,
-            num_validator_seats,
-            ShardLayout::multi_shard(num_shards, 0),
-        )
-    }
-
-    pub fn test_sharded_new_version(
-        accounts: Vec<AccountId>,
-        num_validator_seats: NumSeats,
-        num_validator_seats_per_shard: Vec<NumSeats>,
-    ) -> Self {
-        let num_shards = num_validator_seats_per_shard.len() as NumShards;
-        Self::from_accounts(
-            Clock::real(),
-            accounts,
-            num_validator_seats,
-            ShardLayout::multi_shard(num_shards, 1),
-        )
     }
 }
 

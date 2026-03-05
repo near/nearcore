@@ -433,6 +433,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 
     let genesis = TestGenesisBuilder::new()
         .genesis_time_from_clock(&builder.clock())
+        .genesis_height(1)
         .shard_layout(base_shard_layout.clone())
         .protocol_version(base_protocol_version)
         .epoch_length(params.epoch_length)

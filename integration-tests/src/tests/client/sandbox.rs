@@ -1,5 +1,5 @@
 use near_chain::Provenance;
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, Signer};
 use near_primitives::account::Account;
@@ -14,10 +14,12 @@ use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
 
 fn test_setup() -> (TestEnv, Signer) {
-    let epoch_length = 5;
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.transaction_validity_period = epoch_length * 2;
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(5)
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test0".parse().unwrap(), Balance::from_near(1_000_000_000))
+        .add_user_account_simple("test1".parse().unwrap(), Balance::from_near(1_000_000_000))
+        .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     assert_eq!(

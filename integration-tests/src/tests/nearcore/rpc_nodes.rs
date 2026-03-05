@@ -392,8 +392,8 @@ async fn slow_test_tx_not_enough_balance_must_return_error() {
                             "InvalidTxError": {
                                 "NotEnoughBalance": {
                                     "signer_id": "near.0",
-                                    "balance": "950000000000000000000000000000000", // If something changes in setup just update this value
-                                    "cost": "1100000000000044636512500000000000",
+                                    "balance": "999990000000000000000000000000000", // If something changes in setup just update this value
+                                    "cost": "1100000000000000000000000000000000",
                                 }
                             }
                         }})

@@ -20,7 +20,6 @@ use near_vm_runner::ContractCode;
 use nearcore::NearConfig;
 use nearcore::config::{Config, create_localnet_configs_from_seeds};
 use parking_lot::RwLock;
-use testlib::runtime_utils::{alice_account, bob_account};
 
 mod process_node;
 mod runtime_node;
@@ -28,10 +27,6 @@ mod thread_node;
 
 pub const TEST_BLOCK_FETCH_LIMIT: u64 = 5;
 pub const TEST_BLOCK_MAX_SIZE: u32 = 1000;
-
-pub fn configure_chain_spec() -> Genesis {
-    Genesis::test(vec![alice_account(), bob_account()], 2)
-}
 
 /// Config that can be used to start a node or connect to an existing node.
 #[allow(clippy::large_enum_variant)]

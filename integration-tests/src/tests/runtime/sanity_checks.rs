@@ -1,8 +1,11 @@
 use crate::node::{Node, RuntimeNode};
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
+use near_chain_configs::test_utils::TESTING_INIT_STAKE;
+use near_chain_configs::{MAX_GAS_PRICE, MIN_GAS_PRICE};
 use near_parameters::{ExtCosts, RuntimeConfig, RuntimeConfigStore};
 use near_primitives::serialize::to_base64;
-use near_primitives::types::{AccountId, Balance, Gas};
+use near_primitives::test_utils::create_test_signer;
+use near_primitives::types::{AccountId, AccountInfo, Balance, Gas};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     CostGasUsed, ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionStatus,
@@ -34,8 +37,26 @@ fn test_contract_account() -> AccountId {
 fn setup_runtime_node_with_contract(wasm_binary: &[u8]) -> RuntimeNode {
     // Create a `RuntimeNode`. Load `RuntimeConfig` from `RuntimeConfigStore`
     // to ensure we are using the latest configuration.
-    let mut genesis =
-        Genesis::test(vec![alice_account(), bob_account(), "carol.near".parse().unwrap()], 3);
+    let accounts = [alice_account(), bob_account(), "carol.near".parse().unwrap()];
+    let validators: Vec<AccountInfo> = accounts
+        .iter()
+        .map(|account_id| AccountInfo {
+            account_id: account_id.clone(),
+            public_key: create_test_signer(account_id.as_str()).public_key(),
+            amount: TESTING_INIT_STAKE,
+        })
+        .collect();
+    let num_validators = accounts.len();
+    let mut genesis = TestGenesisBuilder::new()
+        .epoch_length(5)
+        .gas_prices(MIN_GAS_PRICE, MAX_GAS_PRICE)
+        .validators_spec(ValidatorsSpec::raw(
+            validators,
+            num_validators as u64,
+            num_validators as u64,
+            0,
+        ))
+        .build();
     add_test_contract(&mut genesis, &alice_account());
     add_test_contract(&mut genesis, &bob_account());
     let runtime_config_store = RuntimeConfigStore::new(None);

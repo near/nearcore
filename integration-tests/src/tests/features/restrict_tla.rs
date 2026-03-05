@@ -1,4 +1,4 @@
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_primitives::errors::{ActionError, ActionErrorKind};
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::views::FinalExecutionStatus;
@@ -12,10 +12,10 @@ use crate::utils::process_blocks::create_account;
 fn test_create_top_level_accounts() {
     let epoch_length: BlockHeight = 5;
     let account: AccountId = "test0".parse().unwrap();
-    let mut genesis = Genesis::test(vec![account.clone()], 1);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.transaction_validity_period = epoch_length * 2;
-    genesis.config.protocol_version = PROTOCOL_VERSION;
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(epoch_length)
+        .validators_spec(ValidatorsSpec::desired_roles(&[account.as_str()], &[]))
+        .build();
     let runtime_config = near_parameters::RuntimeConfigStore::new(None);
     let mut env = TestEnv::builder(&genesis.config)
         .nightshade_runtimes_with_runtime_config_store(&genesis, vec![runtime_config])

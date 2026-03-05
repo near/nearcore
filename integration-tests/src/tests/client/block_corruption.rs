@@ -3,7 +3,7 @@ use crate::env::test_env::TestEnv;
 use anyhow::Context;
 use borsh::BorshDeserialize;
 use near_chain::{Block, Error, Provenance};
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_test_logger;
@@ -37,9 +37,12 @@ fn create_tx_load(height: BlockHeight, last_block: &Block) -> Vec<SignedTransact
 fn change_shard_id_to_invalid() {
     init_test_logger();
     let epoch_length = 5000000;
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.transaction_validity_period = epoch_length * 2;
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(epoch_length)
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test0".parse().unwrap(), Balance::from_near(1_000_000_000))
+        .add_user_account_simple("test1".parse().unwrap(), Balance::from_near(1_000_000_000))
+        .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let mut last_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -262,10 +265,12 @@ fn ultra_slow_test_check_process_flipped_block_fails() {
     let mut oks = vec![];
 
     let create_env = || {
-        let mut genesis =
-            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-        genesis.config.epoch_length = 5000000;
-        genesis.config.transaction_validity_period = 10000000;
+        let genesis = TestGenesisBuilder::new()
+            .epoch_length(5000000)
+            .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+            .add_user_account_simple("test0".parse().unwrap(), Balance::from_near(1_000_000_000))
+            .add_user_account_simple("test1".parse().unwrap(), Balance::from_near(1_000_000_000))
+            .build();
         TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build()
     };
 

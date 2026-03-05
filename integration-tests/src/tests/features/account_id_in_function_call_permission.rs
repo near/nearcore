@@ -1,4 +1,4 @@
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, Signer};
 use near_parameters::RuntimeConfigStore;
@@ -14,11 +14,10 @@ use crate::env::test_env::TestEnv;
 fn test_invalid_account_id() {
     // Prepare TestEnv with a contract at the old protocol version.
     let env = {
-        let epoch_length = 5;
-        let mut genesis =
-            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-        genesis.config.epoch_length = epoch_length;
-        genesis.config.transaction_validity_period = epoch_length * 2;
+        let genesis = TestGenesisBuilder::new()
+            .epoch_length(5)
+            .validators_spec(ValidatorsSpec::desired_roles(&["test0", "test1"], &[]))
+            .build();
         TestEnv::builder(&genesis.config)
             .nightshade_runtimes_with_runtime_config_store(
                 &genesis,
@@ -65,7 +64,10 @@ fn test_invalid_account_id() {
 #[test]
 fn test_very_long_account_id() {
     let env = {
-        let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+        let genesis = TestGenesisBuilder::new()
+            .epoch_length(5)
+            .validators_spec(ValidatorsSpec::desired_roles(&["test0", "test1"], &[]))
+            .build();
         TestEnv::builder(&genesis.config)
             .nightshade_runtimes_with_runtime_config_store(
                 &genesis,

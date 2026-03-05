@@ -6,8 +6,8 @@ use near_chain::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,
 };
 use near_chain::{Block, Provenance};
-use near_chain_configs::Genesis;
 use near_chain_configs::default_orphan_state_witness_max_size;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_client::{ChunkValidationActor, HandleOrphanWitnessOutcome};
 use near_client_primitives::types::BlockNotificationMessage;
 use near_o11y::testonly::init_integration_logger;
@@ -57,7 +57,10 @@ struct OrphanWitnessTestEnv {
 /// have `block1` which is required to process the witness, so it becomes an orphaned state witness.
 fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
     let accounts: Vec<AccountId> = (0..4).map(|i| format!("test{i}").parse().unwrap()).collect();
-    let genesis = Genesis::test(accounts.clone(), accounts.len().try_into().unwrap());
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(5)
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0", "test1", "test2", "test3"], &[]))
+        .build();
     let mut env = TestEnv::builder(&genesis.config)
         .clients(accounts.clone())
         .validators(accounts.clone())

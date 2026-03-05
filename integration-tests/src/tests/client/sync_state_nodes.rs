@@ -3,15 +3,15 @@ use near_async::ActorSystem;
 use near_async::messaging::CanSendAsync;
 use near_async::time::Duration;
 use near_chain_configs::ExternalStorageLocation::Filesystem;
-use near_chain_configs::{
-    DumpConfig, ExternalStorageConfig, Genesis, SyncConfig, TrackedShardsConfig,
-};
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
+use near_chain_configs::{DumpConfig, ExternalStorageConfig, SyncConfig, TrackedShardsConfig};
 use near_client::GetBlock;
 use near_client_primitives::types::GetValidatorInfo;
 use near_network::client::{StatePartOrHeader, StateRequestHeader, StateRequestPart};
 use near_network::tcp;
 use near_network::test_utils::{convert_boot_nodes, wait_or_timeout};
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{BlockId, BlockReference, EpochId, EpochReference};
 use near_store::db::RocksDB;
 use nearcore::{load_test_config, start_with_config};
@@ -30,15 +30,15 @@ use std::sync::Arc;
 async fn ultra_slow_test_sync_state_dump() {
     init_integration_logger();
 
-    let mut genesis = Genesis::test_sharded_new_version(
-        vec!["test1".parse().unwrap(), "test2".parse().unwrap()],
-        1,
-        vec![1],
-    );
-    // Needs to be long enough to give enough time to the second node to
-    // start, sync headers and find a dump of state.
-    genesis.config.epoch_length = 70;
-    genesis.config.transaction_validity_period = 140;
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(70)
+        .shard_layout(ShardLayout::multi_shard(1, 1))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test1"], &[]))
+        .add_user_account_simple(
+            "test2".parse().unwrap(),
+            near_primitives::types::Balance::from_near(1_000_000_000),
+        )
+        .build();
 
     let _dump_dir = Arc::new(tempfile::Builder::new().prefix("state_dump_1").tempdir().unwrap());
     let dump_dir = _dump_dir.clone();
@@ -169,10 +169,10 @@ async fn slow_test_state_sync_headers() {
         Arc::new(tempfile::Builder::new().prefix("test_state_sync_headers").tempdir().unwrap());
     let dir1 = _dir1.clone();
     let actor_system = ActorSystem::new();
-    let mut genesis = Genesis::test(vec!["test1".parse().unwrap()], 1);
-    // Increase epoch_length if the test is flaky.
-    genesis.config.epoch_length = 100;
-    genesis.config.transaction_validity_period = 200;
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(100)
+        .validators_spec(ValidatorsSpec::desired_roles(&["test1"], &[]))
+        .build();
 
     let mut near1 =
         load_test_config("test1", tcp::ListenerAddr::reserve_for_test(), genesis.clone());
@@ -316,11 +316,11 @@ async fn slow_test_state_sync_headers_no_tracked_shards() {
         );
         let dir2 = _dir2.clone();
         let actor_system = ActorSystem::new();
-        let mut genesis = Genesis::test(vec!["test1".parse().unwrap()], 1);
-        // Increase epoch_length if the test is flaky.
         let epoch_length = 100;
-        genesis.config.epoch_length = epoch_length;
-        genesis.config.transaction_validity_period = epoch_length * 2;
+        let genesis = TestGenesisBuilder::new()
+            .epoch_length(epoch_length)
+            .validators_spec(ValidatorsSpec::desired_roles(&["test1"], &[]))
+            .build();
 
         let port1 = tcp::ListenerAddr::reserve_for_test();
         let mut near1 = load_test_config("test1", port1, genesis.clone());

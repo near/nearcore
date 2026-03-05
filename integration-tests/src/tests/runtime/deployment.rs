@@ -1,5 +1,5 @@
 use crate::node::{Node, RuntimeNode};
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
 use near_primitives::types::{AccountId, Balance};
@@ -14,7 +14,10 @@ fn test_deploy_max_size_contract() {
     let runtime_config_store = RuntimeConfigStore::new(None);
     let config = runtime_config_store.get_config(PROTOCOL_VERSION);
 
-    let genesis = Genesis::test(vec![account_id.clone()], 1);
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(5)
+        .validators_spec(ValidatorsSpec::desired_roles(&[account_id.as_str()], &[]))
+        .build();
     let node =
         RuntimeNode::new_from_genesis_and_config(&account_id, genesis, config.as_ref().clone());
     let node_user = node.user();

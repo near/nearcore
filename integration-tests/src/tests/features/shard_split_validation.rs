@@ -26,7 +26,13 @@ fn chunk_header_proposed_split_validation() {
     near_o11y::testonly::init_integration_logger();
 
     let accounts: Vec<AccountId> = (0..4).map(|i| format!("test{i}").parse().unwrap()).collect();
-    let genesis = near_chain_configs::Genesis::test(accounts.clone(), accounts.len() as u64);
+    let genesis = near_chain_configs::test_genesis::TestGenesisBuilder::new()
+        .epoch_length(5)
+        .validators_spec(near_chain_configs::test_genesis::ValidatorsSpec::desired_roles(
+            &["test0", "test1", "test2", "test3"],
+            &[],
+        ))
+        .build();
     let mut env = TestEnv::builder(&genesis.config)
         .validators(accounts.clone())
         .clients(accounts)
@@ -162,7 +168,13 @@ fn block_header_shard_split_validation() {
     near_o11y::testonly::init_integration_logger();
 
     let accounts: Vec<AccountId> = (0..4).map(|i| format!("test{i}").parse().unwrap()).collect();
-    let genesis = near_chain_configs::Genesis::test(accounts.clone(), accounts.len() as u64);
+    let genesis = near_chain_configs::test_genesis::TestGenesisBuilder::new()
+        .epoch_length(5)
+        .validators_spec(near_chain_configs::test_genesis::ValidatorsSpec::desired_roles(
+            &["test0", "test1", "test2", "test3"],
+            &[],
+        ))
+        .build();
     let mut env = TestEnv::builder(&genesis.config)
         .validators(accounts.clone())
         .clients(accounts)

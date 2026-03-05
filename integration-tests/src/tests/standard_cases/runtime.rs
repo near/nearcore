@@ -1,8 +1,11 @@
 use crate::node::RuntimeNode;
 use crate::tests::standard_cases::*;
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
+use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_crypto::SecretKey;
 use near_primitives::state_record::StateRecord;
+use near_primitives::test_utils::create_test_signer;
+use near_primitives::types::AccountInfo;
 use std::sync::Arc;
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 
@@ -15,8 +18,26 @@ fn create_free_runtime_node() -> RuntimeNode {
 }
 
 fn create_runtime_with_expensive_storage() -> RuntimeNode {
-    let mut genesis =
-        Genesis::test(vec![alice_account(), bob_account(), "carol.near".parse().unwrap()], 1);
+    let accounts = [alice_account(), bob_account(), "carol.near".parse().unwrap()];
+    let validators: Vec<AccountInfo> = accounts
+        .iter()
+        .take(1)
+        .map(|account_id| AccountInfo {
+            account_id: account_id.clone(),
+            public_key: create_test_signer(account_id.as_str()).public_key(),
+            amount: TESTING_INIT_STAKE,
+        })
+        .collect();
+    let mut genesis = TestGenesisBuilder::new()
+        .epoch_length(5)
+        .validators_spec(ValidatorsSpec::raw(validators, 1, 1, 0))
+        .add_user_account_simple(
+            alice_account(),
+            TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap(),
+        )
+        .add_user_account_simple(bob_account(), TESTING_INIT_BALANCE)
+        .add_user_account_simple("carol.near".parse().unwrap(), TESTING_INIT_BALANCE)
+        .build();
     add_test_contract(&mut genesis, &bob_account());
     // Set expensive state requirements and add alice more money.
     let mut runtime_config = RuntimeConfig::test();
@@ -24,12 +45,16 @@ fn create_runtime_with_expensive_storage() -> RuntimeNode {
     fees.storage_usage_config.storage_amount_per_byte =
         TESTING_INIT_BALANCE.checked_div(1000).unwrap();
     let records = genesis.force_read_records().as_mut();
-    match &mut records[0] {
-        StateRecord::Account { account, .. } => {
+    let alice = alice_account();
+    match records
+        .iter_mut()
+        .find(|r| matches!(r, StateRecord::Account { account_id, .. } if account_id == &alice))
+    {
+        Some(StateRecord::Account { account, .. }) => {
             account.set_amount(TESTING_INIT_BALANCE.checked_mul(10000).unwrap())
         }
         _ => {
-            panic!("the first record is expected to be alice account creation!");
+            panic!("alice account record not found!");
         }
     }
     records.push(StateRecord::Data {

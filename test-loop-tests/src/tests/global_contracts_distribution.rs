@@ -231,6 +231,7 @@ impl GlobalContractsReshardingTestEnv {
         let clients = validators_spec_clients(&validators_spec);
         let chunk_producer = clients[0].clone();
         let genesis = TestLoopBuilder::new_genesis_builder()
+            .genesis_height(1)
             .protocol_version(PROTOCOL_VERSION - 1)
             .validators_spec(validators_spec)
             .shard_layout(base_shard_layout.clone())
