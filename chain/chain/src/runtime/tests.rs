@@ -1651,7 +1651,7 @@ fn prepare_transactions_extra(
     chain: &Chain,
     transaction_groups: &mut dyn TransactionGroupIterator,
     skip_tx_hashes: HashSet<CryptoHash>,
-    check_pending: &mut dyn FnMut(&SignedTransaction, bool) -> PendingTxCheckResult,
+    check_pending: &mut dyn FnMut(&SignedTransaction, HasContract) -> PendingTxCheckResult,
     cancel: Option<Arc<AtomicBool>>,
 ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
     let prev_hash = env.head.prev_block_hash;

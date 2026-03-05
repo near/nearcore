@@ -1,9 +1,9 @@
 use crate::Error;
 use crate::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, PendingTxCheckResult,
-    PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
-    RuntimeAdapter, RuntimeStorageConfig, SkippedTransactions, StatePartValidationResult,
-    StateRootNodeValidationResult, StorageDataSource, Tip,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, HasContract,
+    PendingTxCheckResult, PrepareTransactionsBlockContext, PrepareTransactionsLimit,
+    PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig, SkippedTransactions,
+    StatePartValidationResult, StateRootNodeValidationResult, StorageDataSource, Tip,
 };
 use errors::FromStateViewerErrors;
 use near_async::time::{Duration, Instant};
@@ -812,7 +812,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         skip_tx_hashes: HashSet<CryptoHash>,
-        check_pending: &mut dyn FnMut(&SignedTransaction, bool) -> PendingTxCheckResult,
+        check_pending: &mut dyn FnMut(&SignedTransaction, HasContract) -> PendingTxCheckResult,
         time_limit: Option<Duration>,
         cancel: Option<Arc<AtomicBool>>,
     ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
@@ -969,7 +969,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                 };
 
                 // Check pending transaction queue constraints.
-                let has_contract = cache.account.contract().is_some();
+                let has_contract = if cache.account.contract().is_some() {
+                    HasContract::Yes
+                } else {
+                    HasContract::No
+                };
                 let pending_constraints =
                     match check_pending(validated_tx.to_signed_tx(), has_contract) {
                         PendingTxCheckResult::Admit(constraints) => constraints,
