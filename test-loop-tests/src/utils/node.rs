@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use std::task::Poll;
 
 use futures::future::BoxFuture;
@@ -25,7 +24,7 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
-use near_primitives::types::{AccountId, Balance, BlockHeight, ShardId};
+use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, ShardId};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccessKeyView, AccountView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest,
@@ -294,14 +293,16 @@ impl<'a> TestLoopNode<'a> {
         )
     }
 
-    pub fn get_next_nonce(&self, account_id: &AccountId) -> u64 {
-        static PENDING_NONCES: LazyLock<Mutex<HashMap<AccountId, u64>>> =
-            LazyLock::new(|| Mutex::new(HashMap::new()));
-
+    /// Returns the next nonce for `account_id`, suitable for submitting
+    /// multiple transactions in the same block before on-chain nonces update.
+    ///
+    /// Takes the maximum of the on-chain nonce and any internally tracked pending
+    /// nonce, then records the result so subsequent calls keep incrementing.
+    pub fn get_next_nonce(&self, account_id: &AccountId) -> Nonce {
         let signer = create_user_test_signer(account_id);
         let access_key = self.view_access_key_query(account_id, &signer.public_key()).unwrap();
         let on_chain_next = access_key.nonce + 1;
-        let mut pending = PENDING_NONCES.lock();
+        let mut pending = self.node_data.pending_nonces.lock();
         let next = match pending.get(account_id) {
             Some(&local) => on_chain_next.max(local + 1),
             None => on_chain_next,

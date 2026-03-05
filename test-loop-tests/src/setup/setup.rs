@@ -578,6 +578,7 @@ pub fn setup_client(
         cloud_archival_writer_handle,
         jsonrpc_transport,
         expected_execution_delay: Arc::new(AtomicU64::new(0)),
+        pending_nonces: Default::default(),
     };
 
     // Add the client to the network shared state before returning data
