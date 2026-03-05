@@ -1,9 +1,11 @@
 use crate::metrics;
+use crate::pending_transaction_queue::ShardedPendingTransactionQueue;
 use near_async::messaging::CanSend;
 use near_async::messaging::Handler;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::{ActorSystem, messaging};
 use near_chain::check_transaction_validity_period;
+use near_chain::spice_core::get_last_certified_block_header;
 use near_chain::types::PendingConstraints;
 use near_chain::types::RuntimeAdapter;
 use near_chain::types::Tip;
@@ -51,6 +53,7 @@ pub fn spawn_rpc_handler_actor(
     actor_system: ActorSystem,
     config: RpcHandlerConfig,
     tx_pool: Arc<Mutex<ShardedTransactionPool>>,
+    pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
     validator_signer: MutableValidatorSigner,
@@ -60,6 +63,7 @@ pub fn spawn_rpc_handler_actor(
     let actor = RpcHandlerActor::new(
         config.clone(),
         tx_pool,
+        pending_transaction_queue,
         epoch_manager,
         shard_tracker,
         validator_signer,
@@ -87,6 +91,7 @@ pub struct RpcHandlerActor {
     config: RpcHandlerConfig,
 
     tx_pool: Arc<Mutex<ShardedTransactionPool>>,
+    pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
 
     chain_store: ChainStoreAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -100,6 +105,7 @@ impl RpcHandlerActor {
     pub fn new(
         config: RpcHandlerConfig,
         tx_pool: Arc<Mutex<ShardedTransactionPool>>,
+        pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
         validator_signer: MutableValidatorSigner,
@@ -111,6 +117,7 @@ impl RpcHandlerActor {
         Self {
             config,
             tx_pool,
+            pending_transaction_queue,
             validator_signer,
             chain_store,
             epoch_manager,
@@ -189,35 +196,57 @@ impl RpcHandlerActor {
 
         if self.shard_tracker.cares_about_shard_this_or_next_epoch(&head.last_block_hash, shard_id)
         {
-            if !ProtocolFeature::Spice.enabled(protocol_version) {
+            let (state_root, constraints) = if ProtocolFeature::Spice.enabled(protocol_version) {
+                let certified_header =
+                    get_last_certified_block_header(&self.chain_store, &head.last_block_hash)?;
                 let chunk_store = self.chain_store.chunk_store();
-                let state_root =
-                    match chunk_store.get_chunk_extra(&head.last_block_hash, &shard_uid) {
-                        Ok(chunk_extra) => *chunk_extra.state_root(),
-                        Err(_) => {
-                            // Not being able to fetch a state root most likely implies that we haven't
-                            //     caught up with the next epoch yet.
-                            if is_forwarded {
-                                return Err(near_client_primitives::types::Error::Other(
-                                    "Node has not caught up yet".to_string(),
-                                ));
-                            } else {
-                                self.forward_tx(&epoch_id, signed_tx)?;
-                                return Ok(ProcessTxResponse::RequestRouted);
-                            }
+                let root = match chunk_store.get_chunk_extra(certified_header.hash(), &shard_uid) {
+                    Ok(chunk_extra) => *chunk_extra.state_root(),
+                    Err(_) => {
+                        if is_forwarded {
+                            return Err(near_client_primitives::types::Error::Other(
+                                "node has not caught up yet".to_string(),
+                            ));
+                        } else {
+                            self.forward_tx(&epoch_id, signed_tx)?;
+                            return Ok(ProcessTxResponse::RequestRouted);
                         }
-                    };
-                if let Err(err) = self.runtime.can_verify_and_charge_tx(
-                    &shard_layout,
-                    gas_price,
-                    state_root,
-                    &validated_tx,
-                    protocol_version,
-                    &PendingConstraints::default(),
-                ) {
-                    tracing::debug!(target: "client", ?err, "invalid tx");
-                    return Ok(ProcessTxResponse::InvalidTx(err));
-                }
+                    }
+                };
+                let constraints = {
+                    let ptq = self.pending_transaction_queue.lock();
+                    ptq.get(&shard_uid)
+                        .map(|q| q.get_pending_constraints(&signed_tx))
+                        .unwrap_or_default()
+                };
+                (root, constraints)
+            } else {
+                let chunk_store = self.chain_store.chunk_store();
+                let root = match chunk_store.get_chunk_extra(&head.last_block_hash, &shard_uid) {
+                    Ok(chunk_extra) => *chunk_extra.state_root(),
+                    Err(_) => {
+                        if is_forwarded {
+                            return Err(near_client_primitives::types::Error::Other(
+                                "node has not caught up yet".to_string(),
+                            ));
+                        } else {
+                            self.forward_tx(&epoch_id, signed_tx)?;
+                            return Ok(ProcessTxResponse::RequestRouted);
+                        }
+                    }
+                };
+                (root, PendingConstraints::default())
+            };
+            if let Err(err) = self.runtime.can_verify_and_charge_tx(
+                &shard_layout,
+                gas_price,
+                state_root,
+                &validated_tx,
+                protocol_version,
+                &constraints,
+            ) {
+                tracing::debug!(target: "client", ?err, "invalid tx");
+                return Ok(ProcessTxResponse::InvalidTx(err));
             }
             if check_only {
                 return Ok(ProcessTxResponse::ValidTx);
