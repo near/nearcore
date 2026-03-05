@@ -33,10 +33,11 @@ use rand_chacha::ChaCha20Rng;
 use super::sharding::{next_epoch_has_new_shard_layout, this_block_has_new_shard_layout};
 use crate::setup::state::NodeExecutionData;
 use crate::utils::loop_action::LoopAction;
+use crate::utils::node::TestLoopNode;
 use crate::utils::sharding::{get_memtrie_for_shard, next_block_has_new_shard_layout};
 use crate::utils::transactions::{
-    check_txs, check_txs_remove_successful, delete_account, get_anchor_hash, get_next_nonce,
-    store_and_submit_tx, submit_tx,
+    check_txs, check_txs_remove_successful, get_anchor_hash, get_next_nonce, store_and_submit_tx,
+    submit_tx,
 };
 use crate::utils::{get_node_data, retrieve_client_actor};
 use near_chain::types::Tip;
@@ -730,13 +731,13 @@ pub(crate) fn temporary_account_during_resharding(
                 }
                 // Just resharded. Delete the temporary account and set the target height
                 // high enough so that the delete account transaction will be garbage collected.
-                let tx_hash = delete_account(
-                    test_loop_data,
-                    node_datas,
-                    &client_account_id,
-                    &temporary_account_id,
-                    &originator_id,
-                );
+                let node = TestLoopNode {
+                    data: test_loop_data,
+                    node_data: get_node_data(node_datas, &client_account_id),
+                };
+                let tx = node.tx_delete_account(&temporary_account_id, &originator_id);
+                let tx_hash = tx.get_hash();
+                node.submit_tx(tx);
                 delete_account_tx_hash.set(Some(tx_hash));
                 target_height
                     .set(Some(latest_height.get() + (gc_num_epochs_to_keep + 1) * epoch_length));
