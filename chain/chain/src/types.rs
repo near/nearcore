@@ -422,6 +422,13 @@ impl PreparedTransactions {
 #[derive(Debug, Clone)]
 pub struct SkippedTransactions(pub Vec<ValidatedTransaction>);
 
+/// Whether the transaction's signer account has a deployed contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HasContract {
+    Yes,
+    No,
+}
+
 /// Result of checking pending transaction queue admission for a transaction.
 #[derive(Debug, PartialEq, Eq)]
 pub enum PendingTxCheckResult {
@@ -434,7 +441,7 @@ pub enum PendingTxCheckResult {
 
 impl PendingTxCheckResult {
     /// Returns a closure that always admits with default constraints.
-    pub fn always_admit() -> impl FnMut(&SignedTransaction, bool) -> PendingTxCheckResult {
+    pub fn always_admit() -> impl FnMut(&SignedTransaction, HasContract) -> PendingTxCheckResult {
         |_, _| PendingTxCheckResult::Admit(PendingConstraints::default())
     }
 }
@@ -577,7 +584,7 @@ pub trait RuntimeAdapter: Send + Sync {
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
         skip_tx_hashes: HashSet<CryptoHash>,
-        check_pending: &mut dyn FnMut(&SignedTransaction, bool) -> PendingTxCheckResult,
+        check_pending: &mut dyn FnMut(&SignedTransaction, HasContract) -> PendingTxCheckResult,
         time_limit: Option<Duration>,
         cancel: Option<Arc<AtomicBool>>,
     ) -> Result<(PreparedTransactions, SkippedTransactions), Error>;
