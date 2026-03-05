@@ -1,4 +1,5 @@
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock};
 use std::task::Poll;
 
 use futures::future::BoxFuture;
@@ -294,9 +295,19 @@ impl<'a> TestLoopNode<'a> {
     }
 
     pub fn get_next_nonce(&self, account_id: &AccountId) -> u64 {
+        static PENDING_NONCES: LazyLock<Mutex<HashMap<AccountId, u64>>> =
+            LazyLock::new(|| Mutex::new(HashMap::new()));
+
         let signer = create_user_test_signer(account_id);
         let access_key = self.view_access_key_query(account_id, &signer.public_key()).unwrap();
-        access_key.nonce + 1
+        let on_chain_next = access_key.nonce + 1;
+        let mut pending = PENDING_NONCES.lock();
+        let next = match pending.get(account_id) {
+            Some(&local) => on_chain_next.max(local + 1),
+            None => on_chain_next,
+        };
+        pending.insert(account_id.clone(), next);
+        next
     }
 }
 
