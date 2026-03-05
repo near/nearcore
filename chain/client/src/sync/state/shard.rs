@@ -153,21 +153,41 @@ pub(super) async fn run_state_sync_for_shard(
     *status.lock() = ShardSyncStatus::StateApplyInProgress;
     runtime.get_tries().unload_memtrie(&shard_uid);
 
-    // Clear flat storage, but only if we haven't started applying parts yet.
-    // (Otherwise we will delete the parts we already applied)
+    // Clear flat storage before applying state parts.
+    //
+    // If flat storage is already loaded in memory, it means a previous state
+    // sync completed and flat state may have been modified by subsequent block
+    // processing. We must clear everything and re-apply from scratch.
+    //
+    // If flat storage is NOT in memory but some parts were already applied
+    // (i.e. we crashed mid-sync and are resuming), skip cleanup to preserve
+    // the progress made so far.
+    let flat_storage_manager = runtime.get_flat_storage_manager();
+    let flat_storage_exists =
+        flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_some();
     let apply_parts_started = any(0..num_parts, |part_id| {
         let key = StatePartKey(sync_hash, shard_id, part_id);
         let key_bytes = borsh::to_vec(&key).unwrap();
         store.exists(DBCol::StatePartsApplied, &key_bytes)
     });
-    if apply_parts_started {
+    if apply_parts_started && !flat_storage_exists {
         tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "not clearing flat storage before applying state parts because some parts were already applied");
     } else {
-        tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "clearing flat storage before applying state parts");
+        if flat_storage_exists && apply_parts_started {
+            tracing::info!(target: "sync", ?shard_id, ?sync_hash,
+                "clearing completed flat storage and re-applying state parts");
+        } else {
+            tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "clearing flat storage before applying state parts");
+        }
         let mut store_update = store.store_update();
-        runtime
-            .get_flat_storage_manager()
+        flat_storage_manager
             .remove_flat_storage_for_shard(shard_uid, &mut store_update.flat_store_update())?;
+        // Also clear StatePartsApplied markers so the parts are re-applied.
+        for part_id in 0..num_parts {
+            let key = StatePartKey(sync_hash, shard_id, part_id);
+            let key_bytes = borsh::to_vec(&key).unwrap();
+            store_update.delete(DBCol::StatePartsApplied, &key_bytes);
+        }
         store_update.commit();
     }
 
