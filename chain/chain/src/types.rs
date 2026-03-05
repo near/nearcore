@@ -50,6 +50,7 @@ use near_store::flat::FlatStorageManager;
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
+pub use node_runtime::PendingConstraints;
 use node_runtime::PostStateReadyCallback;
 use node_runtime::SignedValidPeriodTransactions;
 use num_rational::Rational32;
@@ -516,6 +517,7 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: StateRoot,
         validated_tx: &ValidatedTransaction,
         current_protocol_version: ProtocolVersion,
+        pending_constraints: &PendingConstraints,
     ) -> Result<(), InvalidTxError>;
 
     /// Returns an ordered list of valid transactions from the pool up the given limits.
