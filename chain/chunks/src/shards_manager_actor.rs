@@ -1419,50 +1419,59 @@ impl ShardsManagerActor {
             }
         };
 
-        match verify_chunk_header_signature_with_epoch_manager(
+        // Helper to convert errors to DBNotFoundErr if epoch ID is not confirmed.
+        // This allows the caller to re-try chunk validation later.
+        let err_mapper = |err: Error| -> Error {
+            if epoch_id_confirmed {
+                byzantine_assert!(false);
+                err
+            } else {
+                DBNotFoundErr(format!("block {:?}", header.prev_block_hash())).into()
+            }
+        };
+
+        self.verify_chunk_header_signature(header, epoch_id).map_err(err_mapper)?;
+        self.verify_chunk_shard_id(header, epoch_id).map_err(err_mapper)?;
+        self.verify_chunk_protocol_version(header, epoch_id).map_err(err_mapper)?;
+
+        Ok(())
+    }
+
+    fn verify_chunk_header_signature(
+        &self,
+        header: &ShardChunkHeader,
+        epoch_id: EpochId,
+    ) -> Result<(), Error> {
+        let sig_valid = verify_chunk_header_signature_with_epoch_manager(
             self.epoch_manager.as_ref(),
             header,
             epoch_id,
-        ) {
-            Ok(true) => {}
-            Ok(false) if epoch_id_confirmed => {
-                byzantine_assert!(false);
-                return Err(Error::InvalidChunkSignature);
-            }
-            Err(err) if epoch_id_confirmed => {
-                return Err(err.into());
-            }
-            // We are not sure if we are using the correct epoch id for validation, so
-            // we can't be sure if the chunk header is actually invalid. Let's return
-            // DbNotFoundError for now, which means we don't have all needed information yet.
-            Ok(false) | Err(_) => {
-                return Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash())).into());
-            }
+        )?;
+        if !sig_valid {
+            return Err(Error::InvalidChunkSignature);
         }
+        Ok(())
+    }
 
-        match self.epoch_manager.shard_ids(&epoch_id) {
-            Ok(shard_ids) if shard_ids.contains(&header.shard_id()) => {}
-            Ok(_) if epoch_id_confirmed => {
-                byzantine_assert!(false);
-                return Err(Error::InvalidChunkShardId);
-            }
-            Err(err) if epoch_id_confirmed => {
-                return Err(err.into());
-            }
-            Ok(_) | Err(_) => {
-                return Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash())).into());
-            }
+    fn verify_chunk_shard_id(
+        &self,
+        header: &ShardChunkHeader,
+        epoch_id: EpochId,
+    ) -> Result<(), Error> {
+        let shard_ids = self.epoch_manager.shard_ids(&epoch_id)?;
+        if !shard_ids.contains(&header.shard_id()) {
+            return Err(Error::InvalidChunkShardId);
         }
+        Ok(())
+    }
 
-        // 2. check protocol version
+    fn verify_chunk_protocol_version(
+        &self,
+        header: &ShardChunkHeader,
+        epoch_id: EpochId,
+    ) -> Result<(), Error> {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        if header.validate_version(protocol_version).is_ok() {
-            Ok(())
-        } else if epoch_id_confirmed {
-            Err(Error::InvalidChunkHeader)
-        } else {
-            Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash())).into())
-        }
+        header.validate_version(protocol_version).map_err(|_| Error::InvalidChunkHeader)
     }
 
     /// Inserts the header if it is not already known, and process the forwarded chunk parts cached
