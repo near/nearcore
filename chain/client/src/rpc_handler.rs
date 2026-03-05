@@ -197,6 +197,10 @@ impl RpcHandlerActor {
 
         if self.shard_tracker.cares_about_shard_this_or_next_epoch(&head.last_block_hash, shard_id)
         {
+            // TODO(spice): get_last_certified_block_header does multiple DB reads per
+            // incoming tx (loading uncertified chunks + block headers). Cache the last
+            // certified block header for the current head, or store the last-certified
+            // hash in chain state so this is O(1).
             let (state_root, constraints) = if ProtocolFeature::Spice.enabled(protocol_version) {
                 let certified_header =
                     get_last_certified_block_header(&self.chain_store, &head.last_block_hash)?;
