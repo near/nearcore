@@ -348,24 +348,16 @@ impl PendingTransactionQueue {
     /// Extract constraints for a given transaction without Skip/Admit logic.
     /// Used by the RPC handler for balance/nonce verification against certified state.
     pub fn get_pending_constraints(&self, tx: &SignedTransaction) -> PendingConstraints {
-        let signer_id = tx.transaction.signer_id();
-        let public_key = tx.transaction.public_key();
-        let nonce_index = tx.transaction.nonce().nonce_index();
-
-        let paid_from_balance = self
-            .pending_accounts
-            .get(signer_id)
-            .map(|a| a.paid_from_balance)
-            .unwrap_or(Balance::ZERO);
-
-        let gas_key = (signer_id.clone(), public_key.clone());
-        let paid_from_gas_key =
-            self.pending_gas_key_costs.get(&gas_key).copied().unwrap_or(Balance::ZERO);
-
-        let nonce_key = (gas_key.0, gas_key.1, nonce_index);
-        let max_nonce = self.pending_nonces.get(&nonce_key).map(|n| n.max_nonce).unwrap_or(0);
-
-        PendingConstraints { paid_from_balance, paid_from_gas_key, max_nonce }
+        let snapshot = self.query_pending_state(
+            tx.transaction.signer_id(),
+            tx.transaction.public_key(),
+            tx.transaction.nonce().nonce_index(),
+        );
+        PendingConstraints {
+            paid_from_balance: snapshot.paid_from_balance,
+            paid_from_gas_key: snapshot.pending_gas_key_cost,
+            max_nonce: snapshot.max_nonce,
+        }
     }
 
     /// Query pending state for a single transaction. Extracts the counts and
