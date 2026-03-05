@@ -1537,13 +1537,10 @@ fn test_genesis_hash() {
 /// Creates a signed transaction between each pair of `signers`,
 /// where transaction outcomes from a single signer differ by nonce.
 /// The transactions are then shuffled and used to fill a transaction pool.
-fn generate_transaction_pool(
-    signers: &[Signer],
-    block_hash: CryptoHash,
-    num_rounds: usize,
-) -> TransactionPool {
+fn generate_transaction_pool(signers: &[Signer], block_hash: CryptoHash) -> TransactionPool {
     let mut rng = StdRng::from_seed(TEST_SEED);
     let signer_count = signers.len();
+    let num_rounds = signer_count - 1;
 
     let mut transactions = vec![];
     for round in 1..=num_rounds {
@@ -1569,7 +1566,7 @@ fn generate_transaction_pool(
     pool
 }
 
-fn get_test_env_with_chain_and_pool(num_rounds: usize) -> (TestEnv, Chain, TransactionPool) {
+fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
     let validators = (0..NUM_TEST_SIGNERS)
         .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
         .collect::<Vec<_>>();
@@ -1608,8 +1605,7 @@ fn get_test_env_with_chain_and_pool(num_rounds: usize) -> (TestEnv, Chain, Trans
     env.step_default(vec![]);
 
     let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
-    let transaction_pool =
-        generate_transaction_pool(&signers, env.head.prev_block_hash, num_rounds);
+    let transaction_pool = generate_transaction_pool(&signers, env.head.prev_block_hash);
     (env, chain, transaction_pool)
 }
 
@@ -1691,7 +1687,7 @@ fn prepare_transactions_extra(
 
 #[test]
 fn test_prepare_transactions_duplicate_nonces() {
-    let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool(NUM_TEST_SIGNERS - 1);
+    let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool();
 
     // Insert a transaction with a duplicate (public key, nonce) pair into the pool.
     let mut iter = transaction_pool.pool_iterator();
@@ -1756,7 +1752,7 @@ fn test_prepare_transactions_empty_storage_proof() {
 fn test_prepare_transactions_helper(
     storage_source: StorageDataSource,
 ) -> Result<(usize, PreparedTransactions), Error> {
-    let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool(NUM_TEST_SIGNERS - 1);
+    let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool();
     let transactions_count = transaction_pool.len();
 
     let storage_config = RuntimeStorageConfig {
@@ -1779,7 +1775,7 @@ fn test_prepare_transactions_helper(
 
 #[test]
 fn test_prepare_transactions_extra() {
-    let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool(NUM_TEST_SIGNERS - 1);
+    let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool();
 
     // First run the preparation without any extra arguments
     let (prepared, skipped) = prepare_transactions_extra(
@@ -1865,7 +1861,7 @@ fn test_prepare_transactions_extra() {
 fn test_prepare_transactions_pending_skip() {
     let num_rounds = NUM_TEST_SIGNERS - 1;
     let total_txs = NUM_TEST_SIGNERS * num_rounds;
-    let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool(num_rounds);
+    let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool();
 
     // Skip every other transaction.
     let mut call_count = 0usize;
@@ -1897,7 +1893,7 @@ fn test_prepare_transactions_pending_skip() {
 /// subsequent transactions should fail balance validation.
 #[test]
 fn test_prepare_transactions_pending_balance_constraint() {
-    let (env, chain, _) = get_test_env_with_chain_and_pool(NUM_TEST_SIGNERS - 1);
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
 
     // Create a pool with a small transfer from test1.
     let signer = InMemorySigner::test_signer(&"test1".parse::<AccountId>().unwrap());
@@ -1948,7 +1944,7 @@ fn test_prepare_transactions_pending_balance_constraint() {
 /// floor is raised. Transactions with nonces <= max_nonce should be rejected.
 #[test]
 fn test_prepare_transactions_pending_nonce_constraint() {
-    let (env, chain, _) = get_test_env_with_chain_and_pool(NUM_TEST_SIGNERS - 1);
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
 
     let signer = InMemorySigner::test_signer(&"test1".parse::<AccountId>().unwrap());
     // Create two transactions with nonces 1 and 2.
