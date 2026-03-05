@@ -228,7 +228,7 @@ impl RpcHandlerActor {
                     Err(_) => {
                         if is_forwarded {
                             return Err(near_client_primitives::types::Error::Other(
-                                "node has not caught up yet".to_string(),
+                                "Node has not caught up yet".to_string(),
                             ));
                         } else {
                             self.forward_tx(&epoch_id, signed_tx)?;
