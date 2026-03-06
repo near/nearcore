@@ -22,7 +22,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance, BlockHeight, Gas};
+use near_primitives::types::{AccountId, Balance, BlockHeight};
 use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
 use parking_lot::Mutex;
 
@@ -236,42 +236,6 @@ pub fn use_global_contract(
     submit_tx(node_datas, rpc_id, tx);
 
     tracing::debug!(target: "test", ?user_id, ?tx_hash, ?identifier, "use global contract");
-    tx_hash
-}
-
-/// Call the contract deployed at contract id from the sender id.
-///
-/// This function does not wait until the transactions is executed.
-pub fn call_contract(
-    test_loop: &TestLoopV2,
-    node_datas: &[NodeExecutionData],
-    rpc_id: &AccountId,
-    sender_id: &AccountId,
-    contract_id: &AccountId,
-    method_name: String,
-    args: Vec<u8>,
-    nonce: u64,
-) -> CryptoHash {
-    let block_hash = get_shared_block_hash(node_datas, &test_loop.data);
-    let signer = create_user_test_signer(sender_id);
-    let attach_gas = Gas::from_teragas(300);
-    let deposit = Balance::ZERO;
-
-    let tx = SignedTransaction::call(
-        nonce,
-        sender_id.clone(),
-        contract_id.clone(),
-        &signer,
-        deposit,
-        method_name,
-        args,
-        attach_gas,
-        block_hash,
-    );
-
-    let tx_hash = tx.get_hash();
-    submit_tx(node_datas, rpc_id, tx);
-    tracing::debug!(target: "test", ?sender_id, ?contract_id, ?tx_hash, "called contract");
     tx_hash
 }
 

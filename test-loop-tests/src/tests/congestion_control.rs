@@ -1,16 +1,14 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
-use crate::setup::state::NodeExecutionData;
 use crate::utils::account::create_account_id;
 use crate::utils::run_for_number_of_blocks;
 use crate::utils::transactions::{
-    TransactionRunner, call_contract, check_txs, execute_tx, make_accounts, prepare_transfer_tx,
+    TransactionRunner, check_txs, execute_tx, make_accounts, prepare_transfer_tx,
 };
 use assert_matches::assert_matches;
 use core::panic;
 use itertools::Itertools;
-use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
@@ -48,7 +46,7 @@ fn slow_test_congestion_control_simple() {
     env.runner_for_account(&rpc_id).run_tx(tx, Duration::seconds(5));
 
     // Call the contract from all accounts.
-    do_call_contract(&mut env.test_loop, &env.node_datas, &rpc_id, &contract_id, &accounts);
+    do_call_contract(&mut env, &rpc_id, &contract_id, &accounts);
 
     // Make sure the chain progresses for several epochs.
     env.node_runner(0).run_for_number_of_blocks(2 * epoch_length as usize);
@@ -176,30 +174,29 @@ fn setup(
 
 /// Call the contract from all accounts and wait until the transactions are executed.
 fn do_call_contract(
-    test_loop: &mut TestLoopV2,
-    node_datas: &Vec<NodeExecutionData>,
+    env: &mut TestLoopEnv,
     rpc_id: &AccountId,
     contract_id: &AccountId,
     accounts: &Vec<AccountId>,
 ) {
     tracing::info!(target: "test", ?rpc_id, ?contract_id, "calling contract");
-    let method_name = "burn_gas_raw".to_owned();
     let burn_gas = Gas::from_teragas(250);
     let args = burn_gas.as_gas().to_le_bytes().to_vec();
     let mut txs = vec![];
+    let node = env.node_for_account(rpc_id);
     for sender_id in accounts {
-        let tx = call_contract(
-            test_loop,
-            node_datas,
-            rpc_id,
-            &sender_id,
-            &contract_id,
-            method_name.clone(),
+        let tx = node.tx_call(
+            sender_id,
+            contract_id,
+            "burn_gas_raw",
             args.clone(),
-            2,
+            Balance::ZERO,
+            Gas::from_teragas(300),
         );
-        txs.push(tx);
+        let tx_hash = tx.get_hash();
+        node.submit_tx(tx);
+        txs.push(tx_hash);
     }
-    test_loop.run_for(Duration::seconds(20));
-    check_txs(&test_loop.data, node_datas, &rpc_id, &txs);
+    env.test_loop.run_for(Duration::seconds(20));
+    check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &txs);
 }

@@ -20,9 +20,8 @@ use crate::utils::account::{
 };
 use crate::utils::node::TestLoopNode;
 use crate::utils::setups::derive_new_epoch_config_from_boundary;
-use crate::utils::transactions::{
-    call_contract, check_txs, deploy_global_contract, use_global_contract,
-};
+use crate::utils::transactions::{check_txs, deploy_global_contract, use_global_contract};
+use near_primitives::gas::Gas;
 
 const EPOCH_LENGTH: BlockHeightDelta = 5;
 
@@ -190,24 +189,15 @@ fn test_global_contract_nonce_prevents_stale_overwrite() {
     // the rs_contract, so if the trivial contract had overwritten it, this would fail.
     tracing::info!(target: "test", "Calling contract method from all users to verify rs_contract is active...");
     for user in &env.users {
-        let call_tx = call_contract(
-            &mut env.env.test_loop,
-            &env.env.node_datas,
-            &env.chunk_producer,
+        let tx = env.chunk_producer_node().tx_call(
             user,
             user,
-            "log_something".to_string(),
+            "log_something",
             vec![],
-            nonce,
+            Balance::ZERO,
+            Gas::from_teragas(300),
         );
-        nonce += 1;
-        env.env.test_loop.run_for(Duration::seconds(5));
-        check_txs(
-            &mut env.env.test_loop.data,
-            &env.env.node_datas,
-            &env.chunk_producer,
-            &[call_tx],
-        );
+        env.env.runner_for_account(&env.chunk_producer).run_tx(tx, Duration::seconds(5));
     }
 
     env.shutdown();
