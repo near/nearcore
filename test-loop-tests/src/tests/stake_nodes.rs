@@ -2,6 +2,7 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_o11y::testonly::init_test_logger;
+use near_primitives::action::{Action, StakeAction};
 use near_primitives::num_rational::Rational32;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
@@ -290,6 +291,132 @@ fn test_validator_join_impl(epoch_length: u64, execution_delay: u64) {
         },
         Duration::seconds(120),
     );
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+/// Tests the full validator lifecycle: a non-validator stakes to join the validator set,
+/// then unstakes to leave it. Verifies that the validator set changes happen in the
+/// expected epoch windows and that locked amounts are correct throughout.
+#[test]
+fn test_staking_join_and_leave() {
+    let epoch_length = 10;
+    let execution_delay = 0;
+    test_staking_join_and_leave_impl(epoch_length, execution_delay);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_staking_join_and_leave_delayed_execution() {
+    let epoch_length = 10;
+    let execution_delay = 4;
+    test_staking_join_and_leave_impl(epoch_length, execution_delay);
+}
+
+fn test_staking_join_and_leave_impl(epoch_length: u64, execution_delay: u64) {
+    init_test_logger();
+
+    let accounts = create_validator_ids(3);
+    let validator_key = create_test_signer(accounts[2].as_str()).public_key();
+
+    // Set up 2 initial validators; the third account starts as a non-validator.
+    let validators: Vec<AccountInfo> = accounts[..2]
+        .iter()
+        .map(|account| AccountInfo {
+            account_id: account.clone(),
+            public_key: create_test_signer(account.as_str()).public_key(),
+            amount: TESTING_INIT_STAKE,
+        })
+        .collect();
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(epoch_length)
+        .validators_spec(ValidatorsSpec::raw(validators, 2, 2, 2))
+        .add_user_accounts_simple(&accounts, TESTING_INIT_BALANCE)
+        .max_inflation_rate(Rational32::new(0, 1))
+        .build();
+
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store_from_genesis()
+        .clients(accounts.clone())
+        .track_all_shards()
+        .build();
+    if execution_delay > 0 {
+        delay_endorsements_propagation(&mut env, execution_delay);
+    }
+    let mut env = env.warmup();
+
+    // Verify initial validator set.
+    assert_eq!(
+        get_epoch_all_validators_sorted(env.node(0).client()),
+        vec!["validator0".to_string(), "validator1".to_string()],
+    );
+
+    // Stake for validator2 to join the validator set.
+    let stake_tx = env.node(0).tx_from_actions(
+        &accounts[2],
+        &accounts[2],
+        vec![Action::Stake(Box::new(StakeAction {
+            stake: TESTING_INIT_STAKE,
+            public_key: validator_key.clone(),
+        }))],
+    );
+    env.node_runner(0).run_tx(stake_tx, Duration::seconds(5));
+
+    // Wait for validator2 to join.
+    let expected_joined: Vec<String> =
+        vec!["validator0".to_string(), "validator1".to_string(), "validator2".to_string()];
+    env.node_runner(0).run_until(
+        |node| get_epoch_all_validators_sorted(node.client()) == expected_joined,
+        Duration::seconds(30),
+    );
+
+    // Staking tx in epoch 0 → validator joins in epoch 2.
+    let join_height = env.node(0).head().height;
+    assert!(
+        join_height > 2 * epoch_length && join_height <= 3 * epoch_length,
+        "validator2 should join in epoch 2, but head height is {join_height}"
+    );
+
+    // Verify validator2 has its stake locked.
+    let view = env.node(0).view_account_query(&accounts[2]).unwrap();
+    assert_eq!(view.locked, TESTING_INIT_STAKE);
+
+    // Unstake validator2.
+    let unstake_tx = env.node(0).tx_from_actions(
+        &accounts[2],
+        &accounts[2],
+        vec![Action::Stake(Box::new(StakeAction {
+            stake: Balance::ZERO,
+            public_key: validator_key,
+        }))],
+    );
+    env.node_runner(0).run_tx(unstake_tx, Duration::seconds(5));
+
+    // Wait for validator2 to leave the validator set.
+    let expected_original: Vec<String> = vec!["validator0".to_string(), "validator1".to_string()];
+    env.node_runner(0).run_until(
+        |node| get_epoch_all_validators_sorted(node.client()) == expected_original,
+        Duration::seconds(30),
+    );
+
+    // Unstaking tx in epoch 2 → validator removed from set in epoch 4.
+    let leave_height = env.node(0).head().height;
+    assert!(
+        leave_height > 4 * epoch_length && leave_height <= 5 * epoch_length,
+        "validator2 should leave in epoch 4, but head height is {leave_height}"
+    );
+
+    // Wait for locked amount to return to zero (happens one epoch after removal).
+    env.node_runner(0).run_until(
+        |node| node.view_account_query(&accounts[2]).unwrap().locked.is_zero(),
+        Duration::seconds(30),
+    );
+
+    // Verify stake was fully returned to balance.
+    let view = env.node(0).view_account_query(&accounts[2]).unwrap();
+    assert!(view.locked.is_zero());
+    assert_eq!(view.amount, TESTING_INIT_BALANCE);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
