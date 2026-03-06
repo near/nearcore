@@ -212,6 +212,28 @@ where
     Box::pin(async move { serialize_response(callback(R::parse(request.params)?).await?) })
 }
 
+/// Like `process_method_call`, but dispatches between a sharded handler (for
+/// user requests) and a local handler (for coordinator-forwarded requests).
+async fn process_sharded_method_call<'a, R, FSharded, FLocal, E, V>(
+    request: Request,
+    source: RequestSource,
+    sharded_handler: impl FnOnce(R) -> FSharded + 'a,
+    local_handler: impl FnOnce(R) -> FLocal + 'a,
+) -> Result<Value, RpcError>
+where
+    R: RpcRequest + Send,
+    FSharded: Future<Output = Result<Value, RpcError>>,
+    FLocal: Future<Output = Result<V, E>> + Send,
+    V: serde::ser::Serialize,
+    RpcError: From<E>,
+{
+    let request = R::parse(request.params)?;
+    match source {
+        RequestSource::User => sharded_handler(request).await,
+        RequestSource::Coordinator => serialize_response(local_handler(request).await?),
+    }
+}
+
 #[easy_ext::ext(FromNetworkClientResponses)]
 impl near_jsonrpc_primitives::types::transactions::RpcTransactionError {
     pub fn from_network_client_responses(resp: ProcessTxResponse) -> Self {
@@ -402,7 +424,7 @@ impl JsonRpcHandler {
     async fn process_request_internal(
         &self,
         request: Request,
-        _source: RequestSource,
+        source: RequestSource,
     ) -> (String, Result<Value, RpcError>) {
         let method_name = request.method.to_string();
         let request = match self.process_adversarial_request_internal(request).await {
@@ -410,7 +432,7 @@ impl JsonRpcHandler {
             Err(request) => request,
         };
 
-        let request = match self.process_basic_requests_internal(request).await {
+        let request = match self.process_basic_requests_internal(request, source).await {
             Ok(response) => return (method_name, response),
             Err(request) => request,
         };
@@ -453,6 +475,7 @@ impl JsonRpcHandler {
     async fn process_basic_requests_internal(
         &self,
         request: Request,
+        source: RequestSource,
     ) -> Result<Result<Value, RpcError>, Request> {
         Ok(match request.method.as_ref() {
             // Handlers ordered alphabetically
@@ -506,7 +529,13 @@ impl JsonRpcHandler {
                 process_method_call(request, |_params: ()| self.client_config()).await
             }
             "EXPERIMENTAL_view_account" => {
-                process_method_call(request, |params| self.view_account(params)).await
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| self.view_account_sharded(params),
+                    |params| self.view_account_local(params),
+                )
+                .await
             }
             "EXPERIMENTAL_view_code" => {
                 process_method_call(request, |params| self.view_code(params)).await
@@ -1046,7 +1075,14 @@ impl JsonRpcHandler {
         Ok(query_response.rpc_into())
     }
 
-    async fn view_account(
+    async fn view_account_sharded(
+        &self,
+        request_data: RpcViewAccountRequest,
+    ) -> Result<Value, RpcError> {
+        todo!()
+    }
+
+    async fn view_account_local(
         &self,
         request_data: RpcViewAccountRequest,
     ) -> Result<RpcViewAccountResponse, RpcViewAccountError> {
