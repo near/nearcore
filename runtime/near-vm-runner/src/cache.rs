@@ -253,7 +253,7 @@ impl FilesystemContractRuntimeCache {
         StorePath: AsRef<std::path::Path> + ?Sized,
         ContractCachePath: AsRef<std::path::Path> + ?Sized,
     {
-        Self::with_memory_cache(home_dir, store_path, contract_cache_path, 0)
+        Self::with_memory_cache(home_dir, store_path, contract_cache_path, 0, None)
     }
 
     /// When setting up a cache of compiled contracts, also set-up a `size` element in-memory
@@ -269,6 +269,7 @@ impl FilesystemContractRuntimeCache {
         store_path: Option<&StorePath>,
         contract_cache_path: &ContractCachePath,
         memcache_expected_item_count: usize,
+        memcache_metrics_identifier: Option<String>,
     ) -> std::io::Result<Self>
     where
         StorePath: AsRef<std::path::Path> + ?Sized,
@@ -314,8 +315,16 @@ impl FilesystemContractRuntimeCache {
             memcache_expected_item_count as u64 * AVG_COMPILED_CONTRACT_WEIGHT,
         );
         #[cfg(feature = "metrics")]
-        let any_cache = any_cache
-            .with_identifier(format!("filesystem_{}", contract_cache_path.as_ref().display()));
+        let any_cache = if let Some(id) = memcache_metrics_identifier {
+            any_cache.with_metrics_identifier(id)
+        } else {
+            any_cache
+        };
+        #[cfg(not(feature = "metrics"))]
+        assert!(
+            memcache_metrics_identifier.is_none(),
+            "memcache_metrics_identifier is only supported with the `metrics` feature"
+        );
 
         Ok(Self {
             state: Arc::new(FilesystemContractRuntimeCacheState {
@@ -600,7 +609,7 @@ impl AnyCache {
     }
 
     #[cfg(feature = "metrics")]
-    fn with_identifier(mut self, identifier: String) -> Self {
+    fn with_metrics_identifier(mut self, identifier: String) -> Self {
         self.identifier = Some(identifier);
         self
     }
