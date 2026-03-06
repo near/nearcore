@@ -7,7 +7,7 @@ use borsh::BorshDeserialize;
 use bytesize::ByteSize;
 use itertools::Itertools;
 use near_async::test_loop::data::TestLoopData;
-use near_chain::ChainStoreAccess;
+use near_chain::{ChainStoreAccess, Error};
 use near_client::Client;
 use near_client::{Query, QueryError::GarbageCollectedBlock};
 use near_crypto::Signer;
@@ -38,8 +38,7 @@ use crate::utils::loop_action::LoopAction;
 use crate::utils::node::TestLoopNode;
 use crate::utils::sharding::{get_memtrie_for_shard, next_block_has_new_shard_layout};
 use crate::utils::transactions::{
-    check_txs, check_txs_remove_successful, get_anchor_hash, get_next_nonce, get_shared_block_hash,
-    submit_tx,
+    check_txs, get_anchor_hash, get_next_nonce, get_shared_block_hash, submit_tx,
 };
 use crate::utils::{get_node_data, retrieve_client_actor};
 use near_chain::types::Tip;
@@ -1356,4 +1355,26 @@ fn store_and_submit_tx(
     txs_vec.push((tx.get_hash(), height));
     txs.set(txs_vec);
     submit_tx(node_datas, rpc_id, tx);
+}
+
+/// Checks status of the provided transactions. Panics if transaction result is an error.
+/// Removes transactions that finished successfully from the list.
+fn check_txs_remove_successful(txs: &Cell<Vec<(CryptoHash, BlockHeight)>>, client: &Client) {
+    let mut unfinished_txs = Vec::new();
+    for (tx_hash, tx_height) in txs.take() {
+        let tx_outcome = client.chain.get_final_transaction_result(&tx_hash);
+        let status = tx_outcome.as_ref().map(|o| o.status.clone());
+        tracing::debug!(target: "test", ?tx_height, ?tx_hash, ?status, "transaction status");
+        match status {
+            Ok(FinalExecutionStatus::SuccessValue(_)) => continue,
+            Ok(FinalExecutionStatus::NotStarted)
+            | Ok(FinalExecutionStatus::Started)
+            | Err(Error::DBNotFoundErr(_)) => unfinished_txs.push((tx_hash, tx_height)),
+            _ => panic!(
+                "remove_successful_txs: Transaction failed! tx_hash = {:?}, tx_height = {}, status = {:?}",
+                tx_hash, tx_height, status
+            ),
+        };
+    }
+    txs.set(unfinished_txs);
 }

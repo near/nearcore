@@ -1,4 +1,3 @@
-use std::cell::Cell;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::task::Poll;
@@ -12,7 +11,6 @@ use near_async::test_loop::data::TestLoopData;
 use near_async::test_loop::futures::TestLoopFutureSpawner;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
-use near_chain::Error;
 use near_client::{Client, ProcessTxResponse, QueryError, RpcHandlerActor};
 use near_crypto::Signer;
 use near_network::client::ProcessTxRequest;
@@ -21,7 +19,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance, BlockHeight};
+use near_primitives::types::{AccountId, Balance};
 use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
 use parking_lot::Mutex;
 
@@ -498,27 +496,4 @@ enum TxProcessingResult {
     Ok,
     Congested(InvalidTxError),
     Invalid(InvalidTxError),
-}
-
-/// Checks status of the provided transactions. Panics if transaction result is an error.
-/// Removes transactions that finished successfully from the list.
-pub fn check_txs_remove_successful(txs: &Cell<Vec<(CryptoHash, BlockHeight)>>, client: &Client) {
-    let mut unfinished_txs = Vec::new();
-    for (tx_hash, tx_height) in txs.take() {
-        let tx_outcome = client.chain.get_final_transaction_result(&tx_hash);
-        let status = tx_outcome.as_ref().map(|o| o.status.clone());
-        tracing::debug!(target: "test", ?tx_height, ?tx_hash, ?status, "transaction status");
-        match status {
-            Ok(FinalExecutionStatus::SuccessValue(_)) => continue, // Transaction finished successfully, remove it.
-            Ok(FinalExecutionStatus::NotStarted)
-            | Ok(FinalExecutionStatus::Started)
-            | Err(Error::DBNotFoundErr(_)) => unfinished_txs.push((tx_hash, tx_height)), // Transaction in progress
-            _ => panic!(
-                // Transaction error
-                "remove_successful_txs: Transaction failed! tx_hash = {:?}, tx_height = {}, status = {:?}",
-                tx_hash, tx_height, status
-            ),
-        };
-    }
-    txs.set(unfinished_txs);
 }
