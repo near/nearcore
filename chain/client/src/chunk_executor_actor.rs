@@ -722,8 +722,13 @@ impl ChunkExecutorActor {
         let ChunkExecutionData { witness: state_witness, code_accesses: contract_accesses } =
             self.create_chunk_execution_data(block, apply_result, shard_id, execution_result_hash)?;
 
-        save_witness(&self.chain_store, block.hash(), shard_id, &state_witness);
-        save_contract_accesses(&self.chain_store, block.hash(), shard_id, &contract_accesses);
+        save_witness_and_contract_accesses(
+            &self.chain_store,
+            block.hash(),
+            shard_id,
+            &state_witness,
+            &contract_accesses,
+        );
         self.data_distributor_adapter
             .send(SpiceDistributorStateWitness { state_witness, contract_accesses });
 
@@ -1038,17 +1043,15 @@ pub(crate) fn save_receipt_proof(
     store_update.set(DBCol::receipt_proofs(), &key, &value);
 }
 
-pub(crate) fn save_witness(
-    chain_store: &ChainStoreAdapter,
+fn set_witness(
+    store_update: &mut StoreUpdate,
     block_hash: &CryptoHash,
     shard_id: ShardId,
     witness: &SpiceChunkStateWitness,
 ) {
-    let mut store_update = chain_store.store().store_update();
     let key = get_witnesses_key(block_hash, shard_id);
     let value = borsh::to_vec(&witness).unwrap();
     store_update.set(DBCol::witnesses(), &key, &value);
-    store_update.commit();
 }
 
 fn get_receipt_proofs_for_shard(
@@ -1069,17 +1072,29 @@ pub fn get_witness(
     store.get_ser(DBCol::witnesses(), &key)
 }
 
-pub(crate) fn save_contract_accesses(
-    chain_store: &ChainStoreAdapter,
+fn set_contract_accesses(
+    store_update: &mut StoreUpdate,
     block_hash: &CryptoHash,
     shard_id: ShardId,
     contract_accesses: &HashSet<CodeHash>,
 ) {
-    let mut store_update = chain_store.store().store_update();
     let key = get_contract_accesses_key(block_hash, shard_id);
     let value: Vec<CodeHash> = contract_accesses.iter().cloned().collect();
     let value = borsh::to_vec(&value).unwrap();
     store_update.set(DBCol::contract_accesses(), &key, &value);
+}
+
+/// Saves witness and contract accesses atomically in a single DB transaction.
+pub(crate) fn save_witness_and_contract_accesses(
+    chain_store: &ChainStoreAdapter,
+    block_hash: &CryptoHash,
+    shard_id: ShardId,
+    witness: &SpiceChunkStateWitness,
+    contract_accesses: &HashSet<CodeHash>,
+) {
+    let mut store_update = chain_store.store().store_update();
+    set_witness(&mut store_update, block_hash, shard_id, witness);
+    set_contract_accesses(&mut store_update, block_hash, shard_id, contract_accesses);
     store_update.commit();
 }
 

@@ -61,7 +61,7 @@ use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 use crate::chunk_executor_actor::{
-    ExecutorIncomingUnverifiedReceipts, save_contract_accesses, save_receipt_proof, save_witness,
+    ExecutorIncomingUnverifiedReceipts, save_receipt_proof, save_witness_and_contract_accesses,
 };
 use crate::spice_chunk_validator_actor::SpiceChunkStateWitnessMessage;
 use crate::spice_data_distributor_actor::{
@@ -2016,11 +2016,12 @@ fn test_handling_partial_data_request_with_witness_in_store() {
     let recipient_chain = new_chain(&chain, &genesis);
 
     let state_witness = new_test_witness(&block);
-    save_witness(
+    save_witness_and_contract_accesses(
         &chain.chain_store,
         block.hash(),
         state_witness.chunk_id().shard_id,
         &state_witness,
+        &HashSet::new(),
     );
 
     let producer = witness_producer_accounts(&chain, &block, &state_witness).swap_remove(0);
@@ -2058,11 +2059,12 @@ fn test_handling_partial_data_request_when_not_producer() {
     let (_genesis, chain) = setup(2, 1);
     let block = latest_block(&chain);
     let state_witness = new_test_witness(&block);
-    save_witness(
+    save_witness_and_contract_accesses(
         &chain.chain_store,
         block.hash(),
         state_witness.chunk_id().shard_id,
         &state_witness,
+        &HashSet::new(),
     );
     let (_incoming_data, recipient) = witness_incoming_data(&chain, &block);
 
@@ -2138,21 +2140,16 @@ fn test_contract_accesses_served_from_store_on_catchup() {
     let block = latest_block(&chain);
 
     let state_witness = new_test_witness(&block);
-    save_witness(
+
+    // Persist witness and contract accesses to the store (simulating what the executor does),
+    // but do NOT send them through the actor (so the in-memory cache stays empty).
+    let contract_accesses: HashSet<CodeHash> =
+        HashSet::from([CodeHash(hash(&[1])), CodeHash(hash(&[2]))]);
+    save_witness_and_contract_accesses(
         &chain.chain_store,
         block.hash(),
         state_witness.chunk_id().shard_id,
         &state_witness,
-    );
-
-    // Persist contract accesses to the store (simulating what the executor does),
-    // but do NOT send them through the actor (so the in-memory cache stays empty).
-    let contract_accesses: HashSet<CodeHash> =
-        HashSet::from([CodeHash(hash(&[1])), CodeHash(hash(&[2]))]);
-    save_contract_accesses(
-        &chain.chain_store,
-        block.hash(),
-        state_witness.chunk_id().shard_id,
         &contract_accesses,
     );
 
@@ -2194,8 +2191,14 @@ fn test_duplicate_contract_code_request_is_dropped() {
     let chunk_id = state_witness.chunk_id().clone();
     let shard_id = chunk_id.shard_id;
 
-    // Save empty contract accesses so the request passes the access check.
-    save_contract_accesses(&chain.chain_store, block.hash(), shard_id, &HashSet::new());
+    // Save witness and empty contract accesses so the request passes the access check.
+    save_witness_and_contract_accesses(
+        &chain.chain_store,
+        block.hash(),
+        shard_id,
+        &state_witness,
+        &HashSet::new(),
+    );
 
     let producer = witness_producer_accounts(&chain, &block, &state_witness).swap_remove(0);
     let validator = witness_validators(&chain, &block, &state_witness)
@@ -2232,7 +2235,13 @@ fn test_contract_code_request_invalid_signature_rejected() {
     let state_witness = new_test_witness(&block);
     let chunk_id = state_witness.chunk_id().clone();
 
-    save_contract_accesses(&chain.chain_store, block.hash(), chunk_id.shard_id, &HashSet::new());
+    save_witness_and_contract_accesses(
+        &chain.chain_store,
+        block.hash(),
+        chunk_id.shard_id,
+        &state_witness,
+        &HashSet::new(),
+    );
 
     let producer = witness_producer_accounts(&chain, &block, &state_witness).swap_remove(0);
     let validator = witness_validators(&chain, &block, &state_witness)
@@ -2275,12 +2284,13 @@ fn test_contract_code_request_invalid_contract_hash_rejected() {
     let state_witness = new_test_witness(&block);
     let chunk_id = state_witness.chunk_id().clone();
 
-    // Save contract accesses with only hash_a.
+    // Save witness and contract accesses with only hash_a.
     let hash_a = CodeHash(hash(&[1]));
-    save_contract_accesses(
+    save_witness_and_contract_accesses(
         &chain.chain_store,
         block.hash(),
         chunk_id.shard_id,
+        &state_witness,
         &HashSet::from([hash_a]),
     );
 
@@ -2315,11 +2325,12 @@ fn test_contract_code_request_happy_path() {
     let contract_bytes = b"fake-contract-wasm-bytes";
     let contract_hash = CodeHash(hash(contract_bytes));
 
-    // Save the contract hash as an accessed contract for this chunk.
-    save_contract_accesses(
+    // Save witness and the contract hash as an accessed contract for this chunk.
+    save_witness_and_contract_accesses(
         &chain.chain_store,
         block.hash(),
         chunk_id.shard_id,
+        &state_witness,
         &HashSet::from([contract_hash.clone()]),
     );
 
