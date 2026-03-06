@@ -669,7 +669,7 @@ impl PartialWitnessActor {
                 .contracts()
                 .iter()
                 .filter(|&hash| {
-                    contracts_cache_contains_contract(contracts_cache, hash, &runtime_config)
+                    !contracts_cache_contains_contract(contracts_cache, hash, &runtime_config)
                 })
                 .cloned(),
         );
