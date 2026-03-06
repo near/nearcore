@@ -178,31 +178,6 @@ pub(crate) fn execute_money_transfers_with_delay(
     Ok(())
 }
 
-/// Deploy the test contract to the provided contract_id account. The contract
-/// account should already exist. The contract will be deployed from the contract
-/// account itself.
-///
-/// This function does not wait until the transactions is executed.
-pub fn deploy_contract(
-    test_loop: &TestLoopV2,
-    node_datas: &[NodeExecutionData],
-    rpc_id: &AccountId,
-    contract_id: &AccountId,
-    code: Vec<u8>,
-    nonce: u64,
-) -> CryptoHash {
-    let block_hash = get_shared_block_hash(node_datas, &test_loop.data);
-
-    let signer = create_user_test_signer(&contract_id);
-
-    let tx = SignedTransaction::deploy_contract(nonce, contract_id, code, &signer, block_hash);
-    let tx_hash = tx.get_hash();
-    submit_tx(node_datas, rpc_id, tx);
-
-    tracing::debug!(target: "test", ?contract_id, ?tx_hash, "deployed contract");
-    tx_hash
-}
-
 /// Deploy a test global contract using the corresponding deploy_mode.
 ///
 /// This function does not wait until the transactions is executed.

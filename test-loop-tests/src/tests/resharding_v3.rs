@@ -39,8 +39,7 @@ use crate::utils::sharding::{
     get_shards_will_care_about, get_tracked_shards, print_and_assert_shard_accounts,
 };
 use crate::utils::transactions::{
-    check_txs, deploy_contract, deploy_global_contract, get_smallest_height_head,
-    use_global_contract,
+    check_txs, deploy_global_contract, get_smallest_height_head, use_global_contract,
 };
 use crate::utils::trie_sanity::{TrieSanityCheck, check_state_shard_uid_mapping_after_resharding};
 use near_crypto::Signer;
@@ -628,15 +627,12 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         );
     }
     for contract_id in &params.deploy_test_contract {
-        let deploy_contract_tx = deploy_contract(
-            &mut env.test_loop,
-            &env.node_datas,
-            &client_account_id,
-            contract_id,
-            near_test_contracts::backwards_compatible_rs_contract().into(),
-            1,
-        );
-        test_setup_transactions.push(deploy_contract_tx);
+        let node = env.node_for_account(&client_account_id);
+        let code = near_test_contracts::backwards_compatible_rs_contract().into();
+        let tx = node.tx_deploy_contract(contract_id, code);
+        let tx_hash = tx.get_hash();
+        node.submit_tx(tx);
+        test_setup_transactions.push(tx_hash);
     }
     if !params.disable_temporary_account_test {
         let create_account_tx = create_account(

@@ -13,7 +13,7 @@ use crate::utils::contract_distribution::{
     run_until_caches_contain_contract,
 };
 use crate::utils::get_node_head_height;
-use crate::utils::transactions::{call_contract, check_txs, deploy_contract, make_accounts};
+use crate::utils::transactions::{call_contract, check_txs, make_accounts};
 
 const EPOCH_LENGTH: u64 = 10;
 const GENESIS_HEIGHT: u64 = 1000;
@@ -53,7 +53,7 @@ fn test_contract_distribution_cross_shard() {
 
     // First deploy and call the contracts as described above.
     // Next, clear the compiled contract cache and repeat the same contract calls.
-    let contracts = deploy_contracts(&mut env, &rpc_id, &contract_ids, &mut nonce);
+    let contracts = deploy_contracts(&mut env, &rpc_id, &contract_ids);
 
     for contract in contracts {
         run_until_caches_contain_contract(&mut env, contract.hash());
@@ -118,7 +118,6 @@ fn deploy_contracts(
     env: &mut TestLoopEnv,
     rpc_id: &AccountId,
     contract_ids: &[&AccountId],
-    nonce: &mut u64,
 ) -> Vec<ContractCode> {
     let mut contracts = vec![];
     let mut txs = vec![];
@@ -126,16 +125,11 @@ fn deploy_contracts(
         tracing::info!(target: "test", ?rpc_id, ?contract_id, "deploying contract");
         let contract =
             ContractCode::new(near_test_contracts::sized_contract((i + 1) * 100).to_vec(), None);
-        let tx = deploy_contract(
-            &mut env.test_loop,
-            &env.node_datas,
-            rpc_id,
-            contract_id,
-            contract.code().to_vec(),
-            *nonce,
-        );
-        txs.push(tx);
-        *nonce += 1;
+        let node = env.node_for_account(rpc_id);
+        let tx = node.tx_deploy_contract(contract_id, contract.code().to_vec());
+        let tx_hash = tx.get_hash();
+        node.submit_tx(tx);
+        txs.push(tx_hash);
         contracts.push(contract);
     }
     env.test_loop.run_for(Duration::seconds(2));
