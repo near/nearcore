@@ -7,6 +7,7 @@ use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
 use near_primitives::epoch_manager::EpochConfigStore;
+use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ReceiptEnum, ReceiptToTxInfo};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta};
@@ -463,6 +464,16 @@ fn test_global_distribution_receipt_to_tx_gc() {
         assert!(
             store.get_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx, receipt_id.as_ref()).is_some(),
             "receipt_to_tx entry should exist for distribution receipt {receipt_id}"
+        );
+    }
+
+    // Assert distribution receipt IDs are absent from OutcomeIds — this is why GC can't find them.
+    let all_outcome_ids: HashSet<CryptoHash> =
+        store.iter_ser::<Vec<CryptoHash>>(DBCol::OutcomeIds).flat_map(|(_, ids)| ids).collect();
+    for receipt_id in &distribution_receipt_ids {
+        assert!(
+            !all_outcome_ids.contains(receipt_id),
+            "distribution receipt {receipt_id} should NOT appear in OutcomeIds"
         );
     }
 

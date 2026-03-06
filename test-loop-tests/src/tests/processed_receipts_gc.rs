@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
@@ -439,13 +441,28 @@ fn test_data_receipt_receipt_to_tx_gc() {
     // Run a few more blocks to ensure all receipts (including data receipts) are processed.
     env.validator_runner().run_for_number_of_blocks(5);
 
-    // Collect all ReceiptToTx entries.
+    // Collect all ReceiptToTx entry IDs.
     let store = env.validator().store();
-    let receipt_ids: Vec<CryptoHash> = store
+    let receipt_to_tx_ids: HashSet<CryptoHash> = store
         .iter_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx)
         .map(|(key, _)| CryptoHash::try_from(key.as_ref()).unwrap())
         .collect();
-    assert!(!receipt_ids.is_empty(), "should have ReceiptToTx entries after executing promises");
+    assert!(
+        !receipt_to_tx_ids.is_empty(),
+        "should have ReceiptToTx entries after executing promises"
+    );
+
+    // Collect all OutcomeIds (flattened across all blocks/shards).
+    let all_outcome_ids: HashSet<CryptoHash> =
+        store.iter_ser::<Vec<CryptoHash>>(DBCol::OutcomeIds).flat_map(|(_, ids)| ids).collect();
+
+    // IDs with ReceiptToTx entries but absent from OutcomeIds — GC will never find these.
+    let leaked_ids: Vec<CryptoHash> =
+        receipt_to_tx_ids.difference(&all_outcome_ids).cloned().collect();
+    assert!(
+        !leaked_ids.is_empty(),
+        "expected ReceiptToTx entries absent from OutcomeIds (data receipts)"
+    );
 
     #[cfg(feature = "test_features")]
     env.validator_mut().validate_store();
@@ -454,13 +471,12 @@ fn test_data_receipt_receipt_to_tx_gc() {
     let num_blocks = EPOCH_LENGTH * GC_NUM_EPOCHS_TO_KEEP + 1;
     env.validator_runner().run_for_number_of_blocks(num_blocks as usize);
 
-    // Assert all ReceiptToTx entries are gone. This will FAIL for data receipt entries
-    // because data receipts don't have execution outcomes and GC never finds them.
+    // Assert only the leaked IDs — these are the ones that can't be GC'd.
     let store = env.validator().store();
-    for receipt_id in &receipt_ids {
+    for receipt_id in &leaked_ids {
         assert!(
             store.get(DBCol::ReceiptToTx, receipt_id.as_ref()).is_none(),
-            "receipt_to_tx for {receipt_id} should be garbage collected"
+            "receipt_to_tx for data receipt {receipt_id} should be garbage collected"
         );
     }
 
@@ -469,9 +485,10 @@ fn test_data_receipt_receipt_to_tx_gc() {
 
 /// Tests that ReceiptToTx entries for PromiseResume receipts are garbage collected.
 ///
-/// PromiseResume receipts are created when a yield times out. The yield's execution outcome
-/// uses the yield data ID as the outcome ID, not the resume receipt's ID. So GC (which
-/// iterates OutcomeIds) never finds the resume receipt's ID in OutcomeIds.
+/// PromiseResume receipts are created when a yield times out. The PromiseResume receipt's
+/// ID never appears in OutcomeIds — the yield callback's execution outcome is keyed by
+/// the callback receipt ID, not the resume receipt ID. So GC (which iterates OutcomeIds
+/// to find receipt IDs to delete from ReceiptToTx) never finds the resume receipt.
 ///
 /// This test is expected to FAIL with current code, exposing the GC leak.
 #[test]
@@ -564,6 +581,14 @@ fn test_promise_resume_receipt_to_tx_gc() {
         .get_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx, resume_receipt_id.as_ref())
         .expect("receipt_to_tx entry should exist for PromiseResume receipt");
 
+    // Assert resume receipt ID is absent from OutcomeIds — this is why GC can't find it.
+    let all_outcome_ids: HashSet<CryptoHash> =
+        store.iter_ser::<Vec<CryptoHash>>(DBCol::OutcomeIds).flat_map(|(_, ids)| ids).collect();
+    assert!(
+        !all_outcome_ids.contains(&resume_receipt_id),
+        "PromiseResume receipt ID should NOT appear in OutcomeIds"
+    );
+
     #[cfg(feature = "test_features")]
     env.validator_mut().validate_store();
 
@@ -571,9 +596,7 @@ fn test_promise_resume_receipt_to_tx_gc() {
     let num_blocks = EPOCH_LENGTH * GC_NUM_EPOCHS_TO_KEEP + 1;
     env.validator_runner().run_for_number_of_blocks(num_blocks as usize);
 
-    // Assert PromiseResume ReceiptToTx entry is gone. This will FAIL because
-    // PromiseResume receipts don't appear in OutcomeIds (the outcome uses the
-    // yield data ID, not the resume receipt ID).
+    // The PromiseResume receipt ID is absent from OutcomeIds, so GC never finds it.
     let store = env.validator().store();
     assert!(
         store.get(DBCol::ReceiptToTx, resume_receipt_id.as_ref()).is_none(),
