@@ -42,19 +42,23 @@ type RpcRequest<T> = BoxFuture<'static, Result<T, RpcError>>;
 /// Provides a method to query jsonrpc, in the future rosetta will also be added.
 /// Useful in tests, where normal network connections might not be available.
 pub trait RpcTransport: Send + Sync {
-    /// Sends an HTTP POST request to `endpoint` with the given body bytes.
-    /// Returns the response status and body.
+    /// Sends an HTTP POST request to `endpoint` with the given body bytes
+    /// and optional extra headers. Returns the response status and body.
     fn send_http_request(
         &self,
         endpoint: &str,
         body: Vec<u8>,
         response_size_limit: usize,
+        extra_headers: &[(&str, &str)],
     ) -> BoxFuture<'static, Result<(StatusCode, Vec<u8>), String>>;
 
     /// Sends a jsonrpc request and returns the parsed response message.
+    /// When `is_coordinator` is true, the coordinator header is included
+    /// so the receiving node knows this is a forwarded pool request.
     fn send_jsonrpc_request(
         &self,
         request: Message,
+        is_coordinator: bool,
     ) -> BoxFuture<'static, Result<Message, RpcError>> {
         let body_bytes: Vec<u8> = match serde_json::to_vec(&request) {
             Ok(serialized) => serialized,
@@ -68,7 +72,10 @@ pub trait RpcTransport: Send + Sync {
             }
         };
 
-        let request_future = self.send_http_request("/", body_bytes, JSONRPC_RESPONSE_LIMIT);
+        let extra_headers: &[(&str, &str)] =
+            if is_coordinator { &[("X-Near-Pool-Coordinator-Query", "1")] } else { &[] };
+        let request_future =
+            self.send_http_request("/", body_bytes, JSONRPC_RESPONSE_LIMIT, extra_headers);
         Box::pin(async move {
             let (_status, bytes) = request_future.await.map_err(|err| {
                 RpcError::new_internal_error(
@@ -101,6 +108,7 @@ impl RpcTransport for ReqwestTransport {
         endpoint: &str,
         body: Vec<u8>,
         response_size_limit: usize,
+        extra_headers: &[(&str, &str)],
     ) -> BoxFuture<'static, Result<(StatusCode, Vec<u8>), String>> {
         let url = url::Url::parse(&self.server_addr)
             .map_err(|e| format!("parsing server_addr '{}' failed: {}", self.server_addr, e))
@@ -110,10 +118,14 @@ impl RpcTransport for ReqwestTransport {
                 })
             });
         let client = self.client.clone();
+        let extra_headers: Vec<(String, String)> =
+            extra_headers.iter().map(|(k, v)| ((*k).to_string(), (*v).to_string())).collect();
         async move {
-            let mut response = client
-                .post(url?)
-                .header("Content-Type", "application/json")
+            let mut request_builder = client.post(url?).header("Content-Type", "application/json");
+            for (key, value) in &extra_headers {
+                request_builder = request_builder.header(key, value);
+            }
+            let mut response = request_builder
                 .body(body)
                 .send()
                 .await
@@ -151,7 +163,7 @@ where
     R: serde::de::DeserializeOwned + 'static,
 {
     let request = Message::request(method.to_string(), serde_json::to_value(&params).unwrap());
-    let future = transport.send_jsonrpc_request(request);
+    let future = transport.send_jsonrpc_request(request, false);
 
     async move {
         let message = future.await?;

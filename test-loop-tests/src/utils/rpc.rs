@@ -35,14 +35,17 @@ impl RpcTransport for TestLoopRpcTransport {
         endpoint: &str,
         body: Vec<u8>,
         response_size_limit: usize,
+        extra_headers: &[(&str, &str)],
     ) -> BoxFuture<'static, Result<(StatusCode, Vec<u8>), String>> {
         let mut router = self.router.clone();
-        let request = Request::builder()
+        let mut builder = Request::builder()
             .method("POST")
             .uri(endpoint)
-            .header("content-type", "application/json")
-            .body(Body::from(body))
-            .unwrap();
+            .header("content-type", "application/json");
+        for (key, value) in extra_headers {
+            builder = builder.header(*key, *value);
+        }
+        let request = builder.body(Body::from(body)).unwrap();
         Box::pin(async move {
             let response = router.call(request).await.map_err(|e| format!("{e}"))?;
             let status = response.status();
