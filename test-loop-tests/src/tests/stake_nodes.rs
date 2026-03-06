@@ -300,22 +300,19 @@ fn test_validator_join_impl(epoch_length: u64, execution_delay: u64) {
 /// expected epoch windows and that locked amounts are correct throughout.
 #[test]
 fn test_staking_join_and_leave() {
-    let epoch_length = 10;
-    let execution_delay = 0;
-    test_staking_join_and_leave_impl(epoch_length, execution_delay);
+    test_staking_join_and_leave_impl(0);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_staking_join_and_leave_delayed_execution() {
-    let epoch_length = 10;
-    let execution_delay = 4;
-    test_staking_join_and_leave_impl(epoch_length, execution_delay);
+    test_staking_join_and_leave_impl(4);
 }
 
-fn test_staking_join_and_leave_impl(epoch_length: u64, execution_delay: u64) {
+fn test_staking_join_and_leave_impl(execution_delay: u64) {
     init_test_logger();
 
+    let epoch_length = 10;
     let accounts = create_validator_ids(3);
     let validator_key = create_test_signer(accounts[2].as_str()).public_key();
 
@@ -337,7 +334,6 @@ fn test_staking_join_and_leave_impl(epoch_length: u64, execution_delay: u64) {
 
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
-        .epoch_config_store_from_genesis()
         .clients(accounts.clone())
         .track_all_shards()
         .build();
