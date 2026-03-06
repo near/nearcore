@@ -47,6 +47,15 @@ pub enum ShardHint {
     Account(AccountId),
 }
 
+/// Handle to a node that can serve a query.
+#[derive(Clone)]
+pub enum RpcNodeHandle {
+    /// Forward the request to a remote node via its JSON-RPC client.
+    RemoteNode(Arc<JsonRpcClient>),
+    /// Handle the request locally.
+    LocalNode,
+}
+
 /// A remote RPC node in the pool, along with the shards it tracks.
 #[derive(Clone)]
 pub struct ShardedRpcNode {
