@@ -224,6 +224,14 @@ struct GlobalContractsReshardingTestEnv {
 
 impl GlobalContractsReshardingTestEnv {
     fn setup() -> Self {
+        Self::setup_impl(None)
+    }
+
+    fn setup_with_gc(gc_num_epochs_to_keep: u64) -> Self {
+        Self::setup_impl(Some(gc_num_epochs_to_keep))
+    }
+
+    fn setup_impl(gc_num_epochs_to_keep: Option<u64>) -> Self {
         let base_boundary_accounts = create_account_ids(["user2", "user3", "user4"]).to_vec();
         let split_boundary_account: AccountId = create_account_id("user1");
         let base_shard_layout = ShardLayout::multi_shard_custom(base_boundary_accounts, 3);
@@ -258,12 +266,14 @@ impl GlobalContractsReshardingTestEnv {
         ];
         let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(epoch_configs));
 
-        let env = TestLoopBuilder::new()
+        let mut builder = TestLoopBuilder::new()
             .genesis(genesis)
             .clients(clients)
-            .epoch_config_store(epoch_config_store)
-            .build()
-            .warmup();
+            .epoch_config_store(epoch_config_store);
+        if let Some(gc) = gc_num_epochs_to_keep {
+            builder = builder.gc_num_epochs_to_keep(gc);
+        }
+        let env = builder.build().warmup();
 
         Self { env, chunk_producer, base_shard_layout, new_shard_layout, users }
     }
@@ -371,6 +381,104 @@ fn test_global_distribution_receipt_has_receipt_to_tx() {
                 );
             }
         }
+    }
+
+    env.shutdown();
+}
+
+/// Tests that ReceiptToTx entries for GlobalContractDistribution receipts are garbage collected.
+///
+/// GCD receipts (both initial and forwarded) don't produce execution outcomes — they just
+/// install contract code on shards. GC iterates OutcomeIds to find receipt IDs to delete
+/// from ReceiptToTx, but GCD receipt IDs never appear there.
+///
+/// This test is expected to FAIL with current code, exposing the GC leak.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_global_distribution_receipt_to_tx_gc() {
+    init_test_logger();
+    let gc_num_epochs_to_keep = 3u64;
+    let mut env = GlobalContractsReshardingTestEnv::setup_with_gc(gc_num_epochs_to_keep);
+    let expected_new_shard_layout_height = EPOCH_LENGTH * 2 + 2;
+    let send_deploy_tx_height = expected_new_shard_layout_height - 3;
+
+    env.run_until_head_height(send_deploy_tx_height);
+
+    // Deploy global contract.
+    let deploy_user = env.users[0].clone();
+    let code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
+    let deploy_tx = deploy_global_contract(
+        &mut env.env.test_loop,
+        &env.env.node_datas,
+        &env.chunk_producer,
+        deploy_user,
+        code.code().to_vec(),
+        1,
+        GlobalContractDeployMode::CodeHash,
+    );
+
+    env.run_until_head_height(expected_new_shard_layout_height);
+    check_txs(&mut env.env.test_loop.data, &env.env.node_datas, &env.chunk_producer, &[deploy_tx]);
+
+    // Run extra blocks for forwarded distribution receipts to reach all shards.
+    let extra_blocks = 10;
+    env.run_until_head_height(expected_new_shard_layout_height + extra_blocks);
+
+    // Collect all GlobalContractDistribution receipt IDs from chunks.
+    let distribution_receipt_ids = {
+        let client = env.chunk_producer_node().client();
+        let head_height = client.chain.head().unwrap().height;
+        let mut ids = vec![];
+        for height in 1..=head_height {
+            let block = match client.chain.get_block_by_height(height) {
+                Ok(block) => block,
+                Err(_) => continue,
+            };
+            for chunk_header in block.chunks().iter() {
+                if !chunk_header.is_new_chunk() {
+                    continue;
+                }
+                let chunk = match client.chain.get_chunk(&chunk_header.compute_hash()) {
+                    Ok(chunk) => chunk,
+                    Err(_) => continue,
+                };
+                for receipt in chunk.prev_outgoing_receipts() {
+                    if let ReceiptEnum::GlobalContractDistribution(_) = receipt.receipt() {
+                        ids.push(*receipt.receipt_id());
+                    }
+                }
+            }
+        }
+        ids
+    };
+    assert!(
+        distribution_receipt_ids.len() > 1,
+        "expected multiple GlobalContractDistribution receipts (initial + forwarded), found {}",
+        distribution_receipt_ids.len()
+    );
+
+    // Verify ReceiptToTx entries exist for all distribution receipts.
+    let store = env.chunk_producer_node().store();
+    for receipt_id in &distribution_receipt_ids {
+        assert!(
+            store.get_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx, receipt_id.as_ref()).is_some(),
+            "receipt_to_tx entry should exist for distribution receipt {receipt_id}"
+        );
+    }
+
+    // Run enough epochs for GC.
+    let current_height = env.chunk_producer_node().client().chain.head().unwrap().height;
+    let gc_target = current_height + EPOCH_LENGTH * gc_num_epochs_to_keep + 1;
+    env.run_until_head_height(gc_target);
+
+    // Assert all distribution ReceiptToTx entries are gone. This will FAIL because
+    // GCD receipts don't produce execution outcomes and GC never finds them.
+    let store = env.chunk_producer_node().store();
+    for receipt_id in &distribution_receipt_ids {
+        assert!(
+            store.get(DBCol::ReceiptToTx, receipt_id.as_ref()).is_none(),
+            "receipt_to_tx for distribution receipt {receipt_id} should be garbage collected"
+        );
     }
 
     env.shutdown();

@@ -1,11 +1,13 @@
 use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
+use near_parameters::config::TEST_CONFIG_YIELD_TIMEOUT_LENGTH;
+use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ProcessedReceiptMetadata, Receipt, ReceiptOrigin, ReceiptSource, ReceiptToTxInfo,
+    ProcessedReceiptMetadata, Receipt, ReceiptEnum, ReceiptOrigin, ReceiptSource, ReceiptToTxInfo,
     VersionedReceiptEnum,
 };
 use near_primitives::shard_layout::ShardLayout;
@@ -356,6 +358,227 @@ fn test_receipt_to_tx_gc_with_outcomes_disabled() {
             "receipt_to_tx for {receipt_id} should be garbage collected"
         );
     }
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+/// Tests that ReceiptToTx entries for data receipts are garbage collected.
+///
+/// Data receipts are generated when an action receipt with `output_data_receivers` executes
+/// (e.g., from `promise_create` + `promise_then`). Data receipts don't produce execution
+/// outcomes, so GC (which iterates OutcomeIds to find receipt IDs to delete) never finds them.
+///
+/// This test is expected to FAIL with current code, exposing the GC leak.
+#[test]
+fn test_data_receipt_receipt_to_tx_gc() {
+    init_test_logger();
+
+    let user_account = create_account_id("account0");
+
+    let mut env = TestLoopBuilder::new()
+        .epoch_length(EPOCH_LENGTH)
+        .add_user_account(&user_account, Balance::from_near(1_000_000))
+        .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
+        .build()
+        .warmup();
+
+    let signer = create_user_test_signer(&user_account);
+
+    // Deploy the test contract.
+    let contract_code = near_test_contracts::rs_contract().to_vec();
+    let block_hash = env.validator().head().last_block_hash;
+    let deploy_tx =
+        SignedTransaction::deploy_contract(1, &user_account, contract_code, &signer, block_hash);
+    env.validator_runner().run_tx(deploy_tx, Duration::seconds(5));
+
+    // Call call_promise with create+then to generate a cross-contract call with callback.
+    // This produces:
+    //   - Action receipt A (calls log_something, has output_data_receivers)
+    //   - Action receipt C (callback, depends on A's data via input_data_ids)
+    //   - DataReceipt D (delivers A's return value to C) — created when A executes
+    // All three get ReceiptToTx entries, but D has no execution outcome.
+    let args = serde_json::json!([
+        {
+            "create": {
+                "account_id": user_account.as_str(),
+                "method_name": "log_something",
+                "arguments": [],
+                "amount": "0",
+                "gas": 50_000_000_000_000u64
+            },
+            "id": 0
+        },
+        {
+            "then": {
+                "promise_index": 0,
+                "account_id": user_account.as_str(),
+                "method_name": "log_something",
+                "arguments": [],
+                "amount": "0",
+                "gas": 50_000_000_000_000u64
+            },
+            "id": 1
+        }
+    ]);
+    let block_hash = env.validator().head().last_block_hash;
+    let tx = SignedTransaction::from_actions(
+        2,
+        user_account.clone(),
+        user_account,
+        &signer,
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "call_promise".to_string(),
+            args: serde_json::to_vec(&args).unwrap(),
+            gas: Gas::from_teragas(300),
+            deposit: Balance::ZERO,
+        }))],
+        block_hash,
+    );
+    env.validator_runner().run_tx(tx, Duration::seconds(5));
+
+    // Run a few more blocks to ensure all receipts (including data receipts) are processed.
+    env.validator_runner().run_for_number_of_blocks(5);
+
+    // Collect all ReceiptToTx entries.
+    let store = env.validator().store();
+    let receipt_ids: Vec<CryptoHash> = store
+        .iter_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx)
+        .map(|(key, _)| CryptoHash::try_from(key.as_ref()).unwrap())
+        .collect();
+    assert!(!receipt_ids.is_empty(), "should have ReceiptToTx entries after executing promises");
+
+    #[cfg(feature = "test_features")]
+    env.validator_mut().validate_store();
+
+    // Run enough epochs for GC.
+    let num_blocks = EPOCH_LENGTH * GC_NUM_EPOCHS_TO_KEEP + 1;
+    env.validator_runner().run_for_number_of_blocks(num_blocks as usize);
+
+    // Assert all ReceiptToTx entries are gone. This will FAIL for data receipt entries
+    // because data receipts don't have execution outcomes and GC never finds them.
+    let store = env.validator().store();
+    for receipt_id in &receipt_ids {
+        assert!(
+            store.get(DBCol::ReceiptToTx, receipt_id.as_ref()).is_none(),
+            "receipt_to_tx for {receipt_id} should be garbage collected"
+        );
+    }
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+/// Tests that ReceiptToTx entries for PromiseResume receipts are garbage collected.
+///
+/// PromiseResume receipts are created when a yield times out. The yield's execution outcome
+/// uses the yield data ID as the outcome ID, not the resume receipt's ID. So GC (which
+/// iterates OutcomeIds) never finds the resume receipt's ID in OutcomeIds.
+///
+/// This test is expected to FAIL with current code, exposing the GC leak.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_promise_resume_receipt_to_tx_gc() {
+    init_test_logger();
+
+    let user_account = create_account_id("account0");
+    let signer = create_user_test_signer(&user_account);
+
+    let runtime_config = RuntimeConfig::test();
+    assert_eq!(
+        runtime_config.wasm_config.limit_config.yield_timeout_length_in_blocks,
+        TEST_CONFIG_YIELD_TIMEOUT_LENGTH
+    );
+    let runtime_config_store = RuntimeConfigStore::with_one_config(runtime_config);
+
+    let mut env = TestLoopBuilder::new()
+        .genesis_height(0)
+        .epoch_length(EPOCH_LENGTH)
+        .add_user_account(&user_account, Balance::from_near(1_000_000))
+        .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
+        .runtime_config_store(runtime_config_store)
+        .skip_warmup()
+        .build();
+
+    // Deploy the test contract.
+    let genesis_block = env.validator().client().chain.get_block_by_height(0).unwrap();
+    let deploy_tx = SignedTransaction::deploy_contract(
+        1,
+        &user_account,
+        near_test_contracts::rs_contract().into(),
+        &signer,
+        *genesis_block.hash(),
+    );
+    env.validator().submit_tx(deploy_tx);
+    env.validator_runner().run_until_head_height(2);
+
+    // Call yield_create — creates a yield that will timeout.
+    let yield_tx = SignedTransaction::from_actions(
+        2,
+        user_account.clone(),
+        user_account.clone(),
+        &signer,
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "call_yield_create_return_promise".to_string(),
+            args: vec![42u8; 16],
+            gas: Gas::from_teragas(300),
+            deposit: Balance::ZERO,
+        }))],
+        *genesis_block.hash(),
+    );
+    env.validator().submit_tx(yield_tx);
+    env.validator_runner().run_until_head_height(4);
+
+    // The yield was created at height 4, timeout fires at 4 + TEST_CONFIG_YIELD_TIMEOUT_LENGTH.
+    let yield_timeout_height = 4 + TEST_CONFIG_YIELD_TIMEOUT_LENGTH;
+
+    // Advance to timeout height — PromiseResume receipt is produced.
+    env.validator_runner().run_until_head_height(yield_timeout_height);
+
+    // Find PromiseResume receipt IDs from the outgoing receipts at timeout height.
+    let resume_receipt_ids = {
+        let node = env.validator();
+        let client = node.client();
+        let head = client.chain.head().unwrap();
+        let shard_layout = client.epoch_manager.get_shard_layout(&head.epoch_id).unwrap();
+        let shard_id = shard_layout.account_id_to_shard_id(&user_account);
+        let mut result = vec![];
+        for receipt in client
+            .chain
+            .get_outgoing_receipts_for_shard(head.last_block_hash, shard_id, head.height)
+            .unwrap()
+        {
+            if let ReceiptEnum::PromiseResume(_) = receipt.receipt() {
+                result.push(*receipt.receipt_id());
+            }
+        }
+        result
+    };
+    assert_eq!(resume_receipt_ids.len(), 1, "expected one PromiseResume receipt at timeout");
+    let resume_receipt_id = resume_receipt_ids[0];
+
+    // Advance one more block for the resume receipt to execute.
+    env.validator_runner().run_until_head_height(yield_timeout_height + 1);
+
+    // Verify ReceiptToTx entry exists for the resume receipt.
+    let store = env.validator().store();
+    store
+        .get_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx, resume_receipt_id.as_ref())
+        .expect("receipt_to_tx entry should exist for PromiseResume receipt");
+
+    #[cfg(feature = "test_features")]
+    env.validator_mut().validate_store();
+
+    // Run enough epochs for GC.
+    let num_blocks = EPOCH_LENGTH * GC_NUM_EPOCHS_TO_KEEP + 1;
+    env.validator_runner().run_for_number_of_blocks(num_blocks as usize);
+
+    // Assert PromiseResume ReceiptToTx entry is gone. This will FAIL because
+    // PromiseResume receipts don't appear in OutcomeIds (the outcome uses the
+    // yield data ID, not the resume receipt ID).
+    let store = env.validator().store();
+    assert!(
+        store.get(DBCol::ReceiptToTx, resume_receipt_id.as_ref()).is_none(),
+        "receipt_to_tx for PromiseResume receipt should be garbage collected"
+    );
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
