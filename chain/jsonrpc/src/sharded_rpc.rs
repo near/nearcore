@@ -2,10 +2,50 @@ use std::sync::Arc;
 
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_jsonrpc_client_internal::JsonRpcClient;
-use near_primitives::types::ShardId;
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::{AccountId, BlockHeight, BlockId, BlockReference, ShardId};
 use near_store::adapter::chain_store::ChainStoreAdapter;
 
 use crate::ShardedRpcConfig;
+
+/// Hint about which block a jsonrpc query targets.
+/// Used to determine which nodes can serve the query.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BlockHint {
+    /// No block information available.
+    None,
+    /// A recent block (final, near-final, or optimistic).
+    Recent,
+    /// Exact hash
+    Hash(CryptoHash),
+    /// Exact height
+    Height(BlockHeight),
+    /// Not supported in sharded rpc routing for now, used only in block header queries, which can be served locally.
+    SyncCheckpoint,
+}
+
+impl From<BlockReference> for BlockHint {
+    fn from(r: BlockReference) -> BlockHint {
+        match r {
+            BlockReference::BlockId(BlockId::Height(h)) => BlockHint::Height(h),
+            BlockReference::BlockId(BlockId::Hash(h)) => BlockHint::Hash(h),
+            BlockReference::Finality(_) => BlockHint::Recent,
+            BlockReference::SyncCheckpoint(_) => BlockHint::SyncCheckpoint,
+        }
+    }
+}
+
+/// Hint about which shard a jsonrpc query targets.
+/// Used to determine which nodes can serve the query.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ShardHint {
+    /// No shard information available.
+    None,
+    /// A specific shard_id
+    Id(ShardId),
+    /// The shard that contains the given account.
+    Account(AccountId),
+}
 
 /// A remote RPC node in the pool, along with the shards it tracks.
 #[derive(Clone)]
