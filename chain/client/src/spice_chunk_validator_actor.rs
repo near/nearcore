@@ -24,7 +24,6 @@ use near_network::spice_data_distribution::{
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::hash::CryptoHash;
-use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::{
     CodeBytes, CodeHash, MAX_CONTRACTS_PER_REQUEST, SpiceChunkContractAccesses,
     SpiceContractCodeRequest, SpiceContractCodeResponse,
@@ -85,10 +84,10 @@ fn try_take_ready_chunk(
     chunk_id: &SpiceChunkId,
 ) -> Option<(Vec<CodeBytes>, SpiceChunkStateWitness)> {
     let entry = partial_chunk_data.peek(chunk_id)?;
-    let ready =
-        entry.witness.is_some() && matches!(&entry.missing, Some(missing) if missing.is_empty());
-    if !ready {
-        return None;
+    match entry {
+        PartialChunkData { missing: Some(missing), witness: Some(_), .. } if missing.is_empty() => {
+        }
+        _ => return None,
     }
     let PartialChunkData { missing: _, contracts, witness } =
         partial_chunk_data.pop(chunk_id).unwrap();
@@ -617,12 +616,7 @@ impl SpiceChunkValidatorActor {
                 Ok(())
             }
             WitnessProcessingReadiness::Ready(ctx) => {
-                // Merge contract bytes into witness base_state.
-                if !contracts.is_empty() {
-                    let PartialState::TrieValues(values) =
-                        &mut witness.mut_main_state_transition().base_state;
-                    values.extend(contracts.into_iter().map(|code| code.0));
-                }
+                witness.mut_main_state_transition().merge_contracts(contracts);
 
                 self.validate_state_witness_and_send_endorsements(&ctx, witness, signer)
             }

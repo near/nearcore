@@ -1,5 +1,6 @@
 use crate::sharding::ReceiptProof;
 use crate::state::PartialState;
+use crate::stateless_validation::contract_distribution::CodeBytes;
 use crate::transaction::SignedTransaction;
 use crate::types::{ChunkExecutionResultHash, SpiceChunkId};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -33,6 +34,14 @@ pub struct SpiceChunkStateTransition {
     /// derived by applying the state transition onto the base state, but
     /// this makes it easier to debug why a state witness may fail to validate.
     pub post_state_root: CryptoHash,
+}
+
+impl SpiceChunkStateTransition {
+    /// Merges contract bytes into the base_state trie values.
+    pub fn merge_contracts(&mut self, contracts: Vec<CodeBytes>) {
+        let PartialState::TrieValues(values) = &mut self.base_state;
+        values.extend(contracts.into_iter().map(|code| code.0));
+    }
 }
 
 /// There are following differences with ChunkStateWitnessV2
