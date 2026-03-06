@@ -78,6 +78,23 @@ struct PartialChunkData {
     witness: Option<SpiceChunkStateWitness>,
 }
 
+/// If the chunk identified by `chunk_id` has all contracts and witness ready,
+/// removes it from the cache and returns the contracts and witness.
+fn try_take_ready_chunk(
+    partial_chunk_data: &mut lru::LruCache<SpiceChunkId, PartialChunkData>,
+    chunk_id: &SpiceChunkId,
+) -> Option<(Vec<CodeBytes>, SpiceChunkStateWitness)> {
+    let entry = partial_chunk_data.peek(chunk_id)?;
+    let ready =
+        entry.witness.is_some() && matches!(&entry.missing, Some(missing) if missing.is_empty());
+    if !ready {
+        return None;
+    }
+    let PartialChunkData { missing: _, contracts, witness } =
+        partial_chunk_data.pop(chunk_id).unwrap();
+    Some((contracts, witness.unwrap()))
+}
+
 impl PartialChunkData {
     fn new() -> Self {
         Self { missing: None, contracts: Vec::new(), witness: None }
@@ -227,7 +244,7 @@ impl SpiceChunkValidatorActor {
                 self.partial_chunk_data
                     .get_or_insert_mut(chunk_id.clone(), PartialChunkData::new)
                     .witness = Some(witness);
-                self.try_finalize_chunk(&chunk_id, signer)
+                self.try_assemble_and_validate_chunk(&chunk_id, signer)
             }
         }
     }
@@ -343,7 +360,7 @@ impl SpiceChunkValidatorActor {
             self.partial_chunk_data
                 .get_or_insert_mut(chunk_id.clone(), PartialChunkData::new)
                 .witness = Some(witness);
-            if let Err(err) = self.try_finalize_chunk(&chunk_id, signer.clone()) {
+            if let Err(err) = self.try_assemble_and_validate_chunk(&chunk_id, signer.clone()) {
                 self.requeue_waiting_witnesses(&block_hash, unready_witnesses);
                 return Err(err);
             }
@@ -505,7 +522,7 @@ impl SpiceChunkValidatorActor {
                 .get()
                 .ok_or_else(|| Error::NotAValidator("no signer".to_owned()))?;
             let request = SpiceContractCodeRequest::new(chunk_id.clone(), missing.clone(), &signer);
-            // TODO(spice): retry with different producers if request fails or times out.
+            // TODO(spice),TODO(spice-contract-distribution): retry with different producers if request fails or times out.
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::SpiceContractCodeRequest(target, request),
             ));
@@ -513,22 +530,18 @@ impl SpiceChunkValidatorActor {
 
         let entry =
             self.partial_chunk_data.get_or_insert_mut(chunk_id.clone(), PartialChunkData::new);
-        // Skip if accesses were already received (e.g. from both the proactive direct send
-        // and the piggybacked response during catch-up).
+        // merge with previously received accesses if any
         if entry.missing.is_some() {
-            let signer = self
-                .validator_signer
-                .get()
-                .ok_or_else(|| Error::NotAValidator("no signer".to_owned()))?;
-            return self.try_finalize_chunk(&chunk_id, signer);
+            entry.missing.as_mut().unwrap().extend(missing);
+        } else {
+            entry.missing = Some(missing);
         }
-        entry.missing = Some(missing);
 
         let signer = self
             .validator_signer
             .get()
             .ok_or_else(|| Error::NotAValidator("no signer".to_owned()))?;
-        self.try_finalize_chunk(&chunk_id, signer)
+        self.try_assemble_and_validate_chunk(&chunk_id, signer)
     }
 
     /// Handles a contract code response from a chunk producer.
@@ -569,7 +582,7 @@ impl SpiceChunkValidatorActor {
             .get()
             .ok_or_else(|| Error::NotAValidator("no signer".to_owned()))?;
         for chunk_id in maybe_ready {
-            self.try_finalize_chunk(&chunk_id, signer.clone())?;
+            self.try_assemble_and_validate_chunk(&chunk_id, signer.clone())?;
         }
         Ok(())
     }
@@ -578,27 +591,16 @@ impl SpiceChunkValidatorActor {
     /// Succeeds when: witness is present, contract accesses have been received,
     /// all missing contracts have been fulfilled, and the block is ready.
     /// On success, merges contract bytes into the witness base_state and validates.
-    fn try_finalize_chunk(
+    fn try_assemble_and_validate_chunk(
         &mut self,
         chunk_id: &SpiceChunkId,
         signer: Arc<ValidatorSigner>,
     ) -> Result<(), Error> {
-        let can_finalize = match self.partial_chunk_data.peek(chunk_id) {
-            None => false,
-            Some(entry) => {
-                entry.witness.is_some()
-                    && matches!(&entry.missing, Some(missing) if missing.is_empty())
-            }
-        };
-
-        if !can_finalize {
+        let Some((contracts, mut witness)) =
+            try_take_ready_chunk(&mut self.partial_chunk_data, chunk_id)
+        else {
             return Ok(());
-        }
-
-        // Remove entry so we own the data and avoid borrow conflicts.
-        let PartialChunkData { missing: _, contracts, witness } =
-            self.partial_chunk_data.pop(chunk_id).unwrap();
-        let mut witness = witness.unwrap();
+        };
 
         // Check block readiness.
         match self.witness_processing_readiness(&witness)? {
