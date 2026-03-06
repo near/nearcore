@@ -81,7 +81,7 @@ use near_primitives::views::{
 };
 use parking_lot::RwLock;
 use serde_json::{Value, json};
-use sharded_rpc::{RequestSource, ShardedRpcPool};
+use sharded_rpc::{BlockHint, RequestSource, RpcNodeHandle, ShardHint, ShardedRpcPool};
 use std::future::Future;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -1079,7 +1079,91 @@ impl JsonRpcHandler {
         &self,
         request_data: RpcViewAccountRequest,
     ) -> Result<Value, RpcError> {
-        todo!()
+        let block_hint = request_data.block_reference.clone().into();
+        let shard_hint = ShardHint::Account(request_data.account_id.clone());
+        self.run_coordinator_request(
+            "EXPERIMENTAL_view_account",
+            request_data,
+            block_hint,
+            shard_hint,
+        )
+        .await
+    }
+
+    /// Run a single sharded-rpc coordinator sub-request.
+    /// Automatically routes the request to the nodes that will be able to handle it based on the
+    /// provided block and shard hints. Automatically takes care of retries.
+    /// Works for simple coordinator sub-queries, meaning queries that can be answered by a single
+    /// node based on its local data. Doesn't handle combining data from multiple nodes.
+    /// This function can be used as a basic building block for writing more complex sharded-rpc handlers.
+    async fn run_coordinator_request(
+        &self,
+        method: &str,
+        params: impl serde::Serialize,
+        block_hint: BlockHint,
+        shard_hint: ShardHint,
+    ) -> Result<Value, RpcError> {
+        // Find the nodes that might be able to answer the query.
+        let rpc_nodes = {
+            let pool_read_guard = self.pool.read();
+            pool_read_guard.get_nodes_for_query(block_hint, shard_hint)?
+        };
+
+        // Prepare the request.
+        let request = match Message::request(
+            method.to_string(),
+            serde_json::to_value(params)
+                .map_err(|e| RpcError::serialization_error(e.to_string()))?,
+        ) {
+            Message::Request(r) => r,
+            _ => {
+                return Err(RpcError::new_internal_error(
+                    None,
+                    "run_coordinator_request: failed to create a request".to_string(),
+                ));
+            }
+        };
+
+        // Try to run the request until it succeeds on one of the nodes.
+        let mut last_error = None;
+        for node in rpc_nodes {
+            match self.run_coordinator_request_on_node(request.clone(), node).await {
+                Ok(val) => return Ok(val),
+                Err(e) => {
+                    last_error = Some(e);
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| {
+            RpcError::new_internal_error(None, "no nodes available to handle the query".to_string())
+        }))
+    }
+
+    async fn run_coordinator_request_on_node(
+        &self,
+        request: Request,
+        node: RpcNodeHandle,
+    ) -> Result<Value, RpcError> {
+        match node {
+            RpcNodeHandle::RemoteNode(client) => {
+                let message =
+                    client.transport.send_jsonrpc_request(Message::Request(request), true).await?;
+
+                match message {
+                    Message::Response(resp) => resp.result,
+                    _ => {
+                        Err(RpcError::parse_error("failed to parse JSON RPC response".to_string()))
+                    }
+                }
+            }
+            RpcNodeHandle::LocalNode => {
+                Box::pin(
+                    async move { self.process_request(request, RequestSource::Coordinator).await },
+                )
+                .await
+            }
+        }
     }
 
     async fn view_account_local(
