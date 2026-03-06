@@ -20,7 +20,7 @@ use crate::utils::account::{
 };
 use crate::utils::node::TestLoopNode;
 use crate::utils::setups::derive_new_epoch_config_from_boundary;
-use crate::utils::transactions::{check_txs, deploy_global_contract, use_global_contract};
+use crate::utils::transactions::check_txs;
 use near_primitives::gas::Gas;
 
 const EPOCH_LENGTH: BlockHeightDelta = 5;
@@ -51,15 +51,14 @@ fn test_global_receipt_distribution_at_resharding_boundary() {
         "expected deploy user to be in the split shard"
     );
     let code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
-    let deploy_tx = deploy_global_contract(
-        &mut env.env.test_loop,
-        &env.env.node_datas,
-        &env.chunk_producer,
-        deploy_user,
+    let node = env.chunk_producer_node();
+    let tx = node.tx_deploy_global_contract(
+        &deploy_user,
         code.code().to_vec(),
-        1,
         GlobalContractDeployMode::CodeHash,
     );
+    let deploy_tx = tx.get_hash();
+    node.submit_tx(tx);
 
     env.run_until_head_height(expected_new_shard_layout_height);
     check_txs(&mut env.env.test_loop.data, &env.env.node_datas, &env.chunk_producer, &[deploy_tx]);
@@ -97,16 +96,13 @@ fn test_global_receipt_distribution_at_resharding_boundary() {
 
     // Check that users on all shards in the new layout can use the contract.
     let mut use_txs = vec![];
+    let node = env.chunk_producer_node();
     for user in &env.users {
-        let use_tx = use_global_contract(
-            &mut env.env.test_loop,
-            &env.env.node_datas,
-            &env.chunk_producer,
-            user.clone(),
-            2,
-            GlobalContractIdentifier::CodeHash(*code.hash()),
-        );
-        use_txs.push(use_tx);
+        let tx =
+            node.tx_use_global_contract(user, GlobalContractIdentifier::CodeHash(*code.hash()));
+        let tx_hash = tx.get_hash();
+        node.submit_tx(tx);
+        use_txs.push(tx_hash);
     }
     env.env.test_loop.run_for(Duration::seconds(2));
     check_txs(&mut env.env.test_loop.data, &env.env.node_datas, &env.chunk_producer, &use_txs);
@@ -130,59 +126,30 @@ fn test_global_contract_nonce_prevents_stale_overwrite() {
 
     // Step 1: Deploy trivial contract as first version (AccountId mode).
     tracing::info!(target: "test", "Deploying first version of global contract (trivial contract)...");
-    let deploy_tx_v1 = deploy_global_contract(
-        &mut env.env.test_loop,
-        &env.env.node_datas,
-        &env.chunk_producer,
-        deploy_user.clone(),
+    let tx = env.chunk_producer_node().tx_deploy_global_contract(
+        &deploy_user,
         near_test_contracts::trivial_contract().to_vec(),
-        1,
         GlobalContractDeployMode::AccountId,
     );
-    env.env.test_loop.run_for(Duration::seconds(5));
-    check_txs(
-        &mut env.env.test_loop.data,
-        &env.env.node_datas,
-        &env.chunk_producer,
-        &[deploy_tx_v1],
-    );
+    env.env.runner_for_account(&env.chunk_producer).run_tx(tx, Duration::seconds(5));
 
     // Step 2: Deploy rs_contract as second version (AccountId mode).
     // This will have a higher auto-incremented nonce.
     tracing::info!(target: "test", "Deploying second version of global contract (rs_contract)...");
-    let deploy_tx_v2 = deploy_global_contract(
-        &mut env.env.test_loop,
-        &env.env.node_datas,
-        &env.chunk_producer,
-        deploy_user.clone(),
+    let tx = env.chunk_producer_node().tx_deploy_global_contract(
+        &deploy_user,
         near_test_contracts::rs_contract().to_vec(),
-        2,
         GlobalContractDeployMode::AccountId,
     );
-    env.env.test_loop.run_for(Duration::seconds(5));
-    check_txs(
-        &mut env.env.test_loop.data,
-        &env.env.node_datas,
-        &env.chunk_producer,
-        &[deploy_tx_v2],
-    );
+    env.env.runner_for_account(&env.chunk_producer).run_tx(tx, Duration::seconds(5));
 
     // Step 3: Have all users use the global contract and verify that the rs_contract
     // version (v2) is active by calling "log_something" which only exists in rs_contract.
     tracing::info!(target: "test", "Calling use global contract from all users to verify rs_contract is active...");
-    let mut nonce = 3u64;
     for user in &env.users {
-        let use_tx = use_global_contract(
-            &mut env.env.test_loop,
-            &env.env.node_datas,
-            &env.chunk_producer,
-            user.clone(),
-            nonce,
-            GlobalContractIdentifier::AccountId(deploy_user.clone()),
-        );
-        nonce += 1;
-        env.env.test_loop.run_for(Duration::seconds(5));
-        check_txs(&mut env.env.test_loop.data, &env.env.node_datas, &env.chunk_producer, &[use_tx]);
+        let identifier = GlobalContractIdentifier::AccountId(deploy_user.clone());
+        let tx = env.chunk_producer_node().tx_use_global_contract(user, identifier);
+        env.env.runner_for_account(&env.chunk_producer).run_tx(tx, Duration::seconds(5));
     }
 
     // Step 4: Call "log_something" on each user's account. This method only exists in

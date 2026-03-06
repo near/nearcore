@@ -38,9 +38,7 @@ use crate::utils::setups::{derive_new_epoch_config_from_boundary, two_upgrades_v
 use crate::utils::sharding::{
     get_shards_will_care_about, get_tracked_shards, print_and_assert_shard_accounts,
 };
-use crate::utils::transactions::{
-    check_txs, deploy_global_contract, get_smallest_height_head, use_global_contract,
-};
+use crate::utils::transactions::{check_txs, get_smallest_height_head};
 use crate::utils::trie_sanity::{TrieSanityCheck, check_state_shard_uid_mapping_after_resharding};
 use near_crypto::Signer;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
@@ -469,21 +467,14 @@ fn setup_global_contracts(
     use_test_global_contract: &[(AccountId, GlobalContractIdentifier)],
     test_setup_transactions: &mut Vec<CryptoHash>,
 ) {
-    let mut nonce = 100;
-
     // Deploy global contracts
+    let node = env.node_for_account(client_account_id);
     for (deployer_id, deploy_mode) in deploy_test_global_contract {
-        let deploy_contract_tx = deploy_global_contract(
-            &mut env.test_loop,
-            &env.node_datas,
-            client_account_id,
-            deployer_id.clone(),
-            near_test_contracts::backwards_compatible_rs_contract().into(),
-            nonce,
-            deploy_mode.clone(),
-        );
-        nonce += 1;
-        test_setup_transactions.push(deploy_contract_tx);
+        let code = near_test_contracts::backwards_compatible_rs_contract().into();
+        let tx = node.tx_deploy_global_contract(deployer_id, code, deploy_mode.clone());
+        let tx_hash = tx.get_hash();
+        node.submit_tx(tx);
+        test_setup_transactions.push(tx_hash);
     }
 
     // Make sure the global contract is deployed before the usage transactions.
@@ -493,17 +484,12 @@ fn setup_global_contracts(
     *test_setup_transactions = vec![];
 
     // Use global contracts
+    let node = env.node_for_account(client_account_id);
     for (user_id, identifier) in use_test_global_contract {
-        let use_contract_tx = use_global_contract(
-            &mut env.test_loop,
-            &env.node_datas,
-            client_account_id,
-            user_id.clone(),
-            nonce,
-            identifier.clone(),
-        );
-        nonce += 1;
-        test_setup_transactions.push(use_contract_tx);
+        let tx = node.tx_use_global_contract(user_id, identifier.clone());
+        let tx_hash = tx.get_hash();
+        node.submit_tx(tx);
+        test_setup_transactions.push(tx_hash);
     }
 }
 
