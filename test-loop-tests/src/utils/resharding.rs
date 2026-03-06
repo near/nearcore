@@ -19,7 +19,9 @@ use near_primitives::receipt::{
 };
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance, BlockId, BlockReference, Gas, ShardId};
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, BlockId, BlockReference, Gas, ShardId,
+};
 use near_primitives::views::{FinalExecutionStatus, QueryRequest};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
@@ -37,7 +39,7 @@ use crate::utils::node::TestLoopNode;
 use crate::utils::sharding::{get_memtrie_for_shard, next_block_has_new_shard_layout};
 use crate::utils::transactions::{
     check_txs, check_txs_remove_successful, get_anchor_hash, get_next_nonce, get_shared_block_hash,
-    store_and_submit_tx, submit_tx,
+    submit_tx,
 };
 use crate::utils::{get_node_data, retrieve_client_actor};
 use near_chain::types::Tip;
@@ -1337,4 +1339,21 @@ fn get_trie_node_value<I: borsh::BorshDeserialize + Default>(
         );
         Ok(get(&trie, &key)?.unwrap_or_default())
     })
+}
+
+/// Stores a transaction hash into a vector of `(transaction, block_height)` and then submits the transaction.
+fn store_and_submit_tx(
+    node_datas: &[NodeExecutionData],
+    rpc_id: &AccountId,
+    txs: &Cell<Vec<(CryptoHash, BlockHeight)>>,
+    signer_id: &AccountId,
+    receiver_id: &AccountId,
+    height: BlockHeight,
+    tx: SignedTransaction,
+) {
+    let mut txs_vec = txs.take();
+    tracing::debug!(target: "test", height, tx_hash=?tx.get_hash(), ?signer_id, ?receiver_id, "submitting transaction");
+    txs_vec.push((tx.get_hash(), height));
+    txs.set(txs_vec);
+    submit_tx(node_datas, rpc_id, tx);
 }

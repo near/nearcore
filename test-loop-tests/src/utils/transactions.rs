@@ -500,23 +500,6 @@ enum TxProcessingResult {
     Invalid(InvalidTxError),
 }
 
-/// Stores a transaction hash into a vector of `(transaction, block_height)` and then submits the transaction.
-pub fn store_and_submit_tx(
-    node_datas: &[NodeExecutionData],
-    rpc_id: &AccountId,
-    txs: &Cell<Vec<(CryptoHash, BlockHeight)>>,
-    signer_id: &AccountId,
-    receiver_id: &AccountId,
-    height: BlockHeight,
-    tx: SignedTransaction,
-) {
-    let mut txs_vec = txs.take();
-    tracing::debug!(target: "test", height, tx_hash=?tx.get_hash(), ?signer_id, ?receiver_id, "submitting transaction");
-    txs_vec.push((tx.get_hash(), height));
-    txs.set(txs_vec);
-    submit_tx(&node_datas, &rpc_id, tx);
-}
-
 /// Checks status of the provided transactions. Panics if transaction result is an error.
 /// Removes transactions that finished successfully from the list.
 pub fn check_txs_remove_successful(txs: &Cell<Vec<(CryptoHash, BlockHeight)>>, client: &Client) {
