@@ -748,11 +748,10 @@ pub(crate) fn temporary_account_during_resharding(
                     data: test_loop_data,
                     node_data: get_node_data(node_datas, &client_account_id),
                 };
-                let signer =
-                    near_primitives::test_utils::create_user_test_signer(&temporary_account_id);
+                let signer = create_user_test_signer(&temporary_account_id);
                 let nonce = node.get_next_nonce(&temporary_account_id);
                 let block_hash = get_shared_block_hash(node_datas, test_loop_data);
-                let tx = near_primitives::transaction::SignedTransaction::delete_account(
+                let tx = SignedTransaction::delete_account(
                     nonce,
                     temporary_account_id.clone(),
                     temporary_account_id.clone(),
