@@ -174,18 +174,6 @@ pub(crate) fn execute_money_transfers_with_delay(
     Ok(())
 }
 
-/// Submit a transaction to the rpc node with the given account id.
-/// Doesn't wait for the result, it must be requested separately.
-pub fn submit_tx(node_datas: &[NodeExecutionData], rpc_id: &AccountId, tx: SignedTransaction) {
-    let process_tx_request =
-        ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
-
-    let rpc_node_data = get_node_data(node_datas, rpc_id);
-    let rpc_node_data_sender = &rpc_node_data.rpc_handler_sender;
-
-    rpc_node_data_sender.send(process_tx_request);
-}
-
 /// Check the status of the transactions and assert that they are successful.
 ///
 /// Please note that it's important to use an rpc node that tracks all shards.

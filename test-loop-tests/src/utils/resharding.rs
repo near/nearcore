@@ -6,12 +6,14 @@ use assert_matches::assert_matches;
 use borsh::BorshDeserialize;
 use bytesize::ByteSize;
 use itertools::Itertools;
+use near_async::messaging::CanSend;
 use near_async::test_loop::data::TestLoopData;
 use near_chain::{ChainStoreAccess, Error};
 use near_client::Client;
 use near_client::{Query, QueryError::GarbageCollectedBlock};
 use near_crypto::Signer;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
+use near_network::client::ProcessTxRequest;
 use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -37,9 +39,7 @@ use crate::setup::state::NodeExecutionData;
 use crate::utils::loop_action::LoopAction;
 use crate::utils::node::TestLoopNode;
 use crate::utils::sharding::{get_memtrie_for_shard, next_block_has_new_shard_layout};
-use crate::utils::transactions::{
-    check_txs, get_anchor_hash, get_next_nonce, get_shared_block_hash, submit_tx,
-};
+use crate::utils::transactions::{check_txs, get_anchor_hash, get_shared_block_hash};
 use crate::utils::{get_node_data, retrieve_client_actor};
 use near_chain::types::Tip;
 use near_client::client_actor::ClientActor;
@@ -139,7 +139,11 @@ pub(crate) fn execute_money_transfers(account_ids: Vec<AccountId>) -> LoopAction
                     .collect_vec();
 
                 let anchor_hash = get_anchor_hash(&clients);
-                let nonce = get_next_nonce(&test_loop_data, &node_datas, &sender);
+                let node = TestLoopNode {
+                    data: test_loop_data,
+                    node_data: get_node_data(node_datas, &client_account_id),
+                };
+                let nonce = node.get_next_nonce(&sender);
                 let amount = Balance::from_near(1).checked_mul(rng.gen_range(1..=10)).unwrap();
                 let tx = SignedTransaction::send_money(
                     nonce,
@@ -149,7 +153,7 @@ pub(crate) fn execute_money_transfers(account_ids: Vec<AccountId>) -> LoopAction
                     amount,
                     anchor_hash,
                 );
-                submit_tx(&node_datas, &client_account_id, tx);
+                node.submit_tx(tx);
             }
             ran_transfers.set(true);
         },
@@ -1338,6 +1342,14 @@ fn get_trie_node_value<I: borsh::BorshDeserialize + Default>(
         );
         Ok(get(&trie, &key)?.unwrap_or_default())
     })
+}
+
+/// Submit a transaction to the node with the given account id.
+fn submit_tx(node_datas: &[NodeExecutionData], rpc_id: &AccountId, tx: SignedTransaction) {
+    let process_tx_request =
+        ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
+    let rpc_node_data = get_node_data(node_datas, rpc_id);
+    rpc_node_data.rpc_handler_sender.send(process_tx_request);
 }
 
 /// Stores a transaction hash into a vector of `(transaction, block_height)` and then submits the transaction.
