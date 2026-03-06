@@ -1,9 +1,12 @@
 use std::sync::Arc;
 
+use near_chain_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_jsonrpc_client_internal::JsonRpcClient;
+use near_jsonrpc_primitives::errors::RpcError;
+use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, BlockHeight, BlockId, BlockReference, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, BlockId, BlockReference, EpochId, ShardId};
 use near_store::adapter::chain_store::ChainStoreAdapter;
 
 use crate::ShardedRpcConfig;
@@ -109,4 +112,122 @@ impl ShardedRpcPool {
     ) -> Self {
         Self { nodes, shard_tracker, chain_store }
     }
+
+    /// Returns all nodes that might be able to serve a query with the given routing hints.
+    pub fn get_nodes_for_query(
+        &self,
+        block_hint: BlockHint,
+        shard_hint: ShardHint,
+    ) -> Result<Vec<RpcNodeHandle>, RpcError> {
+        // TODO(sharded-rpc): Implement the rest of the routing logic.
+        // TODO(sharded-rpc): what should happen when the block is not known?
+
+        let nodes = match (&block_hint, &shard_hint) {
+            (BlockHint::None, ShardHint::None) => self.all_nodes(),
+            (BlockHint::Hash(block_hash), ShardHint::Account(account_id)) => {
+                let epoch_id = match self.chain_store.get_block_header(block_hash) {
+                    Ok(header) => *header.epoch_id(),
+                    Err(Error::DBNotFoundErr(_)) => return Ok(self.all_nodes()), // Unknown block, try all nodes
+                    Err(e) => return Err(make_rpc_error(e)),
+                };
+                self.nodes_for_account_in_epochs(vec![epoch_id], account_id)?
+            }
+            (BlockHint::Height(height), ShardHint::Account(account_id)) => {
+                let epoch_ids: Vec<_> = self
+                    .chain_store
+                    .get_all_block_hashes_by_height(*height)
+                    .keys()
+                    .cloned()
+                    .collect();
+                if epoch_ids.is_empty() {
+                    return Ok(self.all_nodes()); // Unknown block, try all nodes
+                }
+                self.nodes_for_account_in_epochs(epoch_ids, account_id)?
+            }
+            (BlockHint::Recent, ShardHint::Account(account_id)) => {
+                let head = match self.chain_store.head() {
+                    Ok(tip) => tip,
+                    Err(Error::DBNotFoundErr(_)) => return Ok(self.all_nodes()), // Unknown block, try all nodes
+                    Err(e) => return Err(make_rpc_error(e)),
+                };
+                // TODO(sharded-rpc): only check next epoch if we're close to the epoch boundary.
+                self.nodes_for_account_in_epochs(
+                    vec![head.epoch_id, head.next_epoch_id],
+                    account_id,
+                )?
+            }
+            _ => self.all_nodes(),
+        };
+
+        if nodes.is_empty() {
+            // Emergency fallback - if there are no nodes that can handle the query, try the local
+            // one, although it'll probably fail.
+            // TODO(sharded-rpc): maybe remove when we're confident in the logic.
+            return Ok(vec![RpcNodeHandle::LocalNode]);
+        }
+
+        Ok(nodes)
+    }
+
+    /// Returns handles to all nodes in the pool (local first, then all remotes).
+    pub fn all_nodes(&self) -> Vec<RpcNodeHandle> {
+        let mut result = vec![RpcNodeHandle::LocalNode];
+        for node in &self.nodes {
+            result.push(RpcNodeHandle::RemoteNode(node.client.clone()));
+        }
+        result
+    }
+
+    /// Returns nodes that might have data for the given account in any of the given epochs.
+    fn nodes_for_account_in_epochs(
+        &self,
+        epoch_ids: Vec<EpochId>,
+        account_id: &AccountId,
+    ) -> Result<Vec<RpcNodeHandle>, RpcError> {
+        let mut result = Vec::new();
+
+        // Create a list of (epoch_id, shard_id)
+        let mut epoch_shard_ids: Vec<(EpochId, ShardId)> = Vec::new();
+        for epoch_id in epoch_ids {
+            let shard_layout = match self.shard_tracker.epoch_manager().get_shard_layout(&epoch_id)
+            {
+                Ok(layout) => layout,
+                Err(EpochError::EpochOutOfBounds(_)) => return Ok(self.all_nodes()), // Unknown epoch, try all nodes
+                Err(e) => return Err(make_rpc_error(e)),
+            };
+            let shard_id = shard_layout.account_id_to_shard_id(account_id);
+
+            epoch_shard_ids.push((epoch_id, shard_id));
+        }
+
+        // Check if the local node matches.
+        for (epoch_id, shard_id) in &epoch_shard_ids {
+            match self.shard_tracker.rpc_tracks_shard_at_epoch(*shard_id, epoch_id) {
+                Ok(tracks) => {
+                    if tracks {
+                        result.push(RpcNodeHandle::LocalNode);
+                        break;
+                    }
+                }
+                Err(EpochError::EpochOutOfBounds(_)) => return Ok(self.all_nodes()), // Unknown epoch, try all nodes
+                Err(e) => return Err(make_rpc_error(e)),
+            };
+        }
+
+        // Check which remote nodes match.
+        for node in &self.nodes {
+            if epoch_shard_ids
+                .iter()
+                .any(|(_epoch_id, shard_id)| node.tracked_shards.contains(shard_id))
+            {
+                result.push(RpcNodeHandle::RemoteNode(node.client.clone()));
+            }
+        }
+
+        Ok(result)
+    }
+}
+
+fn make_rpc_error(err: impl std::fmt::Display) -> RpcError {
+    RpcError::new_internal_error(None, format!("get_nodes_for_query internal error: {}", err))
 }

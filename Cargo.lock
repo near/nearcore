@@ -4517,6 +4517,7 @@ dependencies = [
  "easy-ext",
  "near-async",
  "near-chain-configs",
+ "near-chain-primitives",
  "near-client",
  "near-client-primitives",
  "near-epoch-manager",

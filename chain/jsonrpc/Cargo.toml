@@ -34,6 +34,7 @@ near-jsonrpc-primitives.workspace = true
 near-epoch-manager.workspace = true
 near-store.workspace = true
 near-jsonrpc-adversarial-primitives = { workspace = true, optional = true }
+near-chain-primitives.workspace = true
 
 [features]
 test_features = [
