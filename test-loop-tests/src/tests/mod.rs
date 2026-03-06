@@ -35,6 +35,7 @@ mod multinode_stateless_validators;
 #[cfg(feature = "test_features")]
 mod network_drop;
 mod optimistic_block;
+mod pending_transaction_queue;
 mod process_blocks;
 mod processed_receipts_gc;
 mod protocol_upgrade;
