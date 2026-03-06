@@ -68,7 +68,7 @@ fn chunk_producer_for_block(actor: &TestActor, block: &Block) -> String {
 }
 
 /// Send an empty contract accesses message for a block, signaling no contracts are needed.
-fn send_empty_accesses(actor: &mut TestActor, block: &Block) {
+fn send_empty_contract_accesses(actor: &mut TestActor, block: &Block) {
     let producer = chunk_producer_for_block(actor, block);
     let accesses = make_contract_accesses_with_signer(block, HashSet::new(), &producer);
     actor.handle(SpiceChunkContractAccessesMessage(accesses));
@@ -89,7 +89,7 @@ fn test_valid_witness_adds_endorsement_to_core_state() {
     let post_state_root = witness_message.witness.main_state_transition().post_state_root;
 
     assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_none());
-    send_empty_accesses(&mut actor, &block);
+    send_empty_contract_accesses(&mut actor, &block);
     actor.handle(witness_message.span_wrap());
 
     let block_execution_results =
@@ -125,7 +125,7 @@ fn test_valid_witness_sends_endorsements() {
     let post_state_root = witness_message.witness.main_state_transition().post_state_root;
 
     assert_matches!(actor.network_rc.try_recv(), Err(TryRecvError::Empty));
-    send_empty_accesses(&mut actor, &block);
+    send_empty_contract_accesses(&mut actor, &block);
     actor.handle(witness_message.span_wrap());
     let msg = actor.network_rc.try_recv().unwrap();
     // Since we shouldn't send endorsement to ourselves we should only send one endorsement.
@@ -213,7 +213,7 @@ fn test_witness_arriving_before_block() {
     )
     .unwrap();
     // Accesses arrive after block is processed (epoch info now available).
-    send_empty_accesses(&mut actor, &block);
+    send_empty_contract_accesses(&mut actor, &block);
     actor.handle(ProcessedBlock { block_hash: *block.hash() });
     assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_some());
 }
@@ -230,7 +230,7 @@ fn test_witness_arriving_before_execution_results_for_parent() {
 
     let witness_message = valid_witness_message(&actor, &block, &prev_block, &starting_state_root);
 
-    send_empty_accesses(&mut actor, &block);
+    send_empty_contract_accesses(&mut actor, &block);
     actor.handle(witness_message.span_wrap());
     assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_none());
 
@@ -261,7 +261,7 @@ fn test_witness_arriving_before_block_and_execution_results() {
         &mut BlockProcessingArtifact::default(),
     )
     .unwrap();
-    send_empty_accesses(&mut actor, &block);
+    send_empty_contract_accesses(&mut actor, &block);
     actor.handle(ProcessedBlock { block_hash: *block.hash() });
     assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_none());
 

@@ -187,12 +187,12 @@ pub struct SpiceChunkValidatorWitnessSender {
 impl Handler<SpanWrapped<SpiceChunkStateWitnessMessage>> for SpiceChunkValidatorActor {
     fn handle(&mut self, msg: SpanWrapped<SpiceChunkStateWitnessMessage>) {
         let msg = msg.span_unwrap();
-        let SpiceChunkStateWitnessMessage { witness, raw_witness_size, .. } = msg;
+        let SpiceChunkStateWitnessMessage { witness, .. } = msg;
         let Some(signer) = self.validator_signer.get() else {
             tracing::error!(target: "spice_chunk_validator", ?witness, "received a chunk state witness but this is not a validator node");
             return;
         };
-        if let Err(err) = self.process_chunk_state_witness(witness, raw_witness_size, signer) {
+        if let Err(err) = self.process_chunk_state_witness(witness, signer) {
             tracing::error!(target: "spice_chunk_validator", ?err, "error processing chunk state witness");
         }
     }
@@ -202,7 +202,6 @@ impl SpiceChunkValidatorActor {
     fn process_chunk_state_witness(
         &mut self,
         witness: SpiceChunkStateWitness,
-        _raw_witness_size: ChunkStateWitnessSize,
         signer: Arc<ValidatorSigner>,
     ) -> Result<(), Error> {
         let chunk_id = witness.chunk_id().clone();

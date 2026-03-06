@@ -1143,8 +1143,7 @@ impl SpiceDataDistributorActor {
 
         // Deduplicate repeated requests from the same requester for the same chunk.
         // TODO(spice): This mirrors the current approach in non-spice data flow. There may be
-        // valid reasons to re-request the contract codes. We could rather rate-limit these
-        // requests.
+        // valid reasons to re-request the contract codes.
         let dedup_key = (chunk_id.clone(), requester.clone());
         if self.processed_contract_code_requests.contains(&dedup_key) {
             tracing::debug!(
