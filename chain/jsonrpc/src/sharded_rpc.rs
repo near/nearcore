@@ -11,6 +11,16 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 
 use crate::ShardedRpcConfig;
 
+/// Indicates the origin of a jsonrpc request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RequestSource {
+    /// The request came directly from a user.
+    User,
+    /// The request was internally forwarded by a pool coordinator.
+    /// Indicated by the `X-Near-Pool-Coordinator-Query` HTTP header.
+    Coordinator,
+}
+
 /// Hint about which block a jsonrpc query targets.
 /// Used to determine which nodes can serve the query.
 #[derive(Debug, Clone, PartialEq, Eq)]

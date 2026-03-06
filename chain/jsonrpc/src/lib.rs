@@ -81,7 +81,7 @@ use near_primitives::views::{
 };
 use parking_lot::RwLock;
 use serde_json::{Value, json};
-use sharded_rpc::ShardedRpcPool;
+use sharded_rpc::{RequestSource, ShardedRpcPool};
 use std::future::Future;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -360,10 +360,12 @@ struct JsonRpcHandler {
 }
 
 impl JsonRpcHandler {
-    async fn process(&self, message: Message) -> Message {
+    async fn process(&self, message: Message, source: RequestSource) -> Message {
         let id = message.id();
         match message {
-            Message::Request(request) => Message::response(id, self.process_request(request).await),
+            Message::Request(request) => {
+                Message::response(id, self.process_request(request, source).await)
+            }
             _ => Message::error(RpcError::parse_error(
                 "JSON RPC Request format was expected".to_owned(),
             )),
@@ -372,9 +374,13 @@ impl JsonRpcHandler {
 
     // `process_request` increments affected metrics but the request processing is done by
     // `process_request_internal`.
-    async fn process_request(&self, request: Request) -> Result<Value, RpcError> {
+    async fn process_request(
+        &self,
+        request: Request,
+        source: RequestSource,
+    ) -> Result<Value, RpcError> {
         let timer = Instant::now();
-        let (metrics_name, response) = self.process_request_internal(request).await;
+        let (metrics_name, response) = self.process_request_internal(request, source).await;
 
         metrics::HTTP_RPC_REQUEST_COUNT.with_label_values(&[&metrics_name]).inc();
         metrics::RPC_PROCESSING_TIME
@@ -396,6 +402,7 @@ impl JsonRpcHandler {
     async fn process_request_internal(
         &self,
         request: Request,
+        _source: RequestSource,
     ) -> (String, Result<Value, RpcError>) {
         let method_name = request.method.to_string();
         let request = match self.process_adversarial_request_internal(request).await {
@@ -1774,9 +1781,15 @@ async fn handle_unknown_block(request: Message, handler: State<Arc<JsonRpcHandle
 
 async fn rpc_handler(
     State(handler): State<Arc<JsonRpcHandler>>,
+    headers: axum::http::HeaderMap,
     Json(request): Json<Message>,
 ) -> Response {
-    let message = handler.process(request.clone()).await;
+    let source = if headers.contains_key("X-Near-Pool-Coordinator-Query") {
+        RequestSource::Coordinator
+    } else {
+        RequestSource::User
+    };
+    let message = handler.process(request.clone(), source).await;
     let Message::Response(response) = &message else {
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     };
