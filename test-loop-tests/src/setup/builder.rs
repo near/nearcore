@@ -1,13 +1,16 @@
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use itertools::Itertools;
 use near_chain_configs::test_genesis::{
     TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
 };
 use near_chain_configs::test_utils::TestClientConfigParams;
+use near_jsonrpc::client::JsonRpcClient;
+use near_jsonrpc::sharded_rpc::ShardedRpcNode;
 use near_primitives::shard_layout::ShardLayout;
 use near_store::archive::cloud_storage::config::test_cloud_archival_config;
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use tempfile::TempDir;
 
 use near_async::test_loop::TestLoopV2;
@@ -34,7 +37,7 @@ use crate::utils::peer_manager_actor::{TestLoopNetworkSharedState, UnreachableAc
 
 use super::env::TestLoopEnv;
 use super::setup::setup_client;
-use super::state::{NodeSetupState, SharedState};
+use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 
 pub(crate) const MIN_BLOCK_PROD_TIME: u64 = 600;
 
@@ -378,15 +381,40 @@ impl TestLoopBuilder {
             .map(|idx| self.setup_node_state(idx, &genesis, &clients))
             .collect_vec();
         let (mut test_loop, shared_state) = self.setup_shared_state(genesis);
-        let datas = node_states
+        let datas: Vec<_> = node_states
             .into_iter()
             .map(|node_state| {
                 let account_id = node_state.account_id.clone();
                 setup_client(account_id.as_str(), &mut test_loop, node_state, &shared_state)
             })
-            .collect_vec();
+            .collect();
+
+        Self::setup_sharded_rpc_pools(&datas);
 
         TestLoopEnv { test_loop, node_datas: datas, shared_state }
+    }
+
+    /// Wire each node's sharded RPC pool with clients pointing to all nodes.
+    fn setup_sharded_rpc_pools(datas: &[NodeExecutionData]) {
+        let all_nodes: Vec<ShardedRpcNode> = datas
+            .iter()
+            .map(|data| {
+                let client =
+                    Arc::new(JsonRpcClient::new_with_transport(data.jsonrpc_transport.clone()));
+                let pool = data.sharded_rpc_pool.read();
+                // TODO(sharded-rpc): find the right shard_ids in TestLoop.
+                let tracked_shards = match pool.shard_tracker.tracked_shards_config() {
+                    TrackedShardsConfig::Shards(uids) => {
+                        uids.iter().map(|uid| uid.shard_id()).collect()
+                    }
+                    _ => vec![],
+                };
+                ShardedRpcNode { client, tracked_shards }
+            })
+            .collect();
+        for data in datas {
+            data.sharded_rpc_pool.write().nodes = all_nodes.clone();
+        }
     }
 
     fn setup_shared_state(mut self, genesis: Genesis) -> (TestLoopV2, SharedState) {

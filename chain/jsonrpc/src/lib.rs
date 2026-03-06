@@ -79,7 +79,9 @@ use near_primitives::views::{
     MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, SplitStorageInfoView,
     StateChangesKindsView, StateChangesView, TxExecutionStatus, TxStatusView,
 };
+use parking_lot::RwLock;
 use serde_json::{Value, json};
+use sharded_rpc::ShardedRpcPool;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -91,6 +93,7 @@ use tower_http::limit::RequestBodyLimitLayer;
 
 mod api;
 mod metrics;
+pub mod sharded_rpc;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
@@ -353,6 +356,7 @@ struct JsonRpcHandler {
     debug_pages_src_path: Option<PathBuf>,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
     block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
+    pool: Arc<RwLock<ShardedRpcPool>>,
 }
 
 impl JsonRpcHandler {
@@ -2019,6 +2023,7 @@ pub fn create_jsonrpc_app(
     block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
     #[cfg(feature = "test_features")] gc_sender: GCSenderForRpc,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
+    pool: Arc<RwLock<ShardedRpcPool>>,
 ) -> Router {
     let RpcConfig {
         cors_allowed_origins,
@@ -2044,6 +2049,7 @@ pub fn create_jsonrpc_app(
         #[cfg(feature = "test_features")]
         gc_sender,
         block_notification_watcher,
+        pool,
     });
 
     // Build router
@@ -2096,6 +2102,7 @@ pub async fn start_http(
     block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
     #[cfg(feature = "test_features")] gc_sender: GCSenderForRpc,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
+    pool: Arc<RwLock<ShardedRpcPool>>,
     future_spawner: &dyn FutureSpawner,
 ) {
     let addr = config.addr;
@@ -2116,6 +2123,7 @@ pub async fn start_http(
         #[cfg(feature = "test_features")]
         gc_sender,
         entity_debug_handler,
+        pool,
     );
 
     // Bind to socket here, so callers can be sure they can connect once this function returns.

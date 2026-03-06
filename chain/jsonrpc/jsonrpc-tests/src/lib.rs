@@ -12,6 +12,7 @@ use near_client::client_actor::SpiceClientConfig;
 use near_client::{RpcHandlerConfig, ViewClientActor, spawn_rpc_handler_actor, start_client};
 use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::{EpochManager, shard_tracker::ShardTracker};
+use near_jsonrpc::sharded_rpc::ShardedRpcPool;
 use near_jsonrpc::{RpcConfig, create_jsonrpc_app};
 use near_jsonrpc_primitives::types::entity_debug::DummyEntityDebugHandler;
 use near_network::tcp;
@@ -19,10 +20,12 @@ use near_primitives::epoch_info::RngSeed;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, NumSeats};
+use near_store::adapter::StoreAdapter as _;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use near_time::Clock;
 use nearcore::NightshadeRuntime;
+use parking_lot::RwLock;
 
 pub const TEST_SEED: RngSeed = [3; 32];
 
@@ -95,6 +98,7 @@ pub fn create_test_setup_with_accounts_and_validity(
 
     // 2. Create runtime
     let tempdir = tempfile::TempDir::new().expect("Failed to create temp directory");
+    let chain_store = store.chain_store();
     let runtime =
         NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
 
@@ -185,7 +189,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         rpc_handler_config,
         client_result.tx_pool,
         epoch_manager,
-        shard_tracker,
+        shard_tracker.clone(),
         signer,
         runtime,
         noop().into_multi_sender(),
@@ -203,6 +207,12 @@ pub fn create_test_setup_with_accounts_and_validity(
         sharded_rpc: None,
     };
 
+    let pool = Arc::new(RwLock::new(ShardedRpcPool::new(
+        rpc_config.sharded_rpc.clone(),
+        shard_tracker,
+        chain_store,
+    )));
+
     let app = create_jsonrpc_app(
         Clock::real(),
         rpc_config,
@@ -215,6 +225,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         #[cfg(feature = "test_features")]
         noop().into_multi_sender(),
         Arc::new(DummyEntityDebugHandler {}),
+        pool,
     );
 
     // 10. Create TestServer with real HTTP transport to get an address

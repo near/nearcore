@@ -288,6 +288,10 @@ impl ShardTracker {
         cares_about_shard || will_care_about_shard
     }
 
+    pub fn tracked_shards_config(&self) -> &TrackedShardsConfig {
+        &self.tracked_shards_config
+    }
+
     /// Returns whether the node is configured for all shards tracking.
     pub fn tracks_all_shards(&self) -> bool {
         self.tracked_shards_config.tracks_all_shards()

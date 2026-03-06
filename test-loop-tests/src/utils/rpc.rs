@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use parking_lot::RwLock;
+
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
@@ -10,6 +12,7 @@ use near_chain_configs::GenesisConfig;
 use near_client::gc_actor::GCActor;
 use near_client_primitives::types::BlockNotificationMessage;
 use near_jsonrpc::client::RpcTransport;
+use near_jsonrpc::sharded_rpc::ShardedRpcPool;
 use near_jsonrpc::{PeerManagerSenderForRpc, RpcConfig, create_jsonrpc_app};
 use near_jsonrpc_primitives::types::entity_debug::DummyEntityDebugHandler;
 use tower_service::Service;
@@ -60,6 +63,7 @@ pub(crate) fn create_testloop_jsonrpc_router(
     #[allow(unused)] gc_actor_sender: &TestLoopSender<GCActor>, // used only when test_features is enabled.
     genesis_config: &GenesisConfig,
     block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
+    pool: Arc<RwLock<ShardedRpcPool>>,
 ) -> Router {
     // TODO(rpc): figure out how to pass non-dummy values for these fields.
     // They are not needed for normal jsonrpc functionality, it's debugging/testing stuff.
@@ -78,5 +82,6 @@ pub(crate) fn create_testloop_jsonrpc_router(
         #[cfg(feature = "test_features")]
         gc_actor_sender.clone().into_multi_sender(),
         entity_debug_handler,
+        pool,
     )
 }
