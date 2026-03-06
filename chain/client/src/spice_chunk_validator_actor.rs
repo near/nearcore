@@ -26,8 +26,8 @@ use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::{
-    CodeBytes, CodeHash, SpiceChunkContractAccesses, SpiceContractCodeRequest,
-    SpiceContractCodeResponse,
+    CodeBytes, CodeHash, MAX_CONTRACTS_PER_REQUEST, SpiceChunkContractAccesses,
+    SpiceContractCodeRequest, SpiceContractCodeResponse,
 };
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness;
@@ -38,6 +38,8 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
 use near_store::adapter::StoreAdapter as _;
+
+use crate::stateless_validation::contracts_cache_contains_contract;
 
 // Each pending chunk is up to ~80MB in the worst case (17MB witness + 64MB contracts).
 // This results in a max of ~2GB of memory used for pending chunks.
@@ -434,12 +436,22 @@ impl SpiceChunkValidatorActor {
 
     /// Handles contract accesses message from a chunk producer.
     /// Checks the compiled contract cache for each hash, then requests any missing
-    /// contracts from a random chunk producer.
+    /// contracts from a random chunk producer of the related shard.
     fn handle_spice_contract_accesses(
         &mut self,
         accesses: SpiceChunkContractAccesses,
     ) -> Result<(), Error> {
         let chunk_id = accesses.chunk_id().clone();
+
+        if accesses.contracts().len() > MAX_CONTRACTS_PER_REQUEST {
+            tracing::warn!(
+                target: "spice_chunk_validator",
+                ?chunk_id,
+                num_contracts = accesses.contracts().len(),
+                "contract accesses message exceeds maximum number of contracts"
+            );
+            return Ok(());
+        }
 
         // Verify signature of accesses message against any chunk producer for the shard
         // in the epoch (any node tracking the shard may send contract accesses).
@@ -476,17 +488,12 @@ impl SpiceChunkValidatorActor {
         let runtime_config = self.runtime_adapter.get_runtime_config(protocol_version);
         let cache = self.runtime_adapter.compiled_contract_cache();
 
-        let mut missing = HashSet::new();
-        for code_hash in accesses.contracts() {
-            if crate::stateless_validation::contracts_cache_contains_contract(
-                cache,
-                code_hash,
-                runtime_config,
-            ) {
-                continue;
-            }
-            missing.insert(code_hash.clone());
-        }
+        let missing: HashSet<_> = accesses
+            .contracts()
+            .iter()
+            .filter(|h| !contracts_cache_contains_contract(cache, h, runtime_config))
+            .cloned()
+            .collect();
 
         if !missing.is_empty() {
             let mut producers = self

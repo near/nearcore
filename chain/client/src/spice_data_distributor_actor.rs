@@ -45,9 +45,9 @@ use near_primitives::spice_partial_data::SpiceDataIdentifier;
 use near_primitives::spice_partial_data::SpiceDataPart;
 use near_primitives::spice_partial_data::SpicePartialData;
 use near_primitives::spice_partial_data::SpiceVerifiedPartialData;
-use near_primitives::stateless_validation::contract_distribution::SpiceContractCodeRequest;
 use near_primitives::stateless_validation::contract_distribution::{
-    CodeBytes, CodeHash, SpiceChunkContractAccesses, SpiceContractCodeResponse,
+    CodeBytes, CodeHash, MAX_CONTRACTS_PER_REQUEST, SpiceChunkContractAccesses,
+    SpiceContractCodeRequest, SpiceContractCodeResponse,
 };
 use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness;
 use near_primitives::types::AccountId;
@@ -1108,6 +1108,17 @@ impl SpiceDataDistributorActor {
             .with_label_values(&[&chunk_id.shard_id.to_string()])
             .start_timer();
         let requester = request.requester().clone();
+
+        if request.contracts().len() > MAX_CONTRACTS_PER_REQUEST {
+            tracing::warn!(
+                target: "spice_data_distribution",
+                ?chunk_id,
+                ?requester,
+                num_contracts = request.contracts().len(),
+                "contract code request exceeds maximum number of contracts"
+            );
+            return Ok(());
+        }
 
         // Fetch block early — needed for both validation and storage lookup below.
         let block_header = self.chain_store.get_block_header(&chunk_id.block_hash)?;

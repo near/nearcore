@@ -13,6 +13,11 @@ use near_schema_checker_lib::ProtocolSchema;
 use std::collections::HashSet;
 use std::sync::Arc;
 
+/// Maximum number of contracts allowed in a single SpiceContractCodeRequest.
+/// This is a conservative upper bound on the number of unique contracts that can
+/// be called in a single chunk, derived from chunk gas limit / function_call_base cost.
+pub const MAX_CONTRACTS_PER_REQUEST: usize = 400;
+
 // Data structures for chunk producers to send accessed contracts to chunk validators.
 
 /// Contains contracts (as code-hashes) accessed during the application of a chunk.
@@ -580,6 +585,12 @@ impl SpiceContractCodeRequest {
         contracts: HashSet<CodeHash>,
         signer: &ValidatorSigner,
     ) -> Self {
+        assert!(
+            contracts.len() <= MAX_CONTRACTS_PER_REQUEST,
+            "too many contracts in request: {} > {}",
+            contracts.len(),
+            MAX_CONTRACTS_PER_REQUEST,
+        );
         let inner =
             SpiceContractCodeRequestInner::new(signer.validator_id().clone(), chunk_id, contracts);
         let signature = signer.sign_bytes(&borsh::to_vec(&inner).unwrap());
