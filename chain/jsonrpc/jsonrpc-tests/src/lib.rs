@@ -200,6 +200,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         limits_config: Default::default(),
         enable_debug_rpc: false,
         experimental_debug_pages_src_path: None,
+        sharded_rpc: None,
     };
 
     let app = create_jsonrpc_app(

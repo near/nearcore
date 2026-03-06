@@ -72,7 +72,7 @@ use near_o11y::metrics::{Encoder, TextEncoder, prometheus};
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockId, BlockReference};
+use near_primitives::types::{AccountId, BlockId, BlockReference, ShardId};
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, GasPriceView, LightClientBlockView,
@@ -125,6 +125,21 @@ fn default_enable_debug_rpc() -> bool {
     false
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct ShardedRpcConfig {
+    /// All nodes in a sharded rpc pool, might include information about this node as well.
+    pub nodes: Vec<ShardedRpcNodeConfig>,
+}
+
+/// Information about a single node in a sharded rpc pool
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct ShardedRpcNodeConfig {
+    /// The jsonrpc address (e.g "http://127.0.0.1:3030")
+    pub address: String,
+    /// Shards that this node tracks (static configuration for now)
+    pub tracked_shards: Vec<ShardId>,
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct RpcConfig {
     pub addr: tcp::ListenerAddr,
@@ -142,6 +157,8 @@ pub struct RpcConfig {
     // be read from this directory, instead of the contents compiled into the binary. This allows
     // for quick iterative development.
     pub experimental_debug_pages_src_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sharded_rpc: Option<ShardedRpcConfig>,
 }
 
 impl Default for RpcConfig {
@@ -154,6 +171,7 @@ impl Default for RpcConfig {
             limits_config: Default::default(),
             enable_debug_rpc: false,
             experimental_debug_pages_src_path: None,
+            sharded_rpc: None,
         }
     }
 }
