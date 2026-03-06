@@ -1,5 +1,6 @@
 use near_o11y::metrics::{
-    HistogramVec, IntCounterVec, try_create_histogram_vec, try_create_int_counter_vec,
+    HistogramVec, IntCounterVec, IntGauge, try_create_histogram_vec, try_create_int_counter_vec,
+    try_create_int_gauge,
 };
 use std::sync::LazyLock;
 use std::{cell::RefCell, time::Duration};
@@ -28,6 +29,22 @@ static COMPILED_CONTRACT_CACHE_LOOKUPS_TOTAL: LazyLock<IntCounterVec> = LazyLock
         "near_vm_compiled_contract_cache_lookups_total",
         "The number of times the runtime looks up for an entry in the compiled-contract cache for the given caller context and shard_id",
         &["context", "shard_id"],
+    )
+    .unwrap()
+});
+
+static COMPILED_CONTRACT_CACHE_ITEMS: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_vm_compiled_contract_cache_items",
+        "Number of items currently in the in-memory compiled contract cache",
+    )
+    .unwrap()
+});
+
+static COMPILED_CONTRACT_CACHE_WEIGHT_BYTES: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_vm_compiled_contract_cache_weight_bytes",
+        "Total weight in bytes of items currently in the in-memory compiled contract cache",
     )
     .unwrap()
 });
@@ -76,6 +93,11 @@ pub(crate) fn record_compiled_contract_cache_lookup(is_hit: bool) {
 
 pub fn reset_metrics() {
     METRICS.with_borrow_mut(|m| *m = Metrics::default());
+}
+
+pub(crate) fn set_compiled_contract_cache_metrics(items: usize, weight: u64) {
+    COMPILED_CONTRACT_CACHE_ITEMS.set(items as i64);
+    COMPILED_CONTRACT_CACHE_WEIGHT_BYTES.set(weight as i64);
 }
 
 /// Reports the current metrics at the end of a single VM invocation (eg. to run a function call).

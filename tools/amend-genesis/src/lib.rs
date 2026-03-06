@@ -178,7 +178,7 @@ fn parse_extra_records(
     near_chain_configs::stream_records_from_file(reader, |r| {
         match r {
             StateRecord::Account { account_id, account } => {
-                if !account.contract().is_none() {
+                if account.contract().is_some() {
                     result = Err(anyhow::anyhow!(
                         "FIXME: accounts in --extra-records with code_hash set not supported"
                     ));
