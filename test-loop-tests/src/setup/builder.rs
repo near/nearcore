@@ -258,6 +258,18 @@ impl TestLoopBuilder {
         self
     }
 
+    /// Adds a non-validator client node with a genesis account and initial balance.
+    pub fn add_non_validator_client(
+        mut self,
+        account_id: &AccountId,
+        initial_balance: Balance,
+    ) -> Self {
+        let auto = self.setup_config.ensure_auto();
+        auto.user_accounts.push((account_id.clone(), initial_balance));
+        auto.non_validator_clients.push(account_id.clone());
+        self
+    }
+
     /// Set the accounts whose clients should be configured as cold DB split store archival nodes in the test loop.
     /// These accounts must already be in the `clients` list.
     pub(crate) fn cold_storage_archival_clients(self, accounts: Vec<AccountId>) -> Self {
@@ -574,6 +586,7 @@ struct AutoSetupConfig {
     archival_node: Option<ArchivalKind>,
     shard_layout: Option<ShardLayout>,
     user_accounts: Vec<(AccountId, Balance)>,
+    non_validator_clients: Vec<AccountId>,
     epoch_length: Option<u64>,
     gas_limit: Option<Gas>,
     protocol_version: Option<ProtocolVersion>,
@@ -636,6 +649,7 @@ impl AutoSetupConfig {
             archival_node: None,
             shard_layout: None,
             user_accounts: vec![],
+            non_validator_clients: vec![],
             epoch_length: None,
             gas_limit: None,
             protocol_version: None,
@@ -697,6 +711,9 @@ impl AutoSetupConfig {
                 account_id: archival_account_id(),
                 client_type: ClientType::Archival(kind),
             });
+        }
+        for account_id in self.non_validator_clients {
+            clients.push(ClientSpec { account_id, client_type: ClientType::Regular });
         }
         (genesis, clients)
     }
