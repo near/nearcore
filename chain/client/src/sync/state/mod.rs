@@ -241,21 +241,13 @@ impl StateSync {
         if block_exists {
             return (false, true);
         }
-        let timeout = self.block_request_timeout;
-        let timeout = near_async::time::Duration::try_from(timeout);
-        let timeout = timeout.unwrap();
-
         let Some(last_time) = self.last_time_sync_block_requested.get(block_hash) else {
             return (true, false);
         };
 
+        let timeout = self.block_request_timeout;
         if (now - *last_time) >= timeout {
-            tracing::error!(
-                target: "sync",
-                %block_hash,
-                ?timeout,
-                "state sync: block request timed out"
-            );
+            tracing::error!(?block_hash, ?timeout, "state sync: block request timed out");
             (true, false)
         } else {
             (false, false)
@@ -280,7 +272,8 @@ impl StateSync {
         needed_block_hashes.append(&mut extra_block_hashes);
         let mut blocks_to_request = vec![];
 
-        for hash in needed_block_hashes.clone() {
+        let mut rng = thread_rng();
+        for hash in needed_block_hashes {
             let (request_block, have_block) = self.sync_block_status(chain, &sync_hash, &hash, now);
             tracing::trace!(target: "sync", ?hash, ?request_block, ?have_block, "request_sync_blocks");
 
@@ -293,7 +286,7 @@ impl StateSync {
                 continue;
             }
 
-            let peer_info = highest_height_peers.choose(&mut thread_rng());
+            let peer_info = highest_height_peers.choose(&mut rng);
             let Some(peer_info) = peer_info else {
                 tracing::trace!(target: "sync", ?hash, "request_sync_blocks: skipping - no peer");
                 continue;
