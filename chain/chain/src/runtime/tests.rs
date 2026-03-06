@@ -259,7 +259,6 @@ impl TestEnv {
                     block_type: BlockType::Normal,
                     height,
                     prev_block_hash,
-                    last_final_block_hash: CryptoHash::default(),
                     block_timestamp,
                     gas_price,
                     random_seed: CryptoHash::default(),
