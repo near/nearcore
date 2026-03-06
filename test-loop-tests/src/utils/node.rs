@@ -178,10 +178,13 @@ impl<'a> TestLoopNode<'a> {
             .collect()
     }
 
-    pub fn submit_tx(&self, tx: SignedTransaction) {
+    /// Submit a signed transaction to this node's RPC handler. Returns the transaction hash.
+    pub fn submit_tx(&self, tx: SignedTransaction) -> CryptoHash {
+        let tx_hash = tx.get_hash();
         let process_tx_request =
             ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
         self.node_data.rpc_handler_sender.send(process_tx_request);
+        tx_hash
     }
 
     /// Build a signed transaction from raw actions, auto-determining nonce,

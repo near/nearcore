@@ -57,8 +57,7 @@ fn test_global_receipt_distribution_at_resharding_boundary() {
         code.code().to_vec(),
         GlobalContractDeployMode::CodeHash,
     );
-    let deploy_tx = tx.get_hash();
-    node.submit_tx(tx);
+    let deploy_tx = node.submit_tx(tx);
 
     env.run_until_head_height(expected_new_shard_layout_height);
     check_txs(&mut env.env.test_loop.data, &env.env.node_datas, &env.chunk_producer, &[deploy_tx]);
@@ -100,9 +99,7 @@ fn test_global_receipt_distribution_at_resharding_boundary() {
     for user in &env.users {
         let tx =
             node.tx_use_global_contract(user, GlobalContractIdentifier::CodeHash(*code.hash()));
-        let tx_hash = tx.get_hash();
-        node.submit_tx(tx);
-        use_txs.push(tx_hash);
+        use_txs.push(node.submit_tx(tx));
     }
     env.env.test_loop.run_for(Duration::seconds(2));
     check_txs(&mut env.env.test_loop.data, &env.env.node_datas, &env.chunk_producer, &use_txs);

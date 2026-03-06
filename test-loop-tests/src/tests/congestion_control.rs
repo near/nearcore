@@ -199,9 +199,7 @@ fn do_call_contract(
             Balance::ZERO,
             Gas::from_teragas(300),
         );
-        let tx_hash = tx.get_hash();
-        node.submit_tx(tx);
-        txs.push(tx_hash);
+        txs.push(node.submit_tx(tx));
     }
     env.test_loop.run_for(Duration::seconds(20));
     check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &txs);

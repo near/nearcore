@@ -127,9 +127,7 @@ fn deploy_contracts(
             ContractCode::new(near_test_contracts::sized_contract((i + 1) * 100).to_vec(), None);
         let node = env.node_for_account(rpc_id);
         let tx = node.tx_deploy_contract(contract_id, contract.code().to_vec());
-        let tx_hash = tx.get_hash();
-        node.submit_tx(tx);
-        txs.push(tx_hash);
+        txs.push(node.submit_tx(tx));
         contracts.push(contract);
     }
     env.test_loop.run_for(Duration::seconds(2));
@@ -157,9 +155,7 @@ fn call_contracts(
                 Balance::ZERO,
                 Gas::from_teragas(300),
             );
-            let tx_hash = tx.get_hash();
-            node.submit_tx(tx);
-            txs.push(tx_hash);
+            txs.push(node.submit_tx(tx));
         }
     }
     env.test_loop.run_for(Duration::seconds(3));

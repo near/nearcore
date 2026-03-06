@@ -472,9 +472,7 @@ fn setup_global_contracts(
     for (deployer_id, deploy_mode) in deploy_test_global_contract {
         let code = near_test_contracts::backwards_compatible_rs_contract().into();
         let tx = node.tx_deploy_global_contract(deployer_id, code, deploy_mode.clone());
-        let tx_hash = tx.get_hash();
-        node.submit_tx(tx);
-        test_setup_transactions.push(tx_hash);
+        test_setup_transactions.push(node.submit_tx(tx));
     }
 
     // Make sure the global contract is deployed before the usage transactions.
@@ -487,9 +485,7 @@ fn setup_global_contracts(
     let node = env.node_for_account(client_account_id);
     for (user_id, identifier) in use_test_global_contract {
         let tx = node.tx_use_global_contract(user_id, identifier.clone());
-        let tx_hash = tx.get_hash();
-        node.submit_tx(tx);
-        test_setup_transactions.push(tx_hash);
+        test_setup_transactions.push(node.submit_tx(tx));
     }
 }
 
@@ -616,9 +612,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         let node = env.node_for_account(&client_account_id);
         let code = near_test_contracts::backwards_compatible_rs_contract().into();
         let tx = node.tx_deploy_contract(contract_id, code);
-        let tx_hash = tx.get_hash();
-        node.submit_tx(tx);
-        test_setup_transactions.push(tx_hash);
+        test_setup_transactions.push(node.submit_tx(tx));
     }
     if !params.disable_temporary_account_test {
         let create_account_tx = create_account(
@@ -1750,7 +1744,5 @@ fn create_account(
         node.head().last_block_hash,
     );
 
-    let tx_hash = tx.get_hash();
-    node.submit_tx(tx);
-    tx_hash
+    node.submit_tx(tx)
 }

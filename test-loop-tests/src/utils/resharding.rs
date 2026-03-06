@@ -760,9 +760,7 @@ pub(crate) fn temporary_account_during_resharding(
                     &signer,
                     block_hash,
                 );
-                let tx_hash = tx.get_hash();
-                node.submit_tx(tx);
-                delete_account_tx_hash.set(Some(tx_hash));
+                delete_account_tx_hash.set(Some(node.submit_tx(tx)));
                 target_height
                     .set(Some(latest_height.get() + (gc_num_epochs_to_keep + 1) * epoch_length));
                 resharding_height.set(Some(latest_height.get()));
