@@ -186,6 +186,34 @@ impl HeaderSync {
             HeaderSyncAction::Skip => return Ok(()),
         }
 
+        self.request_headers_from_random_peer(chain, &header_head, highest_height_peers)
+    }
+
+    /// Check if a new batch of headers should be requested, and request if so.
+    /// Does not touch `SyncStatus` — the caller owns status transitions.
+    /// Does not ban peers — call `check_and_ban_stalling_peer()` separately
+    /// when banning is appropriate.
+    pub fn run_v2(
+        &mut self,
+        chain: &Chain,
+        highest_height: BlockHeight,
+        highest_height_peers: &[HighestHeightPeerInfo],
+    ) -> Result<(), near_chain::Error> {
+        let header_head = chain.header_head()?;
+        if !self.is_header_request_due(&header_head, highest_height) {
+            return Ok(());
+        }
+        self.request_headers_from_random_peer(chain, &header_head, highest_height_peers)
+    }
+
+    /// Pick a random highest-height peer and request the next batch of headers.
+    /// Respects the configured `shutdown_height` ceiling.
+    fn request_headers_from_random_peer(
+        &mut self,
+        chain: &Chain,
+        header_head: &Tip,
+        highest_height_peers: &[HighestHeightPeerInfo],
+    ) -> Result<(), near_chain::Error> {
         self.syncing_peer = None;
         // Pick a new random peer to request the next batch of headers.
         if let Some(peer) = highest_height_peers.choose(&mut thread_rng()).cloned() {
@@ -199,116 +227,23 @@ impl HeaderSync {
         Ok(())
     }
 
-    /// Check if a new batch of headers should be requested, and request if so.
-    /// Does NOT touch SyncStatus. Does NOT ban peers (see `check_and_ban_stalling_peer()`).
-    /// Used by the v2 sync handler during HeaderSync and BlockSync phases.
-    pub fn run_v2(
-        &mut self,
-        chain: &Chain,
-        highest_height: BlockHeight,
-        highest_height_peers: &[HighestHeightPeerInfo],
-    ) -> Result<(), near_chain::Error> {
-        tracing::debug!("Entering HeaderSync::run_v2");
-        let header_head = chain.header_head()?;
-
-        if !self.is_header_request_due(&header_head, highest_height) {
-            return Ok(());
-        }
-
-        self.syncing_peer = None;
-        if let Some(peer) = highest_height_peers.choose(&mut thread_rng()).cloned() {
-            let shutdown_height = self.shutdown_height.get().unwrap_or(u64::MAX);
-            let h = peer.highest_block_height.min(shutdown_height);
-            if h > header_head.height {
-                tracing::debug!(
-                    header_head_height = header_head.height,
-                    peer_height = h,
-                    peer_id = %peer.peer_info.id,
-                    "requesting headers (v2)"
-                );
-                self.request_headers(chain, &peer)?;
-                self.syncing_peer = Some(peer);
-            }
-        }
-        Ok(())
-    }
-
-    /// Core due-check without SyncStatus dependency.
-    /// Same logic as `header_sync_due()` but without:
-    /// - `force_sync` check (caller decides when to call)
-    /// - peer banning (isolated in `check_and_ban_stalling_peer()`)
-    fn is_header_request_due(&mut self, header_head: &Tip, highest_height: BlockHeight) -> bool {
-        let now = self.clock.now_utc();
-        let BatchProgress {
-            timeout,
-            expected_height: old_expected_height,
-            header_head_height: prev_height,
-            highest_height_of_peers: prev_highest_height,
-        } = self.batch_progress;
-
-        let all_headers_received =
-            header_head.height >= min(prev_height + MAX_BLOCK_HEADERS - 4, prev_highest_height);
-        let stalling = header_head.height <= old_expected_height && now > timeout;
-
-        if all_headers_received || stalling {
-            self.batch_progress = BatchProgress {
-                timeout: now + self.initial_timeout,
-                expected_height: self
-                    .compute_expected_height(header_head.height, self.initial_timeout),
-                header_head_height: header_head.height,
-                highest_height_of_peers: highest_height,
-            };
-
-            if stalling {
-                if self.stalling_ts.is_none() {
-                    self.stalling_ts = Some(now);
-                }
-            } else {
-                self.stalling_ts = None;
-            }
-
-            if all_headers_received {
-                self.stalling_ts = None;
-            }
-
-            self.syncing_peer = None;
-            true
-        } else {
-            if self.made_enough_progress(header_head.height, old_expected_height, now, timeout) {
-                let new_expected_height =
-                    self.compute_expected_height(header_head.height, self.progress_timeout);
-                self.batch_progress = BatchProgress {
-                    timeout: now + self.progress_timeout,
-                    expected_height: new_expected_height,
-                    header_head_height: prev_height,
-                    highest_height_of_peers: prev_highest_height,
-                };
-            }
-            false
-        }
-    }
-
-    /// Check if header sync is stalling and return the peer to ban if so.
-    /// The caller is responsible for issuing the actual ban via the network
-    /// adapter. Call after `run_v2()` when banning is appropriate (e.g. during
-    /// HeaderSync or BlockSync phases, but not during StateSync where
-    /// banning could hurt state part downloads).
+    /// If header sync has been stalling for longer than `stall_ban_timeout`,
+    /// ban the peer that was serving the current batch. Should not be called
+    /// during state sync where banning could hurt state part downloads.
     pub fn check_and_ban_stalling_peer(&mut self) {
-        if let Some(stalling_ts) = self.stalling_ts {
-            let elapsed = self.clock.now_utc() - stalling_ts;
-            if elapsed > self.stall_ban_timeout {
-                self.stalling_ts = None;
-                if let Some(peer) = self.syncing_peer.take() {
-                    let peer_id = peer.peer_info.id;
-                    tracing::warn!(?peer_id, ?elapsed, "header sync stalling, banning peer (v2)");
-                    self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                        NetworkRequests::BanPeer {
-                            peer_id,
-                            ban_reason: ReasonForBan::ProvidedNotEnoughHeaders,
-                        },
-                    ));
-                }
-            }
+        let Some(stalling_ts) = self.stalling_ts else { return };
+        let elapsed = self.clock.now_utc() - stalling_ts;
+        if elapsed > self.stall_ban_timeout {
+            self.stalling_ts = None;
+            let Some(peer) = self.syncing_peer.take() else { return };
+            let peer_id = peer.peer_info.id;
+            tracing::warn!(?peer_id, ?elapsed, "header sync stalling, banning peer");
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::BanPeer {
+                    peer_id,
+                    ban_reason: ReasonForBan::ProvidedNotEnoughHeaders,
+                },
+            ));
         }
     }
 
@@ -323,18 +258,11 @@ impl HeaderSync {
                 / NS_PER_SECOND)) as u64
     }
 
-    /// Returns whether a new batch of headers needs to be requested.
-    // Checks whether the batch of headers is completely downloaded, or if the peer failed to satisfy our expectations for long enough.
-    // If yes, then returns true to request a new batch of headers. Maybe bans a peer.
-    // Otherwise, returns false to indicate that we're expecting more headers from the same requested batch.
-    // TODO: This function should check the difference between the current header_head height and the highest height of the peers.
-    // TODO: Triggering header sync to get 1 header (or even 0 headers) makes little sense.
-    pub(crate) fn header_sync_due(
-        &mut self,
-        sync_status: &SyncStatus,
-        header_head: &Tip,
-        highest_height: BlockHeight,
-    ) -> bool {
+    /// Returns true if a new batch of headers should be requested.
+    /// Checks whether the previous batch was fully received or the peer
+    /// has stalled past the expected timeout. Updates `batch_progress`
+    /// and `stalling_ts` accordingly.
+    fn is_header_request_due(&mut self, header_head: &Tip, highest_height: BlockHeight) -> bool {
         let now = self.clock.now_utc();
         let BatchProgress {
             timeout,
@@ -346,21 +274,9 @@ impl HeaderSync {
         // Can proceed to the next iteration.
         let all_headers_received =
             header_head.height >= min(prev_height + MAX_BLOCK_HEADERS - 4, prev_highest_height);
-
-        // Did we receive as many headers as we expected from the peer?
-        // If not, consider the peer stalling.
-        // This can be either the initial timeout, or any of the progress timeouts after the initial timeout.
         let stalling = header_head.height <= old_expected_height && now > timeout;
 
-        // Always enable header sync if we're able to do header sync but are not doing it already.
-        let force_sync = match sync_status {
-            SyncStatus::NoSync | SyncStatus::AwaitingPeers | SyncStatus::EpochSyncDone => true,
-            _ => false,
-        };
-
-        if force_sync || all_headers_received || stalling {
-            // Request a new batch of headers.
-
+        if all_headers_received || stalling {
             self.batch_progress = BatchProgress {
                 timeout: now + self.initial_timeout,
                 expected_height: self
@@ -381,62 +297,12 @@ impl HeaderSync {
             if all_headers_received {
                 // As the batch of headers is received completely, reset the stalling timestamp.
                 self.stalling_ts = None;
-            } else {
-                if let Some(ref stalling_ts) = self.stalling_ts {
-                    // syncing_peer is expected to be present.
-                    if let Some(ref peer) = self.syncing_peer {
-                        // Peer banning only applies when header sync is the
-                        // primary sync mode. During background header sync
-                        // (StateSync, BlockSync), stalling peers are not banned
-                        // — they may be serving state parts or blocks, and
-                        // banning them would hurt the primary sync activity.
-                        match sync_status {
-                            SyncStatus::HeaderSync { highest_height, .. } => {
-                                if now > *stalling_ts + self.stall_ban_timeout
-                                    && *highest_height == peer.highest_block_height
-                                {
-                                    // The peer is one of the peers with the highest height, but we consider the peer stalling.
-                                    tracing::warn!(target: "sync", peer_info = %peer.peer_info, peer_height = peer.highest_block_height, "banning a peer for not providing enough headers");
-                                    // Ban the peer, which blocks all interactions with the peer for some time.
-                                    // TODO: Consider not banning straightaway, but give a node a few attempts before banning it.
-                                    // TODO: Prefer not to request the next batch of headers from the same peer.
-                                    self.network_adapter.send(
-                                        PeerManagerMessageRequest::NetworkRequests(
-                                            NetworkRequests::BanPeer {
-                                                peer_id: peer.peer_info.id.clone(),
-                                                ban_reason: near_network::types::ReasonForBan::ProvidedNotEnoughHeaders,
-                                            },
-                                        ),
-                                    );
-                                    // Will retry without this peer.
-                                    self.syncing_peer = None;
-                                    return false;
-                                }
-                            }
-                            SyncStatus::StateSync { .. } | SyncStatus::BlockSync { .. } => {
-                                tracing::trace!(
-                                    target: "sync",
-                                    ?sync_status,
-                                    peer_info = %peer.peer_info,
-                                    "background header sync"
-                                );
-                            }
-                            _ => {}
-                        }
-                    }
-                }
             }
+
             self.syncing_peer = None;
-            // Return true to request a new batch of headers.
             true
         } else {
-            // Manage the currently requested batch of headers.
-            // Note that it is guaranteed that `now < timeout`, because otherwise it will be `stalling` or `all_headers_received`.
-
-            // Resetting the timeout as long as we make progress.
             if self.made_enough_progress(header_head.height, old_expected_height, now, timeout) {
-                // Update our expectation.
-                // `new_expected_height` can be beyond the requested batch of header, but that is fine.
                 let new_expected_height =
                     self.compute_expected_height(header_head.height, self.progress_timeout);
                 self.batch_progress = BatchProgress {
@@ -446,10 +312,88 @@ impl HeaderSync {
                     highest_height_of_peers: prev_highest_height,
                 };
             }
-            // Keep getting headers from the same batch.
-            // Don't request a new batch of headers.
             false
         }
+    }
+
+    /// Returns whether a new batch of headers needs to be requested.
+    /// Wraps `is_header_request_due()` with two additional behaviors:
+    /// - Forces a request when first transitioning into header sync
+    ///   (from NoSync, AwaitingPeers, or EpochSyncDone).
+    /// - Bans the serving peer when stalling is detected during primary
+    ///   HeaderSync mode (but not during background header sync).
+    pub(crate) fn header_sync_due(
+        &mut self,
+        sync_status: &SyncStatus,
+        header_head: &Tip,
+        highest_height: BlockHeight,
+    ) -> bool {
+        // Always enable header sync if we're transitioning into it.
+        let force_sync = matches!(
+            sync_status,
+            SyncStatus::NoSync | SyncStatus::AwaitingPeers | SyncStatus::EpochSyncDone
+        );
+
+        if force_sync {
+            let now = self.clock.now_utc();
+            self.batch_progress = BatchProgress {
+                timeout: now + self.initial_timeout,
+                expected_height: self
+                    .compute_expected_height(header_head.height, self.initial_timeout),
+                header_head_height: header_head.height,
+                highest_height_of_peers: highest_height,
+            };
+            self.stalling_ts = None;
+            self.syncing_peer = None;
+            return true;
+        }
+
+        let due = self.is_header_request_due(header_head, highest_height);
+
+        // V1 inline banning: if stalling during primary HeaderSync, ban the peer.
+        if let Some(ref stalling_ts) = self.stalling_ts {
+            // syncing_peer is expected to be present.
+            if let Some(ref peer) = self.syncing_peer {
+                // Peer banning only applies when header sync is the
+                // primary sync mode. During background header sync
+                // (StateSync, BlockSync), stalling peers are not banned
+                // — they may be serving state parts or blocks, and
+                // banning them would hurt the primary sync activity.
+                match sync_status {
+                    SyncStatus::HeaderSync { highest_height, .. } => {
+                        let now = self.clock.now_utc();
+                        if now > *stalling_ts + self.stall_ban_timeout
+                            && *highest_height == peer.highest_block_height
+                        {
+                            // The peer is one of the peers with the highest height, but we consider the peer stalling.
+                            tracing::warn!(target: "sync", peer_info = %peer.peer_info, peer_height = peer.highest_block_height, "banning a peer for not providing enough headers");
+                            // Ban the peer, which blocks all interactions with the peer for some time.
+                            // TODO: Consider not banning straightaway, but give a node a few attempts before banning it.
+                            // TODO: Prefer not to request the next batch of headers from the same peer.
+                            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                                NetworkRequests::BanPeer {
+                                    peer_id: peer.peer_info.id.clone(),
+                                    ban_reason: ReasonForBan::ProvidedNotEnoughHeaders,
+                                },
+                            ));
+                            self.syncing_peer = None;
+                            return false;
+                        }
+                    }
+                    SyncStatus::StateSync { .. } | SyncStatus::BlockSync { .. } => {
+                        tracing::trace!(
+                            target: "sync",
+                            ?sync_status,
+                            peer_info = %peer.peer_info,
+                            "background header sync"
+                        );
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        due
     }
 
     /// Checks whether the node made enough progress.
