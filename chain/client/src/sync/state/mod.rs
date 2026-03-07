@@ -247,7 +247,7 @@ impl StateSync {
 
         let timeout = self.block_request_timeout;
         if (now - *last_time) >= timeout {
-            tracing::error!(?block_hash, ?timeout, "state sync: block request timed out");
+            tracing::error!(target: "sync", ?block_hash, ?timeout, "state sync: block request timed out");
             (true, false)
         } else {
             (false, false)
