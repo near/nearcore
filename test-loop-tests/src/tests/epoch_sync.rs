@@ -151,29 +151,38 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
         },
         Duration::seconds(30),
     );
-    assert_eq!(
-        sync_status_history.borrow().as_slice(),
-        &[
-            // Initial state.
-            "AwaitingPeers",
-            // State after having enough peers.
-            "NoSync",
-            // EpochSync should be entered and succeed.
-            "EpochSync",
-            // Header sync happens next to bring forward HEADER_HEAD.
-            "HeaderSync",
-            // State sync downloads the state from state dumps.
-            "StateSync",
-            // State sync is done.
-            "StateSyncDone",
-            // Block sync picks up from where StateSync left off, and finishes the sync.
-            "BlockSync",
-            // NoSync means we're up to date.
-            "NoSync"
-        ]
-        .into_iter()
-        .map(|s| s.to_string())
-        .collect::<Vec<_>>()
+    let history = sync_status_history.borrow();
+    // V2 skips StateSyncDone (transitions directly StateSync → BlockSync).
+    // V1 includes it. Accept both sequences.
+    // Note: EpochSync(Done) shows as "EpochSync" via strum::AsRefStr (same variant name).
+    let expected_v1: Vec<String> = [
+        "AwaitingPeers",
+        "NoSync",
+        "EpochSync",
+        "HeaderSync",
+        "StateSync",
+        "StateSyncDone",
+        "BlockSync",
+        "NoSync",
+    ]
+    .into_iter()
+    .map(|s| s.to_string())
+    .collect();
+    let expected_v2: Vec<String> = [
+        "AwaitingPeers",
+        "NoSync",
+        "EpochSync",
+        "HeaderSync",
+        "StateSync",
+        "BlockSync",
+        "NoSync",
+    ]
+    .into_iter()
+    .map(|s| s.to_string())
+    .collect();
+    assert!(
+        history.as_slice() == expected_v1 || history.as_slice() == expected_v2,
+        "unexpected sync status history: {history:?}\nexpected v1: {expected_v1:?}\nexpected v2: {expected_v2:?}"
     );
 
     TestLoopEnv { test_loop, node_datas, shared_state }

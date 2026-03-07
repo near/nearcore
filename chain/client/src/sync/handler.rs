@@ -12,6 +12,7 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::types::HighestHeightPeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 
 // A small helper macro to unwrap a result of some state sync operation. If the
 // result is an error this macro will log it and return from the function.
@@ -26,16 +27,16 @@ macro_rules! unwrap_and_report_state_sync_result (($obj: ident) => (match $obj {
 
 /// Handles syncing chain to the actual state of the network.
 pub struct SyncHandler {
-    config: ClientConfig,
+    pub(crate) config: ClientConfig,
     pub sync_status: SyncStatus,
     /// Keeps track of information needed to perform the initial Epoch Sync
     pub epoch_sync: EpochSync,
     /// Keeps track of syncing headers.
-    header_sync: HeaderSync,
+    pub(crate) header_sync: HeaderSync,
     /// Keeps track of syncing state.
     pub state_sync: StateSync,
     /// Keeps track of syncing block.
-    block_sync: BlockSync,
+    pub(crate) block_sync: BlockSync,
 }
 
 /// Request to the client to perform some action to continue syncing.
@@ -66,11 +67,42 @@ impl SyncHandler {
 
     /// Handle the SyncRequirement::SyncNeeded.
     ///
-    /// This method performs whatever syncing technique is needed (epoch sync, header sync,
-    /// state sync, block sync) to make progress towards bring the node up to date.
-    ///
-    /// Returns true iff state sync is completed.
+    /// Dispatches to v1 or v2 handler based on protocol version. When
+    /// `ProtocolFeature::SyncV2` is enabled, the v2 logic runs.
+    /// Otherwise, falls back to the legacy v1 handler below.
     pub fn handle_sync_needed(
+        &mut self,
+        chain: &mut Chain,
+        shard_tracker: &ShardTracker,
+        highest_height: u64,
+        highest_height_peers: &[HighestHeightPeerInfo],
+        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+    ) -> Option<SyncHandlerRequest> {
+        if ProtocolFeature::SyncV2.enabled(PROTOCOL_VERSION) {
+            match self.handle_sync_needed_v2(
+                chain,
+                shard_tracker,
+                highest_height,
+                highest_height_peers,
+                apply_chunks_done_sender,
+            ) {
+                Ok(request) => return request,
+                Err(err) => {
+                    tracing::error!(target: "sync", ?err, "sync: error in v2 handler");
+                    return None;
+                }
+            }
+        }
+        self.handle_sync_needed_v1(
+            chain,
+            shard_tracker,
+            highest_height,
+            highest_height_peers,
+            apply_chunks_done_sender,
+        )
+    }
+
+    fn handle_sync_needed_v1(
         &mut self,
         chain: &mut Chain,
         shard_tracker: &ShardTracker,

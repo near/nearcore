@@ -191,19 +191,34 @@ impl EpochSync {
         if !self.is_epoch_sync_needed(chain, highest_height)? {
             return Ok(());
         }
+        // Ensure we're in the EpochSync status, creating it if needed.
+        if !matches!(status, SyncStatus::EpochSync(_)) {
+            *status = SyncStatus::EpochSync(EpochSyncStatus::NotStarted);
+        }
+        let SyncStatus::EpochSync(epoch_sync_status) = status else {
+            unreachable!();
+        };
+        self.run_v2(epoch_sync_status, highest_height_peers)
+    }
+
+    /// Sends an epoch sync request to a random peer, or waits if a previous
+    /// request is still in flight. Handles both initial send (NotStarted) and
+    /// retry on timeout (InProgress).
+    pub fn run_v2(
+        &self,
+        status: &mut EpochSyncStatus,
+        highest_height_peers: &[HighestHeightPeerInfo],
+    ) -> Result<(), Error> {
         match status {
-            SyncStatus::EpochSync(EpochSyncStatus::InProgress {
-                attempt_time,
-                source_peer_id,
-                ..
-            }) => {
+            EpochSyncStatus::InProgress { attempt_time, source_peer_id, .. } => {
                 if *attempt_time + self.config.timeout_for_epoch_sync < self.clock.now_utc() {
-                    tracing::warn!(%source_peer_id, "epoch sync from peer timed out, retrying");
+                    tracing::warn!(?source_peer_id, "epoch sync timed out, retrying");
                 } else {
                     return Ok(());
                 }
             }
-            _ => {}
+            EpochSyncStatus::NotStarted => {}
+            EpochSyncStatus::Done => return Ok(()),
         }
 
         // TODO(#11976): Implement a more robust logic for picking a peer to request epoch sync from.
@@ -211,13 +226,14 @@ impl EpochSync {
             .choose(&mut rand::thread_rng())
             .ok_or_else(|| Error::Other("No peers to request epoch sync from".to_string()))?;
 
-        tracing::info!(peer_id=?peer.peer_info.id, "bootstrapping node via epoch sync");
+        let peer_id = &peer.peer_info.id;
+        tracing::info!(?peer_id, "bootstrapping node via epoch sync");
 
-        *status = SyncStatus::EpochSync(EpochSyncStatus::InProgress {
+        *status = EpochSyncStatus::InProgress {
             source_peer_id: peer.peer_info.id.clone(),
             source_peer_height: peer.highest_block_height,
             attempt_time: self.clock.now_utc(),
-        });
+        };
 
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::EpochSyncRequest { peer_id: peer.peer_info.id.clone() },
