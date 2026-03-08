@@ -327,7 +327,8 @@ fn test_staking_join_and_leave_impl(execution_delay: u64) {
         .collect();
     let mut env = TestLoopBuilder::new()
         .validators_spec(ValidatorsSpec::raw(validators, 2, 2, 2))
-        .add_non_validator_client(&accounts[2], TESTING_INIT_BALANCE)
+        .add_non_validator_client(&accounts[2])
+        .add_user_account(&accounts[2], TESTING_INIT_BALANCE)
         .epoch_length(epoch_length)
         .max_inflation_rate(Rational32::new(0, 1))
         .track_all_shards()

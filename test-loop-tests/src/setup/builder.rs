@@ -258,14 +258,9 @@ impl TestLoopBuilder {
         self
     }
 
-    /// Adds a non-validator client node with a genesis account and initial balance.
-    pub fn add_non_validator_client(
-        mut self,
-        account_id: &AccountId,
-        initial_balance: Balance,
-    ) -> Self {
+    /// Adds a non-validator client node.
+    pub fn add_non_validator_client(mut self, account_id: &AccountId) -> Self {
         let auto = self.setup_config.ensure_auto();
-        auto.user_accounts.push((account_id.clone(), initial_balance));
         auto.non_validator_clients.push(account_id.clone());
         self
     }
