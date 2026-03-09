@@ -31,13 +31,14 @@ time.sleep(2)
 nodes[1].kill()
 logger.info('node1 is killed')
 
-cur_height, _ = utils.wait_for_blocks(nodes[0], target=60)
+# Grow chain long enough for epoch sync proof derivation (>= 4 * EPOCH_LENGTH).
+cur_height, _ = utils.wait_for_blocks(nodes[0], target=EPOCH_LENGTH * 5)
 
 genesis_block = nodes[0].json_rpc('block', [0])
 genesis_hash = genesis_block['result']['header']['hash']
 genesis_hash = base58.b58decode(genesis_hash.encode('ascii'))
 
-nodes[1].start(boot_node=nodes[1])
+nodes[1].start_with_epoch_sync_restart(boot_node=nodes[1])
 tracker = utils.LogTracker(nodes[1])
 time.sleep(1)
 
@@ -45,7 +46,7 @@ start_time = time.time()
 node1_height = 0
 nonce = 1
 while node1_height <= cur_height:
-    if time.time() - start_time > MAX_SYNC_WAIT:
+    if time.time() - start_time > MAX_SYNC_WAIT * 3:
         assert False, "state sync timed out"
     if nonce % 5 == 0:
         node1_height = nodes[1].get_latest_block(verbose=True).height

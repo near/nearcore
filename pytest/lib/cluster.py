@@ -641,6 +641,53 @@ class LocalNode(BaseNode):
                                              env=env)
         self._pid = self._process.pid
 
+    def start_with_epoch_sync_restart(
+            self,
+            *,
+            boot_node: BootNode = None,
+            extra_env: typing.Dict[str, str] = dict(),
+    ):
+        """Start a killed node, handling SyncV2 epoch sync data reset.
+
+        Under SyncV2, a stale node writes .EPOCH_SYNC_DATA_RESET and exits.
+        We detect that and restart it (cli.rs wipes data on seeing the marker).
+        If no marker appears and RPC becomes ready, the node started normally.
+        """
+        assert self._process is None, "node must be killed before calling this"
+
+        marker_path = os.path.join(self.node_dir, 'data',
+                                   '.EPOCH_SYNC_DATA_RESET')
+        cmd = self._get_command_line(self.near_root, self.node_dir, boot_node,
+                                     self.binary_name)
+        self.run_cmd(cmd=cmd, extra_env=extra_env)
+
+        # Poll for either the epoch sync reset marker or RPC readiness.
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            if os.path.exists(marker_path):
+                logger.info(f"Node {self.ordinal}: epoch sync data reset")
+                self._process.wait(timeout=30)
+                self._process = None
+                self.start(boot_node=boot_node, extra_env=extra_env)
+                return
+            if self._process.poll() is not None:
+                rc = self._process.returncode
+                self._process = None
+                raise Exception(
+                    f"Node {self.ordinal}: process exited (rc={rc}) "
+                    f"without epoch sync marker"
+                )
+            try:
+                self.get_status()
+                return  # RPC ready — node started normally.
+            except Exception:
+                pass
+            time.sleep(0.5)
+
+        raise Exception(
+            f"Node {self.ordinal}: neither epoch sync marker nor RPC ready "
+            f"within timeout")
+
     def kill(self, *, gentle=False):
         logger.info(f"Killing node {self.ordinal}.")
         """Kills the process.  If `gentle` sends SIGINT before killing."""

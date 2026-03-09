@@ -15,6 +15,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockHeightDelta};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreAdapter;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -153,37 +154,34 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
     );
     let history = sync_status_history.borrow();
     // V2 skips StateSyncDone (transitions directly StateSync → BlockSync).
-    // V1 includes it. Accept both sequences.
+    // V1 includes it. Use ProtocolFeature gate to select expected sequence.
     // Note: EpochSync(Done) shows as "EpochSync" via strum::AsRefStr (same variant name).
-    let expected_v1: Vec<String> = [
-        "AwaitingPeers",
-        "NoSync",
-        "EpochSync",
-        "HeaderSync",
-        "StateSync",
-        "StateSyncDone",
-        "BlockSync",
-        "NoSync",
-    ]
+    let expected: Vec<String> = if ProtocolFeature::SyncV2.enabled(PROTOCOL_VERSION) {
+        vec![
+            "AwaitingPeers",
+            "NoSync",
+            "EpochSync",
+            "HeaderSync",
+            "StateSync",
+            "BlockSync",
+            "NoSync",
+        ]
+    } else {
+        vec![
+            "AwaitingPeers",
+            "NoSync",
+            "EpochSync",
+            "HeaderSync",
+            "StateSync",
+            "StateSyncDone",
+            "BlockSync",
+            "NoSync",
+        ]
+    }
     .into_iter()
     .map(|s| s.to_string())
     .collect();
-    let expected_v2: Vec<String> = [
-        "AwaitingPeers",
-        "NoSync",
-        "EpochSync",
-        "HeaderSync",
-        "StateSync",
-        "BlockSync",
-        "NoSync",
-    ]
-    .into_iter()
-    .map(|s| s.to_string())
-    .collect();
-    assert!(
-        history.as_slice() == expected_v1 || history.as_slice() == expected_v2,
-        "unexpected sync status history: {history:?}\nexpected v1: {expected_v1:?}\nexpected v2: {expected_v2:?}"
-    );
+    assert_eq!(history.as_slice(), expected, "unexpected sync status history");
 
     TestLoopEnv { test_loop, node_datas, shared_state }
 }

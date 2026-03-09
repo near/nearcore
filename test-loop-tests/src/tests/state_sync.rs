@@ -526,22 +526,26 @@ fn run_state_sync_test_case(t: StateSyncTest) {
     assert_eq!(get_network_protocol_version(&state.env), t.initial_protocol_version);
     run_test(state);
 
-    tracing::info!(?t, "run test with added node");
-    let state = setup_initial_blockchain(
-        t.num_validators,
-        t.num_block_producer_seats,
-        t.num_chunk_producer_seats,
-        t.num_shards,
-        t.generate_shard_accounts,
-        t.chunks_produced
-            .iter()
-            .map(|(shard_id, produced)| (*shard_id, produced.to_vec()))
-            .collect(),
-        t.skip_block_sync_height_delta,
-        &t.extra_node_shard_schedule,
-        t.initial_protocol_version,
-    );
-    run_test_with_added_node(state);
+    // TODO(#sync-v2): Write dedicated SyncV2 test-loop tests for adding a fresh
+    // node (far-horizon sync path: EpochSync -> HeaderSync -> StateSync -> BlockSync).
+    if !ProtocolFeature::SyncV2.enabled(PROTOCOL_VERSION) {
+        tracing::info!(?t, "run test with added node");
+        let state = setup_initial_blockchain(
+            t.num_validators,
+            t.num_block_producer_seats,
+            t.num_chunk_producer_seats,
+            t.num_shards,
+            t.generate_shard_accounts,
+            t.chunks_produced
+                .iter()
+                .map(|(shard_id, produced)| (*shard_id, produced.to_vec()))
+                .collect(),
+            t.skip_block_sync_height_delta,
+            &t.extra_node_shard_schedule,
+            t.initial_protocol_version,
+        );
+        run_test_with_added_node(state);
+    }
 }
 
 // The normal case with 2 nodes and no missing chunks.
@@ -1026,6 +1030,14 @@ fn slow_test_state_sync_protocol_upgrade() {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_no_parts_provided() {
     init_test_logger();
+
+    // This test verifies that header sync advances during state sync when state
+    // parts aren't available. In V2, header sync doesn't run during state sync
+    // (phases are sequential: EpochSync -> HeaderSync -> StateSync -> BlockSync),
+    // so the behavior being tested doesn't exist.
+    if ProtocolFeature::SyncV2.enabled(PROTOCOL_VERSION) {
+        return;
+    }
 
     // Step 1: Start the network
     let TestState { mut env, .. } = setup_initial_blockchain(

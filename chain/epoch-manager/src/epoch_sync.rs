@@ -243,6 +243,16 @@ pub fn derive_epoch_sync_proof_from_last_block(
             return Ok(EpochSyncProof::V1(existing_proof));
         }
         // Corner case for if the current epoch is genesis or right after genesis.
+        // In production this should never happen — chains are always long enough.
+        // In tests, this indicates the chain hasn't grown enough epochs for proof
+        // derivation (need >= 2*epoch_length + transaction_validity_period blocks).
+        debug_assert!(
+            false,
+            "epoch sync proof requested but chain too short: \
+             target epoch_height={}, last_epoch_height_we_have_proof_for={}",
+            epoch_info.epoch_height(),
+            last_epoch_height_we_have_proof_for,
+        );
         return Err(Error::Other("Not enough epochs after genesis to epoch sync".to_string()));
     }
 

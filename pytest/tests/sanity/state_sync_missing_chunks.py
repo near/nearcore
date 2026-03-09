@@ -87,15 +87,16 @@ class StateSyncMissingChunks(unittest.TestCase):
 
             if height == rpc_start_height:
                 logger.info("Starting the rpc node")
-                rpc_node.start()
+                rpc_node.start_with_epoch_sync_restart()
 
             if height <= rpc_start_height:
                 continue
 
-        # Make sure that the rpc node is synced and can reach the target height
-        # At this point the node should be fully synced so set small timeout.
+        # Make sure that the rpc node is synced and can reach the target height.
+        # With epoch sync restart, the node needs extra time to complete the
+        # restart cycle and then sync.
         logger.info("Waiting for rpc to reach the target height.")
-        wait_for_blocks(rpc_node, target=target_height, timeout=10)
+        wait_for_blocks(rpc_node, target=target_height, timeout=120)
 
         # Make sure that the test is actually testing what it says it's testing
         # - state sync with missing chunks.

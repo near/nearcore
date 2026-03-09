@@ -59,6 +59,7 @@ impl SyncHandler {
                     highest_height.saturating_sub(self.config.block_header_fetch_horizon);
                 if header_head.height >= min_header_height {
                     if let Some(sync_hash) = chain.find_sync_hash()? {
+                        tracing::debug!(target: "sync", "sync: transition to state sync");
                         self.sync_status
                             .update(SyncStatus::StateSync(StateSyncStatus::new(sync_hash)));
                     }

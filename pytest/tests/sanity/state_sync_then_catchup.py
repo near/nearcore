@@ -138,16 +138,17 @@ def main():
     node1.kill()
     logger.info(f'killed node1')
 
-    # Run node0 more to trigger block sync in node1.
-    nonce, keys = random_workload_until(int(EPOCH_LENGTH * 3), nonce, keys,
+    # Run node0 long enough for epoch sync proof derivation (>= 4 * EPOCH_LENGTH).
+    nonce, keys = random_workload_until(int(EPOCH_LENGTH * 4.5), nonce, keys,
                                         boot_node, node1, boot_node)
 
     # Node1 is now behind and needs to do header sync and block sync.
-    node1.start(boot_node=boot_node)
+    # Under SyncV2, the stale node goes through epoch sync data reset first.
+    node1.start_with_epoch_sync_restart(boot_node=boot_node)
     node1_height = node1.get_latest_block().height
     logger.info(f'started node1@{node1_height}')
 
-    nonce, keys = random_workload_until(int(EPOCH_LENGTH * 3.7), nonce, keys,
+    nonce, keys = random_workload_until(int(EPOCH_LENGTH * 5.7), nonce, keys,
                                         boot_node, node1, node1)
 
 

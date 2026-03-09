@@ -14,7 +14,7 @@ import state_sync_lib
 import utils
 
 EPOCH_LENGTH = 1000
-MAX_SYNC_WAIT = 120
+MAX_SYNC_WAIT = 300
 
 (node_config_dump,
  node_config_sync) = state_sync_lib.get_state_sync_configs_pair()
@@ -37,11 +37,12 @@ nodes[1].kill()
 
 logger.info("step 1")
 
+# Grow chain long enough for epoch sync proof derivation (>= 4 * EPOCH_LENGTH).
 node0_height, _ = utils.wait_for_blocks(nodes[0],
-                                        target=EPOCH_LENGTH * 2 + 1,
+                                        target=EPOCH_LENGTH * 4 + 1,
                                         poll_interval=5)
 
-nodes[1].start(boot_node=nodes[1])
+nodes[1].start_with_epoch_sync_restart(boot_node=nodes[1])
 time.sleep(2)
 
 logger.info("step 2")
