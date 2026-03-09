@@ -1292,7 +1292,6 @@ impl PeerActor {
                     message_processed_event();
                 });
             }
-            PeerMessage::DistanceVector(_) => {}
             PeerMessage::SyncAccountsData(msg) => {
                 metrics::SYNC_ACCOUNTS_DATA
                     .with_label_values(&[
