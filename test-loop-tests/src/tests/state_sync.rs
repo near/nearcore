@@ -1084,6 +1084,9 @@ fn slow_test_state_sync_no_parts_provided() {
             config.tracked_shards_config = TrackedShardsConfig::AllShards;
             config.state_sync_enabled = true;
             config.state_sync = StateSyncConfig::default();
+            // Prevent epoch sync from intercepting this test; we want state
+            // sync to handle the gap.
+            config.epoch_sync.epoch_sync_horizon_num_epochs = 10;
         })
         .build();
     env.add_node(identifier, new_node_state);

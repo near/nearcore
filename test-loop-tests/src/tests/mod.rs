@@ -46,6 +46,7 @@ mod single_shard_tracking;
 mod spice;
 mod spice_resharding;
 mod spice_utils;
+mod split_storage;
 mod stake_nodes;
 mod state_sync;
 mod syncing;

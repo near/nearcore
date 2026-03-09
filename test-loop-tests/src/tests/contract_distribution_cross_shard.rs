@@ -13,7 +13,8 @@ use crate::utils::contract_distribution::{
     run_until_caches_contain_contract,
 };
 use crate::utils::get_node_head_height;
-use crate::utils::transactions::{call_contract, check_txs, deploy_contract, make_accounts};
+use crate::utils::transactions::{check_txs, make_accounts};
+use near_primitives::gas::Gas;
 
 const EPOCH_LENGTH: u64 = 10;
 const GENESIS_HEIGHT: u64 = 1000;
@@ -39,7 +40,6 @@ fn test_contract_distribution_cross_shard() {
 
     let (mut env, rpc_id) = setup(&accounts);
 
-    let mut nonce = 1;
     let rpc_index = 8;
     assert_eq!(accounts[rpc_index], rpc_id);
 
@@ -53,17 +53,17 @@ fn test_contract_distribution_cross_shard() {
 
     // First deploy and call the contracts as described above.
     // Next, clear the compiled contract cache and repeat the same contract calls.
-    let contracts = deploy_contracts(&mut env, &rpc_id, &contract_ids, &mut nonce);
+    let contracts = deploy_contracts(&mut env, &rpc_id, &contract_ids);
 
     for contract in contracts {
         run_until_caches_contain_contract(&mut env, contract.hash());
     }
 
-    call_contracts(&mut env, &rpc_id, &contract_ids, &sender_ids, &mut nonce);
+    call_contracts(&mut env, &rpc_id, &contract_ids, &sender_ids);
 
     clear_compiled_contract_caches(&mut env);
 
-    call_contracts(&mut env, &rpc_id, &contract_ids, &sender_ids, &mut nonce);
+    call_contracts(&mut env, &rpc_id, &contract_ids, &sender_ids);
 
     let end_height = get_node_head_height(&env, &accounts[0]);
     assert_all_chunk_endorsements_received(&mut env, start_height, end_height);
@@ -118,7 +118,6 @@ fn deploy_contracts(
     env: &mut TestLoopEnv,
     rpc_id: &AccountId,
     contract_ids: &[&AccountId],
-    nonce: &mut u64,
 ) -> Vec<ContractCode> {
     let mut contracts = vec![];
     let mut txs = vec![];
@@ -126,16 +125,9 @@ fn deploy_contracts(
         tracing::info!(target: "test", ?rpc_id, ?contract_id, "deploying contract");
         let contract =
             ContractCode::new(near_test_contracts::sized_contract((i + 1) * 100).to_vec(), None);
-        let tx = deploy_contract(
-            &mut env.test_loop,
-            &env.node_datas,
-            rpc_id,
-            contract_id,
-            contract.code().to_vec(),
-            *nonce,
-        );
-        txs.push(tx);
-        *nonce += 1;
+        let node = env.node_for_account(rpc_id);
+        let tx = node.tx_deploy_contract(contract_id, contract.code().to_vec());
+        txs.push(node.submit_tx(tx));
         contracts.push(contract);
     }
     env.test_loop.run_for(Duration::seconds(2));
@@ -149,27 +141,23 @@ fn call_contracts(
     rpc_id: &AccountId,
     contract_ids: &[&AccountId],
     sender_ids: &[&AccountId],
-    nonce: &mut u64,
 ) {
-    let method_name = "main".to_owned();
     let mut txs = vec![];
     for sender_id in sender_ids {
         for contract_id in contract_ids {
             tracing::info!(target: "test", ?rpc_id, ?sender_id, ?contract_id, "calling contract");
-            let tx = call_contract(
-                &mut env.test_loop,
-                &env.node_datas,
-                rpc_id,
+            let node = env.node_for_account(rpc_id);
+            let tx = node.tx_call(
                 sender_id,
                 contract_id,
-                method_name.clone(),
+                "main",
                 vec![],
-                *nonce,
+                Balance::ZERO,
+                Gas::from_teragas(300),
             );
-            txs.push(tx);
-            *nonce += 1;
+            txs.push(node.submit_tx(tx));
         }
     }
     env.test_loop.run_for(Duration::seconds(3));
-    check_txs(&env.test_loop.data, &env.node_datas, &rpc_id, &txs);
+    check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &txs);
 }

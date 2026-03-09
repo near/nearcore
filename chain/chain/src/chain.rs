@@ -2378,15 +2378,21 @@ impl Chain {
                 None
             };
 
-        if !block.verify_gas_price(
+        match block.verify_gas_price_checked(
             gas_price,
             self.block_economics_config.min_gas_price(),
             self.block_economics_config.max_gas_price(),
             self.block_economics_config.gas_price_adjustment_rate(),
             last_certified_block_execution_results.as_ref(),
         ) {
-            byzantine_assert!(false);
-            return Err(Error::InvalidGasPrice);
+            Some(true) => {}
+            Some(false) => {
+                byzantine_assert!(false);
+                return Err(Error::InvalidGasPrice);
+            }
+            None => {
+                return Err(Error::Other("arithmetic overflow when checking gas price".to_owned()));
+            }
         }
         let minted_amount = if self.epoch_manager.is_next_block_epoch_start(&prev_hash)? {
             Some(self.epoch_manager.get_epoch_info(header.next_epoch_id())?.minted_amount())
@@ -2394,9 +2400,17 @@ impl Chain {
             None
         };
 
-        if !block.verify_total_supply(prev.total_supply(), minted_amount) {
-            byzantine_assert!(false);
-            return Err(Error::InvalidTotalSupply);
+        match block.verify_total_supply_checked(prev.total_supply(), minted_amount) {
+            Some(true) => {}
+            Some(false) => {
+                byzantine_assert!(false);
+                return Err(Error::InvalidTotalSupply);
+            }
+            None => {
+                return Err(Error::Other(
+                    "arithmetic overflow when checking total supply".to_owned(),
+                ));
+            }
         }
 
         let prev_block = self.get_block(&prev_hash)?;
@@ -3430,17 +3444,19 @@ impl Chain {
         // boundaries, but that is ok. On epoch id mismatch the result of early transaction
         // preparation will be ignored.
         let next_chunk_prepare_context = {
-            let gas_used = chunk_headers.compute_gas_used();
-            let gas_limit = chunk_headers.compute_gas_limit();
+            // Unwrap is safe here because chunk headers are already verified.
+            let gas_used = chunk_headers.compute_gas_used_checked().unwrap();
+            let gas_limit = chunk_headers.compute_gas_limit_checked().unwrap();
             PrepareTransactionsBlockContext {
-                next_gas_price: Block::compute_next_gas_price(
+                next_gas_price: Block::compute_next_gas_price_checked(
                     prev_block.header().next_gas_price(),
                     gas_used,
                     gas_limit,
                     self.block_economics_config.gas_price_adjustment_rate(),
                     self.block_economics_config.min_gas_price(),
                     self.block_economics_config.max_gas_price(),
-                ),
+                )
+                .unwrap(),
                 height: block.height,
                 next_epoch_id: epoch_id,
                 congestion_info: block.congestion_info.clone(),

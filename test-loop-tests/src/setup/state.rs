@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -27,7 +28,7 @@ use near_network::types::StateRequestSenderForNetwork;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, Nonce};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::test_utils::TestNodeStorage;
@@ -103,6 +104,9 @@ pub struct NodeExecutionData {
     /// Set by delay_endorsements_propagation to account for certification delay in timeouts.
     /// It is Arc<_> so updates are visible through clones.
     pub(super) expected_execution_delay: Arc<AtomicU64>,
+    /// Tracks the next nonce to use per account across multiple transactions
+    /// within the same block, before on-chain nonces are updated.
+    pub(crate) pending_nonces: Arc<Mutex<HashMap<AccountId, Nonce>>>,
 }
 
 impl NodeExecutionData {
