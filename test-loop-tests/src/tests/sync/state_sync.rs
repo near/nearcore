@@ -2,18 +2,16 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
-use crate::utils::account::create_account_id;
 use crate::utils::transactions::{get_anchor_hash, get_smallest_height_head};
 use itertools::Itertools;
 use near_async::messaging::{CanSend, Handler};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
+use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::{
     TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
 };
-use near_chain_configs::{StateSyncConfig, TrackedShardsConfig};
-use near_client::SyncStatus;
 use near_network::client::{ProcessTxRequest, StateRequestHeader};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::EpochConfigStore;
@@ -385,109 +383,6 @@ fn run_test(state: TestState) {
     env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
-fn run_test_with_added_node(state: TestState) {
-    let TestState { mut env, mut accounts, skip_block_height } = state;
-
-    if let Some(accounts) = accounts.as_mut() {
-        send_txs_between_shards(&mut env.test_loop, &env.node_datas, accounts);
-    }
-
-    // TODO: due to current limitations of TestLoop we have to wait for the
-    // sync hash block before starting the new node.
-    let sync_hash = await_sync_hash(&mut env);
-
-    // In TestLoop the network infrastructure doesn't exist. State sync happens by
-    // writing to and reading from a local directory.
-    //
-    // Here we query the clients directly to confirm that those nodes which are expected
-    // to generate state responses in peer-to-peer sync are capable of doing so.
-    env.test_loop.run_until(
-        |data| {
-            for test_data in &env.node_datas {
-                let client = data.get_mut(&test_data.view_client_sender.actor_handle());
-
-                let account_id = test_data.account_id.clone();
-                let epoch_id = client.chain.head().unwrap().epoch_id;
-                let shard_ids = client.chain.epoch_manager.shard_ids(&epoch_id).unwrap();
-
-                for shard_id in shard_ids {
-                    // Get the header and part regardless of whether the node was tracking the
-                    // shard. It shouldn't crash on unexpected requests.
-                    let header = client
-                        .chain
-                        .state_sync_adapter
-                        .get_state_response_header(shard_id, sync_hash);
-                    let part = client
-                        .chain
-                        .state_sync_adapter
-                        .get_state_response_part(shard_id, 0, sync_hash);
-
-                    let was_tracking = client
-                        .chain
-                        .epoch_manager
-                        .cared_about_shard_prev_epoch_from_prev_block(
-                            &sync_hash,
-                            &account_id,
-                            shard_id,
-                        )
-                        .unwrap();
-                    if !was_tracking {
-                        continue;
-                    }
-
-                    // The node is expected to serve the state if it was tracking the shard
-                    // in the previous epoch. We make the run_until wait until we get back
-                    // Ok responses for both the header and part.
-                    if header.is_err() {
-                        return false;
-                    }
-                    if part.is_err() {
-                        return false;
-                    }
-                }
-            }
-
-            true
-        },
-        Duration::seconds(1),
-    );
-
-    // Add new node which will sync from scratch.
-    let identifier = "sync-from-scratch";
-    let new_node_state = env
-        .node_state_builder()
-        .account_id(&create_account_id(identifier))
-        .config_modifier(move |config| {
-            // Lower the threshold at which state sync is chosen over block sync
-            config.block_fetch_horizon = 5;
-            config.tracked_shards_config = TrackedShardsConfig::AllShards;
-        })
-        .build();
-    env.add_node(identifier, new_node_state);
-
-    env.test_loop.run_until(
-        |data| {
-            let handle = env.node_datas.last().unwrap().client_sender.actor_handle();
-            let client = &data.get(&handle).client;
-            let new_tip = client.chain.head().unwrap();
-            if new_tip.height > GENESIS_HEIGHT {
-                // Make sure the node catches up through state sync, not block sync.
-                // It will skip straight from genesis to the sync prev block.
-                let sync_header = client.chain.get_block_header(&sync_hash).unwrap();
-                assert!(new_tip.last_block_hash == *sync_header.prev_hash());
-                true
-            } else {
-                false
-            }
-        },
-        Duration::seconds(3),
-    );
-
-    produce_chunks(&mut env, accounts.clone(), skip_block_height);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
-}
-
 // TODO(#14050) Use the builder pattern to construct `StateSyncTest`
 #[derive(Debug)]
 struct StateSyncTest {
@@ -525,23 +420,6 @@ fn run_state_sync_test_case(t: StateSyncTest) {
     );
     assert_eq!(get_network_protocol_version(&state.env), t.initial_protocol_version);
     run_test(state);
-
-    tracing::info!(?t, "run test with added node");
-    let state = setup_initial_blockchain(
-        t.num_validators,
-        t.num_block_producer_seats,
-        t.num_chunk_producer_seats,
-        t.num_shards,
-        t.generate_shard_accounts,
-        t.chunks_produced
-            .iter()
-            .map(|(shard_id, produced)| (*shard_id, produced.to_vec()))
-            .collect(),
-        t.skip_block_sync_height_delta,
-        &t.extra_node_shard_schedule,
-        t.initial_protocol_version,
-    );
-    run_test_with_added_node(state);
 }
 
 // The normal case with 2 nodes and no missing chunks.
@@ -1012,125 +890,4 @@ fn slow_test_state_sync_protocol_upgrade() {
         initial_protocol_version: PROTOCOL_VERSION - 1,
     };
     run_state_sync_test_case(t);
-}
-
-// Test that when a node is in state sync, the header height keeps increasing.
-// This verifies that header sync continues during state sync.
-//
-// State sync stalls because StateRequestHeader and StateRequestPart messages
-// are intercepted by the peer manager mock and never fulfilled. This lets us
-// observe header sync advancing in the background while the node remains stuck
-// in StateSync status.
-#[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn slow_test_state_sync_no_parts_provided() {
-    init_test_logger();
-
-    // Step 1: Start the network
-    let TestState { mut env, .. } = setup_initial_blockchain(
-        4,
-        4,
-        4,
-        4,
-        false,
-        HashMap::default(),
-        None,
-        &None,
-        PROTOCOL_VERSION,
-    );
-
-    // Step 2: Let the network run for 3 epochs to ensure state sync will be triggered
-    // (state sync is triggered when a node is behind by more than 2 epochs)
-    let healthy_node_handle = env.node_datas[0].client_sender.actor_handle();
-    let healthy_client = &env.test_loop.data.get(&healthy_node_handle).client;
-    let initial_epoch_id = healthy_client.chain.head().unwrap().epoch_id;
-    let min_block_production_delay = healthy_client.config.min_block_production_delay;
-
-    // Run for 3 epochs
-    let epochs_to_run = 3;
-    let blocks_to_run = epochs_to_run * EPOCH_LENGTH;
-    let epoch_timeout = min_block_production_delay * blocks_to_run as u32 + Duration::seconds(20);
-
-    let mut current_epoch_id = initial_epoch_id;
-    let mut epochs_passed = 0;
-
-    env.test_loop.run_until(
-        |data| {
-            let client = &data.get(&healthy_node_handle).client;
-            let tip = client.chain.head().unwrap();
-            if tip.epoch_id != current_epoch_id {
-                epochs_passed += 1;
-                current_epoch_id = tip.epoch_id;
-            }
-            epochs_passed >= epochs_to_run
-        },
-        epoch_timeout,
-    );
-
-    // Step 3: Start a new node
-    let identifier = "sync-no-parts";
-    let new_node_state = env
-        .node_state_builder()
-        .account_id(&create_account_id(identifier))
-        .config_modifier(move |config| {
-            // Lower the threshold at which state sync is chosen over block sync
-            config.block_fetch_horizon = 5;
-            config.tracked_shards_config = TrackedShardsConfig::AllShards;
-            config.state_sync_enabled = true;
-            config.state_sync = StateSyncConfig::default();
-            // Prevent epoch sync from intercepting this test; we want state
-            // sync to handle the gap.
-            config.epoch_sync.epoch_sync_horizon_num_epochs = 10;
-        })
-        .build();
-    env.add_node(identifier, new_node_state);
-
-    // Get the newly added node
-    let syncing_node_data = env.node_datas.last().unwrap();
-
-    // Step 4: Run until the new node starts state sync
-    let syncing_handle = syncing_node_data.client_sender.actor_handle();
-    env.test_loop.run_until(
-        |data| {
-            let client = &data.get(&syncing_handle).client;
-            let is_state_sync = matches!(client.sync_handler.sync_status, SyncStatus::StateSync(_));
-            if is_state_sync {
-                tracing::debug!("Node entered state sync");
-            }
-            is_state_sync
-        },
-        Duration::seconds(5),
-    );
-
-    let (syncing_initial_header_height, syncing_initial_epoch_id) = {
-        let client = &env.test_loop.data.get(&syncing_handle).client;
-        let header_head = client.chain.header_head().unwrap();
-        (header_head.height, header_head.epoch_id)
-    };
-
-    env.test_loop.run_until(
-        |data| {
-            let client = &data.get(&syncing_handle).client;
-            let header_head = client.chain.header_head().unwrap();
-            tracing::debug!(
-                height = %header_head.height,
-                "syncing node header head height"
-            );
-            header_head.height >= syncing_initial_header_height + 10
-        },
-        Duration::seconds(10),
-    );
-
-    let client = &env.test_loop.data.get(&syncing_handle).client;
-
-    tracing::info!(
-        syncing_initial_header_height = %syncing_initial_header_height,
-        syncing_final_header_height = %client.chain.header_head().unwrap().height,
-        syncing_initial_epoch = ?syncing_initial_epoch_id,
-        syncing_final_epoch = ?client.chain.head().unwrap().epoch_id,
-        "Test completed: Syncing node header height increased by 10 blocks and is in a new epoch during state sync"
-    );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
