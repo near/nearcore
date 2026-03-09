@@ -114,19 +114,20 @@ impl StateSyncDownloader {
                     Ok(header) => return Ok(header),
                     Err(err) => {
                         consecutive_failures += 1;
+                        // warn every ~5 min with default timeouts
                         if consecutive_failures % 30 == 0 {
                             tracing::warn!(
                                 target: "sync",
                                 %shard_id,
                                 consecutive_failures,
                                 %err,
-                                "state sync header download is failing repeatedly. \
+                                "state sync header retrieval is failing repeatedly. \
                                 This may indicate a Tier3 connectivity issue - peers cannot \
                                 connect back to deliver state data. Check: \
                                 (1) the node's listening port is open for inbound TCP, \
                                 (2) if behind NAT, set network.experimental.tier3_public_addr \
-                                in config.json. Run: curl localhost:3030/metrics | grep \
-                                tier3_public_addr to verify the advertised address",
+                                in config.json. Run: curl http://localhost:3030/metrics | grep \
+                                near_tier3_public_addr to verify the advertised address",
                             );
                         }
                         handle.set_status(&format!(
