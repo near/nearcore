@@ -8,8 +8,8 @@ use near_primitives::types::{
     TransactionOrReceiptId,
 };
 use near_primitives::views::{
-    ExecutionOutcomeWithIdView, LightClientBlockLiteView, QueryRequest, StateChangesRequestView,
-    StateSyncStatusView, SyncStatusView,
+    EpochSyncStatusView, ExecutionOutcomeWithIdView, LightClientBlockLiteView, QueryRequest,
+    StateChangesRequestView, StateSyncStatusView, SyncStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use near_time::Duration;
@@ -107,10 +107,17 @@ impl StateSyncStatus {
 }
 
 #[derive(Clone, Debug)]
-pub struct EpochSyncStatus {
-    pub source_peer_height: BlockHeight,
-    pub source_peer_id: PeerId,
-    pub attempt_time: near_time::Utc,
+pub enum EpochSyncStatus {
+    /// Epoch sync decided but no request sent yet.
+    NotStarted,
+    /// Awaiting response from peer.
+    InProgress {
+        source_peer_height: BlockHeight,
+        source_peer_id: PeerId,
+        attempt_time: near_time::Utc,
+    },
+    /// Epoch sync proof applied successfully.
+    Done,
 }
 
 /// Various status sync can be in, whether it's fast sync or archival.
@@ -120,9 +127,9 @@ pub enum SyncStatus {
     AwaitingPeers,
     /// Not syncing / Done syncing.
     NoSync,
-    /// Syncing using light-client headers to a recent epoch
+    /// Syncing using light-client headers to a recent epoch.
+    /// The inner status tracks the sub-state of epoch sync.
     EpochSync(EpochSyncStatus),
-    EpochSyncDone,
     /// Downloading block headers for fast sync.
     HeaderSync {
         /// Height at the beginning of header sync.
@@ -173,7 +180,6 @@ impl SyncStatus {
             SyncStatus::NoSync => 0,
             SyncStatus::AwaitingPeers => 1,
             SyncStatus::EpochSync { .. } => 2,
-            SyncStatus::EpochSyncDone { .. } => 3,
             SyncStatus::HeaderSync { .. } => 4,
             SyncStatus::StateSync(_) => 5,
             SyncStatus::StateSyncDone => 6,
@@ -197,34 +203,47 @@ impl SyncStatus {
     }
 }
 
+impl From<EpochSyncStatus> for EpochSyncStatusView {
+    fn from(status: EpochSyncStatus) -> Self {
+        match status {
+            EpochSyncStatus::NotStarted => EpochSyncStatusView::NotStarted,
+            EpochSyncStatus::InProgress { source_peer_height, source_peer_id, attempt_time } => {
+                EpochSyncStatusView::InProgress {
+                    source_peer_height,
+                    source_peer_id: source_peer_id.to_string(),
+                    attempt_time: attempt_time.to_string(),
+                }
+            }
+            EpochSyncStatus::Done => EpochSyncStatusView::Done,
+        }
+    }
+}
+
+impl From<StateSyncStatus> for StateSyncStatusView {
+    fn from(status: StateSyncStatus) -> Self {
+        StateSyncStatusView {
+            sync_hash: status.sync_hash,
+            shard_sync_status: status
+                .sync_status
+                .iter()
+                .map(|(shard_id, shard_sync_status)| (*shard_id, shard_sync_status.to_string()))
+                .collect(),
+            download_tasks: status.download_tasks,
+            computation_tasks: status.computation_tasks,
+        }
+    }
+}
+
 impl From<SyncStatus> for SyncStatusView {
     fn from(status: SyncStatus) -> Self {
         match status {
             SyncStatus::AwaitingPeers => SyncStatusView::AwaitingPeers,
             SyncStatus::NoSync => SyncStatusView::NoSync,
-            SyncStatus::EpochSync(status) => SyncStatusView::EpochSync {
-                source_peer_height: status.source_peer_height,
-                source_peer_id: status.source_peer_id.to_string(),
-                attempt_time: status.attempt_time.to_string(),
-            },
-            SyncStatus::EpochSyncDone => SyncStatusView::EpochSyncDone,
+            SyncStatus::EpochSync(status) => SyncStatusView::EpochSync(status.into()),
             SyncStatus::HeaderSync { start_height, current_height, highest_height } => {
                 SyncStatusView::HeaderSync { start_height, current_height, highest_height }
             }
-            SyncStatus::StateSync(state_sync_status) => {
-                SyncStatusView::StateSync(StateSyncStatusView {
-                    sync_hash: state_sync_status.sync_hash,
-                    shard_sync_status: state_sync_status
-                        .sync_status
-                        .iter()
-                        .map(|(shard_id, shard_sync_status)| {
-                            (*shard_id, shard_sync_status.to_string())
-                        })
-                        .collect(),
-                    download_tasks: state_sync_status.download_tasks,
-                    computation_tasks: state_sync_status.computation_tasks,
-                })
-            }
+            SyncStatus::StateSync(status) => SyncStatusView::StateSync(status.into()),
             SyncStatus::StateSyncDone => SyncStatusView::StateSyncDone,
             SyncStatus::BlockSync { start_height, current_height, highest_height } => {
                 SyncStatusView::BlockSync { start_height, current_height, highest_height }

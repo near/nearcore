@@ -207,7 +207,6 @@ fn test_epoch_sync_bootstrap_fresh_node() {
             "AwaitingPeers",
             "NoSync",
             "EpochSync",
-            "EpochSyncDone",
             "HeaderSync",
             "StateSync",
             "StateSyncDone",
