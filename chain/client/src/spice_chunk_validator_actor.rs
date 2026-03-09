@@ -1,7 +1,3 @@
-use std::collections::{HashMap, HashSet};
-use std::iter::repeat_n;
-use std::sync::Arc;
-
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt as _};
 use near_async::messaging::{Handler, IntoSender as _, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
@@ -26,6 +22,9 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
 use near_store::adapter::StoreAdapter as _;
+use std::collections::{HashMap, HashSet};
+use std::iter::repeat_n;
+use std::sync::Arc;
 
 pub struct SpiceChunkValidatorActor {
     chain_store: ChainStore,

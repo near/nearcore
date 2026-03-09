@@ -1,7 +1,6 @@
-use bytesize::ByteSize;
-
 use super::errors::InconsistentStateError;
 use super::{HostError, VMLogicError};
+use bytesize::ByteSize;
 
 /// Keeps track of the recorded storage proof size and ensures it does not exceed the limit.
 pub struct RecordedStorageCounter {

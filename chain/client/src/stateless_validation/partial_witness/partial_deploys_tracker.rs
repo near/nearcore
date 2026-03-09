@@ -1,6 +1,3 @@
-use std::num::NonZeroUsize;
-use std::sync::Arc;
-
 use crate::metrics;
 use lru::LruCache;
 use near_async::time::Instant;
@@ -12,6 +9,8 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractDeploys, PartialEncodedContractDeploys, PartialEncodedContractDeploysPart,
 };
+use std::num::NonZeroUsize;
+use std::sync::Arc;
 use time::ext::InstantExt as _;
 
 const DEPLOY_PARTS_CACHE_SIZE: usize = 20;

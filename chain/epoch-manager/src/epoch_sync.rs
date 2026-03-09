@@ -1,6 +1,3 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-
 use itertools::Itertools;
 use near_chain_primitives::Error;
 use near_crypto::Signature;
@@ -21,6 +18,8 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::epoch_store::{EpochStoreAdapter, EpochStoreUpdateAdapter};
 use near_store::merkle_proof::MerkleProofAccess;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use tracing::instrument;
 
 /// We call this function on the first block of epoch T. We update the epoch sync proof to that

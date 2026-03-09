@@ -1,7 +1,6 @@
-use std::sync::Arc;
-
 use crate::DBCol;
 use crate::db::{DBIterator, DBSlice, DBTransaction, Database, StoreStatistics};
+use std::sync::Arc;
 
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]

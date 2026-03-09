@@ -15,8 +15,9 @@
 
 //! Batch signature verification.
 
-use std::iter::once;
-
+use crate::errors::{InternalError, SignatureError};
+use crate::extras::{IsCanonicalY, VerifyingKeyInternal};
+use crate::signature::InternalSignature;
 use curve25519_dalek::digest::Digest;
 use curve25519_dalek::traits::VartimeMultiscalarMul;
 use curve25519_dalek::{EdwardsPoint, Scalar, constants};
@@ -24,10 +25,7 @@ use ed25519_dalek::{VerifyingKey, ed25519};
 use merlin::Transcript;
 use rand_core::RngCore;
 use sha2::Sha512;
-
-use crate::errors::{InternalError, SignatureError};
-use crate::extras::{IsCanonicalY, VerifyingKeyInternal};
-use crate::signature::InternalSignature;
+use std::iter::once;
 
 /// An implementation of `rand_core::RngCore` which does nothing. This is necessary because merlin
 /// demands an `Rng` as input to `TranscriptRngBuilder::finalize()`. Using this with `finalize()`

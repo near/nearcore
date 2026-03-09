@@ -1,3 +1,5 @@
+use crate::setup::builder::{ArchivalKind, TestLoopBuilder};
+use crate::utils::account::create_account_id;
 use assert_matches::assert_matches;
 use near_async::messaging::Handler;
 use near_async::time::Duration;
@@ -6,9 +8,6 @@ use near_client::{GetBlock, GetSplitStorageInfo};
 use near_client_primitives::types::GetBlockError;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::types::{BlockId, BlockReference};
-
-use crate::setup::builder::{ArchivalKind, TestLoopBuilder};
-use crate::utils::account::create_account_id;
 
 /// Tests that an archival node with cold storage (split storage) has its cold
 /// head advancing close to the final head.

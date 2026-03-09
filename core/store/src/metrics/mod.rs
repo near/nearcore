@@ -643,15 +643,14 @@ pub fn spawn_db_metrics_loop(actor_system: ActorSystem, storage: &NodeStorage, p
 
 #[cfg(test)]
 mod test {
+    use super::spawn_db_metrics_loop;
     use crate::db::{StatsValue, StoreStatistics};
     use crate::metadata::{DB_VERSION, DbKind};
     use crate::metrics::rocksdb_metrics;
     use crate::test_utils::create_test_node_storage_with_cold;
+    use near_async::ActorSystem;
     use near_o11y::testonly::init_test_logger;
     use near_time::Duration;
-
-    use super::spawn_db_metrics_loop;
-    use near_async::ActorSystem;
 
     fn stat(name: &str, count: i64) -> (String, Vec<StatsValue>) {
         (name.into(), vec![StatsValue::Count(count)])

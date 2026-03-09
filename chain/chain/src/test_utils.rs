@@ -1,6 +1,3 @@
-use std::cmp::Ordering;
-use std::sync::Arc;
-
 use crate::block_processing_utils::BlockNotInPoolError;
 use crate::chain::{ApplyChunksIterationMode, Chain};
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
@@ -9,6 +6,7 @@ use crate::store::ChainStoreAccess;
 use crate::types::{AcceptedBlock, ChainConfig, ChainGenesis};
 use crate::{ApplyChunksSpawner, DoomslugThresholdMode};
 use crate::{BlockProcessingArtifact, Provenance};
+use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::Clock;
 use near_chain_configs::{Genesis, MutableConfigValue};
 use near_chain_primitives::Error;
@@ -30,8 +28,8 @@ use near_store::DBCol;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use num_rational::Ratio;
-
-use near_async::messaging::{IntoMultiSender, noop};
+use std::cmp::Ordering;
+use std::sync::Arc;
 
 pub fn get_chain(clock: Clock) -> Chain {
     get_chain_with_epoch_length_and_num_shards(clock, 10, 1)
@@ -345,19 +343,15 @@ pub fn get_fake_next_block_chunk_headers(
 
 #[cfg(test)]
 mod test {
-    use std::convert::TryFrom;
-
+    use crate::Chain;
     use near_async::time::Clock;
-    use rand::Rng;
-
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::Receipt;
+    use near_primitives::shard_layout::ShardLayout;
     use near_primitives::sharding::ReceiptList;
     use near_primitives::types::{AccountId, Balance, NumShards};
-
-    use crate::Chain;
-
-    use near_primitives::shard_layout::ShardLayout;
+    use rand::Rng;
+    use std::convert::TryFrom;
 
     fn naive_build_receipt_hashes(
         receipts: &[Receipt],

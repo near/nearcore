@@ -1,15 +1,13 @@
-use std::sync::Arc;
-
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::version::ProtocolFeature;
 use near_store::adapter::StoreAdapter as _;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-
-use near_epoch_manager::shard_tracker::ShardTracker;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct SpiceChainReader {

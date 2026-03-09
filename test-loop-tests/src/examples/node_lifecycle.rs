@@ -1,8 +1,7 @@
-use near_async::time::Duration;
-use near_o11y::testonly::init_test_logger;
-
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_account_id;
+use near_async::time::Duration;
+use near_o11y::testonly::init_test_logger;
 
 #[test]
 fn test_restart_node() {

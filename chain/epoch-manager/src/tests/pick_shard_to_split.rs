@@ -1,9 +1,8 @@
+use crate::pick_shard_to_split;
 use near_primitives::epoch_manager::DynamicReshardingConfig;
 use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::ShardId;
 use std::collections::HashMap;
-
-use crate::pick_shard_to_split;
 
 const SHARD_0: ShardId = ShardId::new(0);
 const SHARD_1: ShardId = ShardId::new(1);

@@ -4,12 +4,11 @@ use super::externals::WasmTypeList;
 use super::module::Module;
 use super::native::NativeFunc;
 use near_vm_engine::{LinkError, RuntimeError};
+pub use near_vm_types::InstanceConfig;
 use near_vm_vm::{Export, InstanceHandle, Resolver};
 use parking_lot::{Mutex, MutexGuard};
 use std::sync::Arc;
 use thiserror::Error;
-
-pub use near_vm_types::InstanceConfig;
 
 /// A WebAssembly Instance is a stateful, executable
 /// instance of a WebAssembly [`Module`].

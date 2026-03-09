@@ -1,3 +1,4 @@
+use crate::spice_chunk_validator_actor::{SpiceChunkStateWitnessMessage, SpiceChunkValidatorActor};
 use assert_matches::assert_matches;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{Handler, IntoAsyncSender, IntoSender, Sender, noop};
@@ -46,8 +47,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
-
-use crate::spice_chunk_validator_actor::{SpiceChunkStateWitnessMessage, SpiceChunkValidatorActor};
 
 const TEST_RECEIPTS: Vec<Receipt> = Vec::new();
 const GAS_LIMIT: Gas = Gas::from_teragas(300);

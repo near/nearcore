@@ -1,9 +1,7 @@
-use std::collections::{BTreeMap, HashMap};
-
-use near_primitives::errors::StorageError;
-use near_primitives::hash::{CryptoHash, hash};
-use near_primitives::state::FlatStateValue;
-
+use super::arena::{ArenaMemory, ArenaMut};
+use super::flexible_data::children::ChildrenView;
+use super::metrics::MEMTRIE_NUM_NODES_CREATED_FROM_UPDATES;
+use super::node::{InputMemTrieNode, MemTrieNodeId, MemTrieNodeView};
 use crate::trie::ops::insert_delete::GenericTrieUpdateInsertDelete;
 use crate::trie::ops::interface::{
     GenericNodeOrIndex, GenericTrieNode, GenericTrieNodeWithSize, GenericTrieUpdate,
@@ -12,11 +10,10 @@ use crate::trie::ops::interface::{
 use crate::trie::trie_recording::TrieRecorder;
 use crate::trie::{AccessOptions, Children, MemTrieChanges, NUM_CHILDREN, TrieRefcountDeltaMap};
 use crate::{RawTrieNode, RawTrieNodeWithSize, TrieChanges};
-
-use super::arena::{ArenaMemory, ArenaMut};
-use super::flexible_data::children::ChildrenView;
-use super::metrics::MEMTRIE_NUM_NODES_CREATED_FROM_UPDATES;
-use super::node::{InputMemTrieNode, MemTrieNodeId, MemTrieNodeView};
+use near_primitives::errors::StorageError;
+use near_primitives::hash::{CryptoHash, hash};
+use near_primitives::state::FlatStateValue;
+use std::collections::{BTreeMap, HashMap};
 
 pub type OldOrUpdatedNodeId = GenericNodeOrIndex<MemTrieNodeId>;
 
@@ -517,6 +514,7 @@ pub(super) fn construct_root_from_changes<A: ArenaMut>(
 
 #[cfg(test)]
 mod tests {
+    use super::TrackingMode;
     use crate::test_utils::TestTriesBuilder;
     use crate::trie::mem::arena::hybrid::HybridArena;
     use crate::trie::mem::lookup::memtrie_lookup;
@@ -531,8 +529,6 @@ mod tests {
     use near_primitives::types::{BlockHeight, StateRoot};
     use rand::Rng;
     use std::collections::{HashMap, HashSet};
-
-    use super::TrackingMode;
 
     struct TestTries {
         mem: MemTries,

@@ -1,6 +1,5 @@
-use std::collections::{HashMap, HashSet};
-
 use crate::{GGas, Receipt, Round, ShardId, Transaction, TransactionId};
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ReceiptId(TransactionId, usize);

@@ -1,6 +1,6 @@
-#[cfg(feature = "test_features")]
-use std::sync::Arc;
-
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::drop_condition::DropCondition;
+use crate::setup::env::TestLoopEnv;
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
@@ -14,10 +14,8 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, Balance, BlockHeight};
 #[cfg(feature = "test_features")]
 use near_primitives::validator_signer::ValidatorSigner;
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::drop_condition::DropCondition;
-use crate::setup::env::TestLoopEnv;
+#[cfg(feature = "test_features")]
+use std::sync::Arc;
 
 fn get_builder(num_shards: usize) -> TestLoopBuilder {
     init_test_logger();

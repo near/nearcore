@@ -1,8 +1,7 @@
 use near_async::messaging::AsyncSendError;
-use serde_json::Value;
-
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::errors::{RpcError, ServerError};
+use serde_json::Value;
 
 mod blocks;
 mod call_function;
@@ -89,10 +88,9 @@ impl RpcFrom<near_primitives::errors::InvalidTxError> for ServerError {
 }
 
 mod params {
+    use near_jsonrpc_primitives::errors::RpcParseError;
     use serde::de::DeserializeOwned;
     use serde_json::Value;
-
-    use near_jsonrpc_primitives::errors::RpcParseError;
 
     /// Helper wrapper for parsing JSON value into expected request format.
     ///

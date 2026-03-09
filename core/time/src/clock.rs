@@ -1,14 +1,12 @@
+use crate::{Deadline, Duration, Instant, Utc};
+use parking_lot::Mutex;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::pin::pin;
 use std::sync::Arc;
 use std::sync::LazyLock;
 use std::task::Poll;
-
-use parking_lot::Mutex;
 use time::ext::InstantExt;
-
-use crate::{Deadline, Duration, Instant, Utc};
 
 // Instant doesn't have a deterministic constructor,
 // however since Instant is not convertible to an unix timestamp,

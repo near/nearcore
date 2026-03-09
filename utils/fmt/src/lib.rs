@@ -1,7 +1,6 @@
-use std::ops::RangeInclusive;
-
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::serialize::{base64_display, from_base64};
+use std::ops::RangeInclusive;
 use std::str::FromStr;
 
 /// A wrapper for bytes slice which tries to guess best way to format it.

@@ -422,11 +422,9 @@ fn analyze_gas_usage(
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
-    use near_primitives::types::AccountId;
-
     use super::{GasUsageInShard, ShardSplit};
+    use near_primitives::types::AccountId;
+    use std::str::FromStr;
 
     fn account(name: &str) -> AccountId {
         AccountId::from_str(&format!("{name}.near")).unwrap()

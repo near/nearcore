@@ -1,6 +1,4 @@
-use std::collections::HashSet;
-use std::sync::Arc;
-
+use crate::env::test_env::TestEnv;
 use near_async::messaging::IntoMultiSender;
 use near_async::time::Clock;
 use near_chain::Provenance;
@@ -16,8 +14,8 @@ use near_o11y::testonly::TracingCapture;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::utils::MaybeValidated;
-
-use crate::env::test_env::TestEnv;
+use std::collections::HashSet;
+use std::sync::Arc;
 
 /// Helper function for block sync tests
 fn collect_hashes_from_network_adapter(

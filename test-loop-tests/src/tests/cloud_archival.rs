@@ -1,15 +1,14 @@
-use near_async::time::Duration;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_o11y::testonly::init_test_logger;
-use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta};
-
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::cloud_archival::{
     bootstrap_reader_at_height, check_account_balance, check_data_at_height,
     gc_and_heads_sanity_checks, pause_and_resume_writer_with_sanity_checks, run_node_until,
     snapshots_sanity_check,
 };
+use near_async::time::Duration;
+use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_o11y::testonly::init_test_logger;
+use near_primitives::shard_layout::ShardLayout;
+use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta};
 
 const MIN_GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
 /// Minimum epoch length assumed in tests.

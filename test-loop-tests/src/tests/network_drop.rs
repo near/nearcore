@@ -1,11 +1,9 @@
-use std::sync::Arc;
-
+use crate::setup::builder::TestLoopBuilder;
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
 use parking_lot::RwLock;
 use rand::{Rng, SeedableRng};
-
-use crate::setup::builder::TestLoopBuilder;
+use std::sync::Arc;
 
 const TARGET_HEIGHT: u64 = 20;
 const DROP_RATIO_NUMERATOR: u32 = 1;

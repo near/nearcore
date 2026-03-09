@@ -1,15 +1,13 @@
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, LazyLock};
-use std::time::Instant;
-
-use near_time::Clock;
-use parking_lot::RwLock;
-
 use crate::instrumentation::instrumented_window::InstrumentedWindow;
 use crate::instrumentation::queue::InstrumentedQueue;
 use crate::instrumentation::reader::InstrumentedThreadsView;
 use crate::instrumentation::{NUM_WINDOWS, WINDOW_SIZE_NS};
+use near_time::Clock;
+use parking_lot::RwLock;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, LazyLock};
+use std::time::Instant;
 /// it needs to be at least NUM_WINDOWS + 1, but we round up to a power of two for efficiency
 const WINDOW_ARRAY_SIZE: usize = NUM_WINDOWS + 4;
 

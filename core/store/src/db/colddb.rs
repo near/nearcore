@@ -165,9 +165,8 @@ fn adjust_op(op: &mut DBOp) -> bool {
 
 #[cfg(test)]
 mod test {
-    use near_primitives::hash::CryptoHash;
-
     use super::*;
+    use near_primitives::hash::CryptoHash;
 
     const HEIGHT_LE: &[u8] = &42u64.to_le_bytes();
     const SHARD: &[u8] = "ShardUId".as_bytes();
