@@ -110,9 +110,8 @@ def fix_file(path):
             if open_braces > close_braces:
                 in_multiline_use = True
                 brace_depth = open_braces - close_braces
-        elif in_imports and (
-            line.strip() == '' or COMMENT_OR_ATTR_RE.match(line.lstrip())
-        ):
+        elif in_imports and (line.strip() == '' or
+                             COMMENT_OR_ATTR_RE.match(line.lstrip())):
             buffer.append(raw)
         else:
             result.extend(buffer)
@@ -153,7 +152,8 @@ def main():
                 print(f"fixed {path.relative_to(repo_dir)}")
                 fixed += 1
         if fixed:
-            print(f"\nFixed {fixed} file(s). Run `cargo fmt` to re-sort imports.")
+            print(
+                f"\nFixed {fixed} file(s). Run `cargo fmt` to re-sort imports.")
         else:
             print("No violations found.")
         return 0
@@ -162,12 +162,16 @@ def main():
     for path in sorted(files):
         for gap_line, prev_use, next_use in check_file(path):
             rel = path.relative_to(repo_dir)
-            print(f"{rel}:{gap_line}: blank line between imports (lines {prev_use} and {next_use})")
+            print(
+                f"{rel}:{gap_line}: blank line between imports (lines {prev_use} and {next_use})"
+            )
             errors += 1
 
     if errors:
         print(f"\nFound {errors} import block violation(s).")
-        print("Remove blank lines between use statements to form a single import block.")
+        print(
+            "Remove blank lines between use statements to form a single import block."
+        )
         print("Run `python3 scripts/check_import_blocks.py --fix` to auto-fix.")
         return 1
 
