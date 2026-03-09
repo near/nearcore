@@ -17,6 +17,11 @@ USE_RE = re.compile(r'^(pub(\s*\(.*?\))?\s+)?use\s')
 COMMENT_OR_ATTR_RE = re.compile(r'^(//|#!?\[|/\*|\*)')
 
 
+def get_indent(line):
+    """Return the leading whitespace of a line."""
+    return line[:len(line) - len(line.lstrip())]
+
+
 def check_file(path):
     try:
         with open(path) as f:
@@ -28,6 +33,7 @@ def check_file(path):
     in_multiline_use = False
     brace_depth = 0
     last_use_line = None
+    last_use_indent = None
     saw_gap = False
     gap_line = None
 
@@ -41,8 +47,10 @@ def check_file(path):
                 last_use_line = lineno
             continue
 
-        if USE_RE.match(line):
-            if last_use_line is not None and saw_gap:
+        stripped = line.lstrip()
+        if USE_RE.match(stripped):
+            indent = get_indent(line)
+            if last_use_line is not None and saw_gap and indent == last_use_indent:
                 violations.append((gap_line, last_use_line, lineno))
 
             open_braces = line.count('{')
@@ -52,22 +60,24 @@ def check_file(path):
                 brace_depth = open_braces - close_braces
             else:
                 last_use_line = lineno
+            last_use_indent = indent
             saw_gap = False
         elif line.strip() == '':
             if last_use_line is not None and not saw_gap:
                 saw_gap = True
                 gap_line = lineno
-        elif COMMENT_OR_ATTR_RE.match(line.lstrip()):
+        elif COMMENT_OR_ATTR_RE.match(stripped):
             pass
         else:
             last_use_line = None
+            last_use_indent = None
             saw_gap = False
 
     return violations
 
 
 def fix_file(path):
-    """Remove blank lines between top-level import statements.
+    """Remove blank lines between import statements at the same indent level.
 
     Returns True if the file was modified.
     """
@@ -79,6 +89,7 @@ def fix_file(path):
 
     result = []
     in_imports = False
+    import_indent = None
     in_multiline_use = False
     brace_depth = 0
     buffer = []
@@ -93,9 +104,11 @@ def fix_file(path):
                 in_multiline_use = False
             continue
 
-        if USE_RE.match(line):
-            if in_imports:
-                # Between imports: keep non-blank buffered lines, discard blank ones.
+        stripped = line.lstrip()
+        if USE_RE.match(stripped):
+            indent = get_indent(line)
+            if in_imports and indent == import_indent:
+                # Between imports at same indent: discard blank lines.
                 for buf in buffer:
                     if buf.strip():
                         result.append(buf)
@@ -104,20 +117,22 @@ def fix_file(path):
             buffer.clear()
             result.append(raw)
             in_imports = True
+            import_indent = indent
 
             open_braces = line.count('{')
             close_braces = line.count('}')
             if open_braces > close_braces:
                 in_multiline_use = True
                 brace_depth = open_braces - close_braces
-        elif in_imports and (line.strip() == '' or
-                             COMMENT_OR_ATTR_RE.match(line.lstrip())):
+        elif in_imports and (line.strip() == ''
+                             or COMMENT_OR_ATTR_RE.match(stripped)):
             buffer.append(raw)
         else:
             result.extend(buffer)
             buffer.clear()
             result.append(raw)
             in_imports = False
+            import_indent = None
 
     result.extend(buffer)
 
@@ -153,7 +168,8 @@ def main():
                 fixed += 1
         if fixed:
             print(
-                f"\nFixed {fixed} file(s). Run `cargo fmt` to re-sort imports.")
+                f"\nFixed {fixed} file(s). Run `cargo fmt` to re-sort imports."
+            )
         else:
             print("No violations found.")
         return 0
@@ -172,7 +188,8 @@ def main():
         print(
             "Remove blank lines between use statements to form a single import block."
         )
-        print("Run `python3 scripts/check_import_blocks.py --fix` to auto-fix.")
+        print(
+            "Run `python3 scripts/check_import_blocks.py --fix` to auto-fix.")
         return 1
 
     return 0
