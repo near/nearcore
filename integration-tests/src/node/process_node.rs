@@ -1,20 +1,17 @@
+use crate::node::Node;
+use crate::user::User;
+use crate::user::rpc_user::RpcUser;
+use near_chain_configs::Genesis;
+use near_crypto::{InMemorySigner, Signer};
+use near_jsonrpc_client_internal::new_client;
+use near_primitives::types::AccountId;
+use nearcore::config::NearConfig;
+use rand::Rng;
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::Arc;
 use std::time::Duration;
 use std::{env, thread};
-
-use rand::Rng;
-
-use near_chain_configs::Genesis;
-use near_crypto::{InMemorySigner, Signer};
-use near_primitives::types::AccountId;
-use nearcore::config::NearConfig;
-
-use crate::node::Node;
-use crate::user::User;
-use crate::user::rpc_user::RpcUser;
-use near_jsonrpc_client_internal::new_client;
 
 pub enum ProcessNodeState {
     Stopped,

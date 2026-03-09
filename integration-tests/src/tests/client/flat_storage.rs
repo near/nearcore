@@ -1,3 +1,5 @@
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 /// Tests which check correctness of background flat storage creation.
 use assert_matches::assert_matches;
 use itertools::Itertools;
@@ -16,9 +18,6 @@ use near_store::adapter::StoreAdapter;
 use near_store::test_utils::create_test_store;
 use near_store::trie::AccessOptions;
 use near_store::{KeyLookupMode, Store};
-
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
 
 const START_HEIGHT: BlockHeight = 7;
 
