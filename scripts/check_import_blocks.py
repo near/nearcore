@@ -2,8 +2,9 @@
 """Checks that Rust imports form a single block without blank line separators.
 
 Usage:
-    python3 scripts/check_import_blocks.py          # check for violations
-    python3 scripts/check_import_blocks.py --fix     # auto-fix violations
+    python3 scripts/check_import_blocks.py            # check for violations (default)
+    python3 scripts/check_import_blocks.py --check     # same as above
+    python3 scripts/check_import_blocks.py --fix       # auto-fix violations
 
 See: https://near.github.io/nearcore/practices/style.html#import-blocks
 """
@@ -12,6 +13,8 @@ import pathlib
 import re
 import subprocess
 import sys
+
+USAGE = "usage: check_import_blocks.py [--check | --fix]"
 
 USE_RE = re.compile(r'^(pub(\s*\(.*?\))?\s+)?use\s')
 COMMENT_OR_ATTR_RE = re.compile(r'^(//|#!?\[|/\*|\*)')
@@ -124,8 +127,8 @@ def fix_file(path):
             if open_braces > close_braces:
                 in_multiline_use = True
                 brace_depth = open_braces - close_braces
-        elif in_imports and (line.strip() == ''
-                             or COMMENT_OR_ATTR_RE.match(stripped)):
+        elif in_imports and (line.strip() == '' or
+                             COMMENT_OR_ATTR_RE.match(stripped)):
             buffer.append(raw)
         else:
             result.extend(buffer)
@@ -155,8 +158,14 @@ def get_rust_files(repo_dir):
 
 
 def main():
+    args = sys.argv[1:]
+    valid_flags = {'--check', '--fix'}
+    if len(args) > 1 or (args and args[0] not in valid_flags):
+        print(USAGE, file=sys.stderr)
+        return 2
+    fix_mode = args == ['--fix']
+
     repo_dir = pathlib.Path(__file__).parent.parent
-    fix_mode = '--fix' in sys.argv
 
     files = get_rust_files(repo_dir)
 
@@ -168,8 +177,7 @@ def main():
                 fixed += 1
         if fixed:
             print(
-                f"\nFixed {fixed} file(s). Run `cargo fmt` to re-sort imports."
-            )
+                f"\nFixed {fixed} file(s). Run `cargo fmt` to re-sort imports.")
         else:
             print("No violations found.")
         return 0
@@ -188,8 +196,7 @@ def main():
         print(
             "Remove blank lines between use statements to form a single import block."
         )
-        print(
-            "Run `python3 scripts/check_import_blocks.py --fix` to auto-fix.")
+        print("Run `python3 scripts/check_import_blocks.py --fix` to auto-fix.")
         return 1
 
     return 0
