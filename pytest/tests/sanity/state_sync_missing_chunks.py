@@ -32,7 +32,6 @@ class StateSyncMissingChunks(unittest.TestCase):
         # state sync earlier.
         (config_dump, config_sync) = get_state_sync_configs_pair()
         config_sync["consensus"] = {
-            "block_fetch_horizon": epoch_length,
             "block_header_fetch_horizon": epoch_length,
         }
         client_config_changes = {0: config_dump, 1: config_sync}

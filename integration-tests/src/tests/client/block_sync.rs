@@ -73,15 +73,9 @@ fn test_env_with_epoch_length(epoch_length: u64) -> TestEnv {
 fn test_block_sync() {
     let mut capture = TracingCapture::enable();
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
-    let block_fetch_horizon = 10;
     let max_block_requests = 10;
-    let mut block_sync = BlockSync::new(
-        Clock::real(),
-        network_adapter.as_multi_sender(),
-        block_fetch_horizon,
-        false,
-        true,
-    );
+    let mut block_sync =
+        BlockSync::new(Clock::real(), network_adapter.as_multi_sender(), false, true);
     let mut env = test_env_with_epoch_length(100);
     let mut blocks = vec![];
     for i in 1..5 * max_block_requests + 1 {
@@ -152,15 +146,9 @@ fn test_block_sync() {
 #[test]
 fn test_block_sync_archival() {
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
-    let block_fetch_horizon = 10;
     let max_block_requests = 10;
-    let mut block_sync = BlockSync::new(
-        Clock::real(),
-        network_adapter.as_multi_sender(),
-        block_fetch_horizon,
-        true,
-        true,
-    );
+    let mut block_sync =
+        BlockSync::new(Clock::real(), network_adapter.as_multi_sender(), true, true);
     let mut env = test_env_with_epoch_length(5);
     let mut blocks = vec![];
     for i in 1..41 {

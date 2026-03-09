@@ -9,7 +9,7 @@ use near_network::types::{HighestHeightPeerInfo, NetworkRequests, PeerManagerAda
 use near_o11y::log_assert;
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockHeight, BlockHeightDelta};
+use near_primitives::types::BlockHeight;
 use rand::seq::IteratorRandom;
 use tracing::instrument;
 
@@ -33,9 +33,6 @@ pub struct BlockSync {
     // When the last block requests were made.
     last_request: Option<BlockSyncRequest>,
 
-    /// How far to fetch blocks vs fetch state.
-    block_fetch_horizon: BlockHeightDelta,
-
     /// Archival nodes are not allowed to do State Sync, as they need all state from all blocks.
     archive: bool,
 
@@ -47,18 +44,10 @@ impl BlockSync {
     pub fn new(
         clock: Clock,
         network_adapter: PeerManagerAdapter,
-        block_fetch_horizon: BlockHeightDelta,
         archive: bool,
         state_sync_enabled: bool,
     ) -> Self {
-        BlockSync {
-            clock,
-            network_adapter,
-            last_request: None,
-            block_fetch_horizon,
-            archive,
-            state_sync_enabled,
-        }
+        BlockSync { clock, network_adapter, last_request: None, archive, state_sync_enabled }
     }
 
     /// Returns true if State Sync is needed.
@@ -101,7 +90,8 @@ impl BlockSync {
         Ok(false)
     }
 
-    /// Check if state download is required
+    /// Check if state download is required.
+    /// State sync is needed when the head is 2+ epochs behind the header head.
     fn check_state_needed(&self, head: &Tip, header_head: &Tip) -> bool {
         if self.archive || !self.state_sync_enabled {
             return false;
@@ -109,11 +99,8 @@ impl BlockSync {
 
         log_assert!(head.height <= header_head.height);
 
-        // Only if the header head is more than one epoch ahead, then consider State Sync.
-        // block_fetch_horizon is used for testing to prevent test nodes from switching to State Sync too eagerly.
-        let prefer_state_sync = head.epoch_id != header_head.epoch_id
-            && head.next_epoch_id != header_head.epoch_id
-            && head.height.saturating_add(self.block_fetch_horizon) < header_head.height;
+        let prefer_state_sync =
+            head.epoch_id != header_head.epoch_id && head.next_epoch_id != header_head.epoch_id;
         if prefer_state_sync {
             tracing::debug!(
                 target: "sync",
@@ -122,7 +109,6 @@ impl BlockSync {
                 head_next_epoch_id = ?head.next_epoch_id,
                 head_height = head.height,
                 header_head_height = header_head.height,
-                block_fetch_horizon = self.block_fetch_horizon,
                 "switched from block sync to state sync");
         }
         prefer_state_sync
