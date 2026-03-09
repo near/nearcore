@@ -3,6 +3,9 @@ use std::iter::repeat_n;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
+use lru::LruCache;
+
+use near_primitives::errors::EpochError;
 use rand::Rng as _;
 
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt as _};
@@ -23,7 +26,7 @@ use near_network::spice_data_distribution::{
 };
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_o11y::span_wrapped_msg::SpanWrapped;
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::stateless_validation::contract_distribution::{
     CodeBytes, CodeHash, MAX_CONTRACTS_PER_REQUEST, SpiceChunkContractAccesses,
     SpiceContractCodeRequest, SpiceContractCodeResponse,
@@ -40,11 +43,14 @@ use near_store::adapter::StoreAdapter as _;
 
 use crate::stateless_validation::contracts_cache_contains_contract;
 
-// Each pending chunk is up to ~80MB in the worst case (17MB witness + 64MB contracts).
-// This results in a max of ~2GB of memory used for pending chunks.
+// Each pending chunk stores the uncompressed witness plus uncompressed contracts.
+// In the worst case the witness is bounded by MAX_UNCOMPRESSED_STATE_WITNESS_SIZE (64 MiB)
+// and the contracts by MAX_UNCOMPRESSED_CONTRACT_CODE_RESPONSE_SIZE (64 MiB), giving ~128 MiB
+// per chunk.  MAX_PENDING_CHUNKS * 128 MiB ≈ 3 GiB memory budget.
 // On the other hand if the validator follows 8 shards this means 3 pending chunks per shard on
 // average, so we do not want to drop below that.
-const MAX_PENDING_CHUNKS: usize = 24;
+// TODO(spice): add test covering the relationship between constants.
+pub(crate) const MAX_PENDING_CHUNKS: usize = 24;
 
 pub struct SpiceChunkValidatorActor {
     chain_store: ChainStore,
@@ -62,7 +68,7 @@ pub struct SpiceChunkValidatorActor {
     validation_spawner: Arc<dyn AsyncComputationSpawner>,
 
     /// Per-chunk state accumulating till it can be applied.
-    partial_chunk_data: lru::LruCache<SpiceChunkId, PartialChunkData>,
+    partial_chunk_data: LruCache<SpiceChunkId, PartialChunkData>,
 }
 
 /// Tracks the state of a chunk that is waiting on contract bytes and/or its witness.
@@ -80,7 +86,7 @@ struct PartialChunkData {
 /// If the chunk identified by `chunk_id` has all contracts and witness ready,
 /// removes it from the cache and returns the contracts and witness.
 fn try_take_ready_chunk(
-    partial_chunk_data: &mut lru::LruCache<SpiceChunkId, PartialChunkData>,
+    partial_chunk_data: &mut LruCache<SpiceChunkId, PartialChunkData>,
     chunk_id: &SpiceChunkId,
 ) -> Option<(Vec<CodeBytes>, SpiceChunkStateWitness)> {
     let entry = partial_chunk_data.peek(chunk_id)?;
@@ -135,7 +141,7 @@ impl SpiceChunkValidatorActor {
             core_reader,
             core_writer_sender,
             validation_spawner: validation_spawner.into_spawner(validation_thread_limit),
-            partial_chunk_data: lru::LruCache::new(NonZeroUsize::new(MAX_PENDING_CHUNKS).unwrap()),
+            partial_chunk_data: LruCache::new(NonZeroUsize::new(MAX_PENDING_CHUNKS).unwrap()),
         }
     }
 }
@@ -235,11 +241,12 @@ impl SpiceChunkValidatorActor {
         match self.witness_processing_readiness(&witness)? {
             WitnessProcessingReadiness::NotReady => {
                 // Block not ready: store for block arrival notification.
+                // TODO(spice): Implement additional checks (size limit, distance to head) before adding witness to `waiting_for_block`. See non-spice handle_orphan_witness().
                 self.waiting_for_block.entry(chunk_id.block_hash).or_default().0.push(witness);
                 Ok(())
             }
             WitnessProcessingReadiness::Ready(_) => {
-                // Block ready: store witness in pending_chunks and try to finalize.
+                // Block ready: store witness in partial_chunk_data and try to finalize.
                 self.partial_chunk_data
                     .get_or_insert_mut(chunk_id.clone(), PartialChunkData::new)
                     .witness = Some(witness);
@@ -460,7 +467,7 @@ impl SpiceChunkValidatorActor {
         let chunk_id = accesses.chunk_id().clone();
 
         if accesses.contracts().len() > MAX_CONTRACTS_PER_REQUEST {
-            tracing::warn!(
+            tracing::debug!(
                 target: "spice_chunk_validator",
                 ?chunk_id,
                 num_contracts = accesses.contracts().len(),
@@ -473,14 +480,14 @@ impl SpiceChunkValidatorActor {
         // in the epoch (any node tracking the shard may send contract accesses).
         let epoch_id = match self.epoch_manager.get_epoch_id(&chunk_id.block_hash) {
             Ok(epoch_id) => epoch_id,
-            Err(near_primitives::errors::EpochError::EpochOutOfBounds(_))
-            | Err(near_primitives::errors::EpochError::MissingBlock(_)) => {
+            Err(EpochError::EpochOutOfBounds(_)) | Err(EpochError::MissingBlock(_)) => {
                 // Block not in store yet — defer until it arrives.
                 tracing::debug!(
                     target: "spice_chunk_validator",
                     ?chunk_id,
                     "contract accesses for block not yet available; deferring",
                 );
+                // TODO(spice): Implement additional checks (size limit, distance to head) before adding accesses to `waiting_for_block`. See non-spice handle_orphan_witness().
                 self.waiting_for_block.entry(chunk_id.block_hash).or_default().1.push(accesses);
                 return Ok(());
             }
@@ -488,6 +495,8 @@ impl SpiceChunkValidatorActor {
         };
         let producers =
             self.epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, chunk_id.shard_id)?;
+        // TODO(spice),TODO(spice-perf): We could get the expected public key from the message (or
+        // by using sender if possible), check the signature, and then check the public id is in an expected hash set (or just iterate them), to avoid checking many signatures.
         let is_valid_signature = producers.iter().any(|account_id| {
             let Ok(validator) =
                 self.epoch_manager.get_validator_by_account_id(&epoch_id, account_id)
@@ -530,8 +539,8 @@ impl SpiceChunkValidatorActor {
         let entry =
             self.partial_chunk_data.get_or_insert_mut(chunk_id.clone(), PartialChunkData::new);
         // merge with previously received accesses if any
-        if entry.missing.is_some() {
-            entry.missing.as_mut().unwrap().extend(missing);
+        if let Some(existing) = &mut entry.missing {
+            existing.extend(missing);
         } else {
             entry.missing = Some(missing);
         }
@@ -555,24 +564,26 @@ impl SpiceChunkValidatorActor {
         // Map code_hash -> bytes for the received contracts.
         let mut received: HashMap<CodeHash, CodeBytes> = HashMap::new();
         for contract in contracts {
-            let hash = CodeHash(near_primitives::hash::hash(&contract.0));
+            let hash = CodeHash(hash(&contract.0));
             received.insert(hash, contract);
         }
 
         // Resolve across all pending chunks that are waiting on any of these contracts.
         let mut maybe_ready: Vec<SpiceChunkId> = Vec::new();
         for (chunk_id, entry) in &mut self.partial_chunk_data {
-            if let Some(missing) = &mut entry.missing {
-                let mut resolved_any = false;
-                for (hash, bytes) in &received {
-                    if missing.remove(hash) {
-                        entry.contracts.push(bytes.clone());
-                        resolved_any = true;
-                    }
+            let Some(missing) = &mut entry.missing else {
+                continue;
+            };
+
+            let mut resolved_any = false;
+            for (hash, bytes) in &received {
+                if missing.remove(hash) {
+                    entry.contracts.push(bytes.clone());
+                    resolved_any = true;
                 }
-                if resolved_any && missing.is_empty() {
-                    maybe_ready.push(chunk_id.clone());
-                }
+            }
+            if resolved_any && missing.is_empty() {
+                maybe_ready.push(chunk_id.clone());
             }
         }
 

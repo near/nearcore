@@ -16,7 +16,7 @@ use std::sync::Arc;
 /// Maximum number of contracts allowed in a single SpiceContractCodeRequest.
 /// This is a conservative upper bound on the number of unique contracts that can
 /// be called in a single chunk, derived from chunk gas limit / function_call_base cost.
-pub const MAX_CONTRACTS_PER_REQUEST: usize = 400;
+pub const MAX_CONTRACTS_PER_REQUEST: usize = 1282;
 
 // Data structures for chunk producers to send accessed contracts to chunk validators.
 
@@ -290,7 +290,7 @@ impl ContractCodeResponseV1 {
 
 /// Represents max allowed size of the raw (not compressed) contract code response,
 /// corresponds to the size of borsh-serialized ContractCodeResponse.
-const MAX_UNCOMPRESSED_CONTRACT_CODE_RESPONSE_SIZE: u64 =
+pub const MAX_UNCOMPRESSED_CONTRACT_CODE_RESPONSE_SIZE: u64 =
     ByteSize::mib(if cfg!(feature = "test_features") { 512 } else { 64 }).0;
 const CONTRACT_CODE_RESPONSE_COMPRESSION_LEVEL: i32 = 3;
 

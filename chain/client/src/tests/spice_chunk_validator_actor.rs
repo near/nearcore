@@ -49,9 +49,9 @@ use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 use near_network::spice_data_distribution::SpiceChunkContractAccessesMessage;
-use near_primitives::stateless_validation::ChunkProductionKey;
-use near_primitives::stateless_validation::contract_distribution::{
-    CodeHash, SpiceChunkContractAccesses,
+use near_primitives::stateless_validation::{
+    ChunkProductionKey,
+    contract_distribution::{CodeHash, SpiceChunkContractAccesses},
 };
 
 const TEST_RECEIPTS: Vec<Receipt> = Vec::new();
@@ -200,6 +200,8 @@ fn test_witness_arriving_before_block() {
     record_execution_results(&actor, &prev_block, starting_state_root);
 
     let block = build_block(&actor.chain, &prev_block);
+
+    send_empty_contract_accesses(&mut actor, &block);
     let witness_message = valid_witness_message(&actor, &block, &prev_block, &starting_state_root);
 
     actor.handle(witness_message.span_wrap());
@@ -212,8 +214,6 @@ fn test_witness_arriving_before_block() {
         &mut BlockProcessingArtifact::default(),
     )
     .unwrap();
-    // Accesses arrive after block is processed (epoch info now available).
-    send_empty_contract_accesses(&mut actor, &block);
     actor.handle(ProcessedBlock { block_hash: *block.hash() });
     assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_some());
 }
@@ -735,4 +735,30 @@ fn test_contract_accesses_invalid_signature_rejected() {
     // No contract requests should be sent, and no endorsement should be recorded.
     assert!(drain_contract_requests(&mut actor.network_rc).is_empty());
     assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_none());
+}
+
+/// Validates that MAX_CONTRACTS_PER_REQUEST is large enough to cover the maximum
+/// number of unique contracts that can be called in a single chunk.
+#[test]
+fn max_contracts_per_request_covers_chunk_gas_limit() {
+    use near_chain_configs::INITIAL_GAS_LIMIT;
+    use near_parameters::{ActionCosts, RuntimeConfigStore};
+    use near_primitives::stateless_validation::contract_distribution::MAX_CONTRACTS_PER_REQUEST;
+    use near_primitives::version::PROTOCOL_VERSION;
+
+    let store = RuntimeConfigStore::new(None);
+    let config = store.get_config(PROTOCOL_VERSION);
+    let function_call_base = config.fees.fee(ActionCosts::function_call_base).exec_fee();
+    let max_calls_per_chunk = INITIAL_GAS_LIMIT.as_gas() / function_call_base.as_gas();
+    // We do not want this limit to be smaller than the number of contracts we can theoretically
+    // stuff into a chunk, on the other hand we want it to be as small as reasonably possible to
+    // limit the blast radius of attack using the bogus contract hashes in `contract_accesses`.
+    assert!(
+        MAX_CONTRACTS_PER_REQUEST as u64 >= max_calls_per_chunk,
+        "MAX_CONTRACTS_PER_REQUEST ({}) must be >= chunk_gas_limit / function_call_base ({} / {} = {})",
+        MAX_CONTRACTS_PER_REQUEST,
+        INITIAL_GAS_LIMIT,
+        function_call_base,
+        max_calls_per_chunk,
+    );
 }

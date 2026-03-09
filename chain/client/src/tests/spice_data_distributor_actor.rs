@@ -4,7 +4,7 @@ use near_chain::ChainStoreAccess;
 use near_chain::spice_core::SpiceCoreReader;
 use near_chain::spice_core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
 use near_chain::types::Tip;
-use near_crypto::Signature;
+use near_crypto::{KeyType, Signature};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_primitives::gas::Gas;
@@ -18,6 +18,7 @@ use near_primitives::stateless_validation::spice_state_witness::{
 };
 use near_store::ShardUId;
 use std::collections::{HashMap, HashSet};
+use std::num::NonZero;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -55,6 +56,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ChunkExecutionResultHash};
 use near_primitives::types::{BlockHeight, ChunkExecutionResult};
 use near_primitives::types::{ShardId, SpiceChunkId};
+use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use tokio::sync::mpsc::error::TryRecvError;
@@ -483,7 +485,7 @@ fn test_witness_can_be_reconstructed_impl(num_chunk_producers: usize, num_valida
                 } | OutgoingMessage::NetworkRequests {
                     request: NetworkRequests::SpiceContractCodeResponse { .. }
                 },
-                "Unexpected message type before witness is reconstructed: {message:?}"
+                "unexpected message type before witness is reconstructed: {message:?}"
             );
 
             continue;
@@ -538,7 +540,18 @@ fn test_witness_is_distributed_to_all_validators_impl(
             ..
         } = message
         else {
-            continue; // Skip non-partial-data messages (e.g. SpiceChunkContractAccesses)
+            // allowed non-partial-data messages that can be received before the witness is fully reconstructed
+            assert_matches!(
+                message,
+                OutgoingMessage::NetworkRequests {
+                    request: NetworkRequests::SpiceChunkContractAccesses { .. }
+                } | OutgoingMessage::NetworkRequests {
+                    request: NetworkRequests::SpiceContractCodeResponse { .. }
+                },
+                "Unexpected message type before witness is reconstructed: {message:?}"
+            );
+
+            continue;
         };
         assert_eq!(message_recipients.len(), recipient_accounts.len());
         let message_recipients = HashSet::from_iter(message_recipients.into_iter());
@@ -2248,25 +2261,12 @@ fn test_contract_code_request_invalid_signature_rejected() {
         .into_iter()
         .find(|v| v != &producer)
         .unwrap();
-    let validator_signer = create_test_signer(validator.as_str());
 
-    // Create two requests with different contract sets but same requester/chunk_id,
-    // then swap their signatures so verification fails.
-    let request_a =
-        SpiceContractCodeRequest::new(chunk_id.clone(), HashSet::new(), &validator_signer);
-    let request_b = SpiceContractCodeRequest::new(
-        chunk_id,
-        HashSet::from([CodeHash(hash(&[1]))]),
-        &validator_signer,
-    );
-    // Borsh layout: inner bytes then signature (1 byte discriminant + 64 bytes = 65).
-    let bytes_a = borsh::to_vec(&request_a).unwrap();
-    let bytes_b = borsh::to_vec(&request_b).unwrap();
-    let sig_len = 65;
-    // Take request_a's inner with request_b's signature.
-    let mut tampered_bytes = bytes_a[..bytes_a.len() - sig_len].to_vec();
-    tampered_bytes.extend_from_slice(&bytes_b[bytes_b.len() - sig_len..]);
-    let tampered_request: SpiceContractCodeRequest = borsh::from_slice(&tampered_bytes).unwrap();
+    // Sign with a wrong key so signature verification fails.
+    // Use the correct validator account ID but a different seed to produce a wrong key.
+    let wrong_signer =
+        InMemoryValidatorSigner::from_seed(validator, KeyType::ED25519, "wrong_seed");
+    let tampered_request = SpiceContractCodeRequest::new(chunk_id, HashSet::new(), &wrong_signer);
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
@@ -2291,7 +2291,7 @@ fn test_contract_code_request_invalid_contract_hash_rejected() {
         block.hash(),
         chunk_id.shard_id,
         &state_witness,
-        &HashSet::from([hash_a]),
+        &HashSet::from([hash_a.clone()]),
     );
 
     let producer = witness_producer_accounts(&chain, &block, &state_witness).swap_remove(0);
@@ -2303,8 +2303,11 @@ fn test_contract_code_request_invalid_contract_hash_rejected() {
 
     // Request a contract hash that was NOT accessed in the chunk.
     let hash_b = CodeHash(hash(&[2]));
-    let request =
-        SpiceContractCodeRequest::new(chunk_id, HashSet::from([hash_b]), &validator_signer);
+    let request = SpiceContractCodeRequest::new(
+        chunk_id.clone(),
+        HashSet::from([hash_b.clone()]),
+        &validator_signer,
+    );
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
@@ -2312,6 +2315,15 @@ fn test_contract_code_request_invalid_contract_hash_rejected() {
     actor.handle(SpiceContractCodeRequestMessage(request));
     // Contract not in valid accesses — no response should be sent.
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
+
+    // Request both hash_a (valid) and hash_b (invalid) ()using a fresh actor to
+    // bypass dedup). Should still be rejected.
+    let request =
+        SpiceContractCodeRequest::new(chunk_id, HashSet::from([hash_a, hash_b]), &validator_signer);
+    let (outgoing_sc2, mut outgoing_rc2) = unbounded_channel();
+    let mut actor2 = new_actor_for_account(outgoing_sc2, &chain, &producer);
+    actor2.handle(SpiceContractCodeRequestMessage(request));
+    assert_matches!(outgoing_rc2.try_recv(), Err(TryRecvError::Empty));
 }
 
 #[test]
@@ -2345,7 +2357,7 @@ fn test_contract_code_request_happy_path() {
             shard_uid,
             &contract_hash.0,
             contract_bytes,
-            std::num::NonZero::new(1).unwrap(),
+            NonZero::new(1).unwrap(),
         );
         update.commit();
     }

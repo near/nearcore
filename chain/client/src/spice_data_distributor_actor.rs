@@ -18,6 +18,7 @@ use near_async::time::Duration;
 use near_chain::Block;
 use near_chain::spice_core::SpiceCoreReader;
 use near_chain::spice_core_writer_actor::ProcessedBlock;
+use near_chain::stateless_validation::metrics::PROCESS_CONTRACT_CODE_REQUEST_TIME;
 use near_chain_configs::MutableValidatorSigner;
 use near_chain_primitives::ApplyChunksMode;
 use near_epoch_manager::EpochManagerAdapter;
@@ -55,6 +56,7 @@ use near_primitives::types::EpochId;
 use near_primitives::types::ShardId;
 use near_primitives::types::SpiceChunkId;
 use near_primitives::types::validator_stake::ValidatorStake;
+use near_store::StorageError::MissingTrieValue;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
@@ -1024,14 +1026,12 @@ impl SpiceDataDistributorActor {
         // data they require.
 
         // For witness requests, also send contract accesses so that the requester
-        // (e.g. a chunk validator catching up after restart) can validate.
+        // (e.g. a chunk validator catching up after restart) can request them if not available in their local cache.
         if let SpiceDataIdentifier::Witness { block_hash, shard_id } = &data_id {
             let chunk_id = SpiceChunkId { block_hash: *block_hash, shard_id: *shard_id };
-            // Contract accesses are written atomically with the witness, so if the
-            // witness exists, contract accesses must be present too.
             let accesses =
                 get_contract_accesses(self.chain_store.store_ref(), block_hash, *shard_id)
-                    .expect("contract accesses must be present when witness exists");
+                    .expect("contract accesses should have been written atomically with witness");
             let accesses_msg = SpiceChunkContractAccesses::new(chunk_id, accesses, &signer);
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::SpiceChunkContractAccesses(vec![requester.clone()], accesses_msg),
@@ -1092,13 +1092,13 @@ impl SpiceDataDistributorActor {
         request: SpiceContractCodeRequest,
     ) -> Result<(), Error> {
         let chunk_id = request.chunk_id().clone();
-        let _timer = near_chain::stateless_validation::metrics::PROCESS_CONTRACT_CODE_REQUEST_TIME
+        let _timer = PROCESS_CONTRACT_CODE_REQUEST_TIME
             .with_label_values(&[&chunk_id.shard_id.to_string()])
             .start_timer();
         let requester = request.requester().clone();
 
         if request.contracts().len() > MAX_CONTRACTS_PER_REQUEST {
-            tracing::warn!(
+            tracing::debug!(
                 target: "spice_data_distribution",
                 ?chunk_id,
                 ?requester,
@@ -1108,7 +1108,7 @@ impl SpiceDataDistributorActor {
             return Ok(());
         }
 
-        // Fetch block early — needed for both validation and storage lookup below.
+        // Fetch block header early — needed for both validation and storage lookup below.
         let block_header = self.chain_store.get_block_header(&chunk_id.block_hash)?;
         let epoch_id = block_header.epoch_id();
 
@@ -1153,8 +1153,6 @@ impl SpiceDataDistributorActor {
             );
             return Ok(());
         }
-        self.processed_contract_code_requests.push(dedup_key, ());
-
         let Some(valid_accesses) = get_contract_accesses(
             self.chain_store.store_ref(),
             &chunk_id.block_hash,
@@ -1169,11 +1167,6 @@ impl SpiceDataDistributorActor {
             return Ok(());
         };
 
-        let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), chunk_id.shard_id, epoch_id)?;
-        let storage =
-            TrieDBStorage::new(TrieStoreAdapter::new(self.chain_store.store()), shard_uid);
-
-        let mut contracts = Vec::new();
         for contract_hash in request.contracts() {
             if !valid_accesses.contains(contract_hash) {
                 tracing::warn!(
@@ -1184,9 +1177,21 @@ impl SpiceDataDistributorActor {
                 );
                 return Ok(());
             }
+        }
+
+        // Mark as processed only after validating the request, to prevent a
+        // malicious request with invalid hashes from poisoning the dedup cache.
+        self.processed_contract_code_requests.push(dedup_key, ());
+
+        let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), chunk_id.shard_id, epoch_id)?;
+        let storage =
+            TrieDBStorage::new(TrieStoreAdapter::new(self.chain_store.store()), shard_uid);
+
+        let mut contracts = Vec::new();
+        for contract_hash in request.contracts() {
             match storage.retrieve_raw_bytes(&contract_hash.0) {
                 Ok(bytes) => contracts.push(CodeBytes(bytes)),
-                Err(near_store::StorageError::MissingTrieValue(_)) => {
+                Err(MissingTrieValue(_)) => {
                     tracing::warn!(
                         target: "spice_data_distribution",
                         ?contract_hash,
