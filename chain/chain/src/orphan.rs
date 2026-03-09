@@ -438,3 +438,88 @@ impl Chain {
         self.orphans.contains(hash)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use near_async::time::Clock;
+    use near_async::time::Utc;
+    use near_primitives::genesis::genesis_block;
+    use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
+    use near_primitives::types::Balance;
+    use near_primitives::version::PROTOCOL_VERSION;
+
+    fn make_orphan(clock: &Clock, block: Arc<Block>) -> Orphan {
+        Orphan {
+            block: MaybeValidated::from_validated(block),
+            provenance: crate::Provenance::NONE,
+            added: clock.now(),
+        }
+    }
+
+    /// Test that `get_orphans_within_depth` collects all orphans within the
+    /// target depth when there are multiple forks.
+    ///
+    /// Tree structure:
+    ///   genesis -> block_a (depth 0) -> block_b (depth 1) -> block_d (depth 2) -> block_f (depth 3)
+    ///                               \-> block_c (depth 1) -> block_e (depth 2) -> block_g (depth 3)
+    ///
+    /// With target_depth=2, all 4 orphans (B, C, D, E) must be returned.
+    #[test]
+    fn test_get_orphans_within_depth_with_forks() {
+        let clock = Clock::real();
+        let signer = Arc::new(create_test_signer("test"));
+
+        // Create genesis block.
+        let genesis = Arc::new(genesis_block(
+            PROTOCOL_VERSION,
+            vec![],
+            Utc::now_utc(),
+            0,
+            Balance::ZERO,
+            Balance::ZERO,
+            &vec![],
+        ));
+
+        // Create block_a - the parent of the fork
+        let block_a =
+            TestBlockBuilder::from_prev_block(clock.clone(), &genesis, signer.clone()).build();
+
+        // Create two children of block_a
+        let block_b =
+            TestBlockBuilder::from_prev_block(clock.clone(), &block_a, signer.clone()).build();
+        let block_c =
+            TestBlockBuilder::from_prev_block(clock.clone(), &block_a, signer.clone()).build();
+
+        // Create children of B and C
+        let block_d =
+            TestBlockBuilder::from_prev_block(clock.clone(), &block_b, signer.clone()).build();
+        let block_e =
+            TestBlockBuilder::from_prev_block(clock.clone(), &block_c, signer.clone()).build();
+
+        // Create children of D and E
+        let block_f =
+            TestBlockBuilder::from_prev_block(clock.clone(), &block_d, signer.clone()).build();
+        let block_g =
+            TestBlockBuilder::from_prev_block(clock.clone(), &block_e, signer.clone()).build();
+
+        // Add all 6 blocks as orphans.
+        let mut pool = OrphanBlockPool::new();
+        pool.add(make_orphan(&clock, block_b.clone()), false);
+        pool.add(make_orphan(&clock, block_c.clone()), false);
+        pool.add(make_orphan(&clock, block_d.clone()), false);
+        pool.add(make_orphan(&clock, block_e.clone()), false);
+        pool.add(make_orphan(&clock, block_f.clone()), false);
+        pool.add(make_orphan(&clock, block_g.clone()), false);
+
+        // Query for all orphans within depth 2 from block_a.
+        let result = pool.get_orphans_within_depth(*block_a.hash(), 2);
+        let result_set: HashSet<CryptoHash> = result.into_iter().collect();
+
+        assert!(result_set.contains(block_b.hash()), "missing block B (depth 1)");
+        assert!(result_set.contains(block_c.hash()), "missing block C (depth 1)");
+        assert!(result_set.contains(block_d.hash()), "missing block D (depth 2)");
+        assert!(result_set.contains(block_e.hash()), "missing block E (depth 2)");
+        assert_eq!(result_set.len(), 4);
+    }
+}
