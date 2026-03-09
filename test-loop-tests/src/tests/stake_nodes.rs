@@ -309,6 +309,8 @@ fn test_staking_join_and_leave_delayed_execution() {
     test_staking_join_and_leave_impl(4);
 }
 
+/// `execution_delay` is the number of blocks by which chunk endorsement propagation
+/// is delayed; 0 means normal execution, >0 triggers delayed (spice) execution.
 fn test_staking_join_and_leave_impl(execution_delay: u64) {
     init_test_logger();
 
@@ -339,10 +341,8 @@ fn test_staking_join_and_leave_impl(execution_delay: u64) {
     let mut env = env.warmup();
 
     // Verify initial validator set.
-    assert_eq!(
-        get_epoch_all_validators_sorted(env.node(0).client()),
-        vec!["validator0".to_string(), "validator1".to_string()],
-    );
+    let initial_validators: Vec<String> = accounts[..2].iter().map(|a| a.to_string()).collect();
+    assert_eq!(get_epoch_all_validators_sorted(env.node(0).client()), initial_validators,);
 
     // Stake for validator2 to join the validator set.
     let stake_tx = env.node(0).tx_from_actions(
@@ -356,10 +356,9 @@ fn test_staking_join_and_leave_impl(execution_delay: u64) {
     env.node_runner(0).run_tx(stake_tx, Duration::seconds(5));
 
     // Wait for validator2 to join.
-    let expected_joined: Vec<String> =
-        vec!["validator0".to_string(), "validator1".to_string(), "validator2".to_string()];
+    let all_validators: Vec<String> = accounts.iter().map(|a| a.to_string()).collect();
     env.node_runner(0).run_until(
-        |node| get_epoch_all_validators_sorted(node.client()) == expected_joined,
+        |node| get_epoch_all_validators_sorted(node.client()) == all_validators,
         Duration::seconds(30),
     );
 
@@ -389,9 +388,8 @@ fn test_staking_join_and_leave_impl(execution_delay: u64) {
     env.node_runner(0).run_tx(unstake_tx, Duration::seconds(5));
 
     // Wait for validator2 to leave the validator set.
-    let expected_original: Vec<String> = vec!["validator0".to_string(), "validator1".to_string()];
     env.node_runner(0).run_until(
-        |node| get_epoch_all_validators_sorted(node.client()) == expected_original,
+        |node| get_epoch_all_validators_sorted(node.client()) == initial_validators,
         Duration::seconds(30),
     );
 
