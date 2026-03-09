@@ -158,10 +158,8 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
             "AwaitingPeers",
             // State after having enough peers.
             "NoSync",
-            // EpochSync should be entered first.
+            // EpochSync should be entered and succeed.
             "EpochSync",
-            // EpochSync should succeed.
-            "EpochSyncDone",
             // Header sync happens next to bring forward HEADER_HEAD.
             "HeaderSync",
             // State sync downloads the state from state dumps.
