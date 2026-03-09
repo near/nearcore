@@ -1,6 +1,6 @@
-use std::collections::BTreeMap;
-use std::sync::Arc;
-
+use crate::setup::builder::TestLoopBuilder;
+use crate::utils::account::{create_validators_spec, validators_spec_clients};
+use crate::utils::setups::derive_new_epoch_config_from_boundary;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_o11y::testonly::init_test_logger;
@@ -8,10 +8,8 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
 use near_primitives::version::PROTOCOL_VERSION;
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::{create_validators_spec, validators_spec_clients};
-use crate::utils::setups::derive_new_epoch_config_from_boundary;
+use std::collections::BTreeMap;
+use std::sync::Arc;
 
 #[test]
 fn resharding_example_test() {

@@ -1,9 +1,3 @@
-use std::cell::RefCell;
-use std::cmp::max;
-use std::collections::HashMap;
-use std::rc::Rc;
-use std::sync::Arc;
-
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{
     create_account_ids, create_validators_spec, validators_spec_clients_with_rpc,
@@ -27,6 +21,11 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
 use parking_lot::RwLock;
 use rand::{Rng as _, thread_rng};
+use std::cell::RefCell;
+use std::cmp::max;
+use std::collections::HashMap;
+use std::rc::Rc;
+use std::sync::Arc;
 
 #[test]
 fn slow_test_repro_1183() {

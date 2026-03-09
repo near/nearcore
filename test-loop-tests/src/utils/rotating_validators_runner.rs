@@ -1,6 +1,5 @@
-use std::collections::HashSet;
-use std::sync::atomic::{AtomicU64, Ordering};
-
+use crate::setup::env::TestLoopEnv;
+use crate::utils::transactions;
 use itertools::Itertools as _;
 use near_async::messaging::CanSend as _;
 use near_async::test_loop::data::{TestLoopData, TestLoopDataHandle};
@@ -12,9 +11,8 @@ use near_crypto::Signer;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, AccountInfo, Balance, EpochId, Nonce, NumSeats};
-
-use crate::setup::env::TestLoopEnv;
-use crate::utils::transactions;
+use std::collections::HashSet;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Allows running with validators rotating on each epoch.
 pub struct RotatingValidatorsRunner {

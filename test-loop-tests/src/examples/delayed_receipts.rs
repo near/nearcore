@@ -1,3 +1,5 @@
+use crate::setup::builder::TestLoopBuilder;
+use crate::utils::account::create_account_id;
 use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::time::Duration;
@@ -6,9 +8,6 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::gas::Gas;
 use near_primitives::transaction::ExecutionStatus;
 use near_primitives::types::Balance;
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::create_account_id;
 
 /// Example test that creates a chunk which, when applied, creates a delayed receipt.
 /// Requires "test_features" feature to be enabled in order to use `burn_gas_raw`

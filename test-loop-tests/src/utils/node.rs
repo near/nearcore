@@ -1,6 +1,5 @@
-use std::sync::Arc;
-use std::task::Poll;
-
+use crate::setup::state::NodeExecutionData;
+use crate::utils::transactions::TransactionRunner;
 use futures::future::BoxFuture;
 use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::CanSend;
@@ -33,9 +32,8 @@ use near_primitives::views::{
 use near_store::Store;
 use near_store::adapter::StoreAdapter as _;
 use parking_lot::Mutex;
-
-use crate::setup::state::NodeExecutionData;
-use crate::utils::transactions::TransactionRunner;
+use std::sync::Arc;
+use std::task::Poll;
 
 /// Represents a single node in the test loop setup.
 ///
