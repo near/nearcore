@@ -452,6 +452,45 @@ impl<'a> NodeRunner<'a> {
         );
     }
 
+    /// Run until all given transactions appear in the head block.
+    /// Returns the height of the block containing the transactions.
+    pub fn run_until_included(&mut self, tx_hashes: &[CryptoHash]) -> BlockHeight {
+        let tx_hashes = tx_hashes.to_vec();
+        self.run_until(
+            |node| {
+                let head = node.head();
+                let block = node.client().chain.get_block(&head.last_block_hash).unwrap();
+                let mut included = std::collections::HashSet::new();
+                for chunk_header in block.chunks().iter() {
+                    let chunk = node.client().chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
+                    for tx in chunk.to_transactions() {
+                        included.insert(tx.get_hash());
+                    }
+                }
+                tx_hashes.iter().all(|h| included.contains(h))
+            },
+            Duration::seconds(20),
+        );
+        self.head().height
+    }
+
+    /// Run until the last certified block height is at least `height`.
+    pub fn run_until_certified(&mut self, height: BlockHeight) {
+        let initial_height = self.head().height;
+        let height_diff = height.saturating_sub(initial_height) as usize;
+        let extra = self.node_data.expected_execution_delay() as usize;
+        let timeout = self.calculate_block_distance_timeout(height_diff + extra + 1);
+        self.run_until(
+            |node| {
+                let chain_store = &node.client().chain.chain_store;
+                let head_hash = chain_store.head().unwrap().last_block_hash;
+                near_chain::spice_core::get_last_certified_block_header(chain_store, &head_hash)
+                    .map_or(false, |h| h.height() >= height)
+            },
+            timeout,
+        );
+    }
+
     pub fn run_until_new_epoch(&mut self) {
         let curr_epoch_id = self.head().epoch_id;
         let epoch_length = self.client().config.epoch_length as usize;

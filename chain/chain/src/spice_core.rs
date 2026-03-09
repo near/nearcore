@@ -101,7 +101,10 @@ impl SpiceCoreReader {
         self.chain_store.store().caching_get_ser(DBCol::execution_results(), &key)
     }
 
-    fn get_uncertified_chunks(
+    /// Returns the list of uncertified chunks as of the given block.
+    /// Returns an empty vec for genesis or non-Spice blocks.
+    /// Errors if a Spice block is missing uncertified_chunks in storage.
+    pub fn get_uncertified_chunks(
         &self,
         block_hash: &CryptoHash,
     ) -> Result<Vec<SpiceUncertifiedChunkInfo>, Error> {
@@ -546,6 +549,26 @@ fn find_oldest_uncertified_block_header(
         .map(|block_hash| chain_store.get_block_header(block_hash))
         .collect::<Result<Vec<_>, Error>>()?;
     Ok(uncertified_block_headers.into_iter().min_by_key(|header| header.height()))
+}
+
+/// Returns block hashes that became fully certified due to the execution results
+/// in `core_statements`. A block is newly certified when all of its previously
+/// uncertified chunks appear in the execution results.
+pub fn find_newly_certified_block_hashes(
+    prev_uncertified_chunks: &[SpiceUncertifiedChunkInfo],
+    core_statements: &SpiceCoreStatements,
+) -> Vec<CryptoHash> {
+    let newly_certified_chunk_ids: HashSet<&SpiceChunkId> =
+        core_statements.iter_execution_results().map(|(id, _)| id).collect();
+    // Group uncertified chunks by block hash, tracking whether all are now certified.
+    let mut blocks: HashMap<CryptoHash, bool> = HashMap::new();
+    for chunk_info in prev_uncertified_chunks {
+        let block_entry = blocks.entry(chunk_info.chunk_id.block_hash).or_insert(true);
+        if !newly_certified_chunk_ids.contains(&chunk_info.chunk_id) {
+            *block_entry = false;
+        }
+    }
+    blocks.into_iter().filter(|(_, all_certified)| *all_certified).map(|(hash, _)| hash).collect()
 }
 
 /// Returns the header of the last fully certified block relative to the given block.

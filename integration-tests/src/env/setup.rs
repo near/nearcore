@@ -203,6 +203,7 @@ fn setup(
     let StartClientResult {
         client_actor,
         tx_pool,
+        pending_transaction_queue,
         chunk_endorsement_tracker,
         chunk_validation_actor,
         ..
@@ -249,6 +250,7 @@ fn setup(
         actor_system.clone(),
         rpc_handler_config,
         tx_pool,
+        pending_transaction_queue,
         epoch_manager.clone(),
         shard_tracker.clone(),
         signer,
@@ -620,6 +622,7 @@ pub fn setup_tx_request_handler(
     RpcHandlerActor::new(
         config,
         client.chunk_producer.sharded_tx_pool.clone(),
+        client.chunk_producer.pending_transaction_queue.clone(),
         epoch_manager,
         shard_tracker,
         client.validator_signer.clone(),

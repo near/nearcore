@@ -13,6 +13,7 @@ use crate::client::{CatchupState, Client, EPOCH_START_INFO_BLOCKS};
 use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{InfoHelper, display_sync_status};
+use crate::pending_transaction_queue::ShardedPendingTransactionQueue;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validation_actor::{
     ChunkValidationActor, ChunkValidationSender,
@@ -144,6 +145,7 @@ fn wait_until_genesis(genesis_time: &Utc) {
 pub struct StartClientResult {
     pub client_actor: TokioRuntimeHandle<ClientActor>,
     pub tx_pool: Arc<Mutex<ShardedTransactionPool>>,
+    pub pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
     pub chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
     pub chunk_validation_actor: MultithreadRuntimeHandle<ChunkValidationActor>,
 }
@@ -268,6 +270,8 @@ pub fn start_client(
     )
     .unwrap();
     let tx_pool = client_actor_inner.client.chunk_producer.sharded_tx_pool.clone();
+    let pending_transaction_queue =
+        client_actor_inner.client.chunk_producer.pending_transaction_queue.clone();
     let chunk_endorsement_tracker =
         Arc::clone(&client_actor_inner.client.chunk_endorsement_tracker);
     let client_actor = actor_system.spawn_tokio_actor(client_actor_inner);
@@ -280,6 +284,7 @@ pub fn start_client(
     StartClientResult {
         client_actor,
         tx_pool,
+        pending_transaction_queue,
         chunk_endorsement_tracker,
         chunk_validation_actor: chunk_validation_actor_addr,
     }

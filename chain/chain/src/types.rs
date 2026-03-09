@@ -50,6 +50,7 @@ use near_store::flat::FlatStorageManager;
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
+pub use node_runtime::PendingConstraints;
 use node_runtime::PostStateReadyCallback;
 use node_runtime::SignedValidPeriodTransactions;
 use num_rational::Rational32;
@@ -419,6 +420,30 @@ impl PreparedTransactions {
 #[derive(Debug, Clone)]
 pub struct SkippedTransactions(pub Vec<ValidatedTransaction>);
 
+/// Whether the transaction's signer account has a deployed contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HasContract {
+    Yes,
+    No,
+}
+
+/// Result of checking pending transaction queue admission for a transaction.
+#[derive(Debug, PartialEq, Eq)]
+pub enum PendingTxCheckResult {
+    /// Admitted. Use these constraints for balance/nonce validation.
+    Admit(PendingConstraints),
+    /// Violates PTQ constraints (P_MAX, deploy exclusivity).
+    /// Push to skipped_transactions for reintroduction to pool.
+    Skip,
+}
+
+impl PendingTxCheckResult {
+    /// Returns a closure that always admits with default constraints.
+    pub fn always_admit() -> impl FnMut(&SignedTransaction, HasContract) -> PendingTxCheckResult {
+        |_, _| PendingTxCheckResult::Admit(PendingConstraints::default())
+    }
+}
+
 /// Chunk producer prepares transactions from the transaction pool
 /// until it hits some limit (too many transactions, too much gas used, etc).
 /// This enum describes which limit was hit when preparing transactions.
@@ -516,6 +541,7 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: StateRoot,
         validated_tx: &ValidatedTransaction,
         current_protocol_version: ProtocolVersion,
+        pending_constraints: &PendingConstraints,
     ) -> Result<(), InvalidTxError>;
 
     /// Returns an ordered list of valid transactions from the pool up the given limits.
@@ -554,6 +580,7 @@ pub trait RuntimeAdapter: Send + Sync {
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         skip_tx_hashes: HashSet<CryptoHash>,
+        check_pending: &mut dyn FnMut(&SignedTransaction, HasContract) -> PendingTxCheckResult,
         time_limit: Option<Duration>,
         cancel: Option<Arc<AtomicBool>>,
     ) -> Result<(PreparedTransactions, SkippedTransactions), Error>;
