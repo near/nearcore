@@ -1,3 +1,4 @@
+use crate::ReshardingConfig;
 use near_primitives::types::BlockHeight;
 use near_primitives::validator_signer::ValidatorSigner;
 #[cfg(feature = "metrics")]
@@ -9,8 +10,6 @@ use std::sync::Arc;
 use time::Duration;
 #[cfg(feature = "metrics")]
 use time::OffsetDateTime as Utc;
-
-use crate::ReshardingConfig;
 
 /// A wrapper for a config value that can be updated while the node is running.
 /// When initializing sub-objects (e.g. `ShardsManager`), please make sure to

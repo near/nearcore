@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use genesis_populate::get_account_id;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::hash::CryptoHash;
@@ -9,6 +7,7 @@ use near_primitives::types::{Balance, Gas};
 use rand::Rng;
 use rand::prelude::ThreadRng;
 use rand::seq::SliceRandom;
+use std::collections::HashMap;
 
 /// A helper to create transaction for processing by a `TestBed`.
 #[derive(Clone)]

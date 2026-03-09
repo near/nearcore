@@ -242,9 +242,8 @@ impl ProtocolUpgradeVotingSchedule {
 
 #[cfg(test)]
 mod tests {
-    use std::vec;
-
     use super::*;
+    use std::vec;
 
     /// Make a simple schedule with a single protocol version upgrade.
     fn make_simple_voting_schedule(

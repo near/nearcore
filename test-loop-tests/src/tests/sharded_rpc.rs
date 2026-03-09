@@ -1,3 +1,5 @@
+use crate::setup::builder::TestLoopBuilder;
+use crate::utils::account::create_account_id;
 use near_async::time::Duration;
 use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::ValidatorsSpec;
@@ -6,9 +8,6 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockReference, Finality};
 use near_store::ShardUId;
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::create_account_id;
 
 /// 2 shards, 2 accounts, one on each shard
 /// view_account jsonrpc queries should be forwarded to the right shard.

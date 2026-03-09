@@ -1,17 +1,15 @@
+use super::PendingEventsSender;
+use super::data::{TestLoopData, TestLoopDataHandle};
+use crate::futures::DelayedActionRunner;
+use crate::messaging::{Actor, AsyncSendError, CanSend, CanSendAsync, HandlerWithContext};
+use crate::time::Duration;
+use futures::FutureExt;
+use futures::channel::oneshot;
+use futures::future::BoxFuture;
 use std::any::type_name;
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-
-use crate::futures::DelayedActionRunner;
-use crate::messaging::{Actor, AsyncSendError, CanSend, CanSendAsync, HandlerWithContext};
-use crate::time::Duration;
-
-use super::PendingEventsSender;
-use super::data::{TestLoopData, TestLoopDataHandle};
-use futures::FutureExt;
-use futures::channel::oneshot;
-use futures::future::BoxFuture;
 
 /// TestLoopSender implements the CanSend methods for an actor that can Handle them.
 ///

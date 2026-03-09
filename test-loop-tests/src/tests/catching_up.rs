@@ -1,8 +1,6 @@
-use std::cell::RefCell;
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
-
+use crate::setup::builder::TestLoopBuilder;
+use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
+use crate::utils::transactions::get_anchor_hash;
 use itertools::Itertools as _;
 use near_async::messaging::{CanSend as _, Handler as _};
 use near_async::time::Duration;
@@ -16,10 +14,10 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, BlockReference, NumSeats, ShardId};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
-use crate::utils::transactions::get_anchor_hash;
+use std::cell::RefCell;
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 /// Verifies that fetching of random parts works properly by issuing transactions during the
 /// third epoch, and then making sure that the balances are correct for the next three epochs.

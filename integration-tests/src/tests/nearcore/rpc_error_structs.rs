@@ -1,6 +1,3 @@
-use std::ops::ControlFlow;
-use std::str::FromStr;
-
 use crate::tests::nearcore::node_cluster::NodeCluster;
 use crate::utils::genesis_helpers::genesis_block;
 use near_async::messaging::CanSendAsync;
@@ -13,6 +10,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{Balance, BlockId};
+use std::ops::ControlFlow;
+use std::str::FromStr;
 
 // Queries json-rpc block that doesn't exists
 // Checks if the struct is expected and contains the proper data

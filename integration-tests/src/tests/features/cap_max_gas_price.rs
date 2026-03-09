@@ -1,8 +1,7 @@
+use crate::utils::process_blocks::prepare_env_with_congestion;
 use near_primitives::num_rational::Ratio;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::ShardUId;
-
-use crate::utils::process_blocks::prepare_env_with_congestion;
 
 #[test]
 fn test_capped_gas_price() {

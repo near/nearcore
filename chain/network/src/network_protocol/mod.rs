@@ -33,12 +33,11 @@ mod _proto {
     include!(concat!(env!("OUT_DIR"), "/proto/mod.rs"));
 }
 
-pub use _proto::network as proto;
-
 use crate::network_protocol::proto_conv::trace_context::{
     extract_span_context, inject_trace_context,
 };
 use crate::spice_data_distribution::SpicePartialDataRequest;
+pub use _proto::network as proto;
 use near_async::time;
 use near_crypto::PublicKey;
 use near_crypto::Signature;

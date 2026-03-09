@@ -1,43 +1,39 @@
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-
-use itertools::Itertools;
-use near_chain_configs::test_genesis::{
-    TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
-};
-use near_chain_configs::test_utils::TestClientConfigParams;
-use near_jsonrpc::client::JsonRpcClient;
-use near_jsonrpc::sharded_rpc::ShardedRpcNode;
-use near_primitives::shard_layout::ShardLayout;
-use near_store::archive::cloud_storage::config::test_cloud_archival_config;
-use tempfile::TempDir;
-
-use near_async::test_loop::TestLoopV2;
-use near_async::time::{Clock, Duration};
-use near_chain_configs::{
-    ClientConfig, DumpConfig, ExternalStorageConfig, ExternalStorageLocation, Genesis,
-    StateSyncConfig, SyncConfig, TrackedShardsConfig,
-};
-use near_parameters::RuntimeConfigStore;
-use near_primitives::epoch_manager::EpochConfigStore;
-use near_primitives::gas::Gas;
-use near_primitives::types::{AccountId, Balance, BlockHeight, NumBlocks, NumShards};
-use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
-use near_primitives::version::{ProtocolVersion, get_protocol_upgrade_schedule};
-use near_primitives_core::num_rational::Rational32;
-use near_store::genesis::initialize_genesis_state;
-use near_store::test_utils::{TestNodeStorage, create_test_node_storage};
-
+use super::env::TestLoopEnv;
+use super::setup::setup_client;
+use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 use crate::utils::account::{
     archival_account_id, create_validators_spec, validators_spec_clients,
     validators_spec_clients_with_rpc,
 };
 use crate::utils::peer_manager_actor::{TestLoopNetworkSharedState, UnreachableActor};
-
-use super::env::TestLoopEnv;
-use super::setup::setup_client;
-use super::state::{NodeExecutionData, NodeSetupState, SharedState};
+use itertools::Itertools;
+use near_async::test_loop::TestLoopV2;
+use near_async::time::{Clock, Duration};
+use near_chain_configs::test_genesis::{
+    TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
+};
+use near_chain_configs::test_utils::TestClientConfigParams;
+use near_chain_configs::{
+    ClientConfig, DumpConfig, ExternalStorageConfig, ExternalStorageLocation, Genesis,
+    StateSyncConfig, SyncConfig, TrackedShardsConfig,
+};
+use near_jsonrpc::client::JsonRpcClient;
+use near_jsonrpc::sharded_rpc::ShardedRpcNode;
+use near_parameters::RuntimeConfigStore;
+use near_primitives::epoch_manager::EpochConfigStore;
+use near_primitives::gas::Gas;
+use near_primitives::shard_layout::ShardLayout;
+use near_primitives::types::{AccountId, Balance, BlockHeight, NumBlocks, NumShards};
+use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
+use near_primitives::version::{ProtocolVersion, get_protocol_upgrade_schedule};
+use near_primitives_core::num_rational::Rational32;
+use near_store::archive::cloud_storage::config::test_cloud_archival_config;
+use near_store::genesis::initialize_genesis_state;
+use near_store::test_utils::{TestNodeStorage, create_test_node_storage};
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tempfile::TempDir;
 
 pub(crate) const MIN_BLOCK_PROD_TIME: u64 = 600;
 
@@ -258,6 +254,13 @@ impl TestLoopBuilder {
         for account_id in accounts {
             auto.user_accounts.push((account_id.clone(), initial_balance));
         }
+        self
+    }
+
+    /// Adds a non-validator client node.
+    pub fn add_non_validator_client(mut self, account_id: &AccountId) -> Self {
+        let auto = self.setup_config.ensure_auto();
+        auto.non_validator_clients.push(account_id.clone());
         self
     }
 
@@ -602,6 +605,7 @@ struct AutoSetupConfig {
     archival_node: Option<ArchivalKind>,
     shard_layout: Option<ShardLayout>,
     user_accounts: Vec<(AccountId, Balance)>,
+    non_validator_clients: Vec<AccountId>,
     epoch_length: Option<u64>,
     gas_limit: Option<Gas>,
     protocol_version: Option<ProtocolVersion>,
@@ -664,6 +668,7 @@ impl AutoSetupConfig {
             archival_node: None,
             shard_layout: None,
             user_accounts: vec![],
+            non_validator_clients: vec![],
             epoch_length: None,
             gas_limit: None,
             protocol_version: None,
@@ -725,6 +730,9 @@ impl AutoSetupConfig {
                 account_id: archival_account_id(),
                 client_type: ClientType::Archival(kind),
             });
+        }
+        for account_id in self.non_validator_clients {
+            clients.push(ClientSpec { account_id, client_type: ClientType::Regular });
         }
         (genesis, clients)
     }

@@ -1,3 +1,7 @@
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
+use crate::utils::account::create_account_ids;
+use crate::utils::transactions;
 use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
@@ -20,11 +24,6 @@ use near_primitives::views::{
     QueryRequest, QueryResponse, QueryResponseKind,
 };
 use near_vm_runner::ContractCode;
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::env::TestLoopEnv;
-use crate::utils::account::create_account_ids;
-use crate::utils::transactions;
 
 const GAS_PRICE: Balance = Balance::from_yoctonear(1);
 

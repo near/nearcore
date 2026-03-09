@@ -1,8 +1,7 @@
+use super::RpcFrom;
 use near_async::messaging::AsyncSendError;
 use near_client_primitives::types::GetClientConfigError;
 use near_jsonrpc_primitives::types::client_config::RpcClientConfigError;
-
-use super::RpcFrom;
 
 impl RpcFrom<AsyncSendError> for RpcClientConfigError {
     fn rpc_from(error: AsyncSendError) -> Self {

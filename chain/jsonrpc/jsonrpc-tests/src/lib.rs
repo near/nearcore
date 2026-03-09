@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use axum::Router;
 use axum_test::TestServer;
 use near_async::ActorSystem;
@@ -26,6 +24,7 @@ use near_store::test_utils::create_test_store;
 use near_time::Clock;
 use nearcore::NightshadeRuntime;
 use parking_lot::RwLock;
+use std::sync::Arc;
 
 pub const TEST_SEED: RngSeed = [3; 32];
 

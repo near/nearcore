@@ -1,6 +1,5 @@
-use std::sync::Arc;
-use std::task::Poll;
-
+use crate::setup::state::NodeExecutionData;
+use crate::utils::transactions::TransactionRunner;
 use futures::future::BoxFuture;
 use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::CanSend;
@@ -14,7 +13,7 @@ use near_client::{Client, ProcessTxRequest, Query, QueryError, ViewClientActor};
 use near_crypto::PublicKey;
 use near_jsonrpc::client::JsonRpcClient;
 use near_jsonrpc_primitives::errors::RpcError;
-use near_primitives::action::Action;
+use near_primitives::action::{Action, GlobalContractDeployMode, GlobalContractIdentifier};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
@@ -33,9 +32,8 @@ use near_primitives::views::{
 use near_store::Store;
 use near_store::adapter::StoreAdapter as _;
 use parking_lot::Mutex;
-
-use crate::setup::state::NodeExecutionData;
-use crate::utils::transactions::TransactionRunner;
+use std::sync::Arc;
+use std::task::Poll;
 
 /// Represents a single node in the test loop setup.
 ///
@@ -178,10 +176,13 @@ impl<'a> TestLoopNode<'a> {
             .collect()
     }
 
-    pub fn submit_tx(&self, tx: SignedTransaction) {
+    /// Submit a signed transaction to this node's RPC handler. Returns the transaction hash.
+    pub fn submit_tx(&self, tx: SignedTransaction) -> CryptoHash {
+        let tx_hash = tx.get_hash();
         let process_tx_request =
             ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
         self.node_data.rpc_handler_sender.send(process_tx_request);
+        tx_hash
     }
 
     /// Build a signed transaction from raw actions, auto-determining nonce,
@@ -234,6 +235,38 @@ impl<'a> TestLoopNode<'a> {
     /// Deploy the standard test contract (`near_test_contracts::rs_contract`).
     pub fn tx_deploy_test_contract(&self, contract_id: &AccountId) -> SignedTransaction {
         self.tx_deploy_contract(contract_id, near_test_contracts::rs_contract().to_vec())
+    }
+
+    /// Build a deploy-global-contract transaction.
+    pub fn tx_deploy_global_contract(
+        &self,
+        deployer_id: &AccountId,
+        code: Vec<u8>,
+        deploy_mode: GlobalContractDeployMode,
+    ) -> SignedTransaction {
+        SignedTransaction::deploy_global_contract(
+            self.get_next_nonce(deployer_id),
+            deployer_id.clone(),
+            code,
+            &create_user_test_signer(deployer_id),
+            self.head().last_block_hash,
+            deploy_mode,
+        )
+    }
+
+    /// Build a use-global-contract transaction.
+    pub fn tx_use_global_contract(
+        &self,
+        user_id: &AccountId,
+        identifier: GlobalContractIdentifier,
+    ) -> SignedTransaction {
+        SignedTransaction::use_global_contract(
+            self.get_next_nonce(user_id),
+            user_id,
+            &create_user_test_signer(user_id),
+            self.head().last_block_hash,
+            identifier,
+        )
     }
 
     /// Build a function-call transaction.

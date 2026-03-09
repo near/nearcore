@@ -1,5 +1,4 @@
-use std::sync::Arc;
-
+use crate::ShardedRpcConfig;
 use near_chain_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_jsonrpc_client_internal::JsonRpcClient;
@@ -8,8 +7,7 @@ use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, BlockHeight, BlockId, BlockReference, EpochId, ShardId};
 use near_store::adapter::chain_store::ChainStoreAdapter;
-
-use crate::ShardedRpcConfig;
+use std::sync::Arc;
 
 /// Indicates the origin of a jsonrpc request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

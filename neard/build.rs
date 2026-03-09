@@ -7,7 +7,6 @@
 //! (for official releases it should be the same as version).
 
 use anyhow::{Result, anyhow};
-
 use std::os::unix::ffi::OsStringExt;
 
 /// Returns value of given environment variable or error if missing.

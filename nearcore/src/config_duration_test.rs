@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use crate::config::Config;
 use near_jsonrpc::RpcConfig;
 use near_network::config_json::{ExperimentalConfig, NetworkConfigOverrides};
@@ -11,6 +9,7 @@ use serde::ser::{
     SerializeTupleStruct, SerializeTupleVariant,
 };
 use serde::{Serialize, Serializer};
+use std::str::FromStr;
 
 /// Tests that we serialize all near_async::time::Duration as
 /// std::time::Duration in the config. This is because they used to be

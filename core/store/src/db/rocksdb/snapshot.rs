@@ -1,9 +1,7 @@
-use std::io;
-
-use thiserror::Error;
-
 use crate::Temperature;
 use ::rocksdb::checkpoint::Checkpoint;
+use std::io;
+use thiserror::Error;
 
 /// Representation of a RocksDB checkpoint.
 ///

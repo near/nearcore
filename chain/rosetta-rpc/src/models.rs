@@ -1,8 +1,7 @@
+use crate::utils::{BlobInHexString, BorshInHexString, SignedDiff};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{Balance, BlockHeight, Nonce};
 use utoipa::ToSchema;
-
-use crate::utils::{BlobInHexString, BorshInHexString, SignedDiff};
 
 /// An AccountBalanceRequest is utilized to make a balance request on the
 /// /account/balance endpoint. If the block_identifier is populated, a

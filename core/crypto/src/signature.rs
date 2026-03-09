@@ -1,7 +1,6 @@
-use near_schema_checker_lib::ProtocolSchema;
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::ed25519::signature::{Signer, Verifier};
+use near_schema_checker_lib::ProtocolSchema;
 use primitive_types::U256;
 use secp256k1::Message;
 use std::convert::AsRef;

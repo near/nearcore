@@ -1,12 +1,11 @@
+use crate::setup::builder::TestLoopBuilder;
+use crate::utils::account::{create_account_id, create_validators_spec, validators_spec_clients};
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::gas::Gas;
 use near_primitives::types::Balance;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::num_rational::Rational32;
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::{create_account_id, create_validators_spec, validators_spec_clients};
 
 /// Demonstrates the most basic single-validator test loop env setup.
 /// Uses all defaults: one validator, one shard, no RPC.

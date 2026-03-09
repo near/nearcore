@@ -601,6 +601,15 @@ impl Handler<EpochSyncRequestMessage> for ClientActor {
 
 impl Handler<EpochSyncResponseMessage> for ClientActor {
     fn handle(&mut self, msg: EpochSyncResponseMessage) {
+        // Pre-check: only decode if we are expecting an epoch sync response from this peer.
+        // This avoids wasting resources processing unsolicited responses.
+        match &self.client.sync_handler.sync_status {
+            SyncStatus::EpochSync(status) if status.source_peer_id == msg.from_peer => {}
+            _ => {
+                tracing::warn!(from_peer = %msg.from_peer, "ignoring unsolicited epoch sync response");
+                return;
+            }
+        }
         let (proof, _) = match msg.proof.decode() {
             Ok(proof) => proof,
             Err(err) => {

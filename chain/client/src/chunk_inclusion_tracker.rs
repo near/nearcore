@@ -1,3 +1,5 @@
+use crate::metrics;
+use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use itertools::Itertools;
 use lru::LruCache;
 use near_async::time::{Instant, Utc};
@@ -13,9 +15,6 @@ use near_primitives::version::ProtocolFeature;
 use near_vm_runner::logic::ProtocolVersion;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
-
-use crate::metrics;
-use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 
 const CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE: usize = 2048;
 const NUM_EPOCH_CHUNK_PRODUCERS_TO_KEEP_IN_BLOCKLIST: usize = 1000;

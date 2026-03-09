@@ -1,14 +1,13 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use std::hint::black_box;
-use std::sync::Arc;
-use time::Duration;
-
 use near_async::instrumentation::queue::InstrumentedQueue;
 use near_async::instrumentation::{
     InstrumentedThread, InstrumentedThreadWriter, InstrumentedThreadWriterSharedPart,
     WINDOW_SIZE_NS,
 };
 use near_time::FakeClock;
+use std::hint::black_box;
+use std::sync::Arc;
+use time::Duration;
 
 const NUM_WINDOWS: usize = 1000;
 const MESSAGE_TYPES: [&str; 10] = [

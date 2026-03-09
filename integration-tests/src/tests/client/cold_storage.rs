@@ -1,3 +1,5 @@
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use borsh::BorshDeserialize;
 use near_async::ActorSystem;
 use near_chain::Provenance;
@@ -26,9 +28,6 @@ use nearcore::NearConfig;
 use std::collections::HashSet;
 use std::str::FromStr;
 use strum::IntoEnumIterator;
-
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
 
 fn check_key(first_store: &Store, second_store: &Store, col: DBCol, key: &[u8]) {
     let pretty_key = near_fmt::StorageKey(key);
