@@ -746,6 +746,8 @@ pub async fn start_with_config_and_synchronization_impl(
     network_adapter.bind(network_actor.clone());
     #[cfg(feature = "json_rpc")]
     if let Some(rpc_config) = config.rpc_config {
+        let rpc_epoch_manager = view_epoch_manager.clone();
+        let rpc_tracked_shards_config = config.client_config.tracked_shards_config.clone();
         let entity_debug_handler = EntityDebugHandlerImpl {
             epoch_manager: view_epoch_manager,
             runtime: view_runtime,
@@ -765,6 +767,8 @@ pub async fn start_with_config_and_synchronization_impl(
             _gc_actor.into_multi_sender(),
             Arc::new(entity_debug_handler),
             actor_system.new_future_spawner("jsonrpc").as_ref(),
+            Some(rpc_epoch_manager),
+            Some(rpc_tracked_shards_config),
         )
         .await;
     }
