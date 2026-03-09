@@ -29,7 +29,7 @@ fn test_rpc_view_account_forwarding() {
     let validator0: AccountId = create_account_id("validator");
     let validators_spec = ValidatorsSpec::desired_roles(&[validator0.as_str()], &[]);
     let genesis = TestLoopBuilder::new_genesis_builder()
-        .shard_layout(shard_layout.clone())
+        .shard_layout(shard_layout)
         .validators_spec(validators_spec)
         .add_user_account_simple(alice.clone(), Balance::from_near(100))
         .add_user_account_simple(zoe.clone(), Balance::from_near(100))
@@ -39,7 +39,7 @@ fn test_rpc_view_account_forwarding() {
     let rpc0_shard = shard_uids[0];
     let rpc1: AccountId = create_account_id("rpc1");
     let rpc1_shard = shard_uids[1];
-    let clients = vec![rpc0.clone(), rpc1.clone(), validator0.clone()];
+    let clients = vec![rpc0.clone(), rpc1.clone(), validator0];
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
         .clients(clients)
