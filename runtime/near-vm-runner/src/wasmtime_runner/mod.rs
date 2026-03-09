@@ -922,10 +922,9 @@ fn link(linker: &mut wasmtime::Linker<Ctx>, config: &Config) {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use core::array;
     use std::thread::{scope, spawn, yield_now};
-
-    use super::*;
 
     #[test]
     fn test_semaphore() {
