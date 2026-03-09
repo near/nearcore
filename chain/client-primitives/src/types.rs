@@ -179,7 +179,7 @@ impl SyncStatus {
             // Represent NoSync as 0 because it is the state of a normal well-behaving node.
             SyncStatus::NoSync => 0,
             SyncStatus::AwaitingPeers => 1,
-            SyncStatus::EpochSync { .. } => 2,
+            SyncStatus::EpochSync(_) => 2,
             SyncStatus::HeaderSync { .. } => 4,
             SyncStatus::StateSync(_) => 5,
             SyncStatus::StateSyncDone => 6,
