@@ -258,15 +258,13 @@ fn test_global_distribution_receipt_has_receipt_to_tx() {
     // Deploy global contract.
     let deploy_user = env.users[0].clone();
     let code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
-    let deploy_tx = deploy_global_contract(
-        &mut env.env.test_loop,
-        &env.env.node_datas,
-        &env.chunk_producer,
-        deploy_user,
+    let node = env.chunk_producer_node();
+    let tx = node.tx_deploy_global_contract(
+        &deploy_user,
         code.code().to_vec(),
-        1,
         GlobalContractDeployMode::CodeHash,
     );
+    let deploy_tx = node.submit_tx(tx);
 
     env.run_until_head_height(expected_new_shard_layout_height);
     check_txs(&mut env.env.test_loop.data, &env.env.node_datas, &env.chunk_producer, &[deploy_tx]);
