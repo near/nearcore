@@ -1,6 +1,9 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-
+use crate::chain::{NewChunkData, NewChunkResult, ShardContext, StorageContext, apply_new_chunk};
+use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
+use crate::spice_chunk_application::build_spice_apply_chunk_block_context;
+use crate::store::filter_incoming_receipts_for_shard;
+use crate::types::{RuntimeAdapter, StorageDataSource};
+use crate::{Chain, ChainStore};
 use itertools::Itertools;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -17,14 +20,9 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockExecutionResults, ChunkExecutionResult, ShardId};
 use near_store::PartialStorage;
 use node_runtime::SignedValidPeriodTransactions;
+use std::collections::HashMap;
+use std::sync::Arc;
 use tracing::Span;
-
-use crate::chain::{NewChunkData, NewChunkResult, ShardContext, StorageContext, apply_new_chunk};
-use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
-use crate::spice_chunk_application::build_spice_apply_chunk_block_context;
-use crate::store::filter_incoming_receipts_for_shard;
-use crate::types::{RuntimeAdapter, StorageDataSource};
-use crate::{Chain, ChainStore};
 
 pub struct SpicePreValidationOutput {
     new_chunk_data: NewChunkData,
@@ -326,10 +324,11 @@ fn validate_receipt_proof(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::store::ChainStoreAccess;
+    use crate::test_utils::{get_chain_with_genesis, process_block_sync};
+    use crate::{BlockProcessingArtifact, Provenance};
     use itertools::Itertools as _;
-    use near_primitives::types::Balance;
-    use std::str::FromStr as _;
-
     use near_async::time::Clock;
     use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
     use near_o11y::testonly::init_test_logger;
@@ -342,19 +341,15 @@ mod tests {
         TestBlockBuilder, create_test_signer, create_user_test_signer,
     };
     use near_primitives::transaction::SignedTransaction;
+    use near_primitives::types::Balance;
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::{
         AccountId, BlockHeight, ChunkExecutionResult, ChunkExecutionResultHash, SpiceChunkId,
     };
     use near_primitives::validator_signer::ValidatorSigner;
     use near_store::get_genesis_state_roots;
+    use std::str::FromStr as _;
     use tracing::Span;
-
-    use crate::store::ChainStoreAccess;
-    use crate::test_utils::{get_chain_with_genesis, process_block_sync};
-    use crate::{BlockProcessingArtifact, Provenance};
-
-    use super::*;
 
     const TEST_VALIDATORS: [&str; 2] = ["test-validator-1", "test-validator-2"];
 

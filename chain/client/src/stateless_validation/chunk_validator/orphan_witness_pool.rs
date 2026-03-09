@@ -1,13 +1,11 @@
-use std::num::NonZeroUsize;
-
 use lru::LruCache;
+use metrics_tracker::OrphanWitnessMetricsTracker;
 use near_chain_configs::default_orphan_state_witness_pool_size;
 use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::types::BlockHeight;
-
-use metrics_tracker::OrphanWitnessMetricsTracker;
+use std::num::NonZeroUsize;
 
 /// `OrphanStateWitnessPool` is used to keep orphaned ChunkStateWitnesses until it's possible to process them.
 /// To process a ChunkStateWitness we need to have the previous block, but it might happen that a ChunkStateWitness
@@ -122,9 +120,8 @@ impl Default for OrphanStateWitnessPool {
 }
 
 mod metrics_tracker {
-    use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
-
     use crate::metrics;
+    use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 
     /// OrphanWitnessMetricsTracker is a helper struct which leverages RAII to update
     /// the metrics about witnesses in the orphan pool when they're added and removed.
@@ -177,11 +174,10 @@ mod metrics_tracker {
 
 #[cfg(test)]
 mod tests {
+    use super::OrphanStateWitnessPool;
     use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
     use near_primitives::types::{BlockHeight, ShardId};
-
-    use super::OrphanStateWitnessPool;
 
     /// Make a dummy witness for testing
     fn make_witness(

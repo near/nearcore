@@ -4,6 +4,9 @@ use crate::routing::edge_cache::EdgeCache;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
 use arc_swap::ArcSwap;
+use near_async::messaging::{Actor, CanSendAsync, Handler, Message};
+use near_async::multithread::MultithreadRuntimeHandle;
+use near_async::new_owned_multithread_actor;
 use near_async::time::{self, Clock};
 use near_primitives::network::PeerId;
 use near_primitives::views::{EdgeView, NetworkRoutesView, PeerDistancesView};
@@ -11,10 +14,6 @@ use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Weak};
-
-use near_async::messaging::{Actor, CanSendAsync, Handler, Message};
-use near_async::multithread::MultithreadRuntimeHandle;
-use near_async::new_owned_multithread_actor;
 
 #[cfg(test)]
 mod testonly;

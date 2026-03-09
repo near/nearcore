@@ -1,8 +1,3 @@
-use std::collections::HashSet;
-use std::num::NonZeroUsize;
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-
 use near_async::time::Duration;
 use near_chain::types::{
     PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions, RuntimeAdapter,
@@ -16,6 +11,10 @@ use near_primitives::types::ShardId;
 use near_store::adapter::StoreAdapter;
 use near_store::{ShardUId, TrieUpdate};
 use parking_lot::Mutex;
+use std::collections::HashSet;
+use std::num::NonZeroUsize;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 /// Inputs required to create a `PrepareTransactionsJob`.
 pub struct PrepareTransactionsJobInputs {
@@ -249,8 +248,10 @@ impl PrepareTransactionsManager {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
+    use crate::prepare_transactions::{
+        PrepareTransactionsJob, PrepareTransactionsJobInputs, PrepareTransactionsJobKey,
+        PrepareTransactionsJobState, PrepareTransactionsManager,
+    };
     use near_chain::runtime::NightshadeRuntime;
     use near_chain::types::{PrepareTransactionsBlockContext, PrepareTransactionsLimit};
     use near_chain_configs::test_genesis::TestGenesisBuilder;
@@ -267,11 +268,7 @@ mod tests {
     use near_store::test_utils::{TestTriesBuilder, create_test_store};
     use near_store::{ShardUId, TrieUpdate, get_genesis_state_roots};
     use parking_lot::Mutex;
-
-    use crate::prepare_transactions::{
-        PrepareTransactionsJob, PrepareTransactionsJobInputs, PrepareTransactionsJobKey,
-        PrepareTransactionsJobState, PrepareTransactionsManager,
-    };
+    use std::sync::Arc;
 
     fn insert_tx(
         pool: &mut ShardedTransactionPool,

@@ -1,8 +1,7 @@
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::collections::VecDeque;
-use std::sync::Arc;
-
+use crate::spice_chunk_validator_actor::send_spice_chunk_endorsement;
+use crate::spice_data_distributor_actor::SpiceDataDistributorAdapter;
+use crate::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
+use crate::spice_data_distributor_actor::SpiceDistributorStateWitness;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::futures::AsyncComputationSpawnerExt;
 use near_async::messaging::CanSend;
@@ -68,12 +67,11 @@ use near_store::adapter::trie_store::TrieStoreAdapter;
 use node_runtime::SignedValidPeriodTransactions;
 use rayon::iter::IntoParallelIterator as _;
 use rayon::iter::ParallelIterator as _;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::collections::VecDeque;
+use std::sync::Arc;
 use tracing::instrument;
-
-use crate::spice_chunk_validator_actor::send_spice_chunk_endorsement;
-use crate::spice_data_distributor_actor::SpiceDataDistributorAdapter;
-use crate::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
-use crate::spice_data_distributor_actor::SpiceDistributorStateWitness;
 
 #[derive(Clone, Debug)]
 pub struct ChunkExecutorConfig {
@@ -1144,12 +1142,11 @@ pub(crate) fn is_descendant_of_final_execution_head(
 /// This module is needed for integration tests, otherwise it should not be used.
 /// It's kept here to expose less of the actual actor API.
 pub mod testonly {
+    use super::*;
     use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
     use near_async::messaging::noop;
     use near_chain::spice_core_writer_actor::SpiceCoreWriterActor;
     use parking_lot::RwLock;
-
-    use super::*;
 
     struct FakeSpawner {
         sc: UnboundedSender<Box<dyn FnOnce() + Send>>,

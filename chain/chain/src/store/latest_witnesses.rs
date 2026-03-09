@@ -5,28 +5,24 @@
 //! the oldest witness is removed from the database.
 //! At the moment this module is used only for debugging purposes.
 
-use std::io::ErrorKind;
-
+use super::ChainStore;
+use crate::ChainStoreAccess;
+use crate::stateless_validation;
+use borsh::{BorshDeserialize, BorshSerialize};
+use bytesize::ByteSize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::types::EpochId;
 use near_primitives::types::ShardId;
-use near_store::{DBCol, Store};
-
-use crate::ChainStoreAccess;
-use crate::stateless_validation;
-
-use super::ChainStore;
-
-use borsh::{BorshDeserialize, BorshSerialize};
-use bytesize::ByteSize;
 use near_schema_checker_lib::ProtocolSchema;
 use near_store::db::{INVALID_WITNESSES_INFO, LATEST_WITNESSES_INFO};
+use near_store::{DBCol, Store};
 use parking_lot::Mutex;
 use parking_lot::const_mutex;
 use rand::RngCore;
 use rand::rngs::OsRng;
+use std::io::ErrorKind;
 
 /// Maximum size of the latest witnesses stored in the database.
 const LATEST_WITNESSES_MAX_SIZE: ByteSize = ByteSize::gb(4);
