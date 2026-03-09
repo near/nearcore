@@ -1,3 +1,4 @@
+use super::metadata;
 use crate::config::{Mode, RocksDbCfConfig, RocksDbConfig};
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue, refcount};
 use crate::metrics::{ROCKS_CURRENT_ITERATORS, ROCKS_ITERATOR_TIME_HISTOGRAM};
@@ -14,8 +15,6 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 use strum::IntoEnumIterator;
-
-use super::metadata;
 
 mod instance_tracker;
 pub mod snapshot;
@@ -887,11 +886,10 @@ fn col_name(col: DBCol) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::db::{Database, StatsValue};
     use crate::{DBCol, NodeStorage, StoreStatistics};
     use assert_matches::assert_matches;
-
-    use super::*;
 
     unsafe fn convert_db_to_rocksdb<'a>(db: &'a dyn Database) -> &'a RocksDB {
         let ptr = db as *const _ as *const RocksDB;

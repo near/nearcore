@@ -18,13 +18,11 @@
 //! values by adding the reference counts.  When the reference count reaches
 //! zero RocksDB removes the key from the database.
 
-use std::cmp::Ordering;
-use std::io;
-
-use rocksdb::compaction_filter::Decision;
-
 use crate::DBCol;
 use crate::db::RocksDB;
+use rocksdb::compaction_filter::Decision;
+use std::cmp::Ordering;
+use std::io;
 
 /// Extracts reference count from raw value and returns it along with the value.
 ///

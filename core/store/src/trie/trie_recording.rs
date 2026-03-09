@@ -818,8 +818,7 @@ mod trie_recording_tests {
 
 #[cfg(test)]
 mod memtrie_batch_iteration_tests {
-    use std::ops::Bound;
-
+    use super::*;
     use crate::Trie;
     use crate::test_utils::{
         TestTriesBuilder, create_test_store, simplify_changes, test_populate_flat_storage,
@@ -829,8 +828,7 @@ mod memtrie_batch_iteration_tests {
     use crate::trie::trie_tests::merge_trie_changes;
     use near_primitives::hash::hash;
     use near_primitives::shard_layout::ShardUId;
-
-    use super::*;
+    use std::ops::Bound;
 
     /// Returns the hash of height (as le_bytes) for use as a fake block hash in tests.
     fn fake_hash(height: usize) -> CryptoHash {

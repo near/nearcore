@@ -819,9 +819,8 @@ pub mod trie_key_parsers {
 
 #[cfg(test)]
 mod tests {
-    use near_crypto::KeyType;
-
     use super::*;
+    use near_crypto::KeyType;
 
     // cspell:ignore cheapaccounts lols skidanov
     const OK_ACCOUNT_IDS: &[&str] = &[

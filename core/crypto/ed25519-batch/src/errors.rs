@@ -24,10 +24,8 @@
 
 use core::fmt;
 use core::fmt::Display;
-
-use std::error::Error;
-
 use ed25519_dalek::ed25519;
+use std::error::Error;
 
 /// Internal errors.  Most application-level developers will likely not
 /// need to pay any attention to these.

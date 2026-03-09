@@ -1,10 +1,9 @@
+use super::FlatStorage;
+use super::types::FlatStateIterator;
 use crate::adapter::flat_store::FlatStoreAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
-
-use super::FlatStorage;
-use super::types::FlatStateIterator;
 
 /// Struct for getting value references from the flat storage, corresponding
 /// to some block defined in `blocks_to_head`.
