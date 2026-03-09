@@ -328,7 +328,6 @@ mod tests {
     use crate::store::ChainStoreAccess;
     use crate::test_utils::{get_chain_with_genesis, process_block_sync};
     use crate::{BlockProcessingArtifact, Provenance};
-    use itertools::Itertools as _;
     use near_async::time::Clock;
     use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
     use near_o11y::testonly::init_test_logger;
