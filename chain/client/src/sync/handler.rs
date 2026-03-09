@@ -213,7 +213,6 @@ impl SyncHandler {
             &chain,
             highest_height,
             highest_height_peers,
-            self.config.sync_max_block_requests,
         )?;
         Ok(block_sync_result)
     }
