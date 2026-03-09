@@ -341,7 +341,7 @@ pub struct AdvertisedPeerDistance {
 /// which verifiably achieves the advertised routing distances.
 ///
 /// The distances in the tree may be the same or better than the advertised
-/// distances; see routing::graph_v2::tests::inconsistent_peers.
+/// distances.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct DistanceVector {
     /// PeerId of the node sending the message.

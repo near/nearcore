@@ -113,8 +113,6 @@ without relying on other components.
 
 For example, see tests for doomslug
 [here](https://github.com/near/nearcore/blob/master/chain/chain/src/tests/doomslug.rs),
-for network cache
-[here](https://github.com/near/nearcore/blob/master/chain/network/src/routing/edge_cache/tests.rs),
 or for promises in runtime
 [here](https://github.com/near/nearcore/blob/master/runtime/near-vm-runner/src/logic/tests/promises.rs).
 

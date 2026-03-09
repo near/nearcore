@@ -907,11 +907,6 @@ impl JsonRpcHandler {
                         )
                         .await?
                         .rpc_into(),
-                    #[cfg(feature = "distance_vector_routing")]
-                    "/debug/api/network_routes" => self
-                        .peer_manager_send(near_network::debug::GetDebugStatus::Routes)
-                        .await?
-                        .rpc_into(),
                     "/debug/api/snapshot_hosts" => self
                         .peer_manager_send(near_network::debug::GetDebugStatus::SnapshotHosts)
                         .await?

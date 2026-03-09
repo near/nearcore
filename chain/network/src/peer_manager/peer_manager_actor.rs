@@ -38,8 +38,8 @@ use near_primitives::genesis::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::state_sync::{PartIdOrHeader, StateRequestAckBody};
 use near_primitives::views::{
-    ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, NetworkRoutesView,
-    PeerStoreView, RecentOutboundConnectionsView, SnapshotHostInfoView, SnapshotHostsView,
+    ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, PeerStoreView,
+    RecentOutboundConnectionsView, SnapshotHostInfoView, SnapshotHostsView,
 };
 use network_protocol::MAX_SHARDS_PER_SNAPSHOT_HOST_INFO;
 use rand::Rng;
@@ -1590,12 +1590,6 @@ impl messaging::Handler<GetDebugStatus, DebugStatus> for PeerManagerActor {
                         })
                         .collect::<Vec<_>>(),
                 })
-            }
-            GetDebugStatus::Routes => {
-                #[cfg(feature = "distance_vector_routing")]
-                return DebugStatus::Routes(self.state.graph_v2.get_debug_view());
-                #[cfg(not(feature = "distance_vector_routing"))]
-                return DebugStatus::Routes(NetworkRoutesView::default());
             }
             GetDebugStatus::SnapshotHosts => DebugStatus::SnapshotHosts(SnapshotHostsView {
                 hosts: self
