@@ -1,6 +1,5 @@
-use crate::{GAS_LIMIT, GGas, ReceiptDefinition, ShardId, TGAS, TransactionBuilder};
-
 use super::Producer;
+use crate::{GAS_LIMIT, GGas, ReceiptDefinition, ShardId, TGAS, TransactionBuilder};
 
 /// Transaction producer that tests fairness for shards.
 ///

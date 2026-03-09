@@ -1,8 +1,7 @@
-use std::io::{self, Write};
-use std::path::Path;
-
 use anyhow::anyhow;
 use near_store::DBCol;
+use std::io::{self, Write};
+use std::path::Path;
 use strum::IntoEnumIterator;
 
 pub(crate) fn get_user_confirmation(message: &str) -> bool {
