@@ -1,5 +1,6 @@
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_validator_id;
@@ -39,9 +40,12 @@ fn test_chunk_validator_failover() {
     let end_height = epoch_length * 3;
     env.validator_runner().run_until_head_height(end_height);
 
-    // Verify all chunk endorsements received in the epochs fully after failover.
-    let first_full_epoch_start = (failover_height / epoch_length + 1) * epoch_length + 1;
-    assert_all_chunk_endorsements_received(&env, first_full_epoch_start, end_height);
+    // Verify all chunk endorsements received soon after failover.
+    // Spice uses a different endorsement mechanism (core statements), so the
+    // traditional endorsement bitmap in block headers is empty.
+    if !ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        assert_all_chunk_endorsements_received(&env, failover_height + 2, end_height);
+    }
 
     // Verify no validators were kicked out.
     let client = env.validator().client();
@@ -50,7 +54,7 @@ fn test_chunk_validator_failover() {
     let kickouts = epoch_info.validator_kickout();
     assert!(kickouts.is_empty(), "no validators should be kicked out, got: {:?}", kickouts);
 
-    // Verify all validators are still active.
+    // Verify the killed validator is still active (not kicked out).
     let validators = get_epoch_all_validators(client);
     assert!(
         validators.contains(&killed_validator.to_string()),
