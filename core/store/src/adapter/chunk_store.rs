@@ -1,6 +1,5 @@
-use std::collections::HashSet;
-use std::sync::Arc;
-
+use super::StoreAdapter;
+use crate::{DBCol, Store};
 use near_chain_primitives::Error;
 use near_primitives::chunk_apply_stats::ChunkApplyStats;
 use near_primitives::errors::ChunkAccessError;
@@ -10,10 +9,8 @@ use near_primitives::sharding::{ChunkHash, EncodedShardChunk, PartialEncodedChun
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::utils::{get_block_shard_id, index_to_bytes};
-
-use crate::{DBCol, Store};
-
-use super::StoreAdapter;
+use std::collections::HashSet;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct ChunkStoreAdapter {

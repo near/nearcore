@@ -1,6 +1,5 @@
-use std::fmt;
-
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use std::fmt;
 
 /// This enum holds the information about the columns that we use within the
 /// RocksDB storage.

@@ -1,6 +1,4 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-
+use crate::setup::builder::TestLoopBuilder;
 use near_async::time::Duration;
 use near_epoch_manager::epoch_sync::derive_epoch_sync_proof_from_last_block;
 use near_o11y::testonly::init_test_logger;
@@ -9,8 +7,8 @@ use near_primitives::types::AccountId;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::epoch_store::EpochStoreAdapter;
-
-use crate::setup::builder::TestLoopBuilder;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 // Test that epoch sync proof is correctly updated after each epoch.
 // Validate the updated proof against derive_epoch_sync_proof_from_last_block.

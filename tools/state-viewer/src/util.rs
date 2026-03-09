@@ -1,5 +1,3 @@
-use std::{path::Path, sync::Arc};
-
 use near_chain::{
     Block, BlockHeader, ChainStore, ChainStoreAccess,
     types::{ApplyChunkResult, Tip},
@@ -13,6 +11,7 @@ use near_primitives::{
 };
 use near_store::{ShardUId, Store};
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
+use std::{path::Path, sync::Arc};
 
 pub enum LoadTrieMode {
     /// Load latest state

@@ -1,6 +1,7 @@
-use std::iter::repeat_with;
-use std::sync::atomic::AtomicU64;
-
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
+use crate::setup::state::NodeExecutionData;
+use crate::utils::account::create_account_id;
 use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::futures::FutureSpawnerExt;
@@ -21,12 +22,9 @@ use near_primitives::types::{AccountId, Balance, Finality, Nonce, NumBlocks};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{ActionView, ExecutionStatusView, ReceiptEnumView, ReceiptView};
 use near_store::StoreConfig;
+use std::iter::repeat_with;
+use std::sync::atomic::AtomicU64;
 use tokio::sync::mpsc;
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::env::TestLoopEnv;
-use crate::setup::state::NodeExecutionData;
-use crate::utils::account::create_account_id;
 
 #[test]
 fn test_indexer_basic() {

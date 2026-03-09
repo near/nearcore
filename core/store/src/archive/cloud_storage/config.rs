@@ -1,10 +1,8 @@
-use std::path::PathBuf;
-use std::sync::Arc;
-
-use near_chain_configs::{DumpConfig, ExternalStorageLocation};
-
 use crate::archive::cloud_storage::CloudStorage;
 use crate::archive::cloud_storage::opener::CloudStorageOpener;
+use near_chain_configs::{DumpConfig, ExternalStorageLocation};
+use std::path::PathBuf;
+use std::sync::Arc;
 
 /// Configuration for a cloud-based archival node.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]

@@ -1,6 +1,3 @@
-use std::io::{Read, Seek, SeekFrom};
-use std::path::Path;
-
 use crate::env::test_env::TestEnv;
 use near_chain::Provenance;
 use near_chain_configs::Genesis;
@@ -16,6 +13,8 @@ use near_store::Store;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use nearcore::NightshadeRuntime;
+use std::io::{Read, Seek, SeekFrom};
+use std::path::Path;
 
 fn setup(epoch_length: NumBlocks) -> (Store, Genesis, TestEnv) {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);

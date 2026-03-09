@@ -1,11 +1,10 @@
-use std::io::{Read, Write};
-use std::path::PathBuf;
-use std::sync::Arc;
-
 use anyhow::Context;
 use futures::TryStreamExt;
 use near_chain_configs::ExternalStorageLocation;
 use object_store::{ObjectStore, PutPayload};
+use std::io::{Read, Write};
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Live connection/handle to an external storage backend.

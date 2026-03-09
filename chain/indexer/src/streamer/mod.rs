@@ -1,13 +1,10 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-
+use self::errors::FailedToFetchData;
+use self::utils::convert_transactions_sir_into_local_receipts;
+use crate::INDEXER;
+use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
+pub use fetchers::{IndexerClientFetcher, IndexerViewClientFetcher};
 use near_async::time::{Clock, Duration};
-use near_primitives::types::Balance;
-use near_primitives::version::ProtocolFeature;
-use parking_lot::RwLock;
-use rocksdb::DB;
-use tokio::sync::mpsc;
-
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_indexer_primitives::{
     IndexerChunkView, IndexerExecutionOutcomeWithOptionalReceipt,
     IndexerExecutionOutcomeWithReceipt, IndexerShard, IndexerTransactionWithOutcome,
@@ -15,15 +12,14 @@ use near_indexer_primitives::{
 };
 use near_parameters::RuntimeConfig;
 use near_primitives::hash::CryptoHash;
+use near_primitives::types::Balance;
+use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{BlockView, ChunkView, ExecutionStatusView, ReceiptView};
-
-use self::errors::FailedToFetchData;
-use self::utils::convert_transactions_sir_into_local_receipts;
-use crate::INDEXER;
-use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
-use near_epoch_manager::shard_tracker::ShardTracker;
-
-pub use fetchers::{IndexerClientFetcher, IndexerViewClientFetcher};
+use parking_lot::RwLock;
+use rocksdb::DB;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::mpsc;
 
 mod errors;
 mod fetchers;

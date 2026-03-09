@@ -1,11 +1,10 @@
+use crate::setup::builder::TestLoopBuilder;
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::serialize::to_base64;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, BlockId};
-
-use crate::setup::builder::TestLoopBuilder;
 
 /// Get a block by height using jsonrpc
 #[test]

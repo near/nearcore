@@ -11,10 +11,6 @@ pytest sanity/transactions.py
 pytest sanity/transactions.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/transactions.py --features nightly,protocol_feature_spice
-pytest sanity/staking1.py
-pytest sanity/staking1.py --features nightly
-# TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#pytest sanity/staking1.py --features nightly,protocol_feature_spice
 pytest --timeout=10m sanity/staking2.py
 pytest --timeout=10m sanity/staking2.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.

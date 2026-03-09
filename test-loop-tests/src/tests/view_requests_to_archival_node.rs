@@ -1,5 +1,7 @@
-use std::collections::HashMap;
-
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
+use crate::setup::state::NodeExecutionData;
+use crate::utils::transactions::execute_money_transfers_with_delay;
 use itertools::Itertools;
 use near_async::messaging::Handler;
 use near_async::test_loop::TestLoopV2;
@@ -24,11 +26,7 @@ use near_primitives::views::{
     BlockView, ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
     StateChangeCauseView, StateChangeKindView, StateChangeValueView, StateChangesRequestView,
 };
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::env::TestLoopEnv;
-use crate::setup::state::NodeExecutionData;
-use crate::utils::transactions::execute_money_transfers_with_delay;
+use std::collections::HashMap;
 
 const NUM_VALIDATORS: usize = 2;
 const NUM_ACCOUNTS: usize = 20;

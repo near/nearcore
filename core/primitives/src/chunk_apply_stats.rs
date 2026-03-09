@@ -1,13 +1,11 @@
-use std::collections::BTreeMap;
-
-use borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives_core::types::{Balance, BlockHeight, Gas, ShardId};
-use near_schema_checker_lib::ProtocolSchema;
-
 use crate::bandwidth_scheduler::{
     Bandwidth, BandwidthRequest, BandwidthRequestValues, BandwidthRequests,
     BandwidthSchedulerParams, BlockBandwidthRequests,
 };
+use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives_core::types::{Balance, BlockHeight, Gas, ShardId};
+use near_schema_checker_lib::ProtocolSchema;
+use std::collections::BTreeMap;
 
 /// Information gathered during chunk application.
 /// Provides insight into what happened when the chunk was applied.

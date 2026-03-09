@@ -1,6 +1,3 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-
 use crate::setup::builder::TestLoopBuilder;
 use itertools::Itertools as _;
 use near_async::messaging::CanSend as _;
@@ -16,6 +13,8 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{Balance, validator_stake::ValidatorStake};
 use parking_lot::RwLock;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 #[derive(Clone)]
 enum InvalidBlockMode {

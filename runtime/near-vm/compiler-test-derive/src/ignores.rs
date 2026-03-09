@@ -1,7 +1,6 @@
 use std::fs::File;
-use std::path::PathBuf;
-
 use std::io::{BufRead, BufReader};
+use std::path::PathBuf;
 
 pub const CFG_TARGET_OS: &'static str = env!("CFG_TARGET_OS");
 pub const CFG_TARGET_ARCH: &'static str = env!("CFG_TARGET_ARCH");

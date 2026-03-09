@@ -1,26 +1,23 @@
 #![doc = include_str!("../README.md")]
 
 use anyhow::Context;
+use near_async::ActorSystem;
 use near_async::time::Clock;
-use near_config_utils::DownloadConfigType;
-use nearcore::NearNode;
-use tokio::sync::mpsc;
-
 use near_chain_configs::GenesisValidationMode;
-pub use near_primitives;
-use near_primitives::types::{Finality, Gas};
-pub use nearcore::{NearConfig, get_default_home, init_configs};
-
+use near_config_utils::DownloadConfigType;
+use near_epoch_manager::shard_tracker::ShardTracker;
 pub use near_indexer_primitives::{
     IndexerChunkView, IndexerExecutionOutcomeWithOptionalReceipt,
     IndexerExecutionOutcomeWithReceipt, IndexerShard, IndexerTransactionWithOutcome,
     StreamerMessage,
 };
-
-use near_async::ActorSystem;
-use near_epoch_manager::shard_tracker::ShardTracker;
+pub use near_primitives;
+use near_primitives::types::{Finality, Gas};
+use nearcore::NearNode;
+pub use nearcore::{NearConfig, get_default_home, init_configs};
 use streamer::{IndexerClientFetcher, IndexerViewClientFetcher};
 pub use streamer::{build_streamer_message, start};
+use tokio::sync::mpsc;
 
 mod streamer;
 

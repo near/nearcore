@@ -1,6 +1,7 @@
-use std::collections::{BTreeMap, HashSet};
-use std::sync::Arc;
-
+use crate::setup;
+use crate::setup::builder::TestLoopBuilder;
+use crate::utils::retrieve_client_actor;
+use crate::utils::setups::derive_new_epoch_config_from_boundary;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
@@ -12,11 +13,8 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::DBCol;
 use near_store::adapter::StoreAdapter as _;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-
-use crate::setup;
-use crate::setup::builder::TestLoopBuilder;
-use crate::utils::retrieve_client_actor;
-use crate::utils::setups::derive_new_epoch_config_from_boundary;
+use std::collections::{BTreeMap, HashSet};
+use std::sync::Arc;
 
 // We set small gc_step_period in tests to help make sure gc runs at least as often as blocks are
 // produced.

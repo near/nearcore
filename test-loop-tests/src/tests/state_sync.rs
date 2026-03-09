@@ -1,3 +1,10 @@
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::drop_condition::DropCondition;
+use crate::setup::env::TestLoopEnv;
+use crate::setup::state::NodeExecutionData;
+use crate::utils::account::create_account_id;
+use crate::utils::transactions::{get_anchor_hash, get_smallest_height_head};
+use itertools::Itertools;
 use near_async::messaging::{CanSend, Handler};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
@@ -18,15 +25,6 @@ use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Nonce, NumSeats, ShardId,
 };
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::drop_condition::DropCondition;
-use crate::setup::env::TestLoopEnv;
-use crate::setup::state::NodeExecutionData;
-use crate::utils::account::create_account_id;
-use crate::utils::transactions::{get_anchor_hash, get_smallest_height_head};
-
-use itertools::Itertools;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 

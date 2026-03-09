@@ -492,6 +492,7 @@ fn get_locator_ordinals(lowest_ordinal: u64, highest_ordinal: u64) -> Vec<u64> {
 
 #[cfg(test)]
 mod test {
+    use crate::sync::header::{HeaderSync, MAX_BLOCK_HEADERS, get_locator_ordinals};
     use near_async::messaging::IntoMultiSender;
     use near_async::time::{Clock, Duration, FakeClock, Utc};
     use near_chain::test_utils::{process_block_sync, setup, setup_with_tx_validity_period};
@@ -512,8 +513,6 @@ mod test {
     use near_primitives::types::{Balance, EpochId};
     use std::sync::Arc;
     use std::thread;
-
-    use crate::sync::header::{HeaderSync, MAX_BLOCK_HEADERS, get_locator_ordinals};
 
     #[test]
     fn test_get_locator_ordinals() {

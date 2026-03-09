@@ -241,6 +241,18 @@ jobs:
           tool: just
       - run: just check-cargo-fmt
 
+  check_import_blocks:
+    name: "Import Blocks"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
+        with:
+          tool: just
+      - run: just check-import-blocks
+
   check_clippy:
     name: "Cargo Clippy"
     runs-on: warp-ubuntu-2404-x64-8x

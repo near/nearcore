@@ -1,8 +1,6 @@
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use crate::tests::features::wallet_contract::{NearSigner, create_rlp_execute_tx, view_balance};
-
-use near_primitives::action::GlobalContractDeployMode;
-use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
-
 use near_chain::Error;
 use near_chain::Provenance;
 use near_chain::chain::ChunkStateWitnessMessage;
@@ -13,6 +11,7 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::account::{AccessKeyPermission, AccountContract, FunctionCallPermission};
+use near_primitives::action::GlobalContractDeployMode;
 use near_primitives::action::{Action, AddKeyAction, TransferAction};
 use near_primitives::epoch_manager::AllEpochConfigTestOverrides;
 use near_primitives::num_rational::Rational32;
@@ -29,13 +28,11 @@ use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::account::{AccessKey, Account};
 use near_primitives_core::types::{AccountId, NumSeats};
 use near_store::test_utils::create_test_store;
+use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
 use node_runtime::config::total_prepaid_gas;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::{HashMap, HashSet};
-
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
 
 fn run_chunk_validation_test(
     seed: u64,

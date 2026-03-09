@@ -1,6 +1,3 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::Arc;
-
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
@@ -22,6 +19,8 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats};
 use parking_lot::RwLock;
 use rand::{Rng as _, thread_rng};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
 
 /// Rotates three independent sets of block producers producing blocks with a very short epoch length.
 /// Occasionally when an endorsement comes, make all the endorsers send a skip message far-ish into

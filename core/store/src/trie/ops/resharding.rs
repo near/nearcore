@@ -1,19 +1,16 @@
-use std::fmt::Debug;
-use std::ops::Range;
-
-use itertools::Itertools;
-use near_primitives::errors::StorageError;
-use near_primitives::trie_key::col;
-use near_primitives::types::AccountId;
-
-use crate::NibbleSlice;
-use crate::trie::AccessOptions;
-
 use super::interface::{
     GenericNodeOrIndex, GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize, HasValueLength,
     UpdatedNodeId,
 };
 use super::squash::GenericTrieUpdateSquash;
+use crate::NibbleSlice;
+use crate::trie::AccessOptions;
+use itertools::Itertools;
+use near_primitives::errors::StorageError;
+use near_primitives::trie_key::col;
+use near_primitives::types::AccountId;
+use std::fmt::Debug;
+use std::ops::Range;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 /// Whether to retain left or right part of trie after shard split.
@@ -347,13 +344,11 @@ pub fn retain_split_shard_custom_ranges<'a, N, V>(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
+    use super::{RetainMode, append_key, boundary_account_to_intervals};
     use itertools::Itertools;
     use near_primitives::trie_key::col;
     use near_primitives::types::AccountId;
-
-    use super::{RetainMode, append_key, boundary_account_to_intervals};
+    use std::collections::HashMap;
 
     #[test]
     fn test_boundary_account_to_intervals() {

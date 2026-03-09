@@ -18,7 +18,6 @@ use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::ProtocolVersion;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::future::Future;
 use std::path::Path;

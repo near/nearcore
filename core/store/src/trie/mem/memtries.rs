@@ -1,15 +1,3 @@
-use std::collections::{BTreeMap, HashMap};
-
-use near_primitives::errors::StorageError;
-use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::ShardUId;
-use near_primitives::types::{BlockHeight, StateRoot};
-
-use crate::Trie;
-use crate::trie::MemTrieChanges;
-use crate::trie::mem::arena::ArenaMut;
-use crate::trie::mem::metrics::MEMTRIE_NUM_ROOTS;
-
 use super::arena::Arena;
 use super::arena::FrozenArena;
 use super::arena::hybrid::{HybridArena, HybridArenaMemory};
@@ -19,6 +7,15 @@ use super::iter::{MemTrieIteratorInner, STMemTrieIterator};
 use super::lookup::memtrie_lookup;
 use super::memtrie_update::{MemTrieUpdate, TrackingMode, construct_root_from_changes};
 use super::node::{MemTrieNodeId, MemTrieNodePtr, MemTrieNodeView};
+use crate::Trie;
+use crate::trie::MemTrieChanges;
+use crate::trie::mem::arena::ArenaMut;
+use crate::trie::mem::metrics::MEMTRIE_NUM_ROOTS;
+use near_primitives::errors::StorageError;
+use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::ShardUId;
+use near_primitives::types::{BlockHeight, StateRoot};
+use std::collections::{BTreeMap, HashMap};
 
 /// `MemTries` (logically) owns the memory of multiple tries.
 /// Tries may share nodes with each other via refcounting. The way the

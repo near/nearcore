@@ -1,3 +1,5 @@
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use assert_matches::assert_matches;
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
@@ -14,9 +16,6 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
 use node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
 use std::sync::Arc;
-
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
 
 /// Assert that an account exists and has zero balance
 fn assert_zero_balance_account(env: &TestEnv, account_id: &AccountId) {

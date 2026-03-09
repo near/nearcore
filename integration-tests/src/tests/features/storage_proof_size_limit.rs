@@ -1,3 +1,5 @@
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use assert_matches::assert_matches;
 use near_chain::Provenance;
 use near_chain_configs::Genesis;
@@ -13,9 +15,6 @@ use near_primitives::types::Gas;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::FinalExecutionStatus;
-
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
 
 /// Test:
 /// * per-receipt hard storage proof size limit

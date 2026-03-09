@@ -1,4 +1,11 @@
+use super::setup::{
+    TEST_SEED, setup_client_with_runtime, setup_synchronous_shards_manager,
+    setup_tx_request_handler,
+};
+use super::test_env::{AccountIndices, TestEnv};
+use crate::utils::mock_partial_witness_adapter::MockPartialWitnessAdapter;
 use itertools::{Itertools, multizip};
+use near_async::ActorSystem;
 use near_async::messaging::{IntoMultiSender, IntoSender, noop};
 use near_async::time::Clock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
@@ -27,15 +34,6 @@ use nearcore::NightshadeRuntime;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-
-use crate::utils::mock_partial_witness_adapter::MockPartialWitnessAdapter;
-
-use super::setup::{
-    TEST_SEED, setup_client_with_runtime, setup_synchronous_shards_manager,
-    setup_tx_request_handler,
-};
-use super::test_env::{AccountIndices, TestEnv};
-use near_async::ActorSystem;
 
 /// A builder for the TestEnv structure.
 pub struct TestEnvBuilder {
