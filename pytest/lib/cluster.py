@@ -641,52 +641,53 @@ class LocalNode(BaseNode):
                                              env=env)
         self._pid = self._process.pid
 
+    # Protocol version that enables SyncV2 (nightly-only).
+    _SYNC_V2_PROTOCOL_VERSION = 151
+
     def start_with_epoch_sync_restart(
             self,
             *,
             boot_node: BootNode = None,
             extra_env: typing.Dict[str, str] = dict(),
     ):
-        """Start a killed node, handling SyncV2 epoch sync data reset.
+        """Start the node, restarting if it exits for epoch sync data reset.
 
-        Under SyncV2, a stale node writes .EPOCH_SYNC_DATA_RESET and exits.
-        We detect that and restart it (cli.rs wipes data on seeing the marker).
-        If no marker appears and RPC becomes ready, the node started normally.
+        Under SyncV2 a stale node writes .EPOCH_SYNC_DATA_RESET and exits.
+        We detect the marker, wait for exit, then restart (cli.rs wipes data
+        on seeing the marker). On stable builds (protocol < SyncV2) just
+        starts normally.
         """
-        assert self._process is None, "node must be killed before calling this"
+        config = {'near_root': self.near_root, 'binary_name': self.binary_name}
+        pv = get_binary_protocol_version(config)
+        if pv is None or pv < self._SYNC_V2_PROTOCOL_VERSION:
+            logger.info(f'Node {self.ordinal}: SyncV2 not supported '
+                        f'(protocol {pv}), starting normally')
+            self.start(boot_node=boot_node, extra_env=extra_env)
+            return
 
-        marker_path = os.path.join(self.node_dir, 'data',
-                                   '.EPOCH_SYNC_DATA_RESET')
+        logger.info(
+            f"Starting node {self.ordinal} (expecting epoch sync restart).")
         cmd = self._get_command_line(self.near_root, self.node_dir, boot_node,
                                      self.binary_name)
         self.run_cmd(cmd=cmd, extra_env=extra_env)
 
-        # Poll for either the epoch sync reset marker or RPC readiness.
+        marker_path = os.path.join(self.node_dir, 'data',
+                                   '.EPOCH_SYNC_DATA_RESET')
         deadline = time.time() + 60
         while time.time() < deadline:
             if os.path.exists(marker_path):
-                logger.info(f"Node {self.ordinal}: epoch sync data reset")
-                self._process.wait(timeout=30)
-                self._process = None
+                logger.info(
+                    f'Node {self.ordinal}: epoch sync data reset, restarting')
+                self._process.wait(timeout=5)
                 self.start(boot_node=boot_node, extra_env=extra_env)
                 return
             if self._process.poll() is not None:
-                rc = self._process.returncode
-                self._process = None
-                raise Exception(
-                    f"Node {self.ordinal}: process exited (rc={rc}) "
-                    f"without epoch sync marker"
-                )
-            try:
-                self.get_status()
-                return  # RPC ready — node started normally.
-            except Exception:
-                pass
+                raise RuntimeError(
+                    f'Node {self.ordinal}: exited without epoch sync marker')
             time.sleep(0.5)
 
-        raise Exception(
-            f"Node {self.ordinal}: neither epoch sync marker nor RPC ready "
-            f"within timeout")
+        raise RuntimeError(
+            f'Node {self.ordinal}: epoch sync marker not written within 60s')
 
     def kill(self, *, gentle=False):
         logger.info(f"Killing node {self.ordinal}.")

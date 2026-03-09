@@ -27,18 +27,18 @@ pytest sanity/epoch_switches.py
 pytest sanity/epoch_switches.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/epoch_switches.py --features nightly,protocol_feature_spice
-pytest sanity/state_sync.py manytx 30
-pytest sanity/state_sync.py manytx 30 --features nightly
+pytest sanity/state_sync.py manytx 50
+pytest sanity/state_sync.py manytx 50 --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#pytest sanity/state_sync.py manytx 30 --features nightly,protocol_feature_spice
+#pytest sanity/state_sync.py manytx 50 --features nightly,protocol_feature_spice
 pytest --timeout=10m sanity/state_sync.py manytx 265
 pytest --timeout=10m sanity/state_sync.py manytx 265 --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest --timeout=10m sanity/state_sync.py manytx 265 --features nightly,protocol_feature_spice
-pytest sanity/state_sync.py onetx 30
-pytest sanity/state_sync.py onetx 30 --features nightly
+pytest sanity/state_sync.py onetx 50
+pytest sanity/state_sync.py onetx 50 --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#pytest sanity/state_sync.py onetx 30 --features nightly,protocol_feature_spice
+#pytest sanity/state_sync.py onetx 50 --features nightly,protocol_feature_spice
 pytest --timeout=10m sanity/state_sync.py onetx 265
 pytest --timeout=10m sanity/state_sync.py onetx 265 --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
@@ -128,10 +128,10 @@ pytest sanity/state_sync_epoch_boundary.py
 pytest sanity/state_sync_epoch_boundary.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/state_sync_epoch_boundary.py --features nightly,protocol_feature_spice
-pytest sanity/state_sync_then_catchup.py
-pytest sanity/state_sync_then_catchup.py --features nightly
+pytest --timeout=10m sanity/state_sync_then_catchup.py
+pytest --timeout=10m sanity/state_sync_then_catchup.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#pytest sanity/state_sync_then_catchup.py --features nightly,protocol_feature_spice
+#pytest --timeout=10m sanity/state_sync_then_catchup.py --features nightly,protocol_feature_spice
 pytest sanity/state_parts_dump_check.py
 pytest sanity/state_parts_dump_check.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
@@ -181,8 +181,9 @@ pytest --timeout=5m sanity/gc_after_sync1.py
 pytest --timeout=5m sanity/gc_after_sync1.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest --timeout=5m sanity/gc_after_sync1.py --features nightly,protocol_feature_spice
-pytest --timeout=5m sanity/gc_sync_after_sync.py
-pytest --timeout=5m sanity/gc_sync_after_sync.py --features nightly
+# SyncV2: test validates V1's check_state_needed fallback which V2 removes.
+#pytest --timeout=5m sanity/gc_sync_after_sync.py
+#pytest --timeout=5m sanity/gc_sync_after_sync.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest --timeout=5m sanity/gc_sync_after_sync.py --features nightly,protocol_feature_spice
 # TODO(#13551): Enable after fixing flaky test

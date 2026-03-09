@@ -37,9 +37,10 @@ nodes[1].kill()
 
 logger.info("step 1")
 
-# Grow chain long enough for epoch sync proof derivation (>= 4 * EPOCH_LENGTH).
+# Grow chain long enough for epoch sync proof derivation. With tvp=2000,
+# the proof target walks back tvp from tip, so we need > tvp + 3*EPOCH_LENGTH.
 node0_height, _ = utils.wait_for_blocks(nodes[0],
-                                        target=EPOCH_LENGTH * 4 + 1,
+                                        target=EPOCH_LENGTH * 6 + 1,
                                         poll_interval=5)
 
 nodes[1].start_with_epoch_sync_restart(boot_node=nodes[1])
