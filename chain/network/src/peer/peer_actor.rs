@@ -945,6 +945,9 @@ impl PeerActor {
             (PeerStatus::Connecting { .. }, PeerMessage::Tier3Handshake(msg)) => {
                 self.process_handshake(tcp::Tier::T3, msg)
             }
+            (PeerStatus::Connecting { .. }, PeerMessage::Disconnect(_)) => {
+                // peer disconnected while connecting, ignore.
+            }
             (_, msg) => {
                 tracing::warn!(target:"network",%msg,"unexpected message during handshake")
             }
@@ -1222,6 +1225,10 @@ impl PeerActor {
                         if let Some(addr) = my_peer_info.addr {
                             let mut my_public_addr = self.network_state.my_public_addr.write();
                             *my_public_addr = Some(addr);
+                            tracing::info!(target: "network", %addr, "discovered own public address for tier3 state sync");
+                            metrics::TIER3_PUBLIC_ADDR
+                                .with_label_values(&[&addr.to_string()])
+                                .set(1);
                         }
                     }
                 }

@@ -134,7 +134,7 @@ The `src/examples/` directory contains minimal self-contained tests demonstratin
 
 | Example | Demonstrates |
 |---|---|
-| `basic.rs` | Token transfer, contract deploy & call, JSON-RPC queries |
+| `basic.rs` | Token transfer, contract deploy & call, account create & delete, JSON-RPC queries |
 | `setup.rs` | Builder API: defaults, validators, shards, user accounts, genesis overrides, manual setup |
 | `node_lifecycle.rs` | Killing/restarting a node, adding a new node to a running cluster |
 | `archival.rs` | Archival node with cold storage |
@@ -163,6 +163,37 @@ env.add_node(identifier, new_node_state);
 ```
 
 ## Utilities
+
+### Transaction helpers
+
+`TestLoopNode` provides `tx_*` methods that build signed transactions, automatically resolving the nonce, block hash, and test signer. Instead of:
+
+```rust
+let signer = create_user_test_signer(&sender);
+let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, &sender);
+let block_hash = env.rpc_node().head().last_block_hash;
+let tx = SignedTransaction::send_money(nonce, sender.clone(), receiver.clone(), &signer, amount, block_hash);
+```
+
+Write:
+
+```rust
+let tx = env.rpc_node().tx_send_money(&sender, &receiver, amount);
+```
+
+Available methods:
+
+| Method | Description |
+|---|---|
+| `tx_send_money(sender, receiver, amount)` | Transfer tokens |
+| `tx_deploy_contract(account, code)` | Deploy contract code |
+| `tx_deploy_test_contract(account)` | Deploy the standard test contract |
+| `tx_call(sender, contract, method, args, deposit, gas)` | Call a contract method |
+| `tx_create_account(originator, new_account, amount)` | Create a sub-account |
+| `tx_delete_account(account, beneficiary)` | Delete an account |
+| `tx_from_actions(signer, receiver, actions)` | Build from raw actions |
+
+The `tx_*` helpers automatically track nonces, so multiple transactions for the same signer can be created without waiting for processing in between. For advanced use cases, `get_next_nonce` is also available.
 
 ### Account helpers
 

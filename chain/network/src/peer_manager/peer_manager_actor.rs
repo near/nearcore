@@ -261,6 +261,10 @@ impl PeerManagerActor {
             spice_data_distributor_adapter,
             spice_core_writer_adapter,
         ));
+        if let Some(addr) = state.config.tier3_public_addr {
+            tracing::info!(target: "network", %addr, "using configured tier3 public address");
+            metrics::TIER3_PUBLIC_ADDR.with_label_values(&[&addr.to_string()]).set(1);
+        }
         handle.spawn("PeerManagerActor server", {
             let handle = handle.clone();
             let state = state.clone();
@@ -1512,7 +1516,7 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                     }.await;
 
                     if let Err(ref err) = result {
-                        tracing::info!(target: "network", ?err, peer_info = %request.peer_info, "tier3 failed to connect");
+                        tracing::debug!(target: "network", ?err, peer_info = %request.peer_info, "tier3 failed to connect");
                     }
                 }
 

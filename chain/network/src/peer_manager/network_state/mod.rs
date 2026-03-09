@@ -238,7 +238,7 @@ impl NetworkState {
             tier1: connection::Pool::new(config.node_id()),
             tier3: connection::Pool::new(config.node_id()),
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
-            my_public_addr: Arc::new(RwLock::new(None)),
+            my_public_addr: Arc::new(RwLock::new(config.tier3_public_addr)),
             peer_store,
             snapshot_hosts: Arc::new(SnapshotHostsCache::new(config.snapshot_hosts.clone())),
             connection_store: connection_store::ConnectionStore::new(store.clone()).unwrap(),

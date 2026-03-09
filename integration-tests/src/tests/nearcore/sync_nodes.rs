@@ -40,6 +40,7 @@ async fn ultra_slow_test_sync_state_stake_change() {
     near2.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![("test1", *port1)]);
     near2.client_config.min_block_production_delay = Duration::milliseconds(200);
     near2.client_config.min_num_peers = 1;
+    near2.client_config.epoch_sync.epoch_sync_horizon_num_epochs = 100;
     near2.client_config.skip_sync_wait = false;
 
     let dir1 = tempfile::Builder::new().prefix("sync_state_stake_change_1").tempdir().unwrap();

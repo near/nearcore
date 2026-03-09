@@ -114,6 +114,10 @@ impl Config {
             RateLimitedPeerMessageKey::EpochSyncRequest,
             SingleMessageConfig::new(1, 1.0 / 30.0, None),
         );
+        config.rate_limits.insert(
+            RateLimitedPeerMessageKey::EpochSyncResponse,
+            SingleMessageConfig::new(1, 1.0 / 30.0, None),
+        );
         config
     }
 
@@ -178,6 +182,7 @@ pub enum RateLimitedPeerMessageKey {
     ContractCodeResponse,
     PartialEncodedContractDeploys,
     EpochSyncRequest,
+    EpochSyncResponse,
     OptimisticBlock,
     SpicePartialData,
     SpiceChunkEndorsement,
@@ -253,7 +258,7 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
         PeerMessage::StateRequestPart(_, _, _) => Some((StateRequestPart, 1)),
         PeerMessage::VersionedStateResponse(_) => Some((VersionedStateResponse, 1)),
         PeerMessage::EpochSyncRequest => Some((EpochSyncRequest, 1)),
-        PeerMessage::EpochSyncResponse(_) => None,
+        PeerMessage::EpochSyncResponse(_) => Some((EpochSyncResponse, 1)),
         PeerMessage::Tier1Handshake(_)
         | PeerMessage::Tier2Handshake(_)
         | PeerMessage::Tier3Handshake(_)
@@ -476,5 +481,22 @@ mod tests {
         assert!(!rate_limits.is_allowed(&PeerMessage::EpochSyncRequest, clock.now()));
         clock.advance(Duration::seconds(30));
         assert!(rate_limits.is_allowed(&PeerMessage::EpochSyncRequest, clock.now()));
+    }
+
+    #[test]
+    fn test_epoch_sync_response_rate_limit() {
+        let config = Config::standard_preset();
+        let clock = FakeClock::default();
+        let mut rate_limits = RateLimits::from_config(&config, clock.now());
+        let dummy_proof = near_primitives::epoch_sync::CompressedEpochSyncProof::from(
+            vec![0u8; 10].into_boxed_slice(),
+        );
+        let msg = PeerMessage::EpochSyncResponse(dummy_proof);
+        assert!(rate_limits.is_allowed(&msg, clock.now()));
+        assert!(!rate_limits.is_allowed(&msg, clock.now()));
+        clock.advance(Duration::seconds(1));
+        assert!(!rate_limits.is_allowed(&msg, clock.now()));
+        clock.advance(Duration::seconds(30));
+        assert!(rate_limits.is_allowed(&msg, clock.now()));
     }
 }

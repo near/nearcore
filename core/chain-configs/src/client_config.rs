@@ -411,9 +411,8 @@ impl StateSyncConfig {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct EpochSyncConfig {
     /// Number of epochs behind the network head beyond which the node will use
-    /// epoch sync instead of header sync. Also the maximum age (in epochs) of
-    /// accepted epoch sync proofs. At the consumption site, this is multiplied
-    /// by epoch_length to get the horizon in blocks.
+    /// epoch sync instead of header sync. At the consumption site, this is
+    /// multiplied by epoch_length to get the horizon in blocks.
     #[serde(default = "default_epoch_sync_horizon_num_epochs")]
     pub epoch_sync_horizon_num_epochs: u64,
     /// Timeout for epoch sync requests. The node will continue retrying indefinitely even
@@ -424,14 +423,13 @@ pub struct EpochSyncConfig {
 }
 
 fn default_epoch_sync_horizon_num_epochs() -> u64 {
-    4
+    2
 }
 
 impl Default for EpochSyncConfig {
     fn default() -> Self {
         Self {
-            // Default to epoch sync if we're more than 4 epochs behind,
-            // and we accept proofs up to 2 epochs old.
+            // Default to epoch sync if we're more than 2 epochs behind.
             // Note that in case we are not doing epoch sync, we would need to be within
             // the GC period (typically 5 epochs) to be able to do header sync.
             epoch_sync_horizon_num_epochs: default_epoch_sync_horizon_num_epochs(),
