@@ -2910,13 +2910,13 @@ fn resolve_promise_yield_timeouts(
 
             // Record a ReceiptToTx entry for the new resume receipt. The parent is the
             // yield receipt that is being timed out.
-            let yield_receipt = get_promise_yield_receipt(
-                state_update,
-                &queue_entry.account_id,
-                queue_entry.data_id,
-            )?
-            .expect("promise yield receipt should exist since contains_key was true");
             if processing_state.apply_state.save_receipt_to_tx {
+                let yield_receipt = get_promise_yield_receipt(
+                    state_update,
+                    &queue_entry.account_id,
+                    queue_entry.data_id,
+                )?
+                .expect("promise yield receipt should exist since contains_key was true");
                 processing_state.receipt_to_tx.push((
                     new_receipt_id,
                     ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
