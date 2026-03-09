@@ -1,3 +1,5 @@
+//! Test economic edge cases.
+
 use crate::env::test_env::TestEnv;
 use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
@@ -10,7 +12,6 @@ use near_store::{genesis::initialize_genesis_state, test_utils::create_test_stor
 use nearcore::NightshadeRuntime;
 use num_rational::Ratio;
 use primitive_types::U256;
-/// Test economic edge cases.
 use std::path::Path;
 use testlib::fees_utils::FeeHelper;
 

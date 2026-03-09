@@ -1,6 +1,7 @@
+//! Tests which check correctness of background flat storage creation.
+
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
-/// Tests which check correctness of background flat storage creation.
 use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::time::Clock;
