@@ -1,14 +1,5 @@
 # Changelog
 
-## [unreleased]
-
-### Protocol Changes
-* The contract runtime has been upgraded to use the new Wasmtime-based runtime;
-* The contract runtime now allows for bulk memory instructions in Wasm code.
-
-### Non-protocol Changes
-* Added `experimental.tier3_public_addr` network config option to manually override the auto-discovered Tier3 public address.
-
 ## [2.11.0]
 
 ### Protocol Changes
@@ -28,6 +19,7 @@
 * Added a database migration to backfill trie data lost due to a bug in resharding. The migration runs automatically on node startup and takes approximately 5 minutes on an archival node. Non-archival nodes are not affected. ([#15044](https://github.com/near/nearcore/pull/15044))
 * Fix `sandbox_fast_forward` RPC returning success before blocks are actually produced, by tracking target height explicitly instead of relying on the delta field which could be temporarily zero during processing. ([#14899](https://github.com/near/nearcore/pull/14899))
 * Fix `sandbox_patch_state` RPC silently dropping patches when a block was being processed concurrently, by removing an unnecessary `clear()` call that raced with new patches. ([#14893](https://github.com/near/nearcore/pull/14893))
+* Added `experimental.tier3_public_addr` network config option to manually override the auto-discovered Tier3 public address.
 
 ## [2.10.0]
 
