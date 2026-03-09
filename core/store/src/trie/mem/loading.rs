@@ -137,8 +137,7 @@ pub fn load_trie_from_flat_state_and_delta(
     };
 
     let mut memtries =
-        load_trie_from_flat_state(&store, shard_uid, state_root, flat_head.height, parallelize)
-            .unwrap();
+        load_trie_from_flat_state(&store, shard_uid, state_root, flat_head.height, parallelize)?;
 
     apply_deltas_to_memtries(store, shard_uid, &mut memtries)?;
 
@@ -158,11 +157,13 @@ pub fn apply_deltas_to_memtries(
 
     tracing::debug!(target: "memtrie", %shard_uid, "loading flat state deltas");
     // We load the deltas in order of height, so that we always have the previous state root
-    // already loaded.
-    let mut sorted_deltas: BTreeSet<(BlockHeight, CryptoHash, CryptoHash)> = Default::default();
-    for delta in flat_store.get_all_deltas_metadata(shard_uid) {
-        sorted_deltas.insert((delta.block.height, delta.block.hash, delta.block.prev_hash));
-    }
+    // already loaded. Deltas without changes are skipped.
+    let sorted_deltas: BTreeSet<_> = flat_store
+        .get_all_deltas_metadata(shard_uid)
+        .into_iter()
+        .filter(|delta| delta.has_changes())
+        .map(|delta| (delta.block.height, delta.block.hash, delta.block.prev_hash))
+        .collect();
 
     tracing::debug!(target: "memtrie", %shard_uid, num_deltas = sorted_deltas.len(), "deltas to apply");
     for (height, hash, prev_hash) in sorted_deltas {

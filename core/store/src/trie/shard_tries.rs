@@ -531,13 +531,16 @@ impl ShardTries {
         }
         let store = self.0.store.store();
         let (tx, rx) = crossbeam::channel::bounded(1);
-        std::thread::Builder::new()
+        if let Err(e) = std::thread::Builder::new()
             .name(format!("memtrie_bg_load_{}", shard_uid))
             .spawn(move || {
                 let result = load_trie_from_flat_state_and_delta(&store, shard_uid, None, false);
                 let _ = tx.send(result);
             })
-            .expect("failed to spawn background memtrie loading thread");
+        {
+            tracing::error!(target: "memtrie", %e, "failed to spawn background memtrie loading thread");
+            return;
+        }
         pending.insert(shard_uid, rx);
         tracing::info!(
             target: "memtrie", %shard_uid,
@@ -547,7 +550,7 @@ impl ShardTries {
 
     /// Non-blocking: check all pending background memtrie loading tasks and finalize
     /// these which have completed (apply delta catch-up + insert into active map).
-    pub fn finalize_background_memtrie_loading(&self) {
+    pub fn try_finalize_background_memtrie_loading(&self) {
         use crossbeam::channel::TryRecvError;
 
         // Collect completed loads under the lock, then process outside.
@@ -586,7 +589,8 @@ impl ShardTries {
         let mut memtries = result?;
         apply_deltas_to_memtries(&self.0.store.store(), shard_uid, &mut memtries)?;
         tracing::debug!(target: "memtrie", %shard_uid, "finalized background memtrie loading");
-        self.0.memtries.write().insert(shard_uid, Arc::new(RwLock::new(memtries)));
+        // Insert memtries only if it has not been already loaded
+        self.0.memtries.write().entry(shard_uid).or_insert_with(|| Arc::new(RwLock::new(memtries)));
         Ok(())
     }
 

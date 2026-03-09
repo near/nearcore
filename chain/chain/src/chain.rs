@@ -1878,7 +1878,7 @@ impl Chain {
 
         // Try to finalize any completed background memtrie loads, so they are used in the
         // subsequent block processing.
-        self.runtime_adapter.get_tries().finalize_background_memtrie_loading();
+        self.runtime_adapter.get_tries().try_finalize_background_memtrie_loading();
 
         let epoch_id = block.header().epoch_id();
         let mut shards_cares_this_or_next_epoch = vec![];
