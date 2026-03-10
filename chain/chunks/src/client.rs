@@ -7,7 +7,7 @@ use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
 use near_primitives::{
     epoch_info::RngSeed,
     sharding::{EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader},
-    types::{AccountId, ShardId},
+    types::{AccountId, BlockHeight, ShardId},
 };
 use std::collections::HashMap;
 
@@ -44,11 +44,18 @@ pub struct ShardedTransactionPool {
     /// If set, new transactions that bring the size of the pool over this limit will be rejected.
     /// The size is tracked and enforced separately for each shard.
     pool_size_limit: Option<u64>,
+
+    /// TTL in blocks for strict-nonce transactions.
+    strict_nonce_ttl: BlockHeight,
 }
 
 impl ShardedTransactionPool {
-    pub fn new(rng_seed: RngSeed, pool_size_limit: Option<u64>) -> Self {
-        Self { tx_pools: HashMap::new(), rng_seed, pool_size_limit }
+    pub fn new(
+        rng_seed: RngSeed,
+        pool_size_limit: Option<u64>,
+        strict_nonce_ttl: BlockHeight,
+    ) -> Self {
+        Self { tx_pools: HashMap::new(), rng_seed, pool_size_limit, strict_nonce_ttl }
     }
 
     pub fn get_pool_iterator(&mut self, shard_uid: ShardUId) -> Option<PoolIteratorWrapper<'_>> {
@@ -82,11 +89,20 @@ impl ShardedTransactionPool {
         res
     }
 
+    /// Updates the head height for all shard pools and evicts expired
+    /// strict-nonce transactions.
+    pub fn update_head_height(&mut self, height: BlockHeight) {
+        for pool in self.tx_pools.values_mut() {
+            pool.update_head_height(height);
+        }
+    }
+
     fn pool_for_shard(&mut self, shard_uid: ShardUId) -> &mut TransactionPool {
         self.tx_pools.entry(shard_uid).or_insert_with(|| {
             TransactionPool::new(
                 Self::random_seed(&self.rng_seed, shard_uid.shard_id()),
                 self.pool_size_limit,
+                self.strict_nonce_ttl,
                 &shard_uid.to_string(),
             )
         })
@@ -203,7 +219,7 @@ mod tests {
             "tge-lockup.sweat".parse().unwrap(),
         );
 
-        let mut pool = ShardedTransactionPool::new(TEST_SEED, None);
+        let mut pool = ShardedTransactionPool::new(TEST_SEED, None, 64);
 
         let mut shard_id_to_accounts: HashMap<ShardId, _> = HashMap::new();
         shard_id_to_accounts.insert(ShardId::new(0), vec!["aaa", "abcd", "a-a-a-a-a"]);

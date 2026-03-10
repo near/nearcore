@@ -320,7 +320,7 @@ mod tests {
         num_txs: usize,
     ) -> Arc<Mutex<ShardedTransactionPool>> {
         let signer = create_test_signer(account_id.as_str());
-        let tx_pool = Arc::new(Mutex::new(ShardedTransactionPool::new(TEST_SEED, None)));
+        let tx_pool = Arc::new(Mutex::new(ShardedTransactionPool::new(TEST_SEED, None, 64)));
         let mut pool_guard = tx_pool.lock();
         for nonce in 1..=num_txs as u64 {
             insert_tx(&mut pool_guard, shard_uid, signer.public_key(), account_id.clone(), nonce);

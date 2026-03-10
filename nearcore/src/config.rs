@@ -30,8 +30,8 @@ use near_chain_configs::{
     default_state_sync_external_timeout, default_state_sync_p2p_timeout,
     default_state_sync_retry_backoff, default_sync_check_period, default_sync_height_threshold,
     default_sync_max_block_requests, default_sync_step_period, default_transaction_pool_size_limit,
-    default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
-    default_view_client_threads, get_initial_supply,
+    default_transaction_pool_strict_nonce_ttl_blocks, default_trie_viewer_state_size_limit,
+    default_tx_routing_height_horizon, default_view_client_threads, get_initial_supply,
 };
 use near_config_utils::{DownloadConfigType, ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -358,6 +358,9 @@ pub struct Config {
     /// Setting this value too low (<1MB) on the validator might lead to production of smaller
     /// chunks and underutilized the capacity of the network.
     pub transaction_pool_size_limit: Option<u64>,
+    /// TTL in blocks for strict-nonce transactions in the pool. Strict-nonce transactions that
+    /// have been in the pool longer than this many blocks are evicted.
+    pub transaction_pool_strict_nonce_ttl_blocks: Option<BlockHeight>,
     // Configuration for resharding.
     pub resharding_config: ReshardingConfig,
     /// If the node is not a chunk producer within that many blocks, then route
@@ -485,6 +488,7 @@ impl Default for Config {
             epoch_sync: default_epoch_sync(),
             state_sync_enabled: default_state_sync_enabled(),
             transaction_pool_size_limit: default_transaction_pool_size_limit(),
+            transaction_pool_strict_nonce_ttl_blocks: None,
             enable_multiline_logging: default_enable_multiline_logging(),
             resharding_config: ReshardingConfig::default(),
             tx_routing_height_horizon: default_tx_routing_height_horizon(),
@@ -757,6 +761,9 @@ impl NearConfig {
                 state_sync_enabled: config.state_sync_enabled,
                 epoch_sync: config.epoch_sync.unwrap_or_default(),
                 transaction_pool_size_limit: config.transaction_pool_size_limit,
+                transaction_pool_strict_nonce_ttl_blocks: config
+                    .transaction_pool_strict_nonce_ttl_blocks
+                    .unwrap_or_else(default_transaction_pool_strict_nonce_ttl_blocks),
                 enable_multiline_logging: config.enable_multiline_logging.unwrap_or(true),
                 resharding_config: MutableConfigValue::new(
                     config.resharding_config,

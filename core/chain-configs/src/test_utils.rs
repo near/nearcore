@@ -325,6 +325,7 @@ impl ClientConfig {
             state_sync: StateSyncConfig::default(),
             epoch_sync: EpochSyncConfig::default(),
             transaction_pool_size_limit: None,
+            transaction_pool_strict_nonce_ttl_blocks: 64,
             enable_multiline_logging: false,
             resharding_config: MutableConfigValue::new(
                 ReshardingConfig::default(),

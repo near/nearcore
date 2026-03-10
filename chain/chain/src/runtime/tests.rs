@@ -1556,7 +1556,7 @@ fn generate_transaction_pool(signers: &Vec<Signer>, block_hash: CryptoHash) -> T
     }
     transactions.shuffle(&mut rng);
 
-    let mut pool = TransactionPool::new(TEST_SEED, None, "");
+    let mut pool = TransactionPool::new(TEST_SEED, None, 64, "");
     for transaction in transactions {
         assert_eq!(pool.insert_transaction(transaction), InsertTransactionResult::Success);
     }
