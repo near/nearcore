@@ -33,7 +33,9 @@ use near_primitives::stateless_validation::contract_distribution::{
 };
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness;
+use near_primitives::stateless_validation::spice_state_witness::compute_contract_accesses_hash;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessSize;
+use near_primitives::types::AccountId;
 use near_primitives::types::{BlockExecutionResults, SpiceChunkId};
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::validator_signer::ValidatorSigner;
@@ -71,12 +73,24 @@ pub struct SpiceChunkValidatorActor {
     partial_chunk_data: LruCache<SpiceChunkId, PartialChunkData>,
 }
 
+/// The currently trusted contract accesses sender and the set of contracts
+/// we're still waiting for from them.
+struct TrustedAccesses {
+    sender: AccountId,
+    /// Contracts not yet available (not in cache and not yet received).
+    /// Empty means all contracts are ready.
+    missing: HashSet<CodeHash>,
+}
+
 /// Tracks the state of a chunk that is waiting on contract bytes and/or its witness.
 struct PartialChunkData {
-    /// None = haven't received contract accesses message yet.
-    /// Some(empty) = all contracts available (either cached or received).
-    /// Some(non-empty) = still waiting for these contracts.
-    missing: Option<HashSet<CodeHash>>,
+    /// Contract accesses received from each producer. We trust the first one
+    /// (populate `trusted`, start requesting contracts) but keep others to
+    /// fall back to if the trusted sender turns out to be malicious.
+    received_accesses: HashMap<AccountId, HashSet<CodeHash>>,
+    /// The sender whose accesses we are currently acting on.
+    /// None = haven't received any contract accesses message yet.
+    trusted: Option<TrustedAccesses>,
     /// Contract bytes collected so far (from code responses).
     /// TODO(spice),TODO(pipelining): This is not strictly needed - we could send the contracts for compilation/caching as they arrive without waiting for all of them + witness to be present.
     contracts: Vec<CodeBytes>,
@@ -84,25 +98,38 @@ struct PartialChunkData {
 }
 
 /// If the chunk identified by `chunk_id` has all contracts and witness ready,
-/// removes it from the cache and returns the contracts and witness.
+/// removes it from the cache and returns the partial chunk data.
+///
+/// This assumes the currently trusted contract accesses are correct. The caller
+/// should verify the contract accesses hash against the witness and re-do with
+/// a different sender's accesses if the hash doesn't match.
 fn try_take_ready_chunk(
     partial_chunk_data: &mut LruCache<SpiceChunkId, PartialChunkData>,
     chunk_id: &SpiceChunkId,
-) -> Option<(Vec<CodeBytes>, SpiceChunkStateWitness)> {
+) -> Option<PartialChunkData> {
     let entry = partial_chunk_data.peek(chunk_id)?;
-    match entry {
-        PartialChunkData { missing: Some(missing), witness: Some(_), .. } if missing.is_empty() => {
-        }
-        _ => return None,
+    let ready = matches!(
+        entry,
+        PartialChunkData {
+            trusted: Some(TrustedAccesses { missing, .. }),
+            witness: Some(_),
+            ..
+        } if missing.is_empty()
+    );
+    if !ready {
+        return None;
     }
-    let PartialChunkData { missing: _, contracts, witness } =
-        partial_chunk_data.pop(chunk_id).unwrap();
-    Some((contracts, witness.unwrap()))
+    partial_chunk_data.pop(chunk_id)
 }
 
 impl PartialChunkData {
     fn new() -> Self {
-        Self { missing: None, contracts: Vec::new(), witness: None }
+        Self {
+            received_accesses: HashMap::new(),
+            trusted: None,
+            contracts: Vec::new(),
+            witness: None,
+        }
     }
 }
 
@@ -250,6 +277,10 @@ impl SpiceChunkValidatorActor {
                 self.partial_chunk_data
                     .get_or_insert_mut(chunk_id.clone(), PartialChunkData::new)
                     .witness = Some(witness);
+                // Eagerly check the trusted accesses hash against the witness.
+                // If the trusted sender is wrong, discard and try the next one
+                // before waiting for contract code that will never arrive.
+                self.validate_trusted_accesses(&chunk_id, signer.clone())?;
                 self.try_assemble_and_validate_chunk(&chunk_id, signer)
             }
         }
@@ -366,6 +397,7 @@ impl SpiceChunkValidatorActor {
             self.partial_chunk_data
                 .get_or_insert_mut(chunk_id.clone(), PartialChunkData::new)
                 .witness = Some(witness);
+            self.validate_trusted_accesses(&chunk_id, signer.clone())?;
             if let Err(err) = self.try_assemble_and_validate_chunk(&chunk_id, signer.clone()) {
                 self.requeue_waiting_witnesses(&block_hash, unready_witnesses);
                 return Err(err);
@@ -460,6 +492,12 @@ impl SpiceChunkValidatorActor {
     /// Handles contract accesses message from a chunk producer.
     /// Checks the compiled contract cache for each hash, then requests any missing
     /// contracts from a random chunk producer of the related shard.
+    ///
+    /// We trust the first accesses message we receive and start requesting missing
+    /// contracts immediately. Subsequent messages from different producers are stored
+    /// but not acted on until we can verify against the witness hash; if the trusted
+    /// sender turns out to be wrong, `try_assemble_and_validate_chunk` will switch
+    /// to the correct sender and re-request.
     fn handle_spice_contract_accesses(
         &mut self,
         accesses: SpiceChunkContractAccesses,
@@ -497,7 +535,7 @@ impl SpiceChunkValidatorActor {
             self.epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, chunk_id.shard_id)?;
         // TODO(spice),TODO(spice-perf): We could get the expected public key from the message (or
         // by using sender if possible), check the signature, and then check the public id is in an expected hash set (or just iterate them), to avoid checking many signatures.
-        let is_valid_signature = producers.iter().any(|account_id| {
+        let sender = producers.iter().find(|account_id| {
             let Ok(validator) =
                 self.epoch_manager.get_validator_by_account_id(&epoch_id, account_id)
             else {
@@ -505,16 +543,38 @@ impl SpiceChunkValidatorActor {
             };
             accesses.verify_signature(validator.public_key())
         });
-        if !is_valid_signature {
+        let Some(sender) = sender.cloned() else {
             return Err(Error::Other("invalid spice contract accesses signature".to_owned()));
+        };
+
+        let all_contracts: HashSet<CodeHash> = accesses.contracts().iter().cloned().collect();
+
+        let entry =
+            self.partial_chunk_data.get_or_insert_mut(chunk_id.clone(), PartialChunkData::new);
+
+        // If we already have accesses from this sender, ignore the duplicate.
+        if entry.received_accesses.contains_key(&sender) {
+            return Ok(());
+        }
+        entry.received_accesses.insert(sender.clone(), all_contracts.clone());
+
+        // If we already have a trusted sender, just store this one for later
+        // verification. try_assemble will fall back to it if the trusted one
+        // turns out to be wrong.
+        if entry.trusted.is_some() {
+            let signer = self
+                .validator_signer
+                .get()
+                .ok_or_else(|| Error::NotAValidator("no signer".to_owned()))?;
+            return self.try_assemble_and_validate_chunk(&chunk_id, signer);
         }
 
+        // First accesses message — trust it and start requesting missing contracts.
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let runtime_config = self.runtime_adapter.get_runtime_config(protocol_version);
         let cache = self.runtime_adapter.compiled_contract_cache();
 
-        let missing: HashSet<_> = accesses
-            .contracts()
+        let missing: HashSet<_> = all_contracts
             .iter()
             .filter(|h| !contracts_cache_contains_contract(cache, h, runtime_config))
             .cloned()
@@ -536,14 +596,7 @@ impl SpiceChunkValidatorActor {
             ));
         }
 
-        let entry =
-            self.partial_chunk_data.get_or_insert_mut(chunk_id.clone(), PartialChunkData::new);
-        // merge with previously received accesses if any
-        if let Some(existing) = &mut entry.missing {
-            existing.extend(missing);
-        } else {
-            entry.missing = Some(missing);
-        }
+        entry.trusted = Some(TrustedAccesses { sender, missing });
 
         let signer = self
             .validator_signer
@@ -571,18 +624,18 @@ impl SpiceChunkValidatorActor {
         // Resolve across all pending chunks that are waiting on any of these contracts.
         let mut maybe_ready: Vec<SpiceChunkId> = Vec::new();
         for (chunk_id, entry) in &mut self.partial_chunk_data {
-            let Some(missing) = &mut entry.missing else {
+            let Some(trusted) = &mut entry.trusted else {
                 continue;
             };
 
             let mut resolved_any = false;
             for (hash, bytes) in &received {
-                if missing.remove(hash) {
+                if trusted.missing.remove(hash) {
                     entry.contracts.push(bytes.clone());
                     resolved_any = true;
                 }
             }
-            if resolved_any && missing.is_empty() {
+            if resolved_any && trusted.missing.is_empty() {
                 maybe_ready.push(chunk_id.clone());
             }
         }
@@ -597,6 +650,44 @@ impl SpiceChunkValidatorActor {
         Ok(())
     }
 
+    /// Eagerly checks the trusted contract accesses hash against the witness.
+    /// If both are present and the hash doesn't match, invalidates the trusted
+    /// sender and tries the next one. This catches malicious senders early,
+    /// before waiting for contract code that will never arrive.
+    fn validate_trusted_accesses(
+        &mut self,
+        chunk_id: &SpiceChunkId,
+        signer: Arc<ValidatorSigner>,
+    ) -> Result<(), Error> {
+        let Some(entry) = self.partial_chunk_data.peek(chunk_id) else {
+            return Ok(());
+        };
+        let (Some(witness), Some(trusted)) = (&entry.witness, &entry.trusted) else {
+            return Ok(());
+        };
+        let expected_hash = witness.contract_accesses_hash();
+        let Some(trusted_accesses) = entry.received_accesses.get(&trusted.sender) else {
+            return Ok(());
+        };
+        if compute_contract_accesses_hash(trusted_accesses) == *expected_hash {
+            return Ok(());
+        }
+        // Trusted sender's accesses don't match. Invalidate and try next.
+        let sender = trusted.sender.clone();
+        tracing::debug!(
+            target: "spice_chunk_validator",
+            ?chunk_id,
+            %sender,
+            "received invalid contract accesses from producer; \
+             hash does not match witness"
+        );
+        let mut partial = self.partial_chunk_data.pop(chunk_id).unwrap();
+        partial.received_accesses.remove(&sender);
+        partial.trusted = None;
+        partial.contracts.clear();
+        self.redo_with_next_accesses(chunk_id, partial, signer)
+    }
+
     /// Attempts to finalize a chunk that is pending on contracts and/or witness.
     /// Succeeds when: witness is present, contract accesses have been received,
     /// all missing contracts have been fulfilled, and the block is ready.
@@ -606,32 +697,72 @@ impl SpiceChunkValidatorActor {
         chunk_id: &SpiceChunkId,
         signer: Arc<ValidatorSigner>,
     ) -> Result<(), Error> {
-        let Some((contracts, mut witness)) =
-            try_take_ready_chunk(&mut self.partial_chunk_data, chunk_id)
-        else {
+        let Some(partial) = try_take_ready_chunk(&mut self.partial_chunk_data, chunk_id) else {
             return Ok(());
         };
 
-        // Check block readiness.
-        match self.witness_processing_readiness(&witness)? {
+        let witness = partial.witness.as_ref().unwrap();
+        match self.witness_processing_readiness(witness)? {
             WitnessProcessingReadiness::NotReady => {
-                // Put it back — block isn't ready yet.
-                self.partial_chunk_data.put(
-                    chunk_id.clone(),
-                    PartialChunkData {
-                        missing: Some(HashSet::new()),
-                        contracts,
-                        witness: Some(witness),
-                    },
-                );
+                self.partial_chunk_data.put(chunk_id.clone(), partial);
                 Ok(())
             }
             WitnessProcessingReadiness::Ready(ctx) => {
-                witness.mut_main_state_transition().merge_contracts(contracts);
-
+                let mut witness = partial.witness.unwrap();
+                witness.mut_main_state_transition().merge_contracts(partial.contracts);
                 self.validate_state_witness_and_send_endorsements(&ctx, witness, signer)
             }
         }
+    }
+
+    /// Tries the next sender from `received_accesses`. If one is available,
+    /// re-checks cache, requests missing contracts, and retries assembly.
+    /// If no senders remain, puts the witness back to wait for a valid
+    /// accesses message.
+    fn redo_with_next_accesses(
+        &mut self,
+        chunk_id: &SpiceChunkId,
+        mut partial: PartialChunkData,
+        signer: Arc<ValidatorSigner>,
+    ) -> Result<(), Error> {
+        let Some((sender, next_accesses)) = partial.received_accesses.iter().next() else {
+            tracing::debug!(
+                target: "spice_chunk_validator",
+                ?chunk_id,
+                "no valid contract accesses available; waiting for new accesses message"
+            );
+            self.partial_chunk_data.put(chunk_id.clone(), partial);
+            return Ok(());
+        };
+        let sender = sender.clone();
+        let next_accesses = next_accesses.clone();
+
+        let epoch_id = self.epoch_manager.get_epoch_id(&chunk_id.block_hash)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let runtime_config = self.runtime_adapter.get_runtime_config(protocol_version);
+        let cache = self.runtime_adapter.compiled_contract_cache();
+
+        let missing: HashSet<_> = next_accesses
+            .iter()
+            .filter(|h| !contracts_cache_contains_contract(cache, h, runtime_config))
+            .cloned()
+            .collect();
+
+        if !missing.is_empty() {
+            let mut producers = self
+                .epoch_manager
+                .get_epoch_chunk_producers_for_shard(&epoch_id, chunk_id.shard_id)?;
+            let target = producers.swap_remove(rand::thread_rng().gen_range(0..producers.len()));
+            let request = SpiceContractCodeRequest::new(chunk_id.clone(), missing.clone(), &signer);
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::SpiceContractCodeRequest(target, request),
+            ));
+        }
+
+        partial.trusted = Some(TrustedAccesses { sender, missing });
+        self.partial_chunk_data.put(chunk_id.clone(), partial);
+        self.validate_trusted_accesses(chunk_id, signer.clone())?;
+        self.try_assemble_and_validate_chunk(chunk_id, signer)
     }
 }
 

@@ -44,6 +44,7 @@ use near_primitives::stateless_validation::contract_distribution::{CodeHash, Con
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateTransition;
 use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness;
+use near_primitives::stateless_validation::spice_state_witness::compute_contract_accesses_hash;
 use near_primitives::types::BlockExecutionResults;
 use near_primitives::types::BlockHeight;
 use near_primitives::types::ChunkExecutionResult;
@@ -786,6 +787,7 @@ impl ChunkExecutorActor {
                 .collect::<Result<_, Error>>()?
         };
         // TODO(spice-resharding): Handle witness validation when resharding.
+        let contract_accesses_hash = compute_contract_accesses_hash(&contract_accesses);
         let state_witness = SpiceChunkStateWitness::new(
             near_primitives::types::SpiceChunkId { block_hash: *block_hash, shard_id },
             main_transition,
@@ -793,6 +795,7 @@ impl ChunkExecutorActor {
             applied_receipts_hash,
             transactions,
             execution_result_hash,
+            contract_accesses_hash,
         );
         Ok(ChunkExecutionData { witness: state_witness, code_accesses: contract_accesses })
     }
