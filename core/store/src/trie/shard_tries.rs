@@ -27,7 +27,12 @@ use std::path::Path;
 use std::sync::Arc;
 use tracing::instrument;
 
-type MemtrieLoadingReceiver = crossbeam::channel::Receiver<Result<MemTries, StorageError>>;
+/// Result of a background memtrie loading: the loaded memtries and the
+/// flat_head height from which the base state was loaded. The height is needed
+/// so that the finalization catch-up pass can skip deltas already incorporated
+/// into the base state.
+type MemtrieLoadingResult = Result<(MemTries, BlockHeight), StorageError>;
+type MemtrieLoadingReceiver = crossbeam::channel::Receiver<MemtrieLoadingResult>;
 
 struct ShardTriesInner {
     store: TrieStoreAdapter,
@@ -423,11 +428,17 @@ impl ShardTries {
 
     /// Retains in-memory tries for given shards, i.e. unload tries from memory for shards that are
     /// NOT in the given list. Should be called to unload obsolete tries from memory.
-    /// Cancels memtrie background loading as well.
+    /// Cancels memtrie background loading as well, clearing delta GC retention for cancelled shards.
     pub fn retain_memtries(&self, shard_uids: &[ShardUId]) {
         tracing::info!(target: "memtrie", current_memtries = ?self.0.memtries.read().keys(), ?shard_uids, "keeping memtries for shards");
         self.0.memtries.write().retain(|shard_uid, _| shard_uids.contains(shard_uid));
-        self.0.memtries_loading.lock().retain(|shard_uid, _| shard_uids.contains(shard_uid));
+        let mut memtries_loading = self.0.memtries_loading.lock();
+        for shard_uid in memtries_loading.keys() {
+            if !shard_uids.contains(shard_uid) {
+                self.clear_delta_gc_retention_for_shard(*shard_uid);
+            }
+        }
+        memtries_loading.retain(|shard_uid, _| shard_uids.contains(shard_uid));
         tracing::info!(target: "memtrie", ?shard_uids, "memtries retaining complete for shards");
     }
 
@@ -446,7 +457,7 @@ impl ShardTries {
         parallelize: bool,
     ) -> Result<(), StorageError> {
         tracing::info!(target: "memtrie", ?shard_uid, "loading trie to memory for shard");
-        let memtries = load_trie_from_flat_state_and_delta(
+        let (memtries, _) = load_trie_from_flat_state_and_delta(
             &self.0.store.store(),
             *shard_uid,
             state_root,
@@ -529,6 +540,18 @@ impl ShardTries {
         if pending.contains_key(&shard_uid) {
             return;
         }
+        let Some(flat_storage) = self.0.flat_storage_manager.get_flat_storage_for_shard(shard_uid)
+        else {
+            tracing::error!(
+                target: "memtrie", %shard_uid,
+                "cannot start background memtrie loading: flat storage not available"
+            );
+            return;
+        };
+
+        // Set delta GC retention before spawning the thread, so that deltas
+        // accumulated during the loading are preserved for catch-up.
+        flat_storage.set_delta_gc_retention();
         let store = self.0.store.store();
         let (tx, rx) = crossbeam::channel::bounded(1);
         if let Err(e) = std::thread::Builder::new()
@@ -539,6 +562,7 @@ impl ShardTries {
             })
         {
             tracing::error!(target: "memtrie", %e, "failed to spawn background memtrie loading thread");
+            flat_storage.clear_delta_gc_retention();
             return;
         }
         pending.insert(shard_uid, rx);
@@ -577,10 +601,13 @@ impl ShardTries {
             if let Err(e) = self.handle_memtrie_loading_result(shard_uid, result) {
                 tracing::warn!(target: "memtrie", %shard_uid, ?e,
                     "background memtrie loading finalization failed");
+                // Clear retention so deltas aren't retained indefinitely after failure.
+                self.clear_delta_gc_retention_for_shard(shard_uid);
             }
         }
 
-        // Retry failed loads
+        // Retry failed loads. spawn_background_memtrie_loading_for_shard will
+        // set fresh retention at the current flat_head, replacing the old one.
         for shard_uid in failed {
             self.spawn_background_memtrie_loading_for_shard(shard_uid);
         }
@@ -591,14 +618,25 @@ impl ShardTries {
     fn handle_memtrie_loading_result(
         &self,
         shard_uid: ShardUId,
-        result: Result<MemTries, StorageError>,
+        result: MemtrieLoadingResult,
     ) -> Result<(), StorageError> {
-        let mut memtries = result?;
-        apply_deltas_to_memtries(&self.0.store.store(), shard_uid, &mut memtries)?;
+        let (mut memtries, base_height) = result?;
+        // Catch-up: apply deltas accumulated while the background thread was loading.
+        apply_deltas_to_memtries(&self.0.store.store(), shard_uid, &mut memtries, base_height)?;
         tracing::debug!(target: "memtrie", %shard_uid, "finalized background memtrie loading");
         // Insert memtries only if it has not been already loaded
         self.0.memtries.write().entry(shard_uid).or_insert_with(|| Arc::new(RwLock::new(memtries)));
+        self.clear_delta_gc_retention_for_shard(shard_uid);
         Ok(())
+    }
+
+    /// Clears delta GC retention for the given shard, allowing normal GC to resume.
+    fn clear_delta_gc_retention_for_shard(&self, shard_uid: ShardUId) {
+        if let Some(flat_storage) =
+            self.0.flat_storage_manager.get_flat_storage_for_shard(shard_uid)
+        {
+            flat_storage.clear_delta_gc_retention();
+        }
     }
 
     /// Retrieves the in-memory tries for the shard.

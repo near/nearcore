@@ -107,12 +107,14 @@ fn get_state_root(
 /// flat storage currently has, i.e. one for the final block, and one for each
 /// block that flat storage has a delta for, possibly in more than one fork.
 /// `state_root` parameter is required if `ChunkExtra` is not available, e.g. on catchup.
+///
+/// Returns the loaded memtries and the height up to which deltas have been applied.
 pub fn load_trie_from_flat_state_and_delta(
     store: &Store,
     shard_uid: ShardUId,
     state_root: Option<StateRoot>,
     parallelize: bool,
-) -> Result<MemTries, StorageError> {
+) -> Result<(MemTries, BlockHeight), StorageError> {
     tracing::debug!(target: "memtrie", %shard_uid, "loading base trie from flat state");
     let flat_store = store.flat_store();
     let flat_head = match flat_store.get_flat_storage_status(shard_uid) {
@@ -139,34 +141,42 @@ pub fn load_trie_from_flat_state_and_delta(
     let mut memtries =
         load_trie_from_flat_state(&store, shard_uid, state_root, flat_head.height, parallelize)?;
 
-    apply_deltas_to_memtries(store, shard_uid, &mut memtries)?;
+    let max_height = apply_deltas_to_memtries(store, shard_uid, &mut memtries, flat_head.height)?;
 
     tracing::debug!(target: "memtrie", %shard_uid, "done loading memtries for shard");
-    Ok(memtries)
+    Ok((memtries, max_height))
 }
 
 /// Applies all flat state deltas to the given memtries that are not already
 /// present. This is used both during initial loading and for catch-up after
 /// background memtrie loading.
+///
+/// `base_height` is the height up to which deltas have already been applied.
+/// Deltas at or below this height are skipped. Returns the height of the
+/// highest delta that was applied (or `base_height` if no deltas were applied).
 pub fn apply_deltas_to_memtries(
     store: &Store,
     shard_uid: ShardUId,
     memtries: &mut MemTries,
-) -> Result<(), StorageError> {
+    base_height: BlockHeight,
+) -> Result<BlockHeight, StorageError> {
     let flat_store = store.flat_store();
 
-    tracing::debug!(target: "memtrie", %shard_uid, "loading flat state deltas");
+    tracing::debug!(target: "memtrie", %shard_uid, %base_height, "loading flat state deltas");
     // We load the deltas in order of height, so that we always have the previous state root
-    // already loaded. Deltas without changes are skipped.
+    // already loaded. Deltas without changes are skipped, as are deltas at or below the base
+    // height (already incorporated into the base state).
     let sorted_deltas: BTreeSet<_> = flat_store
         .get_all_deltas_metadata(shard_uid)
         .into_iter()
-        .filter(|delta| delta.has_changes())
+        .filter(|delta| delta.has_changes() && delta.block.height > base_height)
         .map(|delta| (delta.block.height, delta.block.hash, delta.block.prev_hash))
         .collect();
 
     tracing::debug!(target: "memtrie", %shard_uid, num_deltas = sorted_deltas.len(), "deltas to apply");
+    let mut max_height = base_height;
     for (height, hash, prev_hash) in sorted_deltas {
+        max_height = max_height.max(height);
         let new_state_root = get_state_root(store, hash, shard_uid)?;
         // Skip deltas whose state roots are already in the memtrie.
         if memtries.contains_root(&new_state_root) {
@@ -192,7 +202,7 @@ pub fn apply_deltas_to_memtries(
         tracing::debug!(target: "memtrie", %shard_uid, %height, "applied memtrie changes for height");
     }
 
-    Ok(())
+    Ok(max_height)
 }
 
 #[cfg(test)]
@@ -477,7 +487,9 @@ mod tests {
         // Load into memory. It should load the base flat state (block 0), plus all
         // four deltas. We'll check against the state roots at each block; they should
         // all exist in the loaded memtrie.
-        let memtries = load_trie_from_flat_state_and_delta(&store, shard_uid, None, true).unwrap();
+        let (memtries, max_height) =
+            load_trie_from_flat_state_and_delta(&store, shard_uid, None, true).unwrap();
+        assert_eq!(max_height, 4);
 
         assert_eq!(
             memtrie_lookup(memtries.get_root(&state_root_0).unwrap(), &test_key.to_vec(), None)

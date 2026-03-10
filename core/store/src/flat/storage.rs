@@ -12,6 +12,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
 use near_primitives::types::BlockHeight;
 use parking_lot::RwLock;
+use std::cmp::min;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -42,6 +43,9 @@ pub(crate) struct FlatStorageInner {
     deltas: HashMap<CryptoHash, CachedFlatStateDelta>,
     /// Defines whether flat head can be moved forward or not.
     move_head_enabled: bool,
+    /// When set, delta GC retains all deltas with height > this value.
+    /// Used during background memtrie loading.
+    delta_gc_retention_height: Option<BlockHeight>,
     metrics: FlatStorageMetrics,
 }
 
@@ -272,6 +276,7 @@ impl FlatStorage {
             flat_head,
             deltas,
             move_head_enabled: true,
+            delta_gc_retention_height: None,
             metrics,
         };
         inner.update_delta_metrics();
@@ -379,8 +384,8 @@ impl FlatStorage {
 
         for block_hash in blocks.into_iter().rev() {
             let mut store_update = guard.store.store_update();
-            // Delta must exist because flat storage is locked and we could retrieve
-            // path from old to new head. Otherwise we return internal error.
+            // Delta must exist because flat storage is locked, and we could retrieve
+            // path from old to new head. Otherwise, we return internal error.
             let changes = guard
                 .store
                 .get_delta(shard_uid, block_hash)
@@ -406,13 +411,15 @@ impl FlatStorage {
             // interrupted in the middle.
             // TODO (#7327): in case of long forks it can take a while and delay processing of some chunk.
             // Consider avoid iterating over all blocks and make removals lazy.
-            let gc_height = metadata.block.height;
+            let gc_height = match guard.delta_gc_retention_height {
+                None => metadata.block.height,
+                Some(height) => min(metadata.block.height, height),
+            };
             let hashes_to_remove: Vec<_> = guard
                 .deltas
                 .iter()
                 .filter(|(_, delta)| delta.metadata.block.height <= gc_height)
-                .map(|(block_hash, _)| block_hash)
-                .cloned()
+                .map(|(block_hash, _)| *block_hash)
                 .collect();
             for hash in hashes_to_remove {
                 store_update.remove_delta(shard_uid, hash);
@@ -487,6 +494,25 @@ impl FlatStorage {
     pub(crate) fn shard_uid(&self) -> ShardUId {
         let guard = self.0.read();
         guard.shard_uid
+    }
+
+    /// Sets the delta GC retention height to the current flat_head height and
+    /// returns that height. While set, deltas with height above the retention
+    /// height won't be deleted even as flat_head advances past them. This is used
+    /// during background memtrie loading to preserve deltas needed for catch-up.
+    pub fn set_delta_gc_retention(&self) -> BlockHeight {
+        let mut guard = self.0.write();
+        let height = guard.flat_head.height;
+        guard.delta_gc_retention_height = Some(height);
+        height
+    }
+
+    /// Clears the delta GC retention height, allowing normal GC to resume.
+    /// Accumulated retained deltas will be cleaned up on the next flat_head
+    /// advancement.
+    pub fn clear_delta_gc_retention(&self) {
+        let mut guard = self.0.write();
+        guard.delta_gc_retention_height = None;
     }
 
     /// Updates `move_head_enabled`. If false, this will prevent flat storage updates and deltas will accumulate
