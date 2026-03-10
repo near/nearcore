@@ -1,34 +1,48 @@
+// State sync tests via shard shuffling (catchup path).
+//
+// All tests enable `shuffle_shard_assignment_for_chunk_producers(true)`, which reassigns chunk
+// producers to different shards each epoch. Validators must state sync their newly assigned shards
+// to produce chunks. Chain progression for 4+ epochs proves state sync succeeded — without it,
+// validators can't produce chunks for their new shards, and the chain stalls.
+//
+// Each test also calls `assert_shard_shuffling_happened` to verify that shard assignments actually
+// changed between epochs, ruling out false passes from a misconfigured test.
+//
+// Tests vary along these dimensions:
+// - Number of validators/shards (affects how many producers per shard)
+// - Chunk miss patterns (affects sync hash position within the epoch)
+// - Block skips near the sync hash (tests fork-aware state sync)
+// - Tracked shard schedules (tests shard untrack/re-track)
+// - Protocol version (tests state sync during upgrade)
+//
+// Design decisions:
+// - EPOCH_LENGTH=10: chunk miss patterns have up to 6 entries per epoch. Default (5) is too short.
+// - Transactions: non-fork tests use `execute_money_transfers` to build non-trivial state and
+//   verify balances. Fork tests skip transactions — the extra blocks from `execute_money_transfers`
+//   would push the chain past GC retention for fork-height entries needed by `assert_fork_happened`.
+// - Manual genesis pattern: required because `TestEpochConfigBuilder::from_genesis(&genesis)` needs
+//   the genesis to derive the epoch config with shuffling enabled. Can't use the auto-setup path.
+
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
-use crate::setup::state::NodeExecutionData;
-use crate::utils::transactions::{get_anchor_hash, get_smallest_height_head};
-use itertools::Itertools;
-use near_async::messaging::{CanSend, Handler};
-use near_async::test_loop::TestLoopV2;
+use crate::utils::account::{create_validators_spec, validators_spec_clients};
+use crate::utils::transactions::{execute_money_transfers, make_accounts};
+use near_async::messaging::Handler;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::TrackedShardsConfig;
-use near_chain_configs::test_genesis::{
-    TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
-};
-use near_network::client::{ProcessTxRequest, StateRequestHeader};
+use near_chain_configs::test_genesis::TestEpochConfigBuilder;
+use near_network::client::StateRequestHeader;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::test_utils::create_user_test_signer;
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Nonce, NumSeats, ShardId,
-};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
-use std::collections::{BTreeMap, HashMap};
-use std::sync::Arc;
-
-const GENESIS_HEIGHT: BlockHeight = 10000;
+use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ShardId};
+use near_primitives::version::PROTOCOL_VERSION;
+use std::collections::HashMap;
 
 const EPOCH_LENGTH: BlockHeightDelta = 10;
+const INITIAL_USER_BALANCE: Balance = Balance::from_near(10_000);
 
 fn get_boundary_accounts(num_shards: usize) -> Vec<AccountId> {
     if num_shards > 27 {
@@ -48,749 +62,533 @@ fn get_boundary_accounts(num_shards: usize) -> Vec<AccountId> {
     boundary_accounts
 }
 
-fn generate_accounts(boundary_accounts: &[AccountId]) -> Vec<Vec<(AccountId, Nonce)>> {
-    let accounts_per_shard = 5;
-    let mut accounts = Vec::new();
-    let mut account_base = "0";
-    for account in boundary_accounts {
-        accounts.push(
-            (0..accounts_per_shard)
-                .map(|i| (format!("{}{}", account_base, i).parse().unwrap(), 1))
-                .collect::<Vec<_>>(),
-        );
-        account_base = account.as_str();
-    }
-    accounts.push(
-        (0..accounts_per_shard)
-            .map(|i| (format!("{}{}", account_base, i).parse().unwrap(), 1))
-            .collect::<Vec<_>>(),
-    );
-
-    accounts
-}
-
-struct TestState {
-    env: TestLoopEnv,
-    accounts: Option<Vec<Vec<(AccountId, Nonce)>>>,
-    skip_block_height: Option<BlockHeight>,
-}
-
-fn sync_height() -> BlockHeight {
-    // It would probably be better not to rely on this height calculation, since that makes
-    // some assumptions about the state sync protocol that ideally tests wouldn't make. In the future
-    // it would be nice to modify `drop_blocks_by_height()` to allow for more complex logic to decide
-    // whether to drop the block, and be more robust to state sync protocol changes. But for now this
-    // will trigger the behavior we want and it's quite a bit easier.
-    GENESIS_HEIGHT + EPOCH_LENGTH + 4
-}
-
-fn setup_initial_blockchain(
-    num_validators: usize,
-    num_block_producer_seats: usize,
-    num_chunk_producer_seats: usize,
-    num_shards: usize,
-    generate_shard_accounts: bool,
-    chunks_produced: HashMap<ShardId, Vec<bool>>,
-    skip_block_sync_height_delta: Option<isize>,
-    extra_node_shard_schedule: &Option<Vec<Vec<ShardId>>>,
-    initial_protocol_version: ProtocolVersion,
-) -> TestState {
-    let mut builder = TestLoopBuilder::new();
-
-    let validators = (0..num_validators)
-        .map(|i| {
-            let account_id = format!("node{}", i);
-            AccountInfo {
-                account_id: account_id.parse().unwrap(),
-                public_key: near_primitives::test_utils::create_test_signer(account_id.as_str())
-                    .public_key(),
-                amount: Balance::from_near(10000),
-            }
-        })
-        .collect::<Vec<_>>();
-    let mut clients = validators.iter().map(|v| v.account_id.clone()).collect::<Vec<_>>();
-
-    if let Some(schedule) = extra_node_shard_schedule.as_ref() {
-        let idx = clients.len();
-        let schedule = schedule.clone();
-        clients.push("extra-node".parse().unwrap());
-
-        builder = builder.config_modifier(move |config, client_index| {
-            if client_index != idx {
-                return;
-            }
-            config.tracked_shards_config = TrackedShardsConfig::Schedule(schedule.clone());
-        });
-    }
-
-    let boundary_accounts = get_boundary_accounts(num_shards);
-    let accounts =
-        if generate_shard_accounts { Some(generate_accounts(&boundary_accounts)) } else { None };
-    let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
-    let validators_spec = ValidatorsSpec::raw(
-        validators,
-        num_block_producer_seats as NumSeats,
-        num_chunk_producer_seats as NumSeats,
-        num_validators as NumSeats,
-    );
-
-    let mut genesis_builder = TestGenesisBuilder::new()
-        .genesis_time_from_clock(&builder.clock())
-        .protocol_version(initial_protocol_version)
-        .genesis_height(GENESIS_HEIGHT)
-        .epoch_length(EPOCH_LENGTH)
-        .shard_layout(shard_layout.clone())
-        .validators_spec(validators_spec.clone());
-    if let Some(accounts) = accounts.as_ref() {
-        for accounts in accounts {
-            for (account, _nonce) in accounts {
-                genesis_builder = genesis_builder
-                    .add_user_account_simple(account.clone(), Balance::from_near(10000));
-            }
-        }
-    }
-    let genesis = genesis_builder.build();
-
-    let epoch_config = TestEpochConfigBuilder::new()
-        .epoch_length(EPOCH_LENGTH)
-        .shard_layout(shard_layout)
-        .validators_spec(validators_spec)
-        // shuffle the shard assignment so that nodes will have to state sync to catch up future tracked shards.
-        // This part is the only reference to state sync at all in this test, since all we check is that the blockchain
-        // progresses for a few epochs, meaning that state sync must have been successful.
-        .shuffle_shard_assignment_for_chunk_producers(true)
-        .build();
-    let epoch_config_store = EpochConfigStore::test(BTreeMap::from([(
-        initial_protocol_version,
-        Arc::new(epoch_config),
-    )]));
-
-    let mut env =
-        builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
-
-    let skip_block_height = if let Some(delta) = skip_block_sync_height_delta {
-        let sync_height = sync_height();
-        let height = if delta >= 0 {
-            sync_height.saturating_add(delta as BlockHeight)
-        } else {
-            sync_height.saturating_sub(-delta as BlockHeight)
-        };
-        env = env.drop(DropCondition::BlocksByHeight([height].into_iter().collect()));
-        Some(height)
-    } else {
-        None
-    };
-
-    let env = env.drop(DropCondition::ChunksProducedByHeight(chunks_produced)).warmup();
-    TestState { env, accounts, skip_block_height }
-}
-
-fn get_wrapped<T>(s: &[T], idx: usize) -> &T {
-    &s[idx % s.len()]
-}
-
-fn get_wrapped_mut<T>(s: &mut [T], idx: usize) -> &mut T {
-    &mut s[idx % s.len()]
-}
-
-/// tries to generate transactions between lots of different pairs of shards (accounts for shard i are in accounts[i])
-fn send_txs_between_shards(
-    test_loop: &TestLoopV2,
-    node_datas: &[NodeExecutionData],
-    accounts: &mut [Vec<(AccountId, Nonce)>],
-) {
-    let clients = node_datas
-        .iter()
-        .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
-        .collect_vec();
-    let block_hash = get_anchor_hash(&clients);
-
-    let num_shards = accounts.len();
-
-    // which client should we send txs to next?
-    let mut client_idx = 0;
-    let mut from_shard = 0;
-    // which account should we choose among all the accounts of a shard?
-    let mut account_idx = 0;
-    let mut shard_diff = 1;
-
-    let mut txs_sent = 0;
-    while txs_sent < 200 {
-        let to_shard = (from_shard + shard_diff) % num_shards;
-        let (receiver, _nonce) = get_wrapped(&accounts[to_shard], account_idx);
-        let receiver = receiver.clone();
-        let (sender, nonce) = get_wrapped_mut(&mut accounts[from_shard], account_idx);
-
-        let tx = SignedTransaction::send_money(
-            *nonce,
-            sender.clone(),
-            receiver.clone(),
-            &create_user_test_signer(sender).into(),
-            Balance::from_yoctonear(1000),
-            block_hash,
-        );
-        *nonce += 1;
-
-        get_wrapped(node_datas, client_idx)
-            .rpc_handler_sender
-            //.with_delay(Duration::milliseconds(300 * txs_sent as i64))
-            .send(ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false });
-
-        txs_sent += 1;
-        from_shard = (from_shard + 1) % num_shards;
-        if from_shard == 0 {
-            shard_diff += 1;
-        }
-        account_idx += 1;
-        client_idx = 1;
-    }
-}
-
-// Check that no block with height `skip_block_height` made it on the canonical chain, so we're testing
-// what we think we should be.
+/// Check that no block with height `skip_block_height` made it on the canonical chain,
+/// but at least one client knows about a block at that height (i.e., a fork exists).
 fn assert_fork_happened(env: &TestLoopEnv, skip_block_height: BlockHeight) {
-    let client_handles =
-        env.node_datas.iter().map(|data| data.client_sender.actor_handle()).collect_vec();
-    let clients =
-        client_handles.iter().map(|handle| &env.test_loop.data.get(handle).client).collect_vec();
-
-    // Here we assume the one before the skipped block will exist, since it's easier that way and it should
-    // be true in this test.
-    let prev_hash = clients[0].chain.get_block_hash_by_height(skip_block_height - 1).unwrap();
-    let next_hash = clients[0].chain.chain_store.get_next_block_hash(&prev_hash).unwrap();
-    let header = clients[0].chain.get_block_header(&next_hash).unwrap();
+    let client = env.node(0).client();
+    let prev_hash = client.chain.get_block_hash_by_height(skip_block_height - 1).unwrap();
+    let next_hash = client.chain.chain_store.get_next_block_hash(&prev_hash).unwrap();
+    let header = client.chain.get_block_header(&next_hash).unwrap();
     assert!(header.height() > skip_block_height);
 
-    // The way it's implemented currently, only one client will be aware of the fork
-    for client in clients {
-        let hashes = client.chain.chain_store.get_all_block_hashes_by_height(skip_block_height);
+    for i in 0..env.node_datas.len() {
+        let node_client = env.node(i).client();
+        let hashes =
+            node_client.chain.chain_store.get_all_block_hashes_by_height(skip_block_height);
         if !hashes.is_empty() {
             return;
         }
     }
     panic!(
-        "Intended to have a fork at height {}, but no client knows about any blocks at that height",
-        skip_block_height
+        "intended to have a fork at height {skip_block_height}, \
+         but no client knows about any blocks at that height"
     );
 }
 
-fn get_network_protocol_version(env: &TestLoopEnv) -> ProtocolVersion {
-    let client_handle = env.node_datas[0].client_sender.actor_handle();
-    let client = &env.test_loop.data.get(&client_handle).client;
-    let tip = client.chain.head().unwrap();
-    client.epoch_manager.get_epoch_protocol_version(&tip.epoch_id).unwrap()
-}
+/// Verify that shard shuffling actually happened by checking that at least one validator's
+/// shard assignment changed between some pair of consecutive epochs. Without this check,
+/// tests only prove "chain progressed" — which could pass even if shuffling were disabled.
+/// With this check, we know state sync was exercised because reassigned validators must sync
+/// state for their new shards before they can produce chunks.
+///
+/// Note: we check ALL consecutive epoch pairs, not just first vs last, because with few
+/// validators/shards the first and last epoch can coincidentally have the same assignment
+/// even though shuffling occurred in intermediate epochs.
+fn assert_shard_shuffling_happened(env: &TestLoopEnv, validators: &[AccountId]) {
+    let client = env.node(0).client();
+    let head = client.chain.head().unwrap();
+    let genesis_height = client.chain.genesis().height();
+    let shard_ids = client.epoch_manager.shard_ids(&head.epoch_id).unwrap();
 
-/// runs the network and sends transactions at the beginning of each epoch. At the end the condition we're
-/// looking for is just that a few epochs have passed, because that should only be possible if state sync was successful
-/// (which will be required because we enable chunk producer shard shuffling on this chain)
-fn produce_chunks(
-    env: &mut TestLoopEnv,
-    mut accounts: Option<Vec<Vec<(AccountId, Nonce)>>>,
-    skip_block_height: Option<BlockHeight>,
-) {
-    let handle = env.node_datas[0].client_sender.actor_handle();
-    let client = &env.test_loop.data.get(&handle).client;
-    let mut tip = client.chain.head().unwrap();
-    // TODO: make this more precise. We don't have to wait 20 whole seconds, but the amount we wait will
-    // depend on whether this block is meant to have skipped chunks or whether we're generating skipped blocks.
-    let timeout = client.config.min_block_production_delay + Duration::seconds(20);
-
-    let mut epoch_id_switches = 0;
-    loop {
-        env.test_loop.run_until(
-            |data| {
-                let clients = env
-                    .node_datas
-                    .iter()
-                    .map(|test_data| &data.get(&test_data.client_sender.actor_handle()).client)
-                    .collect_vec();
-                let new_tip = get_smallest_height_head(&clients);
-                new_tip.height > tip.height
-            },
-            timeout,
-        );
-
-        let clients = env
-            .node_datas
-            .iter()
-            .map(|test_data| {
-                &env.test_loop.data.get(&test_data.client_sender.actor_handle()).client
-            })
-            .collect_vec();
-        let new_tip = get_smallest_height_head(&clients);
-
-        let header = clients[0].chain.get_block_header(&tip.last_block_hash).unwrap();
-        tracing::debug!(
-            height = %header.height(),
-            chunk_mask = ?header.chunk_mask(),
-            ?tip.last_block_hash,
-            ?tip.epoch_id,
-            "chunk mask for block"
-        );
-
-        if new_tip.epoch_id != tip.epoch_id {
-            epoch_id_switches += 1;
-            if epoch_id_switches > 3 {
-                break;
-            }
-            if let Some(accounts) = accounts.as_mut() {
-                send_txs_between_shards(&mut env.test_loop, &env.node_datas, accounts);
+    // Collect distinct epoch IDs by walking the chain.
+    let mut epoch_ids = Vec::new();
+    for height in (genesis_height + 1)..=head.height {
+        if let Ok(hash) = client.chain.get_block_hash_by_height(height) {
+            let epoch_id = client.epoch_manager.get_epoch_id(&hash).unwrap();
+            if epoch_ids.last() != Some(&epoch_id) {
+                epoch_ids.push(epoch_id);
             }
         }
-        tip = new_tip;
     }
 
-    if let Some(skip_block_height) = skip_block_height {
-        assert_fork_happened(env, skip_block_height);
+    assert!(epoch_ids.len() >= 2, "chain didn't advance past the first epoch");
+
+    // Check any pair of consecutive epochs for a shard assignment change.
+    for window in epoch_ids.windows(2) {
+        let (epoch_a, epoch_b) = (&window[0], &window[1]);
+        for account_id in validators {
+            for &shard_id in &shard_ids {
+                let cared_a = client
+                    .epoch_manager
+                    .cares_about_shard_in_epoch(epoch_a, account_id, shard_id)
+                    .unwrap_or(false);
+                let cared_b = client
+                    .epoch_manager
+                    .cares_about_shard_in_epoch(epoch_b, account_id, shard_id)
+                    .unwrap_or(false);
+                if cared_a != cared_b {
+                    return; // Found a change — shuffling happened.
+                }
+            }
+        }
     }
-    // Check that the network runs the latest protocol version supported by the binary.
-    assert_eq!(get_network_protocol_version(env), PROTOCOL_VERSION);
+
+    panic!(
+        "no validator's shard assignment changed between any consecutive epochs — \
+         shuffling didn't happen, so state sync was never exercised"
+    );
 }
 
-fn run_test(state: TestState) {
-    let TestState { mut env, mut accounts, skip_block_height } = state;
-    let handle = env.node_datas[0].client_sender.actor_handle();
-    let client = &env.test_loop.data.get(&handle).client;
-    let first_epoch_time = client.config.min_block_production_delay
-        * u32::try_from(EPOCH_LENGTH).unwrap_or(u32::MAX)
-        + Duration::seconds(2);
-
-    if let Some(accounts) = accounts.as_mut() {
-        send_txs_between_shards(&mut env.test_loop, &env.node_datas, accounts);
+/// Verify all nodes advanced their head past the given minimum height.
+/// Catches cases where a non-validator node silently falls behind due to state sync failure.
+fn assert_all_nodes_advanced(env: &TestLoopEnv, min_height: BlockHeight) {
+    for i in 0..env.node_datas.len() {
+        let head = env.node(i).head();
+        assert!(
+            head.height >= min_height,
+            "node {i} fell behind at height {}, expected >= {min_height}",
+            head.height,
+        );
     }
+}
 
-    env.test_loop.run_until(
-        |data| {
-            let handle = env.node_datas[0].client_sender.actor_handle();
-            let client = &data.get(&handle).client;
-            let tip = client.chain.head().unwrap();
-            let header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
-            tracing::debug!(
-                height = %header.height(),
-                chunk_mask = ?header.chunk_mask(),
-                ?tip.last_block_hash,
-                ?tip.epoch_id,
-                "chunk mask for block"
-            );
-            tip.epoch_id != Default::default()
-        },
-        first_epoch_time,
-    );
-
-    produce_chunks(&mut env, accounts, skip_block_height);
-
+// Basic shard shuffling: 2 validators, 2 shards, no chunk drops.
+// With exactly 1 chunk producer per shard, any state sync failure causes a chain stall.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_state_sync_simple_two_node() {
+    init_test_logger();
+    let validators_spec = create_validators_spec(2, 0);
+    let clients = validators_spec_clients(&validators_spec);
+    let accounts = make_accounts(10);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(EPOCH_LENGTH)
+        .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(2), 1))
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&accounts, INITIAL_USER_BALANCE)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .build_store_for_genesis_protocol_version();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients.clone())
+        .build()
+        .warmup();
+    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
+    env.node_runner(0).run_for_number_of_blocks(40);
+    assert_shard_shuffling_happened(&env, &clients);
     env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
-// TODO(#14050) Use the builder pattern to construct `StateSyncTest`
-#[derive(Debug)]
-struct StateSyncTest {
-    num_validators: usize,
-    num_block_producer_seats: usize,
-    num_chunk_producer_seats: usize,
-    num_shards: usize,
-    // If true, generate several extra accounts per shard. We have a test with this disabled
-    // to test state syncing shards without any account data
-    generate_shard_accounts: bool,
-    chunks_produced: Vec<(ShardId, Vec<bool>)>,
-    // If Some(), this delta represents the delta with respect to the expected "sync_hash" block. So
-    // a value of 0 will have us generate a skip on the first block that will probably be the sync_hash,
-    // and a value of 1 will have us skip the one after that.
-    skip_block_sync_height_delta: Option<isize>,
-    extra_node_shard_schedule: Option<Vec<Vec<ShardId>>>,
-    initial_protocol_version: ProtocolVersion,
-}
-
-fn run_state_sync_test_case(t: StateSyncTest) {
-    tracing::info!(?t, "run test");
-    let state = setup_initial_blockchain(
-        t.num_validators,
-        t.num_block_producer_seats,
-        t.num_chunk_producer_seats,
-        t.num_shards,
-        t.generate_shard_accounts,
-        t.chunks_produced
-            .iter()
-            .map(|(shard_id, produced)| (*shard_id, produced.to_vec()))
-            .collect(),
-        t.skip_block_sync_height_delta,
-        &t.extra_node_shard_schedule,
-        t.initial_protocol_version,
-    );
-    assert_eq!(get_network_protocol_version(&state.env), t.initial_protocol_version);
-    run_test(state);
-}
-
-// The normal case with 2 nodes and no missing chunks.
+// 5 validators, 4 shards, no chunk drops. More validators than shards means some shards
+// have 2 chunk producers. A single node failing to state sync won't stall the chain (the
+// other producer covers), so we explicitly verify all nodes advanced.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn slow_test_state_sync_simple_two_node() {
+fn test_state_sync_simple_five_node() {
     init_test_logger();
-    let t = StateSyncTest {
-        num_validators: 2,
-        num_block_producer_seats: 2,
-        num_chunk_producer_seats: 2,
-        num_shards: 2,
-        generate_shard_accounts: true,
-        chunks_produced: vec![],
-        skip_block_sync_height_delta: None,
-        extra_node_shard_schedule: None,
-        initial_protocol_version: PROTOCOL_VERSION,
-    };
-    run_state_sync_test_case(t);
+    let validators_spec = create_validators_spec(5, 0);
+    let clients = validators_spec_clients(&validators_spec);
+    let accounts = make_accounts(10);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(EPOCH_LENGTH)
+        .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(4), 1))
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&accounts, INITIAL_USER_BALANCE)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .build_store_for_genesis_protocol_version();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients.clone())
+        .build()
+        .warmup();
+    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
+    env.node_runner(0).run_for_number_of_blocks(40);
+    // With 2 producers per shard, one node's sync failure doesn't stall the chain,
+    // so we must explicitly check every node kept up.
+    let target = env.node(0).head().height;
+    assert_all_nodes_advanced(&env, target - 1);
+    assert_shard_shuffling_happened(&env, &clients);
+    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
-// The normal case with 5 nodes and no missing chunks.
+// 2 validators, 4 shards, no extra accounts. With only validator + "near" accounts,
+// at least one shard will be empty. Tests state syncing a shard with no account data.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn slow_test_state_sync_simple_five_node() {
+fn test_state_sync_empty_shard() {
     init_test_logger();
-    let t = StateSyncTest {
-        num_validators: 5,
-        num_block_producer_seats: 4,
-        num_chunk_producer_seats: 4,
-        num_shards: 4,
-        generate_shard_accounts: true,
-        chunks_produced: vec![],
-        skip_block_sync_height_delta: None,
-        extra_node_shard_schedule: None,
-        initial_protocol_version: PROTOCOL_VERSION,
-    };
-    run_state_sync_test_case(t);
+    // 2 validators with 4 shards: each validator tracks 2 shards, but some shards
+    // have no accounts (only "validator0", "validator1", "near" exist).
+    let validators_spec = create_validators_spec(2, 0);
+    let clients = validators_spec_clients(&validators_spec);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(EPOCH_LENGTH)
+        .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(4), 1))
+        .validators_spec(validators_spec)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .build_store_for_genesis_protocol_version();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients.clone())
+        .build()
+        .warmup();
+    env.node_runner(0).run_for_number_of_blocks(40);
+    assert_shard_shuffling_happened(&env, &clients);
+    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
-// In this test we have 2 validators and 4 shards, and we don't generate any extra accounts.
-// That makes 3 accounts including the "near" account. This means at least one shard will have no
-// accounts in it, so we check that corner case here.
+// Drop shard 0's chunk at offset 0 (first block of each epoch). The sync hash requires
+// all shards to have included >=2 new chunks, so missing shard 0's first chunk shifts the
+// sync hash later by one block.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn slow_test_state_sync_empty_shard() {
+fn test_state_sync_miss_chunks_first_block() {
     init_test_logger();
-    let t = StateSyncTest {
-        num_validators: 2,
-        num_block_producer_seats: 2,
-        num_chunk_producer_seats: 2,
-        num_shards: 4,
-        generate_shard_accounts: false,
-        chunks_produced: vec![],
-        skip_block_sync_height_delta: None,
-        extra_node_shard_schedule: None,
-        initial_protocol_version: PROTOCOL_VERSION,
-    };
-    run_state_sync_test_case(t);
+    let validators_spec = create_validators_spec(5, 0);
+    let clients = validators_spec_clients(&validators_spec);
+    let accounts = make_accounts(10);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(EPOCH_LENGTH)
+        .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(4), 1))
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&accounts, INITIAL_USER_BALANCE)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .build_store_for_genesis_protocol_version();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients.clone())
+        .build()
+        .drop(DropCondition::ChunksProducedByHeight(HashMap::from([
+            (ShardId::new(0), vec![false]),
+            (ShardId::new(1), vec![true]),
+            (ShardId::new(2), vec![true]),
+            (ShardId::new(3), vec![true]),
+        ])))
+        .warmup();
+    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
+    env.node_runner(0).run_for_number_of_blocks(40);
+    assert_shard_shuffling_happened(&env, &clients);
+    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
-// Miss a chunk in the first block of the new epoch; it won't affect the sync hash
+// Miss chunks at the sync hash block itself (4th block, shards 0, 1). The sync hash block
+// has missing chunks, testing that state sync handles this edge case correctly.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn slow_test_state_sync_miss_chunks_first_block() {
+fn test_state_sync_miss_chunks_sync_block() {
     init_test_logger();
-    let chunks_produced = vec![
-        (ShardId::new(0), vec![false]),
-        (ShardId::new(1), vec![true]),
-        (ShardId::new(2), vec![true]),
-        (ShardId::new(3), vec![true]),
+    let validators_spec = create_validators_spec(5, 0);
+    let clients = validators_spec_clients(&validators_spec);
+    let accounts = make_accounts(10);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(EPOCH_LENGTH)
+        .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(4), 1))
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&accounts, INITIAL_USER_BALANCE)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .build_store_for_genesis_protocol_version();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients.clone())
+        .build()
+        // Drop shards 0 and 1 at offset 3 — this is the sync hash block itself.
+        .drop(DropCondition::ChunksProducedByHeight(HashMap::from([
+            (ShardId::new(0), vec![true, true, true, false]),
+            (ShardId::new(1), vec![true, true, true, false]),
+        ])))
+        .warmup();
+    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
+    env.node_runner(0).run_for_number_of_blocks(40);
+    assert_shard_shuffling_happened(&env, &clients);
+    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
+}
+
+// Complex miss pattern: all 4 shards have interleaved chunk misses in the blocks leading
+// up to the sync hash. Each shard reaches its "2 new chunks" threshold at a different block,
+// significantly delaying the sync hash relative to epoch start.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_state_sync_miss_chunks_before_last_chunk_included() {
+    init_test_logger();
+    let validators_spec = create_validators_spec(5, 0);
+    let clients = validators_spec_clients(&validators_spec);
+    let accounts = make_accounts(10);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(EPOCH_LENGTH)
+        .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(4), 1))
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&accounts, INITIAL_USER_BALANCE)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .build_store_for_genesis_protocol_version();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients.clone())
+        .build()
+        .drop(DropCondition::ChunksProducedByHeight(HashMap::from([
+            (ShardId::new(0), vec![false, true, false, false, true, false]),
+            (ShardId::new(1), vec![false, true, false, false, true, true]),
+            (ShardId::new(2), vec![false, true, false, true, false, false]),
+            (ShardId::new(3), vec![false, true, false, true, false, true]),
+        ])))
+        .warmup();
+    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
+    env.node_runner(0).run_for_number_of_blocks(40);
+    assert_shard_shuffling_happened(&env, &clients);
+    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
+}
+
+// Combination of all chunk miss patterns across 4 shards simultaneously:
+// shard 0: miss near sync hash    shard 1: miss at AND past sync hash
+// shard 2: interleaved early      shard 3: miss only at sync hash block
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_state_sync_miss_chunks_multiple() {
+    init_test_logger();
+    let validators_spec = create_validators_spec(5, 0);
+    let clients = validators_spec_clients(&validators_spec);
+    let accounts = make_accounts(10);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(EPOCH_LENGTH)
+        .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(4), 1))
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&accounts, INITIAL_USER_BALANCE)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .build_store_for_genesis_protocol_version();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients.clone())
+        .build()
+        .drop(DropCondition::ChunksProducedByHeight(HashMap::from([
+            (ShardId::new(0), vec![true, true, true, false, false, true]),
+            (ShardId::new(1), vec![true, true, true, false, false, false]),
+            (ShardId::new(2), vec![false, true, false, false, true, true]),
+            (ShardId::new(3), vec![true, true, true, true, true, false]),
+        ])))
+        .warmup();
+    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
+    env.node_runner(0).run_for_number_of_blocks(40);
+    assert_shard_shuffling_happened(&env, &clients);
+    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
+}
+
+// Extra non-validator node with a per-epoch tracked shards schedule that exercises
+// untrack/re-track transitions: drops shard 0 in epoch 2, re-tracks it in epoch 3,
+// while picking up shards 2 and 3 at different epochs. We verify the extra node's head
+// advances, since chain progression alone wouldn't catch a silent state sync failure on it.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_state_sync_untrack_then_track() {
+    init_test_logger();
+    let validators_spec = create_validators_spec(5, 0);
+    let validators = validators_spec_clients(&validators_spec);
+    let mut clients = validators.clone();
+    // Add a 6th client that is NOT a validator — it only tracks shards per schedule.
+    let extra_node_idx = clients.len();
+    clients.push("extra-node".parse().unwrap());
+
+    let schedule = vec![
+        vec![ShardId::new(0), ShardId::new(1)], // epoch 0: initial
+        vec![ShardId::new(0), ShardId::new(1)], // epoch 1: same
+        vec![ShardId::new(1), ShardId::new(2)], // epoch 2: drops shard 0, picks up shard 2
+        vec![ShardId::new(0), ShardId::new(3)], // epoch 3: re-tracks shard 0, picks up shard 3
     ];
-    let t = StateSyncTest {
-        num_validators: 5,
-        num_block_producer_seats: 4,
-        num_chunk_producer_seats: 4,
-        num_shards: 4,
-        generate_shard_accounts: true,
-        chunks_produced,
-        skip_block_sync_height_delta: None,
-        extra_node_shard_schedule: None,
-        initial_protocol_version: PROTOCOL_VERSION,
-    };
-    run_state_sync_test_case(t);
+
+    let accounts = make_accounts(10);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(EPOCH_LENGTH)
+        .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(5), 1))
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&accounts, INITIAL_USER_BALANCE)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .build_store_for_genesis_protocol_version();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients)
+        .config_modifier(move |config, client_index| {
+            if client_index != extra_node_idx {
+                return;
+            }
+            config.tracked_shards_config = TrackedShardsConfig::Schedule(schedule.clone());
+        })
+        .build()
+        .warmup();
+    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
+    env.node_runner(0).run_for_number_of_blocks(40);
+    let target = env.node(0).head().height;
+    assert_all_nodes_advanced(&env, target - 1);
+    assert_shard_shuffling_happened(&env, &validators);
+    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
-// Miss chunks in the second block of the new epoch;
-// the sync hash will be one block later than usual
+// Drop the block at the sync hash height, creating a fork. The block producer for this
+// height creates the block but it gets skipped on the canonical chain. This variant tests
+// that the fork-producing node can still provide valid state to others.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn slow_test_state_sync_miss_chunks_second_block() {
+fn test_state_sync_from_fork() {
     init_test_logger();
-    let chunks_produced =
-        vec![(ShardId::new(0), vec![true, false]), (ShardId::new(1), vec![true, false])];
-    let t = StateSyncTest {
-        num_validators: 5,
-        num_block_producer_seats: 4,
-        num_chunk_producer_seats: 4,
-        num_shards: 4,
-        generate_shard_accounts: true,
-        chunks_produced,
-        skip_block_sync_height_delta: None,
-        extra_node_shard_schedule: None,
-        initial_protocol_version: PROTOCOL_VERSION,
-    };
-    run_state_sync_test_case(t);
+    let genesis_height: BlockHeight = 10000;
+    let skip_block_height = genesis_height + EPOCH_LENGTH + 4; // sync hash height, delta=0
+
+    let validators_spec = create_validators_spec(5, 0);
+    let clients = validators_spec_clients(&validators_spec);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .genesis_height(genesis_height)
+        .epoch_length(EPOCH_LENGTH)
+        .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(5), 1))
+        .validators_spec(validators_spec)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .build_store_for_genesis_protocol_version();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients.clone())
+        .build()
+        .drop(DropCondition::BlocksByHeight([skip_block_height].into_iter().collect()))
+        .warmup();
+    env.node_runner(0).run_for_number_of_blocks(40);
+    assert_fork_happened(&env, skip_block_height);
+    assert_shard_shuffling_happened(&env, &clients);
+    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
-// Miss chunks in the third block of the new epoch;
-// the sync hash will be one block later than usual
+// Same fork scenario with 6 validators (vs 5 in from_fork) so a different node produces
+// the skipped block. That node must sync FROM the majority that have a different finalized
+// sync hash — the reverse direction of from_fork.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn slow_test_state_sync_miss_chunks_third_block() {
+fn test_state_sync_to_fork() {
     init_test_logger();
-    let chunks_produced = vec![
-        (ShardId::new(0), vec![true, true, false]),
-        (ShardId::new(2), vec![true, true, false]),
-    ];
-    let t = StateSyncTest {
-        num_validators: 5,
-        num_block_producer_seats: 4,
-        num_chunk_producer_seats: 4,
-        num_shards: 4,
-        generate_shard_accounts: true,
-        chunks_produced,
-        skip_block_sync_height_delta: None,
-        extra_node_shard_schedule: None,
-        initial_protocol_version: PROTOCOL_VERSION,
-    };
-    run_state_sync_test_case(t);
+    let genesis_height: BlockHeight = 10000;
+    let skip_block_height = genesis_height + EPOCH_LENGTH + 4; // delta=0
+
+    let validators_spec = create_validators_spec(6, 0);
+    let clients = validators_spec_clients(&validators_spec);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .genesis_height(genesis_height)
+        .epoch_length(EPOCH_LENGTH)
+        .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(5), 1))
+        .validators_spec(validators_spec)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .build_store_for_genesis_protocol_version();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients.clone())
+        .build()
+        .drop(DropCondition::BlocksByHeight([skip_block_height].into_iter().collect()))
+        .warmup();
+    env.node_runner(0).run_for_number_of_blocks(40);
+    assert_fork_happened(&env, skip_block_height);
+    assert_shard_shuffling_happened(&env, &clients);
+    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
-// Make the sync block have missing chunks
+// Skip a block ONE AFTER the sync hash (delta=+1). The sync hash block is finalized
+// normally, but the next block is missing — finality jumps over it. Tests that sync hash
+// detection doesn't rely on seeing the sync hash as a final block.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn slow_test_state_sync_miss_chunks_sync_block() {
+fn test_state_sync_fork_after_sync() {
     init_test_logger();
-    let chunks_produced = vec![
-        (ShardId::new(0), vec![true, true, true, false]),
-        (ShardId::new(1), vec![true, true, true, false]),
-    ];
-    let t = StateSyncTest {
-        num_validators: 5,
-        num_block_producer_seats: 4,
-        num_chunk_producer_seats: 4,
-        num_shards: 4,
-        generate_shard_accounts: true,
-        chunks_produced,
-        skip_block_sync_height_delta: None,
-        extra_node_shard_schedule: None,
-        initial_protocol_version: PROTOCOL_VERSION,
-    };
-    run_state_sync_test_case(t);
+    let genesis_height: BlockHeight = 10000;
+    let skip_block_height = genesis_height + EPOCH_LENGTH + 4 + 1;
+
+    let validators_spec = create_validators_spec(6, 0);
+    let clients = validators_spec_clients(&validators_spec);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .genesis_height(genesis_height)
+        .epoch_length(EPOCH_LENGTH)
+        .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(5), 1))
+        .validators_spec(validators_spec)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .build_store_for_genesis_protocol_version();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients.clone())
+        .build()
+        .drop(DropCondition::BlocksByHeight([skip_block_height].into_iter().collect()))
+        .warmup();
+    env.node_runner(0).run_for_number_of_blocks(40);
+    assert_fork_happened(&env, skip_block_height);
+    assert_shard_shuffling_happened(&env, &clients);
+    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
-// Make the sync prev block have a missing chunk.
-// Notice that the sync hash is one block later than usual because of shard 3.
-// Shard 1 will be missing a chunk in the prev block.
+// Skip a block ONE BEFORE the sync hash (delta=-1). The fork is right before the state
+// snapshot point, testing that sync hash selection handles a gap in its predecessor.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn slow_test_state_sync_miss_chunks_sync_prev_block() {
+fn test_state_sync_fork_before_sync() {
     init_test_logger();
-    let chunks_produced = vec![
-        (ShardId::new(1), vec![true, true, true, false]),
-        (ShardId::new(3), vec![true, false, true, true]),
-    ];
-    let t = StateSyncTest {
-        num_validators: 5,
-        num_block_producer_seats: 4,
-        num_chunk_producer_seats: 4,
-        num_shards: 4,
-        generate_shard_accounts: true,
-        chunks_produced,
-        skip_block_sync_height_delta: None,
-        extra_node_shard_schedule: None,
-        initial_protocol_version: PROTOCOL_VERSION,
-    };
-    run_state_sync_test_case(t);
-}
+    let genesis_height: BlockHeight = 10000;
+    let skip_block_height = genesis_height + EPOCH_LENGTH + 4 - 1;
 
-// Create missing chunks leading up to the last new chunk included
-// before the sync hash block
-#[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn slow_test_state_sync_miss_chunks_before_last_chunk_included() {
-    init_test_logger();
-    let chunks_produced = vec![
-        (ShardId::new(0), vec![false, true, false, false, true, false]),
-        (ShardId::new(1), vec![false, true, false, false, true, true]),
-        (ShardId::new(2), vec![false, true, false, true, false, false]),
-        (ShardId::new(3), vec![false, true, false, true, false, true]),
-    ];
-    let t = StateSyncTest {
-        num_validators: 5,
-        num_block_producer_seats: 4,
-        num_chunk_producer_seats: 4,
-        num_shards: 4,
-        generate_shard_accounts: true,
-        chunks_produced,
-        skip_block_sync_height_delta: None,
-        extra_node_shard_schedule: None,
-        initial_protocol_version: PROTOCOL_VERSION,
-    };
-    run_state_sync_test_case(t);
-}
-
-// Combination of different cases:
-//  - Shard 0 has multiple chunk misses leading up to the sync hash block
-//  - Shard 1 has multiple misses leading up to and including the sync hash block
-//  - Shard 2 has missing chunks leading up to the last chunk included before sync hash block
-//  - Shard 3 has no missing chunks until the sync hash block
-#[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn slow_test_state_sync_miss_chunks_multiple() {
-    init_test_logger();
-    let chunks_produced = vec![
-        (ShardId::new(0), vec![true, true, true, false, false, true]),
-        (ShardId::new(1), vec![true, true, true, false, false, false]),
-        (ShardId::new(2), vec![false, true, false, false, true, true]),
-        (ShardId::new(3), vec![true, true, true, true, true, false]),
-    ];
-    let t = StateSyncTest {
-        num_validators: 5,
-        num_block_producer_seats: 4,
-        num_chunk_producer_seats: 4,
-        num_shards: 4,
-        generate_shard_accounts: true,
-        chunks_produced,
-        skip_block_sync_height_delta: None,
-        extra_node_shard_schedule: None,
-        initial_protocol_version: PROTOCOL_VERSION,
-    };
-    run_state_sync_test_case(t);
-}
-
-// This adds an extra node with an explicit tracked shards schedule to test more corner cases.
-// Specifically, checking what happens when we stop tracking a shard and then track it again,
-// while also needing to state sync another shard.
-#[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn slow_test_state_sync_untrack_then_track() {
-    init_test_logger();
-
-    let params = StateSyncTest {
-        num_validators: 5,
-        num_block_producer_seats: 4,
-        num_chunk_producer_seats: 4,
-        num_shards: 5,
-        generate_shard_accounts: true,
-        chunks_produced: vec![],
-        skip_block_sync_height_delta: None,
-        extra_node_shard_schedule: Some(vec![
-            vec![ShardId::new(0), ShardId::new(1)],
-            vec![ShardId::new(0), ShardId::new(1)],
-            vec![ShardId::new(1), ShardId::new(2)],
-            vec![ShardId::new(0), ShardId::new(3)],
-        ]),
-        initial_protocol_version: PROTOCOL_VERSION,
-    };
-    run_state_sync_test_case(params);
-}
-
-// Here we drop the block that's supposed to be the sync hash after the first full epoch,
-// which causes it to be produced but then skipped on the final chain. If the state sync code
-// is unaware of the possibility of forks, this will cause the producer of that block to
-// believe that that block should be the sync hash block, while all other nodes will
-// believe it should be the next block.
-// This particular test fails without fork-aware state sync because the node that produces the
-// first sync block that will end up skipped on the canonical chain (node0) provides a
-// state sync header that other nodes see as invalid.
-#[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn slow_test_state_sync_from_fork() {
-    init_test_logger();
-
-    let params = StateSyncTest {
-        num_validators: 5,
-        num_block_producer_seats: 4,
-        num_chunk_producer_seats: 4,
-        num_shards: 5,
-        generate_shard_accounts: true,
-        chunks_produced: vec![],
-        skip_block_sync_height_delta: Some(0),
-        extra_node_shard_schedule: None,
-        initial_protocol_version: PROTOCOL_VERSION,
-    };
-    run_state_sync_test_case(params);
-}
-
-// This is the same as the above test_state_sync_from_fork() except we tweak some parameters so that
-// this test fails without fork-aware state sync because the node that produces the first sync block that will
-// end up skipped on the canonical chain (node4) tries to state sync from other nodes that all know about the
-// other finalized sync hash.
-// TODO: Would be great to be able to set the schedules for all upcoming shard assignments in tests. It might
-// even be possible to do it without reaching into and modifying the implementation, by writing some function
-// that will hack together just the right parameters (account IDs, stakes, etc)
-#[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn slow_test_state_sync_to_fork() {
-    init_test_logger();
-
-    let params = StateSyncTest {
-        num_validators: 6,
-        num_block_producer_seats: 6,
-        num_chunk_producer_seats: 4,
-        num_shards: 5,
-        generate_shard_accounts: true,
-        chunks_produced: vec![],
-        skip_block_sync_height_delta: Some(0),
-        extra_node_shard_schedule: None,
-        initial_protocol_version: PROTOCOL_VERSION,
-    };
-    run_state_sync_test_case(params);
-}
-
-// This one tests what happens when we skip a block after the sync block. This checks a corner case where
-// the "sync_hash" will never appear as the final block for any new head block, since the final block will skip
-// from one before it to one after it, so that when setting the sync hash, we cannot just check the final head
-// on each new header update.
-#[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn slow_test_state_sync_fork_after_sync() {
-    init_test_logger();
-
-    let params = StateSyncTest {
-        num_validators: 6,
-        num_block_producer_seats: 6,
-        num_chunk_producer_seats: 4,
-        num_shards: 5,
-        generate_shard_accounts: true,
-        chunks_produced: vec![],
-        skip_block_sync_height_delta: Some(1),
-        extra_node_shard_schedule: None,
-        initial_protocol_version: PROTOCOL_VERSION,
-    };
-    run_state_sync_test_case(params);
-}
-
-// This one tests what happens when we skip a block before the sync block.
-#[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn slow_test_state_sync_fork_before_sync() {
-    init_test_logger();
-
-    let params = StateSyncTest {
-        num_validators: 6,
-        num_block_producer_seats: 6,
-        num_chunk_producer_seats: 4,
-        num_shards: 5,
-        generate_shard_accounts: true,
-        chunks_produced: vec![],
-        skip_block_sync_height_delta: Some(-1),
-        extra_node_shard_schedule: None,
-        initial_protocol_version: PROTOCOL_VERSION,
-    };
-    run_state_sync_test_case(params);
+    let validators_spec = create_validators_spec(6, 0);
+    let clients = validators_spec_clients(&validators_spec);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .genesis_height(genesis_height)
+        .epoch_length(EPOCH_LENGTH)
+        .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(5), 1))
+        .validators_spec(validators_spec)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .build_store_for_genesis_protocol_version();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients.clone())
+        .build()
+        .drop(DropCondition::BlocksByHeight([skip_block_height].into_iter().collect()))
+        .warmup();
+    env.node_runner(0).run_for_number_of_blocks(40);
+    assert_fork_happened(&env, skip_block_height);
+    assert_shard_shuffling_happened(&env, &clients);
+    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
 fn await_sync_hash(env: &mut TestLoopEnv) -> CryptoHash {
@@ -799,14 +597,6 @@ fn await_sync_hash(env: &mut TestLoopEnv) -> CryptoHash {
             let handle = env.node_datas[0].client_sender.actor_handle();
             let client = &data.get(&handle).client;
             let tip = client.chain.head().unwrap();
-            let header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
-            tracing::debug!(
-                height = %header.height(),
-                chunk_mask = ?header.chunk_mask(),
-                ?tip.last_block_hash,
-                ?tip.epoch_id,
-                "chunk mask for block"
-            );
             if tip.epoch_id == Default::default() {
                 return false;
             }
@@ -817,9 +607,7 @@ fn await_sync_hash(env: &mut TestLoopEnv) -> CryptoHash {
     let client_handle = env.node_datas[0].client_sender.actor_handle();
     let client = &env.test_loop.data.get(&client_handle).client;
     let tip = client.chain.head().unwrap();
-    let sync_hash = client.chain.get_sync_hash(&tip.last_block_hash).unwrap().unwrap();
-    tracing::debug!(%sync_hash, "await_sync_hash");
-    sync_hash
+    client.chain.get_sync_hash(&tip.last_block_hash).unwrap().unwrap()
 }
 
 // cspell:ignore reqs
@@ -834,7 +622,7 @@ fn spam_state_sync_header_reqs(env: &mut TestLoopEnv) {
         assert!(res.is_some());
     }
 
-    // immediately query again, should be rejected
+    // Immediately query again, should be rejected due to rate limit.
     let shard_id = ShardId::new(0);
     let res = state_request.handle(StateRequestHeader { shard_id, sync_hash });
     assert!(res.is_none());
@@ -845,49 +633,71 @@ fn spam_state_sync_header_reqs(env: &mut TestLoopEnv) {
     let state_request_handle = env.node_datas[0].state_request_sender.actor_handle();
     let state_request = env.test_loop.data.get_mut(&state_request_handle);
 
+    // After the rate limit window resets, requests should succeed again.
     let res = state_request.handle(StateRequestHeader { shard_id, sync_hash });
     assert!(res.is_some());
 }
 
+// Tests rate limiting of StateRequestHeader responses. Sends 30 requests (should all
+// succeed), then one more (should be rejected), waits for the rate limit to reset, then
+// sends one more (should succeed again).
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn slow_test_state_request() {
+fn test_state_request() {
     init_test_logger();
-
-    let TestState { mut env, .. } = setup_initial_blockchain(
-        4,
-        4,
-        4,
-        4,
-        false,
-        HashMap::default(),
-        None,
-        &None,
-        PROTOCOL_VERSION,
-    );
-
+    let validators_spec = create_validators_spec(4, 0);
+    let clients = validators_spec_clients(&validators_spec);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(EPOCH_LENGTH)
+        .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(4), 1))
+        .validators_spec(validators_spec)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .build_store_for_genesis_protocol_version();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients)
+        .build()
+        .warmup();
     spam_state_sync_header_reqs(&mut env);
     env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
-// Starts with older protocol version in order to test state sync
-// while the network goes through protocol upgrade.
+// State sync during protocol upgrade. Starts at PROTOCOL_VERSION - 1, and the chain
+// upgrades mid-run. Shard shuffling forces state sync across the protocol upgrade boundary.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn slow_test_state_sync_protocol_upgrade() {
+fn test_state_sync_protocol_upgrade() {
     init_test_logger();
-    let t = StateSyncTest {
-        num_validators: 2,
-        num_block_producer_seats: 2,
-        num_chunk_producer_seats: 2,
-        num_shards: 2,
-        generate_shard_accounts: true,
-        chunks_produced: vec![],
-        skip_block_sync_height_delta: None,
-        extra_node_shard_schedule: None,
-        initial_protocol_version: PROTOCOL_VERSION - 1,
-    };
-    run_state_sync_test_case(t);
+    let validators_spec = create_validators_spec(2, 0);
+    let clients = validators_spec_clients(&validators_spec);
+    let accounts = make_accounts(10);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(EPOCH_LENGTH)
+        .protocol_version(PROTOCOL_VERSION - 1)
+        .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(2), 1))
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&accounts, INITIAL_USER_BALANCE)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .build_store_for_genesis_protocol_version();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients.clone())
+        .build()
+        .warmup();
+    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
+    env.node_runner(0).run_for_number_of_blocks(40);
+    let client = env.node(0).client();
+    let tip = client.chain.head().unwrap();
+    let version = client.epoch_manager.get_epoch_protocol_version(&tip.epoch_id).unwrap();
+    assert_eq!(version, PROTOCOL_VERSION);
+    assert_shard_shuffling_happened(&env, &clients);
+    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
