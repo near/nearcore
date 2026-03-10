@@ -120,7 +120,7 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Parameters:
     ///  - `block_height`: the height of the block being produced
     ///  - `parent_hash`: hash of the parent block (the block we're building on top of)
-    fn is_next_block_last_in_epoch(
+    fn is_next_block_possibly_last_in_epoch(
         &self,
         block_height: BlockHeight,
         parent_hash: &CryptoHash,
@@ -894,13 +894,13 @@ impl EpochManagerAdapter for EpochManagerHandle {
         )
     }
 
-    fn is_next_block_last_in_epoch(
+    fn is_next_block_possibly_last_in_epoch(
         &self,
         block_height: BlockHeight,
         parent_hash: &CryptoHash,
     ) -> Result<bool, EpochError> {
         let epoch_manager = self.read();
-        epoch_manager.is_next_block_last_in_epoch(block_height, parent_hash)
+        epoch_manager.is_next_block_last_possibly_in_epoch(block_height, parent_hash)
     }
 
     fn can_reshard(

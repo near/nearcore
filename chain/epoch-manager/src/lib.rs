@@ -1175,7 +1175,7 @@ impl EpochManager {
     /// Parameters:
     ///  - `block_height`: the height of the block being produced
     ///  - `parent_hash`: hash of the parent block (the block we're building on top of)
-    pub fn is_next_block_last_in_epoch(
+    pub fn is_next_block_last_possibly_in_epoch(
         &self,
         block_height: BlockHeight,
         parent_hash: &CryptoHash,

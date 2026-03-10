@@ -540,7 +540,7 @@ impl NightshadeRuntime {
             return Ok(None);
         };
 
-        if !self.epoch_manager.is_next_block_last_in_epoch(height, prev_block_hash)? {
+        if !self.epoch_manager.is_next_block_possibly_last_in_epoch(height, prev_block_hash)? {
             return Ok(None);
         }
 
