@@ -696,7 +696,7 @@ impl Handler<EpochSyncResponseMessage> for ClientActor {
             }
         };
         let genesis_height = self.client.chain.genesis().height();
-        if super::SYNC_V2_ENABLED && tip_height != genesis_height {
+        if SYNC_V2_ENABLED && tip_height != genesis_height {
             tracing::info!("stale node validated epoch sync proof, requesting data reset");
             if let Some(tx) = self.shutdown_signal.take() {
                 let _ = tx.send(ShutdownReason::EpochSyncDataReset);
