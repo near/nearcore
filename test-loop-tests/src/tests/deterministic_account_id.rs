@@ -721,8 +721,7 @@ impl TestEnv {
             .epoch_config_store_from_genesis()
             .clients(clients)
             .runtime_config_store(runtime_config_store.clone())
-            .build()
-            .warmup();
+            .build();
 
         Self {
             env,

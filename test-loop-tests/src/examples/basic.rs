@@ -20,8 +20,7 @@ fn test_basic_token_transfer() {
     let mut env = TestLoopBuilder::new()
         .enable_rpc()
         .add_user_accounts([&sender, &receiver], initial_balance)
-        .build()
-        .warmup();
+        .build();
 
     let tx = env.rpc_node().tx_send_money(&sender, &receiver, transfer_amount);
     env.rpc_runner().run_tx(tx, Duration::seconds(5));
@@ -46,11 +45,8 @@ fn test_deploy_and_call_contract() {
     init_test_logger();
 
     let user = create_account_id("user");
-    let mut env = TestLoopBuilder::new()
-        .enable_rpc()
-        .add_user_account(&user, Balance::from_near(10))
-        .build()
-        .warmup();
+    let mut env =
+        TestLoopBuilder::new().enable_rpc().add_user_account(&user, Balance::from_near(10)).build();
 
     // Deploy the test contract.
     let deploy_tx = env.rpc_node().tx_deploy_test_contract(&user);
@@ -83,11 +79,8 @@ fn test_create_and_delete_account() {
     let initial_balance = Balance::from_near(100);
     let new_account_balance = Balance::from_near(10);
 
-    let mut env = TestLoopBuilder::new()
-        .enable_rpc()
-        .add_user_account(&originator, initial_balance)
-        .build()
-        .warmup();
+    let mut env =
+        TestLoopBuilder::new().enable_rpc().add_user_account(&originator, initial_balance).build();
 
     // Create a new account.
     let tx = env.rpc_node().tx_create_account(&originator, &new_account, new_account_balance);
@@ -115,7 +108,7 @@ fn test_create_and_delete_account() {
 fn test_jsonrpc_block_by_height() {
     init_test_logger();
 
-    let mut env = TestLoopBuilder::new().enable_rpc().build().warmup();
+    let mut env = TestLoopBuilder::new().enable_rpc().build();
 
     let result = env
         .rpc_runner()

@@ -134,8 +134,7 @@ fn test_catchup_random_single_part_sync_common(
         .genesis(genesis)
         .clients(runner.all_validators_accounts())
         .epoch_config_store(epoch_config_store)
-        .build()
-        .warmup();
+        .build();
 
     for node_datas in &env.node_datas {
         let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
@@ -324,8 +323,7 @@ fn slow_test_catchup_sanity_blocks_produced() {
             config.max_block_production_delay = 3 * block_prod_time;
             config.max_block_wait_delay = 3 * block_prod_time;
         })
-        .build()
-        .warmup();
+        .build();
 
     let heights = Rc::new(RefCell::new(HashMap::new()));
     for node_datas in &env.node_datas {
@@ -414,8 +412,7 @@ fn slow_test_all_chunks_accepted() {
         .genesis(genesis)
         .clients(accounts)
         .epoch_config_store(epoch_config_store)
-        .build()
-        .warmup();
+        .build();
 
     let seen_chunk_same_sender = Rc::new(RefCell::new(HashSet::<(AccountId, u64, ShardId)>::new()));
     for node_datas in &env.node_datas {

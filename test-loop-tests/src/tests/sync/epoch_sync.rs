@@ -49,8 +49,7 @@ fn setup_initial_blockchain(transaction_validity_period: BlockHeightDelta) -> Te
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
-        .build()
-        .warmup();
+        .build();
 
     let first_epoch_tracked_shards = node_datas
         .iter()

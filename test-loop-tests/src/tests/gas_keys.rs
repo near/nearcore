@@ -94,8 +94,7 @@ fn test_gas_key_transaction() {
         .epoch_length(epoch_length)
         .add_user_accounts(&user_accounts, initial_balance)
         .gas_prices(gas_price, gas_price)
-        .build()
-        .warmup();
+        .build();
 
     let sender = &user_accounts[0];
     let receiver = &user_accounts[1];
@@ -194,8 +193,7 @@ fn test_gas_key_refund() {
         .epoch_length(epoch_length)
         .add_user_accounts(&user_accounts, initial_balance)
         .gas_prices(gas_price, gas_price)
-        .build()
-        .warmup();
+        .build();
 
     let sender = &user_accounts[0];
     let receiver = &user_accounts[1];
@@ -304,8 +302,7 @@ fn test_gas_key_deposit_failed() {
         .epoch_length(epoch_length)
         .add_user_accounts(&user_accounts, initial_balance)
         .gas_prices(gas_price, gas_price)
-        .build()
-        .warmup();
+        .build();
 
     let sender = &user_accounts[0];
     let receiver = &user_accounts[1];
@@ -501,8 +498,7 @@ fn setup_host_function_test() -> HostFunctionTestSetup {
         .gas_prices(gas_price, gas_price)
         .enable_rpc()
         .add_user_accounts(&user_accounts, initial_balance)
-        .build()
-        .warmup();
+        .build();
 
     let account = user_accounts[0].clone();
     let mut nonce = 0u64;

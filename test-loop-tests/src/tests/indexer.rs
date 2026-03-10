@@ -359,7 +359,6 @@ fn setup() -> TestLoopEnv {
         .add_user_account(&user_account(), Balance::from_near(1000))
         .transaction_validity_period(TX_VALIDITY_PERIOD)
         .build()
-        .warmup()
 }
 
 fn start_indexer(env: &TestLoopEnv, sync_mode: SyncModeEnum) -> mpsc::Receiver<StreamerMessage> {

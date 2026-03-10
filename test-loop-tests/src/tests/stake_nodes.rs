@@ -57,6 +57,7 @@ fn test_stake_nodes_impl(epoch_length: u64, execution_delay: u64) {
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(accounts.clone())
+        .delay_warmup()
         .build();
     if execution_delay > 0 {
         delay_endorsements_propagation(&mut env, execution_delay);
@@ -133,6 +134,7 @@ fn test_validator_kickout_impl(epoch_length: u64, execution_delay: u64) {
         .epoch_config_store_from_genesis()
         .clients(accounts.clone())
         .track_all_shards()
+        .delay_warmup()
         .build();
     if execution_delay > 0 {
         delay_endorsements_propagation(&mut env, execution_delay);
@@ -243,6 +245,7 @@ fn test_validator_join_impl(epoch_length: u64, execution_delay: u64) {
         .epoch_config_store_from_genesis()
         .clients(accounts.clone())
         .track_all_shards()
+        .delay_warmup()
         .build();
     if execution_delay > 0 {
         delay_endorsements_propagation(&mut env, execution_delay);
@@ -332,6 +335,7 @@ fn test_staking_join_and_leave_impl(execution_delay: u64) {
         .epoch_length(epoch_length)
         .max_inflation_rate(Rational32::new(0, 1))
         .track_all_shards()
+        .delay_warmup()
         .build();
     if execution_delay > 0 {
         delay_endorsements_propagation(&mut env, execution_delay);
@@ -442,8 +446,7 @@ fn test_inflation() {
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(accounts)
-        .build()
-        .warmup();
+        .build();
 
     // Check total_supply unchanged in epoch 1
     {

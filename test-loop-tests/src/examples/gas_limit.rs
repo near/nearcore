@@ -20,8 +20,7 @@ fn test_gas_limit() {
     let mut env = TestLoopBuilder::new()
         .add_user_account(&user_account, Balance::from_near(10))
         .enable_rpc()
-        .build()
-        .warmup();
+        .build();
 
     // Assert that the gas limits are set to 1 PGas.
     let one_petagas = Gas::from_teragas(1000);

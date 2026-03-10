@@ -175,8 +175,7 @@ fn test_state_sync_simple_two_node() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
-        .build()
-        .warmup();
+        .build();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
     assert_shard_shuffling_happened(&env, &clients);
@@ -207,8 +206,7 @@ fn test_state_sync_simple_five_node() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
-        .build()
-        .warmup();
+        .build();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
     // With 2 producers per shard, one node's sync failure doesn't stall the chain,
@@ -242,8 +240,7 @@ fn test_state_sync_empty_shard() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
-        .build()
-        .warmup();
+        .build();
     env.node_runner(0).run_for_number_of_blocks(40);
     assert_shard_shuffling_happened(&env, &clients);
     env.shutdown_and_drain_remaining_events(Duration::seconds(3));
@@ -273,6 +270,7 @@ fn test_state_sync_miss_chunks_first_block() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
+        .delay_warmup()
         .build()
         .drop(DropCondition::ChunksProducedByHeight(HashMap::from([
             (ShardId::new(0), vec![false]),
@@ -310,6 +308,7 @@ fn test_state_sync_miss_chunks_second_block() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
+        .delay_warmup()
         .build()
         .drop(DropCondition::ChunksProducedByHeight(HashMap::from([
             (ShardId::new(0), vec![true, false]),
@@ -345,6 +344,7 @@ fn test_state_sync_miss_chunks_third_block() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
+        .delay_warmup()
         .build()
         .drop(DropCondition::ChunksProducedByHeight(HashMap::from([
             (ShardId::new(0), vec![true, true, false]),
@@ -380,6 +380,7 @@ fn test_state_sync_miss_chunks_sync_block() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
+        .delay_warmup()
         .build()
         // Drop shards 0 and 1 at offset 3 — this is the sync hash block itself.
         .drop(DropCondition::ChunksProducedByHeight(HashMap::from([
@@ -416,6 +417,7 @@ fn test_state_sync_miss_chunks_sync_prev_block() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
+        .delay_warmup()
         .build()
         .drop(DropCondition::ChunksProducedByHeight(HashMap::from([
             (ShardId::new(1), vec![true, true, true, false]),
@@ -452,6 +454,7 @@ fn test_state_sync_miss_chunks_before_last_chunk_included() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
+        .delay_warmup()
         .build()
         .drop(DropCondition::ChunksProducedByHeight(HashMap::from([
             (ShardId::new(0), vec![false, true, false, false, true, false]),
@@ -490,6 +493,7 @@ fn test_state_sync_miss_chunks_multiple() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
+        .delay_warmup()
         .build()
         .drop(DropCondition::ChunksProducedByHeight(HashMap::from([
             (ShardId::new(0), vec![true, true, true, false, false, true]),
@@ -547,8 +551,7 @@ fn test_state_sync_untrack_then_track() {
             }
             config.tracked_shards_config = TrackedShardsConfig::Schedule(schedule.clone());
         })
-        .build()
-        .warmup();
+        .build();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
     let target = env.node(0).head().height;
@@ -583,6 +586,7 @@ fn test_state_sync_from_fork() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
+        .delay_warmup()
         .build()
         .drop(DropCondition::BlocksByHeight([skip_block_height].into_iter().collect()))
         .warmup();
@@ -618,6 +622,7 @@ fn test_state_sync_to_fork() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
+        .delay_warmup()
         .build()
         .drop(DropCondition::BlocksByHeight([skip_block_height].into_iter().collect()))
         .warmup();
@@ -653,6 +658,7 @@ fn test_state_sync_fork_after_sync() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
+        .delay_warmup()
         .build()
         .drop(DropCondition::BlocksByHeight([skip_block_height].into_iter().collect()))
         .warmup();
@@ -687,6 +693,7 @@ fn test_state_sync_fork_before_sync() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
+        .delay_warmup()
         .build()
         .drop(DropCondition::BlocksByHeight([skip_block_height].into_iter().collect()))
         .warmup();
@@ -765,8 +772,7 @@ fn test_state_request() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
-        .build()
-        .warmup();
+        .build();
     spam_state_sync_header_reqs(&mut env);
     env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
@@ -795,8 +801,7 @@ fn test_state_sync_protocol_upgrade() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
-        .build()
-        .warmup();
+        .build();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
     let client = env.node(0).client();

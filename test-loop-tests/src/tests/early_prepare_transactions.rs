@@ -48,7 +48,6 @@ fn setup(num_nodes: usize, epoch_length: BlockHeightDelta) -> TestLoopEnv {
             config.enable_early_prepare_transactions = true;
         })
         .build()
-        .warmup()
 }
 
 /// Very long epochs, no epoch switches in the test.

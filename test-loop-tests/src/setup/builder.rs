@@ -49,8 +49,8 @@ pub(crate) struct TestLoopBuilder {
     runtime_config_store: Option<RuntimeConfigStore>,
     /// Custom function to change the configs before constructing each client.
     config_modifier: Option<Box<dyn Fn(&mut ClientConfig, usize)>>,
-    /// Whether to do the warmup or not. See `skip_warmup` for more details.
-    warmup_pending: Arc<AtomicBool>,
+    /// Controls warmup behavior. See `skip_warmup` and `delay_warmup`.
+    warmup_mode: WarmupMode,
     /// Whether all nodes must track all shards.
     track_all_shards: bool,
     /// Whether to load mem tries for the tracked shards.
@@ -70,7 +70,7 @@ impl TestLoopBuilder {
             gc_num_epochs_to_keep: None,
             runtime_config_store: None,
             config_modifier: None,
-            warmup_pending: Arc::new(AtomicBool::new(true)),
+            warmup_mode: WarmupMode::Auto,
             track_all_shards: false,
             load_memtries_for_tracked_shards: true,
             upgrade_schedule: None,
@@ -327,8 +327,16 @@ impl TestLoopBuilder {
     /// somewhat differently (and correctly so) at genesis. So only skip
     /// warmup if you are interested in the behavior of starting from genesis.
     #[allow(dead_code)]
-    pub fn skip_warmup(self) -> Self {
-        self.warmup_pending.store(false, Ordering::Relaxed);
+    pub fn skip_warmup(mut self) -> Self {
+        self.warmup_mode = WarmupMode::Skip;
+        self
+    }
+
+    /// Do not automatically warmup during `build()`, but warmup is still
+    /// expected to be called manually later. Use this when you need to
+    /// configure the environment between `build()` and `warmup()`.
+    pub fn delay_warmup(mut self) -> Self {
+        self.warmup_mode = WarmupMode::Manual;
         self
     }
 
@@ -349,10 +357,16 @@ impl TestLoopBuilder {
 
     // -- Build --
 
-    /// Build the test loop environment.
+    /// Build the test loop environment. Automatically calls `warmup()` unless
+    /// `skip_warmup()` or `delay_warmup()` was called on the builder.
     pub(crate) fn build(mut self) -> TestLoopEnv {
+        let warmup_mode = self.warmup_mode;
         let (genesis, clients) = self.resolve_setup_config();
-        self.build_impl(genesis, clients)
+        let env = self.build_impl(genesis, clients);
+        match warmup_mode {
+            WarmupMode::Auto => env.warmup(),
+            WarmupMode::Skip | WarmupMode::Manual => env,
+        }
     }
 
     fn resolve_setup_config(&mut self) -> (Genesis, Vec<ClientSpec>) {
@@ -370,18 +384,21 @@ impl TestLoopBuilder {
     fn build_impl(mut self, genesis: Genesis, clients: Vec<ClientSpec>) -> TestLoopEnv {
         self.ensure_epoch_config_store(&genesis);
 
-        let warmup_pending = self.warmup_pending.clone();
-        self.test_loop.send_adhoc_event("warmup_pending".into(), move |_| {
-            assert!(
-                !warmup_pending.load(Ordering::Relaxed),
-                "Warmup is pending! Call env.warmup() or builder.skip_warmup()"
-            );
-        });
+        let warmup_pending = Arc::new(AtomicBool::new(self.warmup_mode != WarmupMode::Skip));
+        if self.warmup_mode != WarmupMode::Skip {
+            let warmup_pending = warmup_pending.clone();
+            self.test_loop.send_adhoc_event("warmup_pending".into(), move |_| {
+                assert!(
+                    !warmup_pending.load(Ordering::Relaxed),
+                    "warmup is pending! Call env.warmup() or builder.skip_warmup()"
+                );
+            });
+        }
 
         let node_states = (0..clients.len())
             .map(|idx| self.setup_node_state(idx, &genesis, &clients))
             .collect_vec();
-        let (mut test_loop, shared_state) = self.setup_shared_state(genesis);
+        let (mut test_loop, shared_state) = self.setup_shared_state(genesis, warmup_pending);
         let datas = node_states
             .into_iter()
             .map(|node_state| {
@@ -393,7 +410,11 @@ impl TestLoopBuilder {
         TestLoopEnv { test_loop, node_datas: datas, shared_state }
     }
 
-    fn setup_shared_state(mut self, genesis: Genesis) -> (TestLoopV2, SharedState) {
+    fn setup_shared_state(
+        mut self,
+        genesis: Genesis,
+        warmup_pending: Arc<AtomicBool>,
+    ) -> (TestLoopV2, SharedState) {
         let unreachable_actor_sender =
             self.test_loop.data.register_actor("UnreachableActor", UnreachableActor {}, None);
         self.test_loop.event_denylist().lock().push("UnreachableActor".to_string());
@@ -411,7 +432,7 @@ impl TestLoopBuilder {
             chunks_storage: Default::default(),
             drop_conditions: Default::default(),
             load_memtries_for_tracked_shards: self.load_memtries_for_tracked_shards,
-            warmup_pending: self.warmup_pending,
+            warmup_pending,
         };
         (self.test_loop, shared_state)
     }
@@ -754,6 +775,17 @@ impl ClientType {
 pub(crate) struct ClientSpec {
     pub account_id: AccountId,
     pub client_type: ClientType,
+}
+
+/// Controls how warmup is handled during `TestLoopBuilder::build()`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum WarmupMode {
+    /// Automatically call `warmup()` at the end of `build()`. This is the default.
+    Auto,
+    /// Skip warmup entirely. For tests that need genesis behavior.
+    Skip,
+    /// Do not auto-warmup, but the caller is expected to call `warmup()` manually.
+    Manual,
 }
 
 fn default_testloop_state_sync_config(tempdir: &PathBuf) -> StateSyncConfig {
