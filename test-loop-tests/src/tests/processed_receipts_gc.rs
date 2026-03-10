@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use assert_matches::assert_matches;
 use near_async::time::Duration;
+use near_chain_configs::TrackedShardsConfig;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::config::TEST_CONFIG_YIELD_TIMEOUT_LENGTH;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
@@ -17,8 +18,9 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{Balance, ShardId};
 use near_primitives::utils::get_block_shard_id;
-use near_store::DBCol;
+use near_store::{DBCol, ShardUId};
 
+use crate::setup;
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{create_account_id, create_validators_spec, validators_spec_clients};
 
@@ -605,6 +607,144 @@ fn test_promise_resume_receipt_to_tx_gc() {
     assert!(
         store.get(DBCol::ReceiptToTx, resume_receipt_id.as_ref()).is_none(),
         "receipt_to_tx for PromiseResume receipt should be garbage collected"
+    );
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+/// Tests that ReceiptToTx entries for cross-shard action receipts are GC'd on a
+/// node that only tracks the source shard.
+///
+/// ReceiptToTx is written on the source shard when a receipt is created. gc_outcomes
+/// deletes ReceiptToTx based on OutcomeIds, but outcomes are recorded on the destination
+/// shard where the receipt executes. A node tracking only the source shard never sees
+/// the destination shard's outcomes, so gc_outcomes can never delete the entry.
+///
+/// gc_outgoing_receipts handles this by deleting ReceiptToTx for ALL outgoing receipts
+/// when the source block is GC'd.
+#[test]
+fn test_cross_shard_receipt_to_tx_gc_on_source_only_node() {
+    init_test_logger();
+
+    const CROSS_SHARD_EPOCH_LENGTH: u64 = 10;
+    const CROSS_SHARD_GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
+    // Small gc_step_period ensures GC runs frequently on the observer.
+    const GC_STEP_PERIOD: Duration =
+        Duration::milliseconds(setup::builder::MIN_BLOCK_PROD_TIME as i64);
+
+    let validators_spec = create_validators_spec(1, 0);
+    let validator_id = validators_spec_clients(&validators_spec)[0].clone();
+    let observer_id = create_account_id("observer");
+
+    // Use "account5" as boundary — sender is "account0" (before boundary),
+    // receiver is "account9" (after boundary). This gives us 2 shards.
+    let boundary_account = create_account_id("account5");
+    let sender = create_account_id("account0");
+    let receiver = create_account_id("account9");
+    let shard_layout = ShardLayout::multi_shard_custom(vec![boundary_account], 1);
+
+    // Verify sender and receiver are on different shards.
+    let sender_shard_id = shard_layout.account_id_to_shard_id(&sender);
+    let receiver_shard_id = shard_layout.account_id_to_shard_id(&receiver);
+    assert_ne!(
+        sender_shard_id, receiver_shard_id,
+        "sender and receiver must be on different shards for cross-shard test"
+    );
+    let source_shard_uid = ShardUId::from_shard_id_and_layout(sender_shard_id, &shard_layout);
+
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(CROSS_SHARD_EPOCH_LENGTH)
+        .shard_layout(shard_layout)
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(
+            &[sender.clone(), receiver.clone()],
+            Balance::from_near(1_000_000),
+        )
+        .build();
+
+    let clients = vec![validator_id.clone(), observer_id.clone()];
+    let source_shard_uid_clone = source_shard_uid;
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store_from_genesis()
+        .clients(clients)
+        .gc_num_epochs_to_keep(CROSS_SHARD_GC_NUM_EPOCHS_TO_KEEP)
+        .config_modifier(move |config, client_index| {
+            if client_index == 0 {
+                // Validator tracks all shards.
+                config.tracked_shards_config = TrackedShardsConfig::AllShards;
+            } else {
+                // Observer tracks only the source shard + short GC period.
+                config.tracked_shards_config =
+                    TrackedShardsConfig::Shards(vec![source_shard_uid_clone]);
+                config.gc.gc_step_period = GC_STEP_PERIOD;
+            }
+        })
+        .build()
+        .warmup();
+
+    let signer = create_user_test_signer(&sender);
+
+    // Step 1: Submit a cross-shard transfer (sender → receiver).
+    let block_hash = env.node_for_account(&validator_id).head().last_block_hash;
+    let tx = SignedTransaction::send_money(
+        1,
+        sender.clone(),
+        receiver,
+        &signer,
+        Balance::from_yoctonear(100),
+        block_hash,
+    );
+    let tx_hash = tx.get_hash();
+    env.node_for_account(&validator_id).submit_tx(tx);
+
+    // Step 2: Wait for the tx outcome on the validator; extract receipt_id.
+    let tx_outcome = env
+        .runner_for_account(&validator_id)
+        .run_until_outcome_available(tx_hash, Duration::seconds(10));
+    let [receipt_id] = tx_outcome.outcome_with_id.outcome.receipt_ids[..] else {
+        panic!("expected single receipt from transaction")
+    };
+
+    // Step 3: Prove the receipt actually executed on the destination shard (all-shards validator).
+    env.runner_for_account(&validator_id)
+        .run_until_outcome_available(receipt_id, Duration::seconds(10));
+
+    // Step 4: On the observer, verify the ReceiptToTx entry exists.
+    let observer_store = env.node_for_account(&observer_id).store();
+    assert!(
+        observer_store.get(DBCol::ReceiptToTx, receipt_id.as_ref()).is_some(),
+        "ReceiptToTx entry should exist on observer for the cross-shard receipt"
+    );
+
+    // Step 5: Verify the observer CANNOT see the receipt's execution outcome.
+    // This proves gc_outcomes can never delete this entry on the observer.
+    let all_outcome_ids: HashSet<CryptoHash> = observer_store
+        .iter_ser::<Vec<CryptoHash>>(DBCol::OutcomeIds)
+        .flat_map(|(_, ids)| ids)
+        .collect();
+    assert!(
+        !all_outcome_ids.contains(&receipt_id),
+        "cross-shard receipt should NOT appear in OutcomeIds on the source-only observer"
+    );
+    assert!(
+        env.node_for_account(&observer_id)
+            .client()
+            .chain
+            .get_execution_outcome(&receipt_id)
+            .is_err(),
+        "observer should not have execution outcome for cross-shard receipt"
+    );
+
+    // Step 6: Run enough blocks for GC to kick in.
+    let num_blocks = CROSS_SHARD_EPOCH_LENGTH * CROSS_SHARD_GC_NUM_EPOCHS_TO_KEEP + 10;
+    env.runner_for_account(&validator_id).run_for_number_of_blocks(num_blocks as usize);
+
+    // Step 7: Verify the ReceiptToTx entry has been garbage collected on the observer.
+    let observer_store = env.node_for_account(&observer_id).store();
+    assert!(
+        observer_store.get(DBCol::ReceiptToTx, receipt_id.as_ref()).is_none(),
+        "ReceiptToTx for cross-shard receipt should be garbage collected on source-only observer"
     );
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
