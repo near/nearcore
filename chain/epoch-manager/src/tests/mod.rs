@@ -3564,3 +3564,27 @@ fn test_possible_epochs_of_height_around_tip() {
         }
     }
 }
+
+#[test]
+fn test_is_next_block_possibly_last_in_epoch() {
+    let amount = Balance::from_yoctonear(1_000_000);
+    let validators = vec![("test1".parse().unwrap(), amount)];
+    let epoch_length = 5;
+    let mut epoch_manager = setup_default_epoch_manager(validators, epoch_length, 1, 1, 90, 60);
+    let hashes = hash_range(8);
+    record_block(&mut epoch_manager, CryptoHash::default(), hashes[0], 0, vec![]);
+    for i in 1..=6 {
+        record_block(&mut epoch_manager, hashes[i - 1], hashes[i], i as u64, vec![]);
+    }
+
+    // Mid-epoch: far from epoch end.
+    assert!(!epoch_manager.is_next_block_possibly_last_in_epoch(1, &hashes[0]).unwrap());
+    assert!(!epoch_manager.is_next_block_possibly_last_in_epoch(2, &hashes[1]).unwrap());
+    assert!(!epoch_manager.is_next_block_possibly_last_in_epoch(3, &hashes[2]).unwrap());
+    // Near epoch end: returns true (may produce false positives).
+    assert!(epoch_manager.is_next_block_possibly_last_in_epoch(4, &hashes[3]).unwrap());
+    assert!(epoch_manager.is_next_block_possibly_last_in_epoch(5, &hashes[4]).unwrap());
+    // New epoch beginning: false again
+    assert!(!epoch_manager.is_next_block_possibly_last_in_epoch(6, &hashes[5]).unwrap());
+    assert!(!epoch_manager.is_next_block_possibly_last_in_epoch(7, &hashes[6]).unwrap());
+}
