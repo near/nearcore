@@ -1,7 +1,6 @@
 use std::fmt::Debug;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
-
 use reqwest::Client;
 use tokio::time;
 use tokio::time::Interval;
@@ -186,7 +185,6 @@ impl TransactionStatisticsService {
 mod tests {
     // cspell:words indoc
     use indoc::indoc;
-
     use super::*;
 
     #[test]

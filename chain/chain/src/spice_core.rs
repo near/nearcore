@@ -1,3 +1,4 @@
+use crate::{Chain, ChainStoreAccess, ChainStoreUpdate};
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_epoch_manager::EpochManagerAdapter;
@@ -19,8 +20,6 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::{DBCol, Store};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-
-use crate::{Chain, ChainStoreAccess, ChainStoreUpdate};
 
 #[derive(Clone)]
 pub struct SpiceCoreReader {

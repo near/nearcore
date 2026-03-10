@@ -1,5 +1,7 @@
+use crate::metrics;
 use near_async::messaging::CanSend;
 use near_async::messaging::Handler;
+use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::{ActorSystem, messaging};
 use near_chain::check_transaction_validity_period;
 use near_chain::types::RuntimeAdapter;
@@ -28,9 +30,6 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 use parking_lot::Mutex;
 use std::collections::HashSet;
 use std::sync::Arc;
-
-use crate::metrics;
-use near_async::multithread::MultithreadRuntimeHandle;
 
 impl Handler<ProcessTxRequest> for RpcHandlerActor {
     fn handle(&mut self, msg: ProcessTxRequest) {

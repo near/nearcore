@@ -1,3 +1,4 @@
+use super::{TrieChanges, TrieRefcountDeltaMap};
 use crate::test_utils::{TestTriesBuilder, gen_changes, simplify_changes, test_populate_trie};
 use crate::trie::trie_storage::TrieStorage;
 use crate::trie::{AccessOptions, TrieRefcountAddition, TrieRefcountSubtraction};
@@ -13,8 +14,6 @@ use rand::seq::SliceRandom;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::Arc;
-
-use super::{TrieChanges, TrieRefcountDeltaMap};
 
 pub(crate) fn merge_trie_changes(changes: Vec<TrieChanges>) -> TrieChanges {
     if changes.is_empty() {

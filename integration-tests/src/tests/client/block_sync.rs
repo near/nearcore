@@ -1,6 +1,4 @@
-use std::collections::HashSet;
-use std::sync::Arc;
-
+use crate::env::test_env::TestEnv;
 use near_async::messaging::IntoMultiSender;
 use near_async::time::Clock;
 use near_chain::Provenance;
@@ -16,8 +14,8 @@ use near_o11y::testonly::TracingCapture;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::utils::MaybeValidated;
-
-use crate::env::test_env::TestEnv;
+use std::collections::HashSet;
+use std::sync::Arc;
 
 /// Helper function for block sync tests
 fn collect_hashes_from_network_adapter(
@@ -81,6 +79,7 @@ fn test_block_sync() {
         block_fetch_horizon,
         false,
         true,
+        max_block_requests,
     );
     let mut env = test_env_with_epoch_length(100);
     let mut blocks = vec![];
@@ -95,7 +94,7 @@ fn test_block_sync() {
 
     // fetch three blocks at a time
     for i in 0..3 {
-        block_sync.block_sync(&env.clients[1].chain, &peer_infos, max_block_requests).unwrap();
+        block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
 
         let expected_blocks: Vec<_> =
             blocks[i * max_block_requests..(i + 1) * max_block_requests].to_vec();
@@ -111,7 +110,7 @@ fn test_block_sync() {
 
     // Now test when the node receives the block out of order
     // fetch the next three blocks
-    block_sync.block_sync(&env.clients[1].chain, &peer_infos, max_block_requests).unwrap();
+    block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
     check_hashes_from_network_adapter(
         &network_adapter,
         (3 * max_block_requests..4 * max_block_requests).map(|h| *blocks[h].hash()).collect(),
@@ -123,7 +122,7 @@ fn test_block_sync() {
     );
 
     // the next block sync should not request block[4*max_block_requests-1] again
-    block_sync.block_sync(&env.clients[1].chain, &peer_infos, max_block_requests).unwrap();
+    block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
     check_hashes_from_network_adapter(
         &network_adapter,
         (3 * max_block_requests..4 * max_block_requests - 1).map(|h| *blocks[h].hash()).collect(),
@@ -137,7 +136,7 @@ fn test_block_sync() {
             .process_block_test(MaybeValidated::from(blocks[i].clone()), Provenance::NONE);
     }
 
-    block_sync.block_sync(&env.clients[1].chain, &peer_infos, max_block_requests).unwrap();
+    block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
     let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
     assert!(requested_block_hashes.is_empty(), "{:?}", requested_block_hashes);
 
@@ -160,6 +159,7 @@ fn test_block_sync_archival() {
         block_fetch_horizon,
         true,
         true,
+        max_block_requests,
     );
     let mut env = test_env_with_epoch_length(5);
     let mut blocks = vec![];
@@ -172,7 +172,7 @@ fn test_block_sync_archival() {
     let peer_infos = create_highest_height_peer_infos(2);
     env.clients[1].chain.sync_block_headers(block_headers).unwrap();
 
-    block_sync.block_sync(&env.clients[1].chain, &peer_infos, max_block_requests).unwrap();
+    block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
     let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
     // We don't have archival peers, and thus cannot request any blocks
     assert_eq!(requested_block_hashes, HashSet::new());
@@ -182,7 +182,7 @@ fn test_block_sync_archival() {
         peer.archival = true;
     }
 
-    block_sync.block_sync(&env.clients[1].chain, &peer_infos, max_block_requests).unwrap();
+    block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
     let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
     assert_eq!(
         requested_block_hashes,

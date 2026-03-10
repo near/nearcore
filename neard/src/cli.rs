@@ -39,7 +39,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Receiver;
-
 #[cfg(feature = "dump-test-contract")]
 use {
     near_dump_test_contract::DumpTestContractCommand, near_network::tcp,

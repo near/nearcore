@@ -1,9 +1,8 @@
 use crate::util::{Packable, Point, Scalar};
+pub use blake2::Blake2b512 as Hash512;
 use blake2::Blake2bVar;
 use blake2::digest::generic_array::{GenericArray, typenum::U32};
 use blake2::digest::{FixedOutput, OutputSizeUser, Reset, Update, VariableOutput};
-
-pub use blake2::Blake2b512 as Hash512;
 
 #[derive(Clone)]
 pub struct Hash256(Blake2bVar);

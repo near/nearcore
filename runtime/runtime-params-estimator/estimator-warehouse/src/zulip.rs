@@ -1,9 +1,7 @@
-use std::env;
-
+use crate::check::{Notice, RelativeChange, Status, UncertainChange};
 use anyhow::Context;
 use reqwest::blocking::Client;
-
-use crate::check::{Notice, RelativeChange, Status, UncertainChange};
+use std::env;
 
 const ZULIP_SERVER: &str = "near.zulipchat.com";
 

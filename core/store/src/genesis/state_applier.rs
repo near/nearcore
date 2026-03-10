@@ -6,7 +6,6 @@ use crate::{
     set_delayed_receipt, set_gas_key_nonce, set_postponed_receipt, set_promise_yield_receipt,
     set_received_data,
 };
-
 use near_chain_configs::Genesis;
 use near_crypto::PublicKey;
 use near_parameters::StorageUsageConfig;

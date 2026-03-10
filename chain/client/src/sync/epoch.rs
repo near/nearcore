@@ -163,9 +163,13 @@ impl EpochSync {
             return Ok(());
         }
         match status {
-            SyncStatus::EpochSync(status) => {
-                if status.attempt_time + self.config.timeout_for_epoch_sync < self.clock.now_utc() {
-                    tracing::warn!(source_peer_id = %status.source_peer_id, "epoch sync from peer timed out, retrying");
+            SyncStatus::EpochSync(EpochSyncStatus::InProgress {
+                attempt_time,
+                source_peer_id,
+                ..
+            }) => {
+                if *attempt_time + self.config.timeout_for_epoch_sync < self.clock.now_utc() {
+                    tracing::warn!(%source_peer_id, "epoch sync from peer timed out, retrying");
                 } else {
                     return Ok(());
                 }
@@ -180,7 +184,7 @@ impl EpochSync {
 
         tracing::info!(peer_id=?peer.peer_info.id, "bootstrapping node via epoch sync");
 
-        *status = SyncStatus::EpochSync(EpochSyncStatus {
+        *status = SyncStatus::EpochSync(EpochSyncStatus::InProgress {
             source_peer_id: peer.peer_info.id.clone(),
             source_peer_height: peer.highest_block_height,
             attempt_time: self.clock.now_utc(),
@@ -205,39 +209,43 @@ impl EpochSync {
         source_peer: &PeerId,
         epoch_manager: &dyn EpochManagerAdapter,
     ) -> Result<bool, Error> {
-        if let SyncStatus::EpochSync(status) = status {
-            if status.source_peer_id != *source_peer {
-                tracing::warn!(%source_peer, expected_peer = %status.source_peer_id, "ignoring epoch sync proof from unexpected peer");
-                return Ok(false);
-            }
-            if proof
-                .current_epoch
-                .first_block_header_in_epoch
-                .height()
-                .saturating_add(chain.epoch_length.max(chain.transaction_validity_period()))
-                >= status.source_peer_height
-            {
-                tracing::error!(
-                    %source_peer,
-                    "ignoring epoch sync proof from peer that is too recent"
-                );
-                return Ok(false);
-            }
-            if proof
-                .current_epoch
-                .first_block_header_in_epoch
-                .height()
-                .saturating_add(EPOCH_SYNC_PROOF_MAX_AGE_NUM_EPOCHS * chain.epoch_length)
-                < status.source_peer_height
-            {
-                tracing::error!(
-                    %source_peer,
-                    "ignoring epoch sync proof from peer that is too old"
-                );
-                return Ok(false);
-            }
-        } else {
+        let SyncStatus::EpochSync(EpochSyncStatus::InProgress {
+            source_peer_id,
+            source_peer_height,
+            ..
+        }) = status
+        else {
             tracing::warn!(%source_peer, "ignoring unexpected epoch sync proof");
+            return Ok(false);
+        };
+        if *source_peer_id != *source_peer {
+            tracing::warn!(%source_peer, expected_peer = %source_peer_id, "ignoring epoch sync proof from unexpected peer");
+            return Ok(false);
+        }
+        if proof
+            .current_epoch
+            .first_block_header_in_epoch
+            .height()
+            .saturating_add(chain.epoch_length.max(chain.transaction_validity_period()))
+            >= *source_peer_height
+        {
+            tracing::error!(
+                %source_peer,
+                "ignoring epoch sync proof from peer that is too recent"
+            );
+            return Ok(false);
+        }
+        if proof
+            .current_epoch
+            .first_block_header_in_epoch
+            .height()
+            .saturating_add(EPOCH_SYNC_PROOF_MAX_AGE_NUM_EPOCHS * chain.epoch_length)
+            < *source_peer_height
+        {
+            tracing::error!(
+                %source_peer,
+                "ignoring epoch sync proof from peer that is too old"
+            );
             return Ok(false);
         }
 
@@ -331,7 +339,7 @@ impl EpochSync {
 
         store_update.commit();
 
-        *status = SyncStatus::EpochSyncDone;
+        *status = SyncStatus::EpochSync(EpochSyncStatus::Done);
         tracing::info!(epoch_id=?last_header.epoch_id(), "bootstrapped from epoch sync");
 
         Ok(())
@@ -604,7 +612,8 @@ impl Handler<EpochSyncResponseMessage> for ClientActor {
         // Pre-check: only decode if we are expecting an epoch sync response from this peer.
         // This avoids wasting resources processing unsolicited responses.
         match &self.client.sync_handler.sync_status {
-            SyncStatus::EpochSync(status) if status.source_peer_id == msg.from_peer => {}
+            SyncStatus::EpochSync(EpochSyncStatus::InProgress { source_peer_id, .. })
+                if *source_peer_id == msg.from_peer => {}
             _ => {
                 tracing::warn!(from_peer = %msg.from_peer, "ignoring unsolicited epoch sync response");
                 return;

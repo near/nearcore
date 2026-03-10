@@ -1,5 +1,5 @@
-use std::collections::HashMap;
-
+use crate::INDEXER;
+use crate::streamer::errors::FailedToFetchData;
 use futures::StreamExt;
 use near_async::messaging::{AsyncSender, CanSendAsync, IntoMultiSender};
 use near_chain_configs::ProtocolConfigView;
@@ -19,9 +19,7 @@ use near_primitives::types::{BlockId, BlockReference, EpochId, Finality, ShardId
 use near_primitives::views::{
     BlockView, ChunkView, ExecutionOutcomeWithIdView, ReceiptView, StateChangesView,
 };
-
-use crate::INDEXER;
-use crate::streamer::errors::FailedToFetchData;
+use std::collections::HashMap;
 
 #[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
 struct IndexerViewClientSender {

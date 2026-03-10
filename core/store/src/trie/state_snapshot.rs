@@ -1,3 +1,5 @@
+use super::Trie;
+use super::TrieCachingStorage;
 use crate::Mode;
 use crate::ShardTries;
 use crate::StoreConfig;
@@ -18,9 +20,6 @@ use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-
-use super::Trie;
-use super::TrieCachingStorage;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SnapshotError {

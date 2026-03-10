@@ -1,6 +1,3 @@
-use std::collections::HashMap;
-use std::fmt::Debug;
-
 use crate::sharding::ReceiptProof;
 use crate::state::PartialState;
 use crate::transaction::SignedTransaction;
@@ -9,6 +6,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::ShardId;
 use near_schema_checker_lib::ProtocolSchema;
+use std::collections::HashMap;
+use std::fmt::Debug;
 
 /// The state witness for a chunk with spice; proves the state transition that the
 /// chunk attests to.

@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::types::RuntimeAdapter;
 use crate::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use itertools::Itertools;
@@ -24,6 +22,7 @@ use near_store::adapter::StoreUpdateAdapter;
 use near_store::{Store, get_genesis_state_roots};
 use near_vm_runner::logic::ProtocolVersion;
 use node_runtime::bootstrap_congestion_info;
+use std::sync::Arc;
 
 impl Chain {
     /// Builds genesis block and chunks from the current configuration obtained through the arguments.
@@ -358,9 +357,8 @@ fn get_genesis_congestion_info(
 
 #[cfg(test)]
 mod test {
-    use std::path::Path;
-    use std::str::FromStr;
-
+    use crate::runtime::NightshadeRuntime;
+    use crate::{Chain, ChainGenesis};
     use near_async::time::FakeClock;
     use near_chain_configs::test_genesis::{TestEpochConfigBuilder, TestGenesisBuilder};
     use near_epoch_manager::EpochManager;
@@ -369,9 +367,8 @@ mod test {
     use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
     use num_rational::Rational32;
-
-    use crate::runtime::NightshadeRuntime;
-    use crate::{Chain, ChainGenesis};
+    use std::path::Path;
+    use std::str::FromStr;
 
     #[test]
     fn test_prod_genesis_protocol_version_block_consistency() {

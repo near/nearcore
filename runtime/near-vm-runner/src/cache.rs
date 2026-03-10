@@ -9,17 +9,15 @@ use crate::runner::VMKindExt;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
 use parking_lot::Mutex;
-
+#[cfg(not(windows))]
+use rand::Rng as _;
 use std::any::Any;
 use std::collections::HashMap;
 use std::fmt;
-use std::num::NonZeroUsize;
-use std::sync::Arc;
-
-#[cfg(not(windows))]
-use rand::Rng as _;
 #[cfg(not(windows))]
 use std::io::{Read, Write};
+use std::num::NonZeroUsize;
+use std::sync::Arc;
 
 #[cfg(any(feature = "wasmtime_vm", all(feature = "near_vm", target_arch = "x86_64")))]
 // FIXME(ProtocolSchema): this isn't really part of the protocol schema??

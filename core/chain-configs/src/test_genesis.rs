@@ -1,5 +1,7 @@
-use std::collections::{HashMap, HashSet};
-
+use crate::{
+    FISHERMEN_THRESHOLD, Genesis, GenesisConfig, GenesisContents, GenesisRecords,
+    PROTOCOL_UPGRADE_STAKE_THRESHOLD,
+};
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::epoch_manager::{EpochConfig, EpochConfigBuilder, EpochConfigStore};
@@ -14,11 +16,7 @@ use near_primitives::utils::from_timestamp;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_time::Clock;
 use num_rational::Rational32;
-
-use crate::{
-    FISHERMEN_THRESHOLD, Genesis, GenesisConfig, GenesisContents, GenesisRecords,
-    PROTOCOL_UPGRADE_STAKE_THRESHOLD,
-};
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone)]
 pub struct TestEpochConfigBuilder {

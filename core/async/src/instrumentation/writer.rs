@@ -1,14 +1,12 @@
-use std::cell::{RefCell, RefMut};
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::Instant;
-
-use near_time::Clock;
-
 use crate::instrumentation::WINDOW_SIZE_NS;
 use crate::instrumentation::data::{ALL_ACTOR_INSTRUMENTATIONS, InstrumentedThread};
 use crate::instrumentation::metrics::{MESSAGE_DEQUEUE_TIME, MESSAGE_PROCESSING_TIME};
 use crate::instrumentation::queue::InstrumentedQueue;
+use near_time::Clock;
+use std::cell::{RefCell, RefMut};
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Instant;
 
 thread_local! {
     static THREAD_WRITER: RefCell<Option<InstrumentedThreadWriter>> = const { RefCell::new(None) };

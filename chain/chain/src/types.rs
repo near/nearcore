@@ -1,7 +1,3 @@
-use std::collections::HashSet;
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time::{Duration, Utc};
 use near_chain_configs::GenesisConfig;
@@ -53,6 +49,9 @@ use near_vm_runner::ContractRuntimeCache;
 use node_runtime::PostStateReadyCallback;
 use node_runtime::SignedValidPeriodTransactions;
 use num_rational::Rational32;
+use std::collections::HashSet;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use tracing::instrument;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -665,6 +664,7 @@ pub struct LatestKnown {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use near_async::time::{Clock, Utc};
     use near_primitives::block::Approval;
     use near_primitives::genesis::{genesis_block, genesis_chunks};
@@ -674,8 +674,6 @@ mod tests {
     use near_primitives::transaction::{ExecutionMetadata, ExecutionOutcome, ExecutionStatus};
     use near_primitives::version::PROTOCOL_VERSION;
     use std::sync::Arc;
-
-    use super::*;
 
     #[test]
     fn test_block_produce() {

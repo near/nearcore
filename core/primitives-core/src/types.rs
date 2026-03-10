@@ -1,12 +1,10 @@
-use std::num::ParseIntError;
-use std::ops::Add;
-use std::str::FromStr;
-
-use crate::hash::CryptoHash;
-
 /// Account identifier. Provides access to user's state.
 pub use crate::account::id::AccountId;
 pub use crate::gas::Gas;
+use crate::hash::CryptoHash;
+use std::num::ParseIntError;
+use std::ops::Add;
+use std::str::FromStr;
 /// Hash used by a struct implementing the Merkle tree.
 pub type MerkleHash = CryptoHash;
 /// Validator identifier in current group.

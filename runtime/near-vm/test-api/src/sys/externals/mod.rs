@@ -4,11 +4,9 @@ mod memory;
 mod table;
 
 pub use self::function::{FromToNativeWasmType, Function, WasmTypeList};
-
 pub use self::global::Global;
 pub use self::memory::Memory;
 pub use self::table::Table;
-
 use super::exports::Exportable;
 use super::store::{Store, StoreObject};
 use near_vm_vm::Export;

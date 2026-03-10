@@ -1941,14 +1941,13 @@ fn stake(
 }
 
 mod check_dynamic_resharding {
+    use crate::runtime::check_dynamic_resharding;
     use near_primitives::epoch_manager::DynamicReshardingConfig;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::ShardId;
     use near_store::test_utils::{TestTriesBuilder, test_populate_trie};
     use near_store::{ShardUId, Trie};
-
-    use crate::runtime::check_dynamic_resharding;
 
     fn get_config(
         memory_usage_threshold: u64,

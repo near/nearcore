@@ -1,9 +1,8 @@
+use crate::utils::get_user_confirmation;
 use clap::Parser;
 use near_chain_configs::GenesisValidationMode;
 use near_store::NodeStorage;
 use std::path::Path;
-
-use crate::utils::get_user_confirmation;
 
 // TODO: remove this cmd once we have a proper way to rollback migration
 #[derive(Parser)]

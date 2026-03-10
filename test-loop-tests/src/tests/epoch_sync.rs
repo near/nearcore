@@ -1,6 +1,8 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
+use crate::utils::account::create_account_id;
+use crate::utils::node::TestLoopNode;
+use crate::utils::transactions::{BalanceMismatchError, execute_money_transfers};
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
@@ -14,12 +16,8 @@ use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockHeightDelta};
 use near_store::adapter::StoreAdapter;
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::env::TestLoopEnv;
-use crate::utils::account::create_account_id;
-use crate::utils::node::TestLoopNode;
-use crate::utils::transactions::{BalanceMismatchError, execute_money_transfers};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 const NUM_CLIENTS: usize = 4;
 
@@ -160,10 +158,8 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
             "AwaitingPeers",
             // State after having enough peers.
             "NoSync",
-            // EpochSync should be entered first.
+            // EpochSync should be entered and succeed.
             "EpochSync",
-            // EpochSync should succeed.
-            "EpochSyncDone",
             // Header sync happens next to bring forward HEADER_HEAD.
             "HeaderSync",
             // State sync downloads the state from state dumps.

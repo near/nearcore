@@ -1,12 +1,11 @@
+use crate::setup::builder::TestLoopBuilder;
+use crate::utils::account::create_account_id;
 use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_client::QueryError;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::gas::Gas;
 use near_primitives::types::{Balance, BlockId};
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::create_account_id;
 
 /// Demonstrates sending tokens between two user accounts.
 #[test]

@@ -240,14 +240,13 @@ fn get_key_from_shard_uid_and_hash(shard_uid: ShardUId, hash: &CryptoHash) -> [u
 
 #[cfg(test)]
 mod tests {
+    use crate::adapter::StoreAdapter;
+    use crate::db::metadata::{DB_VERSION, DbKind};
+    use crate::test_utils::{create_test_node_storage_with_cold, create_test_store};
     use assert_matches::assert_matches;
     use near_primitives::errors::{MissingTrieValue, StorageError};
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardUId;
-
-    use crate::adapter::StoreAdapter;
-    use crate::db::metadata::{DB_VERSION, DbKind};
-    use crate::test_utils::{create_test_node_storage_with_cold, create_test_store};
 
     const ONE: std::num::NonZeroU32 = match std::num::NonZeroU32::new(1) {
         Some(num) => num,

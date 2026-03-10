@@ -1,10 +1,9 @@
+use crate::setup::builder::{ArchivalKind, TestLoopBuilder};
 use near_async::messaging::Handler;
 use near_async::time::Duration;
 use near_client::GetBlock;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::types::{BlockId, BlockReference};
-
-use crate::setup::builder::{ArchivalKind, TestLoopBuilder};
 
 /// Demonstrates setting up an archival node with cold storage (split storage).
 ///

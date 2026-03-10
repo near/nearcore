@@ -284,12 +284,11 @@ impl Into<Vec<u8>> for Message {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use serde_json::Value;
     use serde_json::de::from_slice;
     use serde_json::json;
     use serde_json::ser::to_vec;
-
-    use super::*;
 
     /// Test serialization and deserialization of the Message
     ///

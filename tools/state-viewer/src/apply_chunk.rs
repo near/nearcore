@@ -1,3 +1,5 @@
+use crate::cli::StorageSource;
+use crate::util::check_apply_block_result;
 use anyhow::{Context, anyhow};
 use borsh::BorshDeserialize;
 use near_chain::chain::collect_receipts_from_response;
@@ -25,9 +27,6 @@ use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
-
-use crate::cli::StorageSource;
-use crate::util::check_apply_block_result;
 
 // `get_incoming_receipts_for_shard` implementation for the case when we don't
 // know of a block containing the target chunk

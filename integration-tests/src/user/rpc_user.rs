@@ -1,5 +1,5 @@
-use std::sync::Arc;
-
+use super::CommitError;
+use crate::user::User;
 use futures::{Future, TryFutureExt};
 use near_client::StatusResponse;
 use near_crypto::{PublicKey, Signer};
@@ -20,10 +20,7 @@ use near_primitives::views::{
     EpochValidatorInfo, ExecutionOutcomeView, FinalExecutionOutcomeView, QueryRequest,
     TxExecutionStatus, ViewStateResult,
 };
-
-use crate::user::User;
-
-use super::CommitError;
+use std::sync::Arc;
 
 pub struct RpcUser {
     account_id: AccountId,

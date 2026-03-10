@@ -1,6 +1,3 @@
-use std::collections::{HashMap, HashSet};
-use std::time::Instant;
-
 use crate::metrics;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{
@@ -8,6 +5,8 @@ use near_primitives::sharding::{
 };
 use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
 use std::collections::hash_map::Entry::Occupied;
+use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 use time::ext::InstantExt;
 
 // This file implements EncodedChunksCache, which provides three main functionalities:
@@ -335,18 +334,16 @@ impl EncodedChunksCache {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{HashMap, HashSet};
-
     use super::{DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON, MAX_HEIGHTS_AHEAD};
+    use crate::chunk_cache::EncodedChunksCache;
+    use crate::shards_manager_actor::ChunkRequestInfo;
     use near_crypto::KeyType;
     use near_primitives::hash::CryptoHash;
     use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV2};
     use near_primitives::types::Balance;
     use near_primitives::types::{Gas, ShardId};
     use near_primitives::validator_signer::InMemoryValidatorSigner;
-
-    use crate::chunk_cache::EncodedChunksCache;
-    use crate::shards_manager_actor::ChunkRequestInfo;
+    use std::collections::{HashMap, HashSet};
 
     fn create_chunk_header(height: u64, shard_id: ShardId) -> ShardChunkHeader {
         let signer =
