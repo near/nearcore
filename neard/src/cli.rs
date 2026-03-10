@@ -640,7 +640,7 @@ impl RunCmd {
 /// Archival nodes skip deletion to prevent accidental data loss.
 fn check_epoch_sync_data_reset_marker(hot_store_path: &Path, is_archival: bool) {
     let marker_path = hot_store_path.join(EPOCH_SYNC_DATA_RESET_MARKER_FILE_NAME);
-    if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) || !marker_path.exists() {
+    if !ProtocolFeature::SyncV2.enabled(PROTOCOL_VERSION) || !marker_path.exists() {
         return;
     }
     if is_archival {
