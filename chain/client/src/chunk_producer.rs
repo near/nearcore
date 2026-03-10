@@ -114,6 +114,7 @@ impl ChunkProducer {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         rng_seed: RngSeed,
         transaction_pool_size_limit: Option<u64>,
+        strict_nonce_ttl: BlockHeight,
         prepare_transactions_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Self {
         let data_parts = epoch_manager.num_data_parts();
@@ -134,6 +135,7 @@ impl ChunkProducer {
             sharded_tx_pool: Arc::new(Mutex::new(ShardedTransactionPool::new(
                 rng_seed,
                 transaction_pool_size_limit,
+                strict_nonce_ttl,
             ))),
             reed_solomon_encoder: ReedSolomon::new(data_parts, parity_parts).unwrap(),
             chunk_production_info: lru::LruCache::new(

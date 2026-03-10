@@ -3,8 +3,8 @@ use near_crypto::PublicKey;
 use near_o11y::metrics::prometheus::core::{AtomicI64, GenericGauge};
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::{CryptoHash, hash};
-use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
-use near_primitives::types::{AccountId, NonceIndex};
+use near_primitives::transaction::{NonceMode, SignedTransaction, ValidatedTransaction};
+use near_primitives::types::{AccountId, BlockHeight, NonceIndex};
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::ops::Bound;
@@ -38,6 +38,17 @@ pub struct TransactionPool {
     total_transaction_size_limit: Option<u64>,
     /// Total size of transactions in the pool measured in bytes.
     total_transaction_size: u64,
+    /// TTL in blocks for strict-nonce transactions. Strict-nonce transactions admitted more than
+    /// this many blocks ago are evicted on the next `update_head_height` call.
+    strict_nonce_ttl: BlockHeight,
+    /// Monotonically tracks the latest known block height. Used as the admission timestamp
+    /// when inserting strict-nonce transactions.
+    head_height: BlockHeight,
+    /// Maps admission height to (tx_hash, pool_key) pairs for TTL eviction.
+    /// Only strict-nonce transactions are tracked here. May contain stale entries
+    /// for transactions already removed via `remove_transactions`; these are
+    /// harmlessly skipped during eviction.
+    expiry_index: BTreeMap<BlockHeight, Vec<(CryptoHash, PoolKey)>>,
     /// Metrics tracked for transaction pool.
     transaction_pool_count_metric: GenericGauge<AtomicI64>,
     transaction_pool_size_metric: GenericGauge<AtomicI64>,
@@ -47,6 +58,7 @@ impl TransactionPool {
     pub fn new(
         key_seed: RngSeed,
         total_transaction_size_limit: Option<u64>,
+        strict_nonce_ttl: BlockHeight,
         metrics_label: &str,
     ) -> Self {
         let transaction_pool_count_metric =
@@ -64,6 +76,9 @@ impl TransactionPool {
             last_used_key: CryptoHash::default(),
             total_transaction_size_limit,
             total_transaction_size: 0,
+            strict_nonce_ttl,
+            head_height: 0,
+            expiry_index: BTreeMap::new(),
             transaction_pool_count_metric,
             transaction_pool_size_metric,
         }
@@ -114,12 +129,21 @@ impl TransactionPool {
         // (https://github.com/rust-lang/rust/issues/60896).
         assert_eq!(self.unique_transactions.insert(tx_hash), true);
         self.total_transaction_size = new_total_transaction_size;
+
         let signer_id = validated_tx.signer_id();
         let signer_public_key = validated_tx.public_key();
-        self.transactions
-            .entry(self.key(signer_id, signer_public_key, validated_tx.nonce().nonce_index()))
-            .or_insert_with(Vec::new)
-            .push(validated_tx);
+        let pool_key = self.key(signer_id, signer_public_key, validated_tx.nonce().nonce_index());
+
+        // Track strict-nonce transactions for TTL eviction. We use the pool's
+        // head_height as the admission time. On reorgs, reintroduced transactions
+        // get the current height, effectively resetting their TTL. This is
+        // acceptable since reorgs are short-lived and the reintroduced
+        // transactions are still valid candidates for inclusion.
+        if validated_tx.nonce_mode() == NonceMode::Strict {
+            self.expiry_index.entry(self.head_height).or_default().push((tx_hash, pool_key));
+        }
+
+        self.transactions.entry(pool_key).or_insert_with(Vec::new).push(validated_tx);
 
         self.transaction_pool_count_metric.inc();
         self.transaction_pool_size_metric.set(self.total_transaction_size as i64);
@@ -141,7 +165,8 @@ impl TransactionPool {
         let mut grouped_transactions = HashMap::new();
         for signed_tx in signed_txs {
             // If transaction is not present in the pool, skip it.
-            if !self.unique_transactions.remove(&signed_tx.get_hash()) {
+            let tx_hash = signed_tx.get_hash();
+            if !self.unique_transactions.remove(&tx_hash) {
                 continue;
             }
 
@@ -189,6 +214,51 @@ impl TransactionPool {
     /// Returns the total size of transactions in the pool in bytes.
     pub fn transaction_size(&self) -> u64 {
         self.total_transaction_size
+    }
+
+    /// Monotonically tracks the latest known block height. Uses max() so
+    /// forks to lower heights don't regress the clock. Also evicts
+    /// strict-nonce transactions whose TTL has expired.
+    pub fn update_head_height(&mut self, height: BlockHeight) {
+        self.head_height = self.head_height.max(height);
+        self.evict_expired_transactions();
+    }
+
+    fn evict_expired_transactions(&mut self) {
+        if self.head_height <= self.strict_nonce_ttl {
+            return;
+        }
+        let cutoff = self.head_height - self.strict_nonce_ttl;
+        let to_keep = self.expiry_index.split_off(&cutoff);
+        let expired = std::mem::replace(&mut self.expiry_index, to_keep);
+
+        let mut evicted_any = false;
+        for (_height, entries) in expired {
+            for (tx_hash, pool_key) in entries {
+                if !self.unique_transactions.remove(&tx_hash) {
+                    continue;
+                }
+                evicted_any = true;
+                let Entry::Occupied(mut entry) = self.transactions.entry(pool_key) else {
+                    continue;
+                };
+                let group = entry.get_mut();
+                if let Some(pos) = group.iter().position(|tx| tx.get_hash() == tx_hash) {
+                    let tx = group.swap_remove(pos);
+                    self.total_transaction_size = self
+                        .total_transaction_size
+                        .checked_sub(tx.get_size())
+                        .expect("total transaction size dropped below zero");
+                }
+                if entry.get().is_empty() {
+                    entry.remove_entry();
+                }
+            }
+        }
+        if evicted_any {
+            self.transaction_pool_count_metric.set(self.unique_transactions.len() as i64);
+            self.transaction_pool_size_metric.set(self.total_transaction_size as i64);
+        }
     }
 }
 
@@ -327,13 +397,16 @@ mod tests {
     use super::*;
     use near_crypto::{InMemorySigner, KeyType};
     use near_primitives::hash::CryptoHash;
-    use near_primitives::transaction::{SignedTransaction, TransactionNonce};
+    use near_primitives::transaction::{
+        Action, SignedTransaction, TransactionNonce, TransferAction,
+    };
     use near_primitives::types::Balance;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rand::seq::SliceRandom;
     use std::sync::Arc;
     const TEST_SEED: RngSeed = [3; 32];
+    const TEST_STRICT_NONCE_TTL: BlockHeight = 64;
 
     fn generate_transactions(
         signer_id: &str,
@@ -391,7 +464,7 @@ mod tests {
         mut validated_txs: Vec<ValidatedTransaction>,
         expected_weight: u32,
     ) -> (Vec<u64>, TransactionPool) {
-        let mut pool = TransactionPool::new(TEST_SEED, None, "");
+        let mut pool = TransactionPool::new(TEST_SEED, None, TEST_STRICT_NONCE_TTL, "");
         let mut rng = StdRng::seed_from_u64(0);
         validated_txs.shuffle(&mut rng);
         for validated_tx in validated_txs {
@@ -505,7 +578,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        let mut pool = TransactionPool::new(TEST_SEED, None, "");
+        let mut pool = TransactionPool::new(TEST_SEED, None, TEST_STRICT_NONCE_TTL, "");
         let mut rng = StdRng::seed_from_u64(0);
         transactions.shuffle(&mut rng);
         for tx in transactions.clone() {
@@ -621,7 +694,7 @@ mod tests {
 
     #[test]
     fn test_transaction_pool_size() {
-        let mut pool = TransactionPool::new(TEST_SEED, None, "");
+        let mut pool = TransactionPool::new(TEST_SEED, None, TEST_STRICT_NONCE_TTL, "");
         let transactions = generate_transactions("alice.near", "alice.near", 1, 100);
         let mut total_transaction_size = 0;
         // Adding transactions increases the size.
@@ -645,7 +718,8 @@ mod tests {
         // Each transaction is at least 1 byte in size, so the last transaction will not fit.
         let pool_size_limit =
             transactions.iter().map(|tx| tx.get_size()).sum::<u64>().checked_sub(1).unwrap();
-        let mut pool = TransactionPool::new(TEST_SEED, Some(pool_size_limit), "");
+        let mut pool =
+            TransactionPool::new(TEST_SEED, Some(pool_size_limit), TEST_STRICT_NONCE_TTL, "");
         for (i, tx) in transactions.iter().cloned().enumerate() {
             if i + 1 < transactions.len() {
                 assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::Success);
@@ -662,7 +736,7 @@ mod tests {
         let mut transactions = generate_transactions_v1("alice.near", "alice.near", 1, 5, Some(0));
         transactions.extend(generate_transactions_v1("alice.near", "alice.near", 1, 5, Some(1)));
 
-        let mut pool = TransactionPool::new(TEST_SEED, None, "");
+        let mut pool = TransactionPool::new(TEST_SEED, None, TEST_STRICT_NONCE_TTL, "");
         let mut rng = StdRng::seed_from_u64(0);
         transactions.shuffle(&mut rng);
         for tx in transactions {
@@ -709,7 +783,7 @@ mod tests {
             ));
         }
 
-        let mut pool = TransactionPool::new(TEST_SEED, None, "");
+        let mut pool = TransactionPool::new(TEST_SEED, None, TEST_STRICT_NONCE_TTL, "");
         let mut rng = StdRng::seed_from_u64(0);
         transactions.shuffle(&mut rng);
         for tx in transactions.clone() {
@@ -755,7 +829,7 @@ mod tests {
     /// iterator should park stalled groups and terminate.
     #[test]
     fn test_stalled_groups_do_not_starve_valid_groups() {
-        let mut pool = TransactionPool::new(TEST_SEED, None, "");
+        let mut pool = TransactionPool::new(TEST_SEED, None, TEST_STRICT_NONCE_TTL, "");
 
         // 3 groups: "alice" (5 txs), "bob" (3 txs), "stalled" (2 txs).
         let (tx_count_alice, tx_count_bob, tx_count_stalled) = (5, 3, 2);
@@ -788,5 +862,76 @@ mod tests {
 
         assert_eq!(consumed.len() as u64, tx_count_alice + tx_count_bob);
         assert_eq!(pool.len() as u64, tx_count_stalled);
+    }
+
+    fn generate_strict_nonce_transactions(
+        signer_id: &str,
+        signer_seed: &str,
+        starting_nonce: u64,
+        end_nonce: u64,
+    ) -> Vec<ValidatedTransaction> {
+        let signer_id: AccountId = signer_id.parse().unwrap();
+        let signer =
+            Arc::new(InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, signer_seed));
+        (starting_nonce..=end_nonce)
+            .map(|i| {
+                let signed_tx = SignedTransaction::from_actions_v1_strict(
+                    TransactionNonce::from_nonce(i),
+                    signer_id.clone(),
+                    "bob.near".parse().unwrap(),
+                    &*signer,
+                    vec![Action::Transfer(TransferAction {
+                        deposit: Balance::from_yoctonear(u128::from(i)),
+                    })],
+                    CryptoHash::default(),
+                );
+                ValidatedTransaction::new_for_test(signed_tx)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_strict_nonce_ttl_eviction() {
+        let ttl = 10;
+        let mut pool = TransactionPool::new(TEST_SEED, None, ttl, "");
+
+        let strict_txs = generate_strict_nonce_transactions("alice.near", "alice.near", 1, 3);
+        let monotonic_txs = generate_transactions("bob.near", "bob.near", 1, 3);
+        for tx in strict_txs {
+            assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::Success);
+        }
+        for tx in monotonic_txs {
+            assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::Success);
+        }
+        assert_eq!(pool.len(), 6);
+
+        // At the TTL boundary, nothing evicted yet.
+        pool.update_head_height(ttl);
+        assert_eq!(pool.len(), 6);
+
+        // Past TTL: only strict-nonce txs evicted, monotonic unaffected.
+        pool.update_head_height(ttl + 1);
+        assert_eq!(pool.len(), 3);
+        assert!(pool.transaction_size() > 0);
+    }
+
+    #[test]
+    fn test_strict_nonce_remove_then_evict() {
+        let ttl = 10;
+        let mut pool = TransactionPool::new(TEST_SEED, None, ttl, "");
+
+        let txs = generate_strict_nonce_transactions("alice.near", "alice.near", 1, 3);
+        let signed_txs: Vec<_> = txs.iter().map(|tx| tx.clone().into_signed_tx()).collect();
+        for tx in txs {
+            assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::Success);
+        }
+
+        // Remove via normal path (block inclusion), then evict.
+        // Stale entries in expiry_index should be harmlessly skipped.
+        pool.remove_transactions(&signed_txs);
+        assert_eq!(pool.len(), 0);
+        pool.update_head_height(ttl + 1);
+        assert_eq!(pool.len(), 0);
+        assert_eq!(pool.transaction_size(), 0);
     }
 }

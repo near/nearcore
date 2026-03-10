@@ -611,6 +611,10 @@ pub fn default_transaction_pool_size_limit() -> Option<u64> {
     Some(100_000_000) // 100 MB.
 }
 
+pub fn default_transaction_pool_strict_nonce_ttl_blocks() -> BlockHeight {
+    64
+}
+
 pub fn default_tx_routing_height_horizon() -> BlockHeightDelta {
     4
 }
@@ -823,6 +827,9 @@ pub struct ClientConfig {
     /// Limit of the size of per-shard transaction pool measured in bytes. If not set, the size
     /// will be unbounded.
     pub transaction_pool_size_limit: Option<u64>,
+    /// TTL in blocks for strict-nonce transactions in the pool. Strict-nonce transactions that
+    /// have been in the pool longer than this many blocks are evicted.
+    pub transaction_pool_strict_nonce_ttl_blocks: BlockHeight,
     // Allows more detailed logging, for example a list of orphaned blocks.
     pub enable_multiline_logging: bool,
     // Configuration for resharding.

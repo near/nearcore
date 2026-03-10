@@ -387,6 +387,7 @@ impl Client {
             runtime_adapter.clone(),
             rng_seed,
             config.transaction_pool_size_limit,
+            config.transaction_pool_strict_nonce_ttl_blocks,
             multi_spawner.prepare_transactions,
         );
 
@@ -1795,6 +1796,7 @@ impl Client {
                 }
             }
         };
+        self.chunk_producer.sharded_tx_pool.lock().update_head_height(block.header().height());
         true
     }
 
