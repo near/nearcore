@@ -731,7 +731,7 @@ impl EpochManager {
         layouts
     }
 
-    /// Checks if resharding can be scheduled in 2 epochs from now (assuming `block_info` belongs
+    /// Checks if resharding can be scheduled in 2 epochs from now (assuming `block_hash` belongs
     /// to the current epoch), based on `min_epochs_between_resharding`.
     ///
     /// Returns `true` if no resharding occurred in the last N epochs (including the next one).
@@ -1175,7 +1175,7 @@ impl EpochManager {
     /// Parameters:
     ///  - `block_height`: the height of the block being produced
     ///  - `parent_hash`: hash of the parent block (the block we're building on top of)
-    pub fn is_next_block_last_possibly_in_epoch(
+    pub fn is_next_block_possibly_last_in_epoch(
         &self,
         block_height: BlockHeight,
         parent_hash: &CryptoHash,

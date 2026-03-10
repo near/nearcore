@@ -126,7 +126,7 @@ pub trait EpochManagerAdapter: Send + Sync {
         parent_hash: &CryptoHash,
     ) -> Result<bool, EpochError>;
 
-    /// Checks if resharding can be scheduled in 2 epochs from now (assuming `block_info` belongs
+    /// Checks if resharding can be scheduled in 2 epochs from now (assuming `block_hash` belongs
     /// to the current epoch), based on `min_epochs_between_resharding`.
     ///
     /// Returns `true` if no resharding occurred in the last N epochs (including the next one).
@@ -900,7 +900,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
         parent_hash: &CryptoHash,
     ) -> Result<bool, EpochError> {
         let epoch_manager = self.read();
-        epoch_manager.is_next_block_last_possibly_in_epoch(block_height, parent_hash)
+        epoch_manager.is_next_block_possibly_last_in_epoch(block_height, parent_hash)
     }
 
     fn can_reshard(

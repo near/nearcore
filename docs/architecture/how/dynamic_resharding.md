@@ -79,7 +79,7 @@ The algorithm enforces that the resulting boundary account ID is valid: at least
 
 ### 2.2 Proposing a Shard Split
 
-Near the end of each epoch, during chunk application, the runtime checks whether a shard should be split. The check is skipped for blocks that are not near the epoch boundary (using `is_next_block_last_possibly_in_epoch`) and when the resharding cooldown has not elapsed (`can_reshard`). The decision logic has the following priority:
+Near the end of each epoch, during chunk application, the runtime checks whether a shard should be split. The check is skipped for blocks that are not near the epoch boundary (using `is_next_block_possibly_last_in_epoch`) and when the resharding cooldown has not elapsed (`can_reshard`). The decision logic has the following priority:
 
 1. **Max shard count check** (highest priority): If `num_shards >= max_number_of_shards`, no split. This overrides everything, including force-split.
 2. **Force split**: If the shard is in `force_split_shards`, split it regardless of memory thresholds.
@@ -156,7 +156,7 @@ Both `proposed_split` and `shard_split` are validated to prevent forging:
 
 ### Runtime (`chain/chain/src/runtime/mod.rs`)
 
-- **`NightshadeRuntime::compute_proposed_split`** -- Called during `apply_transactions`. Gates on `DynamicResharding` feature flag, checks if the next block could be the last of the epoch (`is_next_block_last_possibly_in_epoch`), checks the resharding cooldown (`can_reshard`), then delegates to `check_dynamic_resharding`.
+- **`NightshadeRuntime::compute_proposed_split`** -- Called during `apply_transactions`. Gates on `DynamicResharding` feature flag, checks if the next block could be the last of the epoch (`is_next_block_possibly_last_in_epoch`), checks the resharding cooldown (`can_reshard`), then delegates to `check_dynamic_resharding`.
 - **`check_dynamic_resharding`** -- Module-level function implementing the threshold-based decision logic (max shards, force/block lists, memory threshold, min child size).
 
 ### Epoch Manager (`chain/epoch-manager/src/lib.rs`)
@@ -168,7 +168,7 @@ Both `proposed_split` and `shard_split` are validated to prevent forging:
 - **`get_shard_layout`** -- Single source of truth for shard layouts. Checks `EpochInfo::shard_layout()` first (V5+), falls back to `EpochConfig::static_shard_layout()` for older versions.
 - **`get_shard_layout_history`** -- Collects all distinct static shard layouts across protocol versions (newest to oldest). Used for bootstrapping V3 from V1/V2.
 - **`is_produced_block_last_in_epoch`** -- Like `is_next_block_epoch_start`, but works for blocks not yet in the store. Used during block production to decide whether to include `shard_split`.
-- **`is_next_block_last_possibly_in_epoch`** -- Conservative variant of `is_produced_block_last_in_epoch` that checks if the *next* block (one ahead of the one being produced) could be the last of the epoch. May produce false positives but never false negatives. Used by `compute_proposed_split` because the proposed split computed at block H appears in chunk headers at block H+1.
+- **`is_next_block_possibly_last_in_epoch`** -- Conservative variant of `is_produced_block_last_in_epoch` that checks if the *next* block (one ahead of the one being produced) could be the last of the epoch. May produce false positives but never false negatives. Used by `compute_proposed_split` because the proposed split computed at block H appears in chunk headers at block H+1.
 
 ### Validation (`chain/chain/src/validate.rs`)
 
