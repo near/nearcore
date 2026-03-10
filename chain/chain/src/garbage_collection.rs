@@ -1086,6 +1086,15 @@ impl<'a> ChainStoreUpdate<'a> {
 
     fn gc_outgoing_receipts(&mut self, block_hash: &CryptoHash, shard_id: ShardId) {
         let mut store_update = self.store().store_update();
+        // GC ReceiptToTx for all outgoing receipts. This is necessary because
+        // ReceiptToTx is written on the source shard, but gc_outcomes deletes
+        // based on OutcomeIds which are recorded on the destination shard.
+        // A node that only tracks the source shard would never GC these entries.
+        if let Ok(receipts) = self.chain_store().get_outgoing_receipts(block_hash, shard_id) {
+            for receipt in receipts.iter() {
+                store_update.delete(DBCol::ReceiptToTx, receipt.receipt_id().as_bytes());
+            }
+        }
         let key = get_block_shard_id(block_hash, shard_id);
         store_update.delete(DBCol::OutgoingReceipts, &key);
         self.merge(store_update);
