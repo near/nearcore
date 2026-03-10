@@ -287,6 +287,76 @@ fn test_state_sync_miss_chunks_first_block() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
+// Drop shards 0 and 1 chunks at offset 1 (second block of each epoch). Similar to
+// first_block but the miss is one block later.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_state_sync_miss_chunks_second_block() {
+    init_test_logger();
+    let validators_spec = create_validators_spec(5, 0);
+    let clients = validators_spec_clients(&validators_spec);
+    let accounts = make_accounts(10);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(EPOCH_LENGTH)
+        .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(4), 1))
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&accounts, INITIAL_USER_BALANCE)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .build_store_for_genesis_protocol_version();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients.clone())
+        .build()
+        .drop(DropCondition::ChunksProducedByHeight(HashMap::from([
+            (ShardId::new(0), vec![true, false]),
+            (ShardId::new(1), vec![true, false]),
+        ])))
+        .warmup();
+    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
+    env.node_runner(0).run_for_number_of_blocks(40);
+    assert_shard_shuffling_happened(&env, &clients);
+    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
+}
+
+// Drop shards 0 and 2 chunks at offset 2 (third block of each epoch). The sync hash is
+// shifted one block later than usual.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_state_sync_miss_chunks_third_block() {
+    init_test_logger();
+    let validators_spec = create_validators_spec(5, 0);
+    let clients = validators_spec_clients(&validators_spec);
+    let accounts = make_accounts(10);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(EPOCH_LENGTH)
+        .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(4), 1))
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&accounts, INITIAL_USER_BALANCE)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .build_store_for_genesis_protocol_version();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients.clone())
+        .build()
+        .drop(DropCondition::ChunksProducedByHeight(HashMap::from([
+            (ShardId::new(0), vec![true, true, false]),
+            (ShardId::new(2), vec![true, true, false]),
+        ])))
+        .warmup();
+    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
+    env.node_runner(0).run_for_number_of_blocks(40);
+    assert_shard_shuffling_happened(&env, &clients);
+    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
+}
+
 // Miss chunks at the sync hash block itself (4th block, shards 0, 1). The sync hash block
 // has missing chunks, testing that state sync handles this edge case correctly.
 #[test]
@@ -315,6 +385,41 @@ fn test_state_sync_miss_chunks_sync_block() {
         .drop(DropCondition::ChunksProducedByHeight(HashMap::from([
             (ShardId::new(0), vec![true, true, true, false]),
             (ShardId::new(1), vec![true, true, true, false]),
+        ])))
+        .warmup();
+    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
+    env.node_runner(0).run_for_number_of_blocks(40);
+    assert_shard_shuffling_happened(&env, &clients);
+    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
+}
+
+// Miss shard 1 at offset 3 (sync hash block) and shard 3 at offset 1. Combines an early
+// miss with a miss at the sync hash — a composite of the first_block and sync_block patterns.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_state_sync_miss_chunks_sync_prev_block() {
+    init_test_logger();
+    let validators_spec = create_validators_spec(5, 0);
+    let clients = validators_spec_clients(&validators_spec);
+    let accounts = make_accounts(10);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(EPOCH_LENGTH)
+        .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(4), 1))
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&accounts, INITIAL_USER_BALANCE)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .build_store_for_genesis_protocol_version();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients.clone())
+        .build()
+        .drop(DropCondition::ChunksProducedByHeight(HashMap::from([
+            (ShardId::new(1), vec![true, true, true, false]),
+            (ShardId::new(3), vec![true, false, true, true]),
         ])))
         .warmup();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
