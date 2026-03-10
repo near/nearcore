@@ -287,12 +287,11 @@ impl BlockSync {
         &mut self,
         chain: &Chain,
         highest_height_peers: &[HighestHeightPeerInfo],
-        max_block_requests: usize,
     ) -> Result<(), near_chain::Error> {
         let head = chain.head()?;
         match self.block_request_due(&head) {
             BlockSyncDue::RequestBlock => {
-                self.block_sync(chain, highest_height_peers, max_block_requests)?;
+                self.block_sync(chain, highest_height_peers)?;
             }
             BlockSyncDue::WaitForBlock => {}
             BlockSyncDue::StateSync => unreachable!("block_request_due never returns StateSync"),

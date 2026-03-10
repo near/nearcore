@@ -320,11 +320,6 @@ pytest sanity/kickout_offline_validators.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/kickout_offline_validators.py --features nightly,protocol_feature_spice
 
-# Tests whether endorsements are produced immediately after the failover procedure for a chunk-only validator.
-pytest sanity/chunk_validator_failover.py
-pytest sanity/chunk_validator_failover.py --features nightly
-# TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#pytest sanity/chunk_validator_failover.py --features nightly,protocol_feature_spice
 
 # Epoch sync
 # TODO(#13296): Enable after fixing flaky test

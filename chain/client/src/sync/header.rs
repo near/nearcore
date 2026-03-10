@@ -1,7 +1,7 @@
 use near_async::messaging::CanSend;
 use near_async::time::{Clock, Duration, Utc};
 use near_chain::{Chain, ChainStoreAccess};
-use near_client_primitives::types::SyncStatus;
+use near_client_primitives::types::{EpochSyncStatus, SyncStatus};
 use near_network::types::{HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter};
 use near_network::types::{PeerManagerMessageRequest, ReasonForBan};
 use near_primitives::block::Tip;
@@ -113,7 +113,7 @@ impl HeaderSync {
     /// of headers from a peer. Does not signal when header sync is complete.
     ///
     /// Header sync operates in two modes depending on `sync_status`:
-    /// - **Primary mode** (NoSync, AwaitingPeers, EpochSyncDone, StateSyncDone,
+    /// - **Primary mode** (NoSync, AwaitingPeers, EpochSync(Done), StateSyncDone,
     ///   or already HeaderSync): transitions `sync_status` to `HeaderSync`.
     /// - **Background mode** (StateSync, BlockSync): requests headers without
     ///   changing `sync_status`. The primary sync activity retains ownership
@@ -143,7 +143,7 @@ impl HeaderSync {
         // TODO: Why call `header_sync_due()` if that decision can be overridden here?
         let action = match sync_status {
             SyncStatus::HeaderSync { .. }
-            | SyncStatus::EpochSyncDone
+            | SyncStatus::EpochSync(EpochSyncStatus::Done)
             | SyncStatus::StateSyncDone => HeaderSyncAction::SyncAndUpdateStatus,
             SyncStatus::NoSync | SyncStatus::AwaitingPeers => {
                 tracing::debug!(target: "sync", header_head_hash = ?header_head.last_block_hash, header_head_height = header_head.height, "initial transition to header sync");
@@ -152,7 +152,9 @@ impl HeaderSync {
             SyncStatus::StateSync { .. } | SyncStatus::BlockSync { .. } => {
                 HeaderSyncAction::SyncInBackground
             }
-            SyncStatus::EpochSync { .. } => HeaderSyncAction::Skip,
+            SyncStatus::EpochSync(
+                EpochSyncStatus::NotStarted | EpochSyncStatus::InProgress { .. },
+            ) => HeaderSyncAction::Skip,
         };
 
         // When header sync is the primary sync mode, update sync_status to
@@ -166,7 +168,7 @@ impl HeaderSync {
                 let start_height = match sync_status {
                     // After epoch sync head is at genesis; use header_head
                     // which reflects where header sync actually starts.
-                    SyncStatus::EpochSyncDone => header_head.height,
+                    SyncStatus::EpochSync(EpochSyncStatus::Done) => header_head.height,
                     _ => sync_status.start_height().unwrap_or(head.height),
                 };
                 sync_status.update(SyncStatus::HeaderSync {
@@ -331,7 +333,9 @@ impl HeaderSync {
         // Always enable header sync if we're transitioning into it.
         let force_sync = matches!(
             sync_status,
-            SyncStatus::NoSync | SyncStatus::AwaitingPeers | SyncStatus::EpochSyncDone
+            SyncStatus::NoSync
+                | SyncStatus::AwaitingPeers
+                | SyncStatus::EpochSync(EpochSyncStatus::Done)
         );
 
         if force_sync {
