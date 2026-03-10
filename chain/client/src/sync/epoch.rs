@@ -1,4 +1,5 @@
 use crate::client_actor::{ClientActor, ShutdownReason};
+use crate::sync::SYNC_V2_ENABLED;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Handler};
 use near_async::time::Clock;
@@ -170,9 +171,7 @@ impl EpochSync {
         // Without SyncV2, only fresh (genesis) nodes may epoch sync. Stale nodes
         // (tip beyond genesis) must not — there is no handler to manage the
         // post-epoch-sync pipeline (headers → state → blocks).
-        if !ProtocolFeature::SyncV2.enabled(PROTOCOL_VERSION)
-            && tip_height != chain.genesis().height()
-        {
+        if !SYNC_V2_ENABLED && tip_height != chain.genesis().height() {
             return Ok(false);
         }
         tracing::debug!(tip_height, highest_height, horizon, "epoch sync needed");
@@ -697,7 +696,7 @@ impl Handler<EpochSyncResponseMessage> for ClientActor {
             }
         };
         let genesis_height = self.client.chain.genesis().height();
-        if ProtocolFeature::SyncV2.enabled(PROTOCOL_VERSION) && tip_height != genesis_height {
+        if super::SYNC_V2_ENABLED && tip_height != genesis_height {
             tracing::info!("stale node validated epoch sync proof, requesting data reset");
             if let Some(tx) = self.shutdown_signal.take() {
                 let _ = tx.send(ShutdownReason::EpochSyncDataReset);

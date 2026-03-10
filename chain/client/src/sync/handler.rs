@@ -1,3 +1,4 @@
+use super::SYNC_V2_ENABLED;
 use super::block::BlockSync;
 use super::epoch::EpochSync;
 use super::header::HeaderSync;
@@ -12,7 +13,6 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::types::HighestHeightPeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 
 // A small helper macro to unwrap a result of some state sync operation. If the
 // result is an error this macro will log it and return from the function.
@@ -67,9 +67,9 @@ impl SyncHandler {
 
     /// Handle the SyncRequirement::SyncNeeded.
     ///
-    /// Dispatches to v1 or v2 handler based on protocol version. When
-    /// `ProtocolFeature::SyncV2` is enabled, the v2 logic runs.
-    /// Otherwise, falls back to the legacy v1 handler below.
+    /// Dispatches to v1 or v2 handler based on `SYNC_V2_ENABLED`.
+    /// When enabled, the v2 logic runs. Otherwise, falls back to the
+    /// legacy v1 handler below.
     pub fn handle_sync_needed(
         &mut self,
         chain: &mut Chain,
@@ -78,7 +78,7 @@ impl SyncHandler {
         highest_height_peers: &[HighestHeightPeerInfo],
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Option<SyncHandlerRequest> {
-        if ProtocolFeature::SyncV2.enabled(PROTOCOL_VERSION) {
+        if SYNC_V2_ENABLED {
             match self.handle_sync_needed_v2(
                 chain,
                 shard_tracker,
