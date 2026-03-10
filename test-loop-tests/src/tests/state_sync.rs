@@ -24,7 +24,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Nonce, NumSeats, ShardId,
 };
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
