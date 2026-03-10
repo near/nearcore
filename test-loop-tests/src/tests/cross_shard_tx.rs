@@ -1,5 +1,9 @@
-use std::sync::Arc;
-
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
+use crate::setup::state::NodeExecutionData;
+use crate::utils::get_node_data;
+use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
+use crate::utils::transactions::get_anchor_hash;
 use itertools::Itertools as _;
 use near_async::messaging::{CanSend as _, Handler as _};
 use near_async::test_loop::data::TestLoopData;
@@ -15,13 +19,7 @@ use near_primitives::types::{AccountId, Balance, BlockReference, NumSeats};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use parking_lot::RwLock;
 use rand::{Rng as _, thread_rng};
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::env::TestLoopEnv;
-use crate::setup::state::NodeExecutionData;
-use crate::utils::get_node_data;
-use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
-use crate::utils::transactions::get_anchor_hash;
+use std::sync::Arc;
 
 struct Params {
     num_transfers: usize,

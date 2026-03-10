@@ -254,11 +254,10 @@ impl ApplyChunksDoneWaiter {
 
 #[cfg(test)]
 mod tests {
+    use super::ApplyChunksDoneWaiter;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
-
-    use super::ApplyChunksDoneWaiter;
 
     #[test]
     fn test_apply_chunks_with_multiple_waiters() {

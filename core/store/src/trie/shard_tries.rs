@@ -916,13 +916,12 @@ impl KeyForStateChanges {
 
 #[cfg(test)]
 mod test {
+    use super::*;
     use crate::adapter::StoreAdapter;
     use crate::{
         TrieConfig, config::TrieCacheConfig, test_utils::create_test_store,
         trie::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
     };
-
-    use super::*;
     use std::{assert_eq, str::FromStr};
 
     fn create_trie() -> ShardTries {

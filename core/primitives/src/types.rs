@@ -1,3 +1,4 @@
+use self::chunk_extra::ChunkExtra;
 use crate::account::{AccessKey, Account};
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
@@ -16,8 +17,6 @@ use serde_with::serde_as;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::LazyLock;
-
-use self::chunk_extra::ChunkExtra;
 
 mod chunk_validator_stats;
 
@@ -585,13 +584,12 @@ pub struct ApprovalStake {
 }
 
 pub mod validator_stake {
+    pub use super::ValidatorStakeV1;
     use crate::types::ApprovalStake;
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_crypto::{KeyType, PublicKey};
     use near_primitives_core::types::{AccountId, Balance};
     use serde::Serialize;
-
-    pub use super::ValidatorStakeV1;
 
     /// Stores validator and its stake.
     #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
@@ -1367,10 +1365,9 @@ pub enum PromiseYieldStatus {
 
 #[cfg(test)]
 mod tests {
+    use super::validator_stake::ValidatorStake;
     use near_crypto::{KeyType, PublicKey};
     use near_primitives_core::types::Balance;
-
-    use super::validator_stake::ValidatorStake;
 
     fn new_validator_stake(stake: Balance) -> ValidatorStake {
         ValidatorStake::new(

@@ -2,11 +2,9 @@ use crate::errors::ImplicitPublicKeyError;
 use crate::{KeyType, PublicKey};
 use borsh::BorshDeserialize;
 use curve25519_dalek::ristretto::CompressedRistretto;
-use curve25519_dalek::traits::VartimeMultiscalarMul;
-
 pub use curve25519_dalek::ristretto::RistrettoPoint as Point;
 pub use curve25519_dalek::scalar::Scalar;
-
+use curve25519_dalek::traits::VartimeMultiscalarMul;
 use near_account_id::AccountType;
 
 // cspell:words vmul vartime multiscalar

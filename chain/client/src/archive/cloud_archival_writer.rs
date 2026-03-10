@@ -1,8 +1,5 @@
 //! Cloud archival writer: moves finalized data from the hot store to the cloud storage.
 //! Runs in a loop until the cloud head catches up with the hot final head.
-use std::io;
-use std::sync::Arc;
-
 use futures::FutureExt;
 use near_async::futures::FutureSpawner;
 use near_async::time::Clock;
@@ -17,6 +14,8 @@ use near_store::archive::cloud_storage::archive::CloudArchivingError;
 use near_store::archive::cloud_storage::retrieve::CloudRetrievalError;
 use near_store::db::{CLOUD_HEAD_KEY, DBTransaction};
 use near_store::{DBCol, FINAL_HEAD_KEY, Store};
+use std::io;
+use std::sync::Arc;
 use time::Duration;
 
 /// Result of a single archiving attempt.

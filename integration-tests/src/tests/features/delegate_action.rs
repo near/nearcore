@@ -3,6 +3,10 @@
 //! NEP: https://github.com/near/NEPs/pull/366
 //! This is the module for its integration tests.
 
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
+use crate::node::{Node, RuntimeNode};
+use crate::tests::standard_cases::fee_helper;
 use near_chain_configs::Genesis;
 use near_crypto::{KeyType, PublicKey};
 use near_parameters::ActionCosts;
@@ -31,11 +35,6 @@ use testlib::runtime_utils::{
     add_account_with_access_key, add_contract, add_test_contract, alice_account, bob_account,
     carol_account, eve_dot_alice_account,
 };
-
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
-use crate::node::{Node, RuntimeNode};
-use crate::tests::standard_cases::fee_helper;
 
 /// For test adding a function access key with allowance.
 const INITIAL_ALLOWANCE: Balance = Balance::from_near(1);

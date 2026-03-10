@@ -3,7 +3,6 @@ use crate::logic::tests::helpers::*;
 use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
 use crate::logic::types::{GlobalContractDeployMode, GlobalContractIdentifier, PromiseResult};
 use crate::map;
-
 use near_crypto::PublicKey;
 use near_parameters::{ActionCosts, ExtCosts};
 use near_primitives_core::config::AccountIdValidityRulesVersion;

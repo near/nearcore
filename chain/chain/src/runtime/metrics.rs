@@ -2,7 +2,6 @@ use near_o11y::metrics::{
     HistogramVec, IntGaugeVec, exponential_buckets, linear_buckets, try_create_histogram_vec,
     try_create_int_gauge_vec,
 };
-
 use std::sync::LazyLock;
 
 pub(crate) static APPLY_CHUNK_DELAY: LazyLock<HistogramVec> = LazyLock::new(|| {

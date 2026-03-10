@@ -1,9 +1,8 @@
+use crate::setup::builder::TestLoopBuilder;
 use near_async::time::Duration;
 use near_chain_configs::MutableConfigValue;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::types::BlockHeight;
-
-use crate::setup::builder::TestLoopBuilder;
 
 /// Test that the shutdown signal integration with test-loop works correctly.
 /// When ClientActor's expected_shutdown triggers, it consumes the shutdown_signal,

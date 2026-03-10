@@ -420,18 +420,16 @@ impl StoreValidator {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::runtime::NightshadeRuntime;
+    use crate::types::ChainConfig;
+    use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
+    use near_async::messaging::{IntoMultiSender, noop};
     use near_async::time::Clock;
     use near_chain_configs::{Genesis, MutableConfigValue};
     use near_epoch_manager::EpochManager;
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
-
-    use crate::runtime::NightshadeRuntime;
-    use crate::types::ChainConfig;
-    use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
-
-    use super::*;
-    use near_async::messaging::{IntoMultiSender, noop};
 
     fn init() -> (Chain, StoreValidator) {
         let store = create_test_store();

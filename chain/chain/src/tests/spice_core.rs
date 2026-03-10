@@ -1,3 +1,9 @@
+use crate::spice_core::{SpiceCoreReader, record_uncertified_chunks_for_block};
+use crate::spice_core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
+use crate::test_utils::{
+    get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
+};
+use crate::{BlockProcessingArtifact, Chain, Provenance};
 use assert_matches::assert_matches;
 use itertools::Itertools as _;
 use near_async::messaging::{Handler as _, IntoSender as _, noop};
@@ -25,13 +31,6 @@ use near_store::adapter::StoreAdapter as _;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
-
-use crate::spice_core::{SpiceCoreReader, record_uncertified_chunks_for_block};
-use crate::spice_core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
-use crate::test_utils::{
-    get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
-};
-use crate::{BlockProcessingArtifact, Chain, Provenance};
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]

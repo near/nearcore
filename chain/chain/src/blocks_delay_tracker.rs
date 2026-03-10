@@ -1,3 +1,4 @@
+use crate::{Chain, ChainStoreAccess, metrics};
 use lru::LruCache;
 use near_async::time::{Clock, Instant, Utc};
 use near_epoch_manager::EpochManagerAdapter;
@@ -15,8 +16,6 @@ use std::collections::{BTreeMap, HashMap, hash_map::Entry};
 use std::mem;
 use std::num::NonZeroUsize;
 use time::ext::InstantExt as _;
-
-use crate::{Chain, ChainStoreAccess, metrics};
 
 const BLOCK_DELAY_TRACKING_COUNT: u64 = 50;
 

@@ -1,6 +1,3 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-
 use super::event_type::ReshardingSplitShardParams;
 use super::flat_storage_resharder::FlatStorageResharder;
 use super::trie_state_resharder::TrieStateResharder;
@@ -16,6 +13,8 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::BlockHeightDelta;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use time::Duration;
 
 /// Dedicated actor for resharding V3.

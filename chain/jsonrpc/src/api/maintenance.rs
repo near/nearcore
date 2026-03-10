@@ -1,13 +1,11 @@
+use super::{Params, RpcFrom, RpcRequest};
 use near_async::messaging::AsyncSendError;
-use serde_json::Value;
-
 use near_client_primitives::types::GetMaintenanceWindowsError;
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::maintenance::{
     RpcMaintenanceWindowsError, RpcMaintenanceWindowsRequest,
 };
-
-use super::{Params, RpcFrom, RpcRequest};
+use serde_json::Value;
 
 impl RpcRequest for RpcMaintenanceWindowsRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {

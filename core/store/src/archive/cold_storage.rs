@@ -3,7 +3,6 @@ use crate::adapter::trie_store::get_shard_uid_mapping;
 use crate::columns::DBKeyType;
 use crate::db::{COLD_HEAD_KEY, ColdDB, HEAD_KEY};
 use crate::{DBCol, DBTransaction, Database, Store, TrieChanges, metrics};
-
 use borsh::BorshDeserialize;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;

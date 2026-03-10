@@ -2321,6 +2321,10 @@ impl PartialEncodedChunkResponseSource {
 
 #[cfg(test)]
 mod test {
+    use super::*;
+    use crate::DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON;
+    use crate::logic::persist_chunk;
+    use crate::test_utils::*;
     use assert_matches::assert_matches;
     use near_async::messaging::IntoSender;
     use near_async::time::FakeClock;
@@ -2334,11 +2338,6 @@ mod test {
     use near_primitives::validator_signer::EmptyValidatorSigner;
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;
-
-    use super::*;
-    use crate::DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON;
-    use crate::logic::persist_chunk;
-    use crate::test_utils::*;
 
     fn mutable_validator_signer(account_id: &AccountId) -> MutableValidatorSigner {
         MutableConfigValue::new(

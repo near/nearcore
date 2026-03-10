@@ -1,9 +1,8 @@
 use anyhow::Result;
 use clap::Parser;
-use tokio::sync::mpsc;
-
 use configs::{Opts, SubCommand};
 use near_indexer;
+use tokio::sync::mpsc;
 
 mod configs;
 

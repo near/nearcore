@@ -1,6 +1,3 @@
-use std::collections::HashMap;
-use std::fmt::Debug;
-
 use super::ChunkProductionKey;
 #[cfg(feature = "solomon")]
 use crate::reed_solomon::{ReedSolomonEncoderDeserialize, ReedSolomonEncoderSerialize};
@@ -14,6 +11,8 @@ use bytesize::ByteSize;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{BlockHeight, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
+use std::collections::HashMap;
+use std::fmt::Debug;
 
 /// Represents max allowed size of the raw (not compressed) state witness,
 /// corresponds to the size of borsh-serialized ChunkStateWitness.

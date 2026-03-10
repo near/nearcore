@@ -1,14 +1,12 @@
-use std::sync::Arc;
-
-use near_chain_configs::Genesis;
-use near_crypto::{InMemorySigner, Signer};
-use near_primitives::types::AccountId;
-use nearcore::{NearConfig, start_with_config};
-
 use crate::node::Node;
 use crate::user::User;
 use crate::user::rpc_user::RpcUser;
 use near_async::ActorSystem;
+use near_chain_configs::Genesis;
+use near_crypto::{InMemorySigner, Signer};
+use near_primitives::types::AccountId;
+use nearcore::{NearConfig, start_with_config};
+use std::sync::Arc;
 
 pub enum ThreadNodeState {
     Stopped,

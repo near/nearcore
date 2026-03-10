@@ -4,9 +4,8 @@ pub mod epoch_store;
 pub mod flat_store;
 pub mod trie_store;
 
-use std::ops::{Deref, DerefMut};
-
 use crate::{Store, StoreUpdate};
+use std::ops::{Deref, DerefMut};
 
 /// Internal enum that can store either an owned StoreUpdate to a reference to StoreUpdate.
 ///

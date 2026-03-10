@@ -1,5 +1,4 @@
-use std::sync::{Arc, atomic::AtomicBool};
-
+use crate::metrics;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::messaging::Actor;
 use near_async::time::Duration;
@@ -16,8 +15,7 @@ use near_store::config::SplitStorageConfig;
 use near_store::db::ColdDB;
 use near_store::db::metadata::DbKind;
 use near_store::{DBCol, FINAL_HEAD_KEY, Store, TAIL_KEY, set_genesis_height};
-
-use crate::metrics;
+use std::sync::{Arc, atomic::AtomicBool};
 
 /// The ColdStoreCopyResult indicates if and what block was copied.
 #[derive(Debug)]

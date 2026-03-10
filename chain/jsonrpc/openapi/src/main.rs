@@ -1,14 +1,14 @@
-use std::fs;
-use std::path::Path;
-
 use itertools::Itertools;
 use okapi::openapi3::{OpenApi, SchemaObject};
 use schemars::JsonSchema;
 use schemars::transform::transform_subschemas;
 use serde_json::json;
+use std::fs;
+use std::path::Path;
 
 mod openrpc;
 
+use near_chain_configs::GenesisConfig;
 use near_jsonrpc_primitives::types::{
     blocks::{RpcBlockError, RpcBlockRequest, RpcBlockResponse},
     call_function::{RpcCallFunctionError, RpcCallFunctionRequest, RpcCallFunctionResponse},
@@ -58,10 +58,7 @@ use near_jsonrpc_primitives::{
         changes::RpcStateChangesInBlockResponse, light_client::RpcLightClientExecutionProofRequest,
     },
 };
-
 use near_primitives::hash::CryptoHash;
-
-use near_chain_configs::GenesisConfig;
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "snake_case")]
