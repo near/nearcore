@@ -590,6 +590,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         .cold_storage_archival_clients(params.archivals.clone())
         .load_memtries_for_tracked_shards(params.load_memtries_for_tracked_shards)
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
+        .delay_warmup()
         .build()
         .drop(DropCondition::ProtocolUpgradeChunkRange(
             base_protocol_version + 1,

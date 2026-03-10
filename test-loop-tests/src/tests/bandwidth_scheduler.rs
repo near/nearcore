@@ -165,6 +165,7 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(vec![node_account])
+        .delay_warmup()
         .build()
         .drop(DropCondition::ChunksProducedByHeight(missing_chunks_map))
         .warmup();

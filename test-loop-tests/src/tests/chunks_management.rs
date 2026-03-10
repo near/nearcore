@@ -80,8 +80,7 @@ impl Test {
                 config.max_block_wait_delay = 3 * self.block_timeout;
                 config.chunk_distribution_network = chunk_distribution_config.clone();
             })
-            .build()
-            .warmup();
+            .build();
 
         for node_datas in &env.node_datas {
             let from_whom = node_datas.account_id.clone();

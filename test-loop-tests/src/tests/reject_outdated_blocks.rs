@@ -65,8 +65,7 @@ fn slow_test_reject_blocks_with_outdated_protocol_version() {
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(clients)
-        .build()
-        .warmup();
+        .build();
 
     let client = &test_loop.data.get(&node_datas[0].client_sender.actor_handle()).client;
     let rpc_handler = &test_loop.data.get(&node_datas[0].rpc_handler_sender.actor_handle());

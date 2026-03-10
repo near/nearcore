@@ -51,6 +51,9 @@ pub(crate) struct TestLoopBuilder {
     config_modifier: Option<Box<dyn Fn(&mut ClientConfig, usize)>>,
     /// Whether to do the warmup or not. See `skip_warmup` for more details.
     warmup_pending: Arc<AtomicBool>,
+    /// Whether `build()` should automatically call `warmup()`.
+    /// Set to `false` by `skip_warmup()` and `delay_warmup()`.
+    auto_warmup: bool,
     /// Whether all nodes must track all shards.
     track_all_shards: bool,
     /// Whether to load mem tries for the tracked shards.
@@ -71,6 +74,7 @@ impl TestLoopBuilder {
             runtime_config_store: None,
             config_modifier: None,
             warmup_pending: Arc::new(AtomicBool::new(true)),
+            auto_warmup: true,
             track_all_shards: false,
             load_memtries_for_tracked_shards: true,
             upgrade_schedule: None,
@@ -327,8 +331,17 @@ impl TestLoopBuilder {
     /// somewhat differently (and correctly so) at genesis. So only skip
     /// warmup if you are interested in the behavior of starting from genesis.
     #[allow(dead_code)]
-    pub fn skip_warmup(self) -> Self {
+    pub fn skip_warmup(mut self) -> Self {
         self.warmup_pending.store(false, Ordering::Relaxed);
+        self.auto_warmup = false;
+        self
+    }
+
+    /// Do not automatically warmup during `build()`, but warmup is still
+    /// expected to be called manually later. Use this when you need to
+    /// configure the environment between `build()` and `warmup()`.
+    pub fn delay_warmup(mut self) -> Self {
+        self.auto_warmup = false;
         self
     }
 
@@ -349,10 +362,13 @@ impl TestLoopBuilder {
 
     // -- Build --
 
-    /// Build the test loop environment.
+    /// Build the test loop environment. Automatically calls `warmup()` unless
+    /// `skip_warmup()` or `delay_warmup()` was called on the builder.
     pub(crate) fn build(mut self) -> TestLoopEnv {
+        let auto_warmup = self.auto_warmup;
         let (genesis, clients) = self.resolve_setup_config();
-        self.build_impl(genesis, clients)
+        let env = self.build_impl(genesis, clients);
+        if auto_warmup { env.warmup() } else { env }
     }
 
     fn resolve_setup_config(&mut self) -> (Genesis, Vec<ClientSpec>) {

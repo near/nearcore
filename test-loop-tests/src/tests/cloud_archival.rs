@@ -97,7 +97,7 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
         });
     }
 
-    let mut env = builder.build().warmup();
+    let mut env = builder.build();
 
     if let Some(resume_height) = params.pause_writer_for_num_of_blocks {
         pause_and_resume_writer_with_sanity_checks(

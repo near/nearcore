@@ -31,8 +31,7 @@ fn test_archival_node_with_cold_storage() {
         .epoch_length(epoch_length)
         .enable_archival_node(ArchivalKind::Cold)
         .gc_num_epochs_to_keep(gc_num_epochs_to_keep)
-        .build()
-        .warmup();
+        .build();
 
     // Run long enough for GC to kick in.
     let target_height = epoch_length * (gc_num_epochs_to_keep + 2);

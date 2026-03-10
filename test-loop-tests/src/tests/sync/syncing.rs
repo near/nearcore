@@ -41,8 +41,7 @@ fn slow_test_sync_from_genesis() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
-        .build()
-        .warmup();
+        .build();
 
     let first_epoch_tracked_shards = node_datas
         .iter()
@@ -104,8 +103,7 @@ fn slow_test_validator_restart_under_cross_shard_load() {
         .epoch_config_store(epoch_config_store)
         .clients(clients)
         .gc_num_epochs_to_keep(20)
-        .build()
-        .warmup();
+        .build();
 
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(20);

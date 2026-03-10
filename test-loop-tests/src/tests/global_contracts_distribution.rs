@@ -213,8 +213,7 @@ impl GlobalContractsReshardingTestEnv {
             .genesis(genesis)
             .clients(clients)
             .epoch_config_store(epoch_config_store)
-            .build()
-            .warmup();
+            .build();
 
         Self { env, chunk_producer, base_shard_layout, new_shard_layout, users }
     }

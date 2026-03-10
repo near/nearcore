@@ -44,8 +44,7 @@ fn resharding_example_test() {
         .genesis(genesis)
         .clients(clients)
         .epoch_config_store(epoch_config_store)
-        .build()
-        .warmup();
+        .build();
 
     let epoch_manager = env.validator().client().epoch_manager.clone();
     let epoch_id = env.validator().head().epoch_id;

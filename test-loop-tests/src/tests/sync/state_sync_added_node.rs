@@ -145,8 +145,12 @@ fn setup_initial_blockchain(
         Arc::new(epoch_config),
     )]));
 
-    let mut env =
-        builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
+    let mut env = builder
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients)
+        .delay_warmup()
+        .build();
 
     let skip_block_height = if let Some(delta) = skip_block_sync_height_delta {
         let sync_height = sync_height();

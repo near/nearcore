@@ -46,8 +46,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
-        .build()
-        .warmup();
+        .build();
 
     let client_actor_handle = &env.node_datas[0].client_sender.actor_handle();
     let client = &env.test_loop.data.get(&client_actor_handle).client;
@@ -183,8 +182,7 @@ fn test_produce_block_with_approvals_arrived_early() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
-        .build()
-        .warmup();
+        .build();
 
     let client_actor_handle = &env.node_datas[0].client_sender.actor_handle();
     let client = &env.test_loop.data.get(&client_actor_handle).client;

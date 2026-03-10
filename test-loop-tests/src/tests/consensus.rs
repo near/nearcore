@@ -71,8 +71,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
         // With short epoch length sync hash may not be available for catchup so we track all
         // shards.
         .track_all_shards()
-        .build()
-        .warmup();
+        .build();
 
     let min_delay = 3;
     let handler = Arc::new(RwLock::new(NetworkHandlingData::new(&env, validators)));

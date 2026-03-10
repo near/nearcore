@@ -43,8 +43,7 @@ fn test_producer_with_expired_transactions() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(accounts.clone())
-        .build()
-        .warmup();
+        .build();
     let TestLoopEnv { test_loop, node_datas, .. } = &mut test_loop_env;
 
     // First we're gonna ask the chunk producer to keep producing empty chunks and send some
@@ -150,8 +149,7 @@ fn test_producer_with_expired_transactions() {
 fn test_producer_sending_large_encoded_length_chunks() {
     init_test_logger();
 
-    let mut env =
-        TestLoopBuilder::new().validators(2, 0).gc_num_epochs_to_keep(20).build().warmup();
+    let mut env = TestLoopBuilder::new().validators(2, 0).gc_num_epochs_to_keep(20).build();
 
     let epoch_manager = env.node(0).client().epoch_manager.clone();
     let peer_manager_actor_handle = env.node_datas[0].peer_manager_sender.actor_handle();
