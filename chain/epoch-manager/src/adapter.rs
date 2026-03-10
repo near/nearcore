@@ -114,6 +114,28 @@ pub trait EpochManagerAdapter: Send + Sync {
         last_final_block_hash: &CryptoHash,
     ) -> Result<bool, EpochError>;
 
+    /// Returns true if the block after the one being produced will be the last in the epoch.
+    /// **Can produce false positives**, but will never return a false negative.
+    ///
+    /// Parameters:
+    ///  - `block_height`: the height of the block being produced
+    ///  - `parent_hash`: hash of the parent block (the block we're building on top of)
+    fn is_next_block_possibly_last_in_epoch(
+        &self,
+        block_height: BlockHeight,
+        parent_hash: &CryptoHash,
+    ) -> Result<bool, EpochError>;
+
+    /// Checks if resharding can be scheduled in 2 epochs from now (assuming `block_hash` belongs
+    /// to the current epoch), based on `min_epochs_between_resharding`.
+    ///
+    /// Returns `true` if no resharding occurred in the last N epochs (including the next one).
+    fn can_reshard(
+        &self,
+        block_hash: &CryptoHash,
+        min_epochs_between_resharding: u64,
+    ) -> Result<bool, EpochError>;
+
     /// Get epoch id given hash of previous block.
     fn get_epoch_id_from_prev_block(
         &self,
@@ -870,6 +892,24 @@ impl EpochManagerAdapter for EpochManagerHandle {
             parent_hash,
             last_final_block_hash,
         )
+    }
+
+    fn is_next_block_possibly_last_in_epoch(
+        &self,
+        block_height: BlockHeight,
+        parent_hash: &CryptoHash,
+    ) -> Result<bool, EpochError> {
+        let epoch_manager = self.read();
+        epoch_manager.is_next_block_possibly_last_in_epoch(block_height, parent_hash)
+    }
+
+    fn can_reshard(
+        &self,
+        block_hash: &CryptoHash,
+        min_epochs_between_resharding: u64,
+    ) -> Result<bool, EpochError> {
+        let epoch_manager = self.read();
+        epoch_manager.can_reshard(block_hash, min_epochs_between_resharding)
     }
 
     fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError> {

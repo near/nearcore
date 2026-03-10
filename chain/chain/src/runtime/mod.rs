@@ -176,7 +176,6 @@ impl NightshadeRuntime {
             block_type: _,
             height: block_height,
             ref prev_block_hash,
-            ref last_final_block_hash,
             block_timestamp,
             gas_price,
             random_seed,
@@ -254,7 +253,6 @@ impl NightshadeRuntime {
             &epoch_config,
             block_height,
             prev_block_hash,
-            last_final_block_hash,
         )?;
 
         tracing::debug!(
@@ -530,22 +528,27 @@ impl NightshadeRuntime {
         epoch_id: &EpochId,
         protocol_version: ProtocolVersion,
         epoch_config: &EpochConfig,
-        _height: BlockHeight,
-        _prev_block_hash: &CryptoHash,
-        _last_final_block_hash: &CryptoHash,
+        height: BlockHeight,
+        prev_block_hash: &CryptoHash,
     ) -> Result<Option<TrieSplit>, Error> {
         if !ProtocolFeature::DynamicResharding.enabled(protocol_version) {
             return Ok(None);
         }
 
-        // TODO(dynamic-resharding): Check if the *next* block is the last block of the epoch
-        // TODO(dynamic_resharding): Check how many epochs since last resharding
-
-        let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
         let Some(config) = epoch_config.dynamic_resharding_config() else {
             tracing::error!(target: "runtime", "dynamic resharding config missing");
             return Ok(None);
         };
+
+        if !self.epoch_manager.is_next_block_possibly_last_in_epoch(height, prev_block_hash)? {
+            return Ok(None);
+        }
+
+        if !self.epoch_manager.can_reshard(prev_block_hash, config.min_epochs_between_resharding)? {
+            return Ok(None);
+        }
+
+        let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
         match check_dynamic_resharding(shard_trie, shard_id, shard_layout, config) {
             Err(FindSplitError::Storage(err)) => Err(err)?,
             Err(err) => {
