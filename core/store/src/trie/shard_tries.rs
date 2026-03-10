@@ -555,6 +555,7 @@ impl ShardTries {
 
         // Collect completed loads under the lock, then process outside.
         let mut completed = vec![];
+        let mut failed = vec![];
         {
             let mut pending = self.0.memtries_loading.lock();
             pending.retain(|shard_uid, rx| match rx.try_recv() {
@@ -566,6 +567,7 @@ impl ShardTries {
                 Err(TryRecvError::Disconnected) => {
                     tracing::warn!(target: "memtrie", %shard_uid,
                         "background memtrie loading thread terminated unexpectedly");
+                    failed.push(*shard_uid);
                     false
                 }
             });
@@ -576,6 +578,11 @@ impl ShardTries {
                 tracing::warn!(target: "memtrie", %shard_uid, ?e,
                     "background memtrie loading finalization failed");
             }
+        }
+
+        // Retry failed loads
+        for shard_uid in failed {
+            self.spawn_background_memtrie_loading_for_shard(shard_uid);
         }
     }
 
