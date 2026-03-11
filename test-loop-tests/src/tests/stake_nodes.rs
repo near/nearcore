@@ -6,6 +6,7 @@ use crate::utils::account::{
 use crate::utils::transactions::{get_shared_block_hash, run_tx, run_txs_parallel};
 use crate::utils::validators::get_epoch_all_validators_sorted;
 use near_async::time::Duration;
+use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_o11y::testonly::init_test_logger;
@@ -13,11 +14,10 @@ use near_primitives::action::{Action, StakeAction};
 use near_primitives::num_rational::Rational32;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountInfo, Balance};
+use near_primitives::types::{AccountInfo, Balance, ShardId};
 use primitive_types::U256;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
-
 /// Runs one validator network, sends staking transaction for the second node and
 /// waits until it becomes a validator.
 #[test]
@@ -414,6 +414,102 @@ fn test_staking_join_and_leave_impl(execution_delay: u64) {
     let view = env.node(0).view_account_query(&accounts[2]).unwrap();
     assert!(view.locked.is_zero());
     assert_eq!(view.amount, TESTING_INIT_BALANCE);
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+/// Verifies that a validator who unstakes and then re-stakes in an uncertified chunk
+/// near the epoch boundary does NOT have their stake returned. The re-stake proposal
+/// from the uncertified chunk should be picked up by get_uncertified_validator_proposals.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_uncertified_restake_prevents_stake_return() {
+    init_test_logger();
+
+    let epoch_length: u64 = 10;
+    let endorsement_delay: u64 = 4;
+    let unstaker_idx = 0;
+    let validators_spec = create_validators_spec(4, 1);
+    let accounts = validators_spec_clients(&validators_spec);
+    let unstaker = accounts[unstaker_idx].clone();
+    let unstaker_key = create_test_signer(unstaker.as_str()).public_key();
+
+    let mut env = TestLoopBuilder::new()
+        .validators_spec(validators_spec)
+        .epoch_length(epoch_length)
+        .add_user_accounts(&accounts, TESTING_INIT_BALANCE)
+        .max_inflation_rate(Rational32::new(0, 1))
+        .config_modifier(move |config, idx| {
+            // TODO(spice): Here, we force unstaker to retain memtrie for the
+            // unloaded shard. Memtrie retention needs to be fixed for spice to
+            // wait until certification of the last block of the prior epoch.
+            if idx == unstaker_idx {
+                config.tracked_shards_config = TrackedShardsConfig::AllShards;
+            }
+        })
+        .delay_warmup()
+        .build();
+    delay_endorsements_propagation(&mut env, endorsement_delay);
+    let mut env = env.warmup();
+
+    let genesis_height = env.node(unstaker_idx).client().chain.genesis().height();
+    let initial_stake = env.node(unstaker_idx).view_account_query(&unstaker).unwrap().locked;
+
+    // Submit unstake (stake = 0) in the first epoch.
+    let unstake_tx = env.node(unstaker_idx).tx_from_actions(
+        &unstaker,
+        &unstaker,
+        vec![Action::Stake(Box::new(StakeAction {
+            stake: Balance::ZERO,
+            public_key: unstaker_key.clone(),
+        }))],
+    );
+    env.node_runner(unstaker_idx).run_tx(unstake_tx, Duration::seconds(30));
+
+    // Advance to a few blocks before the E4->E5 boundary where stake return would
+    // happen. Unstake in E0 -> active in E0,E1 -> inactive from E2 -> 3-epoch window
+    // covers E2,E3,E4 with 0 stake -> return at E4->E5 boundary.
+    let epoch_boundary = genesis_height + 5 * epoch_length;
+    let restake_submit_height = epoch_boundary - 3;
+    // The restake must land within endorsement_delay of the epoch boundary
+    // to make sure the premise of the test holds.
+    assert!(restake_submit_height + endorsement_delay > epoch_boundary);
+    env.node_runner(unstaker_idx).run_until_head_height(restake_submit_height);
+
+    // Submit re-stake near the end of E4. With endorsement delay, this tx will
+    // land in an uncertified chunk, and its stake proposal should be picked up
+    // by get_uncertified_validator_proposals at the epoch boundary.
+    let restake_tx = env.node(unstaker_idx).tx_from_actions(
+        &unstaker,
+        &unstaker,
+        vec![Action::Stake(Box::new(StakeAction {
+            stake: initial_stake,
+            public_key: unstaker_key,
+        }))],
+    );
+    env.node(unstaker_idx).submit_tx(restake_tx);
+
+    // Run past the epoch boundary, plus extra blocks for execution to certify.
+    env.node_runner(unstaker_idx).run_until_head_height(epoch_boundary + endorsement_delay + 2);
+
+    // Verify the re-stake proposal landed in an uncertified chunk at the epoch boundary.
+    let client = env.node(unstaker_idx).client();
+    let last_block_hash =
+        client.chain.chain_store.get_block_hash_by_height(epoch_boundary - 1).unwrap();
+    let uncertified_proposals = client
+        .chain
+        .spice_core_reader
+        .get_uncertified_validator_proposals(&last_block_hash, ShardId::new(0))
+        .unwrap();
+    assert!(
+        uncertified_proposals.iter().any(|p| p.account_id() == &unstaker),
+        "re-stake proposal should be in uncertified chunks, got: {:?}",
+        uncertified_proposals
+    );
+
+    // Verify that the unstaker's locked balance was NOT returned.
+    let account = env.node(unstaker_idx).view_account_query(&unstaker).unwrap();
+    assert_eq!(account.locked, initial_stake, "stake should NOT have been returned");
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
