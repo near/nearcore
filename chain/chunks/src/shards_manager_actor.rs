@@ -154,7 +154,7 @@ enum ChunkStatus {
 }
 
 #[derive(Debug)]
-pub enum ProcessPartialEncodedChunkResult {
+enum ProcessPartialEncodedChunkResult {
     /// The information included in the partial encoded chunk is already known, no processing is needed
     Known,
     /// All parts and receipts in the chunk are received and the chunk has been processed
@@ -187,7 +187,7 @@ pub(crate) struct ChunkRequestInfo {
 }
 
 #[derive(Debug)]
-pub enum HandleNetworkRequestResult {
+pub(crate) enum HandleNetworkRequestResult {
     Ok,
     /// request failed and could be retried after some duration
     RetryProcessing(Box<ShardsManagerRequestFromNetwork>, Duration),
@@ -1206,6 +1206,8 @@ impl ShardsManagerActor {
 
         let chunk =
             ShardChunkWithEncoding::from_encoded_shard_chunk(chunk).map_err(|(err, chunk)| {
+                // Not expected to be reachable because reed_solomon_decode above already
+                // deserializes the content as TransactionReceipt.
                 tracing::debug!(target: "chunks", ?err, "invalid, failed to decode");
                 Error::InvalidChunk(Box::new(chunk))
             })?;
@@ -2266,7 +2268,7 @@ impl ShardsManagerActor {
         }
     }
 
-    pub fn handle_network_request(
+    pub(crate) fn handle_network_request(
         &mut self,
         request: ShardsManagerRequestFromNetwork,
     ) -> HandleNetworkRequestResult {
@@ -2343,7 +2345,7 @@ impl ShardsManagerActor {
 
 /// Indicates where we fetched the response to a PartialEncodedChunkRequest.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PartialEncodedChunkResponseSource {
+enum PartialEncodedChunkResponseSource {
     /// No lookup was performed.
     None,
     /// We only had to look into the in-memory partial chunk cache.
