@@ -5,6 +5,12 @@
 //!
 //! The node must do epoch sync to bootstrap, then headers to learn the chain,
 //! then state sync to get shard state, then block sync to catch up.
+//!
+//! Note: shard shuffling is intentionally NOT enabled in these tests. Far-horizon
+//! tests bootstrap a fresh observer node via epoch sync — the node is not a
+//! validator and does not participate in shard assignment. Shard shuffling is
+//! only relevant for the catchup path (Layer 1 tests in `state_sync.rs`), not
+//! the sync handler entry path tested here.
 
 use super::util::{
     assert_far_horizon_sync_sequence, assert_near_horizon_sync_sequence, restrict_to_single_peer,
@@ -14,7 +20,8 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_account_id;
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{
-    BalanceMismatchError, execute_money_transfers, get_shared_block_hash, make_accounts,
+    BalanceMismatchError, execute_money_transfers, get_next_nonce, get_shared_block_hash,
+    make_accounts,
 };
 use near_async::messaging::CanSend;
 use near_async::time::Duration;
@@ -170,6 +177,10 @@ fn test_far_horizon_short_tx_validity() {
 
     assert_far_horizon_sync_sequence(&sync_history.borrow());
 
+    // Verify balance consistency: some txs may have expired, but source and
+    // synced node should agree on the final balances.
+    verify_balances_on_synced_node(&env.test_loop.data, &env.node_datas, new_node_idx, &accounts);
+
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
@@ -238,6 +249,10 @@ fn test_far_horizon_expired_transactions() {
     env.node_runner(new_node_idx).run_for_number_of_blocks(30);
 
     assert_far_horizon_sync_sequence(&sync_history.borrow());
+
+    // Verify balance consistency: nearly all txs expired, but source and synced
+    // node should agree on the final balances (both reflect the expired txs).
+    verify_balances_on_synced_node(&env.test_loop.data, &env.node_datas, new_node_idx, &accounts);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
@@ -324,6 +339,9 @@ fn test_far_horizon_chained_epoch_sync() {
 
     // Run 2+ more epochs to verify continued operation.
     env.node_runner(new_node1_idx).run_for_number_of_blocks(30);
+
+    // Verify balance consistency on the chained node (synced via another synced node).
+    verify_balances_on_synced_node(&env.test_loop.data, &env.node_datas, new_node1_idx, &accounts);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
@@ -469,69 +487,6 @@ fn test_far_horizon_archival_skips_epoch_sync() {
     );
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
-}
-
-// ---------------------------------------------------------------------------
-// T3: NoPeers during state sync (far horizon)
-// ---------------------------------------------------------------------------
-//
-// Scenario: A node in the middle of state sync (far-horizon path) temporarily
-// loses all peers for one or two ticks, then regains them. Sync should resume
-// from where it left off — the node must NOT reset to NoSync.
-//
-// This is the CRITICAL fix from design-review-2: in V1, losing peers during
-// sync resets the sync status, discarding all progress. V2 preserves state.
-//
-// Setup:
-//   - Same as T1: 4 validators, fresh node doing far-horizon sync
-//   - When the new node enters StateSync, temporarily block all peer
-//     connections (highest_height_peers returns empty → NoPeers condition)
-//   - Restore peers after 1-2 ticks
-//
-// Assertions:
-//   - Node does NOT reset to NoSync or AwaitingPeers during the NoPeers window
-//   - StateSyncStatus (sync_hash, per-shard progress) is preserved
-//   - Sync resumes and completes normally after peers return
-//   - Final status sequence does not contain a second NoSync→EpochSync cycle
-//
-// Tooling needed: peer blocking in mock peer manager (tooling gap 4.1)
-// Covers: T3 (NoPeers protection during active sync)
-#[test]
-#[ignore] // requires peer manipulation tooling
-fn test_far_horizon_no_peers_during_state_sync() {
-    if !SYNC_V2_ENABLED {
-        return;
-    }
-    todo!("T3: implement NoPeers during state sync test")
-}
-
-// ---------------------------------------------------------------------------
-// T15: NoPeers during header sync (far horizon)
-// ---------------------------------------------------------------------------
-//
-// Scenario: A node in the middle of header sync (far-horizon path, after
-// epoch sync completes) temporarily loses all peers. Sync should preserve
-// header sync progress and resume when peers return.
-//
-// Setup:
-//   - Same as T1: 4 validators, fresh node doing far-horizon sync
-//   - When the new node enters HeaderSync, block all peer connections
-//   - Restore peers after 1-2 ticks
-//
-// Assertions:
-//   - Node remains in HeaderSync during NoPeers window
-//   - Header sync progress (current_height) is preserved
-//   - Sync resumes and completes normally after peers return
-//
-// Tooling needed: peer blocking in mock peer manager (tooling gap 4.1)
-// Covers: T15 (NoPeers during header sync)
-#[test]
-#[ignore] // requires peer manipulation tooling
-fn test_far_horizon_no_peers_during_header_sync() {
-    if !SYNC_V2_ENABLED {
-        return;
-    }
-    todo!("T15: implement NoPeers during header sync test")
 }
 
 // ===========================================================================
@@ -1042,18 +997,23 @@ fn test_far_horizon_tx_during_sync() {
             continue;
         }
 
-        // Inject a batch of txs to the syncing node.
+        // Inject a batch of txs to the syncing node. Use a valid block hash
+        // from a source validator and per-account nonces so the transactions
+        // are not silently rejected.
+        let block_hash = get_shared_block_hash(&env.node_datas[..4], &env.test_loop.data);
         for _ in 0..5 {
             let idx = (tx_counter as usize) % tx_accounts.len();
             let sender = &tx_accounts[idx];
             let receiver = &tx_accounts[(idx + 1) % tx_accounts.len()];
+            let nonce =
+                get_next_nonce(&env.test_loop.data, &env.node_datas[..4], sender) + tx_counter;
             let tx = SignedTransaction::send_money(
-                tx_counter + 1,
+                nonce,
                 sender.clone(),
                 receiver.clone(),
                 &create_user_test_signer(sender),
                 Balance::from_near(1),
-                near_primitives::hash::CryptoHash::default(),
+                block_hash,
             );
             rpc_sender.send(ProcessTxRequest {
                 transaction: tx,
