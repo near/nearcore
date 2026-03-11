@@ -7,7 +7,7 @@
 //! tip, so it enters BlockSync directly. Header sync and block sync run
 //! together; the node never does epoch sync or state sync.
 
-use super::util::track_sync_status;
+use super::util::{assert_near_horizon_sync_sequence, track_sync_status};
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_account_id;
 use crate::utils::transactions::{execute_money_transfers, get_anchor_hash, get_next_nonce};
@@ -23,15 +23,6 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
-
-/// Expected V2 near-horizon sync status sequence.
-const NEAR_HORIZON_SYNC_SEQUENCE: &[&str] = &["AwaitingPeers", "NoSync", "BlockSync", "NoSync"];
-
-pub(super) fn assert_near_horizon_sync_sequence(history: &[String]) {
-    let expected: Vec<String> =
-        NEAR_HORIZON_SYNC_SEQUENCE.iter().map(|s| (*s).to_string()).collect();
-    assert_eq!(history, expected.as_slice(), "unexpected sync status history");
-}
 
 // ---------------------------------------------------------------------------
 // T2: Near-horizon block sync
@@ -274,6 +265,25 @@ fn test_near_horizon_validator_restart() {
             "restarted validator should NOT enter EpochSync on cycle {i}, got: {:?}",
             *history,
         );
+
+        // Verify all restarted validators are in the next epoch's validator set.
+        // (Migrated from state_sync1.py validator set membership assertion)
+        let reference_client = env.node_for_account(&reference_account).client();
+        let head = reference_client.chain.head().unwrap();
+        let next_epoch_id =
+            reference_client.epoch_manager.get_next_epoch_id(&head.last_block_hash).unwrap();
+        let producers = reference_client
+            .epoch_manager
+            .get_epoch_block_producers_ordered(&next_epoch_id)
+            .unwrap();
+        let producer_accounts: Vec<_> = producers.iter().map(|p| p.account_id().clone()).collect();
+        for idx in 0..NUM_CLIENTS {
+            let account: AccountId = format!("account{}", idx).parse().unwrap();
+            assert!(
+                producer_accounts.contains(&account),
+                "validator {account} not in next epoch's producer set after restart cycle {i}"
+            );
+        }
 
         // Send cross-shard transfers after each restart.
         let live_nodes = &env.node_datas[env.node_datas.len() - NUM_CLIENTS..];

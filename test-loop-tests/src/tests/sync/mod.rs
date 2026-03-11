@@ -4,5 +4,6 @@ mod far_horizon;
 mod near_horizon;
 mod state_sync;
 mod state_sync_added_node;
+mod sync_then_catchup;
 mod syncing;
 mod util;

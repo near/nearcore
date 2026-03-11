@@ -151,30 +151,33 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
         },
         Duration::seconds(30),
     );
-    assert_eq!(
-        sync_status_history.borrow().as_slice(),
-        &[
-            // Initial state.
+    let expected: Vec<String> = if SYNC_V2_ENABLED {
+        // V2 transitions directly StateSync → BlockSync (no StateSyncDone).
+        vec![
             "AwaitingPeers",
-            // State after having enough peers.
             "NoSync",
-            // EpochSync should be entered and succeed.
             "EpochSync",
-            // Header sync happens next to bring forward HEADER_HEAD.
             "HeaderSync",
-            // State sync downloads the state from state dumps.
             "StateSync",
-            // State sync is done.
-            "StateSyncDone",
-            // Block sync picks up from where StateSync left off, and finishes the sync.
             "BlockSync",
-            // NoSync means we're up to date.
-            "NoSync"
+            "NoSync",
         ]
-        .into_iter()
-        .map(|s| s.to_string())
-        .collect::<Vec<_>>()
-    );
+    } else {
+        vec![
+            "AwaitingPeers",
+            "NoSync",
+            "EpochSync",
+            "HeaderSync",
+            "StateSync",
+            "StateSyncDone",
+            "BlockSync",
+            "NoSync",
+        ]
+    }
+    .into_iter()
+    .map(|s| s.to_string())
+    .collect();
+    assert_eq!(sync_status_history.borrow().as_slice(), expected);
 
     TestLoopEnv { test_loop, node_datas, shared_state }
 }

@@ -1,5 +1,9 @@
 use crate::setup::state::{NodeExecutionData, SharedState};
+use crate::utils::node::TestLoopNode;
 use near_async::test_loop::TestLoopV2;
+use near_async::test_loop::data::TestLoopData;
+use near_client::QueryError;
+use near_primitives::types::AccountId;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -37,6 +41,74 @@ pub fn track_sync_status(
         }
     });
     history
+}
+
+/// Verify that a synced node's account balances match the source validators.
+///
+/// For each account, queries the balance on a source node (any node except
+/// the synced one) and compares with the synced node's view. Accounts on
+/// shards not tracked by the synced node are skipped.
+///
+/// Migrated from state_sync.py balance consistency assertions.
+pub fn verify_balances_on_synced_node(
+    test_loop_data: &TestLoopData,
+    node_datas: &[NodeExecutionData],
+    synced_node_idx: usize,
+    accounts: &[AccountId],
+) {
+    let synced_node =
+        TestLoopNode { data: test_loop_data, node_data: &node_datas[synced_node_idx] };
+    let source_nodes: Vec<_> = node_datas
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i != synced_node_idx)
+        .map(|(_, nd)| nd)
+        .collect();
+
+    for account in accounts {
+        // Get reference balance from any source node that tracks the shard.
+        let reference_balance = source_nodes
+            .iter()
+            .find_map(|nd| {
+                let node = TestLoopNode { data: test_loop_data, node_data: nd };
+                match node.view_account_query(account) {
+                    Ok(view) => Some(view.amount),
+                    Err(QueryError::UnavailableShard { .. }) => None,
+                    Err(err) => panic!("unexpected query error for {account}: {err:?}"),
+                }
+            })
+            .expect(&format!("no source node tracks shard for {account}"));
+
+        match synced_node.view_account_query(account) {
+            Ok(view) => assert_eq!(
+                view.amount, reference_balance,
+                "balance mismatch for {account} on synced node"
+            ),
+            Err(QueryError::UnavailableShard { .. }) => continue,
+            Err(err) => panic!("unexpected query error for {account} on synced node: {err:?}"),
+        }
+    }
+}
+
+/// Expected V2 far-horizon sync status sequence.
+const FAR_HORIZON_SYNC_SEQUENCE: &[&str] =
+    &["AwaitingPeers", "NoSync", "EpochSync", "HeaderSync", "StateSync", "BlockSync", "NoSync"];
+
+/// Expected V2 near-horizon sync status sequence.
+const NEAR_HORIZON_SYNC_SEQUENCE: &[&str] = &["AwaitingPeers", "NoSync", "BlockSync", "NoSync"];
+
+/// Assert that the sync status history matches the expected V2 far-horizon sequence.
+pub fn assert_far_horizon_sync_sequence(history: &[String]) {
+    let expected: Vec<String> =
+        FAR_HORIZON_SYNC_SEQUENCE.iter().map(|s| (*s).to_string()).collect();
+    assert_eq!(history, expected.as_slice(), "unexpected sync status history");
+}
+
+/// Assert that the sync status history matches the expected V2 near-horizon sequence.
+pub fn assert_near_horizon_sync_sequence(history: &[String]) {
+    let expected: Vec<String> =
+        NEAR_HORIZON_SYNC_SEQUENCE.iter().map(|s| (*s).to_string()).collect();
+    assert_eq!(history, expected.as_slice(), "unexpected sync status history");
 }
 
 /// Restrict a node to only communicate with a single source peer.
