@@ -18,6 +18,7 @@ use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::{Genesis, MutableConfigValue};
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::SpiceChunkEndorsementMessage;
+use near_network::spice_data_distribution::SpiceChunkContractAccessesMessage;
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt as _;
 use near_o11y::testonly::init_test_logger;
@@ -29,8 +30,13 @@ use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
+use near_primitives::stateless_validation::spice_state_witness::compute_contract_accesses_hash;
 use near_primitives::stateless_validation::spice_state_witness::{
     SpiceChunkStateTransition, SpiceChunkStateWitness,
+};
+use near_primitives::stateless_validation::{
+    ChunkProductionKey,
+    contract_distribution::{CodeHash, SpiceChunkContractAccesses},
 };
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -47,13 +53,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
-
-use near_network::spice_data_distribution::SpiceChunkContractAccessesMessage;
-use near_primitives::stateless_validation::spice_state_witness::compute_contract_accesses_hash;
-use near_primitives::stateless_validation::{
-    ChunkProductionKey,
-    contract_distribution::{CodeHash, SpiceChunkContractAccesses},
-};
 
 const TEST_RECEIPTS: Vec<Receipt> = Vec::new();
 const GAS_LIMIT: Gas = Gas::from_teragas(300);

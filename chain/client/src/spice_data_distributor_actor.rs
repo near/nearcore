@@ -1,4 +1,5 @@
 use crate::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
+use crate::chunk_executor_actor::get_contract_accesses;
 use crate::chunk_executor_actor::get_receipt_proof;
 use crate::chunk_executor_actor::get_witness;
 use crate::chunk_executor_actor::receipt_proof_exists;
@@ -66,8 +67,6 @@ use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-
-use crate::chunk_executor_actor::get_contract_accesses;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {

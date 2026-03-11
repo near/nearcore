@@ -4,6 +4,7 @@ use super::partial_deploys_tracker::PartialEncodedContractDeploysTracker;
 use super::partial_witness_tracker::PartialEncodedStateWitnessTracker;
 use crate::metrics;
 use crate::stateless_validation::chunk_validation_actor::ChunkValidationSenderForPartialWitness;
+use crate::stateless_validation::contracts_cache_contains_contract;
 use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
 use crate::stateless_validation::validate::{
     ChunkRelevance, validate_chunk_contract_accesses, validate_contract_code_request,
@@ -55,8 +56,6 @@ use rayon::iter::{
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-
-use crate::stateless_validation::contracts_cache_contains_contract;
 
 const PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE: usize = 30;
 

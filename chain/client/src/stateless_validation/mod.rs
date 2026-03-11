@@ -7,11 +7,10 @@ mod state_witness_producer;
 pub mod state_witness_tracker;
 mod validate;
 
-use std::sync::Arc;
-
 use near_parameters::RuntimeConfig;
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
 use near_vm_runner::ContractRuntimeCache;
+use std::sync::Arc;
 
 /// Checks whether the compiled contract cache contains a compiled version of the given contract.
 /// Used by both SPICE and non-SPICE validators to determine which contracts need to be requested

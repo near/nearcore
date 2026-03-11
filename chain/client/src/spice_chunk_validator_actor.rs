@@ -1,13 +1,5 @@
-use std::collections::{HashMap, HashSet};
-use std::iter::repeat_n;
-use std::num::NonZeroUsize;
-use std::sync::Arc;
-
+use crate::stateless_validation::contracts_cache_contains_contract;
 use lru::LruCache;
-
-use near_primitives::errors::EpochError;
-use rand::Rng as _;
-
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt as _};
 use near_async::messaging::{CanSend as _, Handler, IntoSender as _, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
@@ -26,6 +18,7 @@ use near_network::spice_data_distribution::{
 };
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_o11y::span_wrapped_msg::SpanWrapped;
+use near_primitives::errors::EpochError;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::stateless_validation::contract_distribution::{
     CodeBytes, CodeHash, MAX_CONTRACTS_PER_REQUEST, SpiceChunkContractAccesses,
@@ -36,14 +29,17 @@ use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateW
 use near_primitives::stateless_validation::spice_state_witness::compute_contract_accesses_hash;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessSize;
 use near_primitives::types::AccountId;
-use near_primitives::types::{BlockExecutionResults, SpiceChunkId};
 use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::{BlockExecutionResults, SpiceChunkId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
 use near_store::adapter::StoreAdapter as _;
-
-use crate::stateless_validation::contracts_cache_contains_contract;
+use rand::Rng as _;
+use std::collections::{HashMap, HashSet};
+use std::iter::repeat_n;
+use std::num::NonZeroUsize;
+use std::sync::Arc;
 
 // Each pending chunk stores the uncompressed witness plus uncompressed contracts.
 // In the worst case the witness is bounded by MAX_UNCOMPRESSED_STATE_WITNESS_SIZE (64 MiB)
@@ -417,7 +413,6 @@ impl SpiceChunkValidatorActor {
             self.waiting_for_block.entry(*block_hash).or_default().0.extend(witnesses);
         }
     }
-
 
     fn validate_state_witness_and_send_endorsements(
         &self,

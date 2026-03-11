@@ -1,6 +1,3 @@
-use std::collections::{HashMap, HashSet};
-use std::fmt::Debug;
-
 use crate::sharding::ReceiptProof;
 use crate::state::PartialState;
 use crate::stateless_validation::contract_distribution::{CodeBytes, CodeHash};
@@ -10,6 +7,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::ShardId;
 use near_schema_checker_lib::ProtocolSchema;
+use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
 
 /// Computes a deterministic hash of a set of contract code hashes.
 /// The hashes are sorted lexicographically, concatenated, and hashed.

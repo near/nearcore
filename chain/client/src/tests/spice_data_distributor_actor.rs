@@ -1,67 +1,3 @@
-use near_async::messaging::Actor;
-use near_async::test_utils::FakeDelayedActionRunner;
-use near_chain::ChainStoreAccess;
-use near_chain::spice_core::SpiceCoreReader;
-use near_chain::spice_core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
-use near_chain::types::Tip;
-use near_crypto::{KeyType, Signature};
-use near_epoch_manager::shard_tracker::ShardTracker;
-use near_network::client::SpiceChunkEndorsementMessage;
-use near_primitives::gas::Gas;
-use near_primitives::spice_partial_data::{
-    SpiceDataCommitment, SpiceDataIdentifier, SpiceDataPart, SpicePartialData,
-    SpiceVerifiedPartialData, testonly_create_spice_partial_data,
-};
-use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
-use near_primitives::stateless_validation::spice_state_witness::{
-    SpiceChunkStateTransition, SpiceChunkStateWitness,
-};
-use near_store::ShardUId;
-use std::collections::{HashMap, HashSet};
-use std::num::NonZero;
-use std::str::FromStr;
-use std::sync::Arc;
-
-use assert_matches::assert_matches;
-use itertools::Itertools as _;
-use near_async::messaging::{Handler, IntoAsyncSender, IntoSender, Sender, noop};
-use near_async::time::Clock;
-use near_chain::Block;
-use near_chain::test_utils::{
-    get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
-};
-use near_chain::{BlockProcessingArtifact, Chain, Provenance};
-use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
-use near_chain_configs::{Genesis, MutableConfigValue, TrackedShardsConfig};
-use near_epoch_manager::EpochManagerAdapter;
-use near_network::spice_data_distribution::{
-    SpiceContractCodeRequestMessage, SpiceIncomingPartialData, SpicePartialDataRequest,
-};
-use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
-use near_o11y::span_wrapped_msg::SpanWrapped;
-use near_o11y::testonly::init_test_logger;
-use near_primitives::hash::CryptoHash;
-use near_primitives::hash::hash;
-use near_primitives::merkle::merklize;
-use near_primitives::shard_layout::ShardLayout;
-use near_primitives::sharding::ReceiptProof;
-use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::sharding::ShardProof;
-use near_primitives::state::PartialState;
-use near_primitives::stateless_validation::contract_distribution::{
-    CodeHash, SpiceContractCodeRequest,
-};
-use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
-use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{AccountId, ChunkExecutionResultHash};
-use near_primitives::types::{BlockHeight, ChunkExecutionResult};
-use near_primitives::types::{ShardId, SpiceChunkId};
-use near_primitives::validator_signer::InMemoryValidatorSigner;
-use near_store::adapter::StoreAdapter;
-use near_store::adapter::trie_store::TrieStoreAdapter;
-use tokio::sync::mpsc::error::TryRecvError;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
-
 use crate::chunk_executor_actor::{
     ExecutorIncomingUnverifiedReceipts, save_receipt_proof, save_witness_and_contract_accesses,
 };
@@ -70,6 +6,68 @@ use crate::spice_data_distributor_actor::{
     Error, ReceiveDataError, SpiceDataDistributorActor, SpiceDistributorOutgoingReceipts,
     SpiceDistributorStateWitness,
 };
+use assert_matches::assert_matches;
+use itertools::Itertools as _;
+use near_async::messaging::Actor;
+use near_async::messaging::{Handler, IntoAsyncSender, IntoSender, Sender, noop};
+use near_async::test_utils::FakeDelayedActionRunner;
+use near_async::time::Clock;
+use near_chain::Block;
+use near_chain::ChainStoreAccess;
+use near_chain::spice_core::SpiceCoreReader;
+use near_chain::spice_core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
+use near_chain::test_utils::{
+    get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
+};
+use near_chain::types::Tip;
+use near_chain::{BlockProcessingArtifact, Chain, Provenance};
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
+use near_chain_configs::{Genesis, MutableConfigValue, TrackedShardsConfig};
+use near_crypto::{KeyType, Signature};
+use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_tracker::ShardTracker;
+use near_network::client::SpiceChunkEndorsementMessage;
+use near_network::spice_data_distribution::{
+    SpiceContractCodeRequestMessage, SpiceIncomingPartialData, SpicePartialDataRequest,
+};
+use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
+use near_o11y::span_wrapped_msg::SpanWrapped;
+use near_o11y::testonly::init_test_logger;
+use near_primitives::gas::Gas;
+use near_primitives::hash::CryptoHash;
+use near_primitives::hash::hash;
+use near_primitives::merkle::merklize;
+use near_primitives::shard_layout::ShardLayout;
+use near_primitives::sharding::ReceiptProof;
+use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::sharding::ShardProof;
+use near_primitives::spice_partial_data::{
+    SpiceDataCommitment, SpiceDataIdentifier, SpiceDataPart, SpicePartialData,
+    SpiceVerifiedPartialData, testonly_create_spice_partial_data,
+};
+use near_primitives::state::PartialState;
+use near_primitives::stateless_validation::contract_distribution::{
+    CodeHash, SpiceContractCodeRequest,
+};
+use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
+use near_primitives::stateless_validation::spice_state_witness::{
+    SpiceChunkStateTransition, SpiceChunkStateWitness,
+};
+use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
+use near_primitives::types::chunk_extra::ChunkExtra;
+use near_primitives::types::{AccountId, ChunkExecutionResultHash};
+use near_primitives::types::{BlockHeight, ChunkExecutionResult};
+use near_primitives::types::{ShardId, SpiceChunkId};
+use near_primitives::validator_signer::InMemoryValidatorSigner;
+use near_store::ShardUId;
+use near_store::adapter::StoreAdapter;
+use near_store::adapter::trie_store::TrieStoreAdapter;
+use std::collections::{HashMap, HashSet};
+use std::num::NonZero;
+use std::str::FromStr;
+use std::sync::Arc;
+use tokio::sync::mpsc::error::TryRecvError;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 fn build_block(epoch_manager: &dyn EpochManagerAdapter, prev_block: &Block) -> Arc<Block> {
     let block_producer = epoch_manager
