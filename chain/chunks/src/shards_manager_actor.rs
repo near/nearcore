@@ -147,11 +147,10 @@ const CHUNK_FORWARD_CACHE_SIZE: usize = 1000;
 // Only request chunks from peers whose latest height >= chunk_height - CHUNK_REQUEST_PEER_HORIZON
 const CHUNK_REQUEST_PEER_HORIZON: BlockHeightDelta = 5;
 
-#[derive(PartialEq, Eq)]
+#[allow(clippy::large_enum_variant)]
 pub enum ChunkStatus {
-    Complete(Vec<MerklePath>),
+    Complete(Vec<MerklePath>, ShardChunkWithEncoding),
     Incomplete,
-    Invalid,
 }
 
 #[derive(Debug)]
@@ -1171,10 +1170,13 @@ impl ShardsManagerActor {
         }
     }
 
-    fn check_chunk_complete(&self, chunk: &mut EncodedShardChunk) -> ChunkStatus {
+    fn check_chunk_complete_and_valid(
+        &self,
+        mut chunk: EncodedShardChunk,
+    ) -> Result<ChunkStatus, Error> {
         let _span = debug_span!(
             target: "chunks",
-            "check_chunk_complete",
+            "check_chunk_complete_and_valid",
             height_included = chunk.cloned_header().height_included(),
             shard_id = %chunk.cloned_header().shard_id(),
             chunk_hash = ?chunk.chunk_hash())
@@ -1183,7 +1185,7 @@ impl ShardsManagerActor {
         let data_parts = self.epoch_manager.num_data_parts();
         if chunk.content().num_fetched_parts() < data_parts {
             tracing::debug!(target: "chunks", num_fetched_parts = chunk.content().num_fetched_parts(), data_parts, "incomplete");
-            return ChunkStatus::Incomplete;
+            return Ok(ChunkStatus::Incomplete);
         }
 
         let encoded_length = chunk.encoded_length();
@@ -1193,16 +1195,26 @@ impl ShardsManagerActor {
             encoded_length as usize,
         ) {
             tracing::debug!(target: "chunks", ?err, "invalid, failed to decode");
-            return ChunkStatus::Invalid;
+            return Err(Error::InvalidChunk(Box::new(chunk)));
         }
 
         let (merkle_root, merkle_paths) = chunk.content().get_merkle_hash_and_paths();
         if &merkle_root != chunk.encoded_merkle_root() {
             tracing::debug!(target: "chunks", ?merkle_root, chunk_encoded_merkle_root = ?chunk.encoded_merkle_root(), "invalid, wrong merkle root");
-            return ChunkStatus::Invalid;
+            return Err(Error::InvalidChunk(Box::new(chunk)));
         }
 
-        ChunkStatus::Complete(merkle_paths)
+        let chunk =
+            ShardChunkWithEncoding::from_encoded_shard_chunk(chunk).map_err(|(err, chunk)| {
+                tracing::debug!(target: "chunks", ?err, "invalid, failed to decode");
+                Error::InvalidChunk(Box::new(chunk))
+            })?;
+
+        if !validate_chunk_proofs(chunk.to_shard_chunk(), self.epoch_manager.as_ref())? {
+            return Err(Error::InvalidChunk(Box::new(chunk.into_parts().1)));
+        }
+
+        Ok(ChunkStatus::Complete(merkle_paths, chunk))
     }
 
     /// Add a part to current encoded chunk stored in memory. It's present only if One Part was present and signed correctly.
@@ -1231,17 +1243,13 @@ impl ShardsManagerActor {
 
     fn decode_encoded_chunk_if_complete(
         &mut self,
-        mut encoded_chunk: EncodedShardChunk,
+        encoded_chunk: EncodedShardChunk,
         me: Option<&AccountId>,
     ) -> Result<Option<(ShardChunk, PartialEncodedChunk)>, Error> {
-        match self.check_chunk_complete(&mut encoded_chunk) {
-            ChunkStatus::Complete(merkle_paths) => {
-                self.requested_partial_encoded_chunks.remove(&encoded_chunk.chunk_hash());
-                let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk)
-                    .map_err(|(_, chunk)| Error::InvalidChunk(Box::new(chunk)))?;
-                if !validate_chunk_proofs(chunk.to_shard_chunk(), self.epoch_manager.as_ref())? {
-                    return Err(Error::InvalidChunk(Box::new(chunk.into_parts().1)));
-                }
+        match self.check_chunk_complete_and_valid(encoded_chunk)? {
+            ChunkStatus::Complete(merkle_paths, chunk) => {
+                self.requested_partial_encoded_chunks
+                    .remove(&chunk.to_encoded_shard_chunk().chunk_hash());
                 match create_partial_chunk(
                     &chunk,
                     merkle_paths,
@@ -1259,11 +1267,6 @@ impl ShardsManagerActor {
                 }
             }
             ChunkStatus::Incomplete => Ok(None),
-            ChunkStatus::Invalid => {
-                let chunk_hash = encoded_chunk.chunk_hash();
-                self.encoded_chunks.remove(&chunk_hash);
-                Err(Error::InvalidChunk(Box::new(encoded_chunk)))
-            }
         }
     }
 
