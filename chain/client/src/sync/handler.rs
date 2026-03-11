@@ -253,10 +253,14 @@ impl SyncHandler {
     ///
     ///   EpochSync → HeaderSync → StateSync → BlockSync → NoSync
     ///
-    /// - **Near horizon** (within `epoch_sync_horizon`): enters at BlockSync.
-    ///   Header sync runs alongside block sync; block sync self-paces via
-    ///   the `NextBlockHashes` chain.
-    /// - **Far horizon** (beyond `epoch_sync_horizon`): enters at EpochSync.
+    /// Near horizon (within `epoch_sync_horizon`): enters at BlockSync.
+    ///   Both header sync and block sync are called each tick. Header sync
+    ///   fetches batches of headers, populating the `NextBlockHashes` chain.
+    ///   Block sync walks that chain via `get_next_block_hash()` — when no
+    ///   headers exist ahead it gets `DBNotFoundErr` and waits until the
+    ///   next 2s timeout retry, so it naturally self-paces behind header sync.
+    ///
+    /// Far horizon (beyond `epoch_sync_horizon`): enters at EpochSync.
     ///   After epoch sync completes, headers advance past the epoch boundary,
     ///   state sync downloads state at the sync hash, and finally block sync
     ///   catches up.
@@ -289,9 +293,8 @@ impl SyncHandler {
                 self.epoch_sync.run_v2(epoch_sync_status, highest_height_peers)?;
             }
             SyncStatus::HeaderSync { current_height, highest_height: hh, .. } => {
-                // Downloading headers towards the network tip.
-                self.header_sync.run_v2(chain, highest_height, highest_height_peers)?;
-                self.header_sync.check_and_ban_stalling_peer();
+                // ban stalling peers during primary header sync
+                self.header_sync.run_v2(chain, highest_height, highest_height_peers, true)?;
 
                 let header_head = chain.header_head()?;
                 *current_height = header_head.height;
@@ -303,7 +306,7 @@ impl SyncHandler {
                     highest_height.saturating_sub(self.config.block_header_fetch_horizon);
                 if header_head.height >= min_header_height {
                     if let Some(sync_hash) = chain.find_sync_hash()? {
-                        tracing::debug!(target: "sync", "sync: transition to state sync");
+                        tracing::debug!(target: "sync", ?sync_hash, "sync: transition to state sync");
                         self.sync_status
                             .update(SyncStatus::StateSync(StateSyncStatus::new(sync_hash)));
                     }
@@ -340,7 +343,8 @@ impl SyncHandler {
                 // Header sync continues alongside block sync — it extends the
                 // NextBlockHashes chain while block sync follows it. Exit from
                 // sync is handled by run_sync_step() detecting AlreadyCaughtUp.
-                self.header_sync.run_v2(chain, highest_height, highest_height_peers)?;
+                // don't ban during block sync — peers may be serving blocks
+                self.header_sync.run_v2(chain, highest_height, highest_height_peers, false)?;
                 self.block_sync.run_v2(chain, highest_height_peers)?;
 
                 let head = chain.head()?;
