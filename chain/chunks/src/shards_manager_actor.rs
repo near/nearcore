@@ -1209,7 +1209,7 @@ impl ShardsManagerActor {
                 // Not expected to be reachable because reed_solomon_decode above already
                 // deserializes the content as TransactionReceipt.
                 tracing::debug!(target: "chunks", ?err, "invalid, failed to decode");
-                Error::InvalidChunk(Box::new(chunk))
+                Error::InvalidChunk(chunk)
             })?;
 
         if !validate_chunk_proofs(chunk.to_shard_chunk(), self.epoch_manager.as_ref())? {
@@ -1248,7 +1248,17 @@ impl ShardsManagerActor {
         encoded_chunk: EncodedShardChunk,
         me: Option<&AccountId>,
     ) -> Result<Option<(ShardChunk, PartialEncodedChunk)>, Error> {
-        match self.check_chunk_complete_and_valid(encoded_chunk)? {
+        let status = match self.check_chunk_complete_and_valid(encoded_chunk) {
+            Ok(status) => status,
+            Err(Error::InvalidChunk(chunk)) => {
+                let chunk_hash = chunk.chunk_hash();
+                self.encoded_chunks.remove(&chunk_hash);
+                self.requested_partial_encoded_chunks.remove(&chunk_hash);
+                return Err(Error::InvalidChunk(chunk));
+            }
+            Err(err) => return Err(err),
+        };
+        match status {
             ChunkStatus::Complete(merkle_paths, chunk) => {
                 self.requested_partial_encoded_chunks
                     .remove(&chunk.to_encoded_shard_chunk().chunk_hash());
