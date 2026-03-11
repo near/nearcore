@@ -1,3 +1,7 @@
+use super::chunk_view::FlatStorageChunkView;
+use super::{
+    FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage, FlatStorageError,
+};
 use crate::adapter::flat_store::{FlatStoreAdapter, FlatStoreUpdateAdapter};
 use crate::flat::{
     BlockInfo, FlatStorageReadyStatus, FlatStorageReshardingStatus, FlatStorageStatus,
@@ -9,11 +13,6 @@ use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-
-use super::chunk_view::FlatStorageChunkView;
-use super::{
-    FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage, FlatStorageError,
-};
 
 /// `FlatStorageManager` provides a way to construct new flat state to pass to new tries.
 /// It is owned by NightshadeRuntime, and thus can be owned by multiple threads, so the implementation

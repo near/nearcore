@@ -1,6 +1,7 @@
-use std::collections::BTreeMap;
-use std::sync::Arc;
-
+use super::spice_utils::delay_endorsements_propagation;
+use crate::setup::builder::TestLoopBuilder;
+use crate::utils::account::{create_validators_spec, validators_spec_clients};
+use crate::utils::setups::derive_new_epoch_config_from_boundary;
 use near_async::time::Duration;
 use near_chain::spice_core::get_last_certified_block_header;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
@@ -9,12 +10,8 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
 use near_primitives::version::PROTOCOL_VERSION;
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::{create_validators_spec, validators_spec_clients};
-use crate::utils::setups::derive_new_epoch_config_from_boundary;
-
-use super::spice_utils::delay_endorsements_propagation;
+use std::collections::BTreeMap;
+use std::sync::Arc;
 
 /// Regression test: verifies that block processing works across a resharding
 /// boundary in SPICE mode. A bug in get_last_certified_execution_results_for_next_block
@@ -55,6 +52,7 @@ fn test_spice_certified_results_across_resharding() {
         .genesis(genesis)
         .clients(clients)
         .epoch_config_store(epoch_config_store)
+        .delay_warmup()
         .build();
 
     let execution_delay = 2;

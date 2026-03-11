@@ -6,11 +6,10 @@ pub mod workload;
 pub use evaluation::{
     QueueStats, ShardQueueLengths, StatsWriter, TransactionStatus, summary_table,
 };
+pub(crate) use model::Transaction;
 pub use model::{Model, Queue, QueueId, Receipt, ShardId, TransactionId};
 pub use strategy::CongestionStrategy;
 pub use workload::{ReceiptDefinition, ReceiptId, TransactionBuilder};
-
-pub(crate) use model::Transaction;
 
 /// Gas is measured in Giga Gas as the smallest unit. This way, it fits in a u64
 /// even for long simulations.

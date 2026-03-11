@@ -15,7 +15,6 @@ use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{BlockProcessingArtifact, ChainStore, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, ProtocolVersionCheckConfig};
-use near_client::sync::epoch::EpochSyncRunResult;
 use near_client::test_utils::create_chunk_on_height;
 use near_client::{GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType, Signature};
@@ -1455,7 +1454,7 @@ fn test_reject_block_headers_during_epoch_sync() {
             highest_height,
             &highest_height_peers
         ),
-        Ok(EpochSyncRunResult::Ok),
+        Ok(()),
         "Epoch sync failure"
     );
 
@@ -3258,9 +3257,8 @@ fn test_catchup_no_sharding_change() {
 /// cspell:words aarch
 /// These tests fail on aarch because the WasmtimeVM::precompile method doesn't populate the cache.
 mod contract_precompilation_tests {
-    use crate::utils::process_blocks::produce_blocks_from_height;
-
     use super::*;
+    use crate::utils::process_blocks::produce_blocks_from_height;
     use near_primitives::test_utils::MockEpochInfoProvider;
     use near_store::TrieUpdate;
     use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache};

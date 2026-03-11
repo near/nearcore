@@ -1,6 +1,7 @@
-use std::collections::BTreeMap;
-use std::sync::Arc;
-
+use crate::{
+    setup::{builder::TestLoopBuilder, env::TestLoopEnv},
+    utils::transactions,
+};
 use aurora_engine_transactions::{EthTransactionKind, eip_2930::Transaction2930};
 use aurora_engine_types::types::Wei;
 use ethabi::ethereum_types::U256;
@@ -27,11 +28,8 @@ use near_primitives::{
 use near_vm_runner::ContractCode;
 use near_wallet_contract::eth_wallet_global_contract_hash;
 use sha3::{Digest, Keccak256};
-
-use crate::{
-    setup::{builder::TestLoopBuilder, env::TestLoopEnv},
-    utils::transactions,
-};
+use std::collections::BTreeMap;
+use std::sync::Arc;
 
 const GLOBAL_CONTRACT_MAINNET_WASM: &[u8] =
     include_bytes!("../../../runtime/near-wallet-contract/res/global_contract_mainnet.wasm");
@@ -100,8 +98,7 @@ fn test_eth_implicit_global_contract_mainnet_upgrade() {
         .epoch_config_store(epoch_config_store)
         .protocol_upgrade_schedule(ProtocolUpgradeVotingSchedule::new_immediate(new_pv))
         .clients(vec!["validator0".parse().unwrap()])
-        .build()
-        .warmup();
+        .build();
 
     let relayer_signer = create_user_test_signer(&relayer);
     let mut relayer_nonce = 0;

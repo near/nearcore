@@ -11,10 +11,6 @@ pytest sanity/transactions.py
 pytest sanity/transactions.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/transactions.py --features nightly,protocol_feature_spice
-pytest sanity/staking1.py
-pytest sanity/staking1.py --features nightly
-# TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#pytest sanity/staking1.py --features nightly,protocol_feature_spice
 pytest --timeout=10m sanity/staking2.py
 pytest --timeout=10m sanity/staking2.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
@@ -81,11 +77,6 @@ pytest --timeout=10m sanity/state_sync_routed.py manytx 115
 pytest --timeout=10m sanity/state_sync_routed.py manytx 115 --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest --timeout=10m sanity/state_sync_routed.py manytx 115 --features nightly,protocol_feature_spice
-
-pytest sanity/single_shard_tracking.py
-pytest sanity/single_shard_tracking.py --features nightly
-# TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#pytest sanity/single_shard_tracking.py --features nightly,protocol_feature_spice
 
 pytest --timeout=15m sanity/state_sync_massive.py
 pytest --timeout=15m sanity/state_sync_massive.py --features nightly
@@ -329,11 +320,6 @@ pytest sanity/kickout_offline_validators.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/kickout_offline_validators.py --features nightly,protocol_feature_spice
 
-# Tests whether endorsements are produced immediately after the failover procedure for a chunk-only validator.
-pytest sanity/chunk_validator_failover.py
-pytest sanity/chunk_validator_failover.py --features nightly
-# TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#pytest sanity/chunk_validator_failover.py --features nightly,protocol_feature_spice
 
 # Epoch sync
 # TODO(#13296): Enable after fixing flaky test

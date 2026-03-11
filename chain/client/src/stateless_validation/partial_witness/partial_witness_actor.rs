@@ -1,3 +1,15 @@
+use super::encoding::CONTRACT_DEPLOYS_RATIO_DATA_PARTS;
+pub use super::encoding::WITNESS_RATIO_DATA_PARTS;
+use super::partial_deploys_tracker::PartialEncodedContractDeploysTracker;
+use super::partial_witness_tracker::PartialEncodedStateWitnessTracker;
+use crate::metrics;
+use crate::stateless_validation::chunk_validation_actor::ChunkValidationSenderForPartialWitness;
+use crate::stateless_validation::contracts_cache_contains_contract;
+use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
+use crate::stateless_validation::validate::{
+    ChunkRelevance, validate_chunk_contract_accesses, validate_contract_code_request,
+    validate_partial_encoded_contract_deploys, validate_partial_encoded_state_witness,
+};
 use itertools::Itertools;
 use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
@@ -15,7 +27,6 @@ use near_network::state_witness::{
     PartialEncodedStateWitnessForwardMessage, PartialEncodedStateWitnessMessage,
 };
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
-use near_parameters::RuntimeConfig;
 use near_primitives::reed_solomon::{
     REED_SOLOMON_MAX_PARTS, ReedSolomonEncoder, ReedSolomonEncoderCache,
 };
@@ -32,10 +43,11 @@ use near_primitives::stateless_validation::state_witness::{
 };
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::StoredChunkStateTransitionData;
 use near_primitives::types::{AccountId, EpochId, ShardId};
+use near_primitives::utils::compression::CompressedData;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::{DBCol, StorageError, TrieDBStorage, TrieStorage};
-use near_vm_runner::{ContractCode, ContractRuntimeCache};
+use near_vm_runner::ContractCode;
 use parking_lot::Mutex;
 use rand::Rng;
 use rayon::iter::{
@@ -44,20 +56,6 @@ use rayon::iter::{
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-
-use crate::metrics;
-use crate::stateless_validation::chunk_validation_actor::ChunkValidationSenderForPartialWitness;
-use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
-use crate::stateless_validation::validate::{
-    ChunkRelevance, validate_chunk_contract_accesses, validate_contract_code_request,
-    validate_partial_encoded_contract_deploys, validate_partial_encoded_state_witness,
-};
-
-use super::encoding::CONTRACT_DEPLOYS_RATIO_DATA_PARTS;
-pub use super::encoding::WITNESS_RATIO_DATA_PARTS;
-use super::partial_deploys_tracker::PartialEncodedContractDeploysTracker;
-use super::partial_witness_tracker::PartialEncodedStateWitnessTracker;
-use near_primitives::utils::compression::CompressedData;
 
 const PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE: usize = 30;
 
@@ -950,13 +948,4 @@ pub fn compress_witness(witness: &ChunkStateWitness) -> Result<EncodedChunkState
         witness,
     );
     Ok(witness_bytes)
-}
-
-fn contracts_cache_contains_contract(
-    cache: &dyn ContractRuntimeCache,
-    contract_hash: &CodeHash,
-    runtime_config: &RuntimeConfig,
-) -> bool {
-    near_vm_runner::contract_cached(Arc::clone(&runtime_config.wasm_config), cache, contract_hash.0)
-        .is_ok_and(|b| b)
 }

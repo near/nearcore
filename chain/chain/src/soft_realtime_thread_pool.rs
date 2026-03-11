@@ -1,12 +1,11 @@
-use std::collections::VecDeque;
-use std::sync::Arc;
-use std::time::Duration;
-
 use crate::metrics::{
     THREAD_POOL_MAX_NUM_THREADS, THREAD_POOL_NUM_THREADS, THREAD_POOL_QUEUE_SIZE,
 };
 use near_async::futures::AsyncComputationSpawner;
 use parking_lot::{Condvar, Mutex};
+use std::collections::VecDeque;
+use std::sync::Arc;
+use std::time::Duration;
 use thread_priority::{
     RealtimeThreadSchedulePolicy, ThreadBuilder, ThreadPriority, ThreadSchedulePolicy,
 };

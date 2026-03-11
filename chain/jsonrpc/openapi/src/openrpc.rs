@@ -8,10 +8,6 @@
 //! Usage:
 //!   cargo run -p near-jsonrpc-openapi-spec --bin near-openrpc > openrpc.json
 
-use schemars::JsonSchema;
-use schemars::transform::transform_subschemas;
-use serde_json::json;
-
 use near_chain_configs::GenesisConfig;
 use near_jsonrpc_primitives::types::blocks::{RpcBlockRequest, RpcBlockResponse};
 use near_jsonrpc_primitives::types::call_function::{
@@ -59,6 +55,9 @@ use near_jsonrpc_primitives::types::view_account::{RpcViewAccountRequest, RpcVie
 use near_jsonrpc_primitives::types::view_code::{RpcViewCodeRequest, RpcViewCodeResponse};
 use near_jsonrpc_primitives::types::view_state::{RpcViewStateRequest, RpcViewStateResponse};
 use near_primitives::hash::CryptoHash;
+use schemars::JsonSchema;
+use schemars::transform::transform_subschemas;
+use serde_json::json;
 
 // Request types that are just empty structs
 #[derive(JsonSchema)]

@@ -1,10 +1,9 @@
-use near_time::Clock;
-
 use crate::ActorSystem;
 use crate::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawnerExt};
 use crate::instrumentation::all_actor_instrumentations_view;
 use crate::instrumentation::test_utils::get_total_times;
 use crate::messaging::{Actor, CanSend, CanSendAsync, Handler};
+use near_time::Clock;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;

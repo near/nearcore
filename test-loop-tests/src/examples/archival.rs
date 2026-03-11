@@ -1,10 +1,9 @@
+use crate::setup::builder::{ArchivalKind, TestLoopBuilder};
 use near_async::messaging::Handler;
 use near_async::time::Duration;
 use near_client::GetBlock;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::types::{BlockId, BlockReference};
-
-use crate::setup::builder::{ArchivalKind, TestLoopBuilder};
 
 /// Demonstrates setting up an archival node with cold storage (split storage).
 ///
@@ -32,8 +31,7 @@ fn test_archival_node_with_cold_storage() {
         .epoch_length(epoch_length)
         .enable_archival_node(ArchivalKind::Cold)
         .gc_num_epochs_to_keep(gc_num_epochs_to_keep)
-        .build()
-        .warmup();
+        .build();
 
     // Run long enough for GC to kick in.
     let target_height = epoch_length * (gc_num_epochs_to_keep + 2);

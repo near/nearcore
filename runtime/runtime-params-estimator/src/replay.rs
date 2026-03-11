@@ -1,12 +1,11 @@
+use self::fold_db_ops::FoldDbOps;
+use self::gas_charges::ChargedVsFree;
 use anyhow::Context;
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::str::SplitWhitespace;
-
-use self::fold_db_ops::FoldDbOps;
-use self::gas_charges::ChargedVsFree;
 
 mod cache_stats;
 mod fold_db_ops;
@@ -218,9 +217,8 @@ fn extract_key_values<'a>(
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use super::{ReplayCmd, ReplayMode};
+    use std::path::PathBuf;
 
     /// These inputs are real mainnet traffic for the given block heights.
     /// Each trace contains two chunks in one shard.

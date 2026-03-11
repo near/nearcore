@@ -1,14 +1,26 @@
-use std::collections::HashMap;
-use std::fmt::Debug;
-
 use crate::sharding::ReceiptProof;
 use crate::state::PartialState;
+use crate::stateless_validation::contract_distribution::{CodeBytes, CodeHash};
 use crate::transaction::SignedTransaction;
 use crate::types::{ChunkExecutionResultHash, SpiceChunkId};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::ShardId;
 use near_schema_checker_lib::ProtocolSchema;
+use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
+
+/// Computes a deterministic hash of a set of contract code hashes.
+/// The hashes are sorted lexicographically, concatenated, and hashed.
+pub fn compute_contract_accesses_hash(accesses: &HashSet<CodeHash>) -> CryptoHash {
+    let mut sorted: Vec<_> = accesses.iter().collect();
+    sorted.sort();
+    let mut buf = Vec::with_capacity(sorted.len() * CryptoHash::LENGTH);
+    for h in &sorted {
+        buf.extend_from_slice(h.0.as_bytes());
+    }
+    CryptoHash::hash_bytes(&buf)
+}
 
 /// The state witness for a chunk with spice; proves the state transition that the
 /// chunk attests to.
@@ -34,6 +46,14 @@ pub struct SpiceChunkStateTransition {
     /// derived by applying the state transition onto the base state, but
     /// this makes it easier to debug why a state witness may fail to validate.
     pub post_state_root: CryptoHash,
+}
+
+impl SpiceChunkStateTransition {
+    /// Merges contract bytes into the base_state trie values.
+    pub fn merge_contracts(&mut self, contracts: Vec<CodeBytes>) {
+        let PartialState::TrieValues(values) = &mut self.base_state;
+        values.extend(contracts.into_iter().map(|code| code.0));
+    }
 }
 
 /// There are following differences with ChunkStateWitnessV2
@@ -77,6 +97,11 @@ pub struct SpiceChunkStateWitnessV1 {
     /// since it can be calculated by applying the chunk, but it's still useful
     /// for debugging.
     pub execution_result_hash: ChunkExecutionResultHash,
+    /// Hash of the contract code hashes accessed during chunk application.
+    /// Validators use this to verify that the contract accesses message they
+    /// received matches what the witness expects, preventing a malicious
+    /// producer from injecting invalid contract accesses.
+    pub contract_accesses_hash: CryptoHash,
 }
 
 impl SpiceChunkStateWitness {
@@ -87,6 +112,7 @@ impl SpiceChunkStateWitness {
         applied_receipts_hash: CryptoHash,
         transactions: Vec<SignedTransaction>,
         execution_result_hash: ChunkExecutionResultHash,
+        contract_accesses_hash: CryptoHash,
     ) -> Self {
         Self::V1(SpiceChunkStateWitnessV1 {
             chunk_id,
@@ -95,6 +121,7 @@ impl SpiceChunkStateWitness {
             applied_receipts_hash,
             transactions,
             execution_result_hash,
+            contract_accesses_hash,
         })
     }
 
@@ -107,6 +134,12 @@ impl SpiceChunkStateWitness {
     pub fn main_state_transition(&self) -> &SpiceChunkStateTransition {
         match self {
             Self::V1(witness) => &witness.main_state_transition,
+        }
+    }
+
+    pub fn mut_main_state_transition(&mut self) -> &mut SpiceChunkStateTransition {
+        match self {
+            Self::V1(witness) => &mut witness.main_state_transition,
         }
     }
 
@@ -131,6 +164,12 @@ impl SpiceChunkStateWitness {
     pub fn execution_result_hash(&self) -> &ChunkExecutionResultHash {
         match self {
             Self::V1(witness) => &witness.execution_result_hash,
+        }
+    }
+
+    pub fn contract_accesses_hash(&self) -> &CryptoHash {
+        match self {
+            Self::V1(witness) => &witness.contract_accesses_hash,
         }
     }
 }

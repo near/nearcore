@@ -1,17 +1,18 @@
+use super::env::TestLoopEnv;
+use super::setup::setup_client;
+use super::state::{NodeSetupState, SharedState};
+use crate::utils::account::{
+    archival_account_id, create_validators_spec, validators_spec_clients,
+    validators_spec_clients_with_rpc,
+};
+use crate::utils::peer_manager_actor::{TestLoopNetworkSharedState, UnreachableActor};
 use itertools::Itertools;
+use near_async::test_loop::TestLoopV2;
+use near_async::time::{Clock, Duration};
 use near_chain_configs::test_genesis::{
     TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
 };
 use near_chain_configs::test_utils::TestClientConfigParams;
-use near_primitives::shard_layout::ShardLayout;
-use near_store::archive::cloud_storage::config::test_cloud_archival_config;
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use tempfile::TempDir;
-
-use near_async::test_loop::TestLoopV2;
-use near_async::time::{Clock, Duration};
 use near_chain_configs::{
     ClientConfig, DumpConfig, ExternalStorageConfig, ExternalStorageLocation, Genesis,
     StateSyncConfig, SyncConfig, TrackedShardsConfig,
@@ -19,22 +20,18 @@ use near_chain_configs::{
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::gas::Gas;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockHeight, NumBlocks, NumShards};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::{ProtocolVersion, get_protocol_upgrade_schedule};
 use near_primitives_core::num_rational::Rational32;
+use near_store::archive::cloud_storage::config::test_cloud_archival_config;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::{TestNodeStorage, create_test_node_storage};
-
-use crate::utils::account::{
-    archival_account_id, create_validators_spec, validators_spec_clients,
-    validators_spec_clients_with_rpc,
-};
-use crate::utils::peer_manager_actor::{TestLoopNetworkSharedState, UnreachableActor};
-
-use super::env::TestLoopEnv;
-use super::setup::setup_client;
-use super::state::{NodeSetupState, SharedState};
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tempfile::TempDir;
 
 pub(crate) const MIN_BLOCK_PROD_TIME: u64 = 600;
 
@@ -52,8 +49,8 @@ pub(crate) struct TestLoopBuilder {
     runtime_config_store: Option<RuntimeConfigStore>,
     /// Custom function to change the configs before constructing each client.
     config_modifier: Option<Box<dyn Fn(&mut ClientConfig, usize)>>,
-    /// Whether to do the warmup or not. See `skip_warmup` for more details.
-    warmup_pending: Arc<AtomicBool>,
+    /// Controls warmup behavior. See `skip_warmup` and `delay_warmup`.
+    warmup_mode: WarmupMode,
     /// Whether all nodes must track all shards.
     track_all_shards: bool,
     /// Whether to load mem tries for the tracked shards.
@@ -73,7 +70,7 @@ impl TestLoopBuilder {
             gc_num_epochs_to_keep: None,
             runtime_config_store: None,
             config_modifier: None,
-            warmup_pending: Arc::new(AtomicBool::new(true)),
+            warmup_mode: WarmupMode::Auto,
             track_all_shards: false,
             load_memtries_for_tracked_shards: true,
             upgrade_schedule: None,
@@ -258,6 +255,13 @@ impl TestLoopBuilder {
         self
     }
 
+    /// Adds a non-validator client node.
+    pub fn add_non_validator_client(mut self, account_id: &AccountId) -> Self {
+        let auto = self.setup_config.ensure_auto();
+        auto.non_validator_clients.push(account_id.clone());
+        self
+    }
+
     /// Set the accounts whose clients should be configured as cold DB split store archival nodes in the test loop.
     /// These accounts must already be in the `clients` list.
     pub(crate) fn cold_storage_archival_clients(self, accounts: Vec<AccountId>) -> Self {
@@ -323,8 +327,16 @@ impl TestLoopBuilder {
     /// somewhat differently (and correctly so) at genesis. So only skip
     /// warmup if you are interested in the behavior of starting from genesis.
     #[allow(dead_code)]
-    pub fn skip_warmup(self) -> Self {
-        self.warmup_pending.store(false, Ordering::Relaxed);
+    pub fn skip_warmup(mut self) -> Self {
+        self.warmup_mode = WarmupMode::Skip;
+        self
+    }
+
+    /// Do not automatically warmup during `build()`, but warmup is still
+    /// expected to be called manually later. Use this when you need to
+    /// configure the environment between `build()` and `warmup()`.
+    pub fn delay_warmup(mut self) -> Self {
+        self.warmup_mode = WarmupMode::Manual;
         self
     }
 
@@ -345,10 +357,16 @@ impl TestLoopBuilder {
 
     // -- Build --
 
-    /// Build the test loop environment.
+    /// Build the test loop environment. Automatically calls `warmup()` unless
+    /// `skip_warmup()` or `delay_warmup()` was called on the builder.
     pub(crate) fn build(mut self) -> TestLoopEnv {
+        let warmup_mode = self.warmup_mode;
         let (genesis, clients) = self.resolve_setup_config();
-        self.build_impl(genesis, clients)
+        let env = self.build_impl(genesis, clients);
+        match warmup_mode {
+            WarmupMode::Auto => env.warmup(),
+            WarmupMode::Skip | WarmupMode::Manual => env,
+        }
     }
 
     fn resolve_setup_config(&mut self) -> (Genesis, Vec<ClientSpec>) {
@@ -366,18 +384,21 @@ impl TestLoopBuilder {
     fn build_impl(mut self, genesis: Genesis, clients: Vec<ClientSpec>) -> TestLoopEnv {
         self.ensure_epoch_config_store(&genesis);
 
-        let warmup_pending = self.warmup_pending.clone();
-        self.test_loop.send_adhoc_event("warmup_pending".into(), move |_| {
-            assert!(
-                !warmup_pending.load(Ordering::Relaxed),
-                "Warmup is pending! Call env.warmup() or builder.skip_warmup()"
-            );
-        });
+        let warmup_pending = Arc::new(AtomicBool::new(self.warmup_mode != WarmupMode::Skip));
+        if self.warmup_mode != WarmupMode::Skip {
+            let warmup_pending = warmup_pending.clone();
+            self.test_loop.send_adhoc_event("warmup_pending".into(), move |_| {
+                assert!(
+                    !warmup_pending.load(Ordering::Relaxed),
+                    "warmup is pending! Call env.warmup() or builder.skip_warmup()"
+                );
+            });
+        }
 
         let node_states = (0..clients.len())
             .map(|idx| self.setup_node_state(idx, &genesis, &clients))
             .collect_vec();
-        let (mut test_loop, shared_state) = self.setup_shared_state(genesis);
+        let (mut test_loop, shared_state) = self.setup_shared_state(genesis, warmup_pending);
         let datas = node_states
             .into_iter()
             .map(|node_state| {
@@ -389,7 +410,11 @@ impl TestLoopBuilder {
         TestLoopEnv { test_loop, node_datas: datas, shared_state }
     }
 
-    fn setup_shared_state(mut self, genesis: Genesis) -> (TestLoopV2, SharedState) {
+    fn setup_shared_state(
+        mut self,
+        genesis: Genesis,
+        warmup_pending: Arc<AtomicBool>,
+    ) -> (TestLoopV2, SharedState) {
         let unreachable_actor_sender =
             self.test_loop.data.register_actor("UnreachableActor", UnreachableActor {}, None);
         self.test_loop.event_denylist().lock().push("UnreachableActor".to_string());
@@ -407,7 +432,7 @@ impl TestLoopBuilder {
             chunks_storage: Default::default(),
             drop_conditions: Default::default(),
             load_memtries_for_tracked_shards: self.load_memtries_for_tracked_shards,
-            warmup_pending: self.warmup_pending,
+            warmup_pending,
         };
         (self.test_loop, shared_state)
     }
@@ -574,6 +599,7 @@ struct AutoSetupConfig {
     archival_node: Option<ArchivalKind>,
     shard_layout: Option<ShardLayout>,
     user_accounts: Vec<(AccountId, Balance)>,
+    non_validator_clients: Vec<AccountId>,
     epoch_length: Option<u64>,
     gas_limit: Option<Gas>,
     protocol_version: Option<ProtocolVersion>,
@@ -636,6 +662,7 @@ impl AutoSetupConfig {
             archival_node: None,
             shard_layout: None,
             user_accounts: vec![],
+            non_validator_clients: vec![],
             epoch_length: None,
             gas_limit: None,
             protocol_version: None,
@@ -698,6 +725,9 @@ impl AutoSetupConfig {
                 client_type: ClientType::Archival(kind),
             });
         }
+        for account_id in self.non_validator_clients {
+            clients.push(ClientSpec { account_id, client_type: ClientType::Regular });
+        }
         (genesis, clients)
     }
 }
@@ -745,6 +775,17 @@ impl ClientType {
 pub(crate) struct ClientSpec {
     pub account_id: AccountId,
     pub client_type: ClientType,
+}
+
+/// Controls how warmup is handled during `TestLoopBuilder::build()`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum WarmupMode {
+    /// Automatically call `warmup()` at the end of `build()`. This is the default.
+    Auto,
+    /// Skip warmup entirely. For tests that need genesis behavior.
+    Skip,
+    /// Do not auto-warmup, but the caller is expected to call `warmup()` manually.
+    Manual,
 }
 
 fn default_testloop_state_sync_config(tempdir: &PathBuf) -> StateSyncConfig {

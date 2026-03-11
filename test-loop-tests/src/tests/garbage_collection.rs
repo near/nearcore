@@ -1,6 +1,7 @@
-use std::collections::{BTreeMap, HashSet};
-use std::sync::Arc;
-
+use crate::setup;
+use crate::setup::builder::TestLoopBuilder;
+use crate::utils::retrieve_client_actor;
+use crate::utils::setups::derive_new_epoch_config_from_boundary;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
@@ -12,11 +13,8 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::DBCol;
 use near_store::adapter::StoreAdapter as _;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-
-use crate::setup;
-use crate::setup::builder::TestLoopBuilder;
-use crate::utils::retrieve_client_actor;
-use crate::utils::setups::derive_new_epoch_config_from_boundary;
+use std::collections::{BTreeMap, HashSet};
+use std::sync::Arc;
 
 // We set small gc_step_period in tests to help make sure gc runs at least as often as blocks are
 // produced.
@@ -46,8 +44,7 @@ fn test_state_transition_data_gc_simple() {
         .config_modifier(move |config, _client_index| {
             config.gc.gc_step_period = GC_STEP_PERIOD;
         })
-        .build()
-        .warmup();
+        .build();
 
     env.test_loop.run_for(Duration::seconds(20));
 
@@ -101,8 +98,7 @@ fn test_state_transition_data_gc_when_resharding() {
         .config_modifier(move |config, _client_index| {
             config.gc.gc_step_period = GC_STEP_PERIOD;
         })
-        .build()
-        .warmup();
+        .build();
 
     let client_handle = env.node_datas[0].client_sender.actor_handle();
     let chain_store = env.test_loop.data.get(&client_handle).client.chain.chain_store.clone();

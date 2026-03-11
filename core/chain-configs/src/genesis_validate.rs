@@ -205,7 +205,6 @@ impl<'a> GenesisValidator<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
-
     use crate::GenesisRecords;
     use near_crypto::{KeyType, PublicKey};
     use near_primitives::account::{AccessKey, Account, AccountContract};

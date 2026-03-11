@@ -1,17 +1,14 @@
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
+use crate::utils::account::create_account_id;
 use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::errors::{ActionErrorKind, FunctionCallError, TxExecutionError};
 use near_primitives::gas::Gas;
-use near_primitives::test_utils::create_user_test_signer;
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{Balance, Nonce};
+use near_primitives::types::Balance;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::FinalExecutionStatus;
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::env::TestLoopEnv;
-use crate::utils::account::create_account_id;
 
 /// Test that verifies gas limit behavior: burning 998 TGas succeeds while
 /// burning 1001 TGas results in a failed receipt.
@@ -23,8 +20,7 @@ fn test_gas_limit() {
     let mut env = TestLoopBuilder::new()
         .add_user_account(&user_account, Balance::from_near(10))
         .enable_rpc()
-        .build()
-        .warmup();
+        .build();
 
     // Assert that the gas limits are set to 1 PGas.
     let one_petagas = Gas::from_teragas(1000);
@@ -35,26 +31,20 @@ fn test_gas_limit() {
     assert_eq!(limit_config.max_total_prepaid_gas, one_petagas);
 
     // Deploy the test contract.
-    let deploy_tx = SignedTransaction::deploy_contract(
-        1,
-        &user_account,
-        near_test_contracts::rs_contract().to_vec(),
-        &create_user_test_signer(&user_account),
-        env.rpc_node().head().last_block_hash,
-    );
+    let deploy_tx = env.rpc_node().tx_deploy_test_contract(&user_account);
     env.rpc_runner().run_tx(deploy_tx, Duration::seconds(5));
 
     let prepaid_gas = Gas::from_teragas(1000);
 
     // Burning 998 TGas should succeed.
     let (status, gas_burnt) =
-        burn_gas(&mut env, &user_account, 2, Gas::from_teragas(998), prepaid_gas);
+        burn_gas(&mut env, &user_account, Gas::from_teragas(998), prepaid_gas);
     assert_matches!(status, FinalExecutionStatus::SuccessValue(_));
     assert!(gas_burnt < Gas::from_teragas(1000));
 
     // Burning 1001 TGas should fail with gas exceeded error.
     let (status, gas_burnt) =
-        burn_gas(&mut env, &user_account, 3, Gas::from_teragas(1001), prepaid_gas);
+        burn_gas(&mut env, &user_account, Gas::from_teragas(1001), prepaid_gas);
     assert_matches!(
         status,
         FinalExecutionStatus::Failure(TxExecutionError::ActionError(ref err))
@@ -72,20 +62,16 @@ fn test_gas_limit() {
 fn burn_gas(
     env: &mut TestLoopEnv,
     user_account: &near_primitives::types::AccountId,
-    nonce: Nonce,
     gas_to_burn: Gas,
     prepaid_gas: Gas,
 ) -> (FinalExecutionStatus, Gas) {
-    let tx = SignedTransaction::call(
-        nonce,
-        user_account.clone(),
-        user_account.clone(),
-        &create_user_test_signer(user_account),
-        Balance::ZERO,
-        "burn_gas_raw".to_owned(),
+    let tx = env.rpc_node().tx_call(
+        user_account,
+        user_account,
+        "burn_gas_raw",
         gas_to_burn.as_gas().to_le_bytes().to_vec(),
+        Balance::ZERO,
         prepaid_gas,
-        env.rpc_node().head().last_block_hash,
     );
     let outcome = env.rpc_runner().execute_tx(tx, Duration::seconds(5)).unwrap();
     let gas_burnt = outcome.receipts_outcome[0].outcome.gas_burnt;

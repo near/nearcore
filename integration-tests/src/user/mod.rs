@@ -1,5 +1,4 @@
-use std::sync::Arc;
-
+pub use crate::user::runtime_user::RuntimeUser;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::account::AccessKey;
@@ -16,8 +15,7 @@ use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
     ExecutionOutcomeView, FinalExecutionOutcomeView, ViewStateResult,
 };
-
-pub use crate::user::runtime_user::RuntimeUser;
+use std::sync::Arc;
 
 pub mod rpc_user;
 pub mod runtime_user;

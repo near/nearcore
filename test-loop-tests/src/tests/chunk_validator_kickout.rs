@@ -82,6 +82,7 @@ fn run_test_chunk_validator_kickout(accounts: Vec<AccountId>, test_case: TestCas
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
+        .delay_warmup()
         .build();
 
     let env = match &test_case {

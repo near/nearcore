@@ -1,9 +1,5 @@
-use std::collections::HashSet;
-use std::future::Future;
-use std::sync::Arc;
-
+use crate::setup::env::TestLoopEnv;
 use borsh::BorshDeserialize;
-
 use itertools::Itertools;
 use near_chain::types::Tip;
 use near_chain::{Chain, ChainStoreAccess, ChainStoreUpdate};
@@ -26,8 +22,9 @@ use near_store::{
     COLD_HEAD_KEY, DBCol, ShardTries, ShardUId, StateSnapshotConfig, Store, TrieConfig,
 };
 use near_vm_runner::logic::ProtocolVersion;
-
-use crate::setup::env::TestLoopEnv;
+use std::collections::HashSet;
+use std::future::Future;
+use std::sync::Arc;
 
 pub fn run_node_until(env: &mut TestLoopEnv, account_id: &AccountId, target_height: BlockHeight) {
     env.runner_for_account(account_id).run_until_head_height(target_height);

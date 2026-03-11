@@ -2,11 +2,6 @@
 //!
 //! See [FlatStorageResharder] for more details about how the resharding takes place.
 
-use std::collections::VecDeque;
-use std::fmt::{Debug, Formatter};
-use std::iter;
-use std::sync::Arc;
-
 use crate::resharding::event_type::ReshardingSplitShardParams;
 use crate::types::RuntimeAdapter;
 use itertools::Itertools;
@@ -31,6 +26,10 @@ use near_store::flat::{
     ParentSplitParameters,
 };
 use near_store::{ShardUId, StorageError};
+use std::collections::VecDeque;
+use std::fmt::{Debug, Formatter};
+use std::iter;
+use std::sync::Arc;
 
 /// `FlatStorageResharder` takes care of updating flat storage when a resharding event happens.
 ///
@@ -72,6 +71,30 @@ impl FlatStorageResharder {
         resharding_config: MutableConfigValue<ReshardingConfig>,
     ) -> Self {
         Self { epoch_manager, runtime, handle: controller, resharding_config }
+    }
+
+    /// TEST ONLY. Sets child shard flat storage statuses to `CreatingChild` without
+    /// starting the heavy resharding work. This is used when `adv_task_delay_by_blocks`
+    /// artificially delays resharding: it ensures the `StateSnapshotActor` can detect
+    /// pending resharding via `should_wait_for_resharding_split` even before the actual
+    /// resharding begins.
+    #[cfg(feature = "test_features")]
+    pub fn set_child_shard_statuses_to_creating(
+        &self,
+        left_child_shard: ShardUId,
+        right_child_shard: ShardUId,
+    ) {
+        let flat_store = self.runtime.store().flat_store();
+        let mut store_update = flat_store.store_update();
+        store_update.set_flat_storage_status(
+            left_child_shard,
+            FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CreatingChild),
+        );
+        store_update.set_flat_storage_status(
+            right_child_shard,
+            FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CreatingChild),
+        );
+        store_update.commit();
     }
 
     /// Main function to start resharding. This function is a long running cancellable task.
@@ -957,8 +980,11 @@ enum ShardCatchupBatchResult {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
+    use super::FlatStorageResharder;
+    use crate::resharding::flat_storage_resharder::FlatStorageReshardingTaskResult;
+    use crate::runtime::NightshadeRuntime;
+    use crate::types::{ChainConfig, RuntimeAdapter};
+    use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
     use assert_matches::assert_matches;
     use near_async::messaging::{IntoMultiSender, noop};
     use near_async::time::Clock;
@@ -980,13 +1006,7 @@ mod tests {
     };
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
-
-    use crate::resharding::flat_storage_resharder::FlatStorageReshardingTaskResult;
-    use crate::runtime::NightshadeRuntime;
-    use crate::types::{ChainConfig, RuntimeAdapter};
-    use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
-
-    use super::FlatStorageResharder;
+    use std::collections::BTreeMap;
 
     /// Simple shard layout with two shards.
     fn simple_shard_layout() -> ShardLayout {

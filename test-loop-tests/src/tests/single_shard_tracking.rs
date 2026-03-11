@@ -1,6 +1,7 @@
-use std::collections::{BTreeMap, HashSet};
-use std::sync::Arc;
-
+use crate::setup;
+use crate::setup::builder::TestLoopBuilder;
+use crate::utils::retrieve_client_actor;
+use crate::utils::setups::derive_new_epoch_config_from_boundary;
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
@@ -13,11 +14,8 @@ use near_primitives::version::{PROD_GENESIS_PROTOCOL_VERSION, PROTOCOL_VERSION};
 use near_store::adapter::StoreAdapter as _;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::{DBCol, ShardUId};
-
-use crate::setup;
-use crate::setup::builder::TestLoopBuilder;
-use crate::utils::retrieve_client_actor;
-use crate::utils::setups::derive_new_epoch_config_from_boundary;
+use std::collections::{BTreeMap, HashSet};
+use std::sync::Arc;
 
 // We set small gc_step_period in tests to help make sure gc runs at least as often as blocks are
 // produced.
@@ -65,8 +63,7 @@ fn test_rpc_single_shard_tracking() {
             config.gc.gc_num_epochs_to_keep = GC_NUM_EPOCHS_TO_KEEP;
             config.tracked_shards_config = TrackedShardsConfig::Shards(tracked_shards.clone());
         })
-        .build()
-        .warmup();
+        .build();
 
     let num_blocks_to_wait = EPOCH_LENGTH * (GC_NUM_EPOCHS_TO_KEEP + 1);
     env.test_loop.run_for(Duration::seconds(num_blocks_to_wait as i64));
@@ -141,8 +138,7 @@ fn test_archival_single_shard_tracking_when_resharding() {
             config.tracked_shards_config =
                 TrackedShardsConfig::Shards(initial_tracked_shards.clone());
         })
-        .build()
-        .warmup();
+        .build();
 
     let client_handle = env.node_datas[archival_client_index].client_sender.actor_handle();
     let chain_store = env.test_loop.data.get(&client_handle).client.chain.chain_store.clone();

@@ -1,8 +1,7 @@
+use crate::types::status::RpcStatusError;
 use near_primitives::views::SplitStorageInfoView;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-
-use crate::types::status::RpcStatusError;
 
 #[derive(Serialize, Deserialize, Debug)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]

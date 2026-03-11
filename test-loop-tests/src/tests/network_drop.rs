@@ -1,11 +1,9 @@
-use std::sync::Arc;
-
+use crate::setup::builder::TestLoopBuilder;
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
 use parking_lot::RwLock;
 use rand::{Rng, SeedableRng};
-
-use crate::setup::builder::TestLoopBuilder;
+use std::sync::Arc;
 
 const TARGET_HEIGHT: u64 = 20;
 const DROP_RATIO_NUMERATOR: u32 = 1;
@@ -19,7 +17,7 @@ fn network_drop_random_messages() {
     let rng: rand::rngs::StdRng = rand::rngs::StdRng::seed_from_u64(42);
     let rng = Arc::new(RwLock::new(rng));
 
-    let mut env = TestLoopBuilder::new().validators(3, 0).build().warmup();
+    let mut env = TestLoopBuilder::new().validators(3, 0).build();
 
     // Configure the PeerActors to drop some events. This is actually a bit
     // unrealistic on the network level because we use a reliable transport

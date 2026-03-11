@@ -1,6 +1,5 @@
-use std::{io::Read, str::FromStr};
-
 use json_comments::StripComments;
+use std::{io::Read, str::FromStr};
 
 // strip comments from a JSON string with comments.
 // the comment formats that are supported: //, /* */ and #.

@@ -331,7 +331,7 @@ pub struct ClientActor {
 
     /// Synchronization measure to allow graceful shutdown.
     /// Informs the system when a ClientActor gets dropped.
-    shutdown_signal: Option<broadcast::Sender<ShutdownReason>>,
+    pub(super) shutdown_signal: Option<broadcast::Sender<ShutdownReason>>,
 
     /// Manages updating the config.
     config_updater: Option<ConfigUpdater>,
@@ -1558,7 +1558,8 @@ impl ClientActor {
 
     fn send_block_metrics(&mut self, block: &Block) {
         let chunks_in_block = block.header().chunk_mask().iter().filter(|&&m| m).count();
-        let gas_used = block.chunks().compute_gas_used();
+        // Unwrap is safe here because the block is already verified.
+        let gas_used = block.chunks().compute_gas_used_checked().unwrap();
 
         let last_final_hash = block.header().last_final_block();
         let last_final_ds_hash = block.header().last_ds_final_block();
@@ -1836,12 +1837,6 @@ impl ClientActor {
             // needs access to the client.
             SyncHandlerRequest::NeedProcessBlockArtifact(block_processing_artifacts) => {
                 self.client.process_block_processing_artifact(block_processing_artifacts);
-            }
-            SyncHandlerRequest::NeedsDataReset => {
-                tracing::info!(target: "client", "stale node detected, requesting data reset for epoch sync");
-                if let Some(tx) = self.shutdown_signal.take() {
-                    let _ = tx.send(ShutdownReason::EpochSyncDataReset);
-                }
             }
         }
     }

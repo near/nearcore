@@ -1,3 +1,5 @@
+use crate::setup::builder::{ArchivalKind, TestLoopBuilder};
+use crate::utils::account::create_account_id;
 use assert_matches::assert_matches;
 use near_async::messaging::Handler;
 use near_async::time::Duration;
@@ -6,9 +8,6 @@ use near_client::{GetBlock, GetSplitStorageInfo};
 use near_client_primitives::types::GetBlockError;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::types::{BlockId, BlockReference};
-
-use crate::setup::builder::{ArchivalKind, TestLoopBuilder};
-use crate::utils::account::create_account_id;
 
 /// Tests that an archival node with cold storage (split storage) has its cold
 /// head advancing close to the final head.
@@ -22,8 +21,7 @@ fn test_split_storage_cold_head_advances() {
         .epoch_length(epoch_length)
         .enable_archival_node(ArchivalKind::Cold)
         .gc_num_epochs_to_keep(gc_num_epochs_to_keep)
-        .build()
-        .warmup();
+        .build();
 
     // Run long enough for cold storage migration to have meaningful work.
     let target_height = epoch_length * (gc_num_epochs_to_keep + 2);
@@ -69,8 +67,7 @@ fn test_split_storage_archival_node_sync() {
         .epoch_length(epoch_length)
         .enable_archival_node(ArchivalKind::Cold)
         .gc_num_epochs_to_keep(gc_num_epochs_to_keep)
-        .build()
-        .warmup();
+        .build();
 
     // Add a second archival node right after warmup (small gap, will catch up
     // during normal block production).

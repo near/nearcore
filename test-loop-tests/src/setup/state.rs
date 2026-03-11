@@ -1,7 +1,10 @@
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-
+use super::drop_condition::{DropCondition, TestLoopChunksStorage};
+use crate::utils::peer_manager_actor::{
+    ChunkEndorsementSenderForTestLoopNetwork, ClientSenderForTestLoopNetwork,
+    SpiceDataDistributorSenderForTestLoopNetwork, TestLoopNetworkBlockInfo,
+    TestLoopNetworkSharedState, TestLoopPeerManagerActor, TxRequestHandleSenderForTestLoopNetwork,
+    ViewClientSenderForTestLoopNetwork,
+};
 use near_async::messaging::{IntoMultiSender, IntoSender, Sender};
 use near_async::test_loop::data::TestLoopDataHandle;
 use near_async::test_loop::sender::TestLoopSender;
@@ -27,22 +30,17 @@ use near_network::types::StateRequestSenderForNetwork;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, Nonce};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::test_utils::TestNodeStorage;
 use nearcore::state_sync::StateSyncDumpHandle;
 use parking_lot::Mutex;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tempfile::TempDir;
-
-use crate::utils::peer_manager_actor::{
-    ChunkEndorsementSenderForTestLoopNetwork, ClientSenderForTestLoopNetwork,
-    SpiceDataDistributorSenderForTestLoopNetwork, TestLoopNetworkBlockInfo,
-    TestLoopNetworkSharedState, TestLoopPeerManagerActor, TxRequestHandleSenderForTestLoopNetwork,
-    ViewClientSenderForTestLoopNetwork,
-};
-
-use super::drop_condition::{DropCondition, TestLoopChunksStorage};
 
 const NETWORK_DELAY: Duration = Duration::milliseconds(10);
 
@@ -103,6 +101,9 @@ pub struct NodeExecutionData {
     /// Set by delay_endorsements_propagation to account for certification delay in timeouts.
     /// It is Arc<_> so updates are visible through clones.
     pub(super) expected_execution_delay: Arc<AtomicU64>,
+    /// Tracks the next nonce to use per account across multiple transactions
+    /// within the same block, before on-chain nonces are updated.
+    pub(crate) pending_nonces: Arc<Mutex<HashMap<AccountId, Nonce>>>,
 }
 
 impl NodeExecutionData {

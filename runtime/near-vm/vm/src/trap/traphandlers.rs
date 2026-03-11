@@ -272,10 +272,9 @@ impl<'a> CallThreadState {
 mod tls {
     use super::CallThreadState;
     use crate::Trap;
+    pub use raw::Ptr;
     use std::mem;
     use std::ptr;
-
-    pub use raw::Ptr;
 
     // An even *more* inner module for dealing with TLS. This actually has the
     // thread local variable and has functions to access the variable.

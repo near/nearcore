@@ -1,8 +1,6 @@
-use std::collections::{HashMap, HashSet};
-use std::num::NonZeroUsize;
-use std::sync::Arc;
-
+use super::encoding::WITNESS_RATIO_DATA_PARTS;
 use crate::metrics;
+use crate::stateless_validation::chunk_validation_actor::ChunkValidationSenderForPartialWitness;
 use lru::LruCache;
 use near_async::messaging::CanSend;
 use near_async::time::Instant;
@@ -24,11 +22,10 @@ use near_primitives::stateless_validation::state_witness::{
 use near_primitives::types::ShardId;
 use near_primitives::utils::compression::CompressedData;
 use parking_lot::Mutex;
+use std::collections::{HashMap, HashSet};
+use std::num::NonZeroUsize;
+use std::sync::Arc;
 use time::ext::InstantExt as _;
-
-use crate::stateless_validation::chunk_validation_actor::ChunkValidationSenderForPartialWitness;
-
-use super::encoding::WITNESS_RATIO_DATA_PARTS;
 
 /// Max number of chunks to keep in the witness tracker cache. We reach here only after validation
 /// of the partial_witness so the LRU cache size need not be too large.

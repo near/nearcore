@@ -1,6 +1,4 @@
-use std::collections::VecDeque;
-use std::sync::Arc;
-
+use crate::metrics;
 use near_async::messaging::{Actor, Handler};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::Error;
@@ -19,8 +17,8 @@ use near_primitives::types::ShardId;
 use near_primitives::version::ProtocolVersion;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use parking_lot::Mutex;
-
-use crate::metrics;
+use std::collections::VecDeque;
+use std::sync::Arc;
 
 /// Actor that handles state sync requests.
 pub struct StateRequestActor {

@@ -1,5 +1,6 @@
-use std::collections::HashMap;
-
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
+use crate::utils::transactions::execute_money_transfers;
 use itertools::Itertools;
 use near_async::messaging::Handler;
 use near_async::time::Duration;
@@ -9,10 +10,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, EpochId, EpochReference};
 use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo};
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::env::TestLoopEnv;
-use crate::utils::transactions::execute_money_transfers;
+use std::collections::HashMap;
 
 const NUM_ACCOUNTS: usize = 20;
 const NUM_SHARDS: u64 = 4;
@@ -57,12 +55,8 @@ fn slow_test_stateless_validators_with_multi_test_loop() {
     let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
-        .build()
-        .warmup();
+    let TestLoopEnv { mut test_loop, node_datas, shared_state } =
+        builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
 
     // Capture the initial validator info in the first epoch.
     let client_handle = node_datas[0].client_sender.actor_handle();

@@ -1,8 +1,5 @@
-use std::sync::Arc;
-
+use super::{Params, RpcFrom, RpcRequest};
 use near_async::messaging::AsyncSendError;
-use serde_json::Value;
-
 use near_client_primitives::types::{
     GetBlockProofError, GetExecutionOutcomeError, GetNextLightClientBlockError,
 };
@@ -13,8 +10,8 @@ use near_jsonrpc_primitives::types::light_client::{
     RpcLightClientProofError,
 };
 use near_primitives::views::LightClientBlockView;
-
-use super::{Params, RpcFrom, RpcRequest};
+use serde_json::Value;
+use std::sync::Arc;
 
 impl RpcRequest for RpcLightClientExecutionProofRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {

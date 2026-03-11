@@ -1,3 +1,4 @@
+use crate::utils::{open_rocksdb, resolve_column};
 use clap::Parser;
 use near_store::DBCol;
 use near_store::db::{Database, RocksDB};
@@ -8,8 +9,6 @@ use std::path::PathBuf;
 use std::println;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
-
-use crate::utils::{open_rocksdb, resolve_column};
 
 #[derive(Parser)]
 pub(crate) struct AnalyzeDataSizeDistributionCommand {

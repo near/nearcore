@@ -3,7 +3,6 @@ pub use crate::config::{NearConfig, init_configs, load_config, load_test_config}
 #[cfg(feature = "json_rpc")]
 use crate::entity_debug::EntityDebugHandlerImpl;
 use crate::metrics::spawn_trie_metrics_loop;
-
 use crate::state_sync::StateSyncDumper;
 use anyhow::Context;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
@@ -294,6 +293,8 @@ fn spawn_spice_actors(
         spice_core_reader,
         network_adapter.clone(),
         chunk_executor_adapter.as_sender(),
+        spice_chunk_validator_adapter.as_sender(),
+        spice_chunk_validator_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
     );
     let spice_data_distributor_addr = actor_system.spawn_tokio_actor(spice_data_distributor_actor);

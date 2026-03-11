@@ -1,7 +1,3 @@
-use std::path::{Path, PathBuf};
-use std::rc::Rc;
-use std::sync::Arc;
-
 use crate::commands::apply_range;
 use near_chain::runtime::NightshadeRuntime;
 use near_chain::stateless_validation::processing_tracker::ProcessingDoneTracker;
@@ -18,6 +14,9 @@ use near_time::Clock;
 use nearcore::NearConfig;
 use nearcore::NightshadeRuntimeExt;
 use reed_solomon_erasure::galois_8::ReedSolomon;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
+use std::sync::Arc;
 
 pub enum DumpWitnessesSource {
     /// Dumps latest saved witnesses.
