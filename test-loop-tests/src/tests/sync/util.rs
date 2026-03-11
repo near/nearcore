@@ -77,7 +77,7 @@ pub fn verify_balances_on_synced_node(
                     Err(err) => panic!("unexpected query error for {account}: {err:?}"),
                 }
             })
-            .expect(&format!("no source node tracks shard for {account}"));
+            .unwrap_or_else(|| panic!("no source node tracks shard for {account}"));
 
         match synced_node.view_account_query(account) {
             Ok(view) => assert_eq!(
