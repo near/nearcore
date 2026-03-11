@@ -3257,9 +3257,8 @@ fn test_catchup_no_sharding_change() {
 /// cspell:words aarch
 /// These tests fail on aarch because the WasmtimeVM::precompile method doesn't populate the cache.
 mod contract_precompilation_tests {
-    use crate::utils::process_blocks::produce_blocks_from_height;
-
     use super::*;
+    use crate::utils::process_blocks::produce_blocks_from_height;
     use near_primitives::test_utils::MockEpochInfoProvider;
     use near_store::TrieUpdate;
     use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache};

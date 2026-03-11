@@ -1,7 +1,6 @@
+use crate::trie::{AccessOptions, NUM_CHILDREN, TRIE_COSTS, ValueHandle};
 use near_primitives::errors::StorageError;
 use near_primitives::state::FlatStateValue;
-
-use crate::trie::{AccessOptions, NUM_CHILDREN, TRIE_COSTS, ValueHandle};
 
 /// For updated nodes, the ID is simply the index into the array of updated nodes we keep.
 pub type UpdatedNodeId = usize;

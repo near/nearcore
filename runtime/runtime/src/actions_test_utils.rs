@@ -1,3 +1,4 @@
+use crate::{ActionResult, action_delete_account};
 use near_crypto::PublicKey;
 use near_parameters::RuntimeConfig;
 use near_primitives::account::{AccessKey, Account, AccountContract};
@@ -8,8 +9,6 @@ use near_primitives::types::{AccountId, Balance, StateChangeCause};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{ShardUId, TrieUpdate, set_access_key, set_account};
-
-use crate::{ActionResult, action_delete_account};
 
 pub(crate) fn setup_account(
     account_id: &AccountId,

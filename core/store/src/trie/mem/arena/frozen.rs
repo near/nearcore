@@ -1,7 +1,6 @@
-use std::sync::Arc;
-
 use super::single_thread::STArenaMemory;
 use super::{Arena, ArenaMemory, ArenaPos};
+use std::sync::Arc;
 
 /// FrozenArenaMemory holds a cloneable read-only shared memory instance.
 /// This can later be converted to HybridArenaMemory.

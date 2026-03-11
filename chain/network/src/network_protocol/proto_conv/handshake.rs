@@ -1,6 +1,5 @@
 /// Conversion functions for `Handshake` messages.
 use super::*;
-
 use crate::network_protocol::proto;
 use crate::network_protocol::{Handshake, HandshakeFailureReason};
 use crate::network_protocol::{PeerChainInfoV2, PeerInfo};

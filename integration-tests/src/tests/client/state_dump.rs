@@ -1,5 +1,7 @@
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use assert_matches::assert_matches;
-
+use near_async::futures::TokioRuntimeFutureSpawner;
 use near_async::time::{Clock, Duration};
 use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
@@ -21,10 +23,6 @@ use near_store::Store;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use nearcore::state_sync::StateSyncDumper;
 use std::sync::Arc;
-
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
-use near_async::futures::TokioRuntimeFutureSpawner;
 
 #[test]
 /// Produce several blocks, wait for the state dump thread to notice and

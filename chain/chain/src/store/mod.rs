@@ -2231,15 +2231,14 @@ fn save_receipt(store_update: &mut StoreUpdate, receipt: &Receipt) {
 
 #[cfg(test)]
 mod tests {
-    use near_async::time::Clock;
-    use near_primitives::types::BlockHeightDelta;
-    use std::sync::Arc;
-
     use crate::Chain;
     use crate::test_utils::get_chain;
+    use near_async::time::Clock;
     use near_primitives::errors::InvalidTxError;
     use near_primitives::test_utils::TestBlockBuilder;
     use near_primitives::test_utils::create_test_signer;
+    use near_primitives::types::BlockHeightDelta;
+    use std::sync::Arc;
 
     impl Chain {
         pub fn set_transaction_validity_period(&mut self, to: BlockHeightDelta) {

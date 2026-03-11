@@ -1,8 +1,3 @@
-use rand::prelude::StdRng;
-use rand::{Rng, SeedableRng};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::sync::Arc;
-
 use crate::EpochManager;
 use crate::test_utils::{hash_range, record_block, setup_default_epoch_manager, stake};
 use near_primitives::epoch_block_info::BlockInfo;
@@ -10,6 +5,10 @@ use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, Balance, EpochId};
+use rand::prelude::StdRng;
+use rand::{Rng, SeedableRng};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::sync::Arc;
 
 const DEBUG_PRINT: bool = false;
 

@@ -1,18 +1,14 @@
-use std::collections::BTreeMap;
-
+use super::TrieAccess;
+use super::receipts_column_helper::TrieQueue;
+use crate::{TrieUpdate, get, set};
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use near_primitives::errors::StorageError;
 use near_primitives::receipt::TrieQueueIndices;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{Gas, ShardId};
-
 use near_schema_checker_lib::ProtocolSchema;
-
-use crate::{TrieUpdate, get, set};
-
-use super::TrieAccess;
-use super::receipts_column_helper::TrieQueue;
+use std::collections::BTreeMap;
 
 /// Keeps metadata about receipts stored in the outgoing buffers.
 #[derive(Debug)]
@@ -422,9 +418,10 @@ fn subtract_gas_checked(total: &mut u128, delta: Gas) {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::VecDeque;
-    use std::convert::Infallible;
-
+    use super::{ReceiptGroup, ReceiptGroupV0, ReceiptGroupsConfig, ReceiptGroupsQueue};
+    use crate::test_utils::TestTriesBuilder;
+    use crate::trie::receipts_column_helper::TrieQueue;
+    use crate::{Trie, TrieUpdate};
     use bytesize::ByteSize;
     use near_primitives::bandwidth_scheduler::{
         BandwidthRequest, BandwidthRequestValues, BandwidthSchedulerParams,
@@ -433,12 +430,8 @@ mod tests {
     use near_primitives::types::{Gas, ShardId};
     use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha20Rng;
-
-    use crate::test_utils::TestTriesBuilder;
-    use crate::trie::receipts_column_helper::TrieQueue;
-    use crate::{Trie, TrieUpdate};
-
-    use super::{ReceiptGroup, ReceiptGroupV0, ReceiptGroupsConfig, ReceiptGroupsQueue};
+    use std::collections::VecDeque;
+    use std::convert::Infallible;
     use testlib::bandwidth_scheduler::get_random_receipt_size_for_test;
 
     #[test]

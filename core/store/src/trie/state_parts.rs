@@ -498,28 +498,24 @@ impl Trie {
 
 #[cfg(test)]
 mod tests {
-    use assert_matches::assert_matches;
-    use std::collections::{HashMap, HashSet};
-    use std::fmt::Debug;
-    use std::hash::Hash;
-    use std::sync::Arc;
-
-    use rand::Rng;
-    use rand::prelude::ThreadRng;
-    use rand::seq::SliceRandom;
-
-    use near_primitives::hash::{CryptoHash, hash};
-
+    use super::*;
+    use crate::MissingTrieValue;
+    use crate::MissingTrieValueContext;
     use crate::adapter::StoreUpdateAdapter;
     use crate::test_utils::{TestTriesBuilder, gen_changes, test_populate_trie};
     use crate::trie::ops::iter::CrumbStatus;
     use crate::trie::trie_tests::merge_trie_changes;
     use crate::trie::{TrieRefcountAddition, ValueHandle};
-
-    use super::*;
-    use crate::MissingTrieValue;
-    use crate::MissingTrieValueContext;
+    use assert_matches::assert_matches;
+    use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::shard_layout::ShardUId;
+    use rand::Rng;
+    use rand::prelude::ThreadRng;
+    use rand::seq::SliceRandom;
+    use std::collections::{HashMap, HashSet};
+    use std::fmt::Debug;
+    use std::hash::Hash;
+    use std::sync::Arc;
 
     /// Checks that sampling state boundaries always gives valid state keys
     /// even if trie contains intermediate nodes.

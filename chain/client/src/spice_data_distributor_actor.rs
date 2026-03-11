@@ -1,9 +1,8 @@
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::collections::VecDeque;
-use std::num::NonZeroUsize;
-use std::sync::Arc;
-
+use crate::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
+use crate::chunk_executor_actor::get_receipt_proof;
+use crate::chunk_executor_actor::get_witness;
+use crate::chunk_executor_actor::receipt_proof_exists;
+use crate::spice_chunk_validator_actor::SpiceChunkStateWitnessMessage;
 use borsh::BorshDeserialize;
 use borsh::BorshSerialize;
 use itertools::Itertools as _;
@@ -49,12 +48,11 @@ use near_primitives::types::ShardId;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-
-use crate::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
-use crate::chunk_executor_actor::get_receipt_proof;
-use crate::chunk_executor_actor::get_witness;
-use crate::chunk_executor_actor::receipt_proof_exists;
-use crate::spice_chunk_validator_actor::SpiceChunkStateWitnessMessage;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::collections::VecDeque;
+use std::num::NonZeroUsize;
+use std::sync::Arc;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {

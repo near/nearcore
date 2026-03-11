@@ -1,6 +1,5 @@
-use std::sync::Arc;
-
 use super::refcount;
+use std::sync::Arc;
 
 /// Data returned from the database.
 ///

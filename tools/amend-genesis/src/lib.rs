@@ -1,5 +1,4 @@
 use anyhow::Context;
-
 use near_chain_configs::{Genesis, GenesisValidationMode};
 use near_crypto::PublicKey;
 use near_primitives::account::AccountContract;

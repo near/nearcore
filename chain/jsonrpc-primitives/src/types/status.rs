@@ -8,7 +8,6 @@ use near_primitives::views::{
     RecentOutboundConnectionsView, RequestedStatePartsView, SnapshotHostsView,
     SplitStorageInfoView, SyncStatusView,
 };
-
 #[cfg(feature = "schemars")]
 use near_time::DurationSchemarsProvider;
 

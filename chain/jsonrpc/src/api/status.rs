@@ -1,11 +1,10 @@
+use super::RpcFrom;
 use near_async::messaging::AsyncSendError;
 use near_client_primitives::types::StatusError;
 use near_jsonrpc_primitives::types::status::{
     RpcHealthResponse, RpcStatusError, RpcStatusResponse,
 };
 use near_primitives::views::StatusResponse;
-
-use super::RpcFrom;
 
 impl RpcFrom<AsyncSendError> for RpcStatusError {
     fn rpc_from(error: AsyncSendError) -> Self {

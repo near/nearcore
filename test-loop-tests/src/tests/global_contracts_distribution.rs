@@ -1,19 +1,3 @@
-use std::collections::{BTreeMap, HashSet};
-use std::sync::Arc;
-
-use itertools::Itertools;
-use near_async::time::Duration;
-use near_chain_configs::test_genesis::TestEpochConfigBuilder;
-use near_o11y::testonly::init_test_logger;
-use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
-use near_primitives::epoch_manager::EpochConfigStore;
-use near_primitives::receipt::{ReceiptEnum, ReceiptToTxInfo};
-use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta};
-use near_primitives::version::PROTOCOL_VERSION;
-use near_store::DBCol;
-use near_vm_runner::ContractCode;
-
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::{
@@ -22,7 +6,21 @@ use crate::utils::account::{
 use crate::utils::node::TestLoopNode;
 use crate::utils::setups::derive_new_epoch_config_from_boundary;
 use crate::utils::transactions::check_txs;
+use itertools::Itertools;
+use near_async::time::Duration;
+use near_chain_configs::test_genesis::TestEpochConfigBuilder;
+use near_o11y::testonly::init_test_logger;
+use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
+use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::gas::Gas;
+use near_primitives::receipt::{ReceiptEnum, ReceiptToTxInfo};
+use near_primitives::shard_layout::ShardLayout;
+use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta};
+use near_primitives::version::PROTOCOL_VERSION;
+use near_store::DBCol;
+use near_vm_runner::ContractCode;
+use std::collections::{BTreeMap, HashSet};
+use std::sync::Arc;
 
 const EPOCH_LENGTH: BlockHeightDelta = 5;
 
@@ -216,8 +214,7 @@ impl GlobalContractsReshardingTestEnv {
             .genesis(genesis)
             .clients(clients)
             .epoch_config_store(epoch_config_store)
-            .build()
-            .warmup();
+            .build();
 
         Self { env, chunk_producer, base_shard_layout, new_shard_layout, users }
     }

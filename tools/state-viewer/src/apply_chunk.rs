@@ -1,3 +1,5 @@
+use crate::cli::StorageSource;
+use crate::util::check_apply_block_result;
 use anyhow::{Context, anyhow};
 use borsh::BorshDeserialize;
 use near_chain::chain::collect_receipts_from_response;
@@ -25,9 +27,6 @@ use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
-
-use crate::cli::StorageSource;
-use crate::util::check_apply_block_result;
 
 // `get_incoming_receipts_for_shard` implementation for the case when we don't
 // know of a block containing the target chunk
@@ -168,8 +167,6 @@ pub fn apply_chunk(
 
     let valid_txs = chain_store.compute_transaction_validity(prev_block.header(), &chunk);
 
-    let last_final_block_hash = *prev_block.header().last_final_block_for_height(target_height);
-
     Ok((
         runtime.apply_chunk(
             storage.create_runtime_storage(prev_state_root),
@@ -186,7 +183,6 @@ pub fn apply_chunk(
                 height: target_height,
                 block_timestamp: prev_timestamp + 1_000_000_000,
                 prev_block_hash: *prev_block_hash,
-                last_final_block_hash,
                 gas_price,
                 random_seed: hash("random seed".as_ref()),
                 congestion_info: block_congestion_info,

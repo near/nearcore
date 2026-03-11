@@ -5,13 +5,12 @@ mod linear_imbalance;
 mod transaction_builder;
 mod utils;
 
+use crate::{Round, ShardId};
 pub use all_for_one::AllForOneProducer;
 pub use balanced::BalancedProducer;
 pub use fairness_benchmark::FairnessBenchmarkProducer;
 pub use linear_imbalance::LinearImbalanceProducer;
 pub use transaction_builder::{ReceiptDefinition, ReceiptId, TransactionBuilder};
-
-use crate::{Round, ShardId};
 
 /// Produces workload in the form of transactions.
 ///

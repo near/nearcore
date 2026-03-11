@@ -1,15 +1,20 @@
-use std::cell::Cell;
-use std::collections::{BTreeMap, HashSet};
-use std::num::NonZero;
-
+use super::sharding::{next_epoch_has_new_shard_layout, this_block_has_new_shard_layout};
+use crate::setup::state::NodeExecutionData;
+use crate::utils::loop_action::LoopAction;
+use crate::utils::node::TestLoopNode;
+use crate::utils::sharding::{get_memtrie_for_shard, next_block_has_new_shard_layout};
+use crate::utils::transactions::{check_txs, get_anchor_hash, get_shared_block_hash};
+use crate::utils::{get_node_data, retrieve_client_actor};
 use assert_matches::assert_matches;
 use borsh::BorshDeserialize;
 use bytesize::ByteSize;
 use itertools::Itertools;
 use near_async::messaging::CanSend;
 use near_async::test_loop::data::TestLoopData;
+use near_chain::types::Tip;
 use near_chain::{ChainStoreAccess, Error};
 use near_client::Client;
+use near_client::client_actor::ClientActor;
 use near_client::{Query, QueryError::GarbageCollectedBlock};
 use near_crypto::Signer;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -19,8 +24,10 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     DelayedReceiptIndices, PromiseYieldIndices, ReceiptOrStateStoredReceipt,
 };
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockId, BlockReference, Gas, ShardId,
 };
@@ -28,24 +35,15 @@ use near_primitives::views::{FinalExecutionStatus, QueryRequest};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::db::refcount::decode_value_with_rc;
+use near_store::flat::FlatStorageStatus;
 use near_store::trie::receipts_column_helper::{ShardsOutgoingReceiptBuffer, TrieQueue};
 use near_store::{DBCol, ShardUId, StorageError, Trie, TrieDBStorage, get};
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
-
-use super::sharding::{next_epoch_has_new_shard_layout, this_block_has_new_shard_layout};
-use crate::setup::state::NodeExecutionData;
-use crate::utils::loop_action::LoopAction;
-use crate::utils::node::TestLoopNode;
-use crate::utils::sharding::{get_memtrie_for_shard, next_block_has_new_shard_layout};
-use crate::utils::transactions::{check_txs, get_anchor_hash, get_shared_block_hash};
-use crate::utils::{get_node_data, retrieve_client_actor};
-use near_chain::types::Tip;
-use near_client::client_actor::ClientActor;
-use near_primitives::shard_layout::ShardLayout;
-use near_primitives::trie_key::TrieKey;
-use near_store::flat::FlatStorageStatus;
+use std::cell::Cell;
+use std::collections::{BTreeMap, HashSet};
+use std::num::NonZero;
 use std::sync::Arc;
 
 /// A config to tell what shards will be tracked by the client at the given index.

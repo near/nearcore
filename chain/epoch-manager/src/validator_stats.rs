@@ -135,12 +135,11 @@ fn get_endorsement_ratio(stats: &ValidatorStats, cutoff_threshold: Option<u8>) -
 
 #[cfg(test)]
 mod test {
+    use crate::validator_stats::{get_sortable_validator_online_ratio, get_validator_online_ratio};
     use near_primitives::types::{BlockChunkValidatorStats, ChunkStats, ValidatorStats};
     use num_bigint::BigInt;
     use num_rational::{Ratio, Rational32};
     use primitive_types::U256;
-
-    use crate::validator_stats::{get_sortable_validator_online_ratio, get_validator_online_ratio};
 
     const VALIDATOR_STATS: BlockChunkValidatorStats = BlockChunkValidatorStats {
         block_stats: ValidatorStats { produced: 98, expected: 100 },

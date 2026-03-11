@@ -704,7 +704,6 @@ pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
         SyncStatus::EpochSync(status) => {
             format!("[EPOCH] {:?}", status)
         }
-        SyncStatus::EpochSyncDone => "[EPOCH] Done".to_string(),
         SyncStatus::HeaderSync { start_height, current_height, highest_height } => {
             let percent = if highest_height <= start_height {
                 0.0

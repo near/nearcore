@@ -1,23 +1,3 @@
-use assert_matches::assert_matches;
-use itertools::Itertools;
-use near_async::test_loop::data::TestLoopData;
-use near_async::time::Duration;
-use near_chain_configs::TrackedShardsConfig;
-use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
-use near_o11y::testonly::init_test_logger;
-use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
-use near_primitives::epoch_manager::{
-    DynamicReshardingConfig, EpochConfig, EpochConfigStore, ShardLayoutConfig,
-};
-use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{ShardLayout, shard_uids_to_ids};
-use near_primitives::types::{AccountId, Balance, BlockHeightDelta, Gas, ShardId, ShardIndex};
-use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
-use std::cell::Cell;
-use std::collections::{BTreeMap, HashMap};
-use std::sync::Arc;
-
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
@@ -40,10 +20,29 @@ use crate::utils::sharding::{
 };
 use crate::utils::transactions::{check_txs, get_smallest_height_head};
 use crate::utils::trie_sanity::{TrieSanityCheck, check_state_shard_uid_mapping_after_resharding};
+use assert_matches::assert_matches;
+use itertools::Itertools;
+use near_async::test_loop::data::TestLoopData;
+use near_async::time::Duration;
+use near_chain_configs::TrackedShardsConfig;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_crypto::Signer;
+use near_o11y::testonly::init_test_logger;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
+use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
+use near_primitives::epoch_manager::{
+    DynamicReshardingConfig, EpochConfig, EpochConfigStore, ShardLayoutConfig,
+};
+use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::{ShardLayout, shard_uids_to_ids};
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::{AccountId, Balance, BlockHeightDelta, Gas, ShardId, ShardIndex};
+use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
+use std::cell::Cell;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 /// Default and minimal epoch length used in resharding tests.
 const DEFAULT_EPOCH_LENGTH: u64 = 7;
@@ -591,6 +590,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         .cold_storage_archival_clients(params.archivals.clone())
         .load_memtries_for_tracked_shards(params.load_memtries_for_tracked_shards)
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
+        .delay_warmup()
         .build()
         .drop(DropCondition::ProtocolUpgradeChunkRange(
             base_protocol_version + 1,

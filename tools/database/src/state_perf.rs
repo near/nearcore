@@ -2,20 +2,18 @@ use clap::Parser;
 use indicatif::{ProgressBar, ProgressIterator};
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
+use near_primitives::shard_layout::ShardUId;
+use near_primitives::state::ValueRef;
+use near_store::TrieStorage;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::flat_store::FlatStoreAdapter;
+use rand::SeedableRng;
+use rand::rngs::StdRng;
+use rand::seq::SliceRandom;
 use std::collections::BTreeMap;
 use std::fmt::{Display, Write};
 use std::path::Path;
 use std::time::{Duration, Instant};
-
-use near_primitives::shard_layout::ShardUId;
-use near_primitives::state::ValueRef;
-use rand::SeedableRng;
-use rand::rngs::StdRng;
-use rand::seq::SliceRandom;
-
-use near_store::TrieStorage;
 
 #[derive(Parser)]
 pub(crate) struct StatePerfCommand {

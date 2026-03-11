@@ -1,6 +1,7 @@
-use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
-
+use super::drop_condition::ClientToShardsManagerSender;
+use super::state::{NodeExecutionData, NodeSetupState, SharedState};
+use crate::utils::peer_manager_actor::TestLoopPeerManagerActor;
+use crate::utils::rpc::{TestLoopRpcTransport, create_testloop_jsonrpc_router};
 use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::test_loop::TestLoopV2;
@@ -43,13 +44,9 @@ use near_store::config::SplitStorageConfig;
 use near_store::{StoreConfig, TrieConfig};
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::state_sync::StateSyncDumper;
+use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 use tokio::sync::broadcast;
-
-use crate::utils::peer_manager_actor::TestLoopPeerManagerActor;
-use crate::utils::rpc::{TestLoopRpcTransport, create_testloop_jsonrpc_router};
-
-use super::drop_condition::ClientToShardsManagerSender;
-use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 
 #[allow(clippy::large_stack_frames)]
 pub fn setup_client(

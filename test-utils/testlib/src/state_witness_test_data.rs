@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::runtime_utils::{alice_account, bob_account};
 use borsh;
 use near_crypto::InMemorySigner;
@@ -23,6 +21,7 @@ use near_store::{set_access_key, set_account};
 use near_vm_runner::FilesystemContractRuntimeCache;
 use node_runtime::{ApplyState, Runtime, SignedValidPeriodTransactions};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Generates a realistic ChunkStateWitness from native token transfers.
 pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateWitness {

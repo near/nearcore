@@ -1,11 +1,3 @@
-use itertools::Itertools;
-use near_async::time::Duration;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_o11y::testonly::init_test_logger;
-use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, Balance};
-use near_vm_runner::ContractCode;
-
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::contract_distribution::{
@@ -14,7 +6,14 @@ use crate::utils::contract_distribution::{
 };
 use crate::utils::get_node_head_height;
 use crate::utils::transactions::{check_txs, make_accounts};
+use itertools::Itertools;
+use near_async::time::Duration;
+use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_o11y::testonly::init_test_logger;
 use near_primitives::gas::Gas;
+use near_primitives::shard_layout::ShardLayout;
+use near_primitives::types::{AccountId, Balance};
+use near_vm_runner::ContractCode;
 
 const EPOCH_LENGTH: u64 = 10;
 const GENESIS_HEIGHT: u64 = 1000;
@@ -102,12 +101,8 @@ fn setup(accounts: &Vec<AccountId>) -> (TestLoopEnv, AccountId) {
         .minimum_validators_per_shard(2)
         .build_store_for_genesis_protocol_version();
 
-    let env = builder
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
-        .build()
-        .warmup();
+    let env =
+        builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
     (env, rpc_id)
 }
 

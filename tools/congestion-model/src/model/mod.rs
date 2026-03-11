@@ -5,18 +5,16 @@ mod queue_bundle;
 mod transaction;
 mod transaction_registry;
 
+use crate::workload::Producer;
+use crate::{CongestionStrategy, Round};
 pub use block_info::BlockInfo;
 pub use chunk_execution::*;
 pub use queue::*;
 pub use queue_bundle::*;
-pub use transaction::Receipt;
-pub use transaction_registry::TransactionId;
-
-pub(crate) use transaction::Transaction;
-
-use crate::workload::Producer;
-use crate::{CongestionStrategy, Round};
 use std::collections::BTreeMap;
+pub use transaction::Receipt;
+pub(crate) use transaction::Transaction;
+pub use transaction_registry::TransactionId;
 use transaction_registry::TransactionRegistry;
 
 pub struct Model {

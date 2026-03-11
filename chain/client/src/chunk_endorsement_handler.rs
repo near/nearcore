@@ -1,11 +1,9 @@
-use std::sync::Arc;
-
+use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use near_async::messaging::Handler;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::{ActorSystem, messaging};
 use near_network::client::ChunkEndorsementMessage;
-
-use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
+use std::sync::Arc;
 
 impl Handler<ChunkEndorsementMessage> for ChunkEndorsementHandlerActor {
     fn handle(&mut self, msg: ChunkEndorsementMessage) {

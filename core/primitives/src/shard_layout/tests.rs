@@ -1,3 +1,4 @@
+use super::{ShardsSplitMapV1, ShardsSplitMapV2};
 use crate::shard_layout::{ShardLayout, ShardUId};
 use itertools::Itertools;
 use near_primitives_core::types::{AccountId, ShardId};
@@ -5,8 +6,6 @@ use rand::distributions::Alphanumeric;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::{BTreeMap, HashMap};
-
-use super::{ShardsSplitMapV1, ShardsSplitMapV2};
 
 fn new_shard_ids_vec(shard_ids: Vec<u64>) -> Vec<ShardId> {
     shard_ids.into_iter().map(Into::into).collect()

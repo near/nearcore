@@ -1,3 +1,5 @@
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain::genesis::get_genesis_congestion_infos;
@@ -12,9 +14,6 @@ use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use nearcore::NightshadeRuntime;
 use std::path::Path;
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::env::TestLoopEnv;
 
 const NUM_SHARDS: usize = 4;
 
@@ -50,8 +49,7 @@ fn test_congestion_control_genesis_bootstrap() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
-        .build()
-        .warmup();
+        .build();
 
     test_loop.run_for(Duration::seconds(5));
 

@@ -1,6 +1,3 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-
 use crate::EpochManagerAdapter;
 use itertools::Itertools;
 use near_cache::SyncLruCache;
@@ -13,6 +10,8 @@ use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::validator_signer::EmptyValidatorSigner;
 use near_store::ShardUId;
 use parking_lot::Mutex;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 // bit mask for which shard to track
 type BitMask = Vec<bool>;

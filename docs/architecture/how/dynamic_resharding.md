@@ -79,7 +79,7 @@ The algorithm enforces that the resulting boundary account ID is valid: at least
 
 ### 2.2 Proposing a Shard Split
 
-At each block, during chunk application, the runtime checks whether a shard should be split. The decision logic has the following priority:
+Near the end of each epoch, during chunk application, the runtime checks whether a shard should be split. The check is skipped for blocks that are not near the epoch boundary (using `is_next_block_possibly_last_in_epoch`) and when the resharding cooldown has not elapsed (`can_reshard`). The decision logic has the following priority:
 
 1. **Max shard count check** (highest priority): If `num_shards >= max_number_of_shards`, no split. This overrides everything, including force-split.
 2. **Force split**: If the shard is in `force_split_shards`, split it regardless of memory thresholds.
@@ -156,7 +156,7 @@ Both `proposed_split` and `shard_split` are validated to prevent forging:
 
 ### Runtime (`chain/chain/src/runtime/mod.rs`)
 
-- **`NightshadeRuntime::compute_proposed_split`** -- Called during `apply_transactions`. Gates on `DynamicResharding` feature flag, then delegates to `check_dynamic_resharding`.
+- **`NightshadeRuntime::compute_proposed_split`** -- Called during `apply_transactions`. Gates on `DynamicResharding` feature flag, checks if the next block could be the last of the epoch (`is_next_block_possibly_last_in_epoch`), checks the resharding cooldown (`can_reshard`), then delegates to `check_dynamic_resharding`.
 - **`check_dynamic_resharding`** -- Module-level function implementing the threshold-based decision logic (max shards, force/block lists, memory threshold, min child size).
 
 ### Epoch Manager (`chain/epoch-manager/src/lib.rs`)
@@ -168,6 +168,7 @@ Both `proposed_split` and `shard_split` are validated to prevent forging:
 - **`get_shard_layout`** -- Single source of truth for shard layouts. Checks `EpochInfo::shard_layout()` first (V5+), falls back to `EpochConfig::static_shard_layout()` for older versions.
 - **`get_shard_layout_history`** -- Collects all distinct static shard layouts across protocol versions (newest to oldest). Used for bootstrapping V3 from V1/V2.
 - **`is_produced_block_last_in_epoch`** -- Like `is_next_block_epoch_start`, but works for blocks not yet in the store. Used during block production to decide whether to include `shard_split`.
+- **`is_next_block_possibly_last_in_epoch`** -- Conservative variant of `is_produced_block_last_in_epoch` that checks if the *next* block (one ahead of the one being produced) could be the last of the epoch. May produce false positives but never false negatives. Used by `compute_proposed_split` because the proposed split computed at block H appears in chunk headers at block H+1.
 
 ### Validation (`chain/chain/src/validate.rs`)
 
@@ -215,34 +216,32 @@ When the network first enables dynamic resharding (transitioning from static to 
 
 ### Dynamic Resharding Specific
 
-1. **`chain/chain/src/runtime/mod.rs:540-541`** -- `compute_proposed_split` has two unresolved checks: verifying whether the *next* block is the last of the epoch, and checking the resharding cooldown at the runtime layer (the epoch manager does implement the cooldown, but the runtime layer has its own TODO about it).
+1. **`chain/epoch-manager/src/lib.rs:663`** -- `next_next_shard_layout()` still takes `next_next_epoch_config` for backward compatibility with static-resharding tests. Should be removed once tests are migrated.
 
-2. **`chain/epoch-manager/src/lib.rs:663`** -- `next_next_shard_layout()` still takes `next_next_epoch_config` for backward compatibility with static-resharding tests. Should be removed once tests are migrated.
+2. **`chain/epoch-manager/src/adapter.rs:736`** -- `get_shard_uids_pending_resharding()` returns empty for dynamic resharding. Dynamic trie loading needs to be implemented.
 
-3. **`chain/epoch-manager/src/adapter.rs:736`** -- `get_shard_uids_pending_resharding()` returns empty for dynamic resharding. Dynamic trie loading needs to be implemented.
+3. **`chain/epoch-manager/src/test_utils.rs:439`** -- Test utilities still create `BlockInfoV3` instead of `BlockInfoV4`.
 
-4. **`chain/epoch-manager/src/test_utils.rs:439`** -- Test utilities still create `BlockInfoV3` instead of `BlockInfoV4`.
+4. **`core/store/src/config.rs:217`** -- Cache size computation for dynamic resharding protocol versions is currently skipped.
 
-5. **`core/store/src/config.rs:217`** -- Cache size computation for dynamic resharding protocol versions is currently skipped.
+5. **`tools/fork-network/src/cli.rs:353,707`** -- Fork network tool does not support dynamic resharding yet.
 
-6. **`tools/fork-network/src/cli.rs:353,707`** -- Fork network tool does not support dynamic resharding yet.
-
-7. **`tools/database/src/memtrie.rs:399`** -- CLI tool for finding boundary accounts needs updating for dynamic resharding.
+6. **`tools/database/src/memtrie.rs:399`** -- CLI tool for finding boundary accounts needs updating for dynamic resharding.
 
 ### General Resharding TODOs (May Affect Dynamic Resharding)
 
-8. **`chain/epoch-manager/src/shard_assignment.rs:198`** -- Shard assignment for validators after resharding is not yet implemented.
+7. **`chain/epoch-manager/src/shard_assignment.rs:198`** -- Shard assignment for validators after resharding is not yet implemented.
 
-9. **`chain/client/src/stateless_validation/shadow_validate.rs:22`** -- Shadow validation breaks across resharding boundaries.
+8. **`chain/client/src/stateless_validation/shadow_validate.rs:22`** -- Shadow validation breaks across resharding boundaries.
 
-10. **`chain/chain/src/stateless_validation/state_witness.rs:260`** -- `get_incoming_receipts_for_shard` generates invalid proofs on resharding boundaries.
+9. **`chain/chain/src/stateless_validation/state_witness.rs:260`** -- `get_incoming_receipts_for_shard` generates invalid proofs on resharding boundaries.
 
-11. **`chain/chain/src/resharding/manager.rs:249`** -- The resharding manager doesn't set all `ChunkExtra` fields (notably the new `proposed_split` field).
+10. **`chain/chain/src/resharding/manager.rs:249`** -- The resharding manager doesn't set all `ChunkExtra` fields (notably the new `proposed_split` field).
 
-12. **`runtime/runtime/src/congestion_control.rs:336`** -- Parent shard's outgoing buffer cleanup after resharding.
+11. **`runtime/runtime/src/congestion_control.rs:336`** -- Parent shard's outgoing buffer cleanup after resharding.
 
-13. **`nightly/pytest-sanity.txt:274`** -- Integration between resharding and other features (stateless validation, state sync, congestion control) is incomplete.
+12. **`nightly/pytest-sanity.txt:274`** -- Integration between resharding and other features (stateless validation, state sync, congestion control) is incomplete.
 
 ### Spice-Resharding Integration
 
-14. Multiple TODOs in `chunk_executor_actor.rs`, `spice_data_distributor_actor.rs`, `spice_chunk_validation.rs`, and `spice_chunk_application.rs` indicate that the Spice feature does not yet handle resharding transitions properly.
+13. Multiple TODOs in `chunk_executor_actor.rs`, `spice_data_distributor_actor.rs`, `spice_chunk_validation.rs`, and `spice_chunk_application.rs` indicate that the Spice feature does not yet handle resharding transitions properly.

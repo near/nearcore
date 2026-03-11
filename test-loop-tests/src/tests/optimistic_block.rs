@@ -1,6 +1,6 @@
-#[cfg(feature = "test_features")]
-use std::sync::Arc;
-
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::drop_condition::DropCondition;
+use crate::setup::env::TestLoopEnv;
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
@@ -14,10 +14,8 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, Balance, BlockHeight};
 #[cfg(feature = "test_features")]
 use near_primitives::validator_signer::ValidatorSigner;
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::drop_condition::DropCondition;
-use crate::setup::env::TestLoopEnv;
+#[cfg(feature = "test_features")]
+use std::sync::Arc;
 
 fn get_builder(num_shards: usize) -> TestLoopBuilder {
     init_test_logger();
@@ -49,7 +47,7 @@ fn get_builder(num_shards: usize) -> TestLoopBuilder {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_optimistic_block() {
     let num_shards = 3;
-    let mut env: TestLoopEnv = get_builder(num_shards).build().warmup();
+    let mut env: TestLoopEnv = get_builder(num_shards).build();
     env.test_loop.run_for(Duration::seconds(10));
 
     {
@@ -109,7 +107,7 @@ fn make_invalid_ob(env: &TestLoopEnv, adv_type: OptimisticBlockAdvType) -> Optim
 #[cfg(feature = "test_features")]
 /// Check if validation fails on malformed optimistic blocks.
 fn test_invalid_optimistic_block() {
-    let mut env = get_builder(3).build().warmup();
+    let mut env = get_builder(3).build();
     env.test_loop.run_for(Duration::seconds(10));
     let chain =
         &env.test_loop.data.get(&env.node_datas[0].client_sender.actor_handle()).client.chain;
@@ -201,7 +199,7 @@ fn get_height_to_skip_and_producers(
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_optimistic_block_after_missing_block() {
     let num_shards = 3;
-    let mut env: TestLoopEnv = get_builder(num_shards).build().warmup();
+    let mut env: TestLoopEnv = get_builder(num_shards).build();
 
     env.test_loop.run_for(Duration::seconds(10));
 
@@ -293,7 +291,7 @@ fn get_hit_count_and_height(env: &TestLoopEnv, producer: &ValidatorStake) -> (us
 /// is shared with the other nodes.
 fn test_optimistic_block_with_invalidated_outcome() {
     let num_shards = 3;
-    let mut env: TestLoopEnv = get_builder(num_shards).build().warmup();
+    let mut env: TestLoopEnv = get_builder(num_shards).build();
 
     env.test_loop.run_for(Duration::seconds(10));
 

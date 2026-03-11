@@ -1,6 +1,4 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-
+use crate::setup::builder::TestLoopBuilder;
 use near_async::time::Duration;
 use near_crypto::Signature;
 use near_network::types::NetworkRequests;
@@ -8,8 +6,8 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Block;
 use near_primitives::block_body::BlockBody;
 use near_primitives::sharding::ShardChunkHeader;
-
-use crate::setup::builder::TestLoopBuilder;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 const TIMEOUT_SECONDS: i64 = 5;
 

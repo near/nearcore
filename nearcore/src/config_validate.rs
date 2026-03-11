@@ -1,10 +1,9 @@
+use crate::config::Config;
 use near_chain_configs::{DumpConfig, ExternalStorageLocation, SyncConfig};
 use near_config_utils::{ValidationError, ValidationErrors};
 use near_store::archive::cloud_storage::opener::CloudStorageOpener;
 use std::collections::HashSet;
 use std::path::Path;
-
-use crate::config::Config;
 
 /// Validate Config extracted from config.json.
 /// This function does not panic. It returns the error if any validation fails.
@@ -305,10 +304,9 @@ impl<'a> ConfigValidator<'a> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use near_chain_configs::{StateSyncConfig, TrackedShardsConfig};
     use near_store::archive::cloud_storage::config::test_cloud_archival_config;
-
-    use super::*;
 
     #[test]
     #[should_panic(expected = "and 'config.tracked_shards_config' cannot be both set")]

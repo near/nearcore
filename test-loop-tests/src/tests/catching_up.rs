@@ -1,8 +1,6 @@
-use std::cell::RefCell;
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
-
+use crate::setup::builder::TestLoopBuilder;
+use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
+use crate::utils::transactions::get_anchor_hash;
 use itertools::Itertools as _;
 use near_async::messaging::{CanSend as _, Handler as _};
 use near_async::time::Duration;
@@ -16,10 +14,10 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, BlockReference, NumSeats, ShardId};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
-use crate::utils::transactions::get_anchor_hash;
+use std::cell::RefCell;
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 /// Verifies that fetching of random parts works properly by issuing transactions during the
 /// third epoch, and then making sure that the balances are correct for the next three epochs.
@@ -136,8 +134,7 @@ fn test_catchup_random_single_part_sync_common(
         .genesis(genesis)
         .clients(runner.all_validators_accounts())
         .epoch_config_store(epoch_config_store)
-        .build()
-        .warmup();
+        .build();
 
     for node_datas in &env.node_datas {
         let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
@@ -326,8 +323,7 @@ fn slow_test_catchup_sanity_blocks_produced() {
             config.max_block_production_delay = 3 * block_prod_time;
             config.max_block_wait_delay = 3 * block_prod_time;
         })
-        .build()
-        .warmup();
+        .build();
 
     let heights = Rc::new(RefCell::new(HashMap::new()));
     for node_datas in &env.node_datas {
@@ -416,8 +412,7 @@ fn slow_test_all_chunks_accepted() {
         .genesis(genesis)
         .clients(accounts)
         .epoch_config_store(epoch_config_store)
-        .build()
-        .warmup();
+        .build();
 
     let seen_chunk_same_sender = Rc::new(RefCell::new(HashSet::<(AccountId, u64, ShardId)>::new()));
     for node_datas in &env.node_datas {

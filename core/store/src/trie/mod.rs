@@ -1870,17 +1870,15 @@ pub mod estimator {
 #[cfg(test)]
 mod tests {
     // cspell:ignore cataa catbb docu dogaa dogax dogbb
-    use assert_matches::assert_matches;
-    use near_primitives::shard_layout::ShardLayout;
-    use rand::Rng;
-
+    use super::*;
     use crate::test_utils::{
         TestTriesBuilder, create_test_store, gen_changes, simplify_changes,
         test_populate_flat_storage, test_populate_trie,
     };
     use crate::{MissingTrieValue, MissingTrieValueContext};
-
-    use super::*;
+    use assert_matches::assert_matches;
+    use near_primitives::shard_layout::ShardLayout;
+    use rand::Rng;
 
     type TrieChanges = Vec<(Vec<u8>, Option<Vec<u8>>)>;
     const SHARD_VERSION: u32 = 1;
@@ -2361,12 +2359,11 @@ mod tests {
 
 #[cfg(test)]
 mod borsh_compatibility_test {
+    use crate::TrieChanges;
+    use crate::trie::{TrieRefcountAddition, TrieRefcountSubtraction};
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::types::StateRoot;
-
-    use crate::TrieChanges;
-    use crate::trie::{TrieRefcountAddition, TrieRefcountSubtraction};
 
     #[test]
     fn test_trie_changes_compatibility() {

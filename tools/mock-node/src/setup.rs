@@ -12,11 +12,8 @@ use near_primitives::types::BlockHeight;
 use near_primitives::version::ProtocolVersion;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-
 use near_time::Clock;
-
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
-
 use std::cmp::min;
 use std::path::Path;
 use std::sync::Arc;
