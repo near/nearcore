@@ -237,13 +237,6 @@ pub struct RawStateChangesWithTrieKey {
     pub changes: Vec<RawStateChange>,
 }
 
-/// Consolidate state change of trie_key and the final value the trie key will be changed to
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, ProtocolSchema)]
-pub struct ConsolidatedStateChange {
-    pub trie_key: TrieKey,
-    pub value: Option<Vec<u8>>,
-}
-
 /// key that was updated -> list of updates with the corresponding indexing event.
 pub type RawStateChanges = std::collections::BTreeMap<Vec<u8>, RawStateChangesWithTrieKey>;
 
