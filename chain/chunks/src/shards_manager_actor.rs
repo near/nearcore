@@ -1237,9 +1237,10 @@ impl ShardsManagerActor {
         match self.check_chunk_complete(&mut encoded_chunk) {
             ChunkStatus::Complete(merkle_paths) => {
                 self.requested_partial_encoded_chunks.remove(&encoded_chunk.chunk_hash());
-                let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk)?;
+                let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk)
+                    .map_err(|(_, chunk)| Error::InvalidChunk(Box::new(chunk)))?;
                 if !validate_chunk_proofs(chunk.to_shard_chunk(), self.epoch_manager.as_ref())? {
-                    return Err(Error::InvalidChunk);
+                    return Err(Error::InvalidChunk(Box::new(chunk.into_parts().1)));
                 }
                 match create_partial_chunk(
                     &chunk,
@@ -1261,7 +1262,7 @@ impl ShardsManagerActor {
             ChunkStatus::Invalid => {
                 let chunk_hash = encoded_chunk.chunk_hash();
                 self.encoded_chunks.remove(&chunk_hash);
-                Err(Error::InvalidChunk)
+                Err(Error::InvalidChunk(Box::new(encoded_chunk)))
             }
         }
     }
