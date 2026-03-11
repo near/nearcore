@@ -26,26 +26,19 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
 
-// ---------------------------------------------------------------------------
-// T2: Near-horizon block sync
-// ---------------------------------------------------------------------------
-//
 // Scenario: A fresh node starts with only genesis data while the network is
 // ~1.5 epochs ahead. The node is within epoch_sync_horizon distance (default=2),
 // so it enters BlockSync directly without epoch sync or state sync.
 //
 // Setup:
-//   - 4 validators, epoch_length=10, 4 shards
-//   - Network runs ~1.5 epochs with cross-shard money transfers
+//   - 4 validators, epoch_length=10, 4 shards, gc_num_epochs_to_keep=20
+//   - Network runs ~1.5 epochs (15 blocks)
 //   - Add a fresh node with default config
 //
 // Assertions:
 //   - New node catches up to network tip
 //   - Sync status sequence: AwaitingPeers → NoSync → BlockSync → NoSync
 //   - No EpochSync or StateSync in the status history
-//
-// Derived from: syncing.rs::slow_test_sync_from_genesis
-// Covers: T2 (near-horizon block sync entry), T17 (header+block sync together)
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_near_horizon_block_sync() {
@@ -90,29 +83,23 @@ fn test_near_horizon_block_sync() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
-// ---------------------------------------------------------------------------
-// T6: GC boundary alignment
-// ---------------------------------------------------------------------------
-//
 // Scenario: A node that is exactly at the edge of `epoch_sync_horizon` should
 // enter BlockSync (not epoch sync) and still succeed because all needed blocks
 // are within the GC window on peers.
 //
 // With default epoch_sync_horizon_num_epochs=2 and epoch_length=10, the horizon
 // is 20 blocks. Running the chain to exactly height 20 puts the fresh node at
-// exactly the boundary. It should enter BlockSync (not EpochSync).
+// exactly the boundary.
 //
 // Setup:
-//   - 4 validators, epoch_length=10
-//   - gc_num_epochs_to_keep=3 (tight GC to test boundary)
+//   - 4 validators, epoch_length=10, 4 shards, gc_num_epochs_to_keep=3
 //   - Network runs exactly 2 epochs (height 20)
+//   - Add a fresh node at genesis
 //
 // Assertions:
 //   - Node enters BlockSync (not EpochSync)
 //   - Block sync succeeds (all needed blocks within GC window)
 //   - Node catches up to network tip
-//
-// Covers: T6 (GC boundary alignment)
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_near_horizon_gc_boundary() {
@@ -156,10 +143,6 @@ fn test_near_horizon_gc_boundary() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
-// ---------------------------------------------------------------------------
-// T12: Validator restart recovery
-// ---------------------------------------------------------------------------
-//
 // Scenario: One validator is killed while the other 3 continue producing
 // blocks with cross-shard transactions. The killed validator falls behind,
 // then is restarted and must catch up via near-horizon BlockSync.
@@ -170,20 +153,16 @@ fn test_near_horizon_gc_boundary() {
 // Setup:
 //   - 4 validators, epoch_length=10, 4 shards, shard shuffling
 //   - Run all nodes ~2 epochs with cross-shard money transfers
-//   - Kill validator 0
-//   - Remaining 3 validators advance ~15 blocks with more cross-shard txs
+//   - Kill validator 0, remaining 3 advance ~15 blocks
 //   - Restart validator 0
 //   - Repeat kill/restart cycle once more
 //
 // Assertions:
 //   - Restarted validator catches up to same height as others
-//   - Sync status includes BlockSync, no EpochSync
+//   - Near-horizon sync status sequence (BlockSync, no EpochSync)
 //   - Validator remains in next epoch's producer set
 //   - Cross-shard transactions succeed after restart
 //   - Balance consistency across all validators
-//
-// Derived from: syncing.rs::slow_test_validator_restart_under_cross_shard_load
-// Covers: T12 (validator restart recovery under V2)
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_near_horizon_validator_restart() {
@@ -302,23 +281,14 @@ fn test_near_horizon_validator_restart() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
-// ===========================================================================
-// Restart-during-sync tests (near horizon)
-// ===========================================================================
-
-// ---------------------------------------------------------------------------
-// Restart during block sync (near horizon)
-// ---------------------------------------------------------------------------
-//
 // Scenario: A fresh node doing near-horizon block sync is killed mid-sync
 // and restarted. On restart, the node has partial block data in the DB.
-// It should resume block sync and catch up. This is the simplest restart
-// case — near-horizon nodes only do block sync, and blocks are persisted.
+// It should resume block sync and catch up.
 //
 // Setup:
-//   - 4 validators, epoch_length=10, 4 shards
+//   - 4 validators, epoch_length=10, 4 shards, gc_num_epochs_to_keep=20
 //   - Network runs ~1.5 epochs (within horizon)
-//   - Add a fresh node, wait until BlockSync, kill, restart
+//   - Add a fresh node, wait until mid-BlockSync, kill, restart
 //
 // Assertions:
 //   - Restarted node catches up to network tip
@@ -379,24 +349,16 @@ fn test_near_horizon_restart_during_block_sync() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
-// ---------------------------------------------------------------------------
-// T7: Near-horizon sync with horizon > gc_num_epochs_to_keep
-// ---------------------------------------------------------------------------
-//
 // Scenario: A fresh node has epoch_sync_horizon=10 but gc=3. The network is
 // ~8 epochs ahead, which is beyond the node's GC window (3 epochs = 30 blocks)
-// but within its large horizon (10 epochs = 100 blocks). So the node enters
-// near-horizon BlockSync and must catch up ~80 blocks — more than its own GC
+// but within its large horizon (10 epochs = 100 blocks). The node enters
+// near-horizon BlockSync and catches up ~80 blocks — more than its own GC
 // window would normally allow.
 //
-// The existing validators have gc=10, so they retain all the blocks the new
-// node needs. This tests whether the sync machinery works when the number of
-// blocks being synced exceeds the syncing node's own gc_num_epochs_to_keep.
-//
 // Setup:
-//   - 4 validators, epoch_length=10, gc=10 (peers keep plenty of blocks)
+//   - 4 validators, epoch_length=10, gc=10 (peers keep all blocks)
 //   - Network runs 8 epochs (80 blocks)
-//   - Add a fresh node with gc=3, horizon=10
+//   - Add a fresh node with gc=3, epoch_sync_horizon=10
 //
 // Assertions:
 //   - Node enters BlockSync (near horizon, not EpochSync)

@@ -36,10 +36,6 @@ use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
 
-// ---------------------------------------------------------------------------
-// T1: Far-horizon full pipeline
-// ---------------------------------------------------------------------------
-//
 // Scenario: A fresh node starts with only genesis data while the network is
 // 5+ epochs ahead. The node must go through the complete far-horizon sync
 // pipeline to catch up.
@@ -47,17 +43,14 @@ use near_primitives::types::{AccountId, Balance};
 // Setup:
 //   - 4 validators, epoch_length=10, 4 shards
 //   - Network runs past 5 epochs with cross-shard money transfers
-//   - Add a fresh node
-//   - Restrict new node to communicate with a single source peer
+//   - Add a fresh node restricted to a single source peer
 //
 // Assertions:
 //   - New node catches up to the network tip
-//   - Sync status sequence matches V2 expectations:
-//     AwaitingPeers → NoSync → EpochSync → HeaderSync → StateSync → BlockSync → NoSync
-//   - New node runs for 2+ additional epochs after catch-up without issues
-//
-// Derived from: epoch_sync.rs::slow_test_epoch_sync_from_genesis
-// Covers: T1, T10 (correct start_height after epoch sync), T11 (header→state transition)
+//   - Sync status sequence: AwaitingPeers → NoSync → EpochSync → HeaderSync
+//     → StateSync → BlockSync → NoSync
+//   - New node runs for 2+ additional epochs after catch-up
+//   - Account balances match source validator
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_full_pipeline() {
@@ -108,29 +101,23 @@ fn test_far_horizon_full_pipeline() {
     assert_far_horizon_sync_sequence(&sync_history.borrow());
 
     // Verify balance consistency between synced node and source validator.
-    // (Migrated from state_sync.py balance assertion)
     verify_balances_on_synced_node(&env.test_loop.data, &env.node_datas, new_node_idx, &accounts);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
-// ---------------------------------------------------------------------------
-// T1b: Far-horizon with short transaction validity period
-// ---------------------------------------------------------------------------
-//
-// Scenario: Same as T1 but with transaction_validity_period=10 (1 epoch).
-// This exercises the edge case where the sync hash must be in a recent epoch
-// because older epochs' transactions have expired.
+// Scenario: Same as full pipeline but with transaction_validity_period=10
+// (1 epoch). Some transfers expire due to the short validity window.
 //
 // Setup:
-//   - Same as T1 but transaction_validity_period=10
-//   - Some money transfers will expire, which is expected
+//   - 4 validators, epoch_length=10, 4 shards, transaction_validity_period=10
+//   - Network runs 5+ epochs with cross-shard money transfers (some expire)
+//   - Fresh node syncs via far-horizon pipeline
 //
 // Assertions:
-//   - Same sync status sequence as T1
+//   - Full far-horizon sync status sequence
 //   - Node catches up despite expired transactions
-//
-// Derived from: epoch_sync.rs::slow_test_epoch_sync_transaction_validity_period_one_epoch
+//   - Account balances match source validator (both reflect expirations)
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_short_tx_validity() {
@@ -184,23 +171,18 @@ fn test_far_horizon_short_tx_validity() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
-// ---------------------------------------------------------------------------
-// T1c: Far-horizon with expired transactions
-// ---------------------------------------------------------------------------
-//
-// Scenario: Same as T1 but with transaction_validity_period=1. Transactions
-// expire almost immediately, testing that epoch sync + state sync handle
-// expired transaction data correctly.
+// Scenario: Same as full pipeline but with transaction_validity_period=1.
+// Nearly all transactions expire immediately.
 //
 // Setup:
-//   - Same as T1 but transaction_validity_period=1
-//   - Money transfers are expected to fail (balance mismatch due to expired txs)
+//   - 4 validators, epoch_length=10, 4 shards, transaction_validity_period=1
+//   - Network runs 5+ epochs; money transfers fail (expired)
+//   - Fresh node syncs via far-horizon pipeline
 //
 // Assertions:
-//   - Same sync status sequence as T1
-//   - Node catches up despite nearly all transactions being expired
-//
-// Derived from: epoch_sync.rs::slow_test_epoch_sync_with_expired_transactions
+//   - Full far-horizon sync status sequence
+//   - Node catches up despite nearly all txs being expired
+//   - Account balances match source validator (both reflect expirations)
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_expired_transactions() {
@@ -257,25 +239,22 @@ fn test_far_horizon_expired_transactions() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
-// ---------------------------------------------------------------------------
-// T19: Chained epoch sync (epoch sync from an epoch-synced node)
-// ---------------------------------------------------------------------------
-//
 // Scenario: After a fresh node catches up via far-horizon sync, a second
 // fresh node bootstraps from the first epoch-synced node (not from the
 // original validators). Validates that epoch-synced nodes can serve as
 // sync sources.
 //
 // Setup:
-//   - Same as T1: network runs, fresh new_node0 bootstraps via epoch sync from validator 0
-//   - Then fresh new_node1 bootstraps via epoch sync from new_node0
+//   - 4 validators, epoch_length=10, 4 shards
+//   - Network runs 5+ epochs with cross-shard money transfers
+//   - new_node0 bootstraps via epoch sync from validator 0
+//   - new_node1 bootstraps via epoch sync from new_node0
 //
 // Assertions:
 //   - Both nodes catch up to network tip
 //   - Both go through the full V2 status sequence
-//   - new_node1's sync works even though new_node0 lacks old headers (it was epoch-synced)
-//
-// Derived from: epoch_sync.rs::slow_test_epoch_sync_from_another_epoch_synced_node
+//   - new_node1 syncs despite new_node0 lacking old headers (epoch-synced)
+//   - Account balances match source validator on both nodes
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_chained_epoch_sync() {
@@ -346,10 +325,6 @@ fn test_far_horizon_chained_epoch_sync() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
-// ---------------------------------------------------------------------------
-// T4: Stale node detection and shutdown
-// ---------------------------------------------------------------------------
-//
 // Scenario: A non-genesis node (one that has progressed past genesis) falls
 // far behind the network. When it restarts, it should detect that it's stale
 // and trigger an EpochSyncDataReset shutdown signal instead of trying to sync.
@@ -359,17 +334,13 @@ fn test_far_horizon_chained_epoch_sync() {
 //
 // Setup:
 //   - 4 validators, epoch_length=10
-//   - All nodes run to height ~30 (3 epochs)
-//   - Kill node 0
-//   - Remaining 3 nodes advance to height ~80 (5 more epochs, past epoch_sync_horizon)
-//   - Restart node 0 with its stale data (at height 30, network at ~80)
+//   - All nodes run to height 30 (3 epochs)
+//   - Kill node 0, remaining 3 advance to height 80 (past epoch_sync_horizon)
+//   - Restart node 0 with stale data (at height 30, network at ~80)
 //
 // Assertions:
-//   - Node 0 is denylisted (shutdown signal fired) rather than catching up
+//   - Node 0 is denylisted (shutdown signal fired)
 //   - Node 0's head remains near the kill height (did not sync)
-//
-// Derived from: continuous_epoch_sync.rs::test_epoch_sync_stale_node_triggers_reset
-// Covers: T4 (stale node detection under SyncV2 gate)
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_stale_node_shutdown() {
@@ -410,25 +381,20 @@ fn test_far_horizon_stale_node_shutdown() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
-// ---------------------------------------------------------------------------
-// T8: Archival node skips epoch sync
-// ---------------------------------------------------------------------------
-//
 // Scenario: An archival node that falls behind the network should NOT use
 // epoch sync. Archival nodes must process all blocks to maintain a complete
-// history, so they should enter block sync (potentially header sync first)
-// but never epoch sync.
+// history, so they enter block sync (potentially header sync first) but
+// never epoch sync.
 //
 // Setup:
-//   - 4 validators, epoch_length=10
-//   - Network runs past 5 epochs
-//   - Add a fresh archival node (cold_storage=true sets archive=true)
+//   - 4 validators, epoch_length=10, gc_num_epochs_to_keep=20
+//   - Network runs past 5 epochs (beyond default horizon of 2)
+//   - Add a fresh archival node (cold_storage=true, track all shards)
 //
 // Assertions:
 //   - Archival node catches up to network tip
 //   - Sync status sequence does NOT include "EpochSync"
-//
-// Covers: T8 (archival epoch sync skip)
+//   - Near-horizon status sequence (BlockSync only)
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_archival_skips_epoch_sync() {
@@ -489,30 +455,17 @@ fn test_far_horizon_archival_skips_epoch_sync() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
-// ===========================================================================
-// Restart-during-sync tests (far horizon)
-// ===========================================================================
+// Scenario: A fresh node doing far-horizon sync is killed mid-header-sync
+// and restarted. On restart, the node has the epoch sync proof and partial
+// headers. It should detect it still needs headers and resume HeaderSync.
 //
-// These tests verify that a node killed at various points during far-horizon
-// sync can restart with its persisted DB and recover. Each test:
-//   1. Sets up a 4-validator network at height 50+
-//   2. Adds a fresh node doing far-horizon sync (restricted to single peer)
-//   3. Waits until the node enters the target sync phase
-//   4. Kills the node
-//   5. Restarts with same store
-//   6. Asserts the restarted node catches up to the network tip
+// Setup:
+//   - 4 validators, epoch_length=10, 4 shards
+//   - Network runs 5+ epochs with cross-shard money transfers
+//   - Fresh node restricted to single peer, killed mid-HeaderSync, restarted
 //
-// Currently, restart during header sync and state sync are known failures —
-// the restarted node does not correctly resume the interrupted phase. These
-// are marked #[ignore] and will be enabled as the V2 handler gains restart
-// recovery logic.
-
-// ---------------------------------------------------------------------------
-// Restart during header sync (far horizon)
-// ---------------------------------------------------------------------------
-//
-// On restart, the node has the epoch sync proof and partial headers. It
-// should detect it still needs headers and resume HeaderSync.
+// Assertions:
+//   - Restarted node catches up to network tip
 //
 // KNOWN FAILURE: node does not resume header sync correctly after restart.
 #[test]
@@ -574,15 +527,20 @@ fn test_far_horizon_restart_during_header_sync() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
-// ---------------------------------------------------------------------------
-// Restart during state sync (far horizon)
-// ---------------------------------------------------------------------------
+// Scenario: A fresh node doing far-horizon sync is killed mid-state-sync
+// and restarted. On restart, the node has epoch sync proof + full headers
+// but no shard state. It should detect the missing state and re-enter
+// StateSync.
 //
-// On restart, the node has epoch sync proof + full headers but no shard
-// state. It should detect the missing state and re-enter StateSync.
+// Setup:
+//   - 4 validators, epoch_length=10, 4 shards
+//   - Network runs 5+ epochs with cross-shard money transfers
+//   - Fresh node restricted to single peer, killed mid-StateSync, restarted
 //
-// KNOWN FAILURE: node sees headers are caught up and enters BlockSync
-// without state, causing failures. Will be fixed by restart recovery logic.
+// Assertions:
+//   - Restarted node catches up to network tip
+//
+// KNOWN FAILURE: node enters BlockSync without state.
 #[test]
 #[ignore] // restart recovery during state sync not yet implemented
 fn test_far_horizon_restart_during_state_sync() {
@@ -649,14 +607,18 @@ fn test_far_horizon_restart_during_state_sync() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
-// ---------------------------------------------------------------------------
-// Restart during block sync (far horizon)
-// ---------------------------------------------------------------------------
+// Scenario: A fresh node doing far-horizon sync is killed mid-block-sync
+// and restarted. On restart, the node has epoch sync proof + headers +
+// shard state but only partial blocks. It re-enters BlockSync and catches
+// up. This is the easiest restart case — all state is present.
 //
-// On restart, the node has epoch sync proof + headers + shard state but
-// only partial blocks. It should re-enter BlockSync and catch up.
-// This is the easiest restart case — the node has all the state it needs,
-// it just needs to download remaining blocks.
+// Setup:
+//   - 4 validators, epoch_length=10, 4 shards
+//   - Network runs 5+ epochs with cross-shard money transfers
+//   - Fresh node restricted to single peer, killed mid-BlockSync, restarted
+//
+// Assertions:
+//   - Restarted node catches up to network tip
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_restart_during_block_sync() {
@@ -716,10 +678,6 @@ fn test_far_horizon_restart_during_block_sync() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
-// ---------------------------------------------------------------------------
-// Restart near epoch boundary (far horizon)
-// ---------------------------------------------------------------------------
-//
 // Scenario: A non-validator node is killed near an epoch boundary, the
 // network advances past the boundary by many epochs, and the node is
 // restarted. The node must sync via the far-horizon pipeline and handle
@@ -727,16 +685,13 @@ fn test_far_horizon_restart_during_block_sync() {
 //
 // Setup:
 //   - 4 validators + 1 non-validator, epoch_length=10, 4 shards
-//   - Run money transfers, then advance to near epoch boundary (height ~8)
-//   - Kill non-validator
-//   - Advance validators past 5 epochs
+//   - Run money transfers, advance to near epoch boundary (height ~8)
+//   - Kill non-validator, advance validators past 5 more epochs
 //   - Restart non-validator (triggers far-horizon sync)
 //
 // Assertions:
 //   - Restarted node catches up without panics
 //   - Sync includes StateSync (far-horizon pipeline)
-//
-// Migrated from: state_sync_epoch_boundary.py
 #[test]
 #[ignore] // restart recovery not yet debugged — will revisit with other restart tests
 fn test_far_horizon_restart_near_epoch_boundary() {
@@ -804,10 +759,6 @@ fn test_far_horizon_restart_near_epoch_boundary() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
-// ---------------------------------------------------------------------------
-// Far-horizon sync with staking state
-// ---------------------------------------------------------------------------
-//
 // Scenario: Before a fresh node joins, some accounts submit staking
 // transactions. The synced node must correctly retrieve the staking-modified
 // trie state without "trie node missing" panics.
@@ -827,8 +778,6 @@ fn test_far_horizon_restart_near_epoch_boundary() {
 //   - Fresh node catches up without panics
 //   - Staking accounts have non-zero locked balance on synced node
 //   - Full far-horizon sync status sequence
-//
-// Migrated from: state_sync4.py
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_staking_state() {
@@ -915,18 +864,13 @@ fn test_far_horizon_staking_state() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
-// ---------------------------------------------------------------------------
-// Transactions sent during active far-horizon sync
-// ---------------------------------------------------------------------------
-//
 // Scenario: While a fresh node is actively syncing through the far-horizon
-// pipeline (EpochSync → HeaderSync → StateSync → BlockSync), payment
-// transactions are periodically sent to the node. The node should not crash
-// and should complete sync normally.
+// pipeline, payment transactions are periodically sent to the node. The node
+// should not crash and should complete sync normally.
 //
 // This tests crash resilience: a syncing node may receive RPCs from users
-// before it's fully caught up. These transactions should be gracefully
-// rejected or queued without corrupting sync state.
+// before it's fully caught up. Transactions should be gracefully rejected
+// or queued without corrupting sync state.
 //
 // Setup:
 //   - 4 validators, epoch_length=10, 4 shards
@@ -937,8 +881,6 @@ fn test_far_horizon_staking_state() {
 //   - Node catches up without crashing
 //   - Sync status sequence is correct
 //   - At least some txs were injected (counter > 0)
-//
-// Migrated from: state_sync5.py
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_tx_during_sync() {
