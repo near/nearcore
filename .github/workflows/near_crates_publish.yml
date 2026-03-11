@@ -44,7 +44,9 @@ jobs:
         run: |
           PACKAGE_NAME="near-primitives"
           VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.metadata.workspaces.version')
-          PUBLISHED=$(curl -s https://crates.io/api/v1/crates/$PACKAGE_NAME/versions | jq -r '.versions[] | select(.num=="'"$VERSION"'") | .num')
+          RESPONSE=$(curl -sS https://crates.io/api/v1/crates/$PACKAGE_NAME/versions)
+          echo "$RESPONSE" | head -c 1000
+          PUBLISHED=$(echo "$RESPONSE" | jq -r '.versions[] | select(.num=="'"$VERSION"'") | .num')
           if [ "$PUBLISHED" == "$VERSION" ]; then
             echo "Version $VERSION of $PACKAGE_NAME is already published."
             exit 1
