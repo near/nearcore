@@ -1523,13 +1523,12 @@ impl ShardChunkWithEncoding {
         (Self { shard_chunk, bytes: encoded_shard_chunk }, merkle_paths)
     }
 
-    #[allow(clippy::result_large_err)]
     pub fn from_encoded_shard_chunk(
         bytes: EncodedShardChunk,
-    ) -> Result<Self, (std::io::Error, EncodedShardChunk)> {
+    ) -> Result<Self, (std::io::Error, Box<EncodedShardChunk>)> {
         match bytes.decode_chunk() {
             Ok(shard_chunk) => Ok(Self { shard_chunk, bytes }),
-            Err(err) => Err((err, bytes)),
+            Err(err) => Err((err, Box::new(bytes))),
         }
     }
 
