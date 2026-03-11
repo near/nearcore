@@ -148,7 +148,7 @@ const CHUNK_FORWARD_CACHE_SIZE: usize = 1000;
 const CHUNK_REQUEST_PEER_HORIZON: BlockHeightDelta = 5;
 
 #[allow(clippy::large_enum_variant)]
-pub enum ChunkStatus {
+enum ChunkStatus {
     Complete(Vec<MerklePath>, ShardChunkWithEncoding),
     Incomplete,
 }
