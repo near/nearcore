@@ -98,8 +98,7 @@ fn test_eth_implicit_global_contract_mainnet_upgrade() {
         .epoch_config_store(epoch_config_store)
         .protocol_upgrade_schedule(ProtocolUpgradeVotingSchedule::new_immediate(new_pv))
         .clients(vec!["validator0".parse().unwrap()])
-        .build()
-        .warmup();
+        .build();
 
     let relayer_signer = create_user_test_signer(&relayer);
     let mut relayer_nonce = 0;

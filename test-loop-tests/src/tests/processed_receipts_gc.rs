@@ -34,8 +34,7 @@ fn test_processed_receipt_ids_gc() {
         .epoch_length(EPOCH_LENGTH)
         .add_user_account(&user_account, Balance::from_near(1_000_000))
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
-        .build()
-        .warmup();
+        .build();
 
     let signer = create_user_test_signer(&user_account);
 

@@ -21,8 +21,7 @@ fn test_split_storage_cold_head_advances() {
         .epoch_length(epoch_length)
         .enable_archival_node(ArchivalKind::Cold)
         .gc_num_epochs_to_keep(gc_num_epochs_to_keep)
-        .build()
-        .warmup();
+        .build();
 
     // Run long enough for cold storage migration to have meaningful work.
     let target_height = epoch_length * (gc_num_epochs_to_keep + 2);
@@ -68,8 +67,7 @@ fn test_split_storage_archival_node_sync() {
         .epoch_length(epoch_length)
         .enable_archival_node(ArchivalKind::Cold)
         .gc_num_epochs_to_keep(gc_num_epochs_to_keep)
-        .build()
-        .warmup();
+        .build();
 
     // Add a second archival node right after warmup (small gap, will catch up
     // during normal block production).

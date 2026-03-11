@@ -44,8 +44,7 @@ fn test_state_transition_data_gc_simple() {
         .config_modifier(move |config, _client_index| {
             config.gc.gc_step_period = GC_STEP_PERIOD;
         })
-        .build()
-        .warmup();
+        .build();
 
     env.test_loop.run_for(Duration::seconds(20));
 
@@ -99,8 +98,7 @@ fn test_state_transition_data_gc_when_resharding() {
         .config_modifier(move |config, _client_index| {
             config.gc.gc_step_period = GC_STEP_PERIOD;
         })
-        .build()
-        .warmup();
+        .build();
 
     let client_handle = env.node_datas[0].client_sender.actor_handle();
     let chain_store = env.test_loop.data.get(&client_handle).client.chain.chain_store.clone();

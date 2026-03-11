@@ -31,8 +31,7 @@ fn test_max_receipt_size() {
     let mut env = TestLoopBuilder::new()
         .enable_rpc()
         .add_user_account(&account, Balance::from_near(10_000))
-        .build()
-        .warmup();
+        .build();
 
     // We can't test receipt limit by submitting large transactions because we hit the transaction size limit
     // before hitting the receipt size limit.
@@ -142,8 +141,7 @@ fn test_max_receipt_size_promise_return() {
     let mut env = TestLoopBuilder::new()
         .enable_rpc()
         .add_user_account(&account, Balance::from_near(10_000))
-        .build()
-        .warmup();
+        .build();
 
     // Deploy the test contract
     let deploy_contract_tx = SignedTransaction::deploy_contract(
@@ -234,8 +232,7 @@ fn test_max_receipt_size_value_return() {
     let mut env = TestLoopBuilder::new()
         .enable_rpc()
         .add_user_account(&account, Balance::from_near(10_000))
-        .build()
-        .warmup();
+        .build();
 
     // Deploy the test contract
     let deploy_contract_tx = SignedTransaction::deploy_contract(
@@ -293,8 +290,7 @@ fn test_max_receipt_size_yield_resume() {
     let mut env = TestLoopBuilder::new()
         .enable_rpc()
         .add_user_account(&account, Balance::from_near(10_000))
-        .build()
-        .warmup();
+        .build();
 
     // Deploy the test contract
     let deploy_contract_tx = SignedTransaction::deploy_contract(

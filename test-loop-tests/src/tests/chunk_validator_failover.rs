@@ -1,11 +1,10 @@
-use near_async::time::Duration;
-use near_o11y::testonly::init_test_logger;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
-
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_validator_id;
 use crate::utils::contract_distribution::assert_all_chunk_endorsements_received;
 use crate::utils::validators::get_epoch_all_validators;
+use near_async::time::Duration;
+use near_o11y::testonly::init_test_logger;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 
 /// Tests chunk validator key failover: when a chunk-only validator's key is
 /// moved to a backup node mid-epoch, the backup node picks up endorsement
@@ -17,12 +16,8 @@ fn test_chunk_validator_failover() {
     let epoch_length: u64 = 10;
     let killed_validator = create_validator_id(3);
 
-    let mut env = TestLoopBuilder::new()
-        .validators(1, 3)
-        .enable_rpc()
-        .epoch_length(epoch_length)
-        .build()
-        .warmup();
+    let mut env =
+        TestLoopBuilder::new().validators(1, 3).enable_rpc().epoch_length(epoch_length).build();
 
     // Wait until 1/3 into epoch 2.
     let failover_height = epoch_length + epoch_length / 3;

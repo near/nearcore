@@ -249,8 +249,7 @@ impl GlobalContractsTestEnv {
             .add_user_account(&zero_balance_account, Balance::ZERO)
             .gas_prices(GAS_PRICE, GAS_PRICE)
             .runtime_config_store(runtime_config_store.clone())
-            .build()
-            .warmup();
+            .build();
 
         Self {
             env,

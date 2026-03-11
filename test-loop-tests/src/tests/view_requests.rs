@@ -24,8 +24,7 @@ fn test_access_key_changes_includes_gas_key_nonces() {
         .enable_rpc()
         .epoch_length(epoch_length)
         .add_user_account(&submitter, Balance::from_near(1_000_000))
-        .build()
-        .warmup();
+        .build();
 
     let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
     // TODO(spice): Replace with get_next_nonce once it works with spice.
