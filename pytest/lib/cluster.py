@@ -939,6 +939,7 @@ def spin_up_node(
     sleep_after_start=3,
 ) -> BaseNode:
     is_local = config['local']
+    near_port_offset = int(os.environ.get('NEAR_PORT_OFFSET', '0'))
 
     args = make_boot_nodes_arg(boot_node)
     logger.info("Starting node %s %s" %
@@ -946,11 +947,11 @@ def spin_up_node(
                  ('with ' + '='.join(args) if args else 'as BOOT NODE')))
     if is_local:
         blacklist = [
-            "127.0.0.1:%s" % (24567 + 10 + bl_ordinal)
+            "127.0.0.1:%s" % (24567 + 10 + bl_ordinal + near_port_offset)
             for bl_ordinal in blacklist
         ]
-        node = LocalNode(24567 + 10 + ordinal,
-                         3030 + 10 + ordinal,
+        node = LocalNode(24567 + 10 + ordinal + near_port_offset,
+                         3030 + 10 + ordinal + near_port_offset,
                          near_root,
                          node_dir,
                          blacklist,
@@ -1012,21 +1013,27 @@ def init_cluster(
     logger.info("Creating %s cluster configuration with %s nodes" %
                 ("LOCAL" if is_local else "REMOTE", num_nodes + num_observers))
 
+    cmd = [
+        binary_path,
+    ]
+    near_dot_dir = os.environ.get('NEAR_DOT_DIR')
+    if near_dot_dir:
+        cmd.extend(["--home", near_dot_dir])
+    cmd.extend([
+        "localnet",
+        "--validators",
+        str(num_nodes),
+        "--non-validators",
+        str(num_observers),
+        "--shards",
+        str(num_shards),
+        "--tracked-shards",
+        "none",
+        "--prefix",
+        prefix,
+    ])
     process = subprocess.Popen(
-        [
-            binary_path,
-            "localnet",
-            "--validators",
-            str(num_nodes),
-            "--non-validators",
-            str(num_observers),
-            "--shards",
-            str(num_shards),
-            "--tracked-shards",
-            "none",
-            "--prefix",
-            prefix,
-        ],
+        cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -1220,7 +1227,7 @@ def start_cluster(
     if not config:
         config = load_config()
 
-    dot_near = pathlib.Path.home() / '.near'
+    dot_near = pathlib.Path(os.environ.get('NEAR_DOT_DIR', str(pathlib.Path.home() / '.near')))
     if (dot_near / 'test0').exists():
         near_root = config['near_root']
         node_dirs = [
