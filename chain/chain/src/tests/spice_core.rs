@@ -1429,8 +1429,8 @@ fn save_execution_result_for_block(
 ) {
     let key = get_execution_results_key(block.hash(), shard_id);
     let mut store_update = chain.chain_store.store().store_update();
-    store_update.insert_ser(DBCol::execution_results(), &key, &execution_result).unwrap();
-    store_update.commit().unwrap();
+    store_update.insert_ser(DBCol::execution_results(), &key, &execution_result);
+    store_update.commit();
 }
 
 fn test_proposal(account: &str, stake: u128) -> ValidatorStake {
