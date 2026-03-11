@@ -432,7 +432,7 @@ fn test_spice_uncertified_restake_prevents_stake_return() {
     let validators_spec = create_validators_spec(4, 1);
     let accounts = validators_spec_clients(&validators_spec);
     let unstaker = accounts[unstaker_idx].clone();
-    let validator_key = create_test_signer(unstaker.as_str()).public_key();
+    let unstaker_key = create_test_signer(unstaker.as_str()).public_key();
 
     let mut env = TestLoopBuilder::new()
         .validators_spec(validators_spec)
@@ -461,7 +461,7 @@ fn test_spice_uncertified_restake_prevents_stake_return() {
         &unstaker,
         vec![Action::Stake(Box::new(StakeAction {
             stake: Balance::ZERO,
-            public_key: validator_key.clone(),
+            public_key: unstaker_key.clone(),
         }))],
     );
     env.node_runner(unstaker_idx).run_tx(unstake_tx, Duration::seconds(30));
@@ -484,7 +484,7 @@ fn test_spice_uncertified_restake_prevents_stake_return() {
         &unstaker,
         vec![Action::Stake(Box::new(StakeAction {
             stake: initial_stake,
-            public_key: validator_key,
+            public_key: unstaker_key,
         }))],
     );
     env.node(unstaker_idx).submit_tx(restake_tx);
