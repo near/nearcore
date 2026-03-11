@@ -11,7 +11,7 @@ use near_primitives::types::{AccountId, Balance, BlockId};
 fn test_rpc_block_by_height() {
     init_test_logger();
 
-    let mut env = TestLoopBuilder::new().enable_rpc().epoch_length(10).build().warmup();
+    let mut env = TestLoopBuilder::new().enable_rpc().epoch_length(10).build();
 
     let result = env
         .rpc_runner()
@@ -33,8 +33,7 @@ fn test_rpc_broadcast_tx_commit_transfer() {
         .enable_rpc()
         .epoch_length(10)
         .add_user_account(&validator_account, Balance::from_near(1_000))
-        .build()
-        .warmup();
+        .build();
 
     let tx = SignedTransaction::send_money(
         1,

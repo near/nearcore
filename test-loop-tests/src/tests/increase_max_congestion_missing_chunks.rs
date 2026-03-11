@@ -118,6 +118,7 @@ fn slow_test_tx_inclusion() {
         .epoch_config_store(epoch_config_store)
         .protocol_upgrade_schedule(protocol_upgrade_schedule)
         .clients(clients)
+        .delay_warmup()
         .build()
         .drop(DropCondition::ProtocolUpgradeChunkRange(new_protocol, old_chunk_range_to_drop))
         .drop(DropCondition::ProtocolUpgradeChunkRange(new_protocol, new_chunk_range_to_drop))

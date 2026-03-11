@@ -109,6 +109,7 @@ pub(crate) fn test_protocol_upgrade(
         .epoch_config_store(epoch_config_store)
         .protocol_upgrade_schedule(protocol_upgrade_schedule)
         .clients(clients)
+        .delay_warmup()
         .build()
         .drop(DropCondition::ProtocolUpgradeChunkRange(new_protocol, chunk_ranges_to_drop.clone()))
         .warmup();

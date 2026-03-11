@@ -49,8 +49,7 @@ fn test_congestion_control_genesis_bootstrap() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
-        .build()
-        .warmup();
+        .build();
 
     test_loop.run_for(Duration::seconds(5));
 

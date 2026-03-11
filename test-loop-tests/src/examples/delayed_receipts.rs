@@ -22,8 +22,7 @@ fn delayed_receipt_example_test() {
         .gas_limit(gas_limit)
         .add_user_account(&user_account, Balance::from_near(10))
         .enable_rpc()
-        .build()
-        .warmup();
+        .build();
 
     let deploy_tx = env.rpc_node().tx_deploy_test_contract(&user_account);
     env.rpc_runner().run_tx(deploy_tx, Duration::seconds(2));

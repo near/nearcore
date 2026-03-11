@@ -116,8 +116,7 @@ fn test_cross_shard_tx_common(Params { num_transfers, rotate_validators, drop_ch
         .genesis(genesis)
         .clients(validator_accounts)
         .epoch_config_store(epoch_config_store)
-        .build()
-        .warmup();
+        .build();
 
     for node_datas in &env.node_datas {
         let rng = rng.clone();

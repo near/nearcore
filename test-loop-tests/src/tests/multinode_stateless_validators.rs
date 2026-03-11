@@ -55,12 +55,8 @@ fn slow_test_stateless_validators_with_multi_test_loop() {
     let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
-        .build()
-        .warmup();
+    let TestLoopEnv { mut test_loop, node_datas, shared_state } =
+        builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
 
     // Capture the initial validator info in the first epoch.
     let client_handle = node_datas[0].client_sender.actor_handle();

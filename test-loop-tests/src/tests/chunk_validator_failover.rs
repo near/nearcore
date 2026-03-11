@@ -16,12 +16,8 @@ fn test_chunk_validator_failover() {
     let epoch_length: u64 = 10;
     let killed_validator = create_validator_id(3);
 
-    let mut env = TestLoopBuilder::new()
-        .validators(1, 3)
-        .enable_rpc()
-        .epoch_length(epoch_length)
-        .build()
-        .warmup();
+    let mut env =
+        TestLoopBuilder::new().validators(1, 3).enable_rpc().epoch_length(epoch_length).build();
 
     // Wait until 1/3 into epoch 2.
     let failover_height = epoch_length + epoch_length / 3;
