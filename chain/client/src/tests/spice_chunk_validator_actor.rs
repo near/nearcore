@@ -14,6 +14,7 @@ use near_chain::types::{ApplyChunkShardContext, RuntimeStorageConfig, StorageDat
 use near_chain::{
     ApplyChunksSpawner, Block, BlockProcessingArtifact, Chain, ChainGenesis, Provenance,
 };
+use near_chain_configs::INITIAL_GAS_LIMIT;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::{Genesis, MutableConfigValue};
 use near_epoch_manager::EpochManagerAdapter;
@@ -22,6 +23,7 @@ use near_network::spice_data_distribution::SpiceChunkContractAccessesMessage;
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt as _;
 use near_o11y::testonly::init_test_logger;
+use near_parameters::{ActionCosts, RuntimeConfigStore};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::congestion_info::CongestionInfo;
@@ -29,6 +31,7 @@ use near_primitives::gas::Gas;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ReceiptProof;
+use near_primitives::stateless_validation::contract_distribution::MAX_CONTRACTS_PER_REQUEST;
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::stateless_validation::spice_state_witness::compute_contract_accesses_hash;
 use near_primitives::stateless_validation::spice_state_witness::{
@@ -44,6 +47,7 @@ use near_primitives::types::{
     Balance, ChunkExecutionResult, ChunkExecutionResultHash, ShardId, SpiceChunkId,
 };
 use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter as _;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::get_genesis_state_roots;
@@ -861,11 +865,6 @@ fn test_malicious_accesses_first_then_correct() {
 /// number of unique contracts that can be called in a single chunk.
 #[test]
 fn max_contracts_per_request_covers_chunk_gas_limit() {
-    use near_chain_configs::INITIAL_GAS_LIMIT;
-    use near_parameters::{ActionCosts, RuntimeConfigStore};
-    use near_primitives::stateless_validation::contract_distribution::MAX_CONTRACTS_PER_REQUEST;
-    use near_primitives::version::PROTOCOL_VERSION;
-
     let store = RuntimeConfigStore::new(None);
     let config = store.get_config(PROTOCOL_VERSION);
     let function_call_base = config.fees.fee(ActionCosts::function_call_base).exec_fee();
