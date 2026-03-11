@@ -242,9 +242,8 @@ fn test_near_horizon_validator_restart() {
             .epoch_manager
             .get_epoch_block_producers_ordered(&next_epoch_id)
             .unwrap();
-        let producer_accounts: Vec<_> = producers.iter().map(|p| p.account_id().clone()).collect();
         assert!(
-            producer_accounts.contains(&kill_account),
+            producers.iter().any(|p| p.account_id() == &kill_account),
             "validator {kill_account} not in next epoch's producer set after restart cycle {i}"
         );
 
