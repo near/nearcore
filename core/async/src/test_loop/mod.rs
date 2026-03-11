@@ -273,6 +273,14 @@ impl TestLoopV2 {
         self.pending_denylist.clone()
     }
 
+    /// Returns true if the given identifier has been denylisted (e.g. via
+    /// a shutdown signal). Checks both the committed denylist and the pending
+    /// buffer that hasn't been drained yet.
+    pub fn is_denylisted(&self, identifier: &str) -> bool {
+        self.denylisted_identifiers.contains(identifier)
+            || self.pending_denylist.lock().iter().any(|id| id == identifier)
+    }
+
     /// Returns a clock that will always return the current virtual time.
     pub fn clock(&self) -> Clock {
         self.clock.clock()

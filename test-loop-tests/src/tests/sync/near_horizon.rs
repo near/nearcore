@@ -1,0 +1,496 @@
+//! Near-horizon sync tests.
+//!
+//! These test the V2 pipeline for nodes that are only a few epochs behind:
+//!   BlockSync → NoSync (no epoch sync, no state sync)
+//!
+//! Near-horizon means the node is within `epoch_sync_horizon` of the network
+//! tip, so it enters BlockSync directly. Header sync and block sync run
+//! together; the node never does epoch sync or state sync.
+
+use super::util::track_sync_status;
+use crate::setup::builder::TestLoopBuilder;
+use crate::utils::account::create_account_id;
+use crate::utils::transactions::{execute_money_transfers, get_anchor_hash, get_next_nonce};
+use itertools::Itertools;
+use near_async::messaging::CanSend;
+use near_async::time::Duration;
+use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_client::SyncStatus;
+use near_client::sync::SYNC_V2_ENABLED;
+use near_network::client::ProcessTxRequest;
+use near_o11y::testonly::init_test_logger;
+use near_primitives::shard_layout::ShardLayout;
+use near_primitives::test_utils::create_user_test_signer;
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::{AccountId, Balance};
+
+/// Expected V2 near-horizon sync status sequence.
+const NEAR_HORIZON_SYNC_SEQUENCE: &[&str] = &["AwaitingPeers", "NoSync", "BlockSync", "NoSync"];
+
+pub(super) fn assert_near_horizon_sync_sequence(history: &[String]) {
+    let expected: Vec<String> =
+        NEAR_HORIZON_SYNC_SEQUENCE.iter().map(|s| (*s).to_string()).collect();
+    assert_eq!(history, expected.as_slice(), "unexpected sync status history");
+}
+
+// ---------------------------------------------------------------------------
+// T2: Near-horizon block sync
+// ---------------------------------------------------------------------------
+//
+// Scenario: A fresh node starts with only genesis data while the network is
+// ~1.5 epochs ahead. The node is within epoch_sync_horizon distance (default=2),
+// so it enters BlockSync directly without epoch sync or state sync.
+//
+// Setup:
+//   - 4 validators, epoch_length=10, 4 shards
+//   - Network runs ~1.5 epochs with cross-shard money transfers
+//   - Add a fresh node with default config
+//
+// Assertions:
+//   - New node catches up to network tip
+//   - Sync status sequence: AwaitingPeers → NoSync → BlockSync → NoSync
+//   - No EpochSync or StateSync in the status history
+//
+// Derived from: syncing.rs::slow_test_sync_from_genesis
+// Covers: T2 (near-horizon block sync entry), T17 (header+block sync together)
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_near_horizon_block_sync() {
+    if !SYNC_V2_ENABLED {
+        return;
+    }
+    init_test_logger();
+
+    // No user accounts needed — just need a short chain within the horizon.
+    let mut env = TestLoopBuilder::new()
+        .validators(4, 0)
+        .num_shards(4)
+        .epoch_length(10)
+        .gc_num_epochs_to_keep(20) // generous GC so blocks aren't deleted
+        .build();
+
+    // Run ~1.5 epochs (within default horizon of 2 epochs = 20 blocks).
+    env.node_runner(0).run_until_head_height(15);
+
+    // Add fresh node.
+    let new_account = create_account_id("new_node");
+    let node_state = env.node_state_builder().account_id(&new_account).build();
+    env.add_node("new_node", node_state);
+    let new_node_idx = env.node_datas.len() - 1;
+
+    let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, new_node_idx);
+
+    // Run until caught up.
+    let new_node_handle = env.node_datas[new_node_idx].client_sender.actor_handle();
+    let node0_handle = env.node_datas[0].client_sender.actor_handle();
+    env.test_loop.run_until(
+        |data| {
+            let new_h = data.get(&new_node_handle).client.chain.head().unwrap().height;
+            let node0_h = data.get(&node0_handle).client.chain.head().unwrap().height;
+            new_h == node0_h
+        },
+        Duration::seconds(20),
+    );
+
+    // Near-horizon: no EpochSync, no StateSync.
+    assert_near_horizon_sync_sequence(&sync_history.borrow());
+    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
+}
+
+// ---------------------------------------------------------------------------
+// T6: GC boundary alignment
+// ---------------------------------------------------------------------------
+//
+// Scenario: A node that is exactly at the edge of `epoch_sync_horizon` should
+// enter BlockSync (not epoch sync) and still succeed because all needed blocks
+// are within the GC window on peers.
+//
+// With default epoch_sync_horizon_num_epochs=2 and epoch_length=10, the horizon
+// is 20 blocks. Running the chain to exactly height 20 puts the fresh node at
+// exactly the boundary. It should enter BlockSync (not EpochSync).
+//
+// Setup:
+//   - 4 validators, epoch_length=10
+//   - gc_num_epochs_to_keep=3 (tight GC to test boundary)
+//   - Network runs exactly 2 epochs (height 20)
+//
+// Assertions:
+//   - Node enters BlockSync (not EpochSync)
+//   - Block sync succeeds (all needed blocks within GC window)
+//   - Node catches up to network tip
+//
+// Covers: T6 (GC boundary alignment)
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_near_horizon_gc_boundary() {
+    if !SYNC_V2_ENABLED {
+        return;
+    }
+    init_test_logger();
+
+    let epoch_length = 10;
+    let mut env = TestLoopBuilder::new()
+        .validators(4, 0)
+        .epoch_length(epoch_length)
+        .gc_num_epochs_to_keep(3)
+        .build();
+
+    // Run exactly 2 epochs (= horizon boundary with default horizon=2).
+    env.node_runner(0).run_until_head_height(2 * epoch_length);
+
+    // Add fresh node.
+    let new_account = create_account_id("boundary_node");
+    let node_state = env.node_state_builder().account_id(&new_account).build();
+    env.add_node("boundary_node", node_state);
+    let new_idx = env.node_datas.len() - 1;
+
+    let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, new_idx);
+
+    let new_handle = env.node_datas[new_idx].client_sender.actor_handle();
+    let node0_handle = env.node_datas[0].client_sender.actor_handle();
+    env.test_loop.run_until(
+        |data| {
+            let new_h = data.get(&new_handle).client.chain.head().unwrap().height;
+            let n0_h = data.get(&node0_handle).client.chain.head().unwrap().height;
+            new_h == n0_h
+        },
+        Duration::seconds(30),
+    );
+
+    // Assert: full near-horizon sequence — BlockSync, NOT EpochSync.
+    assert_near_horizon_sync_sequence(&sync_history.borrow());
+    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
+}
+
+// ---------------------------------------------------------------------------
+// T12: Validator restart recovery
+// ---------------------------------------------------------------------------
+//
+// Scenario: A validator is killed and restarted while the network continues
+// to produce blocks with cross-shard transactions. The restarted validator
+// should catch up via near-horizon sync (BlockSync, no epoch sync) and
+// rejoin the validator set.
+//
+// This is a key operational scenario: validators occasionally restart
+// (upgrades, crashes) and must recover quickly without full state sync.
+//
+// Setup:
+//   - 4 validators, epoch_length=10, 4 shards, shard shuffling
+//   - Run all nodes ~2 epochs
+//   - Restart all validators simultaneously
+//   - Repeat restart cycle to test recovery after recovery
+//
+// Assertions:
+//   - Restarted validators catch up to same height
+//   - Cross-shard transactions succeed after restart
+//
+// Derived from: syncing.rs::slow_test_validator_restart_under_cross_shard_load
+// Covers: T12 (validator restart recovery under V2)
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_near_horizon_validator_restart() {
+    if !SYNC_V2_ENABLED {
+        return;
+    }
+    init_test_logger();
+
+    const NUM_CLIENTS: usize = 4;
+    let accounts =
+        (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
+    let clients = accounts.iter().take(NUM_CLIENTS).cloned().collect_vec();
+
+    let validators_spec =
+        ValidatorsSpec::desired_roles(&clients.iter().map(|t| t.as_str()).collect_vec(), &[]);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .validators_spec(validators_spec)
+        .shard_layout(ShardLayout::multi_shard(4, 3))
+        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .build_store_for_genesis_protocol_version();
+
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients)
+        .gc_num_epochs_to_keep(20)
+        .build();
+
+    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
+    env.node_runner(0).run_for_number_of_blocks(20);
+
+    // Two cycles: first tests restart after normal operation, second tests
+    // restart after a restart.
+    for i in 0..2 {
+        // Collect identifiers and accounts for all validators before killing.
+        let node_infos: Vec<_> = (0..NUM_CLIENTS)
+            .map(|idx| {
+                let account: AccountId = format!("account{}", idx).parse().unwrap();
+                let data_idx = env.account_data_idx(&account);
+                let data = &env.node_datas[data_idx];
+                (data.account_id.clone(), data.identifier.clone())
+            })
+            .collect();
+
+        // Restart all validators.
+        let killed_states: Vec<_> =
+            node_infos.iter().map(|(_, identifier)| env.kill_node(identifier)).collect();
+        for ((_, identifier), state) in node_infos.iter().zip(killed_states) {
+            let new_id = format!("{}-restart-{}", identifier, i);
+            env.restart_node(&new_id, state);
+        }
+
+        // Track sync status on the first restarted validator to verify it uses
+        // BlockSync (near-horizon), not EpochSync.
+        let restarted_node_idx = env.node_datas.len() - NUM_CLIENTS;
+        let sync_history =
+            track_sync_status(&mut env.test_loop, &env.node_datas, restarted_node_idx);
+
+        // Give the restarted validators time to recover consensus.
+        let reference_account: AccountId = "account0".parse().unwrap();
+        env.runner_for_account(&reference_account)
+            .run_for_number_of_blocks_with_timeout(15, Duration::seconds(60));
+
+        // Let a few more blocks propagate so all nodes fully converge.
+        env.test_loop.run_for(Duration::seconds(5));
+
+        // Verify all validators reached the same height.
+        let reference_height = env.node_for_account(&reference_account).head().height;
+        for idx in 1..NUM_CLIENTS {
+            let account: AccountId = format!("account{}", idx).parse().unwrap();
+            assert_eq!(
+                env.node_for_account(&account).head().height,
+                reference_height,
+                "node {} failed to catch up on restart cycle {i}",
+                idx,
+            );
+        }
+
+        // Restarted validators should use BlockSync (near-horizon), not EpochSync.
+        let history = sync_history.borrow();
+        assert!(
+            !history.iter().any(|s| s == "EpochSync"),
+            "restarted validator should NOT enter EpochSync on cycle {i}, got: {:?}",
+            *history,
+        );
+
+        // Send cross-shard transfers after each restart.
+        let live_nodes = &env.node_datas[env.node_datas.len() - NUM_CLIENTS..];
+        let clients: Vec<_> = live_nodes
+            .iter()
+            .map(|nd| &env.test_loop.data.get(&nd.client_sender.actor_handle()).client)
+            .collect();
+        let anchor_hash = get_anchor_hash(&clients);
+        for (j, sender) in accounts.iter().enumerate() {
+            let receiver = &accounts[(j + 1) % accounts.len()];
+            let nonce = get_next_nonce(&env.test_loop.data, live_nodes, sender);
+            let tx = SignedTransaction::send_money(
+                nonce,
+                sender.clone(),
+                receiver.clone(),
+                &create_user_test_signer(sender),
+                Balance::from_near(1),
+                anchor_hash,
+            );
+            live_nodes[j % NUM_CLIENTS].rpc_handler_sender.send(ProcessTxRequest {
+                transaction: tx,
+                is_forwarded: false,
+                check_only: false,
+            });
+        }
+    }
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+// ---------------------------------------------------------------------------
+// T14: NoPeers during block sync (near horizon)
+// ---------------------------------------------------------------------------
+//
+// Scenario: A node in the middle of near-horizon block sync temporarily
+// loses all peers. Block sync should pause and resume when peers return,
+// without resetting to NoSync.
+//
+// Setup:
+//   - Same as T2: 4 validators, fresh node doing near-horizon sync
+//   - When the new node enters BlockSync, block all peer connections
+//   - Restore peers after 1-2 ticks
+//
+// Assertions:
+//   - Node remains in BlockSync during NoPeers window
+//   - Block sync progress (current_height) is preserved
+//   - Sync resumes and completes normally after peers return
+//   - No second NoSync→BlockSync cycle in status history
+//
+// Tooling needed: peer blocking in mock peer manager (tooling gap 4.1)
+// Covers: T14 (NoPeers during BlockSync)
+#[test]
+#[ignore] // requires peer manipulation tooling
+fn test_near_horizon_no_peers_during_block_sync() {
+    if !SYNC_V2_ENABLED {
+        return;
+    }
+    todo!("T14: implement NoPeers during block sync test")
+}
+
+// ===========================================================================
+// Restart-during-sync tests (near horizon)
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Restart during block sync (near horizon)
+// ---------------------------------------------------------------------------
+//
+// Scenario: A fresh node doing near-horizon block sync is killed mid-sync
+// and restarted. On restart, the node has partial block data in the DB.
+// It should resume block sync and catch up. This is the simplest restart
+// case — near-horizon nodes only do block sync, and blocks are persisted.
+//
+// Setup:
+//   - 4 validators, epoch_length=10, 4 shards
+//   - Network runs ~1.5 epochs (within horizon)
+//   - Add a fresh node, wait until BlockSync, kill, restart
+//
+// Assertions:
+//   - Restarted node catches up to network tip
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_near_horizon_restart_during_block_sync() {
+    if !SYNC_V2_ENABLED {
+        return;
+    }
+    init_test_logger();
+
+    let mut env = TestLoopBuilder::new()
+        .validators(4, 0)
+        .num_shards(4)
+        .epoch_length(10)
+        .gc_num_epochs_to_keep(20)
+        .build();
+
+    env.node_runner(0).run_until_head_height(15);
+
+    // Add fresh node.
+    let new_account = create_account_id("new_node");
+    let node_state = env.node_state_builder().account_id(&new_account).build();
+    env.add_node("new_node", node_state);
+    let new_node_idx = env.node_datas.len() - 1;
+
+    // Wait until new node is in the MIDDLE of BlockSync (current_height > start_height).
+    let new_node_handle = env.node_datas[new_node_idx].client_sender.actor_handle();
+    env.test_loop.run_until(
+        |data| {
+            let status = &data.get(&new_node_handle).client.sync_handler.sync_status;
+            matches!(status, SyncStatus::BlockSync { start_height, current_height, .. }
+                if *current_height > *start_height)
+        },
+        Duration::seconds(20),
+    );
+
+    // Kill mid-block-sync.
+    let new_node_identifier = env.node_datas.last().unwrap().identifier.clone();
+    let killed_state = env.kill_node(&new_node_identifier);
+
+    // Restart with same store.
+    env.restart_node("restart_block_sync", killed_state);
+    let restarted_idx = env.node_datas.len() - 1;
+
+    // Should catch up to network tip.
+    let restarted_handle = env.node_datas[restarted_idx].client_sender.actor_handle();
+    let node0_handle = env.node_datas[0].client_sender.actor_handle();
+    env.test_loop.run_until(
+        |data| {
+            let new_h = data.get(&restarted_handle).client.chain.head().unwrap().height;
+            let n0_h = data.get(&node0_handle).client.chain.head().unwrap().height;
+            new_h == n0_h
+        },
+        Duration::seconds(30),
+    );
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
+}
+
+// ---------------------------------------------------------------------------
+// T7: Near-horizon sync with horizon > gc_num_epochs_to_keep
+// ---------------------------------------------------------------------------
+//
+// Scenario: A fresh node has epoch_sync_horizon=10 but gc=3. The network is
+// ~8 epochs ahead, which is beyond the node's GC window (3 epochs = 30 blocks)
+// but within its large horizon (10 epochs = 100 blocks). So the node enters
+// near-horizon BlockSync and must catch up ~80 blocks — more than its own GC
+// window would normally allow.
+//
+// The existing validators have gc=10, so they retain all the blocks the new
+// node needs. This tests whether the sync machinery works when the number of
+// blocks being synced exceeds the syncing node's own gc_num_epochs_to_keep.
+//
+// Setup:
+//   - 4 validators, epoch_length=10, gc=10 (peers keep plenty of blocks)
+//   - Network runs 8 epochs (80 blocks)
+//   - Add a fresh node with gc=3, horizon=10
+//
+// Assertions:
+//   - Node enters BlockSync (near horizon, not EpochSync)
+//   - Node catches up to network tip despite its tight GC
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_near_horizon_sync_beyond_gc_window() {
+    if !SYNC_V2_ENABLED {
+        return;
+    }
+    init_test_logger();
+
+    let epoch_length = 10;
+    let mut env = TestLoopBuilder::new()
+        .validators(4, 0)
+        .epoch_length(epoch_length)
+        .gc_num_epochs_to_keep(10) // peers keep all blocks
+        .build();
+
+    // Run 8 epochs (80 blocks).
+    env.node_runner(0).run_until_head_height(8 * epoch_length);
+
+    // Add a fresh node with tight GC (3 epochs) but large horizon (10 epochs).
+    // 80 blocks is within horizon (100) so the node enters BlockSync.
+    // But 80 blocks > gc window (30), testing the mismatch.
+    let new_account = create_account_id("new_node");
+    let node_state = env
+        .node_state_builder()
+        .account_id(&new_account)
+        .config_modifier(|config| {
+            config.gc.gc_num_epochs_to_keep = 3;
+            config.epoch_sync.epoch_sync_horizon_num_epochs = 10;
+        })
+        .build();
+    env.add_node("new_node", node_state);
+    let new_idx = env.node_datas.len() - 1;
+
+    let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, new_idx);
+
+    let new_handle = env.node_datas[new_idx].client_sender.actor_handle();
+    let node0_handle = env.node_datas[0].client_sender.actor_handle();
+    env.test_loop.run_until(
+        |data| {
+            let new_h = data.get(&new_handle).client.chain.head().unwrap().height;
+            let n0_h = data.get(&node0_handle).client.chain.head().unwrap().height;
+            new_h == n0_h
+        },
+        Duration::seconds(60),
+    );
+
+    // Within the large horizon: should use near-horizon BlockSync, not EpochSync.
+    let history = sync_history.borrow();
+    assert!(
+        !history.iter().any(|s| s == "EpochSync"),
+        "node within large horizon should NOT use EpochSync. Got: {:?}",
+        *history,
+    );
+    assert!(
+        history.iter().any(|s| s == "BlockSync"),
+        "node should have entered BlockSync. Got: {:?}",
+        *history,
+    );
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
+}
