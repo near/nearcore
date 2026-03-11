@@ -170,12 +170,14 @@ pytest sanity/rpc_tx_status.py
 pytest sanity/rpc_tx_status.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/rpc_tx_status.py --features nightly,protocol_feature_spice
+# TODO(sync-v2): Delete test
 pytest sanity/garbage_collection.py
-pytest sanity/garbage_collection.py --features nightly
+# pytest sanity/garbage_collection.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/garbage_collection.py --features nightly,protocol_feature_spice
+# TODO(sync-v2): Delete test
 pytest sanity/garbage_collection1.py
-pytest sanity/garbage_collection1.py --features nightly
+# pytest sanity/garbage_collection1.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/garbage_collection1.py --features nightly,protocol_feature_spice
 pytest sanity/garbage_collection_intense.py
