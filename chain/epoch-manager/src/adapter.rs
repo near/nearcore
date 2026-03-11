@@ -767,7 +767,10 @@ pub trait EpochManagerAdapter: Send + Sync {
         if current_layout == next_layout {
             return None;
         }
-        next_layout.get_split_parent_shard_uids().into_iter().next()
+        let split_parent_shard_uids = next_layout.get_split_parent_shard_uids();
+        // There should be exactly one shard split when layout changes
+        debug_assert!(split_parent_shard_uids.len() == 1);
+        split_parent_shard_uids.into_iter().next()
     }
 
     /// Get all static shard layouts from the given `latest_protocol_version` (inclusive) back to

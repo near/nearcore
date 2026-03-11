@@ -197,7 +197,11 @@ pub fn apply_deltas_to_memtries(
 
             let memtrie_changes = trie_update.to_memtrie_changes_only();
             let new_root_after_apply = memtries.apply_memtrie_changes(height, &memtrie_changes);
-            assert_eq!(new_root_after_apply, new_state_root);
+            if new_root_after_apply != new_state_root {
+                return Err(StorageError::MemTrieLoadingError(format!(
+                    "invalid state root after changes: {new_root_after_apply} != {new_state_root}"
+                )));
+            }
         }
         tracing::debug!(target: "memtrie", %shard_uid, %height, "applied memtrie changes for height");
     }

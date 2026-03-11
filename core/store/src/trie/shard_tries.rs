@@ -603,6 +603,7 @@ impl ShardTries {
                     "background memtrie loading finalization failed");
                 // Clear retention so deltas aren't retained indefinitely after failure.
                 self.clear_delta_gc_retention_for_shard(shard_uid);
+                failed.push(shard_uid);
             }
         }
 
