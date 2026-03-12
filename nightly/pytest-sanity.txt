@@ -90,8 +90,9 @@ pytest --timeout=10m sanity/state_sync_routed.py manytx 115 --features nightly
 #pytest --timeout=10m sanity/state_sync_routed.py manytx 115 --features nightly,protocol_feature_spice
 
 # TODO(sync-v2): Delete test — large state sync is covered by forknet testing.
-#pytest --timeout=15m sanity/state_sync_massive.py
-#pytest --timeout=15m sanity/state_sync_massive.py --features nightly
+pytest --timeout=15m sanity/state_sync_massive.py
+# pytest --timeout=15m sanity/state_sync_massive.py --features nightly
+# TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest --timeout=15m sanity/state_sync_massive.py --features nightly,protocol_feature_spice
 # TODO(#13551): Enable after fixing flaky test. state_sync_massive_validator sometimes take 1 hour to run and timeout
 # pytest --timeout=15m sanity/state_sync_massive_validator.py
