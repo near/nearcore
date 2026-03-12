@@ -64,6 +64,7 @@ struct TestEnvConfig {
     minimum_stake_divisor: Option<u64>,
     zero_fees: bool,
     create_flat_storage: bool,
+    runtime_config_store: Option<RuntimeConfigStore>,
 }
 
 /// Environment to test runtime behavior separate from Chain.
@@ -94,6 +95,7 @@ impl TestEnv {
                 minimum_stake_divisor: None,
                 zero_fees: true,
                 create_flat_storage: true,
+                runtime_config_store: None,
             },
         )
     }
@@ -126,8 +128,9 @@ impl TestEnv {
         let genesis_total_supply = genesis.config.total_supply;
         let genesis_protocol_version = genesis.config.protocol_version;
 
-        let runtime_config_store =
-            if config.zero_fees { RuntimeConfigStore::free() } else { RuntimeConfigStore::test() };
+        let runtime_config_store = config.runtime_config_store.unwrap_or_else(|| {
+            if config.zero_fees { RuntimeConfigStore::free() } else { RuntimeConfigStore::test() }
+        });
 
         let compiled_contract_cache =
             FilesystemContractRuntimeCache::new(&dir.as_ref(), None::<&str>, "contract.cache")
@@ -1188,6 +1191,7 @@ fn test_fishermen_stake() {
             minimum_stake_divisor: Some(20000),
             zero_fees: true,
             create_flat_storage: true,
+            runtime_config_store: None,
         },
     );
     let block_producers: Vec<_> =
@@ -1252,6 +1256,7 @@ fn test_fishermen_unstake() {
             minimum_stake_divisor: Some(20000),
             zero_fees: true,
             create_flat_storage: true,
+            runtime_config_store: None,
         },
     );
     let block_producers: Vec<_> =
@@ -1580,6 +1585,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
             minimum_stake_divisor: None,
             zero_fees: false,
             create_flat_storage: false,
+            runtime_config_store: None,
         },
     );
 
@@ -1925,47 +1931,6 @@ fn test_strict_nonce_u64_max_not_included() {
     assert_eq!(pool.len(), 0);
 }
 
-/// Creates a `NightshadeRuntime` + `Chain` with 4 validators (test1..test4)
-/// and the given runtime config store. Returns the tempdir to keep it alive.
-fn get_runtime_and_chain(
-    runtime_config_store: RuntimeConfigStore,
-) -> (Arc<NightshadeRuntime>, Arc<EpochManagerHandle>, Chain, tempfile::TempDir) {
-    let validators: Vec<AccountId> = (1..=4).map(|i| format!("test{i}").parse().unwrap()).collect();
-    let genesis = Genesis::test_sharded_new_version(validators, 4, vec![4]);
-    let store = near_store::test_utils::create_test_store();
-    let tempdir = tempfile::tempdir().unwrap();
-    initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-    let runtime = NightshadeRuntime::test_with_runtime_config_store(
-        tempdir.path(),
-        store,
-        FilesystemContractRuntimeCache::new(tempdir.path(), None::<&str>, "contract.cache")
-            .expect("filesystem contract cache")
-            .handle(),
-        &genesis.config,
-        epoch_manager.clone(),
-        runtime_config_store,
-    );
-    let chain_genesis = ChainGenesis::new(&genesis.config);
-    let chain = Chain::new(
-        Clock::real(),
-        epoch_manager.clone(),
-        ShardTracker::new_empty(epoch_manager.clone()),
-        runtime.clone(),
-        &chain_genesis,
-        DoomslugThresholdMode::NoApprovals,
-        ChainConfig::test(),
-        None,
-        Default::default(),
-        Default::default(),
-        MutableConfigValue::new(None, "validator_signer"),
-        noop().into_multi_sender(),
-        None,
-    )
-    .unwrap();
-    (runtime, epoch_manager, chain, tempdir)
-}
-
 /// Gapped strict-nonce transactions should not inflate the recorded witness
 /// size. Sets the storage proof soft limit to 1 byte so that any recorded
 /// trie read would exceed it, then verifies that the gap-check reads do NOT
@@ -1974,11 +1939,23 @@ fn get_runtime_and_chain(
 fn test_strict_nonce_gap_does_not_count_towards_state_size_soft_limit() {
     let mut runtime_config = RuntimeConfig::test();
     runtime_config.witness_config.new_transactions_validation_state_size_soft_limit = 1;
-    let (runtime, epoch_manager, _chain, _tempdir) =
-        get_runtime_and_chain(RuntimeConfigStore::with_one_config(runtime_config));
+    let validators: Vec<AccountId> =
+        (1..=4).map(|i| format!("test{i}").parse().unwrap()).collect();
+    let env = TestEnv::new_with_config(
+        vec![validators],
+        TestEnvConfig {
+            epoch_length: 5,
+            has_reward: false,
+            minimum_stake_divisor: None,
+            zero_fees: false,
+            create_flat_storage: false,
+            runtime_config_store: Some(RuntimeConfigStore::with_one_config(runtime_config)),
+        },
+    );
+    let runtime = &env.runtime;
 
     let epoch_id = EpochId::default();
-    let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+    let shard_layout = env.epoch_manager.get_shard_layout(&epoch_id).unwrap();
     let shard_uid = shard_layout.shard_uids().next().unwrap();
     let shard_id = shard_uid.shard_id();
 
@@ -2000,10 +1977,7 @@ fn test_strict_nonce_gap_does_not_count_towards_state_size_soft_limit() {
         pool.insert_transaction(ValidatedTransaction::new_for_test(tx));
     }
 
-    let state_roots =
-        get_genesis_state_roots(runtime.store()).expect("genesis should be initialized.");
-    let state_root = state_roots[0];
-    let trie = runtime.tries.get_trie_for_shard(shard_uid, state_root);
+    let trie = runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[0]);
     let trie = trie.recording_reads_new_recorder();
     let state_update = TrieUpdate::new(trie);
 
