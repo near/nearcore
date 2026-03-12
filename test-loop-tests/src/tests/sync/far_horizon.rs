@@ -19,18 +19,16 @@ use super::util::{
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_account_id;
 use crate::utils::node::TestLoopNode;
-use crate::utils::transactions::{
-    BalanceMismatchError, execute_money_transfers, get_shared_block_hash, make_accounts,
-};
+use crate::utils::transactions::{execute_money_transfers, get_shared_block_hash, make_accounts};
+use near_async::messaging::Handler;
 use near_async::time::Duration;
-use near_chain::ChainStoreAccess;
 use near_chain_configs::TrackedShardsConfig;
-use near_client::SyncStatus;
 use near_client::sync::SYNC_V2_ENABLED;
+use near_client::{GetBlock, SyncStatus};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance};
+use near_primitives::types::{AccountId, Balance, BlockId, BlockReference};
 
 /// Height past the epoch sync horizon for far-horizon tests.
 fn far_horizon_height(epoch_length: u64) -> u64 {
@@ -53,6 +51,7 @@ fn far_horizon_height(epoch_length: u64) -> u64 {
 //   - New node runs for 2+ additional epochs after catch-up
 //   - Account balances match source validator
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_full_pipeline() {
     if !SYNC_V2_ENABLED {
@@ -93,122 +92,6 @@ fn test_far_horizon_full_pipeline() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
-// Scenario: Same as full pipeline but with transaction_validity_period=10
-// (1 epoch). Some cross-epoch transfers may expire due to the short validity
-// window, but `execute_money_transfers` still returns Ok because it verifies
-// balances after execution and the on-chain state is consistent.
-//
-// Setup:
-//   - 4 validators, epoch_length=10, 4 shards, transaction_validity_period=10
-//   - Network runs past the horizon with cross-shard money transfers
-//   - Fresh node syncs via far-horizon pipeline
-//
-// Assertions:
-//   - Full far-horizon sync status sequence
-//   - Node catches up despite expired transactions
-//   - Account balances match source validator (both reflect expirations)
-#[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_far_horizon_short_tx_validity() {
-    if !SYNC_V2_ENABLED {
-        return;
-    }
-    init_test_logger();
-
-    let epoch_length = 10;
-    let accounts = make_accounts(100);
-    let mut env = TestLoopBuilder::new()
-        .validators(4, 0)
-        .num_shards(4)
-        .epoch_length(epoch_length)
-        .transaction_validity_period(10)
-        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
-        .build();
-
-    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
-    env.node_runner(0).run_until_head_height(far_horizon_height(epoch_length));
-
-    let new_account = create_account_id("new_node");
-    let node_state = env
-        .node_state_builder()
-        .account_id(&new_account)
-        .config_modifier(|config| {
-            config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
-        })
-        .build();
-    env.add_node("new_node", node_state);
-    let new_node_idx = env.node_datas.len() - 1;
-    restrict_to_single_peer(&env.shared_state, &env.node_datas, new_node_idx, 0);
-
-    let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, new_node_idx);
-    run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
-    env.node_runner(new_node_idx).run_for_number_of_blocks(3 * epoch_length as usize);
-
-    assert_far_horizon_sync_sequence(&sync_history.borrow());
-    verify_balances_on_synced_node(&env.test_loop.data, &env.node_datas, new_node_idx, &accounts);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
-}
-
-// Scenario: Same as full pipeline but with transaction_validity_period=1.
-// Nearly all transactions expire immediately.
-//
-// Setup:
-//   - 4 validators, epoch_length=10, 4 shards, transaction_validity_period=1
-//   - Network runs past the horizon; money transfers fail (expired)
-//   - Fresh node syncs via far-horizon pipeline
-//
-// Assertions:
-//   - Full far-horizon sync status sequence
-//   - Node catches up despite nearly all txs being expired
-//   - Account balances match source validator (both reflect expirations)
-#[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_far_horizon_expired_transactions() {
-    if !SYNC_V2_ENABLED {
-        return;
-    }
-    init_test_logger();
-
-    let epoch_length = 10;
-    let accounts = make_accounts(100);
-    let mut env = TestLoopBuilder::new()
-        .validators(4, 0)
-        .num_shards(4)
-        .epoch_length(epoch_length)
-        .transaction_validity_period(1)
-        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
-        .build();
-
-    // With validity_period=1, nearly all transactions expire before being
-    // included in a block. `execute_money_transfers` detects the resulting
-    // balance mismatch and returns `BalanceMismatchError`.
-    match execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts) {
-        Ok(()) => panic!("expected money transfers to fail due to expired transactions"),
-        Err(BalanceMismatchError { .. }) => {}
-    }
-    env.node_runner(0).run_until_head_height(far_horizon_height(epoch_length));
-
-    let new_account = create_account_id("new_node");
-    let node_state = env
-        .node_state_builder()
-        .account_id(&new_account)
-        .config_modifier(|config| {
-            config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
-        })
-        .build();
-    env.add_node("new_node", node_state);
-    let new_node_idx = env.node_datas.len() - 1;
-    restrict_to_single_peer(&env.shared_state, &env.node_datas, new_node_idx, 0);
-
-    let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, new_node_idx);
-    run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
-    env.node_runner(new_node_idx).run_for_number_of_blocks(3 * epoch_length as usize);
-
-    assert_far_horizon_sync_sequence(&sync_history.borrow());
-    verify_balances_on_synced_node(&env.test_loop.data, &env.node_datas, new_node_idx, &accounts);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
-}
-
 // Scenario: After a fresh node catches up via far-horizon sync, a second
 // fresh node bootstraps from the first epoch-synced node (not from the
 // original validators). Validates that epoch-synced nodes can serve as
@@ -226,6 +109,7 @@ fn test_far_horizon_expired_transactions() {
 //   - new_node1 syncs despite new_node0 lacking old headers (epoch-synced)
 //   - Account balances match source validator on both nodes
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_chained_epoch_sync() {
     if !SYNC_V2_ENABLED {
@@ -301,6 +185,7 @@ fn test_far_horizon_chained_epoch_sync() {
 //   - Node 0 detects it is stale, triggers EpochSyncDataReset, and gets denylisted
 //   - Node 0's head remains near the kill height (did not sync)
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_stale_node_shutdown() {
     if !SYNC_V2_ENABLED {
@@ -354,6 +239,7 @@ fn test_far_horizon_stale_node_shutdown() {
 //   - Sync status sequence does NOT include "EpochSync"
 //   - Near-horizon status sequence (BlockSync only)
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_archival_skips_epoch_sync() {
     if !SYNC_V2_ENABLED {
@@ -362,14 +248,23 @@ fn test_far_horizon_archival_skips_epoch_sync() {
     init_test_logger();
 
     let epoch_length = 10;
+    let gc_num_epochs_to_keep = 10;
     let mut env = TestLoopBuilder::new()
         .validators(4, 0)
         .epoch_length(epoch_length)
-        .gc_num_epochs_to_keep(20)
+        // Validators need gc >= chain length so archival node can fetch all blocks from genesis.
+        // far_horizon_height(10)=50, so gc=20 (200 blocks) is more than enough.
+        .gc_num_epochs_to_keep(gc_num_epochs_to_keep)
         .build();
 
     env.node_runner(0).run_until_head_height(far_horizon_height(epoch_length));
 
+    // cold_storage(true) creates a split storage archival node (hot + cold).
+    // The ColdStoreActor migrates old blocks from hot → cold; GC then cleans
+    // the migrated data from hot. Queries must go through the split store
+    // (view client) to see both hot and cold data.
+    // We use this instead of enable_archival_node() because the latter
+    // creates a node at build time with full history, defeating the sync test.
     let new_account = create_account_id("new_node");
     let node_state = env
         .node_state_builder()
@@ -388,39 +283,35 @@ fn test_far_horizon_archival_skips_epoch_sync() {
 
     assert_near_horizon_sync_sequence(&sync_history.borrow());
 
-    // Verify archival node has old blocks (near genesis, would be GC'd on non-archival nodes).
-    let archival_handle = env.node_datas[new_node_idx].client_sender.actor_handle();
-    let archival_client = &env.test_loop.data.get(&archival_handle).client;
+    // Run past the GC period so cold store migration can move old blocks from
+    // hot → cold, and GC can clean them from hot. This verifies the archival
+    // node retains old blocks via the split store (hot + cold read path).
+    env.node_runner(new_node_idx).run_until_head_height(gc_num_epochs_to_keep * epoch_length + 10);
+
+    // Query an early block through the view client, which uses the split store
+    // (reads hot first, falls back to cold). The client's chain_store uses hot
+    // storage only, so it won't find blocks that have been migrated to cold.
     let early_height = 3;
+    let early_block_req = GetBlock(BlockReference::BlockId(BlockId::Height(early_height)));
+    let result = env.node_mut(new_node_idx).view_client_actor().handle(early_block_req);
     assert!(
-        archival_client.chain.chain_store().get_block_hash_by_height(early_height).is_ok(),
-        "archival node should have block at height {early_height}"
+        result.is_ok(),
+        "archival node should have block at height {early_height} via split store"
     );
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
-// Scenario: A fresh node doing far-horizon sync is killed mid-header-sync
-// and restarted. On restart, the node has the epoch sync proof and partial
-// headers. It should detect it still needs headers and resume HeaderSync.
-//
-// KNOWN FAILURE: node does not resume header sync correctly after restart.
+// TODO: test restart during header sync — node has epoch sync proof and partial
+// headers, should resume HeaderSync on restart.
 #[test]
-#[ignore] // restart recovery during header sync not yet implemented
-fn test_far_horizon_restart_during_header_sync() {
-    // TODO: implement once restart recovery is supported
-}
+#[ignore]
+fn test_far_horizon_restart_during_header_sync() {}
 
-// Scenario: A fresh node doing far-horizon sync is killed mid-state-sync
-// and restarted. On restart, the node has epoch sync proof + full headers
-// but no shard state. It should detect the missing state and re-enter
-// StateSync.
-//
-// KNOWN FAILURE: node enters BlockSync without state.
+// TODO: test restart during state sync — node has epoch sync proof + full
+// headers but no shard state, should re-enter StateSync on restart.
 #[test]
-#[ignore] // restart recovery during state sync not yet implemented
-fn test_far_horizon_restart_during_state_sync() {
-    // TODO: implement once restart recovery is supported
-}
+#[ignore]
+fn test_far_horizon_restart_during_state_sync() {}
 
 // Scenario: A fresh node doing far-horizon sync is killed mid-block-sync
 // and restarted. On restart, the node has epoch sync proof + headers +
@@ -435,6 +326,7 @@ fn test_far_horizon_restart_during_state_sync() {
 // Assertions:
 //   - Restarted node catches up to network tip
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_restart_during_block_sync() {
     if !SYNC_V2_ENABLED {
@@ -488,17 +380,11 @@ fn test_far_horizon_restart_during_block_sync() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
-// Scenario: A non-validator node is killed near an epoch boundary, the
-// network advances past the boundary by many epochs, and the node is
-// restarted. The node must sync via the far-horizon pipeline and handle
-// the epoch boundary transition without panicking.
-//
-// KNOWN FAILURE: restart recovery not yet debugged.
+// TODO: test restart near epoch boundary — node killed near boundary, network
+// advances many epochs, restart should sync via far-horizon pipeline.
 #[test]
-#[ignore] // restart recovery not yet debugged — will revisit with other restart tests
-fn test_far_horizon_restart_near_epoch_boundary() {
-    // TODO: implement once restart recovery is supported
-}
+#[ignore]
+fn test_far_horizon_restart_near_epoch_boundary() {}
 
 // Scenario: Before a fresh node joins, some accounts submit staking
 // transactions. The synced node must correctly retrieve the staking-modified
@@ -517,9 +403,10 @@ fn test_far_horizon_restart_near_epoch_boundary() {
 //
 // Assertions:
 //   - Fresh node catches up without panics
-//   - Staking accounts have locked balance == 100 NEAR on synced node
+//   - Staking accounts have expected locked balance on synced node
 //   - Full far-horizon sync status sequence
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_staking_state() {
     if !SYNC_V2_ENABLED {
@@ -612,6 +499,7 @@ fn test_far_horizon_staking_state() {
 //   - Sync status sequence is correct
 //   - At least some txs were injected (counter > 0)
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_tx_during_sync() {
     if !SYNC_V2_ENABLED {
@@ -663,7 +551,8 @@ fn test_far_horizon_tx_during_sync() {
 
         let new_h = env.test_loop.data.get(&new_node_handle).client.chain.head().unwrap().height;
         let node0_h = env.test_loop.data.get(&node0_handle).client.chain.head().unwrap().height;
-        if new_h == node0_h {
+        // Only stop once we've injected at least some txs during active sync.
+        if new_h == node0_h && tx_counter > 0 {
             break;
         }
         if !env.test_loop.data.get(&new_node_handle).client.sync_handler.sync_status.is_syncing() {

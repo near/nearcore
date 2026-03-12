@@ -43,8 +43,6 @@ pub fn track_sync_status(
 /// For each account, queries the balance on a source node (any node except
 /// the synced one) and compares with the synced node's view. Accounts on
 /// shards not tracked by the synced node are skipped.
-///
-/// Migrated from state_sync.py balance consistency assertions.
 pub fn verify_balances_on_synced_node(
     test_loop_data: &TestLoopData,
     node_datas: &[NodeExecutionData],
@@ -60,6 +58,8 @@ pub fn verify_balances_on_synced_node(
         .map(|(_, nd)| nd)
         .collect();
 
+    let mut verified = 0;
+    let mut skipped = 0;
     for account in accounts {
         // Get reference balance from any source node that tracks the shard.
         let reference_balance = source_nodes
@@ -75,14 +75,21 @@ pub fn verify_balances_on_synced_node(
             .unwrap_or_else(|| panic!("no source node tracks shard for {account}"));
 
         match synced_node.view_account_query(account) {
-            Ok(view) => assert_eq!(
-                view.amount, reference_balance,
-                "balance mismatch for {account} on synced node"
-            ),
-            Err(QueryError::UnavailableShard { .. }) => continue,
+            Ok(view) => {
+                assert_eq!(
+                    view.amount, reference_balance,
+                    "balance mismatch for {account} on synced node"
+                );
+                verified += 1;
+            }
+            Err(QueryError::UnavailableShard { .. }) => {
+                skipped += 1;
+                continue;
+            }
             Err(err) => panic!("unexpected query error for {account} on synced node: {err:?}"),
         }
     }
+    tracing::info!(verified, skipped, total = accounts.len(), "balance verification complete");
 }
 
 /// Expected V2 far-horizon sync status sequence.

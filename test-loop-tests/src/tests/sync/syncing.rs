@@ -6,7 +6,6 @@ use itertools::Itertools;
 use near_async::messaging::CanSend;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_client::sync::SYNC_V2_ENABLED;
 use near_network::client::ProcessTxRequest;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
@@ -81,10 +80,6 @@ fn slow_test_sync_from_genesis() {
 /// shuffling.
 #[test]
 fn slow_test_validator_restart_under_cross_shard_load() {
-    if SYNC_V2_ENABLED {
-        // Replaced by near_horizon::test_near_horizon_validator_restart
-        return;
-    }
     init_test_logger();
 
     let accounts =

@@ -4,6 +4,8 @@
 //! far behind, syncs via the V2 pipeline, and then experiences shard rotation
 //! at an epoch boundary — triggering the catchup path for newly tracked shards.
 //!
+//! TODO: add a near-horizon variant where the node is within epoch_sync_horizon
+//! and catches up via BlockSync, then shard rotation triggers catchup.
 
 use super::util::{
     TEST_EPOCH_SYNC_HORIZON, assert_far_horizon_sync_sequence, run_until_synced, track_sync_status,
@@ -40,6 +42,7 @@ use near_primitives::types::{Balance, ShardId};
 //   - Full far-horizon sync status sequence
 //   - Account balances match source validator
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_sync_then_shard_catchup() {
     if !SYNC_V2_ENABLED {

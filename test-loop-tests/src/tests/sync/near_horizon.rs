@@ -24,12 +24,12 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance};
 
 // Scenario: A fresh node starts with only genesis data while the network is
-// ~1.5 epochs ahead. The node is within epoch_sync_horizon distance,
+// 1 block below the epoch sync horizon. The node is within horizon distance,
 // so it enters BlockSync directly without epoch sync or state sync.
 //
 // Setup:
-//   - 4 validators, epoch_length=10, 4 shards, gc_num_epochs_to_keep=20
-//   - Network runs ~1.5 epochs (within horizon)
+//   - 4 validators, epoch_length=10, 4 shards
+//   - Network runs to height 19 (horizon = 20, just below boundary)
 //   - Add a fresh node with explicit horizon config
 //
 // Assertions:
@@ -37,6 +37,7 @@ use near_primitives::types::{AccountId, Balance};
 //   - Sync status sequence: AwaitingPeers → NoSync → BlockSync → NoSync
 //   - No EpochSync or StateSync in the status history
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_near_horizon_block_sync() {
     if !SYNC_V2_ENABLED {
@@ -45,15 +46,13 @@ fn test_near_horizon_block_sync() {
     init_test_logger();
 
     let epoch_length = 10;
-    let mut env = TestLoopBuilder::new()
-        .validators(4, 0)
-        .num_shards(4)
-        .epoch_length(epoch_length)
-        .gc_num_epochs_to_keep(20)
-        .build();
+    let mut env =
+        TestLoopBuilder::new().validators(4, 0).num_shards(4).epoch_length(epoch_length).build();
 
-    // Run within the horizon (1.5 epochs < TEST_EPOCH_SYNC_HORIZON * epoch_length).
-    env.node_runner(0).run_until_head_height(epoch_length + epoch_length / 2);
+    // Run 1 block below the horizon boundary (horizon = TEST_EPOCH_SYNC_HORIZON
+    // * epoch_length = 20). At height 19, the fresh node sees
+    // tip_height(0) + horizon(20) >= highest_height(19) and skips epoch sync.
+    env.node_runner(0).run_until_head_height(TEST_EPOCH_SYNC_HORIZON * epoch_length - 1);
 
     let new_account = create_account_id("new_node");
     let node_state = env
@@ -78,7 +77,7 @@ fn test_near_horizon_block_sync() {
 // are within the GC window on peers.
 //
 // Setup:
-//   - 4 validators, epoch_length=10, 4 shards, gc_num_epochs_to_keep=3
+//   - 4 validators, epoch_length=10, 4 shards
 //   - Network runs exactly TEST_EPOCH_SYNC_HORIZON epochs
 //   - Add a fresh node at genesis with explicit horizon config
 //
@@ -87,6 +86,7 @@ fn test_near_horizon_block_sync() {
 //   - Block sync succeeds (all needed blocks within GC window)
 //   - Node catches up to network tip
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_near_horizon_epoch_sync_boundary() {
     if !SYNC_V2_ENABLED {
@@ -95,12 +95,8 @@ fn test_near_horizon_epoch_sync_boundary() {
     init_test_logger();
 
     let epoch_length = 10;
-    let mut env = TestLoopBuilder::new()
-        .validators(4, 0)
-        .num_shards(4)
-        .epoch_length(epoch_length)
-        .gc_num_epochs_to_keep(3)
-        .build();
+    let mut env =
+        TestLoopBuilder::new().validators(4, 0).num_shards(4).epoch_length(epoch_length).build();
 
     // Run exactly at the horizon boundary.
     env.node_runner(0).run_until_head_height(TEST_EPOCH_SYNC_HORIZON * epoch_length);
@@ -131,7 +127,7 @@ fn test_near_horizon_epoch_sync_boundary() {
 // (upgrades, crashes) and must recover quickly without full state sync.
 //
 // Setup:
-//   - 4 validators, epoch_length=10, 4 shards, shard shuffling
+//   - 4 validators, 4 shards, shard shuffling
 //   - Run all nodes ~2 epochs with cross-shard money transfers
 //   - Kill validator 0, remaining 3 advance ~15 blocks
 //   - Restart validator 0
@@ -144,6 +140,7 @@ fn test_near_horizon_epoch_sync_boundary() {
 //   - Cross-shard transactions succeed after restart
 //   - Balance consistency across all validators
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_near_horizon_validator_restart() {
     if !SYNC_V2_ENABLED {
@@ -170,7 +167,6 @@ fn test_near_horizon_validator_restart() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
-        .gc_num_epochs_to_keep(10)
         .build();
 
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
@@ -199,6 +195,7 @@ fn test_near_horizon_validator_restart() {
         assert_near_horizon_sync_sequence(&sync_history.borrow());
 
         // Verify the restarted validator is still in the next epoch's producer set.
+        // We also run for another epoch and send txs below to confirm it's not kicked.
         let restarted_handle = env.node_datas[restarted_idx].client_sender.actor_handle();
         let restarted_client = &env.test_loop.data.get(&restarted_handle).client;
         let head = restarted_client.chain.head().unwrap();
@@ -216,7 +213,8 @@ fn test_near_horizon_validator_restart() {
         // Run another epoch to verify the validator is still producing.
         env.runner_for_account(&live_account).run_for_number_of_blocks(10);
 
-        // Send cross-shard transfers from the restarted validator.
+        // Send cross-shard transfers from the restarted validator to verify
+        // it can build and submit valid transactions after catching up.
         for (j, sender) in accounts.iter().enumerate().take(20) {
             let receiver = &accounts[(j + 1) % accounts.len()];
             let tx = env.node(restarted_idx).tx_send_money(sender, receiver, Balance::from_near(1));
@@ -235,13 +233,14 @@ fn test_near_horizon_validator_restart() {
 // It should resume block sync and catch up.
 //
 // Setup:
-//   - 4 validators, epoch_length=10, 4 shards, gc_num_epochs_to_keep=20
-//   - Network runs ~1.5 epochs (within horizon)
+//   - 4 validators, epoch_length=10, 4 shards
+//   - Network runs to height 19 (1 block below horizon boundary)
 //   - Add a fresh node, wait until mid-BlockSync, kill, restart
 //
 // Assertions:
 //   - Restarted node catches up to network tip
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_near_horizon_restart_during_block_sync() {
     if !SYNC_V2_ENABLED {
@@ -249,14 +248,12 @@ fn test_near_horizon_restart_during_block_sync() {
     }
     init_test_logger();
 
-    let mut env = TestLoopBuilder::new()
-        .validators(4, 0)
-        .num_shards(4)
-        .epoch_length(10)
-        .gc_num_epochs_to_keep(20)
-        .build();
+    let epoch_length = 10;
+    let mut env =
+        TestLoopBuilder::new().validators(4, 0).num_shards(4).epoch_length(epoch_length).build();
 
-    env.node_runner(0).run_until_head_height(15);
+    // Run within near-horizon range (1 block below the horizon boundary).
+    env.node_runner(0).run_until_head_height(TEST_EPOCH_SYNC_HORIZON * epoch_length - 1);
 
     let new_account = create_account_id("new_node");
     let node_state = env.node_state_builder().account_id(&new_account).build();
@@ -297,8 +294,9 @@ fn test_near_horizon_restart_during_block_sync() {
 //
 // Assertions:
 //   - Node enters BlockSync (near horizon, not EpochSync)
-//   - Node catches up to network tip despite its tight GC
+//   - Node catches up to network tip despite its tight `gc_num_epochs_to_keep`
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_near_horizon_sync_beyond_gc_window() {
     if !SYNC_V2_ENABLED {
