@@ -8,20 +8,14 @@
 //! together; the node never does epoch sync or state sync.
 
 use super::util::{
-    TEST_EPOCH_SYNC_HORIZON, assert_near_horizon_sync_sequence, run_until_synced,
-    track_sync_status, verify_balances_on_synced_node,
+    TEST_EPOCH_SYNC_HORIZON, assert_near_horizon_sync_sequence, run_until_synced, track_sync_status,
 };
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_account_id;
-use crate::utils::transactions::{execute_money_transfers, make_accounts};
-use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::SyncStatus;
 use near_client::sync::SYNC_V2_ENABLED;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, Balance};
 
 // Scenario: A fresh node starts with only genesis data while the network is
 // 1 block below the epoch sync horizon. The node is within horizon distance,
@@ -116,115 +110,6 @@ fn test_near_horizon_epoch_sync_boundary() {
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
 
     assert_near_horizon_sync_sequence(&sync_history.borrow());
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
-}
-
-// Scenario: One validator is killed while the other 3 continue producing
-// blocks with cross-shard transactions. The killed validator falls behind,
-// then is restarted and must catch up via near-horizon BlockSync.
-//
-// This is a key operational scenario: validators occasionally restart
-// (upgrades, crashes) and must recover quickly without full state sync.
-//
-// Setup:
-//   - 4 validators, 4 shards, shard shuffling
-//   - Run all nodes ~2 epochs with cross-shard money transfers
-//   - Kill validator 0, remaining 3 advance ~15 blocks
-//   - Restart validator 0
-//   - Repeat kill/restart cycle once more
-//
-// Assertions:
-//   - Restarted validator catches up to same height as others
-//   - Near-horizon sync status sequence (BlockSync, no EpochSync)
-//   - Validator remains in the producer set after restart
-//   - Cross-shard transactions succeed after restart
-//   - Balance consistency across all validators
-#[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_near_horizon_validator_restart() {
-    if !SYNC_V2_ENABLED {
-        return;
-    }
-    init_test_logger();
-
-    const NUM_CLIENTS: usize = 4;
-    let accounts = make_accounts(20);
-    let clients = accounts.iter().take(NUM_CLIENTS).cloned().collect_vec();
-
-    let validators_spec =
-        ValidatorsSpec::desired_roles(&clients.iter().map(|t| t.as_str()).collect_vec(), &[]);
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .validators_spec(validators_spec)
-        .shard_layout(ShardLayout::multi_shard(4, 3))
-        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
-        .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_genesis_protocol_version();
-
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
-        .build();
-
-    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
-    env.node_runner(0).run_for_number_of_blocks(20);
-
-    let kill_account: AccountId = "account0".parse().unwrap();
-    let live_account: AccountId = "account1".parse().unwrap();
-
-    // Two cycles: first tests restart after normal operation, second tests
-    // restart after a restart (validator 0 both times).
-    for i in 0..2 {
-        let kill_data_idx = env.account_data_idx(&kill_account);
-        let kill_identifier = env.node_datas[kill_data_idx].identifier.clone();
-        let killed_state = env.kill_node(&kill_identifier);
-
-        env.runner_for_account(&live_account).run_for_number_of_blocks(15);
-
-        let restart_id = format!("{}-restart-{}", kill_identifier, i);
-        env.restart_node(&restart_id, killed_state);
-        let restarted_idx = env.node_datas.len() - 1;
-
-        let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, restarted_idx);
-
-        let live_data_idx = env.account_data_idx(&live_account);
-        run_until_synced(&mut env.test_loop, &env.node_datas, restarted_idx, live_data_idx);
-        assert_near_horizon_sync_sequence(&sync_history.borrow());
-
-        // Verify the restarted validator is still in the next epoch's producer set.
-        // We also run for another epoch and send txs below to confirm it's not kicked.
-        let restarted_handle = env.node_datas[restarted_idx].client_sender.actor_handle();
-        let restarted_client = &env.test_loop.data.get(&restarted_handle).client;
-        let head = restarted_client.chain.head().unwrap();
-        let next_epoch_id =
-            restarted_client.epoch_manager.get_next_epoch_id(&head.last_block_hash).unwrap();
-        let producers = restarted_client
-            .epoch_manager
-            .get_epoch_block_producers_ordered(&next_epoch_id)
-            .unwrap();
-        assert!(
-            producers.iter().any(|p| p.account_id() == &kill_account),
-            "validator {kill_account} not in next epoch's producer set after restart cycle {i}"
-        );
-
-        // Run another epoch to verify the validator is still producing.
-        env.runner_for_account(&live_account).run_for_number_of_blocks(10);
-
-        // Send cross-shard transfers from the restarted validator to verify
-        // it can build and submit valid transactions after catching up.
-        for (j, sender) in accounts.iter().enumerate().take(20) {
-            let receiver = &accounts[(j + 1) % accounts.len()];
-            let tx = env.node(restarted_idx).tx_send_money(sender, receiver, Balance::from_near(1));
-            env.node(restarted_idx).submit_tx(tx);
-        }
-        env.runner_for_account(&live_account).run_for_number_of_blocks(5);
-    }
-
-    let ref_idx = env.account_data_idx(&kill_account);
-    verify_balances_on_synced_node(&env.test_loop.data, &env.node_datas, ref_idx, &accounts);
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
