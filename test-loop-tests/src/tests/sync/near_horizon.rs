@@ -156,8 +156,7 @@ fn test_near_horizon_restart_during_block_sync() {
         Duration::seconds(20),
     );
 
-    let new_node_identifier = env.node_datas.last().unwrap().identifier.clone();
-    let killed_state = env.kill_node(&new_node_identifier);
+    let killed_state = env.kill_node("new_node");
 
     env.restart_node("restart_block_sync", killed_state);
     let restarted_idx = env.node_datas.len() - 1;

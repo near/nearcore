@@ -214,6 +214,8 @@ fn test_far_horizon_stale_node_shutdown() {
     env.restart_node(&restart_id, killed_state);
     env.node_runner(1).run_for_number_of_blocks(5);
 
+    // is_denylisted checks that the node sent an EpochSyncDataReset shutdown
+    // signal, which the test loop captures by denylisting the node's identifier.
     assert!(
         env.test_loop.is_denylisted(&restart_id),
         "stale node should have been denylisted via EpochSyncDataReset shutdown signal"
@@ -372,8 +374,7 @@ fn test_far_horizon_restart_during_block_sync() {
         Duration::seconds(30),
     );
 
-    let new_node_identifier = env.node_datas.last().unwrap().identifier.clone();
-    let killed_state = env.kill_node(&new_node_identifier);
+    let killed_state = env.kill_node("new_node");
 
     env.restart_node("restart_block_sync", killed_state);
     let restarted_idx = env.node_datas.len() - 1;
