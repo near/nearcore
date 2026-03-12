@@ -31,8 +31,10 @@ use near_primitives::transaction::{NonceMode, SignedTransaction, ValidatedTransa
 use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
-    Nonce, NumShards, ShardId, StateRoot, StateRootNode,
+    Nonce, NonceIndex, NumShards, ShardId, StateRoot, StateRootNode,
 };
+
+type TransactionGroupKey = (AccountId, PublicKey, Option<NonceIndex>);
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, ContractCodeView, GasKeyNoncesView, QueryRequest, QueryResponse,
@@ -852,7 +854,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         // without consuming any transaction. These groups will remain
         // unchanged so we skip them on subsequent iterations to avoid an
         // infinite loop in the pool iterator.
-        let mut stalled_groups: HashSet<CryptoHash> = HashSet::new();
+        let mut stalled_groups: HashSet<TransactionGroupKey> = HashSet::new();
         let mut skips_since_last_progress: usize = 0;
 
         // Add new transactions to the result until some limit is hit or the transactions run out.
@@ -887,19 +889,26 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
 
-            let group_key = transaction_group_iter.key();
-            if stalled_groups.contains(&group_key) {
-                skips_since_last_progress += 1;
-                if skips_since_last_progress > stalled_groups.len() {
-                    break;
-                }
-                continue;
-            }
-            skips_since_last_progress = 0;
             let mut consumed_any_tx = false;
 
             // Take a single transaction from this transaction group
             while let Some(tx_peek) = transaction_group_iter.peek_next() {
+                let group_key: TransactionGroupKey = (
+                    tx_peek.signer_id().clone(),
+                    tx_peek.public_key().clone(),
+                    tx_peek.nonce().nonce_index(),
+                );
+
+                // Skip groups that stalled on a previous iteration.
+                if stalled_groups.contains(&group_key) {
+                    skips_since_last_progress += 1;
+                    if skips_since_last_progress > stalled_groups.len() {
+                        break 'add_txs_loop;
+                    }
+                    break;
+                }
+                skips_since_last_progress = 0;
+
                 // Stop adding transactions if the size limit would be exceeded
                 if total_size.saturating_add(tx_peek.get_size()) > size_limit as u64 {
                     prepared_transactions.limited_by = PrepareTransactionsLimit::Size;
@@ -926,7 +935,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     let tx_nonce = tx_peek.nonce().nonce();
                     if tx_nonce > current_nonce.saturating_add(1) {
                         if !consumed_any_tx {
-                            stalled_groups.insert(group_key);
+                            stalled_groups.insert(group_key.clone());
                         }
                         break;
                     }
