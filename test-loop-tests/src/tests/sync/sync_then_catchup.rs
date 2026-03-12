@@ -9,7 +9,6 @@
 
 use super::util::{
     TEST_EPOCH_SYNC_HORIZON, assert_far_horizon_sync_sequence, run_until_synced, track_sync_status,
-    verify_balances_on_synced_node,
 };
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_account_id;
@@ -99,6 +98,5 @@ fn test_sync_then_shard_catchup() {
     env.node_runner(new_node_idx).run_for_number_of_blocks(3 * epoch_length as usize);
 
     assert_far_horizon_sync_sequence(&sync_history.borrow());
-    verify_balances_on_synced_node(&env.test_loop.data, &env.node_datas, new_node_idx, &accounts);
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }

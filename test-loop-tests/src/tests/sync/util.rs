@@ -41,8 +41,11 @@ pub fn track_sync_status(
 /// Verify that a synced node's account balances match the source validators.
 ///
 /// For each account, queries the balance on a source node (any node except
-/// the synced one) and compares with the synced node's view. Accounts on
-/// shards not tracked by the synced node are skipped.
+/// the synced one) and compares with the synced node's view.
+///
+/// The synced node must track all shards (`TrackedShardsConfig::AllShards`).
+/// If any account query returns `UnavailableShard` on the synced node, the
+/// function panics — callers must ensure all shards are tracked.
 pub fn verify_balances_on_synced_node(
     test_loop_data: &TestLoopData,
     node_datas: &[NodeExecutionData],
@@ -58,8 +61,6 @@ pub fn verify_balances_on_synced_node(
         .map(|(_, nd)| nd)
         .collect();
 
-    let mut verified = 0;
-    let mut skipped = 0;
     for account in accounts {
         // Get reference balance from any source node that tracks the shard.
         let reference_balance = source_nodes
@@ -74,22 +75,15 @@ pub fn verify_balances_on_synced_node(
             })
             .unwrap_or_else(|| panic!("no source node tracks shard for {account}"));
 
-        match synced_node.view_account_query(account) {
-            Ok(view) => {
-                assert_eq!(
-                    view.amount, reference_balance,
-                    "balance mismatch for {account} on synced node"
-                );
-                verified += 1;
-            }
-            Err(QueryError::UnavailableShard { .. }) => {
-                skipped += 1;
-                continue;
-            }
-            Err(err) => panic!("unexpected query error for {account} on synced node: {err:?}"),
-        }
+        let synced_view = synced_node
+            .view_account_query(account)
+            .unwrap_or_else(|err| panic!("query failed for {account} on synced node: {err:?}"));
+        assert_eq!(
+            synced_view.amount, reference_balance,
+            "balance mismatch for {account} on synced node"
+        );
     }
-    tracing::info!(verified, skipped, total = accounts.len(), "balance verification complete");
+    tracing::info!(total = accounts.len(), "balance verification complete");
 }
 
 /// Expected V2 far-horizon sync status sequence.

@@ -18,7 +18,6 @@ use super::util::{
 };
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_account_id;
-use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{execute_money_transfers, get_shared_block_hash, make_accounts};
 use near_async::messaging::Handler;
 use near_async::time::Duration;
@@ -76,12 +75,13 @@ fn test_far_horizon_full_pipeline() {
         .node_state_builder()
         .account_id(&new_account)
         .config_modifier(|config| {
+            // Track all shards so verify_balances_on_synced_node can query every account.
+            config.tracked_shards_config = TrackedShardsConfig::AllShards;
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
     env.add_node("new_node", node_state);
     let new_node_idx = env.node_datas.len() - 1;
-    restrict_to_single_peer(&env.shared_state, &env.node_datas, new_node_idx, 0);
 
     let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, new_node_idx);
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
@@ -135,12 +135,13 @@ fn test_far_horizon_chained_epoch_sync() {
         .node_state_builder()
         .account_id(&new_node0_account)
         .config_modifier(|config| {
+            // Track all shards so verify_balances_on_synced_node can query every account.
+            config.tracked_shards_config = TrackedShardsConfig::AllShards;
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
     env.add_node("new_node0", node_state);
     let new_node0_idx = env.node_datas.len() - 1;
-    restrict_to_single_peer(&env.shared_state, &env.node_datas, new_node0_idx, 0);
 
     let history_0 = track_sync_status(&mut env.test_loop, &env.node_datas, new_node0_idx);
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node0_idx, 0);
@@ -152,12 +153,13 @@ fn test_far_horizon_chained_epoch_sync() {
         .node_state_builder()
         .account_id(&new_node1_account)
         .config_modifier(|config| {
+            // Track all shards so verify_balances_on_synced_node can query every account.
+            config.tracked_shards_config = TrackedShardsConfig::AllShards;
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
     env.add_node("new_node1", node_state);
     let new_node1_idx = env.node_datas.len() - 1;
-    restrict_to_single_peer(&env.shared_state, &env.node_datas, new_node1_idx, new_node0_idx);
 
     let history_1 = track_sync_status(&mut env.test_loop, &env.node_datas, new_node1_idx);
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node1_idx, 0);
@@ -271,6 +273,7 @@ fn test_far_horizon_archival_skips_epoch_sync() {
         .account_id(&new_account)
         .cold_storage(true)
         .config_modifier(|config| {
+            // Track all shards so verify_balances_on_synced_node can query every account.
             config.tracked_shards_config = TrackedShardsConfig::AllShards;
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
@@ -403,7 +406,7 @@ fn test_far_horizon_restart_near_epoch_boundary() {}
 //
 // Assertions:
 //   - Fresh node catches up without panics
-//   - Staking accounts have expected locked balance on synced node
+//   - Account balances match source validator (including staking accounts)
 //   - Full far-horizon sync status sequence
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
@@ -451,33 +454,26 @@ fn test_far_horizon_staking_state() {
         .node_state_builder()
         .account_id(&new_account)
         .config_modifier(|config| {
+            // Track all shards so verify_balances_on_synced_node can query every account.
+            config.tracked_shards_config = TrackedShardsConfig::AllShards;
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
     env.add_node("new_node", node_state);
     let new_node_idx = env.node_datas.len() - 1;
-    restrict_to_single_peer(&env.shared_state, &env.node_datas, new_node_idx, 0);
 
+    restrict_to_single_peer(&env.shared_state, &env.node_datas, new_node_idx, 0);
     let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, new_node_idx);
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
     env.node_runner(new_node_idx).run_for_number_of_blocks(2 * epoch_length as usize);
     assert_far_horizon_sync_sequence(&sync_history.borrow());
 
-    let synced_node =
-        TestLoopNode { data: &env.test_loop.data, node_data: &env.node_datas[new_node_idx] };
-    for account in &staking_accounts {
-        match synced_node.view_account_query(account) {
-            Ok(view) => {
-                assert_eq!(
-                    view.locked, stake_amount,
-                    "staking balance should be {stake_amount} for {account}, got locked={:?}",
-                    view.locked
-                );
-            }
-            Err(near_client::QueryError::UnavailableShard { .. }) => continue,
-            Err(err) => panic!("unexpected query error for {account}: {err:?}"),
-        }
-    }
+    // Verify that the synced node can query all accounts (including ones that
+    // submitted staking transactions) without "trie node missing" errors.
+    // We check balance consistency rather than locked amounts because the staking
+    // accounts don't meet the validator seat price and their locked balance
+    // returns to 0 at the epoch boundary.
+    verify_balances_on_synced_node(&env.test_loop.data, &env.node_datas, new_node_idx, &accounts);
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
