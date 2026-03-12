@@ -11,9 +11,7 @@ use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::types::query::{QueryResponseKind, RpcQueryRequest};
 use near_primitives::action::{Action, TransferAction};
 use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::{
-    SignedTransaction, Transaction, TransactionNonce, TransactionV1,
-};
+use near_primitives::transaction::{SignedTransaction, Transaction, TransactionV0};
 use near_primitives::types::{AccountId, Balance, BlockReference, Finality, Nonce};
 use near_primitives::views::{AccessKeyView, QueryRequest, TxExecutionStatus};
 use serde::{Deserialize, Serialize};
@@ -162,10 +160,10 @@ fn build_send_money(
     deposit: Balance,
     block_hash: CryptoHash,
 ) -> SignedTransaction {
-    let tx = Transaction::V1(TransactionV1 {
+    let tx = Transaction::V0(TransactionV0 {
         signer_id,
         public_key: signer.public_key(),
-        nonce: TransactionNonce::from_nonce(nonce),
+        nonce,
         receiver_id,
         block_hash,
         actions: vec![Action::Transfer(TransferAction { deposit })],
