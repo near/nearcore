@@ -1,4 +1,5 @@
 use crate::Error;
+use crate::runtime::signer_cache::SignerCache;
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext,
     PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
@@ -30,7 +31,7 @@ use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
 use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
-    Nonce, NonceIndex, NumShards, ShardId, StateRoot, StateRootNode,
+    Nonce, NumShards, ShardId, StateRoot, StateRootNode,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
@@ -44,8 +45,7 @@ use near_store::flat::FlatStorageManager;
 use near_store::trie::{FindSplitError, find_trie_split, total_mem_usage};
 use near_store::{
     ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
-    TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account, get_gas_key_nonce,
-    set_access_key, set_account, set_gas_key_nonce,
+    TrieConfig, TrieUpdate, WrappedTrieChanges, get_gas_key_nonce,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::{ContractRuntimeCache, precompile_contract};
@@ -66,6 +66,7 @@ use trie_update_wrapper::TrieUpdateWitnessSizeWrapper;
 
 pub mod errors;
 mod metrics;
+mod signer_cache;
 pub mod test_utils;
 #[cfg(test)]
 mod tests;
@@ -826,7 +827,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         // invalid transactions to be included.
         let next_block_height = prev_block.height + 1;
 
-        let mut state_update = TrieUpdateWitnessSizeWrapper::new(storage);
+        // Interim updates for accounts and nonces are written to signer_cache, not back
+        // to the state_update.
+        let state_update = TrieUpdateWitnessSizeWrapper::new(storage);
+        let mut signer_cache = SignerCache::new();
 
         // Total amount of gas burnt for converting transactions towards receipts.
         let mut total_gas_burnt = Gas::ZERO;
@@ -876,17 +880,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
 
-            // Cache for signer account and access key, reused within the same transaction group.
-            // For gas key transactions, also caches the current nonce and its index.
-            struct SignerCache {
-                account_id: AccountId,
-                account: Account,
-                access_key: AccessKey,
-                public_key: PublicKey,
-                gas_key_nonce: Option<(NonceIndex, Nonce)>,
-            }
-            let mut signer_cache: Option<SignerCache> = None;
-
             // Take a single transaction from this transaction group
             while let Some(tx_peek) = transaction_group_iter.peek_next() {
                 // Stop adding transactions if the size limit would be exceeded
@@ -928,43 +921,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                     continue;
                 }
 
-                let signer_id = validated_tx.signer_id();
+                let signer_key =
+                    (validated_tx.signer_id().clone(), validated_tx.public_key().clone());
                 let nonce_index = validated_tx.nonce().nonce_index();
-                let cache = match &mut signer_cache {
-                    Some(cache) => {
-                        // Check that the cached signer matches the current transaction
-                        debug_assert_eq!(signer_id, &cache.account_id);
-                        debug_assert_eq!(nonce_index, cache.gas_key_nonce.map(|(idx, _)| idx));
-                        cache
-                    }
-                    None => {
-                        let account = get_account(&state_update, signer_id);
-                        let account = account.transpose().and_then(|v| v.ok());
-                        let access_key =
-                            get_access_key(&state_update, signer_id, validated_tx.public_key());
-                        let access_key = access_key.transpose().and_then(|v| v.ok());
-                        // For gas key transactions, also load the gas key nonce
-                        let gas_key_nonce = if let Some(idx) = nonce_index {
-                            let nonce = get_gas_key_nonce(
-                                &state_update,
-                                signer_id,
-                                validated_tx.public_key(),
-                                idx,
-                            );
-                            let nonce = nonce.transpose().and_then(|v| v.ok());
-                            Some((idx, nonce.ok_or(Error::InvalidTransactions)?))
-                        } else {
-                            None
-                        };
-                        signer_cache.insert(SignerCache {
-                            account_id: signer_id.clone(),
-                            account: account.ok_or(Error::InvalidTransactions)?,
-                            access_key: access_key.ok_or(Error::InvalidTransactions)?,
-                            public_key: validated_tx.public_key().clone(),
-                            gas_key_nonce,
-                        })
-                    }
-                };
+                let cache =
+                    signer_cache.get_or_load_entry_mut(&state_update, &signer_key, nonce_index)?;
 
                 let cost = match tx_cost(
                     runtime_config,
@@ -978,7 +939,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                         continue;
                     }
                 };
-                let verdict = if let Some((_, current_nonce)) = cache.gas_key_nonce {
+                let verdict = if let Some(nonce_index) = nonce_index {
+                    let current_nonce = *cache
+                        .gas_key_nonces
+                        .get(&nonce_index)
+                        .expect("loaded by get_or_load_entry_mut");
                     verify_and_charge_gas_key_tx_ephemeral(
                         runtime_config,
                         &cache.account,
@@ -1001,9 +966,10 @@ impl RuntimeAdapter for NightshadeRuntime {
                 };
                 match verdict {
                     TxVerdict::Success(result) => {
+                        // Update account, access key, and gas key nonce (if relevant) in the cache.
                         result.apply(&mut cache.account, &mut cache.access_key);
-                        if let Some(update) = result.gas_key_nonce_update() {
-                            cache.gas_key_nonce = Some(update);
+                        if let Some((idx, nonce)) = result.gas_key_nonce_update() {
+                            cache.gas_key_nonces.insert(idx, nonce);
                         }
                         tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "including transaction that passed validation and verification");
                         total_gas_burnt = total_gas_burnt.checked_add(result.gas_burnt).unwrap();
@@ -1017,29 +983,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                         rejected_invalid_tx += 1;
                     }
                 }
-            }
-
-            if let Some(cache) = signer_cache {
-                set_account(
-                    &mut state_update.trie_update,
-                    cache.account_id.clone(),
-                    &cache.account,
-                );
-                if let Some((nonce_index, nonce)) = cache.gas_key_nonce {
-                    set_gas_key_nonce(
-                        &mut state_update.trie_update,
-                        cache.account_id.clone(),
-                        cache.public_key.clone(),
-                        nonce_index,
-                        nonce,
-                    )
-                };
-                set_access_key(
-                    &mut state_update.trie_update,
-                    cache.account_id,
-                    cache.public_key,
-                    &cache.access_key,
-                );
             }
         }
 
@@ -1057,9 +1000,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             "recorded_storage_size",
             tracing::field::display(state_update.recorded_storage_size()),
         );
-
-        // NOTE: this state update must not be committed or finalized!
-        drop(state_update);
         tracing::debug!(target: "runtime", limited_by = ?prepared_transactions.limited_by, valid_count = %prepared_transactions.transactions.len(), %num_checked_transactions, "transaction filtering results");
         let shard_label = shard_id.to_string();
         metrics::PREPARE_TX_SIZE.with_label_values(&[&shard_label]).observe(total_size as f64);
