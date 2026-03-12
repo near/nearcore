@@ -377,9 +377,8 @@ def configure_rpc_probe(args):
         src_file = f"{NEAR_HOME}/user-data/probe_accounts_rpc_{i}.json"
         run_cmd_args = copy.deepcopy(args)
         run_cmd_args.host_filter = rpc_name
-        run_cmd_args.cmd = (
-            f"mkdir -p {BENCHNET_DIR}/user-data"
-            f" && cp {src_file} {probe_accounts_path}")
+        run_cmd_args.cmd = (f"mkdir -p {BENCHNET_DIR}/user-data"
+                            f" && cp {src_file} {probe_accounts_path}")
         run_remote_cmd(CommandContext(run_cmd_args))
 
     # Write rpc_probe config into config.json on RPC nodes only.
