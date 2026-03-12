@@ -244,7 +244,7 @@ impl TransactionPool {
                 };
                 let group = entry.get_mut();
                 if let Some(pos) = group.iter().position(|tx| tx.get_hash() == tx_hash) {
-                    let tx = group.swap_remove(pos);
+                    let tx = group.remove(pos);
                     self.total_transaction_size = self
                         .total_transaction_size
                         .checked_sub(tx.get_size())
