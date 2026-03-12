@@ -895,6 +895,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
                 continue;
             }
+            skips_since_last_progress = 0;
             let mut consumed_any_tx = false;
 
             // Take a single transaction from this transaction group
@@ -1021,7 +1022,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                         total_gas_burnt = total_gas_burnt.checked_add(result.gas_burnt).unwrap();
                         total_size += validated_tx.get_size();
                         prepared_transactions.transactions.push(validated_tx);
-                        skips_since_last_progress = 0;
                         // Take one transaction from this group, no more.
                         break;
                     }
