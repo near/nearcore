@@ -595,7 +595,7 @@ fn build_target_tx(mapping: &TxMapping, nonce: Nonce) -> Transaction {
             nonce_mode,
         }),
     };
-    *target_tx.actions_mut() = mapping.actions.clone();
+    target_tx.actions_mut().clone_from(&mapping.actions);
     target_tx
 }
 
