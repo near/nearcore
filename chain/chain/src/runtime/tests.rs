@@ -1931,6 +1931,76 @@ fn test_strict_nonce_u64_max_not_included() {
     assert_eq!(pool.len(), 0);
 }
 
+/// Non-stalled groups interleaved with stalled groups must all be fully
+/// drained. Without resetting `skips_since_last_progress` on progress,
+/// the loop would break early after seeing enough stalled skips.
+#[test]
+fn test_strict_nonce_stalled_groups_do_not_starve_valid_groups() {
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let prev_hash = env.head.prev_block_hash;
+
+    const TEST_SEED: RngSeed = [3; 32];
+    let mut pool = TransactionPool::new(TEST_SEED, None, "");
+
+    // Use pool key ordering to pick which account is the valid (non-stalled)
+    // group. We want the valid group to sort last so that stalled groups are
+    // visited first.
+    let accounts: Vec<AccountId> = (1..=4).map(|i| format!("test{i}").parse().unwrap()).collect();
+    let mut keyed: Vec<_> = accounts
+        .iter()
+        .map(|id| {
+            let signer = InMemorySigner::test_signer(id);
+            let key = pool.compute_key_for_test(id, &signer.public_key(), Some(0));
+            (key, id.clone())
+        })
+        .collect();
+    keyed.sort();
+    let valid_account = &keyed.last().unwrap().1;
+
+    // Stalled groups: gapped strict-nonce txs (nonce=100, ak_nonce=0 -> gap).
+    for (_, account_id) in &keyed[..keyed.len() - 1] {
+        let signer = InMemorySigner::test_signer(account_id);
+        let tx = SignedTransaction::from_actions_v1_strict(
+            TransactionNonce::from_nonce(100),
+            account_id.clone(),
+            "test1".parse().unwrap(),
+            &signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })],
+            prev_hash,
+        );
+        pool.insert_transaction(ValidatedTransaction::new_for_test(tx));
+    }
+
+    // Valid group: two strict-nonce txs (nonce=1 and nonce=2).
+    // The second tx can only be included if the loop revisits this group
+    // after skipping the stalled ones.
+    let valid_signer = InMemorySigner::test_signer(valid_account);
+    for nonce in 1..=2 {
+        let tx = SignedTransaction::from_actions_v1_strict(
+            TransactionNonce::from_nonce(nonce),
+            valid_account.clone(),
+            "test1".parse().unwrap(),
+            &valid_signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })],
+            prev_hash,
+        );
+        pool.insert_transaction(ValidatedTransaction::new_for_test(tx));
+    }
+
+    let (prepared, skipped) = prepare_transactions_extra(
+        &env,
+        &chain,
+        &mut PoolIteratorWrapper::new(&mut pool),
+        HashSet::new(),
+        None,
+    )
+    .unwrap();
+
+    assert_eq!(prepared.transactions.len(), 2, "both valid txs should be included");
+    assert!(skipped.0.is_empty());
+    assert_eq!(pool.len(), 3, "gapped txs stay in pool");
+}
+
 /// Gapped strict-nonce transactions should not inflate the recorded witness
 /// size. Sets the storage proof soft limit to 1 byte so that any recorded
 /// trie read would exceed it, then verifies that the gap-check reads do NOT

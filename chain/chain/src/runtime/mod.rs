@@ -892,7 +892,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             let group_key = transaction_group_iter.key();
             if stalled_groups.contains(&group_key) {
                 skips_since_last_progress += 1;
-                if skips_since_last_progress >= stalled_groups.len() {
+                if skips_since_last_progress > stalled_groups.len() {
                     break;
                 }
                 continue;
