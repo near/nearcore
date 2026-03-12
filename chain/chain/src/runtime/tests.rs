@@ -1943,8 +1943,7 @@ fn test_strict_nonce_u64_max_not_included() {
     // Set the access key nonce to u64::MAX in the trie so that no strict-nonce
     // tx can satisfy ak_nonce + 1 without overflow.
     let signer = InMemorySigner::test_signer(&"test1".parse::<AccountId>().unwrap());
-    let mut trie = env.runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[0]);
-    trie = trie.recording_reads_new_recorder();
+    let trie = env.runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[0]);
     let mut state_update = TrieUpdate::new(trie);
     near_store::set_access_key(
         &mut state_update,
@@ -1995,6 +1994,8 @@ fn test_strict_nonce_u64_max_not_included() {
         .unwrap();
 
     assert!(prepared.transactions.is_empty(), "strict-nonce tx at u64::MAX should not be included");
+    // The tx was popped from the pool and discarded by the verifier (InvalidNonce).
+    assert_eq!(pool.len(), 0);
 }
 
 #[test]
