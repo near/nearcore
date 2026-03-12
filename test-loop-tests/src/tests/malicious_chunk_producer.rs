@@ -3,6 +3,7 @@
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
+use crate::utils::account::create_validator_id;
 use crate::utils::node::TestLoopNode;
 use near_async::messaging::CanSend as _;
 use near_async::time::Duration;
@@ -213,39 +214,40 @@ fn test_producer_sending_large_encoded_length_chunks() {
     env.test_loop.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
-/// Tests chain behavior when a Byzantine chunk producer withholds chunk parts
+/// Tests chain behavior when a malicious chunk producer withholds chunk parts
 /// from nodes other than the block producer.
 #[test]
 fn test_chunk_parts_withholding_attack() {
     init_test_logger();
 
     // 7 validators ensures num_data_parts=2 (formula: (total_parts-1)/3).
-    // The byzantine node sends only 1 part to the block producer, which must be
+    // The malicious node sends only 1 part to the block producer, which must be
     // insufficient to reconstruct (need 2). With fewer validators (e.g. 4),
     // num_data_parts=1, so a single part suffices and the attack is ineffective.
     let mut env = TestLoopBuilder::new().validators(7, 0).num_shards(7).build();
 
-    let (byzantine_node, honest_node) = (0, 1);
+    let (malicious_node_idx, honest_node_idx) = (0, 1);
 
-    // The Byzantine chunk producer only sends chunk parts to the block producer
+    // The malicious chunk producer only sends chunk parts to the block producer
     // for that height, withholding from all other validators. Also drops
     // responses to part requests so other nodes can't fetch the withheld parts.
-    env.node_datas[byzantine_node]
+    env.node_datas[malicious_node_idx]
         .shards_manager_sender
         .send(AdvDistributeChunksMode::WithholdFromNonBlockProducer);
 
-    let head_before = env.node(honest_node).head().height;
-    env.node_runner(honest_node).run_for_number_of_blocks_with_timeout(15, Duration::seconds(60));
-    let head_after = env.node(honest_node).head().height;
+    let head_before = env.node(honest_node_idx).head().height;
+    env.node_runner(honest_node_idx)
+        .run_for_number_of_blocks_with_timeout(15, Duration::seconds(60));
+    let head_after = env.node(honest_node_idx).head().height;
 
-    let chain_store = env.node(honest_node).client().chain.chain_store();
-    let epoch_manager = &env.node(honest_node).client().epoch_manager;
-    let head_epoch_id = env.node(honest_node).head().epoch_id;
+    let chain_store = env.node(honest_node_idx).client().chain.chain_store();
+    let epoch_manager = &env.node(honest_node_idx).client().epoch_manager;
+    let head_epoch_id = env.node(honest_node_idx).head().epoch_id;
     let shard_layout = epoch_manager.get_shard_layout(&head_epoch_id).unwrap();
-    let byzantine_account: AccountId = format!("validator{byzantine_node}").parse().unwrap();
+    let malicious_account = create_validator_id(malicious_node_idx);
 
-    // Find the shard produced by the byzantine node.
-    let byzantine_shard = epoch_manager
+    // Find the shard produced by the malicious node.
+    let malicious_shard = epoch_manager
         .shard_ids(&head_epoch_id)
         .unwrap()
         .into_iter()
@@ -255,7 +257,7 @@ fn test_chunk_parts_withholding_attack() {
                 height_created: head_before + 1,
                 shard_id,
             };
-            *epoch_manager.get_chunk_producer_info(&key).unwrap().account_id() == byzantine_account
+            *epoch_manager.get_chunk_producer_info(&key).unwrap().account_id() == malicious_account
         })
         .unwrap();
 
@@ -269,21 +271,21 @@ fn test_chunk_parts_withholding_attack() {
             continue;
         };
         let block = chain_store.get_block(&block_hash).unwrap();
-        let has_byzantine_shard = block.chunks().iter().enumerate().any(|(idx, ch)| {
-            shard_layout.get_shard_id(idx).unwrap() == byzantine_shard && ch.is_new_chunk()
+        let has_malicious_shard = block.chunks().iter().enumerate().any(|(idx, ch)| {
+            shard_layout.get_shard_id(idx).unwrap() == malicious_shard && ch.is_new_chunk()
         });
         // The withheld shard should never be included in blocks visible to the
         // honest node, since no one can reconstruct it.
         assert!(
-            !has_byzantine_shard,
-            "height {height}: byzantine shard {byzantine_shard} not expected to be included"
+            !has_malicious_shard,
+            "height {height}: malicious shard {malicious_shard} not expected to be included"
         );
-        // Blocks produced by the byzantine node should not be visible to the
+        // Blocks produced by the malicious node should not be visible to the
         // honest node (other validators can't verify the withheld chunk and
         // won't send approvals).
         assert_ne!(
-            block_producer, byzantine_account,
-            "height {height}: block produced by byzantine node should not be accepted"
+            block_producer, malicious_account,
+            "height {height}: block produced by malicious node should not be accepted"
         );
     }
     assert!(skipped_count > 0, "expected at least one skipped block due to withholding attack");
