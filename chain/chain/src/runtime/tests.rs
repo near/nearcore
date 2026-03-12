@@ -1939,8 +1939,7 @@ fn test_strict_nonce_u64_max_not_included() {
 fn test_strict_nonce_gap_does_not_count_towards_state_size_soft_limit() {
     let mut runtime_config = RuntimeConfig::test();
     runtime_config.witness_config.new_transactions_validation_state_size_soft_limit = 1;
-    let validators: Vec<AccountId> =
-        (1..=4).map(|i| format!("test{i}").parse().unwrap()).collect();
+    let validators: Vec<AccountId> = (1..=4).map(|i| format!("test{i}").parse().unwrap()).collect();
     let env = TestEnv::new_with_config(
         vec![validators],
         TestEnvConfig {
