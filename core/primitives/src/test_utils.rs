@@ -13,8 +13,8 @@ use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
-    TransactionNonce, TransactionV0, TransactionV1, TransferAction,
+    DeployContractAction, FunctionCallAction, NonceMode, SignedTransaction, StakeAction,
+    Transaction, TransactionNonce, TransactionV0, TransactionV1, TransferAction,
 };
 #[cfg(feature = "clock")]
 use crate::types::chunk_extra::ChunkExtra;
@@ -76,6 +76,7 @@ impl Transaction {
             receiver_id,
             block_hash,
             actions: vec![],
+            nonce_mode: NonceMode::Monotonic,
         })
     }
 
@@ -190,6 +191,27 @@ impl SignedTransaction {
             receiver_id,
             block_hash,
             actions,
+            nonce_mode: NonceMode::Monotonic,
+        })
+        .sign(signer)
+    }
+
+    pub fn from_actions_v1_strict(
+        nonce: TransactionNonce,
+        signer_id: AccountId,
+        receiver_id: AccountId,
+        signer: &Signer,
+        actions: Vec<Action>,
+        block_hash: CryptoHash,
+    ) -> Self {
+        Transaction::V1(TransactionV1 {
+            nonce,
+            signer_id,
+            public_key: signer.public_key(),
+            receiver_id,
+            block_hash,
+            actions,
+            nonce_mode: NonceMode::Strict,
         })
         .sign(signer)
     }

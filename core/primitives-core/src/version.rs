@@ -372,6 +372,11 @@ pub enum ProtocolFeature {
     /// instant receipts, executing them immediately after the receipt that
     /// produced them rather than sending them as outgoing receipts.
     InstantDeleteAccount,
+    /// Opt-in strict nonce mode for transactions. When enabled, TransactionV1
+    /// can carry `NonceMode::Strict` which requires `tx_nonce == ak_nonce + 1`
+    /// (sequential ordering). Transactions with a nonce gap are held in the
+    /// pool rather than discarded.
+    StrictNonce,
 }
 
 impl ProtocolFeature {
@@ -489,6 +494,7 @@ impl ProtocolFeature {
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::GasKeys => 149,
             ProtocolFeature::DynamicResharding => 150,
+            ProtocolFeature::StrictNonce => 151,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
@@ -514,7 +520,7 @@ pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 80;
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 84;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 150;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 151;
 
 // TODO(spice): Once spice is mature and close to release make it part of nightly - at the point in
 // time cargo feature for spice should be removed as well.

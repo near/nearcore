@@ -27,7 +27,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_part::{PartId, StatePart};
-use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
+use near_primitives::transaction::{NonceMode, SignedTransaction, ValidatedTransaction};
 use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
@@ -886,6 +886,24 @@ impl RuntimeAdapter for NightshadeRuntime {
                 if total_size.saturating_add(tx_peek.get_size()) > size_limit as u64 {
                     prepared_transactions.limited_by = PrepareTransactionsLimit::Size;
                     break 'add_txs_loop;
+                }
+
+                // Strict nonce gap check: if the tx requires sequential
+                // nonces and there is a gap, leave it in the pool for a
+                // future block rather than popping and discarding it.
+                if tx_peek.nonce_mode() == NonceMode::Strict {
+                    let current_nonce = signer_cache.peek_nonce(
+                        &state_update,
+                        tx_peek.signer_id(),
+                        tx_peek.public_key(),
+                        tx_peek.nonce().nonce_index(),
+                    )?;
+                    let tx_nonce = tx_peek.nonce().nonce();
+                    if tx_nonce > current_nonce.saturating_add(1) {
+                        // Gap detected - tx stays in group, returns to pool
+                        // when the iterator drops.
+                        break;
+                    }
                 }
 
                 // Take the transaction out of the pool. Please take note that

@@ -15,7 +15,7 @@ use near_primitives::action::{TransferToGasKeyAction, WithdrawFromGasKeyAction};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::{
-    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
+    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction, NonceMode,
     SignedTransaction, StakeAction, Transaction, TransactionNonce, TransactionV1,
 };
 use near_primitives::types::{
@@ -582,6 +582,7 @@ impl TxAwaitingNonce {
                 receiver_id: mapping.target_receiver_id,
                 block_hash: mapping.ref_hash,
                 actions: vec![],
+                nonce_mode: NonceMode::Monotonic,
             }),
         };
         *target_tx.actions_mut() = mapping.actions;
@@ -628,6 +629,7 @@ impl MappedTx {
                 receiver_id: mapping.target_receiver_id,
                 block_hash: mapping.ref_hash,
                 actions: vec![],
+                nonce_mode: NonceMode::Monotonic,
             }),
         };
         *target_tx.actions_mut() = mapping.actions;
