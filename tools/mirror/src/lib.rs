@@ -565,28 +565,43 @@ struct TxAwaitingNonce {
     target_nonce: TargetNonce,
 }
 
+fn build_target_tx(mapping: &TxMapping, nonce: Nonce) -> Transaction {
+    let target_public_key = mapping.target_secret_key.public_key();
+    let nonce_mode = mapping.nonce_mode;
+    let mut target_tx = match (&mapping.nonce_kind, nonce_mode) {
+        (NonceKind::AccessKey, NonceMode::Monotonic) => Transaction::new_v0(
+            mapping.target_signer_id.clone(),
+            target_public_key,
+            mapping.target_receiver_id.clone(),
+            nonce,
+            mapping.ref_hash,
+        ),
+        (NonceKind::AccessKey, NonceMode::Strict) => Transaction::V1(TransactionV1 {
+            signer_id: mapping.target_signer_id.clone(),
+            public_key: target_public_key,
+            nonce: TransactionNonce::from_nonce(nonce),
+            receiver_id: mapping.target_receiver_id.clone(),
+            block_hash: mapping.ref_hash,
+            actions: vec![],
+            nonce_mode,
+        }),
+        (NonceKind::GasKey(nonce_index), _) => Transaction::V1(TransactionV1 {
+            signer_id: mapping.target_signer_id.clone(),
+            public_key: target_public_key,
+            nonce: TransactionNonce::GasKeyNonce { nonce, nonce_index: *nonce_index },
+            receiver_id: mapping.target_receiver_id.clone(),
+            block_hash: mapping.ref_hash,
+            actions: vec![],
+            nonce_mode,
+        }),
+    };
+    *target_tx.actions_mut() = mapping.actions.clone();
+    target_tx
+}
+
 impl TxAwaitingNonce {
     fn new(mapping: TxMapping, target_nonce: TargetNonce) -> Self {
-        let target_public_key = mapping.target_secret_key.public_key();
-        let mut target_tx = match &mapping.nonce_kind {
-            NonceKind::AccessKey => Transaction::new_v0(
-                mapping.target_signer_id,
-                target_public_key,
-                mapping.target_receiver_id,
-                0,
-                mapping.ref_hash,
-            ),
-            NonceKind::GasKey(nonce_index) => Transaction::V1(TransactionV1 {
-                signer_id: mapping.target_signer_id,
-                public_key: target_public_key,
-                nonce: TransactionNonce::GasKeyNonce { nonce: 0, nonce_index: *nonce_index },
-                receiver_id: mapping.target_receiver_id,
-                block_hash: mapping.ref_hash,
-                actions: vec![],
-                nonce_mode: mapping.nonce_mode,
-            }),
-        };
-        *target_tx.actions_mut() = mapping.actions;
+        let target_tx = build_target_tx(&mapping, 0);
         Self {
             source_signer_id: mapping.source_signer_id,
             source_receiver_id: mapping.source_receiver_id,
@@ -614,26 +629,7 @@ struct MappedTx {
 
 impl MappedTx {
     fn new(mapping: TxMapping, nonce: Nonce) -> Self {
-        let target_public_key = mapping.target_secret_key.public_key();
-        let mut target_tx = match &mapping.nonce_kind {
-            NonceKind::AccessKey => Transaction::new_v0(
-                mapping.target_signer_id,
-                target_public_key,
-                mapping.target_receiver_id,
-                nonce,
-                mapping.ref_hash,
-            ),
-            NonceKind::GasKey(nonce_index) => Transaction::V1(TransactionV1 {
-                signer_id: mapping.target_signer_id,
-                public_key: target_public_key,
-                nonce: TransactionNonce::GasKeyNonce { nonce, nonce_index: *nonce_index },
-                receiver_id: mapping.target_receiver_id,
-                block_hash: mapping.ref_hash,
-                actions: vec![],
-                nonce_mode: mapping.nonce_mode,
-            }),
-        };
-        *target_tx.actions_mut() = mapping.actions;
+        let target_tx = build_target_tx(&mapping, nonce);
         let target_tx = SignedTransaction::new(
             mapping.target_secret_key.sign(&target_tx.get_hash_and_size().0.as_ref()),
             target_tx,
