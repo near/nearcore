@@ -255,7 +255,7 @@ fn test_chunk_parts_withholding_attack() {
 
     let chain_store = env.node(honest_node).client().chain.chain_store();
     let epoch_manager = &env.node(honest_node).client().epoch_manager;
-    let head_epoch_id = env.node(honest_node).head().epoch_id.clone();
+    let head_epoch_id = env.node(honest_node).head().epoch_id;
     let shard_layout = epoch_manager.get_shard_layout(&head_epoch_id).unwrap();
     let byzantine_account: AccountId = format!("validator{byzantine_node}").parse().unwrap();
 
@@ -266,7 +266,7 @@ fn test_chunk_parts_withholding_attack() {
         .into_iter()
         .find(|&shard_id| {
             let key = ChunkProductionKey {
-                epoch_id: head_epoch_id.clone(),
+                epoch_id: head_epoch_id,
                 height_created: head_before + 1,
                 shard_id,
             };
