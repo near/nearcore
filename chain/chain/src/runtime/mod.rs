@@ -924,20 +924,23 @@ impl RuntimeAdapter for NightshadeRuntime {
                 if tx_peek.nonce_mode() == NonceMode::Strict {
                     let throwaway_trie =
                         state_update.trie_update.trie.recording_reads_new_recorder();
-                    let current_nonce = signer_cache
-                        .peek_nonce(
-                            &throwaway_trie,
-                            tx_peek.signer_id(),
-                            tx_peek.public_key(),
-                            tx_peek.nonce().nonce_index(),
-                        )
-                        .unwrap_or(0);
-                    let tx_nonce = tx_peek.nonce().nonce();
-                    if tx_nonce > current_nonce.saturating_add(1) {
-                        if !consumed_any_tx {
-                            stalled_groups.insert(group_key.clone());
+                    let current_nonce = signer_cache.peek_nonce(
+                        &throwaway_trie,
+                        tx_peek.signer_id(),
+                        tx_peek.public_key(),
+                        tx_peek.nonce().nonce_index(),
+                    );
+                    // When the key exists, check for a nonce gap. When the
+                    // key is missing, let the tx through so full validation
+                    // can reject it (avoiding permanent pool retention).
+                    if let Ok(current_nonce) = current_nonce {
+                        let tx_nonce = tx_peek.nonce().nonce();
+                        if tx_nonce > current_nonce.saturating_add(1) {
+                            if !consumed_any_tx {
+                                stalled_groups.insert(group_key.clone());
+                            }
+                            break;
                         }
-                        break;
                     }
                 }
 
