@@ -29,7 +29,7 @@ pub struct Config {
     pub rpc_url: String,
     /// Delay in seconds before starting probes.
     pub startup_delay_s: u64,
-    /// Enable write probes (native transfer transactions).
+    /// Enable write probes.
     pub write_probes_enabled: bool,
 }
 
@@ -151,7 +151,7 @@ async fn init_nonces(
 
 const TRANSFER_AMOUNT: Balance = Balance::from_yoctonear(1);
 
-/// Build and sign a SendMoney transaction.
+/// Build and sign a native token transfer transaction.
 fn build_send_money(
     nonce: Nonce,
     signer_id: AccountId,
@@ -174,7 +174,6 @@ fn build_send_money(
 }
 
 /// Fire-and-forget write probe: send a native transfer and measure e2e latency.
-/// The `block_hash` is provided from the cached view_account response (no extra RPC call).
 async fn probe_native_transfer(
     client: Arc<JsonRpcClient>,
     sender: Arc<WriteProbeAccount>,
