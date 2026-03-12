@@ -848,7 +848,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         // Track signers whose state has been written to the trie update
         // overlay. For these signers, the gap check must read through the
-        // recording path to see the updated nonce.
+        // state_update to see the updated nonce.
         let mut modified_signers: HashSet<TransactionGroupKey> = HashSet::new();
 
         // Groups where the strict-nonce gap check broke on the first peek
