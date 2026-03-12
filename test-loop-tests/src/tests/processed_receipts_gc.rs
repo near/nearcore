@@ -28,12 +28,12 @@ const EPOCH_LENGTH: u64 = 5;
 const GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
 
 /// Tests that processed local and instant receipts are saved to the Receipts column
-/// and later garbage collected.
+/// and later garbage collected, including their ReceiptToTx entries.
 ///
 /// Deploys a contract, then calls `call_yield_create_return_promise` which produces
 /// a local receipt (from the transaction) and a PromiseYield instant receipt.
 /// Verifies both exist in DBCol::Receipts with appropriate metadata, then runs enough
-/// epochs for GC to kick in and verifies cleanup.
+/// epochs for GC to kick in and verifies cleanup of both Receipts and ReceiptToTx columns.
 #[test]
 fn test_processed_receipt_ids_gc() {
     init_test_logger();
@@ -117,6 +117,16 @@ fn test_processed_receipt_ids_gc() {
         ]
     );
 
+    // Verify ReceiptToTx entries exist for local and instant receipts.
+    assert!(
+        store.get(DBCol::ReceiptToTx, local_receipt_id.as_ref()).is_some(),
+        "ReceiptToTx entry should exist for local receipt"
+    );
+    assert!(
+        store.get(DBCol::ReceiptToTx, instant_receipt_id.as_ref()).is_some(),
+        "ReceiptToTx entry should exist for instant receipt"
+    );
+
     #[cfg(feature = "test_features")]
     env.validator_mut().validate_store();
 
@@ -137,6 +147,15 @@ fn test_processed_receipt_ids_gc() {
     assert!(
         store.get(DBCol::ProcessedReceiptIds, &metadata_key).is_none(),
         "receipt metadata should be garbage collected from DBCol::ProcessedReceiptIds"
+    );
+    // Verify ReceiptToTx entries are also garbage collected via Local/Instant sources.
+    assert!(
+        store.get(DBCol::ReceiptToTx, local_receipt_id.as_ref()).is_none(),
+        "ReceiptToTx for local receipt should be garbage collected"
+    );
+    assert!(
+        store.get(DBCol::ReceiptToTx, instant_receipt_id.as_ref()).is_none(),
+        "ReceiptToTx for instant receipt should be garbage collected"
     );
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
@@ -251,20 +270,23 @@ fn test_receipt_to_tx_saved_and_gced() {
     let num_blocks = EPOCH_LENGTH * GC_NUM_EPOCHS_TO_KEEP + 1;
     env.validator_runner().run_for_number_of_blocks(num_blocks as usize);
 
-    // Verify ReceiptToTx entries have been garbage collected.
-    // GC deletes ReceiptToTx entries for receipt IDs that appear as outcome IDs in the block.
+    // Verify ReceiptToTx entries have been garbage collected via ProcessedReceiptIds.
     let store = env.validator().store();
     assert!(
         store.get(DBCol::ReceiptToTx, local_receipt_id.as_ref()).is_none(),
         "receipt_to_tx for local receipt should be garbage collected"
+    );
+    assert!(
+        store.get(DBCol::ReceiptToTx, instant_receipt_id.as_ref()).is_none(),
+        "receipt_to_tx for instant receipt should be garbage collected"
     );
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Tests that ReceiptToTx entries are properly garbage collected even when
-/// `save_tx_outcomes` is false. This verifies that the OutcomeIds index is
-/// still written (needed for GC) when only save_receipt_to_tx is enabled.
+/// `save_tx_outcomes` is false. ReceiptToTx GC goes through ProcessedReceiptIds,
+/// not OutcomeIds, so disabling outcomes has no effect on ReceiptToTx cleanup.
 #[test]
 fn test_receipt_to_tx_gc_with_outcomes_disabled() {
     init_test_logger();
@@ -370,9 +392,8 @@ fn test_receipt_to_tx_gc_with_outcomes_disabled() {
 ///
 /// Data receipts are generated when an action receipt with `output_data_receivers` executes
 /// (e.g., from `promise_create` + `promise_then`). Data receipts don't produce execution
-/// outcomes, so GC (which iterates OutcomeIds to find receipt IDs to delete) never finds them.
-///
-/// This test is expected to FAIL with current code, exposing the GC leak.
+/// outcomes, but their ReceiptToTx entries are tracked via `ReceiptSource::ReceiptToTxGc`
+/// in ProcessedReceiptIds and cleaned up during GC.
 #[test]
 fn test_data_receipt_receipt_to_tx_gc() {
     init_test_logger();
@@ -478,7 +499,7 @@ fn test_data_receipt_receipt_to_tx_gc() {
     let num_blocks = EPOCH_LENGTH * GC_NUM_EPOCHS_TO_KEEP + 1;
     env.validator_runner().run_for_number_of_blocks(num_blocks as usize);
 
-    // Assert data receipt ReceiptToTx entries survive GC (they shouldn't, but do due to the leak).
+    // Verify data receipt ReceiptToTx entries are garbage collected via ReceiptToTxGc source.
     let store = env.validator().store();
     for receipt_id in &data_receipt_ids {
         assert!(
@@ -492,11 +513,9 @@ fn test_data_receipt_receipt_to_tx_gc() {
 
 /// Tests that ReceiptToTx entries for PromiseResume receipts are garbage collected.
 ///
-/// PromiseResume receipts are created when a yield times out. The PromiseResume receipt's
-/// ID never appears in OutcomeIds, so GC (which iterates OutcomeIds to find receipt IDs
-/// to delete from ReceiptToTx) never finds the resume receipt.
-///
-/// This test is expected to FAIL with current code, exposing the GC leak.
+/// PromiseResume receipts are created when a yield times out. Their ReceiptToTx entries
+/// are tracked via `ReceiptSource::ReceiptToTxGc` in ProcessedReceiptIds and cleaned up
+/// during GC.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_promise_resume_receipt_to_tx_gc() {
@@ -602,7 +621,7 @@ fn test_promise_resume_receipt_to_tx_gc() {
     let num_blocks = EPOCH_LENGTH * GC_NUM_EPOCHS_TO_KEEP + 1;
     env.validator_runner().run_for_number_of_blocks(num_blocks as usize);
 
-    // The PromiseResume receipt ID is absent from OutcomeIds, so GC never finds it.
+    // Verify PromiseResume ReceiptToTx entry is garbage collected via ReceiptToTxGc source.
     let store = env.validator().store();
     assert!(
         store.get(DBCol::ReceiptToTx, resume_receipt_id.as_ref()).is_none(),
@@ -615,13 +634,10 @@ fn test_promise_resume_receipt_to_tx_gc() {
 /// Tests that ReceiptToTx entries for cross-shard action receipts are GC'd on a
 /// node that only tracks the source shard.
 ///
-/// ReceiptToTx is written on the source shard when a receipt is created. gc_outcomes
-/// deletes ReceiptToTx based on OutcomeIds, but outcomes are recorded on the destination
-/// shard where the receipt executes. A node tracking only the source shard never sees
-/// the destination shard's outcomes, so gc_outcomes can never delete the entry.
-///
-/// gc_outgoing_receipts handles this by deleting ReceiptToTx for ALL outgoing receipts
-/// when the source block is GC'd.
+/// ReceiptToTx is written on the source shard when a receipt is created. The receipt
+/// executes on the destination shard, which the source-only node doesn't track.
+/// GC handles this via `ReceiptSource::ReceiptToTxGc` entries in ProcessedReceiptIds,
+/// which track all receipt IDs with ReceiptToTx entries and clean them up.
 #[test]
 fn test_cross_shard_receipt_to_tx_gc_on_source_only_node() {
     init_test_logger();
@@ -689,7 +705,7 @@ fn test_cross_shard_receipt_to_tx_gc_on_source_only_node() {
     let block_hash = env.node_for_account(&validator_id).head().last_block_hash;
     let tx = SignedTransaction::send_money(
         1,
-        sender.clone(),
+        sender,
         receiver,
         &signer,
         Balance::from_yoctonear(100),

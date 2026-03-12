@@ -10,6 +10,7 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::ReceiptSource;
 use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
 use near_primitives::state_sync::{StateHeaderKey, StatePartKey};
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceStoredVerifiedEndorsement;
@@ -1086,15 +1087,6 @@ impl<'a> ChainStoreUpdate<'a> {
 
     fn gc_outgoing_receipts(&mut self, block_hash: &CryptoHash, shard_id: ShardId) {
         let mut store_update = self.store().store_update();
-        // GC ReceiptToTx for all outgoing receipts. This is necessary because
-        // ReceiptToTx is written on the source shard, but gc_outcomes deletes
-        // based on OutcomeIds which are recorded on the destination shard.
-        // A node that only tracks the source shard would never GC these entries.
-        if let Ok(receipts) = self.chain_store().get_outgoing_receipts(block_hash, shard_id) {
-            for receipt in receipts.iter() {
-                store_update.delete(DBCol::ReceiptToTx, receipt.receipt_id().as_bytes());
-            }
-        }
         let key = get_block_shard_id(block_hash, shard_id);
         store_update.delete(DBCol::OutgoingReceipts, &key);
         self.merge(store_update);
@@ -1103,7 +1095,15 @@ impl<'a> ChainStoreUpdate<'a> {
     fn gc_processed_receipt_ids(&mut self, block_hash: &CryptoHash, shard_id: ShardId) {
         let Ok(metadata) = self.get_processed_receipt_ids(block_hash, shard_id) else { return };
         for entry in metadata.as_ref() {
-            self.gc_col(DBCol::Receipts, entry.receipt_id().as_bytes());
+            match entry.source() {
+                ReceiptSource::Local | ReceiptSource::Delayed | ReceiptSource::Instant => {
+                    self.gc_col(DBCol::Receipts, entry.receipt_id().as_bytes());
+                    self.gc_col(DBCol::ReceiptToTx, entry.receipt_id().as_bytes());
+                }
+                ReceiptSource::ReceiptToTxGc => {
+                    self.gc_col(DBCol::ReceiptToTx, entry.receipt_id().as_bytes());
+                }
+            }
         }
         self.gc_col(DBCol::ProcessedReceiptIds, &get_block_shard_id(block_hash, shard_id));
     }
@@ -1122,8 +1122,6 @@ impl<'a> ChainStoreUpdate<'a> {
                     DBCol::TransactionResultForBlock,
                     &get_outcome_id_block_hash(&outcome_id, block_hash),
                 );
-                // GC the receipt-to-tx mapping for this outcome (receipt) ID.
-                self.gc_col(DBCol::ReceiptToTx, outcome_id.as_bytes());
             }
             self.gc_col(DBCol::OutcomeIds, &get_block_shard_id(block_hash, shard_id));
         }

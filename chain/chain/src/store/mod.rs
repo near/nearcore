@@ -10,7 +10,7 @@ use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::receipt::{
-    ProcessedReceipt, ProcessedReceiptMetadata, Receipt, ReceiptToTxInfo,
+    ProcessedReceipt, ProcessedReceiptMetadata, Receipt, ReceiptSource, ReceiptToTxInfo,
 };
 use near_primitives::shard_layout::{ShardLayout, ShardUId, get_block_shard_uid};
 use near_primitives::sharding::{
@@ -1669,11 +1669,22 @@ impl<'a> ChainStoreUpdate<'a> {
         hash: &CryptoHash,
         shard_id: ShardId,
         processed_receipts: Vec<ProcessedReceipt>,
+        receipt_to_tx_ids: Vec<CryptoHash>,
     ) {
-        let metadata: Vec<ProcessedReceiptMetadata> = processed_receipts
-            .iter()
-            .map(|pr| ProcessedReceiptMetadata::new(*pr.receipt.receipt_id(), pr.source.clone()))
-            .collect();
+        let mut seen_ids: HashSet<CryptoHash> = HashSet::new();
+        let mut metadata: Vec<ProcessedReceiptMetadata> = Vec::new();
+        for pr in &processed_receipts {
+            let id = *pr.receipt.receipt_id();
+            seen_ids.insert(id);
+            metadata.push(ProcessedReceiptMetadata::new(id, pr.source.clone()));
+        }
+        if self.chain_store.save_receipt_to_tx {
+            for id in receipt_to_tx_ids {
+                if seen_ids.insert(id) {
+                    metadata.push(ProcessedReceiptMetadata::new(id, ReceiptSource::ReceiptToTxGc));
+                }
+            }
+        }
         self.chain_store_cache_update
             .processed_receipts_to_save
             .extend(processed_receipts.into_iter().map(|pr| pr.receipt));
@@ -1698,10 +1709,9 @@ impl<'a> ChainStoreUpdate<'a> {
         outcomes: Vec<ExecutionOutcomeWithId>,
         proofs: Vec<MerklePath>,
     ) {
-        // The OutcomeIds index is needed for GC of both TransactionResultForBlock
-        // and ReceiptToTx entries, so write it when either feature is enabled.
-        let needs_index = self.chain_store.save_tx_outcomes || self.chain_store.save_receipt_to_tx;
-        if !needs_index {
+        // The OutcomeIds index is needed for GC of TransactionResultForBlock entries.
+        // ReceiptToTx GC is handled separately via ProcessedReceiptIds.
+        if !self.chain_store.save_tx_outcomes {
             return;
         }
         let mut outcome_ids = Vec::with_capacity(outcomes.len());
