@@ -2279,7 +2279,7 @@ mod test {
     use near_primitives::transaction::Transaction;
     use std::collections::HashSet;
 
-    fn make_mapping(nonce_kind: NonceKind) -> TxMapping {
+    fn make_mapping(nonce_kind: NonceKind, nonce_mode: NonceMode) -> TxMapping {
         let secret_key = SecretKey::from_seed(KeyType::ED25519, "mirror-test");
         TxMapping {
             source_signer_id: "source.near".parse().unwrap(),
@@ -2292,22 +2292,33 @@ mod test {
             provenance: MappedTxProvenance::MappedSourceTx(1, ShardId::new(0), 0),
             nonce_updates: HashSet::new(),
             nonce_kind,
-            nonce_mode: NonceMode::Monotonic,
+            nonce_mode,
         }
     }
 
     #[test]
-    fn test_mapped_tx_access_key_produces_v0() {
-        let mapping = make_mapping(NonceKind::AccessKey);
+    fn test_mapped_tx_access_key_monotonic_produces_v0() {
+        let mapping = make_mapping(NonceKind::AccessKey, NonceMode::Monotonic);
         let mapped = MappedTx::new(mapping, 42);
         assert!(matches!(mapped.target_tx.transaction, Transaction::V0(_)));
         assert_eq!(mapped.target_tx.transaction.nonce().nonce(), 42);
         assert_eq!(mapped.target_tx.transaction.nonce().nonce_index(), None);
+        assert_eq!(mapped.target_tx.transaction.nonce_mode(), NonceMode::Monotonic);
+    }
+
+    #[test]
+    fn test_mapped_tx_access_key_strict_produces_v1() {
+        let mapping = make_mapping(NonceKind::AccessKey, NonceMode::Strict);
+        let mapped = MappedTx::new(mapping, 42);
+        assert!(matches!(mapped.target_tx.transaction, Transaction::V1(_)));
+        assert_eq!(mapped.target_tx.transaction.nonce().nonce(), 42);
+        assert_eq!(mapped.target_tx.transaction.nonce().nonce_index(), None);
+        assert_eq!(mapped.target_tx.transaction.nonce_mode(), NonceMode::Strict);
     }
 
     #[test]
     fn test_mapped_tx_gas_key_produces_v1() {
-        let mapping = make_mapping(NonceKind::GasKey(7));
+        let mapping = make_mapping(NonceKind::GasKey(7), NonceMode::Monotonic);
         let mapped = MappedTx::new(mapping, 42);
         assert!(matches!(mapped.target_tx.transaction, Transaction::V1(_)));
         assert_eq!(mapped.target_tx.transaction.nonce().nonce(), 42);
