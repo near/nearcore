@@ -2,10 +2,15 @@ use crate::setup::state::{NodeExecutionData, SharedState};
 use crate::utils::node::TestLoopNode;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
+use near_async::time::Duration;
 use near_client::QueryError;
 use near_primitives::types::AccountId;
 use std::cell::RefCell;
 use std::rc::Rc;
+
+/// Epoch sync horizon used across sync tests. Explicitly configured on each
+/// test's syncing node to avoid depending on the production default.
+pub const TEST_EPOCH_SYNC_HORIZON: u64 = 2;
 
 /// Set up sync status tracking for a node. Returns the history vector.
 ///
@@ -13,9 +18,7 @@ use std::rc::Rc;
 /// distinct sync status transition. Consecutive identical statuses are
 /// deduplicated.
 ///
-/// **NOTE**: Overwrites any previously installed `every_event_callback`.
-/// If tracking multiple nodes sequentially, call this again after the
-/// first node finishes syncing.
+/// Note: Overwrites any previously installed `every_event_callback`.
 pub fn track_sync_status(
     test_loop: &mut TestLoopV2,
     node_datas: &[NodeExecutionData],
@@ -101,6 +104,25 @@ pub fn assert_near_horizon_sync_sequence(history: &[String]) {
     let expected: Vec<String> =
         NEAR_HORIZON_SYNC_SEQUENCE.iter().map(|s| (*s).to_string()).collect();
     assert_eq!(history, expected.as_slice(), "unexpected sync status history");
+}
+
+/// Run until two nodes have equal head heights (30s timeout).
+pub fn run_until_synced(
+    test_loop: &mut TestLoopV2,
+    node_datas: &[NodeExecutionData],
+    syncing_node_idx: usize,
+    source_node_idx: usize,
+) {
+    let syncing_handle = node_datas[syncing_node_idx].client_sender.actor_handle();
+    let source_handle = node_datas[source_node_idx].client_sender.actor_handle();
+    test_loop.run_until(
+        |data| {
+            let syncing_h = data.get(&syncing_handle).client.chain.head().unwrap().height;
+            let source_h = data.get(&source_handle).client.chain.head().unwrap().height;
+            syncing_h == source_h
+        },
+        Duration::seconds(30),
+    );
 }
 
 /// Restrict a node to only communicate with a single source peer.
