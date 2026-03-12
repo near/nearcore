@@ -135,10 +135,11 @@ impl TransactionPool {
         let pool_key = self.key(signer_id, signer_public_key, validated_tx.nonce().nonce_index());
 
         // Track strict-nonce transactions for TTL eviction. We use the pool's
-        // head_height as the admission time. On reorgs, reintroduced transactions
-        // get the current height, effectively resetting their TTL. This is
-        // acceptable since reorgs are short-lived and the reintroduced
-        // transactions are still valid candidates for inclusion.
+        // head_height as the admission time. On reorgs, reintroduced
+        // transactions get a new expiry entry at the current height, but the
+        // original entry is still present and will fire first, so the TTL is
+        // effectively anchored to the first admission. This is acceptable
+        // since reorgs are short-lived.
         if validated_tx.nonce_mode() == NonceMode::Strict {
             self.expiry_index.entry(self.head_height).or_default().push((tx_hash, pool_key));
         }
@@ -933,5 +934,37 @@ mod tests {
         pool.update_head_height(ttl + 1);
         assert_eq!(pool.len(), 0);
         assert_eq!(pool.transaction_size(), 0);
+    }
+
+    #[test]
+    fn test_strict_nonce_reintroduced_keeps_original_ttl() {
+        let ttl = 10;
+        let mut pool = TransactionPool::new(TEST_SEED, None, ttl, "");
+
+        // Insert at height 0 (default head_height).
+        let txs = generate_strict_nonce_transactions("alice.near", "alice.near", 1, 1);
+        let signed_txs: Vec<_> = txs.iter().map(|tx| tx.clone().into_signed_tx()).collect();
+        for tx in txs {
+            assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::Success);
+        }
+
+        // Simulate block inclusion at height 5.
+        pool.update_head_height(5);
+        pool.remove_transactions(&signed_txs);
+        assert_eq!(pool.len(), 0);
+
+        // Simulate reorg: reintroduce the same tx at height 5.
+        // A new expiry entry is created at height 5, but the original entry
+        // at height 0 is still present in the expiry_index.
+        for signed_tx in &signed_txs {
+            pool.insert_transaction(ValidatedTransaction::new_for_test(signed_tx.clone()));
+        }
+        assert_eq!(pool.len(), 1);
+
+        // Advance past the original TTL (height 0 + ttl = 10). The old expiry
+        // entry fires and evicts the tx even though it was reintroduced at
+        // height 5.
+        pool.update_head_height(ttl + 1);
+        assert_eq!(pool.len(), 0);
     }
 }
