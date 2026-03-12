@@ -635,8 +635,8 @@ impl EpochManager {
         })
     }
 
-    /// Compute the shard layout for the epoch after the next one.
-    /// If static layout is defined in `next_next_epoch_config`, that will be used.
+    /// Compute the shard layout for the epoch after the next one (N+2).
+    /// If static layout is defined in `current_epoch_config`, that will be used.
     /// If dynamic resharding is enabled it will either:
     ///   a) derive a new layout based on the split defined in `block_info`, or
     ///   b) return `next_shard_layout` (if there is no split specified there).
@@ -644,33 +644,18 @@ impl EpochManager {
     /// Parameters:
     ///   - `current_epoch_config`: config for the current epoch (N)
     ///   - `current_protocol_version`: protocol version for epoch N
-    ///   - `next_next_epoch_config`: config for epoch N+2
     ///   - `next_shard_layout`: shard layout for epoch N+1
     ///   - `block_info`: block info for the last block of epoch N
     pub fn next_next_shard_layout(
         &self,
         current_epoch_config: &EpochConfig,
         current_protocol_version: ProtocolVersion,
-        next_next_epoch_config: &EpochConfig,
         next_shard_layout: &ShardLayout,
         block_info: &BlockInfo,
     ) -> Result<ShardLayout, EpochError> {
-        // We are checking `next_next_epoch_config` for the sake of compatibility: static
-        // resharding operated under the assumption that shard layout for epoch X is stored
-        // in epoch config for epoch X. This is different from dynamic resharding approach,
-        // where resharding parameters stored in epoch config for epoch X determine the layout
-        // for epoch X+2.
-        // TODO(dynamic_resharding): remove `next_next_epoch_config` when tests are adjusted
-
         // Dynamic resharding won't be enabled until epoch N+2, use the static layout.
-        if let Some(shard_layout) = next_next_epoch_config.static_shard_layout() {
+        if let Some(shard_layout) = current_epoch_config.static_shard_layout() {
             return Ok(shard_layout);
-        }
-
-        // Dynamic resharding is not yet enabled, but will become enabled in epoch N+1 or N+2.
-        // Re-use the layout for N+1, as no resharding could happen in this transitory phase.
-        if current_epoch_config.dynamic_resharding_config().is_none() {
-            return Ok(next_shard_layout.clone());
         }
 
         debug_assert!(ProtocolFeature::DynamicResharding.enabled(current_protocol_version));
@@ -827,7 +812,6 @@ impl EpochManager {
         let next_next_shard_layout = self.next_next_shard_layout(
             &epoch_config,
             epoch_protocol_version,
-            &next_next_epoch_config,
             &next_shard_layout,
             block_info,
         )?;
@@ -1619,7 +1603,11 @@ impl EpochManager {
         if let Some(shard_layout) = epoch_info.shard_layout() {
             Ok(shard_layout.clone())
         } else {
-            let protocol_version = epoch_info.protocol_version();
+            // Epoch config for epoch N defines shard layout for epoch N+2.
+            // For early epochs (genesis), fall back to the epoch's own protocol version.
+            let protocol_version = self
+                .get_protocol_version_two_epochs_ago(epoch_id)
+                .unwrap_or_else(|_| epoch_info.protocol_version());
             self.get_static_shard_layout_for_protocol_version(protocol_version).ok_or_else(|| {
                 EpochError::ShardingError(format!(
                     "shard layout missing. epoch_id={:?} protocol_version={}",
@@ -1627,6 +1615,17 @@ impl EpochManager {
                 ))
             })
         }
+    }
+
+    /// Get the protocol version from 2 epochs before the given epoch.
+    fn get_protocol_version_two_epochs_ago(
+        &self,
+        epoch_id: &EpochId,
+    ) -> Result<ProtocolVersion, EpochError> {
+        // The epoch ID for epoch N is the hash of the last block of epoch N-2
+        let block_info = self.get_block_info(&epoch_id.0)?;
+        let epoch_info = self.get_epoch_info(block_info.epoch_id())?;
+        Ok(epoch_info.protocol_version())
     }
 
     /// Get *static* shard layout for the given protocol version. If the protocol version uses

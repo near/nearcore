@@ -2167,32 +2167,51 @@ fn test_protocol_version_switch_with_shard_layout_change() {
     reward_calculator.genesis_protocol_version = PROTOCOL_VERSION - 1;
     let mut epoch_manager =
         EpochManager::new(store, config, reward_calculator, validators).unwrap();
-    let h = hash_range(8);
+    // With epoch_length=2, the genesis epoch has 3 blocks (h[0]-h[2]), then each epoch has 2:
+    //   epoch 0: h[0], h[1], h[2]  (PV-1)
+    //   epoch 1: h[3], h[4]        (PV-1)
+    //   epoch 2: h[5], h[6]        (PV-1)
+    //   epoch 3: h[7], h[8]        (PV)
+    //   epoch 4: h[9], h[10]       (PV)
+    //   epoch 5: h[11]             (PV)
+    // EpochId(h[X]) corresponds to the epoch 2 after the one containing h[X]:
+    //   EpochId(h[2]) → epoch 2, EpochId(h[4]) → epoch 3, etc.
+    // The shard layout uses the protocol version from 2 epochs ago (via get_protocol_version_two_epochs_ago),
+    // so the new layout (4 shards) activates at epoch 5 (2 epochs after epoch 3 where PV starts).
+    let h = hash_range(12);
     record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-    for i in 1..8 {
+    for i in 1..12 {
         let version = if i == 1 { PROTOCOL_VERSION - 1 } else { PROTOCOL_VERSION };
         record_block_with_version(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![], version);
     }
-    let epochs = [EpochId::default(), EpochId(h[2]), EpochId(h[4])];
+    let epochs = [EpochId::default(), EpochId(h[2]), EpochId(h[4]), EpochId(h[6]), EpochId(h[8])];
+    // Epoch 2 (EpochId(h[2])): protocol version is still PV-1.
     assert_eq!(
         epoch_manager.get_epoch_info(&epochs[1]).unwrap().protocol_version(),
         PROTOCOL_VERSION - 1
     );
     assert_eq!(epoch_manager.get_shard_layout(&epochs[1]).unwrap(), ShardLayout::multi_shard(1, 0));
+    // Epoch 3 (EpochId(h[4])): protocol version upgraded to PV.
     assert_eq!(
         epoch_manager.get_epoch_info(&epochs[2]).unwrap().protocol_version(),
         PROTOCOL_VERSION
     );
-    assert_eq!(epoch_manager.get_shard_layout(&epochs[2]).unwrap(), ShardLayout::multi_shard(4, 0));
+    // But the shard layout still uses PV from 2 epochs ago (epoch 1, PV-1) → old layout.
+    assert_eq!(epoch_manager.get_shard_layout(&epochs[2]).unwrap(), ShardLayout::multi_shard(1, 0));
+    // Epoch 4: 2 epochs ago is epoch 2 (PV-1) → still old layout.
+    assert_eq!(epoch_manager.get_shard_layout(&epochs[3]).unwrap(), ShardLayout::multi_shard(1, 0));
+    // Epoch 5: 2 epochs ago is epoch 3 (PV) → new layout (4 shards).
+    assert_eq!(epoch_manager.get_shard_layout(&epochs[4]).unwrap(), ShardLayout::multi_shard(4, 0));
 
     // Check split shards
-    // h[5] is the first block of epoch epochs[1] and shard layout will change at epochs[2]
+    // Shard layout changes at the epoch 4→5 boundary.
+    // Blocks h[8]-h[9] are in epoch 4 where the next epoch's layout differs.
     let epoch_manager = epoch_manager.into_handle();
-    assert_eq!(epoch_manager.will_shard_layout_change(&h[3]).unwrap(), false);
-    for i in 4..=5 {
+    assert_eq!(epoch_manager.will_shard_layout_change(&h[7]).unwrap(), false);
+    for i in 8..=9 {
         assert_eq!(epoch_manager.will_shard_layout_change(&h[i]).unwrap(), true);
     }
-    assert_eq!(epoch_manager.will_shard_layout_change(&h[6]).unwrap(), false);
+    assert_eq!(epoch_manager.will_shard_layout_change(&h[10]).unwrap(), false);
 }
 
 #[test]

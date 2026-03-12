@@ -146,8 +146,10 @@ fn test_archival_single_shard_tracking_when_resharding() {
     let chain_store = env.test_loop.data.get(&client_handle).client.chain.chain_store.clone();
     let epoch_manager = env.test_loop.data.get(&client_handle).client.epoch_manager.clone();
 
-    // Wait for GC to kick in for the first time. This should clean up genesis data from the hot store.
-    let num_blocks_to_wait = EPOCH_LENGTH * GC_NUM_EPOCHS_TO_KEEP;
+    // Wait for resharding to occur and GC to kick in. With the 2-epoch delay for
+    // static resharding, the new layout takes effect 2 extra epochs after the
+    // protocol version upgrade.
+    let num_blocks_to_wait = EPOCH_LENGTH * (GC_NUM_EPOCHS_TO_KEEP + 2);
     env.test_loop.run_until(
         |_| {
             let prev_hash = chain_store.final_head().unwrap().prev_block_hash;

@@ -29,7 +29,9 @@ const EPOCH_LENGTH: BlockHeightDelta = 5;
 fn test_global_receipt_distribution_at_resharding_boundary() {
     init_test_logger();
     let mut env = GlobalContractsReshardingTestEnv::setup();
-    let expected_new_shard_layout_height = EPOCH_LENGTH * 2 + 2;
+    // With the 2-epoch delay for static resharding, the new layout takes effect
+    // 2 epochs later than the protocol version upgrade.
+    let expected_new_shard_layout_height = EPOCH_LENGTH * 4 + 2;
     // This height is picked so that the first global contract distribution receipt reaches
     // shard that is being split at the first height after the resharding
     let send_deploy_tx_height = expected_new_shard_layout_height - 3;
