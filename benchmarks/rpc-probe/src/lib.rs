@@ -171,12 +171,24 @@ fn build_send_money(
     SignedTransaction::new(signature, tx)
 }
 
+fn send_tx_metric_label(wait_until: &TxExecutionStatus) -> &'static str {
+    match wait_until {
+        TxExecutionStatus::None => "send_tx_none",
+        TxExecutionStatus::Included => "send_tx_included",
+        TxExecutionStatus::IncludedFinal => "send_tx_included_final",
+        TxExecutionStatus::ExecutedOptimistic => "send_tx_optimistic",
+        TxExecutionStatus::Executed => "send_tx_executed",
+        TxExecutionStatus::Final => "send_tx_final",
+    }
+}
+
 /// Fire-and-forget write probe: send a native transfer and measure e2e latency.
 async fn probe_native_transfer(
     client: Arc<JsonRpcClient>,
     sender: Arc<WriteProbeAccount>,
     receiver_id: AccountId,
     block_hash: CryptoHash,
+    wait_until: TxExecutionStatus,
 ) {
     let nonce = sender.next_nonce();
     let signed_tx = build_send_money(
@@ -188,9 +200,10 @@ async fn probe_native_transfer(
         block_hash,
     );
 
+    let label = send_tx_metric_label(&wait_until);
     let start = std::time::Instant::now();
-    let result = client.send_tx(signed_tx, TxExecutionStatus::ExecutedOptimistic).await;
-    record_probe("native_transfer", start, &result);
+    let result = client.send_tx(signed_tx, wait_until).await;
+    record_probe(label, start, &result);
 }
 
 /// Start the RPC probe loop as a background tokio task.
@@ -332,17 +345,40 @@ async fn probe_loop(
             account_idx = account_idx.wrapping_add(1);
         }
 
-        // Write probe: native transfer (fire-and-forget, same pattern as reads).
+        // Write probes: native transfer (fire-and-forget, same pattern as reads).
         // Uses block hash from the most recent view_account response.
+        // Two probes per tick with different senders to avoid nonce conflicts.
         if let Some(ref wa) = write_accounts {
             if let Some(block_hash) = *latest_block_hash.lock() {
-                let sender = wa[write_idx % wa.len()].clone();
-                let receiver_id = wa[(write_idx + 1) % wa.len()].account_id.clone();
-                let write_client = client.clone();
+                let sender_opt = wa[write_idx % wa.len()].clone();
+                let receiver_opt = wa[(write_idx + 1) % wa.len()].account_id.clone();
+                let client_opt = client.clone();
                 tokio::spawn(async move {
-                    probe_native_transfer(write_client, sender, receiver_id, block_hash).await;
+                    probe_native_transfer(
+                        client_opt,
+                        sender_opt,
+                        receiver_opt,
+                        block_hash,
+                        TxExecutionStatus::ExecutedOptimistic,
+                    )
+                    .await;
                 });
-                write_idx = write_idx.wrapping_add(1);
+
+                let sender_final = wa[(write_idx + 1) % wa.len()].clone();
+                let receiver_final = wa[(write_idx + 2) % wa.len()].account_id.clone();
+                let client_final = client.clone();
+                tokio::spawn(async move {
+                    probe_native_transfer(
+                        client_final,
+                        sender_final,
+                        receiver_final,
+                        block_hash,
+                        TxExecutionStatus::Final,
+                    )
+                    .await;
+                });
+
+                write_idx = write_idx.wrapping_add(2);
             }
         }
     }
