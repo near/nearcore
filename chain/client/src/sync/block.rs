@@ -280,13 +280,38 @@ impl BlockSync {
         Ok(())
     }
 
-    /// Checks if we should run block sync and ask for more full blocks.
-    /// Block sync is due either if the chain head has changed since the last request
-    /// or if time since the last request is > BLOCK_REQUEST_TIMEOUT_MS
+    /// Request blocks from peers if a request is due (head changed or
+    /// timeout elapsed). Does not check whether state sync is needed
+    /// and does not update `SyncStatus`.
+    pub fn run_v2(
+        &mut self,
+        chain: &Chain,
+        highest_height_peers: &[HighestHeightPeerInfo],
+    ) -> Result<(), near_chain::Error> {
+        let head = chain.head()?;
+        match self.block_request_due(&head) {
+            BlockSyncDue::RequestBlock => {
+                self.block_sync(chain, highest_height_peers)?;
+            }
+            BlockSyncDue::WaitForBlock => {}
+            BlockSyncDue::StateSync => unreachable!("block_request_due never returns StateSync"),
+        }
+        Ok(())
+    }
+
+    /// Returns whether block sync should request new blocks, wait, or
+    /// yield to state sync. Checks `state_needed` first, then delegates
+    /// to `block_request_due()` for the timeout/head-freshness check.
     fn block_sync_due(&self, head: &Tip, header_head: &Tip) -> BlockSyncDue {
         if self.check_state_needed(head, header_head) {
             return BlockSyncDue::StateSync;
         }
+        self.block_request_due(head)
+    }
+
+    /// Returns whether a new block request is due based on head freshness
+    /// and request timeout. Does not check whether state sync is needed.
+    fn block_request_due(&self, head: &Tip) -> BlockSyncDue {
         match &self.last_request {
             None => {
                 // Request the next block.

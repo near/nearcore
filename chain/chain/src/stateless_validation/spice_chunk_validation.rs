@@ -572,6 +572,7 @@ mod tests {
             hash(&borsh::to_vec(receipts.as_slice()).unwrap()),
             vec![],
             ChunkExecutionResultHash(CryptoHash::default()),
+            CryptoHash::default(),
         );
 
         let result = spice_pre_validate_chunk_state_witness(
@@ -616,6 +617,7 @@ mod tests {
             hash(&borsh::to_vec(receipts.as_slice()).unwrap()),
             test_chain.transactions(),
             ChunkExecutionResultHash(CryptoHash::default()),
+            CryptoHash::default(),
         );
 
         let result = spice_pre_validate_chunk_state_witness(
@@ -818,6 +820,7 @@ mod tests {
         applied_receipts_hash: CryptoHash,
         transactions: Vec<SignedTransaction>,
         execution_result_hash: ChunkExecutionResultHash,
+        contract_accesses_hash: CryptoHash,
     }
 
     macro_rules! builder_setter {
@@ -845,6 +848,7 @@ mod tests {
                 applied_receipts_hash: *default.applied_receipts_hash(),
                 transactions: default.transactions().to_vec(),
                 execution_result_hash: default.execution_result_hash().clone(),
+                contract_accesses_hash: *default.contract_accesses_hash(),
             }
         }
 
@@ -856,6 +860,7 @@ mod tests {
                 self.applied_receipts_hash,
                 self.transactions,
                 self.execution_result_hash,
+                self.contract_accesses_hash,
             )
         }
     }
@@ -1041,6 +1046,7 @@ mod tests {
                 receipts_hash,
                 transactions,
                 execution_result.compute_hash(),
+                CryptoHash::default(),
             )
         }
 
@@ -1061,6 +1067,7 @@ mod tests {
                 receipts_hash,
                 transactions,
                 execution_result.compute_hash(),
+                CryptoHash::default(),
             )
         }
 

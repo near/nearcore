@@ -2,8 +2,8 @@ use near_async::messaging::CanSend;
 use near_async::time::{Clock, Duration, Utc};
 use near_chain::{Chain, ChainStoreAccess};
 use near_client_primitives::types::{EpochSyncStatus, SyncStatus};
-use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter};
+use near_network::types::{PeerManagerMessageRequest, ReasonForBan};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::BlockHeight;
@@ -198,6 +198,124 @@ impl HeaderSync {
                 self.syncing_peer = Some(peer);
             }
         }
+        Ok(())
+    }
+
+    /// Run one tick of header sync for the V2 pipeline.
+    /// Each tick checks two things in order:
+    ///
+    /// 1. In-flight request (i.e. `syncing_peer` is set): evaluate the
+    ///    current batch — did we receive all ~512 headers (batch complete),
+    ///    or has the peer failed to deliver in time (stalling)? If either,
+    ///    clear the peer and fall through to step 2. If headers are arriving
+    ///    ahead of schedule, extend the timeout and wait.
+    ///
+    /// 2. Next batch (i.e. `syncing_peer` is `None`): pick a random peer and send
+    ///    a header request. This also handles the very first tick, where
+    ///    `syncing_peer` starts as `None` from construction.
+    ///
+    /// When `ban_stalling_peers` is true, a peer that has been stalling
+    /// longer than `stall_ban_timeout` is banned before being replaced.
+    /// Pass false during block sync where banning could hurt block downloads.
+    pub fn run_v2(
+        &mut self,
+        chain: &Chain,
+        highest_height: BlockHeight,
+        highest_height_peers: &[HighestHeightPeerInfo],
+        ban_stalling_peers: bool,
+    ) -> Result<(), near_chain::Error> {
+        let header_head = chain.header_head()?;
+        let now = self.clock.now_utc();
+
+        // If a request is in flight, check whether the batch is complete or stalling.
+        if self.syncing_peer.is_some() {
+            let BatchProgress {
+                timeout,
+                expected_height,
+                header_head_height,
+                highest_height_of_peers,
+            } = self.batch_progress;
+
+            let batch_complete = header_head.height
+                >= min(header_head_height + MAX_BLOCK_HEADERS - 4, highest_height_of_peers);
+            let stalling = header_head.height <= expected_height && now > timeout;
+
+            if batch_complete {
+                self.stalling_ts = None;
+                self.syncing_peer = None;
+            } else if stalling {
+                if self.stalling_ts.is_none() {
+                    self.stalling_ts = Some(now);
+                }
+                if ban_stalling_peers {
+                    self.try_ban_stalling_peer(highest_height);
+                }
+                self.syncing_peer = None;
+            } else if self.made_enough_progress(header_head.height, expected_height, now, timeout) {
+                self.batch_progress = BatchProgress {
+                    timeout: now + self.progress_timeout,
+                    expected_height: self
+                        .compute_expected_height(header_head.height, self.progress_timeout),
+                    header_head_height,
+                    highest_height_of_peers,
+                };
+            }
+        }
+
+        // If idle (no request in flight), pick a peer and send a request.
+        if self.syncing_peer.is_none() {
+            self.start_header_batch(chain, &header_head, highest_height, highest_height_peers)?;
+        }
+
+        Ok(())
+    }
+
+    /// Ban syncing_peer if stalling has exceeded stall_ban_timeout and the
+    /// peer claims to be at the highest height.
+    fn try_ban_stalling_peer(&mut self, highest_height: BlockHeight) {
+        let Some(stalling_ts) = self.stalling_ts else { unreachable!("stalling_ts always set") };
+        if self.clock.now_utc() - stalling_ts <= self.stall_ban_timeout {
+            return;
+        }
+        let Some(peer) = &self.syncing_peer else { return };
+        if highest_height != peer.highest_block_height {
+            return;
+        }
+        tracing::warn!(target: "sync", peer_id = ?peer.peer_info.id, highest_height, "header sync stalling, banning peer");
+        self.stalling_ts = None;
+        // TODO: Consider not banning straightaway, but give a node a few attempts before banning it.
+        // TODO: Prefer not to request the next batch of headers from the same peer.
+        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::BanPeer {
+                peer_id: peer.peer_info.id.clone(),
+                ban_reason: ReasonForBan::ProvidedNotEnoughHeaders,
+            },
+        ));
+    }
+
+    /// Pick a random peer, send a header request, and start tracking the batch.
+    fn start_header_batch(
+        &mut self,
+        chain: &Chain,
+        header_head: &Tip,
+        highest_height: BlockHeight,
+        peers: &[HighestHeightPeerInfo],
+    ) -> Result<(), near_chain::Error> {
+        let Some(peer) = peers.choose(&mut thread_rng()).cloned() else { return Ok(()) };
+        let shutdown_height = self.shutdown_height.get().unwrap_or(u64::MAX);
+        if peer.highest_block_height.min(shutdown_height) <= header_head.height {
+            return Ok(());
+        }
+        self.request_headers(chain, &peer)?;
+        self.syncing_peer = Some(peer);
+        self.stalling_ts = None;
+        let now = self.clock.now_utc();
+        self.batch_progress = BatchProgress {
+            timeout: now + self.initial_timeout,
+            expected_height: self.compute_expected_height(header_head.height, self.initial_timeout),
+            header_head_height: header_head.height,
+            highest_height_of_peers: highest_height,
+        };
         Ok(())
     }
 
