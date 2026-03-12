@@ -848,6 +848,13 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut rejected_invalid_tx = 0;
         let mut rejected_invalid_for_chain = 0;
 
+        // Groups where the strict-nonce gap check broke on the first peek
+        // without consuming any transaction. These groups will remain
+        // unchanged so we skip them on subsequent iterations to avoid an
+        // infinite loop in the pool iterator.
+        let mut stalled_groups: HashSet<CryptoHash> = HashSet::new();
+        let mut skips_since_last_progress: usize = 0;
+
         // Add new transactions to the result until some limit is hit or the transactions run out.
         'add_txs_loop: while let Some(transaction_group_iter) = transaction_groups.next() {
             if total_gas_burnt >= transactions_gas_limit {
@@ -880,6 +887,16 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
 
+            let group_key = transaction_group_iter.key();
+            if stalled_groups.contains(&group_key) {
+                skips_since_last_progress += 1;
+                if skips_since_last_progress >= stalled_groups.len() {
+                    break;
+                }
+                continue;
+            }
+            let mut consumed_any_tx = false;
+
             // Take a single transaction from this transaction group
             while let Some(tx_peek) = transaction_group_iter.peek_next() {
                 // Stop adding transactions if the size limit would be exceeded
@@ -891,17 +908,25 @@ impl RuntimeAdapter for NightshadeRuntime {
                 // Strict nonce gap check: if the tx requires sequential
                 // nonces and there is a gap, leave it in the pool for a
                 // future block rather than popping and discarding it.
+                // Use the signer cache if available; otherwise read through
+                // a throwaway trie to avoid inflating the recorded witness
+                // size for transactions that won't be included.
                 if tx_peek.nonce_mode() == NonceMode::Strict {
-                    let current_nonce = signer_cache.peek_nonce(
-                        &state_update,
-                        tx_peek.signer_id(),
-                        tx_peek.public_key(),
-                        tx_peek.nonce().nonce_index(),
-                    )?;
+                    let throwaway_trie =
+                        state_update.trie_update.trie.recording_reads_new_recorder();
+                    let current_nonce = signer_cache
+                        .peek_nonce(
+                            &throwaway_trie,
+                            tx_peek.signer_id(),
+                            tx_peek.public_key(),
+                            tx_peek.nonce().nonce_index(),
+                        )
+                        .unwrap_or(0);
                     let tx_nonce = tx_peek.nonce().nonce();
                     if tx_nonce > current_nonce.saturating_add(1) {
-                        // Gap detected - tx stays in group, returns to pool
-                        // when the iterator drops.
+                        if !consumed_any_tx {
+                            stalled_groups.insert(group_key);
+                        }
                         break;
                     }
                 }
@@ -946,6 +971,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     validated_tx.public_key(),
                     nonce_index,
                 )?;
+                consumed_any_tx = true;
 
                 let cost = match tx_cost(
                     runtime_config,
@@ -995,6 +1021,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         total_gas_burnt = total_gas_burnt.checked_add(result.gas_burnt).unwrap();
                         total_size += validated_tx.get_size();
                         prepared_transactions.transactions.push(validated_tx);
+                        skips_since_last_progress = 0;
                         // Take one transaction from this group, no more.
                         break;
                     }

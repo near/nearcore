@@ -18,6 +18,7 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_o11y::testonly::init_test_logger;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
+use near_primitives::account::AccessKeyPermission;
 use near_primitives::action::FunctionCallAction;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
@@ -48,6 +49,7 @@ use near_primitives::views::{
 };
 use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 use near_store::genesis::initialize_genesis_state;
+use near_store::test_utils::test_populate_trie;
 use near_store::trie::AccessOptions;
 use near_store::{NodeStorage, PartialStorage, get_genesis_state_roots};
 use near_vm_runner::FilesystemContractRuntimeCache;
@@ -1940,20 +1942,24 @@ fn test_strict_nonce_u64_max_not_included() {
     let congestion_info = block.block_congestion_info();
     let next_epoch_id = env.epoch_manager.get_epoch_id_from_prev_block(&prev_hash).unwrap();
 
-    // Set the access key nonce to u64::MAX in the trie so that no strict-nonce
-    // tx can satisfy ak_nonce + 1 without overflow.
+    // Set the access key nonce to u64::MAX in the actual trie state so that
+    // no strict-nonce tx can satisfy ak_nonce + 1 without overflow.
     let signer = InMemorySigner::test_signer(&"test1".parse::<AccountId>().unwrap());
-    let trie = env.runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[0]);
-    let mut state_update = TrieUpdate::new(trie);
-    near_store::set_access_key(
-        &mut state_update,
-        "test1".parse().unwrap(),
-        signer.public_key(),
-        &AccessKey {
-            nonce: u64::MAX,
-            permission: near_primitives::account::AccessKeyPermission::FullAccess,
-        },
+    let ak_key = TrieKey::AccessKey {
+        account_id: "test1".parse().unwrap(),
+        public_key: signer.public_key(),
+    };
+    let ak_value =
+        borsh::to_vec(&AccessKey { nonce: u64::MAX, permission: AccessKeyPermission::FullAccess })
+            .unwrap();
+    let state_root = test_populate_trie(
+        &env.runtime.tries,
+        &env.state_roots[0],
+        shard_uid,
+        vec![(ak_key.to_vec(), Some(ak_value))],
     );
+    let trie = env.runtime.tries.get_trie_for_shard(shard_uid, state_root);
+    let state_update = TrieUpdate::new(trie);
 
     // Create a strict-nonce tx with nonce u64::MAX (the only value that could
     // plausibly match saturating_add(1) == u64::MAX).
@@ -1997,6 +2003,116 @@ fn test_strict_nonce_u64_max_not_included() {
     assert!(skipped.0.is_empty());
     // The tx was popped from the pool and discarded by the verifier (InvalidNonce).
     assert_eq!(pool.len(), 0);
+}
+
+/// Creates a `NightshadeRuntime` + `Chain` with 4 validators (test1..test4)
+/// and the given runtime config store. Returns the tempdir to keep it alive.
+fn get_runtime_and_chain(
+    runtime_config_store: RuntimeConfigStore,
+) -> (Arc<NightshadeRuntime>, Arc<EpochManagerHandle>, Chain, tempfile::TempDir) {
+    let validators: Vec<AccountId> = (1..=4).map(|i| format!("test{i}").parse().unwrap()).collect();
+    let genesis = Genesis::test_sharded_new_version(validators, 4, vec![4]);
+    let store = near_store::test_utils::create_test_store();
+    let tempdir = tempfile::tempdir().unwrap();
+    initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
+    let runtime = NightshadeRuntime::test_with_runtime_config_store(
+        tempdir.path(),
+        store,
+        FilesystemContractRuntimeCache::new(tempdir.path(), None::<&str>, "contract.cache")
+            .expect("filesystem contract cache")
+            .handle(),
+        &genesis.config,
+        epoch_manager.clone(),
+        runtime_config_store,
+    );
+    let chain_genesis = ChainGenesis::new(&genesis.config);
+    let chain = Chain::new(
+        Clock::real(),
+        epoch_manager.clone(),
+        ShardTracker::new_empty(epoch_manager.clone()),
+        runtime.clone(),
+        &chain_genesis,
+        DoomslugThresholdMode::NoApprovals,
+        ChainConfig::test(),
+        None,
+        Default::default(),
+        Default::default(),
+        MutableConfigValue::new(None, "validator_signer"),
+        noop().into_multi_sender(),
+        None,
+    )
+    .unwrap();
+    (runtime, epoch_manager, chain, tempdir)
+}
+
+/// Gapped strict-nonce transactions should not inflate the recorded witness
+/// size. Sets the storage proof soft limit to 1 byte so that any recorded
+/// trie read would exceed it, then verifies that the gap-check reads do NOT
+/// trigger the limit (because they use a throwaway trie).
+#[test]
+fn test_strict_nonce_gap_does_not_count_towards_state_size_soft_limit() {
+    let mut runtime_config = RuntimeConfig::test();
+    runtime_config.witness_config.new_transactions_validation_state_size_soft_limit = 1;
+    let (runtime, epoch_manager, _chain, _tempdir) =
+        get_runtime_and_chain(RuntimeConfigStore::with_one_config(runtime_config));
+
+    let epoch_id = EpochId::default();
+    let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+    let shard_uid = shard_layout.shard_uids().next().unwrap();
+    let shard_id = shard_uid.shard_id();
+
+    // Only gapped strict-nonce txs: nonce=100, but current nonce=0.
+    let num_gapped = 3;
+    const TEST_SEED: RngSeed = [3; 32];
+    let mut pool = TransactionPool::new(TEST_SEED, None, "");
+    for i in 2..=4 {
+        let account_id: AccountId = format!("test{i}").parse().unwrap();
+        let signer = InMemorySigner::test_signer(&account_id);
+        let tx = SignedTransaction::from_actions_v1_strict(
+            TransactionNonce::from_nonce(100),
+            account_id,
+            "test1".parse().unwrap(),
+            &signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })],
+            CryptoHash::default(),
+        );
+        pool.insert_transaction(ValidatedTransaction::new_for_test(tx));
+    }
+
+    let state_roots =
+        get_genesis_state_roots(runtime.store()).expect("genesis should be initialized.");
+    let state_root = state_roots[0];
+    let trie = runtime.tries.get_trie_for_shard(shard_uid, state_root);
+    let trie = trie.recording_reads_new_recorder();
+    let state_update = TrieUpdate::new(trie);
+
+    let (prepared, skipped) = runtime
+        .prepare_transactions_extra(
+            state_update,
+            shard_id,
+            PrepareTransactionsBlockContext {
+                next_gas_price: runtime.genesis_config.min_gas_price,
+                height: 0,
+                next_epoch_id: epoch_id,
+                congestion_info: Default::default(),
+            },
+            &mut PoolIteratorWrapper::new(&mut pool),
+            &mut |_: &SignedTransaction| true,
+            HashSet::new(),
+            None,
+            None,
+        )
+        .unwrap();
+
+    // No txs included (all gapped).
+    assert_eq!(prepared.transactions.len(), 0);
+    assert!(skipped.0.is_empty());
+    // All gapped txs stay in the pool.
+    assert_eq!(pool.len(), num_gapped);
+    // The 1-byte soft limit was NOT hit because the gap check used a
+    // throwaway trie. Without proper accounting this would be StorageProofSize.
+    assert_eq!(prepared.limited_by, PrepareTransactionsLimit::NoMoreTxsInPool);
 }
 
 #[test]
