@@ -44,8 +44,8 @@ use near_store::flat::FlatStorageManager;
 use near_store::trie::{FindSplitError, find_trie_split, total_mem_usage};
 use near_store::{
     ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
-    TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account, get_gas_key_nonce,
-    set_access_key, set_account, set_gas_key_nonce,
+    TrieAccess, TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account,
+    get_gas_key_nonce, set_access_key, set_account, set_gas_key_nonce,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::{ContractRuntimeCache, precompile_contract};
@@ -844,6 +844,19 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut rejected_invalid_tx = 0;
         let mut rejected_invalid_for_chain = 0;
 
+        // Track signers whose state has been written to the trie update
+        // overlay. For these signers, the gap check must read through the
+        // recording path to see the updated nonce.
+        let mut modified_signers: HashSet<(AccountId, PublicKey, Option<NonceIndex>)> =
+            HashSet::new();
+
+        // Groups where the strict-nonce gap check broke on the first peek
+        // without consuming any transaction. These groups will remain
+        // unchanged so we skip them on subsequent iterations to avoid an
+        // infinite loop in the pool iterator.
+        let mut stalled_groups: HashSet<CryptoHash> = HashSet::new();
+        let mut skips_since_last_progress: usize = 0;
+
         // Add new transactions to the result until some limit is hit or the transactions run out.
         'add_txs_loop: while let Some(transaction_group_iter) = transaction_groups.next() {
             if total_gas_burnt >= transactions_gas_limit {
@@ -876,6 +889,15 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
 
+            let group_key = transaction_group_iter.key();
+            if stalled_groups.contains(&group_key) {
+                skips_since_last_progress += 1;
+                if skips_since_last_progress >= stalled_groups.len() {
+                    break;
+                }
+                continue;
+            }
+
             // Cache for signer account and access key, reused within the same transaction group.
             // For gas key transactions, also caches the current nonce and its index.
             struct SignerCache {
@@ -895,53 +917,33 @@ impl RuntimeAdapter for NightshadeRuntime {
                     break 'add_txs_loop;
                 }
 
-                // Load signer cache before popping so we can do the strict
-                // nonce gap check without removing the tx from the pool.
-                if let Some(cache) = &signer_cache {
-                    debug_assert_eq!(tx_peek.signer_id(), &cache.account_id);
-                    debug_assert_eq!(
-                        tx_peek.nonce().nonce_index(),
-                        cache.gas_key_nonce.map(|(idx, _)| idx)
-                    );
-                } else {
-                    let signer_id = tx_peek.signer_id();
-                    let nonce_index = tx_peek.nonce().nonce_index();
-                    let account = get_account(&state_update, signer_id);
-                    let account = account.transpose().and_then(|v| v.ok());
-                    let access_key = get_access_key(&state_update, signer_id, tx_peek.public_key());
-                    let access_key = access_key.transpose().and_then(|v| v.ok());
-                    // For gas key transactions, also load the gas key nonce
-                    let gas_key_nonce = if let Some(idx) = nonce_index {
-                        let nonce =
-                            get_gas_key_nonce(&state_update, signer_id, tx_peek.public_key(), idx);
-                        let nonce = nonce.transpose().and_then(|v| v.ok());
-                        Some((idx, nonce.ok_or(Error::InvalidTransactions)?))
-                    } else {
-                        None
-                    };
-                    signer_cache = Some(SignerCache {
-                        account_id: signer_id.clone(),
-                        account: account.ok_or(Error::InvalidTransactions)?,
-                        access_key: access_key.ok_or(Error::InvalidTransactions)?,
-                        public_key: tx_peek.public_key().clone(),
-                        gas_key_nonce,
-                    });
-                }
-
                 // Strict nonce gap check: if the tx requires sequential
                 // nonces and there is a gap, leave it in the pool for a
                 // future block rather than popping and discarding it.
+                // Use the signer cache if available; otherwise read through
+                // a throwaway trie to avoid inflating the recorded witness
+                // size for transactions that won't be included.
                 if tx_peek.nonce_mode() == NonceMode::Strict {
-                    let cache = signer_cache.as_ref().unwrap();
-                    let current_nonce = if let Some((_, gas_key_nonce)) = cache.gas_key_nonce {
-                        gas_key_nonce
+                    let current_nonce = if let Some(cache) = &signer_cache {
+                        if let Some((_, gas_key_nonce)) = cache.gas_key_nonce {
+                            gas_key_nonce
+                        } else {
+                            cache.access_key.nonce
+                        }
                     } else {
-                        cache.access_key.nonce
+                        peek_nonce_for_gap_check(
+                            &state_update,
+                            &modified_signers,
+                            tx_peek.signer_id(),
+                            tx_peek.public_key(),
+                            tx_peek.nonce().nonce_index(),
+                        )
                     };
                     let tx_nonce = tx_peek.nonce().nonce();
                     if tx_nonce > current_nonce.saturating_add(1) {
-                        // Gap detected - tx stays in group, returns to pool
-                        // when the iterator drops.
+                        if signer_cache.is_none() {
+                            stalled_groups.insert(group_key);
+                        }
                         break;
                     }
                 }
@@ -979,7 +981,43 @@ impl RuntimeAdapter for NightshadeRuntime {
                     continue;
                 }
 
-                let cache = signer_cache.as_mut().unwrap();
+                let signer_id = validated_tx.signer_id();
+                let nonce_index = validated_tx.nonce().nonce_index();
+                let cache = match &mut signer_cache {
+                    Some(cache) => {
+                        // Check that the cached signer matches the current transaction
+                        debug_assert_eq!(signer_id, &cache.account_id);
+                        debug_assert_eq!(nonce_index, cache.gas_key_nonce.map(|(idx, _)| idx));
+                        cache
+                    }
+                    None => {
+                        let account = get_account(&state_update, signer_id);
+                        let account = account.transpose().and_then(|v| v.ok());
+                        let access_key =
+                            get_access_key(&state_update, signer_id, validated_tx.public_key());
+                        let access_key = access_key.transpose().and_then(|v| v.ok());
+                        // For gas key transactions, also load the gas key nonce
+                        let gas_key_nonce = if let Some(idx) = nonce_index {
+                            let nonce = get_gas_key_nonce(
+                                &state_update,
+                                signer_id,
+                                validated_tx.public_key(),
+                                idx,
+                            );
+                            let nonce = nonce.transpose().and_then(|v| v.ok());
+                            Some((idx, nonce.ok_or(Error::InvalidTransactions)?))
+                        } else {
+                            None
+                        };
+                        signer_cache.insert(SignerCache {
+                            account_id: signer_id.clone(),
+                            account: account.ok_or(Error::InvalidTransactions)?,
+                            access_key: access_key.ok_or(Error::InvalidTransactions)?,
+                            public_key: validated_tx.public_key().clone(),
+                            gas_key_nonce,
+                        })
+                    }
+                };
 
                 let cost = match tx_cost(
                     runtime_config,
@@ -1035,6 +1073,11 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
 
             if let Some(cache) = signer_cache {
+                modified_signers.insert((
+                    cache.account_id.clone(),
+                    cache.public_key.clone(),
+                    cache.gas_key_nonce.map(|(idx, _)| idx),
+                ));
                 set_account(
                     &mut state_update.trie_update,
                     cache.account_id.clone(),
@@ -1588,6 +1631,40 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
         });
         Ok(())
+    }
+}
+
+/// Read the current nonce for a strict-nonce gap check without inflating the
+/// recorded witness size. Uses a throwaway trie (with its own recorder) when
+/// the signer's state has not been modified by a prior transaction group in
+/// this block; otherwise falls back to the recording `state_update` to see
+/// the updated overlay.
+///
+/// Returns 0 when the key does not exist. This lets nonce=1 pass the gap
+/// check (correct for a fresh key); the missing-key case will be caught
+/// later during full transaction validation.
+fn peek_nonce_for_gap_check(
+    state_update: &TrieUpdateWitnessSizeWrapper,
+    modified_signers: &HashSet<(AccountId, PublicKey, Option<NonceIndex>)>,
+    signer_id: &AccountId,
+    public_key: &PublicKey,
+    nonce_index: Option<NonceIndex>,
+) -> Nonce {
+    let signer_key = (signer_id.clone(), public_key.clone(), nonce_index);
+    let throwaway_trie;
+    let nonce_source: &dyn TrieAccess = if modified_signers.contains(&signer_key) {
+        state_update
+    } else {
+        throwaway_trie = state_update.trie_update.trie.recording_reads_new_recorder();
+        &throwaway_trie
+    };
+    if let Some(nonce_index) = nonce_index {
+        get_gas_key_nonce(nonce_source, signer_id, public_key, nonce_index)
+            .ok()
+            .flatten()
+            .unwrap_or(0)
+    } else {
+        get_access_key(nonce_source, signer_id, public_key).ok().flatten().map_or(0, |ak| ak.nonce)
     }
 }
 
