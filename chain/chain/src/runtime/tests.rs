@@ -1889,7 +1889,7 @@ fn test_strict_nonce_u64_max_not_included() {
     let mut pool = TransactionPool::new(TEST_SEED, None, "");
     pool.insert_transaction(ValidatedTransaction::new_for_test(strict_tx));
 
-    let (prepared, _skipped) = env
+    let (prepared, skipped) = env
         .runtime
         .prepare_transactions_extra(
             state_update,
@@ -1914,6 +1914,7 @@ fn test_strict_nonce_u64_max_not_included() {
         .unwrap();
 
     assert!(prepared.transactions.is_empty(), "strict-nonce tx at u64::MAX should not be included");
+    assert!(skipped.0.is_empty());
     // The tx was popped from the pool and discarded by the verifier (InvalidNonce).
     assert_eq!(pool.len(), 0);
 }
