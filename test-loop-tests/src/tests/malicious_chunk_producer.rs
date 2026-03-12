@@ -8,6 +8,7 @@ use near_async::messaging::CanSend as _;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_chunks::shards_manager_actor::AdvDistributeChunksMode;
 use near_client::ProcessTxRequest;
 use near_client::client_actor::{AdvProduceChunksMode, NetworkAdversarialMessage};
 use near_network::types::NetworkRequests;
@@ -225,29 +226,13 @@ fn test_chunk_parts_withholding_attack() {
     let mut env = TestLoopBuilder::new().validators(7, 0).num_shards(7).build();
 
     let (byzantine_node, honest_node) = (0, 1);
-    let epoch_manager = env.node(byzantine_node).client().epoch_manager.clone();
-    let peer_manager_handle = env.node_datas[byzantine_node].peer_manager_sender.actor_handle();
-    let peer_manager = env.test_loop.data.get_mut(&peer_manager_handle);
 
     // The Byzantine chunk producer only sends chunk parts to the block producer
-    // for that height, withholding from all other validators. Also blocks
+    // for that height, withholding from all other validators. Also drops
     // responses to part requests so other nodes can't fetch the withheld parts.
-    peer_manager.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
-        match &request {
-            NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
-                let header = &partial_encoded_chunk.header;
-                let epoch_id =
-                    epoch_manager.get_epoch_id_from_prev_block(header.prev_block_hash()).unwrap();
-                let block_producer =
-                    epoch_manager.get_block_producer(&epoch_id, header.height_created()).unwrap();
-                if *account_id == block_producer { Some(request) } else { None }
-            }
-            // Block responses to part requests so other nodes can't recover
-            // the withheld parts by requesting them from the byzantine node.
-            NetworkRequests::PartialEncodedChunkResponse { .. } => None,
-            _ => Some(request),
-        }
-    }));
+    env.node_datas[byzantine_node]
+        .shards_manager_sender
+        .send(AdvDistributeChunksMode::WithholdFromNonBlockProducer);
 
     let head_before = env.node(honest_node).head().height;
     env.node_runner(honest_node).run_for_number_of_blocks_with_timeout(15, Duration::seconds(60));
