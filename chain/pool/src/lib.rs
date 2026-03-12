@@ -69,6 +69,17 @@ impl TransactionPool {
         }
     }
 
+    /// Computes the pool key for a given (account, public_key, nonce_index) tuple.
+    /// Exposed for tests that need to assert iteration order.
+    pub fn compute_key_for_test(
+        &self,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+        nonce_index: Option<NonceIndex>,
+    ) -> CryptoHash {
+        self.key(account_id, public_key, nonce_index)
+    }
+
     fn key(
         &self,
         account_id: &AccountId,
