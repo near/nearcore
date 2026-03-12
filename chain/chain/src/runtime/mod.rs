@@ -32,6 +32,8 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
     Nonce, NonceIndex, NumShards, ShardId, StateRoot, StateRootNode,
 };
+
+type TransactionGroupKey = (AccountId, PublicKey, Option<NonceIndex>);
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, ContractCodeView, GasKeyNoncesView, QueryRequest, QueryResponse,
@@ -847,14 +849,13 @@ impl RuntimeAdapter for NightshadeRuntime {
         // Track signers whose state has been written to the trie update
         // overlay. For these signers, the gap check must read through the
         // recording path to see the updated nonce.
-        let mut modified_signers: HashSet<(AccountId, PublicKey, Option<NonceIndex>)> =
-            HashSet::new();
+        let mut modified_signers: HashSet<TransactionGroupKey> = HashSet::new();
 
         // Groups where the strict-nonce gap check broke on the first peek
         // without consuming any transaction. These groups will remain
         // unchanged so we skip them on subsequent iterations to avoid an
         // infinite loop in the pool iterator.
-        let mut stalled_groups: HashSet<CryptoHash> = HashSet::new();
+        let mut stalled_groups: HashSet<TransactionGroupKey> = HashSet::new();
         let mut skips_since_last_progress: usize = 0;
 
         // Add new transactions to the result until some limit is hit or the transactions run out.
@@ -889,16 +890,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
 
-            let group_key = transaction_group_iter.key();
-            if stalled_groups.contains(&group_key) {
-                skips_since_last_progress += 1;
-                if skips_since_last_progress > stalled_groups.len() {
-                    break;
-                }
-                continue;
-            }
-            skips_since_last_progress = 0;
-
             // Cache for signer account and access key, reused within the same transaction group.
             // For gas key transactions, also caches the current nonce and its index.
             struct SignerCache {
@@ -912,6 +903,22 @@ impl RuntimeAdapter for NightshadeRuntime {
 
             // Take a single transaction from this transaction group
             while let Some(tx_peek) = transaction_group_iter.peek_next() {
+                let group_key: TransactionGroupKey = (
+                    tx_peek.signer_id().clone(),
+                    tx_peek.public_key().clone(),
+                    tx_peek.nonce().nonce_index(),
+                );
+
+                // Skip groups that stalled on a previous iteration.
+                if stalled_groups.contains(&group_key) {
+                    skips_since_last_progress += 1;
+                    if skips_since_last_progress > stalled_groups.len() {
+                        break 'add_txs_loop;
+                    }
+                    break;
+                }
+                skips_since_last_progress = 0;
+
                 // Stop adding transactions if the size limit would be exceeded
                 if total_size.saturating_add(tx_peek.get_size()) > size_limit as u64 {
                     prepared_transactions.limited_by = PrepareTransactionsLimit::Size;
@@ -932,13 +939,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                             cache.access_key.nonce
                         }
                     } else {
-                        peek_nonce_for_gap_check(
-                            &state_update,
-                            &modified_signers,
-                            tx_peek.signer_id(),
-                            tx_peek.public_key(),
-                            tx_peek.nonce().nonce_index(),
-                        )
+                        peek_nonce_for_gap_check(&state_update, &modified_signers, &group_key)
                     };
                     let tx_nonce = tx_peek.nonce().nonce();
                     if tx_nonce > current_nonce.saturating_add(1) {
@@ -1646,20 +1647,18 @@ impl RuntimeAdapter for NightshadeRuntime {
 /// later during full transaction validation.
 fn peek_nonce_for_gap_check(
     state_update: &TrieUpdateWitnessSizeWrapper,
-    modified_signers: &HashSet<(AccountId, PublicKey, Option<NonceIndex>)>,
-    signer_id: &AccountId,
-    public_key: &PublicKey,
-    nonce_index: Option<NonceIndex>,
+    modified_signers: &HashSet<TransactionGroupKey>,
+    group_key: &TransactionGroupKey,
 ) -> Nonce {
-    let signer_key = (signer_id.clone(), public_key.clone(), nonce_index);
+    let (signer_id, public_key, nonce_index) = group_key;
     let throwaway_trie;
-    let nonce_source: &dyn TrieAccess = if modified_signers.contains(&signer_key) {
+    let nonce_source: &dyn TrieAccess = if modified_signers.contains(group_key) {
         state_update
     } else {
         throwaway_trie = state_update.trie_update.trie.recording_reads_new_recorder();
         &throwaway_trie
     };
-    if let Some(nonce_index) = nonce_index {
+    if let Some(nonce_index) = *nonce_index {
         get_gas_key_nonce(nonce_source, signer_id, public_key, nonce_index)
             .ok()
             .flatten()

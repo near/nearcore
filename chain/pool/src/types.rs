@@ -25,11 +25,6 @@ pub struct TransactionGroup {
 }
 
 impl TransactionGroup {
-    /// Returns the pool key for this group, usable as an opaque identifier.
-    pub fn key(&self) -> CryptoHash {
-        self.key
-    }
-
     /// Returns the next transaction with the smallest nonce and removes it from the group.
     /// It also stores all hashes of returned transactions.
     pub fn next(&mut self) -> Option<ValidatedTransaction> {
