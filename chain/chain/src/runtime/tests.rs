@@ -1665,7 +1665,8 @@ fn prepare_transactions_extra(
     let congestion_info = block.block_congestion_info();
     let next_epoch_id = env.epoch_manager.get_epoch_id_from_prev_block(&prev_hash)?;
 
-    let mut trie = env.runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[0]);
+    let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
+    let mut trie = env.runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[shard_index]);
     trie = trie.recording_reads_new_recorder();
     let state_update = TrieUpdate::new(trie);
 
@@ -1878,9 +1879,10 @@ fn test_strict_nonce_u64_max_not_included() {
     let ak_value =
         borsh::to_vec(&AccessKey { nonce: u64::MAX, permission: AccessKeyPermission::FullAccess })
             .unwrap();
+    let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
     let state_root = test_populate_trie(
         &env.runtime.tries,
-        &env.state_roots[0],
+        &env.state_roots[shard_index],
         shard_uid,
         vec![(ak_key.to_vec(), Some(ak_value))],
     );
@@ -2046,7 +2048,8 @@ fn test_strict_nonce_gap_does_not_count_towards_state_size_soft_limit() {
         pool.insert_transaction(ValidatedTransaction::new_for_test(tx));
     }
 
-    let trie = runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[0]);
+    let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
+    let trie = runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[shard_index]);
     let trie = trie.recording_reads_new_recorder();
     let state_update = TrieUpdate::new(trie);
 

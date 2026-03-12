@@ -1642,9 +1642,9 @@ impl RuntimeAdapter for NightshadeRuntime {
 /// this block; otherwise falls back to the recording `state_update` to see
 /// the updated overlay.
 ///
-/// Returns 0 when the key does not exist. This lets nonce=1 pass the gap
-/// check (correct for a fresh key); the missing-key case will be caught
-/// later during full transaction validation.
+/// Returns 0 when the key does not exist, which lets nonce=1 pass the gap
+/// check. The missing-key case will be caught later during full transaction
+/// validation.
 fn peek_nonce_for_gap_check(
     state_update: &TrieUpdateWitnessSizeWrapper,
     modified_signers: &HashSet<TransactionGroupKey>,
