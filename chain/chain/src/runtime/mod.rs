@@ -897,6 +897,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
                 continue;
             }
+            skips_since_last_progress = 0;
 
             // Cache for signer account and access key, reused within the same transaction group.
             // For gas key transactions, also caches the current nonce and its index.
