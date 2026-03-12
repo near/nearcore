@@ -1,5 +1,5 @@
-use std::sync::Arc;
-
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
 use near_async::time::Duration;
 use near_client::Client;
 use near_o11y::testonly::init_test_logger;
@@ -19,9 +19,7 @@ use near_store::DBCol;
 use near_store::adapter::StoreAdapter;
 use near_store::{ShardUId, Trie, TrieDBStorage};
 use std::str::FromStr;
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::env::TestLoopEnv;
+use std::sync::Arc;
 
 // The height of the block in which the promise yield is created.
 const YIELD_CREATE_HEIGHT: u64 = 4;

@@ -1,3 +1,5 @@
+use crate::setup::builder::TestLoopBuilder;
+use crate::utils::account::create_account_id;
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
@@ -8,9 +10,6 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{Balance, Gas, ShardId};
 use near_store::DBCol;
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::create_account_id;
 
 const EPOCH_LENGTH: u64 = 5;
 
@@ -27,8 +26,7 @@ fn test_save_receipt_to_tx_false() {
         .config_modifier(|config, _| {
             config.save_receipt_to_tx = false;
         })
-        .build()
-        .warmup();
+        .build();
 
     let signer = create_user_test_signer(&user_account);
     let block_hash = env.validator().head().last_block_hash;
@@ -83,8 +81,7 @@ fn test_receipt_to_tx_persists_across_restart() {
         .add_user_account(&user_account, Balance::from_near(1_000_000))
         .epoch_length(EPOCH_LENGTH)
         .gc_num_epochs_to_keep(20)
-        .build()
-        .warmup();
+        .build();
 
     let restart_node_data = &env.node_datas[0];
     let restart_account = restart_node_data.account_id.clone();
@@ -150,8 +147,7 @@ fn test_save_receipt_to_tx_independent_of_outcomes() {
         .config_modifier(|config, _| {
             config.save_tx_outcomes = false;
         })
-        .build()
-        .warmup();
+        .build();
 
     let signer = create_user_test_signer(&user_account);
     let block_hash = env.validator().head().last_block_hash;
@@ -207,8 +203,7 @@ fn test_no_index_when_both_disabled() {
             config.save_tx_outcomes = false;
             config.save_receipt_to_tx = false;
         })
-        .build()
-        .warmup();
+        .build();
 
     // Capture baselines before sending the transaction.
     let outcome_ids_before = env.validator().store().iter(DBCol::OutcomeIds).count();
@@ -286,8 +281,7 @@ fn test_receipt_to_tx_persists_across_restart_index_only() {
         .config_modifier(|config, _| {
             config.save_tx_outcomes = false;
         })
-        .build()
-        .warmup();
+        .build();
 
     let restart_node_data = &env.node_datas[0];
     let restart_account = restart_node_data.account_id.clone();
@@ -380,8 +374,7 @@ fn test_refund_receipt_has_receipt_to_tx() {
         .add_user_account(&user_account, Balance::from_near(1_000_000))
         .epoch_length(EPOCH_LENGTH)
         .gas_prices(min_gas_price, min_gas_price)
-        .build()
-        .warmup();
+        .build();
 
     let signer = create_user_test_signer(&user_account);
 

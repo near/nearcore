@@ -1,6 +1,5 @@
-use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
-
 use crate::archive::cloud_storage::CloudStorage;
+use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
 
 /// Identifiers of files stored in cloud archival storage.
 /// Each variant maps to a specific logical file within the archive.

@@ -1,6 +1,5 @@
-use std::collections::BTreeSet;
-use std::sync::Arc;
-
+use crate::congestion_control::ReceiptSink;
+use crate::{ActionResult, ApplyState, clear_account_contract_storage_usage};
 use near_primitives::account::{Account, AccountContract};
 use near_primitives::action::{
     DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
@@ -20,9 +19,8 @@ use near_store::trie::AccessOptions;
 use near_store::{KeyLookupMode, StorageError, TrieAccess as _, TrieUpdate};
 use near_vm_runner::logic::ProtocolVersion;
 use near_vm_runner::{ContractCode, precompile_contract};
-
-use crate::congestion_control::ReceiptSink;
-use crate::{ActionResult, ApplyState, clear_account_contract_storage_usage};
+use std::collections::BTreeSet;
+use std::sync::Arc;
 
 pub(crate) fn action_deploy_global_contract(
     state_update: &mut TrieUpdate,

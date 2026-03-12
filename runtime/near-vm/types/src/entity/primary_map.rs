@@ -2,8 +2,6 @@
 // Attributions: https://github.com/wasmerio/wasmer/blob/2.3.0/ATTRIBUTIONS.md
 
 //! Densely numbered entity references as mapping keys.
-use rkyv::Archive;
-
 use crate::entity::EntityRef;
 use crate::entity::boxed_slice::BoxedSlice;
 use crate::entity::iter::{IntoIter, Iter, IterMut};
@@ -14,6 +12,7 @@ use crate::lib::std::marker::PhantomData;
 use crate::lib::std::ops::{Index, IndexMut};
 use crate::lib::std::slice;
 use crate::lib::std::vec::Vec;
+use rkyv::Archive;
 
 /// A primary mapping `K -> V` allocating dense entity references.
 ///

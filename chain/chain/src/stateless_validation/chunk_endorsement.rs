@@ -1,10 +1,9 @@
-use std::collections::HashMap;
-
 use itertools::Itertools;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+use std::collections::HashMap;
 
 /// This function validates the chunk_endorsements present in the block body. Validation does the following:
 ///    - Match number of chunks/shards with number of chunk endorsements vector.

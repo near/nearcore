@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+use crate::setup::builder::TestLoopBuilder;
+use crate::utils::account::{create_account_id, create_validators_spec, validators_spec_clients};
 use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_chain_configs::TrackedShardsConfig;
@@ -21,8 +23,6 @@ use near_primitives::utils::get_block_shard_id;
 use near_store::{DBCol, ShardUId};
 
 use crate::setup;
-use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::{create_account_id, create_validators_spec, validators_spec_clients};
 
 const EPOCH_LENGTH: u64 = 5;
 const GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
@@ -44,8 +44,7 @@ fn test_processed_receipt_ids_gc() {
         .epoch_length(EPOCH_LENGTH)
         .add_user_account(&user_account, Balance::from_near(1_000_000))
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
-        .build()
-        .warmup();
+        .build();
 
     let signer = create_user_test_signer(&user_account);
 
@@ -188,8 +187,7 @@ fn test_receipt_to_tx_saved_and_gced() {
         .epoch_config_store_from_genesis()
         .clients(clients)
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
-        .build()
-        .warmup();
+        .build();
 
     let signer = create_user_test_signer(&user_account);
 
@@ -310,8 +308,7 @@ fn test_receipt_to_tx_gc_with_outcomes_disabled() {
         .config_modifier(|config, _| {
             config.save_tx_outcomes = false;
         })
-        .build()
-        .warmup();
+        .build();
 
     let signer = create_user_test_signer(&user_account);
 
@@ -404,8 +401,7 @@ fn test_data_receipt_receipt_to_tx_gc() {
         .epoch_length(EPOCH_LENGTH)
         .add_user_account(&user_account, Balance::from_near(1_000_000))
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
-        .build()
-        .warmup();
+        .build();
 
     let signer = create_user_test_signer(&user_account);
 
@@ -696,8 +692,7 @@ fn test_cross_shard_receipt_to_tx_gc_on_source_only_node() {
                 config.gc.gc_step_period = GC_STEP_PERIOD;
             }
         })
-        .build()
-        .warmup();
+        .build();
 
     let signer = create_user_test_signer(&sender);
 

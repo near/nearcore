@@ -1,9 +1,3 @@
-use std::cell::RefCell;
-use std::cmp::max;
-use std::collections::HashMap;
-use std::rc::Rc;
-use std::sync::Arc;
-
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{
     create_account_ids, create_validators_spec, validators_spec_clients_with_rpc,
@@ -27,6 +21,11 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
 use parking_lot::RwLock;
 use rand::{Rng as _, thread_rng};
+use std::cell::RefCell;
+use std::cmp::max;
+use std::collections::HashMap;
+use std::rc::Rc;
+use std::sync::Arc;
 
 #[test]
 fn slow_test_repro_1183() {
@@ -58,8 +57,7 @@ fn slow_test_repro_1183() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
-        .build()
-        .warmup();
+        .build();
 
     let last_block: Arc<RwLock<Option<Arc<Block>>>> = Arc::new(RwLock::new(None));
     let delayed_one_parts: Arc<RwLock<Vec<NetworkRequests>>> = Arc::new(RwLock::new(vec![]));
@@ -201,8 +199,7 @@ fn slow_test_sync_from_archival_node() {
                 config.tracked_shards_config = TrackedShardsConfig::AllShards;
             }
         })
-        .build()
-        .warmup();
+        .build();
 
     let largest_height = Arc::new(RwLock::new(0));
     let blocks = Arc::new(RwLock::new(HashMap::new()));
@@ -320,8 +317,7 @@ fn slow_test_long_gap_between_blocks() {
             config.max_block_production_delay = 3 * block_prod_time;
             config.max_block_wait_delay = 3 * block_prod_time;
         })
-        .build()
-        .warmup();
+        .build();
 
     for node in &env.node_datas {
         let peer_actor_handle = node.peer_manager_sender.actor_handle();
@@ -380,8 +376,7 @@ fn test_rpc_forwards_retried_transaction() {
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(clients)
-        .build()
-        .warmup();
+        .build();
     let rpc_data_idx = env.rpc_data_idx();
 
     // First test the case where `validator_signer` is set.

@@ -338,6 +338,7 @@ impl Client {
             config.block_fetch_horizon,
             config.archive,
             config.state_sync_enabled,
+            config.sync_max_block_requests,
         );
 
         let state_sync = StateSync::new(

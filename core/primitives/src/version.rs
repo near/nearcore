@@ -13,7 +13,6 @@ pub struct Version {
 }
 
 use crate::upgrade_schedule::ProtocolUpgradeVotingSchedule;
-
 /// near_primitives_core re-exports
 pub use near_primitives_core::types::ProtocolVersion;
 pub use near_primitives_core::version::MIN_SUPPORTED_PROTOCOL_VERSION;

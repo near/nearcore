@@ -1,3 +1,11 @@
+use crate::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
+use crate::chunk_executor_actor::{
+    ChunkExecutorActor, ChunkExecutorConfig, is_descendant_of_final_execution_head,
+};
+use crate::chunk_executor_actor::{ExecutorApplyChunksDone, get_witness};
+use crate::spice_data_distributor_actor::SpiceDataDistributorAdapter;
+use crate::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
+use crate::spice_data_distributor_actor::SpiceDistributorStateWitness;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use itertools::Itertools as _;
 use near_async::futures::AsyncComputationSpawner;
@@ -40,15 +48,6 @@ use near_store::adapter::StoreAdapter as _;
 use parking_lot::RwLock;
 use std::str::FromStr as _;
 use std::sync::Arc;
-
-use crate::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
-use crate::chunk_executor_actor::{
-    ChunkExecutorActor, ChunkExecutorConfig, is_descendant_of_final_execution_head,
-};
-use crate::chunk_executor_actor::{ExecutorApplyChunksDone, get_witness};
-use crate::spice_data_distributor_actor::SpiceDataDistributorAdapter;
-use crate::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
-use crate::spice_data_distributor_actor::SpiceDistributorStateWitness;
 
 struct FakeSpawner {
     sc: UnboundedSender<Box<dyn FnOnce() + Send>>,
@@ -1036,6 +1035,9 @@ fn test_witness_is_valid() {
             .get_block_execution_results(prev_block.header())
             .unwrap()
             .unwrap();
+        let shard_id = state_witness.chunk_id().shard_id;
+        let prev_validator_proposals =
+            actor.actor.core_reader.prev_validator_proposals(prev_block.hash(), shard_id).unwrap();
         let pre_validation_result = spice_pre_validate_chunk_state_witness(
             &state_witness,
             &block,
@@ -1043,6 +1045,7 @@ fn test_witness_is_valid() {
             &prev_block_execution_results,
             actor.actor.epoch_manager.as_ref(),
             &actor.actor.chain_store,
+            prev_validator_proposals,
         )
         .unwrap();
 

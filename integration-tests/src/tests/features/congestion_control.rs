@@ -1,3 +1,6 @@
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
+use crate::env::test_env_builder::TestEnvBuilder;
 use assert_matches::assert_matches;
 use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
@@ -18,10 +21,6 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 use near_vm_runner::logic::ProtocolVersion;
 use std::sync::Arc;
-
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
-use crate::env::test_env_builder::TestEnvBuilder;
 
 const ACCOUNT_PARENT_ID: &str = "near";
 const CONTRACT_ID: &str = "contract.near";

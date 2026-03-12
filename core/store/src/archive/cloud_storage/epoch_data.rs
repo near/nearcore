@@ -1,3 +1,5 @@
+use crate::Store;
+use crate::adapter::StoreAdapter;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_primitives::Error;
 use near_primitives::epoch_info::EpochInfo;
@@ -5,9 +7,6 @@ use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{BlockHeight, EpochId};
 use near_schema_checker_lib::ProtocolSchema;
-
-use crate::Store;
-use crate::adapter::StoreAdapter;
 
 /// Versioned container for epoch-related data stored in the cloud archival.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]

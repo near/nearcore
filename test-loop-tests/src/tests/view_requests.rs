@@ -1,3 +1,5 @@
+use crate::setup::builder::TestLoopBuilder;
+use crate::utils::transactions::get_shared_block_hash;
 use near_async::messaging::Handler;
 use near_async::time::Duration;
 use near_client::GetStateChanges;
@@ -9,9 +11,6 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, AccountWithPublicKey, Balance, NonceIndex};
 use near_primitives::views::{StateChangeValueView, StateChangesRequestView};
 use near_primitives_core::account::AccessKey;
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::utils::transactions::get_shared_block_hash;
 
 #[test]
 #[cfg_attr(not(feature = "nightly"), ignore)]
@@ -25,8 +24,7 @@ fn test_access_key_changes_includes_gas_key_nonces() {
         .enable_rpc()
         .epoch_length(epoch_length)
         .add_user_account(&submitter, Balance::from_near(1_000_000))
-        .build()
-        .warmup();
+        .build();
 
     let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
     // TODO(spice): Replace with get_next_nonce once it works with spice.

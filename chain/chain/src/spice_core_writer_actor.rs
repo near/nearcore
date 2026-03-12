@@ -1,3 +1,4 @@
+use crate::spice_core::SpiceCoreReader;
 use itertools::Itertools;
 use near_async::messaging::{Handler, Sender};
 use near_cache::SyncLruCache;
@@ -25,8 +26,6 @@ use near_store::{DBCol, StoreUpdate};
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-
-use crate::spice_core::SpiceCoreReader;
 
 /// Message that should be sent once executions results for all chunks in a block are endorsed.
 #[derive(Debug, Clone, PartialEq)]

@@ -1,7 +1,6 @@
-use std::collections::{HashMap, HashSet};
-use std::fmt;
-use std::sync::Arc;
-
+use crate::spice_core::get_last_certified_block_header;
+use crate::types::RuntimeAdapter;
+use crate::{Chain, ChainStore, ChainStoreAccess, ChainStoreUpdate, metrics};
 use itertools::Itertools;
 use near_chain_configs::GCConfig;
 use near_chain_primitives::Error;
@@ -24,10 +23,9 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{DBCol, KeyForStateChanges, ShardTries, ShardUId};
-
-use crate::spice_core::get_last_certified_block_header;
-use crate::types::RuntimeAdapter;
-use crate::{Chain, ChainStore, ChainStoreAccess, ChainStoreUpdate, metrics};
+use std::collections::{HashMap, HashSet};
+use std::fmt;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub enum GCMode {

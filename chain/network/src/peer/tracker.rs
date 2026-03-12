@@ -93,9 +93,8 @@ impl Tracker {
 
 #[cfg(test)]
 mod tests {
-    use near_primitives::hash::hash;
-
     use super::*;
+    use near_primitives::hash::hash;
 
     #[test]
     #[should_panic]

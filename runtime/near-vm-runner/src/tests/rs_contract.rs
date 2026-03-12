@@ -1,22 +1,21 @@
+use super::test_vm_config;
 use crate::ContractCode;
 use crate::logic::Config;
 use crate::logic::errors::{FunctionCallError, HostError, WasmTrap};
 use crate::logic::mocks::mock_external::{MockAction, MockedExternal};
 use crate::logic::types::ReturnData;
 use crate::runner::VMKindExt;
-use near_parameters::RuntimeFeesConfig;
-use near_primitives_core::types::Balance;
-use near_primitives_core::types::Gas;
-use std::mem::size_of;
-use std::sync::Arc;
-
-use super::test_vm_config;
 use crate::runner::VMResult;
 use crate::tests::{
     CURRENT_ACCOUNT_ID, PREDECESSOR_ACCOUNT_ID, SIGNER_ACCOUNT_ID, SIGNER_ACCOUNT_PK,
     create_context, with_vm_variants,
 };
+use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::VMKind;
+use near_primitives_core::types::Balance;
+use near_primitives_core::types::Gas;
+use std::mem::size_of;
+use std::sync::Arc;
 
 /// Encode array of `u64` to be passed as a smart contract argument.
 fn encode(xs: &[u64]) -> Vec<u8> {

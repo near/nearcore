@@ -1,21 +1,10 @@
 #![doc = include_str!("../README.md")]
 
-use std::convert::AsRef;
-use std::sync::Arc;
-use std::time::Duration;
-
 use axum::Router;
 use axum::extract::{Json, State};
 use axum::http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use axum::http::{HeaderValue, Method};
 use axum::routing::post;
-use strum::IntoEnumIterator;
-use tower_http::cors::CorsLayer;
-use tower_http::limit::RequestBodyLimitLayer;
-use tower_http::trace::TraceLayer;
-use utoipa::OpenApi;
-use utoipa_swagger_ui::SwaggerUi;
-
 pub use config::RosettaRpcConfig;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::CanSendAsync;
@@ -26,6 +15,15 @@ use near_client::client_actor::ClientActor;
 use near_client::{RpcHandlerActor, ViewClientActor};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::{borsh::BorshDeserialize, types::Balance};
+use std::convert::AsRef;
+use std::sync::Arc;
+use std::time::Duration;
+use strum::IntoEnumIterator;
+use tower_http::cors::CorsLayer;
+use tower_http::limit::RequestBodyLimitLayer;
+use tower_http::trace::TraceLayer;
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
 mod adapters;
 mod config;

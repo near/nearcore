@@ -1,7 +1,5 @@
-use std::collections::HashMap;
-use std::iter;
-use std::sync::Arc;
-
+use crate::EpochManager;
+use crate::validator_selection::proposals_to_epoch_info;
 use itertools::Itertools;
 use near_primitives::chains::{MAINNET, TESTNET};
 use near_primitives::epoch_block_info::BlockInfo;
@@ -14,9 +12,9 @@ use near_primitives::types::{AccountId, Balance, EpochId, NumSeats, ValidatorId}
 use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
 use rand::{RngCore, SeedableRng};
 use rand_hc::Hc128Rng;
-
-use crate::EpochManager;
-use crate::validator_selection::proposals_to_epoch_info;
+use std::collections::HashMap;
+use std::iter;
+use std::sync::Arc;
 
 impl EpochManager {
     pub fn initialize_genesis_epoch_info(

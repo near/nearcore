@@ -1,6 +1,5 @@
 use crate::entity_debug_serializer::serialize_entity;
 use anyhow::{Context, anyhow};
-
 use borsh::BorshDeserialize;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::{Block, BlockHeader};

@@ -1,16 +1,14 @@
-use borsh::BorshDeserialize;
-use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::ShardUId;
-use near_primitives::state::FlatStateValue;
-
+use super::{StoreAdapter, StoreUpdateAdapter, StoreUpdateHolder};
 use crate::flat::delta::{BlockWithChangesInfo, KeyForFlatStateDelta};
 use crate::flat::{
     FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStateIterator,
     FlatStorageReadyStatus, FlatStorageStatus,
 };
 use crate::{DBCol, Store, StoreUpdate};
-
-use super::{StoreAdapter, StoreUpdateAdapter, StoreUpdateHolder};
+use borsh::BorshDeserialize;
+use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::ShardUId;
+use near_primitives::state::FlatStateValue;
 
 #[derive(Clone)]
 pub struct FlatStoreAdapter {
@@ -243,11 +241,10 @@ pub fn decode_flat_state_db_key(key: &[u8]) -> (ShardUId, Vec<u8>) {
 
 #[cfg(test)]
 mod tests {
-    use near_primitives::shard_layout::ShardUId;
-    use near_primitives::state::FlatStateValue;
-
     use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
     use crate::test_utils::create_test_store;
+    use near_primitives::shard_layout::ShardUId;
+    use near_primitives::state::FlatStateValue;
 
     #[test]
     fn iter_flat_state_entries() {

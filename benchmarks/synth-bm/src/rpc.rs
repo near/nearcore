@@ -1,5 +1,4 @@
 use std::time::Instant;
-
 use near_crypto::{InMemorySigner, PublicKey, Signer};
 use near_jsonrpc_client::JsonRpcClient;
 use near_jsonrpc_client::errors::JsonRpcError;

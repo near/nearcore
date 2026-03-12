@@ -5,7 +5,6 @@ use crate::{ImportError, LinkError};
 use more_asserts::assert_ge;
 use near_vm_types::entity::{BoxedSlice, EntityRef, PrimaryMap};
 use near_vm_types::{ExternType, FunctionIndex, ImportCounts, MemoryType, TableType};
-
 use near_vm_vm::{
     Export, ExportFunctionMetadata, FunctionBodyPtr, ImportFunctionEnv, Imports, MemoryStyle,
     Resolver, VMFunctionBody, VMFunctionEnvironment, VMFunctionImport, VMFunctionKind,

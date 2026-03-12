@@ -1,10 +1,13 @@
 //! This file contains helper functions for initialization of genesis data in store
 //! We first check if store has the genesis state_roots, if not, we go ahead with initialization
 
-use std::collections::{BTreeMap, HashSet};
-use std::fs;
-use std::path::Path;
-
+use crate::adapter::StoreAdapter;
+use crate::flat::FlatStorageManager;
+use crate::genesis::GenesisStateApplier;
+use crate::{
+    ShardTries, StateSnapshotConfig, Store, TrieConfig, get_genesis_height,
+    get_genesis_state_roots, set_genesis_height, set_genesis_state_roots,
+};
 use borsh::BorshDeserialize;
 use near_chain_configs::{Genesis, GenesisContents};
 use near_parameters::RuntimeConfigStore;
@@ -16,14 +19,9 @@ use near_primitives::state_record::{
 };
 use near_primitives::types::{AccountId, ShardId, StateRoot};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-
-use crate::adapter::StoreAdapter;
-use crate::flat::FlatStorageManager;
-use crate::genesis::GenesisStateApplier;
-use crate::{
-    ShardTries, StateSnapshotConfig, Store, TrieConfig, get_genesis_height,
-    get_genesis_state_roots, set_genesis_height, set_genesis_state_roots,
-};
+use std::collections::{BTreeMap, HashSet};
+use std::fs;
+use std::path::Path;
 
 const STATE_DUMP_FILE: &str = "state_dump";
 const GENESIS_ROOTS_FILE: &str = "genesis_roots";

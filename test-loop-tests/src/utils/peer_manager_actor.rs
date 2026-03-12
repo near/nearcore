@@ -1,6 +1,3 @@
-use std::collections::{HashMap, HashSet, hash_map};
-use std::sync::Arc;
-
 use itertools::Itertools;
 use near_async::futures::{DelayedActionRunnerExt as _, FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{
@@ -36,6 +33,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use parking_lot::{Mutex, MutexGuard};
+use std::collections::{HashMap, HashSet, hash_map};
+use std::sync::Arc;
 
 /// Subset of ClientSenderForNetwork required for the TestLoop network.
 /// We skip over the message handlers from view client.

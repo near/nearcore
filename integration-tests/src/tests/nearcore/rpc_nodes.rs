@@ -1,8 +1,6 @@
 use crate::tests::nearcore::node_cluster::NodeCluster;
 use crate::utils::genesis_helpers::genesis_block;
 use assert_matches::assert_matches;
-use tokio::time::sleep;
-
 use futures::TryFutureExt;
 use futures::future::join_all;
 use near_async::messaging::CanSendAsync;
@@ -24,6 +22,7 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::{ExecutionOutcomeView, ExecutionStatusView, TxExecutionStatus};
 use std::ops::ControlFlow;
 use std::time::Duration;
+use tokio::time::sleep;
 
 #[tokio::test]
 async fn test_get_validator_info_rpc() {

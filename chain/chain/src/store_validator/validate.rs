@@ -1,5 +1,4 @@
 use crate::StoreValidator;
-
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::epoch_block_info::BlockInfo;

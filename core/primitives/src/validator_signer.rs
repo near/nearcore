@@ -1,10 +1,8 @@
+use crate::types::AccountId;
+use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use std::fmt::Debug;
 use std::path::Path;
 use std::sync::Arc;
-
-use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
-
-use crate::types::AccountId;
 
 /// Enum for validator signer, that holds validator id and key used for signing data.
 #[derive(Clone, Debug, PartialEq)]

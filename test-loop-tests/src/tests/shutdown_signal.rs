@@ -1,9 +1,8 @@
+use crate::setup::builder::TestLoopBuilder;
 use near_async::time::Duration;
 use near_chain_configs::MutableConfigValue;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::types::BlockHeight;
-
-use crate::setup::builder::TestLoopBuilder;
 
 /// Test that the shutdown signal integration with test-loop works correctly.
 /// When ClientActor's expected_shutdown triggers, it consumes the shutdown_signal,
@@ -24,8 +23,7 @@ fn test_shutdown_signal_in_testloop() {
                     MutableConfigValue::new(Some(shutdown_height), "expected_shutdown");
             }
         })
-        .build()
-        .warmup();
+        .build();
 
     // Run until node 1 advances well past the shutdown height.
     let target_height = shutdown_height + 10;

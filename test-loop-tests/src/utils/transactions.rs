@@ -1,7 +1,6 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::task::Poll;
-
+use super::get_node_data;
+use super::node::TestLoopNode;
+use crate::setup::state::NodeExecutionData;
 use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::futures::FutureSpawnerExt;
@@ -22,11 +21,9 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
 use parking_lot::Mutex;
-
-use crate::setup::state::NodeExecutionData;
-
-use super::get_node_data;
-use super::node::TestLoopNode;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::task::Poll;
 
 /// See `execute_money_transfers`. Debug is implemented so .unwrap() can print
 /// the error.
