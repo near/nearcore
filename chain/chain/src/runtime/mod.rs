@@ -933,20 +933,25 @@ impl RuntimeAdapter for NightshadeRuntime {
                 // size for transactions that won't be included.
                 if tx_peek.nonce_mode() == NonceMode::Strict {
                     let current_nonce = if let Some(cache) = &signer_cache {
-                        if let Some((_, gas_key_nonce)) = cache.gas_key_nonce {
+                        Some(if let Some((_, gas_key_nonce)) = cache.gas_key_nonce {
                             gas_key_nonce
                         } else {
                             cache.access_key.nonce
-                        }
+                        })
                     } else {
                         peek_nonce_for_gap_check(&state_update, &modified_signers, &group_key)
                     };
-                    let tx_nonce = tx_peek.nonce().nonce();
-                    if tx_nonce > current_nonce.saturating_add(1) {
-                        if signer_cache.is_none() {
-                            stalled_groups.insert(group_key);
+                    // When the key exists, check for a nonce gap. When the
+                    // key is missing, let the tx through so full validation
+                    // can reject it (avoiding permanent pool retention).
+                    if let Some(current_nonce) = current_nonce {
+                        let tx_nonce = tx_peek.nonce().nonce();
+                        if tx_nonce > current_nonce.saturating_add(1) {
+                            if signer_cache.is_none() {
+                                stalled_groups.insert(group_key);
+                            }
+                            break;
                         }
-                        break;
                     }
                 }
 
@@ -1642,14 +1647,13 @@ impl RuntimeAdapter for NightshadeRuntime {
 /// this block; otherwise falls back to the recording `state_update` to see
 /// the updated overlay.
 ///
-/// Returns 0 when the key does not exist, which lets nonce=1 pass the gap
-/// check. The missing-key case will be caught later during full transaction
-/// validation.
+/// Returns `None` when the key does not exist, signaling the caller to skip
+/// the gap check and let full validation handle the missing-key rejection.
 fn peek_nonce_for_gap_check(
     state_update: &TrieUpdateWitnessSizeWrapper,
     modified_signers: &HashSet<TransactionGroupKey>,
     group_key: &TransactionGroupKey,
-) -> Nonce {
+) -> Option<Nonce> {
     let (signer_id, public_key, nonce_index) = group_key;
     let throwaway_trie;
     let nonce_source: &dyn TrieAccess = if modified_signers.contains(group_key) {
@@ -1659,12 +1663,9 @@ fn peek_nonce_for_gap_check(
         &throwaway_trie
     };
     if let Some(nonce_index) = *nonce_index {
-        get_gas_key_nonce(nonce_source, signer_id, public_key, nonce_index)
-            .ok()
-            .flatten()
-            .unwrap_or(0)
+        get_gas_key_nonce(nonce_source, signer_id, public_key, nonce_index).ok().flatten()
     } else {
-        get_access_key(nonce_source, signer_id, public_key).ok().flatten().map_or(0, |ak| ak.nonce)
+        get_access_key(nonce_source, signer_id, public_key).ok().flatten().map(|ak| ak.nonce)
     }
 }
 
