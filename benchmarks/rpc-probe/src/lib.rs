@@ -100,11 +100,16 @@ async fn fetch_nonce(
     }
 }
 
-/// Initialize nonces for all write probe accounts from the chain.
-/// Retries every 5s until all accounts are initialized.
-async fn init_nonces(client: &JsonRpcClient, accounts: &[Arc<WriteProbeAccount>]) {
+/// Initialize nonces for write probe accounts from the chain.
+/// Retries up to 3 times (5s apart). Without RPC sharding, nodes only serve
+/// queries for tracked shards, so accounts on untracked shards are expected to
+/// fail and are dropped.
+async fn init_nonces(
+    client: &JsonRpcClient,
+    accounts: &[Arc<WriteProbeAccount>],
+) -> Vec<Arc<WriteProbeAccount>> {
     let mut pending: Vec<usize> = (0..accounts.len()).collect();
-    while !pending.is_empty() {
+    for attempt in 1..=3 {
         let mut still_pending = Vec::new();
         for &idx in &pending {
             let account = &accounts[idx];
@@ -117,20 +122,33 @@ async fn init_nonces(client: &JsonRpcClient, accounts: &[Arc<WriteProbeAccount>]
                 }
                 None => {
                     tracing::warn!(target: "rpc-probe",
-                        account_id = %account.account_id,
-                        "failed to fetch nonce, will retry");
+                        account_id = %account.account_id, attempt,
+                        "failed to fetch nonce");
                     still_pending.push(idx);
                 }
             }
         }
-        if !still_pending.is_empty() {
-            tracing::warn!(target: "rpc-probe",
-                remaining = still_pending.len(),
-                "retrying nonce initialization in 5s");
-            tokio::time::sleep(Duration::from_secs(5)).await;
-        }
         pending = still_pending;
+        if pending.is_empty() {
+            break;
+        }
+        tracing::warn!(target: "rpc-probe",
+            remaining = pending.len(), attempt,
+            "retrying nonce initialization in 5s");
+        tokio::time::sleep(Duration::from_secs(5)).await;
     }
+    for &idx in &pending {
+        tracing::warn!(target: "rpc-probe",
+            account_id = %accounts[idx].account_id,
+            "dropping write probe account (likely on untracked shard)");
+    }
+    let failed: std::collections::HashSet<usize> = pending.into_iter().collect();
+    accounts
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !failed.contains(i))
+        .map(|(_, a)| a.clone())
+        .collect()
 }
 
 const TRANSFER_AMOUNT: Balance = Balance::from_yoctonear(1);
@@ -270,10 +288,15 @@ async fn probe_loop(
         tokio::time::sleep(Duration::from_secs(config.startup_delay_s)).await;
     }
 
-    // Initialize write probe nonces after startup delay.
-    if let Some(ref wa) = write_accounts {
-        init_nonces(&client, wa).await;
-    }
+    // Initialize write probe nonces after startup delay. Without RPC sharding,
+    // accounts on untracked shards are expected to fail and are dropped.
+    let write_accounts = match write_accounts {
+        Some(wa) => {
+            let active = init_nonces(&client, &wa).await;
+            if active.is_empty() { None } else { Some(active) }
+        }
+        None => None,
+    };
 
     // Block hash cache: populated by view_account probes, consumed by write probes.
     // This avoids an extra status() RPC call per write probe.
