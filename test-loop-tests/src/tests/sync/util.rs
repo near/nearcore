@@ -26,14 +26,6 @@ pub fn track_sync_status(
     let node_handle = node_datas[node_idx].client_sender.actor_handle();
     test_loop.set_every_event_callback(move |test_loop_data| {
         let client = &test_loop_data.get(&node_handle).client;
-        let header_head_height = client.chain.header_head().unwrap().height;
-        let head_height = client.chain.head().unwrap().height;
-        tracing::info!(
-            ?client.sync_handler.sync_status,
-            ?header_head_height,
-            ?head_height,
-            "new node sync status"
-        );
         let status = client.sync_handler.sync_status.as_variant_name();
         let mut h = history_clone.borrow_mut();
         if h.last().map(|s| s.as_str()) != Some(status) {
