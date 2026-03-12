@@ -30,7 +30,9 @@ use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction, TransferAction};
+use near_primitives::transaction::{
+    Action, DeleteAccountAction, SignedTransaction, StakeAction, TransactionNonce, TransferAction,
+};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::Gas;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
@@ -1845,6 +1847,74 @@ fn test_prepare_transactions_extra() {
     assert_eq!(skipped_hashes, skip_tx_hashes);
 
     assert_eq!(transaction_pool.len(), 0);
+}
+
+#[test]
+fn test_strict_nonce_u64_max_not_included() {
+    let (env, chain, _transaction_pool) = get_test_env_with_chain_and_pool();
+    let prev_hash = env.head.prev_block_hash;
+    let shard_layout = env.epoch_manager.get_shard_layout_from_prev_block(&prev_hash).unwrap();
+    let shard_uid = shard_layout.shard_uids().next().unwrap();
+    let shard_id = shard_uid.shard_id();
+    let block = chain.get_block(&prev_hash).unwrap();
+    let congestion_info = block.block_congestion_info();
+    let next_epoch_id = env.epoch_manager.get_epoch_id_from_prev_block(&prev_hash).unwrap();
+
+    // Set the access key nonce to u64::MAX in the trie so that no strict-nonce
+    // tx can satisfy ak_nonce + 1 without overflow.
+    let signer = InMemorySigner::test_signer(&"test1".parse::<AccountId>().unwrap());
+    let mut trie = env.runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[0]);
+    trie = trie.recording_reads_new_recorder();
+    let mut state_update = TrieUpdate::new(trie);
+    set_access_key(
+        &mut state_update,
+        "test1".parse().unwrap(),
+        signer.public_key(),
+        &AccessKey {
+            nonce: u64::MAX,
+            permission: near_primitives::account::AccessKeyPermission::FullAccess,
+        },
+    );
+
+    // Create a strict-nonce tx with nonce u64::MAX (the only value that could
+    // plausibly match saturating_add(1) == u64::MAX).
+    let strict_tx = SignedTransaction::from_actions_v1_strict(
+        TransactionNonce::from_nonce(u64::MAX),
+        "test1".parse().unwrap(),
+        "test2".parse().unwrap(),
+        &signer,
+        vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })],
+        env.head.prev_block_hash,
+    );
+    const TEST_SEED: RngSeed = [3; 32];
+    let mut pool = TransactionPool::new(TEST_SEED, None, "");
+    pool.insert_transaction(ValidatedTransaction::new_for_test(strict_tx));
+
+    let (prepared, _skipped) = env
+        .runtime
+        .prepare_transactions_extra(
+            state_update,
+            shard_id,
+            PrepareTransactionsBlockContext {
+                next_gas_price: env.runtime.genesis_config.min_gas_price,
+                height: env.head.height,
+                next_epoch_id,
+                congestion_info,
+            },
+            &mut PoolIteratorWrapper::new(&mut pool),
+            &mut |tx: &SignedTransaction| -> bool {
+                chain
+                    .chain_store()
+                    .check_transaction_validity_period(&block.header(), tx.transaction.block_hash())
+                    .is_ok()
+            },
+            HashSet::new(),
+            default_produce_chunk_add_transactions_time_limit(),
+            None,
+        )
+        .unwrap();
+
+    assert!(prepared.transactions.is_empty(), "strict-nonce tx at u64::MAX should not be included");
 }
 
 #[test]
