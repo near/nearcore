@@ -943,7 +943,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     };
                     // When the key exists, check for a nonce gap. When the
                     // key is missing, let the tx through so full validation
-                    // can reject it (avoiding permanent pool retention).
+                    // can reject it.
                     if let Some(current_nonce) = current_nonce {
                         let tx_nonce = tx_peek.nonce().nonce();
                         if tx_nonce > current_nonce.saturating_add(1) {
