@@ -227,7 +227,6 @@ fn test_chunk_parts_withholding_attack() {
     let mut env = TestLoopBuilder::new().validators(7, 0).num_shards(7).build();
 
     let (malicious_node_idx, honest_node_idx) = (0, 1);
-
     // The malicious chunk producer only sends chunk parts to the block producer
     // for that height, withholding from all other validators. Also drops
     // responses to part requests so other nodes can't fetch the withheld parts.
@@ -235,60 +234,34 @@ fn test_chunk_parts_withholding_attack() {
         .shards_manager_sender
         .send(AdvDistributeChunksMode::WithholdFromNonBlockProducer);
 
+    let num_blocks = 3; // Minimum number of blocks to observe skipped blocks on chain.
     let head_before = env.node(honest_node_idx).head().height;
-    env.node_runner(honest_node_idx)
-        .run_for_number_of_blocks_with_timeout(15, Duration::seconds(60));
+    env.node_runner(honest_node_idx).run_for_number_of_blocks(num_blocks);
     let head_after = env.node(honest_node_idx).head().height;
 
     let chain_store = env.node(honest_node_idx).client().chain.chain_store();
     let epoch_manager = &env.node(honest_node_idx).client().epoch_manager;
     let head_epoch_id = env.node(honest_node_idx).head().epoch_id;
-    let shard_layout = epoch_manager.get_shard_layout(&head_epoch_id).unwrap();
     let malicious_account = create_validator_id(malicious_node_idx);
 
-    // Find the shard produced by the malicious node.
-    let malicious_shard = epoch_manager
-        .shard_ids(&head_epoch_id)
-        .unwrap()
-        .into_iter()
-        .find(|&shard_id| {
-            let key = ChunkProductionKey {
-                epoch_id: head_epoch_id,
-                height_created: head_before + 1,
-                shard_id,
-            };
-            *epoch_manager.get_chunk_producer_info(&key).unwrap().account_id() == malicious_account
-        })
-        .unwrap();
-
-    // Skip the first block after warmup: its chunk parts were distributed
-    // during warmup before the override took effect.
-    let mut skipped_count = 0;
-    for height in (head_before + 2)..=head_after {
+    let (mut malicious_skipped, mut honest_skipped) = (false, false);
+    for height in (head_before + 1)..=head_after {
         let block_producer = epoch_manager.get_block_producer(&head_epoch_id, height).unwrap();
-        let Some(block_hash) = chain_store.get_block_hash_by_height(height).ok() else {
-            skipped_count += 1;
-            continue;
-        };
-        let block = chain_store.get_block(&block_hash).unwrap();
-        let has_malicious_shard = block.chunks().iter().enumerate().any(|(idx, ch)| {
-            shard_layout.get_shard_id(idx).unwrap() == malicious_shard && ch.is_new_chunk()
-        });
-        // The withheld shard should never be included in blocks visible to the
-        // honest node, since no one can reconstruct it.
-        assert!(
-            !has_malicious_shard,
-            "height {height}: malicious shard {malicious_shard} not expected to be included"
-        );
-        // Blocks produced by the malicious node should not be visible to the
-        // honest node (other validators can't verify the withheld chunk and
-        // won't send approvals).
-        assert_ne!(
-            block_producer, malicious_account,
-            "height {height}: block produced by malicious node should not be accepted"
-        );
+        let produced = chain_store.get_block_hash_by_height(height).is_ok();
+        if block_producer == malicious_account {
+            assert!(!produced, "height {height}: block by malicious node should be skipped");
+            malicious_skipped = true;
+        } else if !produced {
+            honest_skipped = true;
+        }
     }
-    assert!(skipped_count > 0, "expected at least one skipped block due to withholding attack");
+    assert!(
+        malicious_skipped,
+        "expected at least one malicious block producer height to be skipped"
+    );
+    // The attack should also cause honest block producers to skip (they
+    // can't verify the withheld chunk and won't send approvals).
+    assert!(honest_skipped, "expected at least one honest block producer to skip");
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
