@@ -97,7 +97,13 @@ impl BlockInfo {
             current_protocol_version,
             header.latest_protocol_version(),
             header.raw_timestamp(),
-            header.chunk_endorsements().cloned().expect("header should include chunk endorsements"),
+            header.chunk_endorsements().cloned().unwrap_or_else(|| {
+                if header.is_genesis() {
+                    Default::default()
+                } else {
+                    panic!("non-genesis header should include chunk endorsements")
+                }
+            }),
             header.shard_split().cloned(),
         )
     }
