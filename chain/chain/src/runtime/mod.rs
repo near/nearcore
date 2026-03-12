@@ -32,8 +32,6 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
     Nonce, NonceIndex, NumShards, ShardId, StateRoot, StateRootNode,
 };
-
-type TransactionGroupKey = (AccountId, PublicKey, Option<NonceIndex>);
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, ContractCodeView, GasKeyNoncesView, QueryRequest, QueryResponse,
@@ -65,6 +63,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::instrument;
 use trie_update_wrapper::TrieUpdateWitnessSizeWrapper;
+
+type TransactionGroupKey = (AccountId, PublicKey, Option<NonceIndex>);
 
 pub mod errors;
 mod metrics;
