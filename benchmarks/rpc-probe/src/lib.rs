@@ -335,16 +335,14 @@ async fn probe_loop(
         // Write probe: native transfer (fire-and-forget, same pattern as reads).
         // Uses block hash from the most recent view_account response.
         if let Some(ref wa) = write_accounts {
-            if !wa.is_empty() {
-                if let Some(block_hash) = *latest_block_hash.lock() {
-                    let sender = wa[write_idx % wa.len()].clone();
-                    let receiver_id = wa[(write_idx + 1) % wa.len()].account_id.clone();
-                    let write_client = client.clone();
-                    tokio::spawn(async move {
-                        probe_native_transfer(write_client, sender, receiver_id, block_hash).await;
-                    });
-                    write_idx = write_idx.wrapping_add(1);
-                }
+            if let Some(block_hash) = *latest_block_hash.lock() {
+                let sender = wa[write_idx % wa.len()].clone();
+                let receiver_id = wa[(write_idx + 1) % wa.len()].account_id.clone();
+                let write_client = client.clone();
+                tokio::spawn(async move {
+                    probe_native_transfer(write_client, sender, receiver_id, block_hash).await;
+                });
+                write_idx = write_idx.wrapping_add(1);
             }
         }
     }
