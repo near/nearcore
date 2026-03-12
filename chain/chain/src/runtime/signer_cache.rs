@@ -35,32 +35,41 @@ impl SignerCache {
     pub fn get_or_load_entry_mut(
         &mut self,
         trie: &dyn TrieAccess,
-        key: &SignerKey,
+        key: SignerKey,
         nonce_index: Option<NonceIndex>,
     ) -> Result<&mut SignerCacheEntry, Error> {
-        let entry = match self.entries.entry(key.clone()) {
-            Entry::Occupied(e) => e.into_mut(),
+        let entry = match self.entries.entry(key) {
+            Entry::Occupied(mut e) => {
+                if let Some(idx) = nonce_index {
+                    if !e.get().gas_key_nonces.contains_key(&idx) {
+                        let (account_id, public_key) = e.key();
+                        let nonce = get_gas_key_nonce(trie, account_id, public_key, idx)
+                            .map_err(|_| Error::InvalidTransactions)?
+                            .ok_or(Error::InvalidTransactions)?;
+                        e.get_mut().gas_key_nonces.insert(idx, nonce);
+                    }
+                }
+                e.into_mut()
+            }
             Entry::Vacant(e) => {
-                let (account_id, public_key) = key;
+                let (account_id, public_key) = e.key();
                 let account = get_account(trie, account_id)
                     .map_err(|_| Error::InvalidTransactions)?
                     .ok_or(Error::InvalidTransactions)?;
                 let access_key = get_access_key(trie, account_id, public_key)
                     .map_err(|_| Error::InvalidTransactions)?
                     .ok_or(Error::InvalidTransactions)?;
-                e.insert(SignerCacheEntry { account, access_key, gas_key_nonces: HashMap::new() })
+                let gas_key_nonces = if let Some(idx) = nonce_index {
+                    let nonce = get_gas_key_nonce(trie, account_id, public_key, idx)
+                        .map_err(|_| Error::InvalidTransactions)?
+                        .ok_or(Error::InvalidTransactions)?;
+                    HashMap::from([(idx, nonce)])
+                } else {
+                    HashMap::new()
+                };
+                e.insert(SignerCacheEntry { account, access_key, gas_key_nonces })
             }
         };
-        // Ensure the requested nonce_index is loaded.
-        if let Some(idx) = nonce_index {
-            if let Entry::Vacant(e) = entry.gas_key_nonces.entry(idx) {
-                let (account_id, public_key) = key;
-                let nonce = get_gas_key_nonce(trie, account_id, public_key, idx)
-                    .map_err(|_| Error::InvalidTransactions)?
-                    .ok_or(Error::InvalidTransactions)?;
-                e.insert(nonce);
-            }
-        }
         Ok(entry)
     }
 }
