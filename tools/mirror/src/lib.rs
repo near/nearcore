@@ -547,6 +547,7 @@ struct TxMapping {
     provenance: MappedTxProvenance,
     nonce_updates: HashSet<NonceLookupKey>,
     nonce_kind: NonceKind,
+    nonce_mode: NonceMode,
 }
 
 // a transaction that's almost prepared, except that we don't yet know
@@ -582,7 +583,7 @@ impl TxAwaitingNonce {
                 receiver_id: mapping.target_receiver_id,
                 block_hash: mapping.ref_hash,
                 actions: vec![],
-                nonce_mode: NonceMode::Monotonic,
+                nonce_mode: mapping.nonce_mode,
             }),
         };
         *target_tx.actions_mut() = mapping.actions;
@@ -629,7 +630,7 @@ impl MappedTx {
                 receiver_id: mapping.target_receiver_id,
                 block_hash: mapping.ref_hash,
                 actions: vec![],
-                nonce_mode: NonceMode::Monotonic,
+                nonce_mode: mapping.nonce_mode,
             }),
         };
         *target_tx.actions_mut() = mapping.actions;
@@ -1309,6 +1310,7 @@ impl<T: ChainAccess> TxMirror<T> {
             provenance,
             nonce_updates,
             nonce_kind: NonceKind::AccessKey,
+            nonce_mode: NonceMode::Monotonic,
         };
         let target_tx = self
             .prepare_tx(tracker, tx_block_queue, target_view_client, mapping, source_height)
@@ -1651,6 +1653,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     provenance: MappedTxProvenance::MappedSourceTx(source_height, ch.shard_id, idx),
                     nonce_updates,
                     nonce_kind,
+                    nonce_mode: source_tx.transaction.nonce_mode(),
                 };
                 let target_tx = match self
                     .prepare_tx(
@@ -2378,6 +2381,7 @@ mod test {
             provenance: MappedTxProvenance::MappedSourceTx(1, ShardId::new(0), 0),
             nonce_updates: HashSet::new(),
             nonce_kind,
+            nonce_mode: NonceMode::Monotonic,
         }
     }
 
