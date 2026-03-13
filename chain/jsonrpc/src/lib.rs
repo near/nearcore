@@ -1158,6 +1158,7 @@ impl JsonRpcHandler {
                 }
             }
             RpcNodeHandle::LocalNode => {
+                // Box::pin is required because of async recursion
                 Box::pin(
                     async move { self.process_request(request, RequestSource::Coordinator).await },
                 )
