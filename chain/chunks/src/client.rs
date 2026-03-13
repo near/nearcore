@@ -23,8 +23,10 @@ pub enum ShardsManagerResponse {
     /// case the shard_chunk is also provided.
     ChunkCompleted { partial_chunk: PartialEncodedChunk, shard_chunk: Option<ShardChunk> },
     /// Notifies the client that we have collected a full chunk but the chunk cannot
-    /// be properly decoded.
-    InvalidChunk(EncodedShardChunk),
+    /// be properly decoded. Contains the encoded chunk (for evidence) and a
+    /// partial encoded chunk with the original (malicious) parts so they can
+    /// be persisted for block-syncing peers.
+    InvalidChunk { encoded_chunk: EncodedShardChunk, partial_chunk: PartialEncodedChunk },
     /// Notifies the client that the chunk header is ready for inclusion into a new
     /// block, so that if we are a block producer, we may create a block that contains
     /// this chunk now. The producer of this chunk is also provided.

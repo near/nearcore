@@ -757,8 +757,11 @@ impl ChunkExecutorActor {
             let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
             let chunk_headers = block.chunks();
             let chunk_header = chunk_headers.get(shard_index).unwrap();
-            if chunk_header.is_new_chunk(block.header().height()) {
-                self.chain_store.get_chunk(chunk_header.chunk_hash()).unwrap().into_transactions()
+            let chunk_hash = chunk_header.chunk_hash();
+            if chunk_header.is_new_chunk(block.header().height())
+                && self.chain_store.is_invalid_chunk(&chunk_hash).is_none()
+            {
+                self.chain_store.get_chunk(chunk_hash).unwrap().into_transactions()
             } else {
                 vec![]
             }
@@ -825,7 +828,11 @@ impl ChunkExecutorActor {
     ) -> Result<UpdateShardJob, Error> {
         let receipts = collect_receipts(&chunk_context.incoming_receipts);
         let chunk_header = chunk_context.chunk_header;
-        let (transactions, chunk_hash) = if chunk_header.is_new_chunk(block_context.height) {
+        let chunk_hash_val = chunk_header.chunk_hash();
+        let is_invalid = self.chain_store.is_invalid_chunk(&chunk_hash_val).is_some();
+        let (transactions, chunk_hash) = if chunk_header.is_new_chunk(block_context.height)
+            && !is_invalid
+        {
             let chunk = get_chunk_clone_from_header(&self.chain_store.chunk_store(), chunk_header)?;
             let chunk_hash = chunk.chunk_hash().clone();
             let tx_valid_list =
