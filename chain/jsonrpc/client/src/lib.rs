@@ -37,6 +37,9 @@ pub const JSONRPC_RESPONSE_LIMIT: usize = 100 * 1024 * 1024;
 type HttpRequest<T> = BoxFuture<'static, Result<T, String>>;
 type RpcRequest<T> = BoxFuture<'static, Result<T, RpcError>>;
 
+/// This HTTP header indicates that a jsonrpc query is coming from the coordinator.
+pub const SHARDED_RPC_COORDINATOR_HEADER: &'static str = "X-Near-Pool-Coordinator-Query";
+
 /// Trait which allows to send an RPC request and receive a response.
 /// Implementors must provide implementation for `send_http_request`.
 /// Provides a method to query jsonrpc, in the future rosetta will also be added.
@@ -73,7 +76,7 @@ pub trait RpcTransport: Send + Sync {
         };
 
         let extra_headers: &[(&str, &str)] =
-            if is_coordinator { &[("X-Near-Pool-Coordinator-Query", "1")] } else { &[] };
+            if is_coordinator { &[(SHARDED_RPC_COORDINATOR_HEADER, "1")] } else { &[] };
         let request_future =
             self.send_http_request("/", body_bytes, JSONRPC_RESPONSE_LIMIT, extra_headers);
         Box::pin(async move {

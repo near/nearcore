@@ -32,6 +32,7 @@ use near_client_primitives::types::{
     StatusError,
 };
 pub use near_jsonrpc_client_internal as client;
+use near_jsonrpc_client_internal::SHARDED_RPC_COORDINATOR_HEADER;
 pub use near_jsonrpc_primitives as primitives;
 use near_jsonrpc_primitives::errors::{RpcError, RpcErrorKind};
 use near_jsonrpc_primitives::message::{Message, Request};
@@ -1910,7 +1911,7 @@ async fn rpc_handler(
     headers: axum::http::HeaderMap,
     Json(request): Json<Message>,
 ) -> Response {
-    let source = if headers.contains_key("X-Near-Pool-Coordinator-Query") {
+    let source = if headers.contains_key(SHARDED_RPC_COORDINATOR_HEADER) {
         RequestSource::Coordinator
     } else {
         RequestSource::User
