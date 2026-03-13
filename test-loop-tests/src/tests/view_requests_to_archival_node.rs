@@ -78,8 +78,7 @@ fn slow_test_view_requests_to_archival_node() {
         .clients(all_clients)
         .cold_storage_archival_clients(archival_clients)
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
-        .build()
-        .warmup();
+        .build();
 
     let non_validator_accounts = accounts.iter().skip(NUM_VALIDATORS).cloned().collect_vec();
     let client_handle = node_datas[ARCHIVAL_CLIENT].client_sender.actor_handle();

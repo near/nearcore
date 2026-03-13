@@ -23,8 +23,7 @@ fn test_shutdown_signal_in_testloop() {
                     MutableConfigValue::new(Some(shutdown_height), "expected_shutdown");
             }
         })
-        .build()
-        .warmup();
+        .build();
 
     // Run until node 1 advances well past the shutdown height.
     let target_height = shutdown_height + 10;

@@ -21,7 +21,7 @@ fn test_epoch_sync_proof_update() {
 
     init_test_logger();
     let epoch_length = 10;
-    let mut env = TestLoopBuilder::new().epoch_length(epoch_length).build().warmup();
+    let mut env = TestLoopBuilder::new().epoch_length(epoch_length).build();
 
     let epoch_store = env.validator().client().chain.chain_store.epoch_store();
 
@@ -53,7 +53,7 @@ fn test_epoch_sync_proof_update_with_forks() {
 
     init_test_logger();
     let epoch_length = 10;
-    let mut env = TestLoopBuilder::new().epoch_length(epoch_length).build().warmup();
+    let mut env = TestLoopBuilder::new().epoch_length(epoch_length).build();
 
     // Run for 5 epochs
     for _ in 0..5 {
@@ -109,8 +109,7 @@ fn test_epoch_sync_stale_node_triggers_reset() {
     init_test_logger();
     let epoch_length = 10;
     // Use 4 validators so 3 remaining can continue after node 0 is killed.
-    let mut env =
-        TestLoopBuilder::new().validators(4, 0).epoch_length(epoch_length).build().warmup();
+    let mut env = TestLoopBuilder::new().validators(4, 0).epoch_length(epoch_length).build();
 
     // Run all nodes to height 30 (3 epochs), then kill node 0.
     let kill_height = 3 * epoch_length;
@@ -157,8 +156,7 @@ fn test_epoch_sync_bootstrap_fresh_node() {
 
     init_test_logger();
     let epoch_length = 10;
-    let mut env =
-        TestLoopBuilder::new().validators(4, 0).epoch_length(epoch_length).build().warmup();
+    let mut env = TestLoopBuilder::new().validators(4, 0).epoch_length(epoch_length).build();
 
     // Run for 8 epochs (80 blocks), well past the default 4-epoch horizon (40 blocks).
     let target_height = 8 * epoch_length;
@@ -207,7 +205,6 @@ fn test_epoch_sync_bootstrap_fresh_node() {
             "AwaitingPeers",
             "NoSync",
             "EpochSync",
-            "EpochSyncDone",
             "HeaderSync",
             "StateSync",
             "StateSyncDone",

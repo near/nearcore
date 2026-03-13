@@ -63,8 +63,7 @@ fn test_rpc_single_shard_tracking() {
             config.gc.gc_num_epochs_to_keep = GC_NUM_EPOCHS_TO_KEEP;
             config.tracked_shards_config = TrackedShardsConfig::Shards(tracked_shards.clone());
         })
-        .build()
-        .warmup();
+        .build();
 
     let num_blocks_to_wait = EPOCH_LENGTH * (GC_NUM_EPOCHS_TO_KEEP + 1);
     env.test_loop.run_for(Duration::seconds(num_blocks_to_wait as i64));
@@ -139,8 +138,7 @@ fn test_archival_single_shard_tracking_when_resharding() {
             config.tracked_shards_config =
                 TrackedShardsConfig::Shards(initial_tracked_shards.clone());
         })
-        .build()
-        .warmup();
+        .build();
 
     let client_handle = env.node_datas[archival_client_index].client_sender.actor_handle();
     let chain_store = env.test_loop.data.get(&client_handle).client.chain.chain_store.clone();

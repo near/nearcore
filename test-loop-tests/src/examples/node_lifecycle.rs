@@ -14,8 +14,7 @@ fn test_restart_node() {
         .validators(4, 0)
         .epoch_length(epoch_length)
         .gc_num_epochs_to_keep(20)
-        .build()
-        .warmup();
+        .build();
 
     let stable_node_idx = 1;
     let restart_node_data = &env.node_datas[0];
@@ -47,8 +46,7 @@ fn test_restart_node() {
 fn test_add_node() {
     init_test_logger();
 
-    let mut env =
-        TestLoopBuilder::new().validators(4, 0).gc_num_epochs_to_keep(20).build().warmup();
+    let mut env = TestLoopBuilder::new().validators(4, 0).gc_num_epochs_to_keep(20).build();
 
     // Let the chain progress for a few blocks
     env.node_runner(0).run_for_number_of_blocks(10);

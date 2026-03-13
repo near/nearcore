@@ -435,6 +435,8 @@ pub fn setup_client(
         network_adapter.as_multi_sender(),
         chunk_executor_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
+        spice_chunk_validator_adapter.as_sender(),
+        spice_chunk_validator_adapter.as_sender(),
     );
 
     let apply_chunks_iteration_mode = ApplyChunksIterationMode::Sequential;

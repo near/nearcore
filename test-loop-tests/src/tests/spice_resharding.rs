@@ -52,6 +52,7 @@ fn test_spice_certified_results_across_resharding() {
         .genesis(genesis)
         .clients(clients)
         .epoch_config_store(epoch_config_store)
+        .delay_warmup()
         .build();
 
     let execution_delay = 2;

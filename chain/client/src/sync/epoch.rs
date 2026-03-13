@@ -1,4 +1,5 @@
 use crate::client_actor::{ClientActor, ShutdownReason};
+use crate::sync::SYNC_V2_ENABLED;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Handler};
 use near_async::time::Clock;
@@ -54,6 +55,8 @@ pub struct EpochSync {
     genesis: BlockHeader,
     async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
     config: EpochSyncConfig,
+    /// Whether this node is archival. Archival nodes must not do epoch sync.
+    archive: bool,
     /// The last epoch sync proof and the epoch ID it was computed for.
     /// We reuse the same proof as long as the current epoch ID is the same.
     last_epoch_sync_response_cache: Arc<Mutex<Option<(EpochId, CompressedEpochSyncProof)>>>,
@@ -68,6 +71,7 @@ impl EpochSync {
         genesis: BlockHeader,
         async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
         config: EpochSyncConfig,
+        archive: bool,
         store: &Store,
     ) -> Self {
         let my_own_epoch_sync_boundary_block_header = store
@@ -82,6 +86,7 @@ impl EpochSync {
             genesis,
             async_computation_spawner,
             config,
+            archive,
             last_epoch_sync_response_cache: Arc::new(Mutex::new(None)),
             my_own_epoch_sync_boundary_block_header,
         }
@@ -139,6 +144,40 @@ impl EpochSync {
         Ok(proof)
     }
 
+    /// Returns true if the node is far enough behind that epoch sync is needed.
+    /// Pure query — does not mutate any state. Used by the v2 handler's
+    /// `decide_initial_phase()` and internally by `run()`.
+    ///
+    /// Checks three conditions in order:
+    /// 1. Horizon: is `header_head + epoch_sync_horizon` < `highest_height`?
+    /// 2. Archival: archival nodes must not skip blocks via epoch sync.
+    /// 3. Stale gate: non-genesis nodes can only epoch sync when SyncV2 is enabled.
+    pub fn is_epoch_sync_needed(
+        &self,
+        chain: &Chain,
+        highest_height: BlockHeight,
+    ) -> Result<bool, Error> {
+        let tip_height = chain.chain_store().header_head()?.height;
+        let horizon = self.config.epoch_sync_horizon_num_epochs * chain.epoch_length;
+        // Within the epoch sync horizon — header/block sync is sufficient.
+        if tip_height + horizon >= highest_height {
+            return Ok(false);
+        }
+        // Archival nodes must process every block; epoch sync would skip them.
+        if self.archive {
+            tracing::debug!(tip_height, highest_height, "skipping epoch sync: archival node");
+            return Ok(false);
+        }
+        // Without SyncV2, only fresh (genesis) nodes may epoch sync. Stale nodes
+        // (tip beyond genesis) must not — there is no handler to manage the
+        // post-epoch-sync pipeline (headers → state → blocks).
+        if !SYNC_V2_ENABLED && tip_height != chain.genesis().height() {
+            return Ok(false);
+        }
+        tracing::debug!(tip_height, highest_height, horizon, "epoch sync needed");
+        Ok(true)
+    }
+
     /// Performs the epoch sync logic if applicable in the current state of the blockchain.
     /// This is periodically called by the client actor.
     pub fn run(
@@ -148,29 +187,37 @@ impl EpochSync {
         highest_height: BlockHeight,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<(), Error> {
-        let tip_height = chain.chain_store().header_head()?.height;
-        // If the node is within the epoch sync horizon, no action needed.
-        if tip_height + self.config.epoch_sync_horizon_num_epochs * chain.epoch_length
-            >= highest_height
-        {
+        if !self.is_epoch_sync_needed(chain, highest_height)? {
             return Ok(());
         }
-        if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION)
-            && tip_height != chain.genesis().height()
-        {
-            // If continuous epoch sync is not enabled, we don't do epoch sync for nodes with stale data.
-            // Early return if the node is NOT fresh, i.e. tip_height is beyond genesis.
-            return Ok(());
+        // Ensure we're in the EpochSync status, creating it if needed.
+        if !matches!(status, SyncStatus::EpochSync(_)) {
+            *status = SyncStatus::EpochSync(EpochSyncStatus::NotStarted);
         }
+        let SyncStatus::EpochSync(epoch_sync_status) = status else {
+            unreachable!();
+        };
+        self.run_v2(epoch_sync_status, highest_height_peers)
+    }
+
+    /// Sends an epoch sync request to a random peer, or waits if a previous
+    /// request is still in flight. Handles both initial send (NotStarted) and
+    /// retry on timeout (InProgress).
+    pub fn run_v2(
+        &self,
+        status: &mut EpochSyncStatus,
+        highest_height_peers: &[HighestHeightPeerInfo],
+    ) -> Result<(), Error> {
         match status {
-            SyncStatus::EpochSync(status) => {
-                if status.attempt_time + self.config.timeout_for_epoch_sync < self.clock.now_utc() {
-                    tracing::warn!(source_peer_id = %status.source_peer_id, "epoch sync from peer timed out, retrying");
+            EpochSyncStatus::InProgress { attempt_time, source_peer_id, .. } => {
+                if *attempt_time + self.config.timeout_for_epoch_sync < self.clock.now_utc() {
+                    tracing::warn!(%source_peer_id, "epoch sync from peer timed out, retrying");
                 } else {
                     return Ok(());
                 }
             }
-            _ => {}
+            EpochSyncStatus::NotStarted => {}
+            EpochSyncStatus::Done => return Ok(()),
         }
 
         // TODO(#11976): Implement a more robust logic for picking a peer to request epoch sync from.
@@ -180,11 +227,11 @@ impl EpochSync {
 
         tracing::info!(peer_id=?peer.peer_info.id, "bootstrapping node via epoch sync");
 
-        *status = SyncStatus::EpochSync(EpochSyncStatus {
+        *status = EpochSyncStatus::InProgress {
             source_peer_id: peer.peer_info.id.clone(),
             source_peer_height: peer.highest_block_height,
             attempt_time: self.clock.now_utc(),
-        });
+        };
 
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::EpochSyncRequest { peer_id: peer.peer_info.id.clone() },
@@ -205,39 +252,43 @@ impl EpochSync {
         source_peer: &PeerId,
         epoch_manager: &dyn EpochManagerAdapter,
     ) -> Result<bool, Error> {
-        if let SyncStatus::EpochSync(status) = status {
-            if status.source_peer_id != *source_peer {
-                tracing::warn!(%source_peer, expected_peer = %status.source_peer_id, "ignoring epoch sync proof from unexpected peer");
-                return Ok(false);
-            }
-            if proof
-                .current_epoch
-                .first_block_header_in_epoch
-                .height()
-                .saturating_add(chain.epoch_length.max(chain.transaction_validity_period()))
-                >= status.source_peer_height
-            {
-                tracing::error!(
-                    %source_peer,
-                    "ignoring epoch sync proof from peer that is too recent"
-                );
-                return Ok(false);
-            }
-            if proof
-                .current_epoch
-                .first_block_header_in_epoch
-                .height()
-                .saturating_add(EPOCH_SYNC_PROOF_MAX_AGE_NUM_EPOCHS * chain.epoch_length)
-                < status.source_peer_height
-            {
-                tracing::error!(
-                    %source_peer,
-                    "ignoring epoch sync proof from peer that is too old"
-                );
-                return Ok(false);
-            }
-        } else {
+        let SyncStatus::EpochSync(EpochSyncStatus::InProgress {
+            source_peer_id,
+            source_peer_height,
+            ..
+        }) = status
+        else {
             tracing::warn!(%source_peer, "ignoring unexpected epoch sync proof");
+            return Ok(false);
+        };
+        if *source_peer_id != *source_peer {
+            tracing::warn!(%source_peer, expected_peer = %source_peer_id, "ignoring epoch sync proof from unexpected peer");
+            return Ok(false);
+        }
+        if proof
+            .current_epoch
+            .first_block_header_in_epoch
+            .height()
+            .saturating_add(chain.epoch_length.max(chain.transaction_validity_period()))
+            >= *source_peer_height
+        {
+            tracing::error!(
+                %source_peer,
+                "ignoring epoch sync proof from peer that is too recent"
+            );
+            return Ok(false);
+        }
+        if proof
+            .current_epoch
+            .first_block_header_in_epoch
+            .height()
+            .saturating_add(EPOCH_SYNC_PROOF_MAX_AGE_NUM_EPOCHS * chain.epoch_length)
+            < *source_peer_height
+        {
+            tracing::error!(
+                %source_peer,
+                "ignoring epoch sync proof from peer that is too old"
+            );
             return Ok(false);
         }
 
@@ -331,7 +382,7 @@ impl EpochSync {
 
         store_update.commit();
 
-        *status = SyncStatus::EpochSyncDone;
+        *status = SyncStatus::EpochSync(EpochSyncStatus::Done);
         tracing::info!(epoch_id=?last_header.epoch_id(), "bootstrapped from epoch sync");
 
         Ok(())
@@ -604,7 +655,8 @@ impl Handler<EpochSyncResponseMessage> for ClientActor {
         // Pre-check: only decode if we are expecting an epoch sync response from this peer.
         // This avoids wasting resources processing unsolicited responses.
         match &self.client.sync_handler.sync_status {
-            SyncStatus::EpochSync(status) if status.source_peer_id == msg.from_peer => {}
+            SyncStatus::EpochSync(EpochSyncStatus::InProgress { source_peer_id, .. })
+                if *source_peer_id == msg.from_peer => {}
             _ => {
                 tracing::warn!(from_peer = %msg.from_peer, "ignoring unsolicited epoch sync response");
                 return;
@@ -644,9 +696,7 @@ impl Handler<EpochSyncResponseMessage> for ClientActor {
             }
         };
         let genesis_height = self.client.chain.genesis().height();
-        if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION)
-            && tip_height != genesis_height
-        {
+        if SYNC_V2_ENABLED && tip_height != genesis_height {
             tracing::info!("stale node validated epoch sync proof, requesting data reset");
             if let Some(tx) = self.shutdown_signal.take() {
                 let _ = tx.send(ShutdownReason::EpochSyncDataReset);

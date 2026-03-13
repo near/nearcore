@@ -12,7 +12,7 @@ use near_primitives::types::BlockHeight;
 fn missing_chunk_example_test() {
     init_test_logger();
     let missing_chunk_heigh = 8;
-    let mut env = TestLoopBuilder::new().num_shards(2).chunk_producer_per_shard().build().warmup();
+    let mut env = TestLoopBuilder::new().num_shards(2).chunk_producer_per_shard().build();
 
     let mut validator_runner = env.node_runner(0);
     // Note: waiting for height H results in chunk already produced for H+1.
@@ -44,8 +44,7 @@ fn missing_chunk_window_example_test() {
     init_test_logger();
 
     let num_shards = 2;
-    let mut env =
-        TestLoopBuilder::new().num_shards(num_shards).chunk_producer_per_shard().build().warmup();
+    let mut env = TestLoopBuilder::new().num_shards(num_shards).chunk_producer_per_shard().build();
 
     let window_size = 5;
     let skip_length = 2;

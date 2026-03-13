@@ -3,10 +3,13 @@
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
+use crate::utils::account::create_validator_id;
 use crate::utils::node::TestLoopNode;
 use near_async::messaging::CanSend as _;
 use near_async::time::Duration;
+use near_chain::ChainStoreAccess;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_chunks::shards_manager_actor::AdvDistributeChunksMode;
 use near_client::ProcessTxRequest;
 use near_client::client_actor::{AdvProduceChunksMode, NetworkAdversarialMessage};
 use near_network::types::NetworkRequests;
@@ -43,8 +46,7 @@ fn test_producer_with_expired_transactions() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(accounts.clone())
-        .build()
-        .warmup();
+        .build();
     let TestLoopEnv { test_loop, node_datas, .. } = &mut test_loop_env;
 
     // First we're gonna ask the chunk producer to keep producing empty chunks and send some
@@ -150,8 +152,7 @@ fn test_producer_with_expired_transactions() {
 fn test_producer_sending_large_encoded_length_chunks() {
     init_test_logger();
 
-    let mut env =
-        TestLoopBuilder::new().validators(2, 0).gc_num_epochs_to_keep(20).build().warmup();
+    let mut env = TestLoopBuilder::new().validators(2, 0).gc_num_epochs_to_keep(20).build();
 
     let epoch_manager = env.node(0).client().epoch_manager.clone();
     let peer_manager_actor_handle = env.node_datas[0].peer_manager_sender.actor_handle();
@@ -211,4 +212,56 @@ fn test_producer_sending_large_encoded_length_chunks() {
     env.node_runner(0).run_for_number_of_blocks(10);
 
     env.test_loop.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+/// Tests chain behavior when a malicious chunk producer withholds chunk parts
+/// from nodes other than the block producer.
+#[test]
+fn test_chunk_parts_withholding_attack() {
+    init_test_logger();
+
+    // 7 validators ensures num_data_parts=2 (formula: (total_parts-1)/3).
+    // The malicious node sends only 1 part to the block producer, which must be
+    // insufficient to reconstruct (need 2). With fewer validators (e.g. 4),
+    // num_data_parts=1, so a single part suffices and the attack is ineffective.
+    let mut env = TestLoopBuilder::new().validators(7, 0).num_shards(7).build();
+
+    let (malicious_node_idx, honest_node_idx) = (0, 1);
+    // The malicious chunk producer only sends chunk parts to the block producer
+    // for that height, withholding from all other validators. Also drops
+    // responses to part requests so other nodes can't fetch the withheld parts.
+    env.node_datas[malicious_node_idx]
+        .shards_manager_sender
+        .send(AdvDistributeChunksMode::WithholdFromNonBlockProducer);
+
+    let num_blocks = 3; // Minimum number of blocks to observe skipped blocks on chain.
+    let head_before = env.node(honest_node_idx).head().height;
+    env.node_runner(honest_node_idx).run_for_number_of_blocks(num_blocks);
+    let head_after = env.node(honest_node_idx).head().height;
+
+    let chain_store = env.node(honest_node_idx).client().chain.chain_store();
+    let epoch_manager = &env.node(honest_node_idx).client().epoch_manager;
+    let head_epoch_id = env.node(honest_node_idx).head().epoch_id;
+    let malicious_account = create_validator_id(malicious_node_idx);
+
+    let (mut malicious_skipped, mut honest_skipped) = (false, false);
+    for height in (head_before + 1)..=head_after {
+        let block_producer = epoch_manager.get_block_producer(&head_epoch_id, height).unwrap();
+        let produced = chain_store.get_block_hash_by_height(height).is_ok();
+        if block_producer == malicious_account {
+            assert!(!produced, "height {height}: block by malicious node should be skipped");
+            malicious_skipped = true;
+        } else if !produced {
+            honest_skipped = true;
+        }
+    }
+    assert!(
+        malicious_skipped,
+        "expected at least one malicious block producer height to be skipped"
+    );
+    // The attack should also cause honest block producers to skip (they
+    // can't verify the withheld chunk and won't send approvals).
+    assert!(honest_skipped, "expected at least one honest block producer to skip");
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

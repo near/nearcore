@@ -376,6 +376,13 @@ pub enum DBCol {
     /// - *Content type*: Vec<[near_primitives::types::SpiceUncertifiedChunkInfo]>
     #[cfg(feature = "protocol_feature_spice")]
     UncertifiedChunks,
+    /// Stores contract accesses (code hashes) per SPICE chunk.
+    /// Used to validate the contract code requests and accompany the witness in the catch-up
+    /// dataflow. Written atomically together with the witness.
+    /// - *Rows*: (BlockHash || ShardId)
+    /// - *Content type*: `Vec<CodeHash>`
+    #[cfg(feature = "protocol_feature_spice")]
+    ContractAccesses,
 }
 
 /// Defines different logical parts of a db key.
@@ -543,6 +550,8 @@ impl DBCol {
             | DBCol::UncertifiedExecutionResults => false,
             #[cfg(feature = "protocol_feature_spice")]
             | DBCol::UncertifiedChunks => false,
+            #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::ContractAccesses => false,
             // TODO
             DBCol::ChallengedBlocks => false,
             DBCol::Misc => false,
@@ -703,6 +712,8 @@ impl DBCol {
             DBCol::UncertifiedExecutionResults => &[DBKeyType::ChunkExecutionResultHash],
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::UncertifiedChunks => &[DBKeyType::BlockHash],
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::ContractAccesses => &[DBKeyType::BlockHash, DBKeyType::ShardId],
         }
     }
 
@@ -751,6 +762,13 @@ impl DBCol {
     pub fn uncertified_chunks() -> DBCol {
         #[cfg(feature = "protocol_feature_spice")]
         return DBCol::UncertifiedChunks;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
+    }
+
+    pub fn contract_accesses() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::ContractAccesses;
         #[cfg(not(feature = "protocol_feature_spice"))]
         panic!("Expected protocol_feature_spice to be enabled")
     }

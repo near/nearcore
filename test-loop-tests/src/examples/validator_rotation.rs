@@ -38,8 +38,7 @@ fn test_validator_rotation() {
         .genesis(genesis)
         .clients(accounts)
         .epoch_config_store(epoch_config_store)
-        .build()
-        .warmup();
+        .build();
 
     let client_actor_handle = env.node_datas[0].client_sender.actor_handle();
 

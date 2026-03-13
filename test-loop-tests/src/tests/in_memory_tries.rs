@@ -50,8 +50,7 @@ fn test_load_memtrie_after_empty_chunks() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(client_accounts)
-        .build()
-        .warmup();
+        .build();
 
     execute_money_transfers(&mut test_loop, &node_datas, &accounts).unwrap();
 

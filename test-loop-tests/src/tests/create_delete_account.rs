@@ -36,8 +36,7 @@ fn test_instant_delete_account() {
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(clients)
-        .build()
-        .warmup();
+        .build();
 
     let [contract_account, beneficiary] = &user_accounts;
     let contract_signer = create_user_test_signer(contract_account);

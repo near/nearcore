@@ -536,8 +536,7 @@ fn test_yield_resume_across_protocol_upgrade() {
         .epoch_config_store(epoch_config_store)
         .protocol_upgrade_schedule(protocol_upgrade_schedule)
         .clients(clients)
-        .build()
-        .warmup();
+        .build();
 
     // We're in the epoch corresponding to the old_protocol_version
     let start_head = env.validator().head();
