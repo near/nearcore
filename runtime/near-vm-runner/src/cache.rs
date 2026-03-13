@@ -607,6 +607,7 @@ impl AnyCache {
     }
 
     #[cfg(feature = "metrics")]
+    #[cfg_attr(windows, allow(dead_code))]
     fn with_metrics_identifier(mut self, identifier: String) -> Self {
         self.identifier = Some(identifier);
         self
