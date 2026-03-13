@@ -3,10 +3,11 @@ use crate::archive::cloud_storage::CloudStorage;
 use crate::archive::cloud_storage::block_data::build_block_data;
 use crate::archive::cloud_storage::epoch_data::build_epoch_data;
 use crate::archive::cloud_storage::file_id::CloudStorageFileID;
+use crate::archive::cloud_storage::retrieve::CloudRetrievalError;
 use crate::archive::cloud_storage::shard_data::build_shard_data;
 use near_primitives::errors::EpochError;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::types::{BlockHeight, EpochId};
+use near_primitives::types::{BlockHeight, EpochId, ShardId};
 
 /// Error surfaced while archiving data or performing sanity checks.
 #[derive(thiserror::Error, Debug)]
@@ -19,6 +20,8 @@ pub enum CloudArchivingError {
     PutError { file_id: CloudStorageFileID, error: anyhow::Error },
     #[error("Epoch error during cloud archiving: {error}")]
     EpochError { error: EpochError },
+    #[error("Retrieval error during cloud archiving: {error}")]
+    RetrievalError { error: CloudRetrievalError },
 }
 
 impl From<std::io::Error> for CloudArchivingError {
@@ -36,6 +39,12 @@ impl From<near_chain_primitives::Error> for CloudArchivingError {
 impl From<EpochError> for CloudArchivingError {
     fn from(error: EpochError) -> Self {
         CloudArchivingError::EpochError { error }
+    }
+}
+
+impl From<CloudRetrievalError> for CloudArchivingError {
+    fn from(error: CloudRetrievalError) -> Self {
+        CloudArchivingError::RetrievalError { error }
     }
 }
 
@@ -81,9 +90,25 @@ impl CloudStorage {
         self.upload(file_id, blob).await
     }
 
-    /// Persists the cloud head to external storage.
-    pub async fn update_cloud_head(&self, head: BlockHeight) -> Result<(), CloudArchivingError> {
-        self.upload(CloudStorageFileID::Head, borsh::to_vec(&head).unwrap()).await
+    /// Persists the block head to external storage.
+    pub async fn update_cloud_block_head(
+        &self,
+        head: BlockHeight,
+    ) -> Result<(), CloudArchivingError> {
+        let file_id = CloudStorageFileID::BlockHead;
+        let blob = borsh::to_vec(&head).unwrap();
+        self.upload(file_id, blob).await
+    }
+
+    /// Persists a shard head to external storage.
+    pub async fn update_cloud_shard_head(
+        &self,
+        shard_id: ShardId,
+        head: BlockHeight,
+    ) -> Result<(), CloudArchivingError> {
+        let file_id = CloudStorageFileID::ShardHead(shard_id);
+        let blob = borsh::to_vec(&head).unwrap();
+        self.upload(file_id, blob).await
     }
 
     /// Uploads the given value to the external cloud storage under the specified
