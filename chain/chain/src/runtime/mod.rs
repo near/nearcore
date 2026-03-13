@@ -921,7 +921,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         break;
                     }
                     let current_nonce = if let Some(nonce) =
-                        signer_cache.cached_nonce(signer_id, public_key, nonce_index)
+                        signer_overlay.cached_nonce(signer_id, public_key, nonce_index)
                     {
                         Some(nonce)
                     } else {
