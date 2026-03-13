@@ -3,13 +3,11 @@ use crate::utils::account::create_account_id;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::TrackedShardsConfig;
-use near_network::types::NetworkRequests;
+use near_client::NetworkAdversarialMessage;
+use near_client::client_actor::AdvProduceChunksMode;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::sharding::{EncodedShardChunk, ShardChunkHeader, ShardChunkHeaderV3};
-use near_primitives::stateless_validation::ChunkProductionKey;
-use near_primitives::test_utils::create_test_signer;
+use near_primitives::sharding::EncodedShardChunk;
 use near_primitives::types::Gas;
 use near_store::DBCol;
 
@@ -27,53 +25,11 @@ fn test_spice_chain_with_malicious_chunk_producer() {
     let mut env = TestLoopBuilder::new().validators(num_producers, num_validators).build();
 
     let (malicious_node, honest_node) = (0, 1);
-    let epoch_manager = env.node(malicious_node).client().epoch_manager.clone();
-    let peer_manager_handle = env.node_datas[malicious_node].peer_manager_sender.actor_handle();
-    let peer_manager = env.test_loop.data.get_mut(&peer_manager_handle);
-
-    // Intercept all chunk messages from this node and corrupt the tx_root in
-    // the header. The parts and encoded_merkle_root remain valid so individual
-    // part validation passes and RS decode succeeds, but validate_chunk_proofs
-    // will fail because tx_root doesn't match the actual chunk body.
-    peer_manager.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
-        match request {
-            NetworkRequests::PartialEncodedChunkMessage {
-                account_id,
-                mut partial_encoded_chunk,
-            } => {
-                let header = partial_encoded_chunk.header;
-                let epoch_id =
-                    epoch_manager.get_epoch_id_from_prev_block(header.prev_block_hash()).unwrap();
-                let chunk_producer_info = epoch_manager
-                    .get_chunk_producer_info(&ChunkProductionKey {
-                        shard_id: header.shard_id(),
-                        epoch_id,
-                        height_created: header.height_created(),
-                    })
-                    .unwrap();
-                let signer = create_test_signer(chunk_producer_info.account_id().as_str());
-
-                // Replace tx_root with garbage so validate_chunk_proofs fails.
-                let bad_tx_root = CryptoHash::hash_bytes(b"malicious");
-                let new_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new_for_spice(
-                    *header.prev_block_hash(),
-                    *header.encoded_merkle_root(),
-                    header.encoded_length(),
-                    header.height_created(),
-                    header.shard_id(),
-                    *header.prev_outgoing_receipts_root(),
-                    bad_tx_root,
-                    &signer,
-                ));
-                partial_encoded_chunk.header = new_header;
-                Some(NetworkRequests::PartialEncodedChunkMessage {
-                    account_id,
-                    partial_encoded_chunk,
-                })
-            }
-            _ => Some(request),
-        }
-    }));
+    env.node_runner(malicious_node).send_adversarial_message(
+        NetworkAdversarialMessage::AdvProduceChunks(
+            AdvProduceChunksMode::ProduceWithCorruptedTxRoot,
+        ),
+    );
 
     // Run for enough blocks that the malicious node is scheduled as chunk
     // producer at least once. With 4 producers and 1 shard, each producer gets
@@ -133,53 +89,13 @@ fn test_spice_block_sync_with_malicious_chunks() {
         })
         .build();
 
-    let (malicious_node, honest_node) = (0, 1);
-    let epoch_manager = env.node(malicious_node).client().epoch_manager.clone();
-    let peer_manager_handle = env.node_datas[malicious_node].peer_manager_sender.actor_handle();
-    let peer_manager = env.test_loop.data.get_mut(&peer_manager_handle);
-
-    // Intercept all chunk messages from this node and corrupt the tx_root in
-    // the header. The parts and encoded_merkle_root remain valid so individual
-    // part validation passes and RS decode succeeds, but validate_chunk_proofs
-    // will fail because tx_root doesn't match the actual chunk body.
-    peer_manager.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
-        match request {
-            NetworkRequests::PartialEncodedChunkMessage {
-                account_id,
-                mut partial_encoded_chunk,
-            } => {
-                let header = partial_encoded_chunk.header;
-                let epoch_id =
-                    epoch_manager.get_epoch_id_from_prev_block(header.prev_block_hash()).unwrap();
-                let chunk_producer_info = epoch_manager
-                    .get_chunk_producer_info(&ChunkProductionKey {
-                        shard_id: header.shard_id(),
-                        epoch_id,
-                        height_created: header.height_created(),
-                    })
-                    .unwrap();
-                let signer = create_test_signer(chunk_producer_info.account_id().as_str());
-
-                let bad_tx_root = CryptoHash::hash_bytes(b"malicious");
-                let new_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new_for_spice(
-                    *header.prev_block_hash(),
-                    *header.encoded_merkle_root(),
-                    header.encoded_length(),
-                    header.height_created(),
-                    header.shard_id(),
-                    *header.prev_outgoing_receipts_root(),
-                    bad_tx_root,
-                    &signer,
-                ));
-                partial_encoded_chunk.header = new_header;
-                Some(NetworkRequests::PartialEncodedChunkMessage {
-                    account_id,
-                    partial_encoded_chunk,
-                })
-            }
-            _ => Some(request),
-        }
-    }));
+    let malicious_node = 0;
+    let honest_node = 1;
+    env.node_runner(malicious_node).send_adversarial_message(
+        NetworkAdversarialMessage::AdvProduceChunks(
+            AdvProduceChunksMode::ProduceWithCorruptedTxRoot,
+        ),
+    );
 
     // Run past the cache horizon so that early chunks are evicted from the
     // in-memory cache and peers must serve parts from DBCol::PartialChunks.
