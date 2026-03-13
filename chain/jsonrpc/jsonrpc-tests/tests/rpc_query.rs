@@ -1,11 +1,4 @@
-use std::ops::ControlFlow;
-
 use near_chain_configs::test_utils::TESTING_INIT_BALANCE;
-use near_primitives::action::GlobalContractDeployMode;
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
-use reqwest::StatusCode;
-
 use near_crypto::{InMemorySigner, Signature};
 use near_jsonrpc::client::{ChunkId, JSONRPC_RESPONSE_LIMIT, JsonRpcClient, new_client};
 use near_jsonrpc_primitives::errors::RpcError;
@@ -18,17 +11,21 @@ use near_jsonrpc_primitives::types::view_access_key_list::RpcViewAccessKeyListRe
 use near_jsonrpc_primitives::types::view_account::RpcViewAccountRequest;
 use near_jsonrpc_primitives::types::view_code::RpcViewCodeRequest;
 use near_jsonrpc_primitives::types::view_state::RpcViewStateRequest;
+use near_jsonrpc_tests::{NodeType, create_test_setup_with_node_type};
 use near_network::test_utils::wait_or_timeout;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
+use near_primitives::action::GlobalContractDeployMode;
 use near_primitives::hash::CryptoHash;
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, Balance, BlockId, BlockReference, EpochId, Gas, ShardId, SyncCheckpoint,
 };
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{FinalExecutionStatus, QueryRequest};
+use reqwest::StatusCode;
 use serde_json::Value;
-
-use near_jsonrpc_tests::{NodeType, create_test_setup_with_node_type};
+use std::ops::ControlFlow;
 
 /// Retrieve blocks via json rpc
 #[tokio::test]
@@ -597,7 +594,12 @@ async fn test_invalid_methods() {
         });
         let (status, response_bytes) = client
             .transport
-            .send_http_request("/", json.to_string().as_bytes().to_vec(), JSONRPC_RESPONSE_LIMIT)
+            .send_http_request(
+                "/",
+                json.to_string().as_bytes().to_vec(),
+                JSONRPC_RESPONSE_LIMIT,
+                &[],
+            )
             .await
             .unwrap();
 
@@ -630,7 +632,7 @@ async fn test_parse_error_status_code() {
 
     let (status, _response_bytes) = client
         .transport
-        .send_http_request("/", json.to_string().as_bytes().to_vec(), JSONRPC_RESPONSE_LIMIT)
+        .send_http_request("/", json.to_string().as_bytes().to_vec(), JSONRPC_RESPONSE_LIMIT, &[])
         .await
         .unwrap();
 
@@ -654,7 +656,7 @@ async fn slow_test_bad_handler_error_status_code() {
 
     let (status, _response_bytes) = client
         .transport
-        .send_http_request("/", json.to_string().as_bytes().to_vec(), JSONRPC_RESPONSE_LIMIT)
+        .send_http_request("/", json.to_string().as_bytes().to_vec(), JSONRPC_RESPONSE_LIMIT, &[])
         .await
         .unwrap();
 
@@ -675,7 +677,7 @@ async fn test_good_handler_error_status_code() {
 
     let (status, _response_bytes) = client
         .transport
-        .send_http_request("/", json.to_string().as_bytes().to_vec(), JSONRPC_RESPONSE_LIMIT)
+        .send_http_request("/", json.to_string().as_bytes().to_vec(), JSONRPC_RESPONSE_LIMIT, &[])
         .await
         .unwrap();
 

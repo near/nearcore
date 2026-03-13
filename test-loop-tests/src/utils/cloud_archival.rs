@@ -1,9 +1,5 @@
-use std::collections::HashSet;
-use std::future::Future;
-use std::sync::Arc;
-
+use crate::setup::env::TestLoopEnv;
 use borsh::BorshDeserialize;
-
 use itertools::Itertools;
 use near_chain::types::Tip;
 use near_chain::{Chain, ChainStoreAccess, ChainStoreUpdate};
@@ -19,16 +15,16 @@ use near_primitives::types::{
 };
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::{BlockData, CloudStorage};
-use near_store::db::CLOUD_HEAD_KEY;
+use near_store::db::CLOUD_MIN_HEAD_KEY;
 use near_store::flat::FlatStorageManager;
 use near_store::trie::AccessOptions;
 use near_store::{
     COLD_HEAD_KEY, DBCol, ShardTries, ShardUId, StateSnapshotConfig, Store, TrieConfig,
 };
 use near_vm_runner::logic::ProtocolVersion;
-
-use crate::setup::builder::NodeStateBuilder;
-use crate::setup::env::TestLoopEnv;
+use std::collections::HashSet;
+use std::future::Future;
+use std::sync::Arc;
 
 pub fn run_node_until(env: &mut TestLoopEnv, account_id: &AccountId, target_height: BlockHeight) {
     env.runner_for_account(account_id).run_until_head_height(target_height);
@@ -130,7 +126,7 @@ fn get_cloud_storage(env: &TestLoopEnv, archival_id: &AccountId) -> Arc<CloudSto
 
 fn get_cloud_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockHeight {
     let hot_store = get_hot_store(env, writer_id);
-    hot_store.get_ser::<Tip>(DBCol::BlockMisc, CLOUD_HEAD_KEY).unwrap().height
+    hot_store.get_ser::<Tip>(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY).unwrap().height
 }
 
 /// Runs tests to verify that data for the block height exists in the archive.
@@ -210,7 +206,7 @@ pub fn snapshots_sanity_check(
     // Epoch data is uploaded by the cloud archival writer at the last block of each
     // epoch, so it covers all epochs fully passed by the cloud head.
     let cloud_head_tip: Tip =
-        store.get_ser(DBCol::BlockMisc, CLOUD_HEAD_KEY).expect("cloud head should exist");
+        store.get_ser(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY).expect("cloud head should exist");
     let cloud_head_epoch_info = EpochInfo::try_from_slice(
         &store.get(DBCol::EpochInfo, cloud_head_tip.epoch_id.as_ref()).unwrap(),
     )
@@ -240,12 +236,7 @@ pub fn bootstrap_reader_at_height(
     reader_id: &AccountId,
     target_block_height: BlockHeight,
 ) {
-    let genesis = env.shared_state.genesis.clone();
-    let tempdir_path = env.shared_state.tempdir.path().to_path_buf();
-    let node_state = NodeStateBuilder::new(genesis, tempdir_path)
-        .account_id(reader_id.clone())
-        .cloud_storage(true)
-        .build();
+    let node_state = env.node_state_builder().account_id(reader_id).cloud_storage(true).build();
     env.add_node(reader_id.as_ref(), node_state);
 
     let cloud_storage = get_cloud_storage(env, reader_id);

@@ -1,5 +1,3 @@
-use std::collections::{BTreeMap, HashMap};
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_primitives::epoch_block_info::BlockInfo;
@@ -12,6 +10,7 @@ use near_primitives::types::{
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_schema_checker_lib::ProtocolSchema;
+use std::collections::{BTreeMap, HashMap};
 
 /// Aggregator of information needed for validator computation at the end of the epoch.
 #[derive(

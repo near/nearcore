@@ -1,6 +1,3 @@
-use std::collections::BTreeMap;
-use std::num::NonZeroU64;
-
 use bitvec::order::Lsb0;
 use bitvec::slice::BitSlice;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -8,6 +5,8 @@ use near_parameters::RuntimeConfig;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::ShardId;
 use near_schema_checker_lib::ProtocolSchema;
+use std::collections::BTreeMap;
+use std::num::NonZeroU64;
 
 /// Represents size of receipts, in the context of cross-shard bandwidth, in bytes.
 /// TODO(bandwidth_scheduler) - consider using ByteSize
@@ -373,20 +372,17 @@ impl BandwidthSchedulerParams {
 
 #[cfg(test)]
 mod tests {
-    use std::num::NonZeroU64;
-    use std::ops::Deref;
-    use std::sync::Arc;
-
-    use near_parameters::RuntimeConfig;
-    use rand::{Rng, SeedableRng};
-
-    use crate::bandwidth_scheduler::{BANDWIDTH_REQUEST_VALUES_NUM, interpolate};
-    use crate::shard_layout::ShardUId;
-
     use super::{
         BandwidthRequest, BandwidthRequestBitmap, BandwidthRequestValues, BandwidthSchedulerParams,
     };
+    use crate::bandwidth_scheduler::{BANDWIDTH_REQUEST_VALUES_NUM, interpolate};
+    use crate::shard_layout::ShardUId;
+    use near_parameters::RuntimeConfig;
+    use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha20Rng;
+    use std::num::NonZeroU64;
+    use std::ops::Deref;
+    use std::sync::Arc;
 
     fn make_runtime_config(max_receipt_size: u64) -> RuntimeConfig {
         let mut runtime_config = RuntimeConfig::test();

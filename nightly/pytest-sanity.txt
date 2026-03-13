@@ -11,10 +11,6 @@ pytest sanity/transactions.py
 pytest sanity/transactions.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/transactions.py --features nightly,protocol_feature_spice
-pytest sanity/staking1.py
-pytest sanity/staking1.py --features nightly
-# TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#pytest sanity/staking1.py --features nightly,protocol_feature_spice
 pytest --timeout=10m sanity/staking2.py
 pytest --timeout=10m sanity/staking2.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
@@ -31,50 +27,61 @@ pytest sanity/epoch_switches.py
 pytest sanity/epoch_switches.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/epoch_switches.py --features nightly,protocol_feature_spice
+# TODO(sync-v2): Verify the pytest is covered by existing test-loop tests before deleting.
 pytest sanity/state_sync.py manytx 30
-pytest sanity/state_sync.py manytx 30 --features nightly
+# pytest sanity/state_sync.py manytx 30 --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/state_sync.py manytx 30 --features nightly,protocol_feature_spice
+# TODO(sync-v2): Verify the pytest is covered by existing test-loop tests before deleting.
 pytest --timeout=10m sanity/state_sync.py manytx 265
-pytest --timeout=10m sanity/state_sync.py manytx 265 --features nightly
+# pytest --timeout=10m sanity/state_sync.py manytx 265 --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest --timeout=10m sanity/state_sync.py manytx 265 --features nightly,protocol_feature_spice
+# TODO(sync-v2): Verify the pytest is covered by existing test-loop tests before deleting.
 pytest sanity/state_sync.py onetx 30
-pytest sanity/state_sync.py onetx 30 --features nightly
+# pytest sanity/state_sync.py onetx 30 --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/state_sync.py onetx 30 --features nightly,protocol_feature_spice
+# TODO(sync-v2): Verify the pytest is covered by existing test-loop tests before deleting.
 pytest --timeout=10m sanity/state_sync.py onetx 265
-pytest --timeout=10m sanity/state_sync.py onetx 265 --features nightly
+# pytest --timeout=10m sanity/state_sync.py onetx 265 --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest --timeout=10m sanity/state_sync.py onetx 265 --features nightly,protocol_feature_spice
+# TODO(sync-v2): Verify the pytest is covered by existing test-loop tests before deleting.
 pytest --timeout=10m sanity/state_sync1.py
-pytest --timeout=10m sanity/state_sync1.py --features nightly
+# pytest --timeout=10m sanity/state_sync1.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest --timeout=10m sanity/state_sync1.py --features nightly,protocol_feature_spice
+# TODO(sync-v2): Verify the pytest is covered by existing test-loop tests before deleting.
 # TODO(#4618): Those tests are currently broken.  Comment out while we're
 # working on a fix / deciding whether to remove them.
 # pytest --timeout=10m sanity/state_sync2.py
 # pytest --timeout=10m sanity/state_sync2.py nightly --features nightly
 # pytest --timeout=10m sanity/state_sync2.py nightly --features nightly,protocol_feature_spice
+# TODO(sync-v2): Verify the pytest is covered by existing test-loop tests before deleting.
 pytest --timeout=10m sanity/state_sync3.py
-pytest --timeout=10m sanity/state_sync3.py --features nightly
+# pytest --timeout=10m sanity/state_sync3.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest --timeout=10m sanity/state_sync3.py --features nightly,protocol_feature_spice
+# TODO(sync-v2): Verify the pytest is covered by existing test-loop tests before deleting.
 pytest --timeout=10m sanity/state_sync4.py
-pytest --timeout=10m sanity/state_sync4.py --features nightly
+# pytest --timeout=10m sanity/state_sync4.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest --timeout=10m sanity/state_sync4.py --features nightly,protocol_feature_spice
+# TODO(sync-v2): Verify the pytest is covered by existing test-loop tests before deleting.
 pytest --timeout=10m sanity/state_sync5.py
-pytest --timeout=10m sanity/state_sync5.py --features nightly
+# pytest --timeout=10m sanity/state_sync5.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest --timeout=10m sanity/state_sync5.py --features nightly,protocol_feature_spice
+# TODO(sync-v2): Verify the pytest is covered by existing test-loop tests before deleting.
 # TODO(#4618): Those tests are currently broken.  Comment out while we're
 # working on a fix / deciding whether to remove them.
 #pytest --timeout=10m sanity/state_sync_late.py notx
 #pytest --timeout=10m sanity/state_sync_late.py notx --features nightly
 #pytest --timeout=10m sanity/state_sync_late.py notx --features nightly,protocol_feature_spice
+# TODO(sync-v2): Verify the pytest is covered by existing test-loop tests before deleting.
 pytest sanity/state_sync_missing_chunks.py
-pytest sanity/state_sync_missing_chunks.py --features nightly
+# pytest sanity/state_sync_missing_chunks.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/state_sync_missing_chunks.py --features nightly,protocol_feature_spice
 pytest --timeout=10m sanity/state_sync_routed.py manytx 115
@@ -82,13 +89,9 @@ pytest --timeout=10m sanity/state_sync_routed.py manytx 115 --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest --timeout=10m sanity/state_sync_routed.py manytx 115 --features nightly,protocol_feature_spice
 
-pytest sanity/single_shard_tracking.py
-pytest sanity/single_shard_tracking.py --features nightly
-# TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#pytest sanity/single_shard_tracking.py --features nightly,protocol_feature_spice
-
+# TODO(sync-v2): Verify the pytest is covered by existing test-loop tests before deleting. — large state sync is covered by forknet testing.
 pytest --timeout=15m sanity/state_sync_massive.py
-pytest --timeout=15m sanity/state_sync_massive.py --features nightly
+# pytest --timeout=15m sanity/state_sync_massive.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest --timeout=15m sanity/state_sync_massive.py --features nightly,protocol_feature_spice
 # TODO(#13551): Enable after fixing flaky test. state_sync_massive_validator sometimes take 1 hour to run and timeout
@@ -133,16 +136,14 @@ pytest sanity/block_sync_flat_storage.py
 pytest sanity/block_sync_flat_storage.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/block_sync_flat_storage.py --features nightly,protocol_feature_spice
-pytest sanity/split_storage.py
-pytest sanity/split_storage.py --features nightly
-# TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#pytest sanity/split_storage.py --features nightly,protocol_feature_spice
+# TODO(sync-v2): Verify the pytest is covered by existing test-loop tests before deleting.
 pytest sanity/state_sync_epoch_boundary.py
-pytest sanity/state_sync_epoch_boundary.py --features nightly
+# pytest sanity/state_sync_epoch_boundary.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/state_sync_epoch_boundary.py --features nightly,protocol_feature_spice
+# TODO(sync-v2): Verify the pytest is covered by existing test-loop tests before deleting.
 pytest sanity/state_sync_then_catchup.py
-pytest sanity/state_sync_then_catchup.py --features nightly
+# pytest sanity/state_sync_then_catchup.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/state_sync_then_catchup.py --features nightly,protocol_feature_spice
 pytest sanity/state_parts_dump_check.py
@@ -170,12 +171,14 @@ pytest sanity/rpc_tx_status.py
 pytest sanity/rpc_tx_status.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/rpc_tx_status.py --features nightly,protocol_feature_spice
+# TODO(sync-v2): Verify the pytest is covered by existing test-loop tests before deleting.
 pytest sanity/garbage_collection.py
-pytest sanity/garbage_collection.py --features nightly
+# pytest sanity/garbage_collection.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/garbage_collection.py --features nightly,protocol_feature_spice
+# TODO(sync-v2): Verify the pytest is covered by existing test-loop tests before deleting.
 pytest sanity/garbage_collection1.py
-pytest sanity/garbage_collection1.py --features nightly
+# pytest sanity/garbage_collection1.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/garbage_collection1.py --features nightly,protocol_feature_spice
 pytest sanity/garbage_collection_intense.py
@@ -186,18 +189,22 @@ pytest sanity/garbage_collection_archival.py
 pytest sanity/garbage_collection_archival.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/garbage_collection_archival.py --features nightly,protocol_feature_spice
+# TODO(sync-v2): Verify the pytest is covered by existing test-loop tests before deleting.
 # TODO(#13551): Enable after fixing flaky test
 # pytest --timeout=5m sanity/gc_after_sync.py
 # pytest --timeout=5m sanity/gc_after_sync.py --features nightly
 # pytest --timeout=5m sanity/gc_after_sync.py --features nightly,protocol_feature_spice
+# TODO(sync-v2): Verify the pytest is covered by existing test-loop tests before deleting.
 pytest --timeout=5m sanity/gc_after_sync1.py
-pytest --timeout=5m sanity/gc_after_sync1.py --features nightly
+# pytest --timeout=5m sanity/gc_after_sync1.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest --timeout=5m sanity/gc_after_sync1.py --features nightly,protocol_feature_spice
+# TODO(sync-v2): Verify the pytest is covered by existing test-loop tests before deleting.
 pytest --timeout=5m sanity/gc_sync_after_sync.py
-pytest --timeout=5m sanity/gc_sync_after_sync.py --features nightly
+# pytest --timeout=5m sanity/gc_sync_after_sync.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest --timeout=5m sanity/gc_sync_after_sync.py --features nightly,protocol_feature_spice
+# TODO(sync-v2): Verify the pytest is covered by existing test-loop tests before deleting.
 # TODO(#13551): Enable after fixing flaky test
 # pytest --timeout=5m sanity/gc_sync_after_sync.py swap_nodes
 # pytest --timeout=5m sanity/gc_sync_after_sync.py swap_nodes --features nightly
@@ -333,11 +340,6 @@ pytest sanity/kickout_offline_validators.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/kickout_offline_validators.py --features nightly,protocol_feature_spice
 
-# Tests whether endorsements are produced immediately after the failover procedure for a chunk-only validator.
-pytest sanity/chunk_validator_failover.py
-pytest sanity/chunk_validator_failover.py --features nightly
-# TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#pytest sanity/chunk_validator_failover.py --features nightly,protocol_feature_spice
 
 # Epoch sync
 # TODO(#13296): Enable after fixing flaky test

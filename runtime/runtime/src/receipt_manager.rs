@@ -2,7 +2,8 @@ use near_crypto::PublicKey;
 use near_primitives::action::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, DeployGlobalContractAction, DeterministicStateInitAction,
-    FunctionCallAction, StakeAction, TransferAction, UseGlobalContractAction,
+    FunctionCallAction, StakeAction, TransferAction, TransferToGasKeyAction,
+    UseGlobalContractAction,
 };
 use near_primitives::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
@@ -11,7 +12,7 @@ use near_primitives::errors::{IntegerOverflowError, RuntimeError};
 use near_primitives::receipt::DataReceiver;
 use near_primitives_core::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce};
+use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce, NonceIndex};
 use near_vm_runner::logic::HostError;
 use near_vm_runner::logic::VMLogicError;
 use near_vm_runner::logic::types::{
@@ -437,6 +438,103 @@ impl ReceiptManager {
     /// Panics if the `receipt_index` does not refer to a known receipt.
     pub(super) fn append_action_transfer(&mut self, receipt_index: ReceiptIndex, deposit: Balance) {
         self.append_action(receipt_index, Action::Transfer(TransferAction { deposit }));
+    }
+
+    /// Attach the [`TransferToGasKeyAction`] action to an existing receipt.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - an index of Receipt to append an action
+    /// * `public_key` - the public key of the gas key to fund
+    /// * `deposit` - amount of tokens to transfer to the gas key
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    pub(super) fn append_action_transfer_to_gas_key(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        public_key: PublicKey,
+        deposit: Balance,
+    ) {
+        self.append_action(
+            receipt_index,
+            Action::TransferToGasKey(Box::new(TransferToGasKeyAction { public_key, deposit })),
+        );
+    }
+
+    /// Attach the [`AddKeyAction`] action to an existing receipt, creating a gas key with
+    /// full access permission.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - an index of Receipt to append an action
+    /// * `public_key` - the public key for the new gas key
+    /// * `num_nonces` - the number of nonces to initialize for the gas key
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    pub(super) fn append_action_add_gas_key_with_full_access(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        public_key: PublicKey,
+        num_nonces: NonceIndex,
+    ) {
+        self.append_action(
+            receipt_index,
+            Action::AddKey(Box::new(AddKeyAction {
+                public_key,
+                access_key: AccessKey::gas_key_full_access(num_nonces),
+            })),
+        );
+    }
+
+    /// Attach the [`AddKeyAction`] action to an existing receipt, creating a gas key with
+    /// function call permission.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - an index of Receipt to append an action
+    /// * `public_key` - the public key for the new gas key
+    /// * `num_nonces` - the number of nonces to initialize for the gas key
+    /// * `allowance` - the optional token allowance for the gas key
+    /// * `receiver_id` - the account ID the gas key is restricted to call
+    /// * `method_names` - the method names the gas key is restricted to call
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    pub(super) fn append_action_add_gas_key_with_function_call(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        public_key: PublicKey,
+        num_nonces: NonceIndex,
+        allowance: Option<Balance>,
+        receiver_id: AccountId,
+        method_names: Vec<Vec<u8>>,
+    ) -> Result<(), VMLogicError> {
+        self.append_action(
+            receipt_index,
+            Action::AddKey(Box::new(AddKeyAction {
+                public_key,
+                access_key: AccessKey::gas_key_function_call(
+                    num_nonces,
+                    FunctionCallPermission {
+                        allowance,
+                        receiver_id: receiver_id.into(),
+                        method_names: method_names
+                            .into_iter()
+                            .map(|method_name| {
+                                String::from_utf8(method_name)
+                                    .map_err(|_| HostError::InvalidMethodName)
+                            })
+                            .collect::<std::result::Result<Vec<_>, _>>()?,
+                    },
+                ),
+            })),
+        );
+        Ok(())
     }
 
     /// Attach the [`StakeAction`] action to an existing receipt.

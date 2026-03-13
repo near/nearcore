@@ -1,5 +1,3 @@
-use std::collections::{BTreeMap, HashMap};
-
 use crate::rand::StakeWeightedIndex;
 use crate::shard_layout::ShardLayout;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
@@ -15,6 +13,7 @@ use near_primitives_core::{
 };
 use near_schema_checker_lib::ProtocolSchema;
 use smart_default::SmartDefault;
+use std::collections::{BTreeMap, HashMap};
 
 /// Information per epoch.
 #[derive(

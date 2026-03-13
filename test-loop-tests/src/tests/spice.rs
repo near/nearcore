@@ -1,7 +1,13 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-use std::task::Poll;
-
+use super::spice_utils::delay_endorsements_propagation;
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
+use crate::utils::account::{
+    create_account_id, create_validators_spec, validators_spec_clients,
+    validators_spec_clients_with_rpc,
+};
+use crate::utils::get_node_data;
+use crate::utils::node::TestLoopNode;
+use crate::utils::transactions::{TransactionRunner, get_anchor_hash};
 use itertools::Itertools;
 use near_async::messaging::{CanSend as _, Handler as _};
 use near_async::test_loop::data::TestLoopData;
@@ -10,6 +16,7 @@ use near_chain::spice_core::get_last_certified_block_header;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::{GetBlock, ProcessTxRequest, Query, QueryError};
 use near_client_primitives::types::GetBlockError;
+use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -22,18 +29,10 @@ use near_store::DBCol;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use parking_lot::Mutex;
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::env::TestLoopEnv;
-use crate::utils::account::{
-    create_account_id, create_validators_spec, validators_spec_clients,
-    validators_spec_clients_with_rpc,
-};
-use crate::utils::get_node_data;
-use crate::utils::node::TestLoopNode;
-use crate::utils::transactions::{TransactionRunner, get_anchor_hash};
-
-use super::spice_utils::delay_endorsements_propagation;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::task::Poll;
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
@@ -75,12 +74,8 @@ fn test_spice_chain() {
         .genesis_height(10000)
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
-        .build()
-        .warmup();
+    let TestLoopEnv { mut test_loop, node_datas, shared_state } =
+        builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
 
     let client_handles =
         node_datas.iter().map(|data| data.client_sender.actor_handle()).collect_vec();
@@ -183,6 +178,7 @@ fn test_spice_chain_with_delayed_execution() {
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(clients)
+        .delay_warmup()
         .build();
 
     let execution_delay = 4;
@@ -224,6 +220,7 @@ fn setup_spice_env_with_execution_delay() -> (TestLoopEnv, AccountId) {
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(clients)
+        .delay_warmup()
         .build();
 
     let execution_delay = 4;
@@ -343,8 +340,7 @@ fn test_spice_garbage_collection() {
         .gc_num_epochs_to_keep(1)
         .epoch_config_store_from_genesis()
         .clients(clients)
-        .build()
-        .warmup();
+        .build();
 
     // We want to make sure that gc runs at least once and it doesn't trigger any asserts.
     env.rpc_runner().run_until(|node| node.tail() >= epoch_length, Duration::seconds(20));
@@ -375,6 +371,7 @@ fn test_spice_garbage_collection_witnesses() {
         .gc_num_epochs_to_keep(1)
         .epoch_config_store_from_genesis()
         .clients(clients)
+        .delay_warmup()
         .build();
 
     // We delay endorsements to simulate slow execution validation causing execution to lag behind.
@@ -465,8 +462,7 @@ fn test_restart_rpc_node() {
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(clients)
-        .build()
-        .warmup();
+        .build();
 
     let rpc_id = crate::utils::account::rpc_account_id();
     let node_account = env.node_datas[0].account_id.clone();
@@ -532,6 +528,7 @@ fn test_restart_producer_node() {
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(clients)
+        .delay_warmup()
         .build();
 
     let execution_delay = 2;
@@ -605,6 +602,7 @@ fn test_restart_validator_node() {
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(clients)
+        .delay_warmup()
         .build();
 
     let execution_delay = 2;
@@ -648,7 +646,6 @@ fn test_restart_validator_node() {
     let future_spawner = env.test_loop.future_spawner("TransactionRunner");
 
     let start_height = env.node_for_account(&producer).head().height;
-    let producer_identifier = env.get_node_data_by_account_id(&producer).identifier.clone();
     env.runner_for_account(&producer).run_until(
         |node| {
             let client = node.client();
@@ -662,7 +659,7 @@ fn test_restart_validator_node() {
         Duration::seconds(5),
     );
 
-    let new_node_identifier = format!("{}-restart", producer_identifier);
+    let new_node_identifier = format!("{}-restart", validator_identifier);
     env.restart_node(&new_node_identifier, killed_node_state);
     // After restart new node_datas are created.
 
@@ -715,8 +712,7 @@ fn test_spice_chain_with_missing_chunks() {
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(clients)
-        .build()
-        .warmup();
+        .build();
 
     let epoch_manager = env.rpc_node().client().epoch_manager.clone();
     let head_epoch_id =
@@ -815,6 +811,101 @@ fn test_spice_chain_with_missing_chunks() {
         assert_eq!(got_balance, want_balance);
         assert_ne!(*balance_change, 0);
     }
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+/// Verifies that validator-only nodes (non-chunk-producers) do not emit
+/// SpiceDistributorOutgoingReceipts / SpiceDistributorStateWitness messages.
+/// These nodes track and execute shards but should not distribute witnesses
+/// or receipt proofs since only chunk producers are allowed to do so.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_validator_only_does_not_distribute_witness_and_receipts() {
+    init_test_logger();
+
+    let num_producers = 2;
+    let num_validators = 2;
+
+    let mut env = TestLoopBuilder::new()
+        .validators(num_producers, num_validators)
+        .num_shards(2)
+        .delay_warmup()
+        .build();
+
+    // Register override handlers on validator-only nodes to track any
+    // SpicePartialData messages they attempt to send. These messages are the
+    // downstream network effect of handling SpiceDistributorOutgoingReceipts
+    // and SpiceDistributorStateWitness, so their absence proves no distribution
+    // happened.
+    let spice_data_sent_count = Arc::new(AtomicUsize::new(0));
+    for i in num_producers..env.node_datas.len() {
+        let node_data = &env.node_datas[i];
+        let counter = spice_data_sent_count.clone();
+        let peer_actor = env.test_loop.data.get_mut(&node_data.peer_manager_sender.actor_handle());
+        peer_actor.register_override_handler(Box::new(move |request| {
+            if matches!(&request, NetworkRequests::SpicePartialData { .. }) {
+                counter.fetch_add(1, Ordering::SeqCst);
+            }
+            Some(request)
+        }));
+    }
+
+    let mut env = env.warmup();
+
+    // Run long enough for multiple blocks to be executed across all shards.
+    env.node_runner(0).run_until_head_height_with_timeout(15, Duration::seconds(20));
+
+    assert_eq!(
+        spice_data_sent_count.load(Ordering::SeqCst),
+        0,
+        "validator-only nodes must not distribute witnesses or receipt proofs"
+    );
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+/// Verifies that validator-only nodes (non-chunk-producers) still send
+/// SpiceChunkEndorsement messages even though they do not distribute witnesses
+/// or receipt proofs.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_validator_only_sends_endorsements() {
+    init_test_logger();
+
+    let num_producers = 2;
+    let num_validators = 2;
+
+    let mut env = TestLoopBuilder::new()
+        .validators(num_producers, num_validators)
+        .num_shards(2)
+        .delay_warmup()
+        .build();
+
+    // Register override handlers on validator-only nodes to count outgoing
+    // SpiceChunkEndorsement messages.
+    let endorsement_count = Arc::new(AtomicUsize::new(0));
+    for i in num_producers..env.node_datas.len() {
+        let node_data = &env.node_datas[i];
+        let counter = endorsement_count.clone();
+        let peer_actor = env.test_loop.data.get_mut(&node_data.peer_manager_sender.actor_handle());
+        peer_actor.register_override_handler(Box::new(move |request| {
+            if matches!(&request, NetworkRequests::SpiceChunkEndorsement(..)) {
+                counter.fetch_add(1, Ordering::SeqCst);
+            }
+            Some(request)
+        }));
+    }
+
+    let mut env = env.warmup();
+
+    // Run long enough for multiple blocks to be executed across all shards.
+    env.node_runner(0).run_until_head_height_with_timeout(15, Duration::seconds(20));
+
+    assert!(
+        endorsement_count.load(Ordering::SeqCst) > 0,
+        "validator-only nodes must send chunk endorsements"
+    );
+
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 

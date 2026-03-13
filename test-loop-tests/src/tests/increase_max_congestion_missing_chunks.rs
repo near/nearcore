@@ -1,3 +1,7 @@
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::drop_condition::DropCondition;
+use crate::setup::env::TestLoopEnv;
+use crate::utils::transactions::{TransactionRunner, execute_tx, get_shared_block_hash};
 use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::test_loop::data::TestLoopData;
@@ -19,11 +23,6 @@ use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Deref;
 use std::sync::Arc;
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::drop_condition::DropCondition;
-use crate::setup::env::TestLoopEnv;
-use crate::utils::transactions::{TransactionRunner, execute_tx, get_shared_block_hash};
 
 /// Check that when some shard misses 5 chunks in a row, we reject txs where
 /// receiver belongs to that shard due to congestion control before protocol
@@ -47,7 +46,6 @@ fn slow_test_tx_inclusion() {
         HashMap::from_iter([(1, 0..15)].into_iter());
 
     // 2 producers, 2 validators, 1 rpc node, 4 shards, 20 accounts (account{i}) with 10k NEAR each.
-    // Taken from standard_setup_1()
     let num_clients = 5;
     let num_producers = 2;
     let num_validators = 2;
@@ -120,6 +118,7 @@ fn slow_test_tx_inclusion() {
         .epoch_config_store(epoch_config_store)
         .protocol_upgrade_schedule(protocol_upgrade_schedule)
         .clients(clients)
+        .delay_warmup()
         .build()
         .drop(DropCondition::ProtocolUpgradeChunkRange(new_protocol, old_chunk_range_to_drop))
         .drop(DropCondition::ProtocolUpgradeChunkRange(new_protocol, new_chunk_range_to_drop))

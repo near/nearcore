@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
@@ -10,8 +8,11 @@ use near_chain_configs::GenesisConfig;
 use near_client::gc_actor::GCActor;
 use near_client_primitives::types::BlockNotificationMessage;
 use near_jsonrpc::client::RpcTransport;
+use near_jsonrpc::sharded_rpc::ShardedRpcPool;
 use near_jsonrpc::{PeerManagerSenderForRpc, RpcConfig, create_jsonrpc_app};
 use near_jsonrpc_primitives::types::entity_debug::DummyEntityDebugHandler;
+use parking_lot::RwLock;
+use std::sync::Arc;
 use tower_service::Service;
 
 /// In-process transport that routes requests through an axum Router.
@@ -32,14 +33,17 @@ impl RpcTransport for TestLoopRpcTransport {
         endpoint: &str,
         body: Vec<u8>,
         response_size_limit: usize,
+        extra_headers: &[(&str, &str)],
     ) -> BoxFuture<'static, Result<(StatusCode, Vec<u8>), String>> {
         let mut router = self.router.clone();
-        let request = Request::builder()
+        let mut builder = Request::builder()
             .method("POST")
             .uri(endpoint)
-            .header("content-type", "application/json")
-            .body(Body::from(body))
-            .unwrap();
+            .header("content-type", "application/json");
+        for (key, value) in extra_headers {
+            builder = builder.header(*key, *value);
+        }
+        let request = builder.body(Body::from(body)).unwrap();
         Box::pin(async move {
             let response = router.call(request).await.map_err(|e| format!("{e}"))?;
             let status = response.status();
@@ -60,6 +64,7 @@ pub(crate) fn create_testloop_jsonrpc_router(
     #[allow(unused)] gc_actor_sender: &TestLoopSender<GCActor>, // used only when test_features is enabled.
     genesis_config: &GenesisConfig,
     block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
+    pool: Arc<RwLock<ShardedRpcPool>>,
 ) -> Router {
     // TODO(rpc): figure out how to pass non-dummy values for these fields.
     // They are not needed for normal jsonrpc functionality, it's debugging/testing stuff.
@@ -78,5 +83,6 @@ pub(crate) fn create_testloop_jsonrpc_router(
         #[cfg(feature = "test_features")]
         gc_actor_sender.clone().into_multi_sender(),
         entity_debug_handler,
+        pool,
     )
 }

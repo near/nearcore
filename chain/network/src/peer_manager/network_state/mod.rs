@@ -24,7 +24,9 @@ use crate::routing::route_back_cache::RouteBackCache;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::{SnapshotHostInfoError, SnapshotHostsCache};
 use crate::spice_data_distribution::{
-    SpiceDataDistributorSenderForNetwork, SpiceIncomingPartialData,
+    SpiceChunkContractAccessesMessage, SpiceContractCodeRequestMessage,
+    SpiceContractCodeResponseMessage, SpiceDataDistributorSenderForNetwork,
+    SpiceIncomingPartialData,
 };
 use crate::state_witness::{
     ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
@@ -238,7 +240,7 @@ impl NetworkState {
             tier1: connection::Pool::new(config.node_id()),
             tier3: connection::Pool::new(config.node_id()),
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
-            my_public_addr: Arc::new(RwLock::new(None)),
+            my_public_addr: Arc::new(RwLock::new(config.tier3_public_addr)),
             peer_store,
             snapshot_hosts: Arc::new(SnapshotHostsCache::new(config.snapshot_hosts.clone())),
             connection_store: connection_store::ConnectionStore::new(store.clone()).unwrap(),
@@ -819,6 +821,21 @@ impl NetworkState {
                 }
                 T1MessageBody::SpicePartialDataRequest(request) => {
                     self.spice_data_distributor_adapter.send(request);
+                    None
+                }
+                T1MessageBody::SpiceChunkContractAccesses(accesses) => {
+                    self.spice_data_distributor_adapter
+                        .send(SpiceChunkContractAccessesMessage(accesses));
+                    None
+                }
+                T1MessageBody::SpiceContractCodeRequest(request) => {
+                    self.spice_data_distributor_adapter
+                        .send(SpiceContractCodeRequestMessage(request));
+                    None
+                }
+                T1MessageBody::SpiceContractCodeResponse(response) => {
+                    self.spice_data_distributor_adapter
+                        .send(SpiceContractCodeResponseMessage(response));
                     None
                 }
             },

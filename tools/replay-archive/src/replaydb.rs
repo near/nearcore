@@ -1,7 +1,3 @@
-use std::collections::HashSet;
-use std::path::Path;
-use std::sync::Arc;
-
 use anyhow::{Context, anyhow};
 use itertools::Itertools;
 use near_store::db::{
@@ -10,6 +6,9 @@ use near_store::db::{
 use near_store::{DBCol, Mode, NodeStorage};
 use nearcore::NearConfig;
 use parking_lot::Mutex;
+use std::collections::HashSet;
+use std::path::Path;
+use std::sync::Arc;
 
 /// Database layer for replaying the chain using the archival storage for reads and a temporary storage for writes.
 /// For archival data we use split db ad the read source and for temporary storage we use an in-memory DB.

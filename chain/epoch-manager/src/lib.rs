@@ -679,6 +679,18 @@ impl EpochManager {
             return Ok(next_shard_layout.clone());
         };
 
+        // Skip the split if the shard no longer exists in the next layout
+        // (e.g. it was already split in a previous epoch).
+        if !next_shard_layout.shard_ids().any(|id| id == *shard_id) {
+            tracing::info!(
+                target: "epoch_manager",
+                ?shard_id,
+                %boundary_account,
+                "dynamic resharding: shard no longer exists in next layout, skipping split"
+            );
+            return Ok(next_shard_layout.clone());
+        }
+
         tracing::info!(
             target: "epoch_manager",
             ?shard_id,
@@ -719,20 +731,21 @@ impl EpochManager {
         layouts
     }
 
-    /// Checks if resharding can be scheduled in 2 epochs from now (assuming `block_info` belongs
+    /// Checks if resharding can be scheduled in 2 epochs from now (assuming `block_hash` belongs
     /// to the current epoch), based on `min_epochs_between_resharding`.
     ///
     /// Returns `true` if no resharding occurred in the last N epochs (including the next one).
     fn can_reshard(
         &self,
-        block_info: &BlockInfo,
+        block_hash: &CryptoHash,
         min_epochs_between_resharding: u64,
     ) -> Result<bool, EpochError> {
         if min_epochs_between_resharding == 0 {
             return Ok(true);
         }
 
-        let next_epoch_id = self.get_next_epoch_id_from_info(block_info)?;
+        let block_info = self.get_block_info(block_hash)?;
+        let next_epoch_id = self.get_next_epoch_id_from_info(&block_info)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?;
 
         // last_resharding() returns `None` if no resharding happened since dynamic resharding
@@ -1123,7 +1136,8 @@ impl EpochManager {
         self.is_next_block_in_next_epoch(&block_info)
     }
 
-    /// Returns true if the block after the one being produced will belong to a new epoch.
+    /// Like `is_next_block_epoch_start`, but works for blocks not yet in the store.
+    /// Used during block production to decide whether to include `shard_split` in the header.
     ///
     /// Parameters:
     ///  - `block_height`: the height of the block being produced
@@ -1135,12 +1149,50 @@ impl EpochManager {
         parent_hash: &CryptoHash,
         last_final_block_hash: &CryptoHash,
     ) -> Result<bool, EpochError> {
+        // If the block being produced starts a new epoch, it can't also be the
+        // last block of that epoch (the epoch just started). This check is
+        // needed because `is_next_block_in_next_epoch_impl` uses the parent's
+        // epoch boundaries and would incorrectly return true when the parent
+        // is the last block of the previous epoch.
+        if self.is_next_block_epoch_start(parent_hash)? {
+            return Ok(false);
+        }
         let last_final_block_height = self.get_block_info(last_final_block_hash)?.height();
         let parent_info = self.get_block_info(parent_hash)?;
         let epoch_first_block = parent_info.epoch_first_block();
         self.is_next_block_in_next_epoch_impl(
             block_height,
             last_final_block_height,
+            epoch_first_block,
+        )
+    }
+
+    /// Like `is_produced_block_last_in_epoch`, but checks if the **next** block will be last
+    /// in the epoch, not the one currently produced. Due to how block finalization works, this
+    /// method **can produce false positives**, but will never return a false negative.
+    /// Used to check if proposed_split should be computed for a shard.
+    ///
+    /// Parameters:
+    ///  - `block_height`: the height of the block being produced
+    ///  - `parent_hash`: hash of the parent block (the block we're building on top of)
+    pub fn is_next_block_possibly_last_in_epoch(
+        &self,
+        block_height: BlockHeight,
+        parent_hash: &CryptoHash,
+    ) -> Result<bool, EpochError> {
+        // Avoid checking the wrong epoch if parent is the last block of an epoch.
+        if self.is_next_block_epoch_start(parent_hash)? {
+            return Ok(false);
+        }
+        let parent_info = self.get_block_info(parent_hash)?;
+        let epoch_first_block = parent_info.epoch_first_block();
+        // At block_height+1, last_final_height is at most block_height-1.
+        // This can lead to false positive result, if previous block doesn't get finalized
+        // before the next block is produced, but it will never give a false negative.
+        let max_last_final_height = block_height.saturating_sub(1);
+        self.is_next_block_in_next_epoch_impl(
+            block_height + 1,
+            max_last_final_height,
             epoch_first_block,
         )
     }
@@ -1837,11 +1889,8 @@ impl EpochManager {
         };
 
         // Check if resharding is allowed based on epoch constraints
-        let parent_block_info = self.get_block_info(parent_hash)?;
-        let can_reshard = self.can_reshard(
-            &parent_block_info,
-            dynamic_resharding_config.min_epochs_between_resharding,
-        )?;
+        let can_reshard = self
+            .can_reshard(&parent_hash, dynamic_resharding_config.min_epochs_between_resharding)?;
         if !can_reshard {
             return Ok(None);
         }
@@ -1885,8 +1934,12 @@ pub fn pick_shard_to_split(
         }
     }
 
-    proposed_splits.iter().max_by_key(|(_, split)| split.total_memory()).map(|(shard_id, split)| {
-        debug_assert!(!config.block_split_shards.contains(shard_id));
-        (*shard_id, split.clone())
-    })
+    // We're using (total_memory, shard_id) tuple as key to enforce determinism in case two shards
+    // have the exacts same memory usage (very unlikely in production, but can happen in tests).
+    proposed_splits.iter().max_by_key(|(shard_id, split)| (split.total_memory(), *shard_id)).map(
+        |(shard_id, split)| {
+            debug_assert!(!config.block_split_shards.contains(shard_id));
+            (*shard_id, split.clone())
+        },
+    )
 }

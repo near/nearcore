@@ -1,7 +1,8 @@
+use super::builder::NodeStateBuilder;
 use super::drop_condition::DropCondition;
 use super::setup::setup_client;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
-use crate::utils::account::rpc_account_id;
+use crate::utils::account::{archival_account_id, rpc_account_id};
 use crate::utils::node::{NodeRunner, TestLoopNode, TestLoopNodeMut};
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
@@ -176,7 +177,6 @@ impl TestLoopEnv {
         self.node(0)
     }
 
-    #[cfg_attr(not(feature = "test_features"), allow(dead_code))]
     pub fn validator_mut(&mut self) -> TestLoopNodeMut<'_> {
         self.node_mut(0)
     }
@@ -237,5 +237,31 @@ impl TestLoopEnv {
 
     pub fn rpc_data_idx(&self) -> usize {
         self.account_data_idx(&rpc_account_id())
+    }
+
+    #[allow(dead_code)]
+    pub fn archival_node(&self) -> TestLoopNode<'_> {
+        let idx = self.archival_data_idx();
+        self.node(idx)
+    }
+
+    pub fn archival_node_mut(&mut self) -> TestLoopNodeMut<'_> {
+        let idx = self.archival_data_idx();
+        self.node_mut(idx)
+    }
+
+    pub fn archival_runner(&mut self) -> NodeRunner<'_> {
+        let idx = self.archival_data_idx();
+        self.node_runner(idx)
+    }
+
+    pub fn archival_data_idx(&self) -> usize {
+        self.account_data_idx(&archival_account_id())
+    }
+
+    pub fn node_state_builder(&self) -> NodeStateBuilder<'_> {
+        let genesis = self.shared_state.genesis.clone();
+        let tempdir_path = self.shared_state.tempdir.path().to_path_buf();
+        NodeStateBuilder::new(genesis, tempdir_path)
     }
 }

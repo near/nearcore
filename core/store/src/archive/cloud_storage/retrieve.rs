@@ -1,13 +1,11 @@
-use near_primitives::state_sync::ShardStateSyncResponseHeader;
-use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
-
-use borsh::BorshDeserialize;
-
 use crate::archive::cloud_storage::CloudStorage;
 use crate::archive::cloud_storage::block_data::BlockData;
 use crate::archive::cloud_storage::epoch_data::EpochData;
 use crate::archive::cloud_storage::file_id::CloudStorageFileID;
 use crate::archive::cloud_storage::shard_data::ShardData;
+use borsh::BorshDeserialize;
+use near_primitives::state_sync::ShardStateSyncResponseHeader;
+use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
 
 /// Errors surfaced while retrieving data from the cloud archive.
 #[derive(thiserror::Error, Debug)]
@@ -21,20 +19,19 @@ pub enum CloudRetrievalError {
 }
 
 impl CloudStorage {
-    /// Returns the cloud head from external storage, if present.
-    pub async fn retrieve_cloud_head_if_exists(
+    /// Returns the block head from external storage, if present.
+    pub async fn retrieve_cloud_block_head_if_exists(
         &self,
     ) -> Result<Option<BlockHeight>, CloudRetrievalError> {
-        if !self.exists(&CloudStorageFileID::Head).await? {
-            return Ok(None);
-        }
-        let cloud_head = self.retrieve_cloud_head().await?;
-        Ok(Some(cloud_head))
+        self.retrieve_if_exists(&CloudStorageFileID::BlockHead).await
     }
 
-    /// Returns the cloud head from external storage.
-    pub async fn retrieve_cloud_head(&self) -> Result<BlockHeight, CloudRetrievalError> {
-        self.retrieve(&CloudStorageFileID::Head).await
+    /// Returns a shard head from external storage, if present.
+    pub async fn retrieve_cloud_shard_head_if_exists(
+        &self,
+        shard_id: ShardId,
+    ) -> Result<Option<BlockHeight>, CloudRetrievalError> {
+        self.retrieve_if_exists(&CloudStorageFileID::ShardHead(shard_id)).await
     }
 
     /// Returns the state snapshot header from external storage.
@@ -71,6 +68,19 @@ impl CloudStorage {
     ) -> Result<ShardData, CloudRetrievalError> {
         let file_id = CloudStorageFileID::Shard(block_height, shard_id);
         self.retrieve(&file_id).await
+    }
+
+    /// Downloads and deserializes a file from the cloud archive, returning
+    /// `None` if the file does not exist.
+    async fn retrieve_if_exists<T: BorshDeserialize>(
+        &self,
+        file_id: &CloudStorageFileID,
+    ) -> Result<Option<T>, CloudRetrievalError> {
+        if !self.exists(file_id).await? {
+            return Ok(None);
+        }
+        let value = self.retrieve(file_id).await?;
+        Ok(Some(value))
     }
 
     /// Downloads and deserializes a file from the cloud archive.

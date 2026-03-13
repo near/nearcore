@@ -1,8 +1,6 @@
-use std::cell::Cell;
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::task::Poll;
-
+use super::get_node_data;
+use super::node::TestLoopNode;
+use crate::setup::state::NodeExecutionData;
 use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::futures::FutureSpawnerExt;
@@ -12,27 +10,20 @@ use near_async::test_loop::data::TestLoopData;
 use near_async::test_loop::futures::TestLoopFutureSpawner;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
-use near_chain::Error;
-use near_client::{Client, ProcessTxResponse, RpcHandlerActor};
+use near_client::{Client, ProcessTxResponse, QueryError, RpcHandlerActor};
 use near_crypto::Signer;
 use near_network::client::ProcessTxRequest;
-use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
 use near_primitives::block::Tip;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance, BlockHeight, Gas};
-use near_primitives::views::{
-    FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
-};
+use near_primitives::types::{AccountId, Balance};
+use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
 use parking_lot::Mutex;
-
-use crate::setup::env::TestLoopEnv;
-use crate::setup::state::NodeExecutionData;
-
-use super::client_queries::ClientQueries;
-use super::get_node_data;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::task::Poll;
 
 /// See `execute_money_transfers`. Debug is implemented so .unwrap() can print
 /// the error.
@@ -69,21 +60,33 @@ pub fn get_next_nonce(
     account_id: &AccountId,
 ) -> u64 {
     let signer: Signer = create_user_test_signer(&account_id);
-    let clients = node_datas
-        .iter()
-        .map(|data| &test_loop_data.get(&data.client_sender.actor_handle()).client)
-        .collect_vec();
-    let response = clients.runtime_query(
-        account_id,
-        QueryRequest::ViewAccessKey {
-            account_id: account_id.clone(),
-            public_key: signer.public_key(),
-        },
-    );
-    let QueryResponseKind::AccessKey(access_key) = response.kind else {
-        panic!("Expected AccessKey response");
-    };
-    access_key.nonce + 1
+    for node_data in node_datas {
+        let node = TestLoopNode { data: test_loop_data, node_data };
+        match node.view_access_key_query(account_id, &signer.public_key()) {
+            Ok(access_key) => return access_key.nonce + 1,
+            Err(QueryError::UnavailableShard { .. }) => continue,
+            Err(err) => panic!("unexpected query error: {err:?}"),
+        }
+    }
+    panic!("no node tracks the shard for account {account_id}");
+}
+
+/// Query the balance of an account, trying each node until one that tracks the
+/// account's shard is found.
+fn query_balance_from_any_node(
+    test_loop_data: &TestLoopData,
+    node_datas: &[NodeExecutionData],
+    account_id: &AccountId,
+) -> Balance {
+    for node_data in node_datas {
+        let node = TestLoopNode { data: test_loop_data, node_data };
+        match node.view_account_query(account_id) {
+            Ok(account_view) => return account_view.amount,
+            Err(QueryError::UnavailableShard { .. }) => continue,
+            Err(err) => panic!("unexpected query error: {err:?}"),
+        }
+    }
+    panic!("no node tracks the shard for account {account_id}");
 }
 
 /// Execute money transfers within given `TestLoop` between given accounts.
@@ -110,16 +113,13 @@ pub(crate) fn execute_money_transfers_with_delay(
     accounts: &[AccountId],
     delay: Duration,
 ) -> Result<(), BalanceMismatchError> {
-    let clients = node_datas
-        .iter()
-        .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
-        .collect_vec();
     let mut balances = accounts
         .iter()
-        .map(|account| (account.clone(), clients.query_balance(&account)))
+        .map(|account| {
+            (account.clone(), query_balance_from_any_node(&test_loop.data, node_datas, account))
+        })
         .collect::<HashMap<_, _>>();
-    let num_clients = clients.len();
-    drop(clients);
+    let num_clients = node_datas.len();
 
     let node_data = Arc::new(node_datas.to_vec());
 
@@ -161,289 +161,14 @@ pub(crate) fn execute_money_transfers_with_delay(
     // TODO: consider explicitly waiting for all execution outcomes.
     test_loop.run_for(Duration::milliseconds(300 * accounts.len() as i64 + 20_000));
 
-    let clients = node_data
-        .iter()
-        .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
-        .collect_vec();
     for account in accounts {
         let expected = *balances.get(account).unwrap();
-        let actual = clients.query_balance(&account);
+        let actual = query_balance_from_any_node(&test_loop.data, node_datas, account);
         if expected != actual {
             return Err(BalanceMismatchError { account: account.clone(), expected, actual });
         }
     }
     Ok(())
-}
-
-pub fn do_create_account(
-    env: &mut TestLoopEnv,
-    rpc_id: &AccountId,
-    originator: &AccountId,
-    new_account_id: &AccountId,
-    amount: Balance,
-) {
-    tracing::info!(target: "test", "creating account");
-    let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, originator);
-    let tx = create_account(env, rpc_id, originator, new_account_id, amount, nonce);
-    env.test_loop.run_for(Duration::seconds(5));
-    check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &[tx]);
-}
-
-pub fn do_delete_account(
-    env: &mut TestLoopEnv,
-    rpc_id: &AccountId,
-    account_id: &AccountId,
-    beneficiary_id: &AccountId,
-) {
-    tracing::info!(target: "test", "deleting account");
-    let tx =
-        delete_account(&env.test_loop.data, &env.node_datas, rpc_id, account_id, beneficiary_id);
-    env.test_loop.run_for(Duration::seconds(5));
-    check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &[tx]);
-}
-
-pub fn do_deploy_contract(
-    env: &mut TestLoopEnv,
-    rpc_id: &AccountId,
-    contract_id: &AccountId,
-    code: Vec<u8>,
-) {
-    tracing::info!(target: "test", "deploying contract");
-    let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, contract_id);
-    let tx = deploy_contract(&mut env.test_loop, &env.node_datas, rpc_id, contract_id, code, nonce);
-    env.test_loop.run_for(Duration::seconds(3));
-    check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &[tx]);
-}
-
-pub fn do_call_contract(
-    env: &mut TestLoopEnv,
-    rpc_id: &AccountId,
-    sender_id: &AccountId,
-    contract_id: &AccountId,
-    method_name: String,
-    args: Vec<u8>,
-) {
-    tracing::info!(target: "test", "calling contract");
-    let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, contract_id);
-    let tx = call_contract(
-        &mut env.test_loop,
-        &env.node_datas,
-        rpc_id,
-        sender_id,
-        contract_id,
-        method_name,
-        args,
-        nonce,
-    );
-    env.test_loop.run_for(Duration::seconds(3));
-    check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &[tx]);
-}
-
-pub fn create_account(
-    env: &TestLoopEnv,
-    rpc_id: &AccountId,
-    originator: &AccountId,
-    new_account_id: &AccountId,
-    amount: Balance,
-    nonce: u64,
-) -> CryptoHash {
-    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
-    let signer = create_user_test_signer(&originator);
-    let new_signer: Signer = create_user_test_signer(&new_account_id);
-
-    let tx = SignedTransaction::create_account(
-        nonce,
-        originator.clone(),
-        new_account_id.clone(),
-        amount,
-        new_signer.public_key(),
-        &signer,
-        block_hash,
-    );
-
-    let tx_hash = tx.get_hash();
-    submit_tx(&env.node_datas, rpc_id, tx);
-    tracing::debug!(target: "test", ?originator, ?new_account_id, ?tx_hash, "created account");
-    tx_hash
-}
-
-pub fn delete_account(
-    test_loop_data: &TestLoopData,
-    node_datas: &[NodeExecutionData],
-    rpc_id: &AccountId,
-    account_id: &AccountId,
-    beneficiary_id: &AccountId,
-) -> CryptoHash {
-    let signer: Signer = create_user_test_signer(&account_id).into();
-    let nonce = get_next_nonce(test_loop_data, node_datas, account_id);
-    let block_hash = get_shared_block_hash(node_datas, test_loop_data);
-
-    let tx = SignedTransaction::delete_account(
-        nonce,
-        account_id.clone(),
-        account_id.clone(),
-        beneficiary_id.clone(),
-        &signer,
-        block_hash,
-    );
-
-    let tx_hash = tx.get_hash();
-    submit_tx(node_datas, rpc_id, tx);
-    tracing::debug!(target: "test", ?account_id, ?beneficiary_id, ?tx_hash, "deleted account");
-    tx_hash
-}
-
-/// Deploy the test contract to the provided contract_id account. The contract
-/// account should already exist. The contract will be deployed from the contract
-/// account itself.
-///
-/// This function does not wait until the transactions is executed.
-pub fn deploy_contract(
-    test_loop: &TestLoopV2,
-    node_datas: &[NodeExecutionData],
-    rpc_id: &AccountId,
-    contract_id: &AccountId,
-    code: Vec<u8>,
-    nonce: u64,
-) -> CryptoHash {
-    let block_hash = get_shared_block_hash(node_datas, &test_loop.data);
-
-    let signer = create_user_test_signer(&contract_id);
-
-    let tx = SignedTransaction::deploy_contract(nonce, contract_id, code, &signer, block_hash);
-    let tx_hash = tx.get_hash();
-    submit_tx(node_datas, rpc_id, tx);
-
-    tracing::debug!(target: "test", ?contract_id, ?tx_hash, "deployed contract");
-    tx_hash
-}
-
-/// Deploy a test global contract using the corresponding deploy_mode.
-///
-/// This function does not wait until the transactions is executed.
-pub fn deploy_global_contract(
-    test_loop: &TestLoopV2,
-    node_datas: &[NodeExecutionData],
-    rpc_id: &AccountId,
-    deployer_id: AccountId,
-    code: Vec<u8>,
-    nonce: u64,
-    deploy_mode: GlobalContractDeployMode,
-) -> CryptoHash {
-    let block_hash = get_shared_block_hash(node_datas, &test_loop.data);
-
-    let signer = create_user_test_signer(&deployer_id);
-
-    let tx = SignedTransaction::deploy_global_contract(
-        nonce,
-        deployer_id.clone(),
-        code,
-        &signer,
-        block_hash,
-        deploy_mode.clone(),
-    );
-    let tx_hash = tx.get_hash();
-    submit_tx(node_datas, rpc_id, tx);
-
-    tracing::debug!(target: "test", ?deployer_id, ?tx_hash, ?deploy_mode, "deployed global contract");
-    tx_hash
-}
-
-/// Use a test global contract to the provided user_id account.
-/// The contract account should already exist.
-///
-/// This function does not wait until the transactions is executed.
-pub fn use_global_contract(
-    test_loop: &TestLoopV2,
-    node_datas: &[NodeExecutionData],
-    rpc_id: &AccountId,
-    user_id: AccountId,
-    nonce: u64,
-    identifier: GlobalContractIdentifier,
-) -> CryptoHash {
-    let block_hash = get_shared_block_hash(node_datas, &test_loop.data);
-
-    let signer = create_user_test_signer(&user_id);
-
-    let tx = SignedTransaction::use_global_contract(
-        nonce,
-        &user_id,
-        &signer,
-        block_hash,
-        identifier.clone(),
-    );
-    let tx_hash = tx.get_hash();
-    submit_tx(node_datas, rpc_id, tx);
-
-    tracing::debug!(target: "test", ?user_id, ?tx_hash, ?identifier, "use global contract");
-    tx_hash
-}
-
-/// Call the contract deployed at contract id from the sender id.
-///
-/// This function does not wait until the transactions is executed.
-pub fn call_contract(
-    test_loop: &TestLoopV2,
-    node_datas: &[NodeExecutionData],
-    rpc_id: &AccountId,
-    sender_id: &AccountId,
-    contract_id: &AccountId,
-    method_name: String,
-    args: Vec<u8>,
-    nonce: u64,
-) -> CryptoHash {
-    let block_hash = get_shared_block_hash(node_datas, &test_loop.data);
-    let signer = create_user_test_signer(sender_id);
-    let attach_gas = Gas::from_teragas(300);
-    let deposit = Balance::ZERO;
-
-    let tx = SignedTransaction::call(
-        nonce,
-        sender_id.clone(),
-        contract_id.clone(),
-        &signer,
-        deposit,
-        method_name,
-        args,
-        attach_gas,
-        block_hash,
-    );
-
-    let tx_hash = tx.get_hash();
-    submit_tx(node_datas, rpc_id, tx);
-    tracing::debug!(target: "test", ?sender_id, ?contract_id, ?tx_hash, "called contract");
-    tx_hash
-}
-
-pub fn prepare_transfer_tx(
-    env: &TestLoopEnv,
-    sender_id: &AccountId,
-    receiver_id: &AccountId,
-    amount: Balance,
-) -> SignedTransaction {
-    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
-    let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, sender_id);
-    let signer = create_user_test_signer(sender_id);
-    SignedTransaction::send_money(
-        nonce,
-        sender_id.clone(),
-        receiver_id.clone(),
-        &signer,
-        amount,
-        block_hash,
-    )
-}
-
-/// Submit a transaction to the rpc node with the given account id.
-/// Doesn't wait for the result, it must be requested separately.
-pub fn submit_tx(node_datas: &[NodeExecutionData], rpc_id: &AccountId, tx: SignedTransaction) {
-    let process_tx_request =
-        ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
-
-    let rpc_node_data = get_node_data(node_datas, rpc_id);
-    let rpc_node_data_sender = &rpc_node_data.rpc_handler_sender;
-
-    rpc_node_data_sender.send(process_tx_request);
 }
 
 /// Check the status of the transactions and assert that they are successful.
@@ -756,44 +481,4 @@ enum TxProcessingResult {
     Ok,
     Congested(InvalidTxError),
     Invalid(InvalidTxError),
-}
-
-/// Stores a transaction hash into a vector of `(transaction, block_height)` and then submits the transaction.
-pub fn store_and_submit_tx(
-    node_datas: &[NodeExecutionData],
-    rpc_id: &AccountId,
-    txs: &Cell<Vec<(CryptoHash, BlockHeight)>>,
-    signer_id: &AccountId,
-    receiver_id: &AccountId,
-    height: BlockHeight,
-    tx: SignedTransaction,
-) {
-    let mut txs_vec = txs.take();
-    tracing::debug!(target: "test", height, tx_hash=?tx.get_hash(), ?signer_id, ?receiver_id, "submitting transaction");
-    txs_vec.push((tx.get_hash(), height));
-    txs.set(txs_vec);
-    submit_tx(&node_datas, &rpc_id, tx);
-}
-
-/// Checks status of the provided transactions. Panics if transaction result is an error.
-/// Removes transactions that finished successfully from the list.
-pub fn check_txs_remove_successful(txs: &Cell<Vec<(CryptoHash, BlockHeight)>>, client: &Client) {
-    let mut unfinished_txs = Vec::new();
-    for (tx_hash, tx_height) in txs.take() {
-        let tx_outcome = client.chain.get_final_transaction_result(&tx_hash);
-        let status = tx_outcome.as_ref().map(|o| o.status.clone());
-        tracing::debug!(target: "test", ?tx_height, ?tx_hash, ?status, "transaction status");
-        match status {
-            Ok(FinalExecutionStatus::SuccessValue(_)) => continue, // Transaction finished successfully, remove it.
-            Ok(FinalExecutionStatus::NotStarted)
-            | Ok(FinalExecutionStatus::Started)
-            | Err(Error::DBNotFoundErr(_)) => unfinished_txs.push((tx_hash, tx_height)), // Transaction in progress
-            _ => panic!(
-                // Transaction error
-                "remove_successful_txs: Transaction failed! tx_hash = {:?}, tx_height = {}, status = {:?}",
-                tx_hash, tx_height, status
-            ),
-        };
-    }
-    txs.set(unfinished_txs);
 }

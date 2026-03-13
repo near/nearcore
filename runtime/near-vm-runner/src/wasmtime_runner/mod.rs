@@ -450,7 +450,7 @@ impl WasmtimeVM {
     pub(crate) fn vm_hash(&self) -> u64 {
         // increment the `version` when making modifications that affect the
         // artifact compatibility.
-        let version = 67;
+        let version = 68;
 
         let mut hasher = std::hash::DefaultHasher::new();
         self.engine.precompile_compatibility_hash().hash(&mut hasher);
@@ -922,10 +922,9 @@ fn link(linker: &mut wasmtime::Linker<Ctx>, config: &Config) {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use core::array;
     use std::thread::{scope, spawn, yield_now};
-
-    use super::*;
 
     #[test]
     fn test_semaphore() {

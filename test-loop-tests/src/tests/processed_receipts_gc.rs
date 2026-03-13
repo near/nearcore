@@ -1,3 +1,5 @@
+use crate::setup::builder::TestLoopBuilder;
+use crate::utils::account::create_account_id;
 use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
@@ -6,15 +8,11 @@ use near_primitives::gas::Gas;
 use near_primitives::receipt::{
     ProcessedReceiptMetadata, Receipt, ReceiptSource, VersionedReceiptEnum,
 };
-use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{Balance, ShardId};
 use near_primitives::utils::get_block_shard_id;
 use near_store::DBCol;
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::{create_account_id, create_validators_spec, validators_spec_clients};
 
 const EPOCH_LENGTH: u64 = 5;
 const GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
@@ -30,24 +28,13 @@ const GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
 fn test_processed_receipt_ids_gc() {
     init_test_logger();
 
-    let validators_spec = create_validators_spec(1, 0);
-    let clients = validators_spec_clients(&validators_spec);
     let user_account = create_account_id("account0");
 
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(EPOCH_LENGTH)
-        .shard_layout(ShardLayout::single_shard())
-        .validators_spec(validators_spec)
-        .add_user_accounts_simple(&[user_account.clone()], Balance::from_near(1_000_000))
-        .build();
-
     let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
+        .epoch_length(EPOCH_LENGTH)
+        .add_user_account(&user_account, Balance::from_near(1_000_000))
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
-        .build()
-        .warmup();
+        .build();
 
     let signer = create_user_test_signer(&user_account);
 

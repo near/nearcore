@@ -14,6 +14,9 @@ use near_primitives::stateless_validation::contract_distribution::ChunkContractA
 use near_primitives::stateless_validation::contract_distribution::ContractCodeRequest;
 use near_primitives::stateless_validation::contract_distribution::ContractCodeResponse;
 use near_primitives::stateless_validation::contract_distribution::PartialEncodedContractDeploys;
+use near_primitives::stateless_validation::contract_distribution::SpiceChunkContractAccesses;
+use near_primitives::stateless_validation::contract_distribution::SpiceContractCodeRequest;
+use near_primitives::stateless_validation::contract_distribution::SpiceContractCodeResponse;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
@@ -33,12 +36,11 @@ mod _proto {
     include!(concat!(env!("OUT_DIR"), "/proto/mod.rs"));
 }
 
-pub use _proto::network as proto;
-
 use crate::network_protocol::proto_conv::trace_context::{
     extract_span_context, inject_trace_context,
 };
 use crate::spice_data_distribution::SpicePartialDataRequest;
+pub use _proto::network as proto;
 use near_async::time;
 use near_crypto::PublicKey;
 use near_crypto::Signature;
@@ -623,6 +625,15 @@ impl TieredMessageBody {
             RoutedMessageBody::SpicePartialDataRequest(request) => {
                 T1MessageBody::SpicePartialDataRequest(request).into()
             }
+            RoutedMessageBody::SpiceChunkContractAccesses(accesses) => {
+                T1MessageBody::SpiceChunkContractAccesses(accesses).into()
+            }
+            RoutedMessageBody::SpiceContractCodeRequest(request) => {
+                T1MessageBody::SpiceContractCodeRequest(request).into()
+            }
+            RoutedMessageBody::SpiceContractCodeResponse(response) => {
+                T1MessageBody::SpiceContractCodeResponse(response).into()
+            }
         }
     }
 }
@@ -665,6 +676,9 @@ pub enum T1MessageBody {
     SpicePartialData(SpicePartialData) = 9,
     SpiceChunkEndorsement(SpiceChunkEndorsement) = 10,
     SpicePartialDataRequest(SpicePartialDataRequest) = 11,
+    SpiceChunkContractAccesses(SpiceChunkContractAccesses) = 12,
+    SpiceContractCodeRequest(SpiceContractCodeRequest) = 13,
+    SpiceContractCodeResponse(SpiceContractCodeResponse) = 14,
 }
 
 impl T1MessageBody {
@@ -767,6 +781,9 @@ pub enum RoutedMessageBody {
     StateRequestAck(StateRequestAck) = 34,
     SpiceChunkEndorsement(SpiceChunkEndorsement) = 35,
     SpicePartialDataRequest(SpicePartialDataRequest) = 36,
+    SpiceChunkContractAccesses(SpiceChunkContractAccesses) = 37,
+    SpiceContractCodeRequest(SpiceContractCodeRequest) = 38,
+    SpiceContractCodeResponse(SpiceContractCodeResponse) = 39,
 }
 
 impl RoutedMessageBody {
@@ -881,6 +898,15 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::SpicePartialDataRequest(request) => {
                 write!(f, "SpicePartialDataRequest({:?})", request)
             }
+            RoutedMessageBody::SpiceChunkContractAccesses(accesses) => {
+                write!(f, "SpiceChunkContractAccesses(code_hashes={:?})", accesses.contracts())
+            }
+            RoutedMessageBody::SpiceContractCodeRequest(request) => {
+                write!(f, "SpiceContractCodeRequest(code_hashes={:?})", request.contracts())
+            }
+            RoutedMessageBody::SpiceContractCodeResponse(response) => {
+                write!(f, "SpiceContractCodeResponse(chunk_id={:?})", response.chunk_id())
+            }
         }
     }
 }
@@ -926,6 +952,15 @@ impl From<TieredMessageBody> for RoutedMessageBody {
                 }
                 T1MessageBody::SpicePartialDataRequest(request) => {
                     RoutedMessageBody::SpicePartialDataRequest(request)
+                }
+                T1MessageBody::SpiceChunkContractAccesses(accesses) => {
+                    RoutedMessageBody::SpiceChunkContractAccesses(accesses)
+                }
+                T1MessageBody::SpiceContractCodeRequest(request) => {
+                    RoutedMessageBody::SpiceContractCodeRequest(request)
+                }
+                T1MessageBody::SpiceContractCodeResponse(response) => {
+                    RoutedMessageBody::SpiceContractCodeResponse(response)
                 }
             },
             TieredMessageBody::T2(body) => match *body {
@@ -1254,26 +1289,30 @@ impl RoutedMessage {
     }
 
     fn upgrade_to_v3(&mut self) {
-        if let RoutedMessage::V1(msg) = self {
-            *self = RoutedMessage::V3(RoutedMessageV3 {
-                target: msg.target.clone(),
-                author: msg.author.clone(),
-                ttl: msg.ttl,
-                body: TieredMessageBody::from_routed(msg.body.clone()),
-                signature: Some(msg.signature.clone()),
-                created_at: None,
-                num_hops: 0,
-            });
-        } else if let RoutedMessage::V2(msg) = self {
-            *self = RoutedMessage::V3(RoutedMessageV3 {
-                target: msg.msg.target.clone(),
-                author: msg.msg.author.clone(),
-                ttl: msg.msg.ttl,
-                body: TieredMessageBody::from_routed(msg.msg.body.clone()),
-                signature: Some(msg.msg.signature.clone()),
-                created_at: msg.created_at.map(|t| t.unix_timestamp()),
-                num_hops: msg.num_hops,
-            });
+        match self {
+            Self::V1(msg) => {
+                *self = RoutedMessage::V3(RoutedMessageV3 {
+                    target: msg.target.clone(),
+                    author: msg.author.clone(),
+                    ttl: msg.ttl,
+                    body: TieredMessageBody::from_routed(msg.body.clone()),
+                    signature: Some(msg.signature.clone()),
+                    created_at: None,
+                    num_hops: 0,
+                });
+            }
+            Self::V2(msg) => {
+                *self = RoutedMessage::V3(RoutedMessageV3 {
+                    target: msg.msg.target.clone(),
+                    author: msg.msg.author.clone(),
+                    ttl: msg.msg.ttl,
+                    body: TieredMessageBody::from_routed(msg.msg.body.clone()),
+                    signature: Some(msg.msg.signature.clone()),
+                    created_at: msg.created_at.map(|t| t.unix_timestamp()),
+                    num_hops: msg.num_hops,
+                });
+            }
+            Self::V3(_) => {}
         }
     }
 }

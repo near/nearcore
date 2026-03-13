@@ -122,7 +122,6 @@ fn chunk_header_proposed_split_validation() {
         ChunkStateWitness::V2(inner) => {
             inner.chunk_header = tampered_header;
         }
-        _ => unreachable!("Expected V2 witness"),
     }
 
     // Sanity: the tampered header carries the forged proposed_split.

@@ -24,6 +24,7 @@ test *FLAGS: (test-ci FLAGS) test-extra
 
 # only the tests that are exactly the same as the ones in CI
 test-ci *FLAGS: check-cargo-fmt \
+                check-import-blocks \
                 python-style-checks \
                 check-cargo-deny \
                 check-themis \
@@ -72,6 +73,10 @@ check-non-default:
 # check rust formatting
 check-cargo-fmt:
     cargo fmt -- --check
+
+# check that use imports form a single block without blank line separators
+check-import-blocks:
+    python3 scripts/check_import_blocks.py
 
 # check clippy lints
 check-cargo-clippy *FLAGS:

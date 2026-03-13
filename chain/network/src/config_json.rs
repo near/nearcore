@@ -2,6 +2,7 @@ use crate::network_protocol::PeerAddr;
 use crate::rate_limits::messages_limits;
 use crate::stun;
 use near_async::time::Duration;
+use std::net::SocketAddr;
 
 /// Time to persist Accounts Id in the router without removing them in seconds.
 pub const TTL_ACCOUNT_ID_ROUTER: i64 = 60 * 60;
@@ -301,6 +302,11 @@ pub struct ExperimentalConfig {
     // compatibility.
     #[serde(default)]
     pub skip_sending_tombstones_seconds: i64,
+
+    /// If set, overrides the auto-discovered public address used for Tier3
+    /// state sync connections. Format: "IP:port" (e.g. "203.0.113.5:24567").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tier3_public_addr: Option<SocketAddr>,
 
     /// See `NetworkConfig`.
     /// Fields set here will override the NetworkConfig fields.

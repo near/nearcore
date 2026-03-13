@@ -1,5 +1,4 @@
-use std::str::FromStr;
-
+use crate::NearConfig;
 use near_chain::{Error, LatestKnown};
 use near_chain_configs::GenesisConfig;
 use near_epoch_manager::epoch_sync::{
@@ -21,8 +20,7 @@ use near_store::{
     DBCol, LATEST_KNOWN_KEY, ShardTries, ShardUId, StateSnapshotConfig, Store, StoreConfig,
     TrieChanges, TrieConfig, TrieUpdate, get_genesis_height, set,
 };
-
-use crate::NearConfig;
+use std::str::FromStr;
 
 const BATCH_SIZE: u64 = 100_000;
 

@@ -8,12 +8,11 @@
 //! Usage:
 //!   cargo run -p near-jsonrpc-openapi-spec --bin near-openrpc > openrpc.json
 
-use schemars::JsonSchema;
-use schemars::transform::transform_subschemas;
-use serde_json::json;
-
 use near_chain_configs::GenesisConfig;
 use near_jsonrpc_primitives::types::blocks::{RpcBlockRequest, RpcBlockResponse};
+use near_jsonrpc_primitives::types::call_function::{
+    RpcCallFunctionRequest, RpcCallFunctionResponse,
+};
 use near_jsonrpc_primitives::types::changes::{
     RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockByTypeResponse,
     RpcStateChangesInBlockRequest, RpcStateChangesInBlockResponse,
@@ -34,7 +33,6 @@ use near_jsonrpc_primitives::types::maintenance::{
     RpcMaintenanceWindowsRequest, RpcMaintenanceWindowsResponse,
 };
 use near_jsonrpc_primitives::types::network_info::RpcNetworkInfoResponse;
-use near_jsonrpc_primitives::types::query::{RpcQueryRequest, RpcQueryResponse};
 use near_jsonrpc_primitives::types::receipts::{RpcReceiptRequest, RpcReceiptResponse};
 use near_jsonrpc_primitives::types::split_storage::{
     RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse,
@@ -47,7 +45,19 @@ use near_jsonrpc_primitives::types::validator::{
     RpcValidatorRequest, RpcValidatorResponse, RpcValidatorsOrderedRequest,
     RpcValidatorsOrderedResponse,
 };
+use near_jsonrpc_primitives::types::view_access_key::{
+    RpcViewAccessKeyRequest, RpcViewAccessKeyResponse,
+};
+use near_jsonrpc_primitives::types::view_access_key_list::{
+    RpcViewAccessKeyListRequest, RpcViewAccessKeyListResponse,
+};
+use near_jsonrpc_primitives::types::view_account::{RpcViewAccountRequest, RpcViewAccountResponse};
+use near_jsonrpc_primitives::types::view_code::{RpcViewCodeRequest, RpcViewCodeResponse};
+use near_jsonrpc_primitives::types::view_state::{RpcViewStateRequest, RpcViewStateResponse};
 use near_primitives::hash::CryptoHash;
+use schemars::JsonSchema;
+use schemars::transform::transform_subschemas;
+use serde_json::json;
 
 // Request types that are just empty structs
 #[derive(JsonSchema)]
@@ -555,7 +565,7 @@ impl schemars::transform::Transform for MergePropertiesIntoOneOf {
 
 /// Configuration for collapsing a cartesian product explosion back to composed types.
 struct CartesianCollapseConfig {
-    /// Name of the type with the explosion (e.g., "RpcQueryRequest")
+    /// Name of the type with the explosion (e.g., "RpcStateChangesInBlockByTypeRequest")
     type_name: &'static str,
     /// Component types that were flattened together
     components: &'static [ComponentConfig],
@@ -566,43 +576,26 @@ struct ComponentConfig {
     name: &'static str,
     /// Properties that discriminate this component's variants
     discriminator_props: &'static [&'static str],
-    /// If internally tagged, the tag property name (e.g., "request_type")
+    /// If internally tagged, the tag property name (e.g., "changes_type")
     tag_prop: Option<&'static str>,
 }
 
 /// Known cartesian product explosions to collapse
-const CARTESIAN_COLLAPSE_CONFIGS: &[CartesianCollapseConfig] = &[
-    CartesianCollapseConfig {
-        type_name: "RpcQueryRequest",
-        components: &[
-            ComponentConfig {
-                name: "BlockReference",
-                discriminator_props: &["block_id", "finality", "sync_checkpoint"],
-                tag_prop: None,
-            },
-            ComponentConfig {
-                name: "QueryRequest",
-                discriminator_props: &["request_type"],
-                tag_prop: Some("request_type"),
-            },
-        ],
-    },
-    CartesianCollapseConfig {
-        type_name: "RpcStateChangesInBlockByTypeRequest",
-        components: &[
-            ComponentConfig {
-                name: "BlockReference",
-                discriminator_props: &["block_id", "finality", "sync_checkpoint"],
-                tag_prop: None,
-            },
-            ComponentConfig {
-                name: "StateChangesRequestView",
-                discriminator_props: &["changes_type"],
-                tag_prop: Some("changes_type"),
-            },
-        ],
-    },
-];
+const CARTESIAN_COLLAPSE_CONFIGS: &[CartesianCollapseConfig] = &[CartesianCollapseConfig {
+    type_name: "RpcStateChangesInBlockByTypeRequest",
+    components: &[
+        ComponentConfig {
+            name: "BlockReference",
+            discriminator_props: &["block_id", "finality", "sync_checkpoint"],
+            tag_prop: None,
+        },
+        ComponentConfig {
+            name: "StateChangesRequestView",
+            discriminator_props: &["changes_type"],
+            tag_prop: Some("changes_type"),
+        },
+    ],
+}];
 
 /// Collapse cartesian product explosions in the schema.
 fn collapse_cartesian_products(schemas: &mut serde_json::Map<String, serde_json::Value>) {
@@ -798,6 +791,116 @@ fn collapse_cartesian_products(schemas: &mut serde_json::Map<String, serde_json:
     }
 }
 
+/// Collects top-level properties from a variant object (which may have direct
+/// `properties` or nested `allOf` members with `properties`).
+fn collect_properties_from_variant(
+    variant: &serde_json::Value,
+) -> Vec<(String, serde_json::Value, bool)> {
+    let mut result = Vec::new();
+    // Direct properties on the variant
+    if let Some(props) = variant.get("properties").and_then(|p| p.as_object()) {
+        let required: Vec<String> = variant
+            .get("required")
+            .and_then(|r| serde_json::from_value(r.clone()).ok())
+            .unwrap_or_default();
+        for (name, schema) in props {
+            result.push((name.clone(), schema.clone(), required.contains(name)));
+        }
+    }
+    // allOf members within the variant (e.g. RpcTransactionStatusRequest)
+    if let Some(all_of) = variant.get("allOf").and_then(|a| a.as_array()) {
+        for member in all_of {
+            if let Some(props) = member.get("properties").and_then(|p| p.as_object()) {
+                let required: Vec<String> = member
+                    .get("required")
+                    .and_then(|r| serde_json::from_value(r.clone()).ok())
+                    .unwrap_or_default();
+                for (name, schema) in props {
+                    result.push((name.clone(), schema.clone(), required.contains(name)));
+                }
+            }
+        }
+    }
+    result
+}
+
+/// Extracts top-level properties from a request schema and returns them as
+/// OpenRPC content descriptors. Handles four schema shapes:
+/// - Empty objects → empty params
+/// - Direct `properties` → one content descriptor per property
+/// - `oneOf` → collect properties across all variants, mark all optional
+/// - `allOf` with `$ref`s → resolve refs, recursively extract and merge
+fn extract_params_from_schema(
+    schema: &serde_json::Value,
+    all_schemas: &serde_json::Map<String, serde_json::Value>,
+) -> Vec<serde_json::Value> {
+    let mut seen = std::collections::BTreeMap::<String, (serde_json::Value, bool)>::new();
+
+    if let Some(properties) = schema.get("properties").and_then(|p| p.as_object()) {
+        // Direct properties
+        let required: Vec<String> = schema
+            .get("required")
+            .and_then(|r| serde_json::from_value(r.clone()).ok())
+            .unwrap_or_default();
+        for (name, prop_schema) in properties {
+            seen.insert(name.clone(), (prop_schema.clone(), required.contains(name)));
+        }
+    } else if let Some(one_of) = schema.get("oneOf").and_then(|o| o.as_array()) {
+        // oneOf variants — collect all properties, none globally required.
+        // When the same property appears in multiple variants with different
+        // schemas (e.g. `request_type` with different `const` values), drop
+        // variant-specific constraints and keep just the type.
+        for variant in one_of {
+            for (name, prop_schema, _required) in collect_properties_from_variant(variant) {
+                seen.entry(name.clone())
+                    .and_modify(|(existing, _)| {
+                        if *existing != prop_schema {
+                            // Schemas differ across variants — generalize to just the type
+                            let mut generic = serde_json::Map::new();
+                            if let Some(t) = prop_schema.get("type") {
+                                generic.insert("type".to_string(), t.clone());
+                            } else if let Some(t) = existing.get("type") {
+                                generic.insert("type".to_string(), t.clone());
+                            }
+                            *existing = serde_json::Value::Object(generic);
+                        }
+                    })
+                    .or_insert((prop_schema, false));
+            }
+        }
+    } else if let Some(all_of) = schema.get("allOf").and_then(|a| a.as_array()) {
+        // allOf with $refs — resolve each ref and recursively extract
+        for member in all_of {
+            let resolved = if let Some(ref_path) = member.get("$ref").and_then(|r| r.as_str()) {
+                let ref_name = ref_path.rsplit('/').next().unwrap_or("");
+                all_schemas.get(ref_name).cloned().unwrap_or(json!({}))
+            } else {
+                member.clone()
+            };
+            for (name, prop_schema, required) in
+                extract_params_from_schema(&resolved, all_schemas).into_iter().filter_map(|cd| {
+                    let name = cd.get("name")?.as_str()?.to_string();
+                    let prop_schema = cd.get("schema")?.clone();
+                    let required = cd.get("required").and_then(|r| r.as_bool()).unwrap_or(false);
+                    Some((name, prop_schema, required))
+                })
+            {
+                seen.entry(name).or_insert((prop_schema, required));
+            }
+        }
+    }
+
+    seen.into_iter()
+        .map(|(name, (prop_schema, required))| {
+            json!({
+                "name": name,
+                "required": required,
+                "schema": prop_schema,
+            })
+        })
+        .collect()
+}
+
 /// Generates the OpenRPC specification.
 pub fn generate_openrpc() -> serde_json::Value {
     let mut methods = Vec::new();
@@ -856,26 +959,17 @@ pub fn generate_openrpc() -> serde_json::Value {
             .insert(result_name.clone(), clean_schema(result_schema.as_value(), &result_name));
 
         // Build OpenRPC method object
-        // NEAR uses by-name params where the entire params object is passed
-        // We represent this as a single content descriptor referencing the request schema
         let mut method = serde_json::Map::new();
         method.insert("name".to_string(), json!(method_name));
         method.insert("summary".to_string(), json!(summary));
         method.insert("paramStructure".to_string(), json!("by-name"));
 
-        // Single param that references the full request type schema
-        // The schema itself defines what properties are valid
-        method.insert(
-            "params".to_string(),
-            json!([
-                {
-                    "name": "request",
-                    "description": format!("Request parameters for {}", method_name),
-                    "required": true,
-                    "schema": { "$ref": format!("#/components/schemas/{}", params_name) }
-                }
-            ]),
-        );
+        // Extract individual params from the request schema so that
+        // by-name params match the actual top-level JSON keys the RPC expects.
+        // Without this, OpenRPC consumers would wrap params in a "request" key.
+        let params_schema = all_schemas.get(&params_name).cloned().unwrap_or(json!({}));
+        let params = extract_params_from_schema(&params_schema, all_schemas);
+        method.insert("params".to_string(), json!(params));
 
         // Result content descriptor
         method.insert(
@@ -925,14 +1019,6 @@ pub fn generate_openrpc() -> serde_json::Value {
         "Returns gas price for a specific block_height or block_hash",
         false,
         &["gas"],
-    );
-    add_method::<RpcQueryRequest, RpcQueryResponse>(
-        &mut methods,
-        &mut all_schemas,
-        "query",
-        "Query the blockchain state (view account, call function, etc.)",
-        false,
-        &["query"],
     );
     add_method::<RpcSendTransactionRequest, RpcTransactionResponse>(
         &mut methods,
@@ -1117,6 +1203,57 @@ pub fn generate_openrpc() -> serde_json::Value {
         &["light_client", "experimental"],
     );
 
+    // ==================== EXPERIMENTAL Dedicated Query Methods ====================
+
+    add_method::<RpcViewAccountRequest, RpcViewAccountResponse>(
+        &mut methods,
+        &mut all_schemas,
+        "EXPERIMENTAL_view_account",
+        "Returns information about an account for given account_id",
+        false,
+        &["query", "experimental"],
+    );
+    add_method::<RpcViewCodeRequest, RpcViewCodeResponse>(
+        &mut methods,
+        &mut all_schemas,
+        "EXPERIMENTAL_view_code",
+        "Returns the contract code (Wasm binary) deployed to the account",
+        false,
+        &["query", "experimental"],
+    );
+    add_method::<RpcViewStateRequest, RpcViewStateResponse>(
+        &mut methods,
+        &mut all_schemas,
+        "EXPERIMENTAL_view_state",
+        "Returns the state (key-value pairs) of a contract based on the key prefix",
+        false,
+        &["query", "experimental"],
+    );
+    add_method::<RpcViewAccessKeyRequest, RpcViewAccessKeyResponse>(
+        &mut methods,
+        &mut all_schemas,
+        "EXPERIMENTAL_view_access_key",
+        "Returns information about a single access key for given account",
+        false,
+        &["query", "experimental"],
+    );
+    add_method::<RpcViewAccessKeyListRequest, RpcViewAccessKeyListResponse>(
+        &mut methods,
+        &mut all_schemas,
+        "EXPERIMENTAL_view_access_key_list",
+        "Returns all access keys for a given account",
+        false,
+        &["query", "experimental"],
+    );
+    add_method::<RpcCallFunctionRequest, RpcCallFunctionResponse>(
+        &mut methods,
+        &mut all_schemas,
+        "EXPERIMENTAL_call_function",
+        "Calls a view function on a contract and returns the result",
+        false,
+        &["query", "experimental"],
+    );
+
     // ==================== Aliases ====================
 
     add_method::<RpcStateChangesInBlockRequest, RpcStateChangesInBlockByTypeResponse>(
@@ -1234,7 +1371,7 @@ pub fn generate_openrpc() -> serde_json::Value {
     // Collapse cartesian product explosions back into composed allOf references.
     // When Rust has `#[serde(flatten)]` on multiple enum fields, schemars generates
     // the cartesian product (e.g., 3 × 8 = 24 variants). We detect these patterns
-    // and collapse them back to `allOf[BlockReference, QueryRequest]`.
+    // and collapse them back to `allOf[BlockReference, StateChangesRequestView]`.
     collapse_cartesian_products(&mut all_schemas);
 
     // Build final OpenRPC document

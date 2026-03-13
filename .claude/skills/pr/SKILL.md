@@ -1,5 +1,7 @@
 ---
-description: Create a PR from staged changes with auto-generated branch, title, and description
+name: pr
+description: Create a PR from staged changes with auto-generated branch, title, and description. Use this skill whenever the user wants to create a pull request, ship changes, open a PR, send code for review, or push staged work to GitHub — even if they don't explicitly say "PR".
+allowed-tools: Bash, Read, Grep, Glob, AskUserQuestion
 ---
 
 Create a pull request with automatically generated title and description based on staged changes.
@@ -19,7 +21,8 @@ Follow these steps in order:
 
 1. **Validate:**
    - Record the current branch name
-   - Run `git diff --cached` to check for staged changes. If empty, warn the user and stop
+   - Run `git diff --cached` to capture the staged diff. If empty, warn the user and stop
+   - If there are unstaged changes, briefly warn the user that they won't be included in the PR
    - Do NOT analyze unstaged changes
    - Fetch the GitHub username by running: `gh api user --jq .login`
    - **Determine `reuse-branch` and base branch:**
@@ -34,15 +37,14 @@ Follow these steps in order:
        3. Record the fork remote name for later use.
      - If "fork" is not specified, the push remote is `origin`.
 
-2. **Analyze staged changes:**
-   - Run `git diff --cached` to get the full staged diff
+2. **Analyze staged changes** (reuse the diff output from Step 1):
    - Read the modified files to understand the surrounding code context
    - Identify the project/area (e.g., spice, resharding, state-sync, ci). If changes span multiple projects, pick the most dominant one. If user instructions specify a project, use that instead.
    - Read the `CONTRIBUTING.md` "## Pull Requests" section for valid change types and PR title conventions
    - Determine the change type (fix, feat, refactor, doc, test, chore, perf, revert). If multiple apply, pick the most dominant. If user instructions specify a type, use that instead.
    - Generate a short hyphenated task name, 2-4 words (e.g., `add-metrics`, `fix-header-validation`, `refactor-chunk-apply`)
 
-3. **Generate all details — do NOT run any git commands in this step:**
+3. **Generate all details — do NOT run any state-modifying commands (no creating branches, committing, or pushing) in this step:**
    - **Branch name (local)** and **remote branch name:**
      - If `reuse-branch` is true: the local branch name is the current branch. Skip collision checks.
      - Otherwise, generate a new local branch name:
@@ -81,7 +83,13 @@ Follow these steps in order:
 
 5. **Execute — only after user confirms:**
    - If `reuse-branch` is false, create the branch: `git checkout -b <branch-name>`
-   - Commit staged changes: `git commit -m "<commit message>"`
+   - Commit staged changes using a HEREDOC for the message:
+     ```
+     git commit -m "$(cat <<'EOF'
+     <commit message>
+     EOF
+     )"
+     ```
    - Push: `git push -u <push-remote> <local-branch-name>:<remote-branch-name>`
      (If local and remote names are the same, `git push -u <push-remote> <branch-name>` is fine.)
    - Create the PR using a HEREDOC for the body:

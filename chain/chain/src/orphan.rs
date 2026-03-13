@@ -231,13 +231,6 @@ impl OrphanBlockPool {
                     debug_assert!(_visited.insert(*hash));
                 }
             }
-
-            // probably something serious went wrong here because there shouldn't be so many forks
-            assert!(
-                res.len() <= 100 * target_depth as usize,
-                "found too many orphans {:?}, probably something is wrong with the chain",
-                res
-            );
         }
         res
     }

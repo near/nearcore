@@ -22,7 +22,6 @@ use near_ping::PingCommand;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
 use near_primitives::types::{Gas, NumSeats, NumShards, ProtocolVersion, ShardId};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_replay_archive_tool::ReplayArchiveCommand;
 use near_state_parts::cli::StatePartsCommand;
 use near_state_parts_dump_check::cli::StatePartsDumpCheckCommand;
@@ -39,7 +38,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Receiver;
-
 #[cfg(feature = "dump-test-contract")]
 use {
     near_dump_test_contract::DumpTestContractCommand, near_network::tcp,
@@ -641,7 +639,7 @@ impl RunCmd {
 /// Archival nodes skip deletion to prevent accidental data loss.
 fn check_epoch_sync_data_reset_marker(hot_store_path: &Path, is_archival: bool) {
     let marker_path = hot_store_path.join(EPOCH_SYNC_DATA_RESET_MARKER_FILE_NAME);
-    if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) || !marker_path.exists() {
+    if !near_client::sync::SYNC_V2_ENABLED || !marker_path.exists() {
         return;
     }
     if is_archival {

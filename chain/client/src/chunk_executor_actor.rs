@@ -1,8 +1,7 @@
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::collections::VecDeque;
-use std::sync::Arc;
-
+use crate::spice_chunk_validator_actor::send_spice_chunk_endorsement;
+use crate::spice_data_distributor_actor::SpiceDataDistributorAdapter;
+use crate::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
+use crate::spice_data_distributor_actor::SpiceDistributorStateWitness;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::futures::AsyncComputationSpawnerExt;
 use near_async::messaging::CanSend;
@@ -41,10 +40,11 @@ use near_primitives::sharding::ReceiptProof;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::sharding::ShardProof;
 use near_primitives::state::PartialState;
-use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
+use near_primitives::stateless_validation::contract_distribution::{CodeHash, ContractUpdates};
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateTransition;
 use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness;
+use near_primitives::stateless_validation::spice_state_witness::compute_contract_accesses_hash;
 use near_primitives::types::BlockExecutionResults;
 use near_primitives::types::BlockHeight;
 use near_primitives::types::ChunkExecutionResult;
@@ -52,6 +52,7 @@ use near_primitives::types::ChunkExecutionResultHash;
 use near_primitives::types::SpiceChunkId;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{Gas, ShardId};
+use near_primitives::utils::get_contract_accesses_key;
 use near_primitives::utils::get_receipt_proof_key;
 use near_primitives::utils::get_receipt_proof_target_shard_prefix;
 use near_primitives::utils::get_witnesses_key;
@@ -60,20 +61,16 @@ use near_store::DBCol;
 use near_store::ShardUId;
 use near_store::Store;
 use near_store::StoreUpdate;
-use near_store::TrieDBStorage;
-use near_store::TrieStorage;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use near_store::adapter::trie_store::TrieStoreAdapter;
 use node_runtime::SignedValidPeriodTransactions;
 use rayon::iter::IntoParallelIterator as _;
 use rayon::iter::ParallelIterator as _;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::collections::VecDeque;
+use std::sync::Arc;
 use tracing::instrument;
-
-use crate::spice_chunk_validator_actor::send_spice_chunk_endorsement;
-use crate::spice_data_distributor_actor::SpiceDataDistributorAdapter;
-use crate::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
-use crate::spice_data_distributor_actor::SpiceDistributorStateWitness;
 
 #[derive(Clone, Debug)]
 pub struct ChunkExecutorConfig {
@@ -86,6 +83,12 @@ impl Default for ChunkExecutorConfig {
     fn default() -> Self {
         Self { save_trie_changes: true, save_tx_outcomes: true, save_state_changes: true }
     }
+}
+
+/// Data required for validators to initiate the chunk application
+struct ChunkExecutionData {
+    pub witness: SpiceChunkStateWitness,
+    pub code_accesses: HashSet<CodeHash>,
 }
 
 pub struct ChunkExecutorActor {
@@ -633,12 +636,33 @@ impl ChunkExecutorActor {
             self.save_produced_receipts(&block_hash, &receipt_proofs);
 
             let Some(my_signer) = self.validator_signer.get() else {
-                // If node isn't validator it shouldn't send outgoing receipts, endorsed and witnesses.
+                // If node isn't validator it shouldn't send outgoing receipts, endorsements and witnesses.
                 // RPC nodes can still apply chunks and tracks multiple shards.
                 continue;
             };
-            self.send_outgoing_receipts(&block, receipt_proofs);
-            self.distribute_witness(&block, my_signer, new_chunk_result, outgoing_receipts_root)?;
+
+            // Endorse if we are a chunk validator (regardless of producer status)
+            let validators_at_height = self.epoch_manager.get_chunk_validator_assignments(
+                &epoch_id,
+                shard_id,
+                block.header().height(),
+            )?;
+            if validators_at_height.contains(my_signer.validator_id()) {
+                self.send_chunk_endorsement(
+                    &block,
+                    &my_signer,
+                    new_chunk_result,
+                    outgoing_receipts_root,
+                );
+            }
+
+            // Distribute witness and receipts if we are the chunk producer for the shard.
+            let epoch_producers =
+                self.epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, shard_id)?;
+            if epoch_producers.contains(my_signer.validator_id()) {
+                self.send_outgoing_receipts(&block, receipt_proofs);
+                self.distribute_witness(&block, new_chunk_result, outgoing_receipts_root)?;
+            }
         }
 
         let mut chain_update = self.chain_update();
@@ -658,10 +682,34 @@ impl ChunkExecutorActor {
         Ok(())
     }
 
+    fn send_chunk_endorsement(
+        &self,
+        block: &Block,
+        my_signer: &ValidatorSigner,
+        new_chunk_result: &NewChunkResult,
+        outgoing_receipts_root: CryptoHash,
+    ) {
+        let NewChunkResult { shard_uid, gas_limit, apply_result } = new_chunk_result;
+        let shard_id = shard_uid.shard_id();
+        let execution_result =
+            new_execution_result(*gas_limit, apply_result, outgoing_receipts_root);
+        let endorsement = SpiceChunkEndorsement::new(
+            SpiceChunkId { block_hash: *block.hash(), shard_id },
+            execution_result,
+            my_signer,
+        );
+        send_spice_chunk_endorsement(
+            endorsement.clone(),
+            self.epoch_manager.as_ref(),
+            &self.network_adapter.clone().into_sender(),
+            my_signer,
+        );
+        self.core_writer_sender.send(SpiceChunkEndorsementMessage(endorsement));
+    }
+
     fn distribute_witness(
         &self,
         block: &Block,
-        my_signer: Arc<ValidatorSigner>,
         new_chunk_result: &NewChunkResult,
         outgoing_receipts_root: CryptoHash,
     ) -> Result<(), Error> {
@@ -671,46 +719,30 @@ impl ChunkExecutorActor {
         let execution_result =
             new_execution_result(*gas_limit, apply_result, outgoing_receipts_root);
         let execution_result_hash = execution_result.compute_hash();
-        if self
-            .epoch_manager
-            .get_chunk_validator_assignments(
-                &block.header().epoch_id(),
-                shard_id,
-                block.header().height(),
-            )?
-            .contains(my_signer.validator_id())
-        {
-            // If we're validator we can send endorsement without witness validation.
-            let endorsement = SpiceChunkEndorsement::new(
-                SpiceChunkId { block_hash: *block.hash(), shard_id },
-                execution_result,
-                &my_signer,
-            );
-            send_spice_chunk_endorsement(
-                endorsement.clone(),
-                self.epoch_manager.as_ref(),
-                &self.network_adapter.clone().into_sender(),
-                &my_signer,
-            );
-            self.core_writer_sender.send(SpiceChunkEndorsementMessage(endorsement));
-        }
 
-        let state_witness =
-            self.create_witness(block, apply_result, shard_id, execution_result_hash)?;
+        let ChunkExecutionData { witness: state_witness, code_accesses: contract_accesses } =
+            self.create_chunk_execution_data(block, apply_result, shard_id, execution_result_hash)?;
 
-        save_witness(&self.chain_store, block.hash(), shard_id, &state_witness);
+        save_witness_and_contract_accesses(
+            &self.chain_store,
+            block.hash(),
+            shard_id,
+            &state_witness,
+            &contract_accesses,
+        );
+        self.data_distributor_adapter
+            .send(SpiceDistributorStateWitness { state_witness, contract_accesses });
 
-        self.data_distributor_adapter.send(SpiceDistributorStateWitness { state_witness });
         Ok(())
     }
 
-    fn create_witness(
+    fn create_chunk_execution_data(
         &self,
         block: &Block,
         apply_result: &ApplyChunkResult,
         shard_id: ShardId,
         execution_result_hash: ChunkExecutionResultHash,
-    ) -> Result<SpiceChunkStateWitness, Error> {
+    ) -> Result<ChunkExecutionData, Error> {
         let block_hash = block.header().hash();
         let epoch_id = self.epoch_manager.get_epoch_id(block_hash).unwrap();
         let transactions = {
@@ -726,21 +758,15 @@ impl ChunkExecutorActor {
         };
 
         let applied_receipts_hash = apply_result.applied_receipts_hash;
-        let main_transition = {
-            let ContractUpdates { contract_accesses, contract_deploys: _ } =
-                apply_result.contract_updates.clone();
+        let ContractUpdates { contract_accesses, contract_deploys: _ } =
+            apply_result.contract_updates.clone();
 
-            let PartialState::TrieValues(mut base_state_values) =
+        let main_transition = {
+            let PartialState::TrieValues(base_state_values) =
                 apply_result.proof.clone().unwrap().nodes;
-            let trie_storage = TrieDBStorage::new(
-                TrieStoreAdapter::new(self.runtime_adapter.store().clone()),
-                shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?,
-            );
-            base_state_values.reserve_exact(contract_accesses.len());
-            for contract_hash in contract_accesses {
-                let contract = trie_storage.retrieve_raw_bytes(&contract_hash.0)?;
-                base_state_values.push(contract);
-            }
+            // Contract bytecodes are not included in the witness. They are sent
+            // separately via SpiceChunkContractAccesses so that validators can
+            // check their compiled contract cache and only request missing ones.
             SpiceChunkStateTransition {
                 base_state: PartialState::TrieValues(base_state_values),
                 post_state_root: apply_result.new_root,
@@ -761,6 +787,7 @@ impl ChunkExecutorActor {
                 .collect::<Result<_, Error>>()?
         };
         // TODO(spice-resharding): Handle witness validation when resharding.
+        let contract_accesses_hash = compute_contract_accesses_hash(&contract_accesses);
         let state_witness = SpiceChunkStateWitness::new(
             near_primitives::types::SpiceChunkId { block_hash: *block_hash, shard_id },
             main_transition,
@@ -768,8 +795,9 @@ impl ChunkExecutorActor {
             applied_receipts_hash,
             transactions,
             execution_result_hash,
+            contract_accesses_hash,
         );
-        Ok(state_witness)
+        Ok(ChunkExecutionData { witness: state_witness, code_accesses: contract_accesses })
     }
 
     #[instrument(
@@ -804,10 +832,14 @@ impl ChunkExecutorActor {
         };
 
         let prev_chunk_chunk_extra = chunk_context.prev_chunk_chunk_extra;
+        let prev_validator_proposals = self.core_reader.prev_validator_proposals(
+            &block_context.prev_block_hash,
+            chunk_context.shard_uid.shard_id(),
+        )?;
         let shard_update_reason = ShardUpdateReason::NewChunk(NewChunkData {
             gas_limit: prev_chunk_chunk_extra.gas_limit(),
             prev_state_root: *prev_chunk_chunk_extra.state_root(),
-            prev_validator_proposals: prev_chunk_chunk_extra.validator_proposals().collect(),
+            prev_validator_proposals,
             chunk_hash,
             transactions,
             receipts,
@@ -1014,17 +1046,15 @@ pub(crate) fn save_receipt_proof(
     store_update.set(DBCol::receipt_proofs(), &key, &value);
 }
 
-pub(crate) fn save_witness(
-    chain_store: &ChainStoreAdapter,
+fn set_witness(
+    store_update: &mut StoreUpdate,
     block_hash: &CryptoHash,
     shard_id: ShardId,
     witness: &SpiceChunkStateWitness,
 ) {
-    let mut store_update = chain_store.store().store_update();
     let key = get_witnesses_key(block_hash, shard_id);
     let value = borsh::to_vec(&witness).unwrap();
     store_update.set(DBCol::witnesses(), &key, &value);
-    store_update.commit();
 }
 
 fn get_receipt_proofs_for_shard(
@@ -1043,6 +1073,42 @@ pub fn get_witness(
 ) -> Option<SpiceChunkStateWitness> {
     let key = get_witnesses_key(block_hash, shard_id);
     store.get_ser(DBCol::witnesses(), &key)
+}
+
+fn set_contract_accesses(
+    store_update: &mut StoreUpdate,
+    block_hash: &CryptoHash,
+    shard_id: ShardId,
+    contract_accesses: &HashSet<CodeHash>,
+) {
+    let key = get_contract_accesses_key(block_hash, shard_id);
+    let value: Vec<CodeHash> = contract_accesses.iter().cloned().collect();
+    let value = borsh::to_vec(&value).unwrap();
+    store_update.set(DBCol::contract_accesses(), &key, &value);
+}
+
+/// Saves witness and contract accesses atomically in a single DB transaction.
+pub(crate) fn save_witness_and_contract_accesses(
+    chain_store: &ChainStoreAdapter,
+    block_hash: &CryptoHash,
+    shard_id: ShardId,
+    witness: &SpiceChunkStateWitness,
+    contract_accesses: &HashSet<CodeHash>,
+) {
+    let mut store_update = chain_store.store().store_update();
+    set_witness(&mut store_update, block_hash, shard_id, witness);
+    set_contract_accesses(&mut store_update, block_hash, shard_id, contract_accesses);
+    store_update.commit();
+}
+
+pub(crate) fn get_contract_accesses(
+    store: &Store,
+    block_hash: &CryptoHash,
+    shard_id: ShardId,
+) -> Option<HashSet<CodeHash>> {
+    let key = get_contract_accesses_key(block_hash, shard_id);
+    let accesses: Arc<Vec<CodeHash>> = store.caching_get_ser(DBCol::contract_accesses(), &key)?;
+    Some(accesses.iter().cloned().collect())
 }
 
 pub fn get_receipt_proof(
@@ -1122,12 +1188,11 @@ pub(crate) fn is_descendant_of_final_execution_head(
 /// This module is needed for integration tests, otherwise it should not be used.
 /// It's kept here to expose less of the actual actor API.
 pub mod testonly {
+    use super::*;
     use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
     use near_async::messaging::noop;
     use near_chain::spice_core_writer_actor::SpiceCoreWriterActor;
     use parking_lot::RwLock;
-
-    use super::*;
 
     struct FakeSpawner {
         sc: UnboundedSender<Box<dyn FnOnce() + Send>>,

@@ -1,7 +1,3 @@
-use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::{Balance, BlockHeight, Gas, ProtocolVersion, ShardId};
-use near_primitives_core::version::{PROD_GENESIS_PROTOCOL_VERSION, PROTOCOL_VERSION};
-
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::congestion_info::CongestionInfo;
 use crate::reed_solomon::reed_solomon_encode;
@@ -11,6 +7,9 @@ use crate::sharding::{
 };
 use crate::types::StateRoot;
 use crate::validator_signer::EmptyValidatorSigner;
+use near_primitives_core::hash::CryptoHash;
+use near_primitives_core::types::{Balance, BlockHeight, Gas, ProtocolVersion, ShardId};
+use near_primitives_core::version::{PROD_GENESIS_PROTOCOL_VERSION, PROTOCOL_VERSION};
 
 type ShardChunkReedSolomon = reed_solomon_erasure::galois_8::ReedSolomon;
 

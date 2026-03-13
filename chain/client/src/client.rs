@@ -18,7 +18,7 @@ use crate::sync::epoch::EpochSync;
 use crate::sync::handler::SyncHandler;
 use crate::sync::header::HeaderSync;
 use crate::sync::state::chain_requests::ChainSenderForStateSync;
-use crate::sync::state::{StateSync, StateSyncResult};
+use crate::sync::state::{StateSync, StateSyncShardResult};
 use crate::{ProduceChunkResult, metrics};
 use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, FutureSpawner};
@@ -320,6 +320,7 @@ impl Client {
             chain.genesis().clone(),
             multi_spawner.epoch_sync,
             config.epoch_sync.clone(),
+            config.archive,
             &chain.chain_store.store(),
         );
         let header_sync = HeaderSync::new(
@@ -337,6 +338,7 @@ impl Client {
             config.block_fetch_horizon,
             config.archive,
             config.state_sync_enabled,
+            config.sync_max_block_requests,
         );
 
         let state_sync = StateSync::new(
@@ -408,14 +410,7 @@ impl Client {
             pending_approvals: lru::LruCache::new(
                 NonZeroUsize::new(num_block_producer_seats).unwrap(),
             ),
-            sync_handler: SyncHandler::new(
-                clock.clone(),
-                config,
-                epoch_sync,
-                header_sync,
-                state_sync,
-                block_sync,
-            ),
+            sync_handler: SyncHandler::new(config, epoch_sync, header_sync, state_sync, block_sync),
             catchup_state_syncs: HashMap::new(),
             state_sync_future_spawner,
             chain_sender_for_state_sync,
@@ -2265,9 +2260,9 @@ impl Client {
 
             tracing::debug!(target: "catchup", ?sync_hash, progress_per_shard = ?status.sync_status, "catchup");
 
-            match state_sync.run(sync_hash, status, state_sync_info.shards())? {
-                StateSyncResult::InProgress => {}
-                StateSyncResult::Completed => {
+            match state_sync.run_with_shards(status, state_sync_info.shards())? {
+                StateSyncShardResult::InProgress => {}
+                StateSyncShardResult::Completed => {
                     tracing::debug!(target: "catchup", "state sync completed now catch up blocks");
                     self.chain.catchup_blocks_step(
                         &sync_hash,

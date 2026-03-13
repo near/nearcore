@@ -98,9 +98,9 @@ impl Block {
         // We should not expect BlockV4 to have BlockBodyV1
         match body {
             BlockBody::V1(_) => {
-                panic!("Attempted to include BlockBodyV1 in new protocol version")
+                panic!("attempted to include BlockBodyV1 in new protocol version")
             }
-            _ => Block::BlockV4(BlockV4 { header, body }),
+            BlockBody::V2(_) | BlockBody::V3(_) => Block::BlockV4(BlockV4 { header, body }),
         }
     }
 
@@ -175,14 +175,15 @@ impl Block {
             }
         }
 
-        let next_gas_price = Self::compute_next_gas_price(
+        let next_gas_price = Self::compute_next_gas_price_checked(
             prev.next_gas_price(),
             gas_used,
             gas_limit,
             gas_price_adjustment_rate,
             min_gas_price,
             max_gas_price,
-        );
+        )
+        .unwrap();
 
         let new_total_supply = prev
             .total_supply()
@@ -295,25 +296,38 @@ impl Block {
         Self::new_block(header, body)
     }
 
+    #[deprecated(note = "use `verify_total_supply_checked` to avoid overflow panic")]
     pub fn verify_total_supply(
         &self,
         prev_total_supply: Balance,
         minted_amount: Option<Balance>,
     ) -> bool {
+        self.verify_total_supply_checked(prev_total_supply, minted_amount).unwrap()
+    }
+
+    pub fn verify_total_supply_checked(
+        &self,
+        prev_total_supply: Balance,
+        minted_amount: Option<Balance>,
+    ) -> Option<bool> {
         let mut balance_burnt = Balance::ZERO;
 
         for chunk in self.chunks().iter_new() {
-            balance_burnt = balance_burnt.checked_add(chunk.prev_balance_burnt()).unwrap();
+            balance_burnt = balance_burnt.checked_add(chunk.prev_balance_burnt())?;
         }
 
-        let new_total_supply = prev_total_supply
-            .checked_add(minted_amount.unwrap_or(Balance::ZERO))
-            .unwrap()
+        let Some(new_total_supply) = prev_total_supply
+            .checked_add(minted_amount.unwrap_or(Balance::ZERO))?
             .checked_sub(balance_burnt)
-            .unwrap();
-        self.header().total_supply() == new_total_supply
+        else {
+            // This corresponds to balance_burnt > prev_total_supply + minted_amount
+            // which indicates invalid balance burnt, not arithmetic overflow
+            return Some(false);
+        };
+        Some(self.header().total_supply() == new_total_supply)
     }
 
+    #[deprecated(note = "use `verify_gas_price_checked` to avoid overflow panic")]
     pub fn verify_gas_price(
         &self,
         gas_price: Balance,
@@ -323,28 +337,48 @@ impl Block {
         // TODO(spice): Once spice v1 is released remove Option.
         last_certified_block_execution_results: Option<&BlockExecutionResults>,
     ) -> bool {
-        let gas_used = self.chunks().compute_gas_used();
+        self.verify_gas_price_checked(
+            gas_price,
+            min_gas_price,
+            max_gas_price,
+            gas_price_adjustment_rate,
+            last_certified_block_execution_results,
+        )
+        .unwrap()
+    }
+
+    pub fn verify_gas_price_checked(
+        &self,
+        gas_price: Balance,
+        min_gas_price: Balance,
+        max_gas_price: Balance,
+        gas_price_adjustment_rate: Rational32,
+        // TODO(spice): Once spice v1 is released remove Option.
+        last_certified_block_execution_results: Option<&BlockExecutionResults>,
+    ) -> Option<bool> {
+        let gas_used = self.chunks().compute_gas_used_checked()?;
         let gas_limit = if let Some(last_certified_block_execution_results) =
             last_certified_block_execution_results
         {
-            last_certified_block_execution_results.compute_gas_limit()
+            last_certified_block_execution_results.compute_gas_limit_checked()?
         } else {
-            self.chunks().compute_gas_limit()
+            self.chunks().compute_gas_limit_checked()?
         };
-        let expected_price = Self::compute_next_gas_price(
+        let expected_price = Self::compute_next_gas_price_checked(
             gas_price,
             gas_used,
             gas_limit,
             gas_price_adjustment_rate,
             min_gas_price,
             max_gas_price,
-        );
-        self.header().next_gas_price() == expected_price
+        )?;
+        Some(self.header().next_gas_price() == expected_price)
     }
 
     /// Computes gas price for applying chunks in the next block according to the formula:
     ///   next_gas_price = gas_price * (1 + (gas_used/gas_limit - 1/2) * adjustment_rate)
     /// and clamped between min_gas_price and max_gas_price.
+    #[deprecated(note = "use `compute_next_gas_price_checked` to avoid overflow panic")]
     pub fn compute_next_gas_price(
         gas_price: Balance,
         gas_used: Gas,
@@ -353,9 +387,28 @@ impl Block {
         min_gas_price: Balance,
         max_gas_price: Balance,
     ) -> Balance {
+        Self::compute_next_gas_price_checked(
+            gas_price,
+            gas_used,
+            gas_limit,
+            gas_price_adjustment_rate,
+            min_gas_price,
+            max_gas_price,
+        )
+        .unwrap()
+    }
+
+    pub fn compute_next_gas_price_checked(
+        gas_price: Balance,
+        gas_used: Gas,
+        gas_limit: Gas,
+        gas_price_adjustment_rate: Rational32,
+        min_gas_price: Balance,
+        max_gas_price: Balance,
+    ) -> Option<Balance> {
         // If block was skipped, the price does not change.
         if gas_limit == Gas::ZERO {
-            return gas_price;
+            return Some(gas_price);
         }
 
         let gas_used = u128::from(gas_used.as_gas());
@@ -365,21 +418,23 @@ impl Block {
 
         // This number can never be negative as long as gas_used <= gas_limit and
         // adjustment_rate_numer <= adjustment_rate_denom.
-        let numerator = 2 * adjustment_rate_denom * gas_limit
-            + 2 * adjustment_rate_numer * gas_used
-            - adjustment_rate_numer * gas_limit;
-        let denominator = 2 * adjustment_rate_denom * gas_limit;
+        let numerator = 2u128
+            .checked_mul(adjustment_rate_denom)?
+            .checked_mul(gas_limit)?
+            .checked_add(2u128.checked_mul(adjustment_rate_numer)?.checked_mul(gas_used)?)?
+            .checked_sub(adjustment_rate_numer.checked_mul(gas_limit)?)?;
+        let denominator = 2u128.checked_mul(adjustment_rate_denom)?.checked_mul(gas_limit)?;
         let next_gas_price =
             U256::from(gas_price.as_yoctonear()) * U256::from(numerator) / U256::from(denominator);
 
-        Balance::from_yoctonear(
+        Some(Balance::from_yoctonear(
             next_gas_price
                 .clamp(
                     U256::from(min_gas_price.as_yoctonear()),
                     U256::from(max_gas_price.as_yoctonear()),
                 )
                 .as_u128(),
-        )
+        ))
     }
 
     pub fn validate_chunk_header_proof(
@@ -702,13 +757,22 @@ impl<'a> Chunks<'a> {
         merklize(&self.iter().map(|chunk| *chunk.prev_outcome_root()).collect_vec()).0
     }
 
+    #[deprecated(note = "use `compute_gas_used_checked` to avoid overflow panic")]
     pub fn compute_gas_used(&self) -> Gas {
-        self.iter_new()
-            .fold(Gas::ZERO, |acc, chunk| acc.checked_add(chunk.prev_gas_used()).unwrap())
+        self.compute_gas_used_checked().unwrap()
     }
 
+    pub fn compute_gas_used_checked(&self) -> Option<Gas> {
+        self.iter_new().try_fold(Gas::ZERO, |acc, chunk| acc.checked_add(chunk.prev_gas_used()))
+    }
+
+    #[deprecated(note = "use `compute_gas_limit_checked` to avoid overflow panic")]
     pub fn compute_gas_limit(&self) -> Gas {
-        self.iter_new().fold(Gas::ZERO, |acc, chunk| acc.checked_add(chunk.gas_limit()).unwrap())
+        self.compute_gas_limit_checked().unwrap()
+    }
+
+    pub fn compute_gas_limit_checked(&self) -> Option<Gas> {
+        self.iter_new().try_fold(Gas::ZERO, |acc, chunk| acc.checked_add(chunk.gas_limit()))
     }
 }
 

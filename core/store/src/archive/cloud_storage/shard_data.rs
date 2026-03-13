@@ -6,13 +6,12 @@ use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ReceiptProof, ShardChunk};
 //use near_primitives::state_sync::ShardStateSyncResponseHeader;
+use crate::adapter::StoreAdapter;
+use crate::{DBCol, KeyForStateChanges, Store};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey};
 use near_schema_checker_lib::ProtocolSchema;
-
-use crate::adapter::StoreAdapter;
-use crate::{DBCol, KeyForStateChanges, Store};
 
 /// Versioned container for shard-related data stored in the cloud archive.
 /// This is for a single block height (taken from the file path).

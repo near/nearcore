@@ -1,6 +1,5 @@
-use std::fmt;
-
 use near_primitives::errors::EpochError;
+use std::fmt;
 
 #[derive(Debug)]
 pub enum Error {

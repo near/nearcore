@@ -1,17 +1,16 @@
 use futures::future;
+use near_async::multithread::MultithreadRuntimeHandle;
+use near_async::tokio::TokioRuntimeHandle;
+use near_async::{ActorSystem, shutdown_all_actors};
 use near_chain_configs::{Genesis, TrackedShardsConfig};
+use near_client::ViewClientActor;
+use near_client::client_actor::ClientActor;
 use near_network::tcp;
 use near_network::test_utils::convert_boot_nodes;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards};
-use nearcore::{load_test_config, start_with_config};
-
-use near_async::multithread::MultithreadRuntimeHandle;
-use near_async::tokio::TokioRuntimeHandle;
-use near_async::{ActorSystem, shutdown_all_actors};
-use near_client::ViewClientActor;
-use near_client::client_actor::ClientActor;
 use near_store::db::RocksDB;
+use nearcore::{load_test_config, start_with_config};
 
 async fn start_nodes(
     temp_dir: &std::path::Path,

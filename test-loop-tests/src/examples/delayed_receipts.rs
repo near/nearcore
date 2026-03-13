@@ -1,19 +1,13 @@
-use std::iter::repeat_with;
-
+use crate::setup::builder::TestLoopBuilder;
+use crate::utils::account::create_account_id;
 use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain::Error;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::gas::Gas;
-use near_primitives::test_utils::create_user_test_signer;
-use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
-use near_primitives::types::{Balance, Nonce};
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::{
-    create_account_id, create_validators_spec, validators_spec_clients_with_rpc,
-};
+use near_primitives::transaction::ExecutionStatus;
+use near_primitives::types::Balance;
 
 /// Example test that creates a chunk which, when applied, creates a delayed receipt.
 /// Requires "test_features" feature to be enabled in order to use `burn_gas_raw`
@@ -23,55 +17,31 @@ fn delayed_receipt_example_test() {
     init_test_logger();
 
     let user_account = create_account_id("user");
-    let validators_spec = create_validators_spec(1, 0);
-    let clients = validators_spec_clients_with_rpc(&validators_spec);
     let gas_limit = Gas::from_teragas(300);
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .shard_layout_single_shard()
-        .validators_spec(validators_spec)
-        .gas_limit(gas_limit)
-        .add_user_account_simple(user_account.clone(), Balance::from_near(10))
-        .build();
     let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .build()
-        .warmup();
+        .gas_limit(gas_limit)
+        .add_user_account(&user_account, Balance::from_near(10))
+        .enable_rpc()
+        .build();
 
-    let mut nonce: Nonce = 0;
-    let mut next_nonce = || {
-        nonce += 1;
-        nonce
-    };
-
-    let deploy_test_contract_tx = SignedTransaction::deploy_contract(
-        next_nonce(),
-        &user_account,
-        near_test_contracts::rs_contract().to_vec(),
-        &create_user_test_signer(&user_account),
-        env.rpc_node().head().last_block_hash,
-    );
-    env.rpc_runner().run_tx(deploy_test_contract_tx, Duration::seconds(2));
+    let deploy_tx = env.rpc_node().tx_deploy_test_contract(&user_account);
+    env.rpc_runner().run_tx(deploy_tx, Duration::seconds(2));
 
     // Each transaction generates local receipt consuming more than a half
     // the chunk space, so chunk can only fit 2 such receipts.
     let gas_to_burn = gas_limit.checked_div(2).unwrap().checked_add(Gas::from_gas(1)).unwrap();
-    let txs = repeat_with(|| {
-        SignedTransaction::call(
-            next_nonce(),
-            user_account.clone(),
-            user_account.clone(),
-            &create_user_test_signer(&user_account),
-            Balance::ZERO,
-            "burn_gas_raw".to_owned(),
-            gas_to_burn.as_gas().to_le_bytes().to_vec(),
-            gas_limit,
-            env.rpc_node().head().last_block_hash,
-        )
-    })
-    .take(3)
-    .collect_vec();
+    let txs = (0..3)
+        .map(|_| {
+            env.rpc_node().tx_call(
+                &user_account,
+                &user_account,
+                "burn_gas_raw",
+                gas_to_burn.as_gas().to_le_bytes().to_vec(),
+                Balance::ZERO,
+                gas_limit,
+            )
+        })
+        .collect_vec();
     for tx in &txs {
         env.rpc_node().submit_tx(tx.clone());
     }

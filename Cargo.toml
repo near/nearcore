@@ -20,6 +20,7 @@ exclude = ["neard"]
 [workspace]
 resolver = "2"
 members = [
+    "benchmarks/rpc-probe",
     "benchmarks/transactions-generator",
     "chain/chain",
     "chain/chunks",
@@ -283,6 +284,7 @@ near-schema-checker-macro = { path = "core/schema-checker/schema-checker-macro" 
 near-schema-checker-core = { path = "core/schema-checker/schema-checker-core" }
 near-schema-checker-lib = { path = "core/schema-checker/schema-checker-lib" }
 near-store = { path = "core/store" }
+near-rpc-probe = { path = "benchmarks/rpc-probe" }
 near-transactions-generator = { path = "benchmarks/transactions-generator" }
 near-telemetry = { path = "chain/telemetry" }
 near-test-contracts = { path = "runtime/near-test-contracts" }

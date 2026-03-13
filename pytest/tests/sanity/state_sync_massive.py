@@ -64,6 +64,7 @@ else:
 
 config = load_config()
 node_config = state_sync_lib.get_state_sync_config_combined()
+node_config['epoch_sync'] = {"epoch_sync_horizon_num_epochs": 100}
 near_root, node_dirs = init_cluster(
     1, 2, 1, config,
     [["min_gas_price", "0"], ["max_inflation_rate", [0, 1]],

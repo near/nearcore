@@ -1,17 +1,15 @@
-use std::collections::HashSet;
-
-use near_async::time::Duration;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_o11y::testonly::init_test_logger;
-use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta};
-
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::cloud_archival::{
     bootstrap_reader_at_height, check_account_balance, check_data_at_height,
     gc_and_heads_sanity_checks, pause_and_resume_writer_with_sanity_checks, run_node_until,
     snapshots_sanity_check,
 };
+use near_async::time::Duration;
+use near_chain_configs::CloudArchivalWriterConfig;
+use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_o11y::testonly::init_test_logger;
+use near_primitives::shard_layout::ShardLayout;
+use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta};
 
 const MIN_GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
 /// Minimum epoch length assumed in tests.
@@ -78,11 +76,9 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
 
     let archival_id: AccountId = "archival".parse().unwrap();
     let all_clients = vec![archival_id.clone(), validator_id];
-    let mut cold_storage_archival_clients = HashSet::<AccountId>::new();
-    if params.enable_cold_storage {
-        cold_storage_archival_clients.insert(archival_id.clone());
-    }
-    let cloud_storage_archival_clients = [archival_id.clone()].into_iter().collect();
+    let cold_storage_archival_clients =
+        if params.enable_cold_storage { vec![archival_id.clone()] } else { vec![] };
+    let cloud_storage_archival_clients = vec![archival_id.clone()];
     let archival_index = all_clients.iter().position(|id| id == &archival_id).unwrap();
 
     let mut builder = TestLoopBuilder::new()
@@ -98,11 +94,12 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
             if client_index != archival_index {
                 return;
             }
-            config.cloud_archival_writer = Some(Default::default());
+            config.cloud_archival_writer =
+                Some(CloudArchivalWriterConfig { archive_block_data: true, ..Default::default() });
         });
     }
 
-    let mut env = builder.build().warmup();
+    let mut env = builder.build();
 
     if let Some(resume_height) = params.pause_writer_for_num_of_blocks {
         pause_and_resume_writer_with_sanity_checks(

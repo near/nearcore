@@ -1,13 +1,11 @@
+use crate::setup::env::TestLoopEnv;
+use crate::setup::state::NodeExecutionData;
 use near_async::test_loop::data::TestLoopData;
 use near_client::Client;
 use near_client::client_actor::ClientActor;
 use near_primitives::types::{AccountId, BlockHeight};
 
-use crate::setup::env::TestLoopEnv;
-use crate::setup::state::NodeExecutionData;
-
 pub(crate) mod account;
-pub(crate) mod client_queries;
 pub(crate) mod cloud_archival;
 pub(crate) mod contract_distribution;
 pub(crate) mod loop_action;

@@ -14,15 +14,20 @@ use external::StateSyncDownloadSourceExternal;
 use futures::future::BoxFuture;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{AsyncSender, IntoAsyncSender};
-use near_async::time::{Clock, Duration};
-use near_chain::Chain;
+use near_async::time::{Clock, Duration, Utc};
+use near_chain::chain::ApplyChunksDoneSender;
 use near_chain::types::RuntimeAdapter;
+use near_chain::{BlockHeader, BlockProcessingArtifact, Chain};
 use near_chain_configs::{ExternalStorageConfig, StateSyncConfig, SyncConcurrency, SyncConfig};
+use near_chunks::logic::get_shards_cares_about_this_or_next_epoch;
 use near_client_primitives::types::{ShardSyncStatus, StateSyncStatus};
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_external_storage::S3AccessConfig;
 use near_network::client::StateResponse;
-use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
+use near_network::types::{
+    HighestHeightPeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
+};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::state_part::StatePart;
@@ -31,6 +36,8 @@ use near_primitives::types::ShardId;
 use near_store::Store;
 use network::{StateSyncDownloadSourcePeer, StateSyncDownloadSourcePeerSharedState};
 use parking_lot::Mutex;
+use rand::seq::SliceRandom;
+use rand::thread_rng;
 use shard::{StateSyncShardHandle, run_state_sync_for_shard};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -45,10 +52,16 @@ use tokio_util::sync::CancellationToken;
 /// is a single `run` method that should be called periodically, returning that we're either
 /// done or still in progress, while updating the externally visible status.
 pub struct StateSync {
+    clock: Clock,
     store: Store,
     future_spawner: Arc<dyn FutureSpawner>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     runtime: Arc<dyn RuntimeAdapter>,
+
+    /// Timeout for block requests during state sync.
+    block_request_timeout: Duration,
+    /// A map storing the last time a block was requested for state sync.
+    last_time_sync_block_requested: HashMap<CryptoHash, Utc>,
 
     /// We keep a reference to this so that peer messages received about state sync can be
     /// given to the StateSyncDownloadSourcePeer.
@@ -100,6 +113,7 @@ impl StateSync {
         future_spawner: Arc<dyn FutureSpawner>,
         catchup: bool,
     ) -> Self {
+        let block_request_timeout = external_timeout;
         let peer_source_state =
             Arc::new(Mutex::new(StateSyncDownloadSourcePeerSharedState::default()));
         let peer_source = Arc::new(StateSyncDownloadSourcePeer {
@@ -146,7 +160,7 @@ impl StateSync {
 
         let downloading_task_tracker = TaskTracker::new(usize::from(num_concurrent_requests));
         let downloader = Arc::new(StateSyncDownloader {
-            clock,
+            clock: clock.clone(),
             store: store.clone(),
             preferred_source: peer_source,
             fallback_source,
@@ -164,16 +178,20 @@ impl StateSync {
         };
         let computation_task_tracker = TaskTracker::new(usize::from(num_concurrent_computations));
 
-        let min_delay_before_reattempt = if num_attempts_before_fallback > 0 {
-            // No need to wait if p2p attempts are enabled
-            Duration::ZERO
-        } else {
+        let has_fallback = downloader.fallback_source.is_some();
+        let min_delay_before_reattempt = if has_fallback && num_attempts_before_fallback == 0 {
             // Avoid aggressively checking the external storage for requests which just failed
             external_backoff
+        } else {
+            // No need to wait if p2p attempts are enabled
+            Duration::ZERO
         };
 
         Self {
+            clock,
             store,
+            block_request_timeout,
+            last_time_sync_block_requested: HashMap::new(),
             peer_source_state,
             downloader,
             downloading_task_tracker,
@@ -198,13 +216,141 @@ impl StateSync {
         Ok(())
     }
 
-    /// Main loop that should be called periodically.
+    /// Verifies if the node possesses the given block. If the block is absent,
+    /// the node should request it from peers.
+    ///
+    /// the return value is a tuple (request_block, have_block)
+    ///
+    /// the return value (false, false) means that the node already requested
+    /// the block but hasn't received it yet
+    fn sync_block_status(
+        &self,
+        chain: &Chain,
+        sync_hash: &CryptoHash,
+        block_hash: &CryptoHash,
+        now: Utc,
+    ) -> (bool, bool) {
+        // The sync hash block is saved as an orphan. The other blocks are saved
+        // as regular blocks. Check if block exists depending on that.
+        let block_exists = if sync_hash == block_hash {
+            chain.is_orphan(block_hash)
+        } else {
+            chain.block_exists(block_hash)
+        };
+
+        if block_exists {
+            return (false, true);
+        }
+        let Some(last_time) = self.last_time_sync_block_requested.get(block_hash) else {
+            return (true, false);
+        };
+
+        let timeout = self.block_request_timeout;
+        if (now - *last_time) >= timeout {
+            tracing::error!(target: "sync", ?block_hash, ?timeout, "state sync: block request timed out");
+            (true, false)
+        } else {
+            (false, false)
+        }
+    }
+
+    /// Checks if the sync blocks are available and requests them if needed.
+    fn request_sync_blocks(
+        &mut self,
+        chain: &Chain,
+        block_header: &BlockHeader,
+        highest_height_peers: &[HighestHeightPeerInfo],
+    ) -> Vec<(CryptoHash, PeerId)> {
+        let now = self.clock.now_utc();
+
+        let sync_hash = *block_header.hash();
+        let prev_hash = *block_header.prev_hash();
+
+        let mut needed_block_hashes = vec![prev_hash, sync_hash];
+        let mut extra_block_hashes = chain.get_extra_sync_block_hashes(&prev_hash);
+        tracing::trace!(target: "sync", ?needed_block_hashes, ?extra_block_hashes, "request_sync_blocks: block hashes for state sync");
+        needed_block_hashes.append(&mut extra_block_hashes);
+        let mut blocks_to_request = vec![];
+
+        let mut rng = thread_rng();
+        for hash in needed_block_hashes {
+            let (request_block, have_block) = self.sync_block_status(chain, &sync_hash, &hash, now);
+            tracing::trace!(target: "sync", ?hash, ?request_block, ?have_block, "request_sync_blocks");
+
+            if have_block {
+                self.last_time_sync_block_requested.remove(&hash);
+            }
+
+            if !request_block {
+                tracing::trace!(target: "sync", ?hash, ?have_block, "request_sync_blocks: skipping - no request");
+                continue;
+            }
+
+            let peer_info = highest_height_peers.choose(&mut rng);
+            let Some(peer_info) = peer_info else {
+                tracing::trace!(target: "sync", ?hash, "request_sync_blocks: skipping - no peer");
+                continue;
+            };
+            let peer_id = peer_info.peer_info.id.clone();
+            self.last_time_sync_block_requested.insert(hash, now);
+            blocks_to_request.push((hash, peer_id));
+        }
+
+        tracing::trace!(target: "sync", num_blocks_to_request = blocks_to_request.len(), "request_sync_blocks: done");
+
+        blocks_to_request
+    }
+
+    /// Main loop for the normal sync handler path. Requests sync blocks,
+    /// computes tracking shards, runs shard downloading, and finalizes
+    /// by resetting heads when all shards complete.
     pub fn run(
         &mut self,
-        sync_hash: CryptoHash,
+        sync_status: &mut StateSyncStatus,
+        shard_tracker: &ShardTracker,
+        chain: &mut Chain,
+        highest_height_peers: &[HighestHeightPeerInfo],
+        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+    ) -> Result<StateSyncResult, near_chain::Error> {
+        let sync_hash = sync_status.sync_hash;
+        let block_header = chain.get_block_header(&sync_hash)?;
+
+        // Waiting for all the sync blocks to be available because they are
+        // needed to finalize state sync.
+        let blocks_to_request =
+            self.request_sync_blocks(chain, &block_header, highest_height_peers);
+        if !blocks_to_request.is_empty() {
+            return Ok(StateSyncResult::NeedBlocks(blocks_to_request));
+        }
+
+        let tracking_shards = get_shards_cares_about_this_or_next_epoch(
+            &block_header,
+            shard_tracker,
+            self.epoch_manager.as_ref(),
+        );
+        match self.run_with_shards(sync_status, &tracking_shards)? {
+            StateSyncShardResult::Completed => {
+                tracing::info!(target: "sync", "state sync: all shards are done");
+                let mut block_processing_artifacts = BlockProcessingArtifact::default();
+                chain.reset_heads_post_state_sync(
+                    sync_hash,
+                    &mut block_processing_artifacts,
+                    apply_chunks_done_sender,
+                )?;
+                Ok(StateSyncResult::Completed(block_processing_artifacts))
+            }
+            StateSyncShardResult::InProgress => Ok(StateSyncResult::InProgress),
+        }
+    }
+
+    /// Main loop that should be called periodically with explicit tracking shards.
+    /// Used by the catchup path which computes shards differently.
+    pub fn run_with_shards(
+        &mut self,
         sync_status: &mut StateSyncStatus,
         tracking_shards: &[ShardId],
-    ) -> Result<StateSyncResult, near_chain::Error> {
+    ) -> Result<StateSyncShardResult, near_chain::Error> {
+        let sync_hash = sync_status.sync_hash;
         let _span =
             tracing::debug_span!(target: "sync", "run_sync", sync_type = "StateSync").entered();
         tracing::debug!(%sync_hash, ?tracking_shards, "syncing state");
@@ -282,11 +428,30 @@ impl StateSync {
 
         sync_status.download_tasks = self.downloading_task_tracker.statuses();
         sync_status.computation_tasks = self.computation_task_tracker.statuses();
-        Ok(if all_done { StateSyncResult::Completed } else { StateSyncResult::InProgress })
+        if all_done {
+            // Clean up block request tracking for next round now that state sync is done.
+            self.last_time_sync_block_requested.clear();
+            Ok(StateSyncShardResult::Completed)
+        } else {
+            Ok(StateSyncShardResult::InProgress)
+        }
     }
 }
 
+/// Result of `StateSync::run()` — the full handler path including block
+/// requesting and head resetting.
 pub enum StateSyncResult {
+    /// Need to request blocks from peers before state sync can proceed.
+    NeedBlocks(Vec<(CryptoHash, PeerId)>),
+    /// State sync still in progress. No action needed by the caller.
+    InProgress,
+    /// State sync completed and heads have been reset.
+    Completed(BlockProcessingArtifact),
+}
+
+/// Result of `StateSync::run_with_shards()` — shard downloading only,
+/// used by the catchup path.
+pub enum StateSyncShardResult {
     /// State sync still in progress. No action needed by the caller.
     InProgress,
     /// The state for all shards was downloaded.

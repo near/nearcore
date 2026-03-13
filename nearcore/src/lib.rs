@@ -3,7 +3,6 @@ pub use crate::config::{NearConfig, init_configs, load_config, load_test_config}
 #[cfg(feature = "json_rpc")]
 use crate::entity_debug::EntityDebugHandlerImpl;
 use crate::metrics::spawn_trie_metrics_loop;
-
 use crate::state_sync::StateSyncDumper;
 use anyhow::Context;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
@@ -41,6 +40,7 @@ use near_client::{
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_jsonrpc::sharded_rpc::ShardedRpcPool;
 use near_network::PeerManagerActor;
 use near_network::types::PeerManagerAdapter;
 use near_primitives::genesis::GenesisId;
@@ -52,6 +52,7 @@ use near_store::genesis::initialize_sharded_genesis_state;
 use near_store::metrics::spawn_db_metrics_loop;
 use near_store::{NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
+use parking_lot::RwLock;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -295,6 +296,8 @@ fn spawn_spice_actors(
         network_adapter.clone(),
         chunk_executor_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
+        spice_chunk_validator_adapter.as_sender(),
+        spice_chunk_validator_adapter.as_sender(),
     );
     let spice_data_distributor_addr = actor_system.spawn_tokio_actor(spice_data_distributor_actor);
     spice_data_distributor_adapter.bind(spice_data_distributor_addr);
@@ -462,6 +465,9 @@ pub async fn start_with_config_and_synchronization_impl(
         } else {
             (epoch_manager.clone(), shard_tracker.clone(), runtime.clone())
         };
+
+    // Split storage (cold+hot) when available, otherwise just hot storage.
+    let maybe_split_store = split_store.clone().unwrap_or_else(|| storage.get_hot_store());
 
     let result = create_cold_store_actor(
         config.config.save_trie_changes,
@@ -674,7 +680,7 @@ pub async fn start_with_config_and_synchronization_impl(
         network_adapter.as_sender(),
         client_adapter_for_shards_manager.as_sender(),
         config.validator_signer.clone(),
-        split_store.unwrap_or_else(|| storage.get_hot_store()),
+        maybe_split_store.clone(),
         config.client_config.chunk_request_retry_period,
         config.client_config.chunks_cache_height_horizon,
     );
@@ -687,6 +693,7 @@ pub async fn start_with_config_and_synchronization_impl(
         epoch_length: config.client_config.epoch_length,
         transaction_validity_period: config.genesis.config.transaction_validity_period,
     };
+    let rpc_shard_tracker = view_shard_tracker.clone();
     let rpc_handler = spawn_rpc_handler_actor(
         actor_system.clone(),
         rpc_handler_config,
@@ -746,6 +753,11 @@ pub async fn start_with_config_and_synchronization_impl(
     network_adapter.bind(network_actor.clone());
     #[cfg(feature = "json_rpc")]
     if let Some(rpc_config) = config.rpc_config {
+        let sharded_rpc_pool = Arc::new(RwLock::new(ShardedRpcPool::new(
+            rpc_config.sharded_rpc.clone(),
+            rpc_shard_tracker,
+            maybe_split_store.chain_store(),
+        )));
         let entity_debug_handler = EntityDebugHandlerImpl {
             epoch_manager: view_epoch_manager,
             runtime: view_runtime,
@@ -764,6 +776,7 @@ pub async fn start_with_config_and_synchronization_impl(
             #[cfg(feature = "test_features")]
             _gc_actor.into_multi_sender(),
             Arc::new(entity_debug_handler),
+            sharded_rpc_pool,
             actor_system.new_future_spawner("jsonrpc").as_ref(),
         )
         .await;
@@ -791,6 +804,11 @@ pub async fn start_with_config_and_synchronization_impl(
         rpc_handler.clone().into_multi_sender(),
         view_client_addr.clone().into_multi_sender(),
     );
+
+    #[cfg(feature = "rpc_probe")]
+    if let Some(rpc_probe_config) = config.rpc_probe {
+        near_rpc_probe::start(rpc_probe_config);
+    }
 
     #[cfg(feature = "actor_instrumentation_testing")]
     near_async::instrumentation::testing::spawn_actors_for_testing_instrumentation(

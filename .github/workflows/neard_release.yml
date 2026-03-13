@@ -1,6 +1,6 @@
 name: Neard binary and Docker image release
 
-# cspell:ignore dockerhub Warpbuilds
+# cspell:ignore dockerhub Warpbuilds buildx
 
 on:
   # Run when a new release or rc is created
@@ -143,7 +143,7 @@ jobs:
         run: |
           COMMIT=$(git rev-parse HEAD)
           BRANCH=$(git branch --show-current)
-          # in case of Release triggered run, branch is empty
+          # In case of Release triggered run, branch is empty so it will be determined based on the tag.
           if [ -z "$BRANCH" ]; then
             BRANCH=$(git branch -r --contains=${GITHUB_REF_NAME} | head -n1 | cut -c3- | cut -d / -f 2)
           fi
@@ -154,18 +154,16 @@ jobs:
             TAGS+=("${GITHUB_REF_NAME}-${COMMIT}")
             if [ "${{ github.event.release.prerelease }}" = "true" ]; then
               TAGS+=("pre-release")
+              TAGS+=("testnet")
             else
               TAGS+=("release")
+              TAGS+=("mainnet")
             fi
           else
             TAGS+=("$BRANCH")
             TAGS+=("$BRANCH-${COMMIT}")
           fi
 
-          if [[ ${BRANCH} == "master" ]]; then
-            TAGS+=("latest")
-          fi
-          
           DOCKER_TAGS=()
           for tag in "${TAGS[@]}"; do
             DOCKER_TAGS+=("nearprotocol/nearcore:$tag")
@@ -182,6 +180,96 @@ jobs:
           push: true
           file: Dockerfile
           build-args: |
-            make_target=neard-release 
+            make_target=neard-release
           tags: ${{ env.DOCKER_TAGS }}
+
+  sandbox-docker-release:
+    name: "Build and publish sandbox Docker image"
+    needs: binary-release
+    runs-on: ubuntu-latest
+    environment: deploy
+    steps:
+      - name: Checkout ${{ github.event.inputs.branch }} branch
+        if: ${{ github.event_name == 'workflow_dispatch'}}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+          persist-credentials: false
+
+      - name: Checkout nearcore release
+        if: ${{ github.event_name != 'workflow_dispatch' && github.event_name == 'release'}}
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout repository for master branch
+        if: ${{ github.event_name != 'workflow_dispatch' && github.event_name != 'release'}}
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKER_PAT_TOKEN }}
+
+      - name: Set up QEMU for multi-platform builds
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Prepare sandbox image tags
+        run: |
+          COMMIT=$(git rev-parse HEAD)
+          BRANCH=$(git branch --show-current)
+          # In case of Release triggered run, branch is empty so it will be determined based on the tag.
+          if [ -z "$BRANCH" ]; then
+            BRANCH=$(git branch -r --contains=${GITHUB_REF_NAME} | head -n1 | cut -c3- | cut -d / -f 2)
+          fi
+
+          TAGS=()
+          if [ "$GITHUB_EVENT_NAME" = "release" ]; then
+            TAGS+=("${GITHUB_REF_NAME}")
+            TAGS+=("${GITHUB_REF_NAME}-${COMMIT}")
+            if [ "${{ github.event.release.prerelease }}" = "true" ]; then
+              TAGS+=("pre-release")
+            else
+              TAGS+=("latest")
+            fi
+          else
+            TAGS+=("$BRANCH")
+            TAGS+=("$BRANCH-${COMMIT}")
+          fi
+
+          DOCKER_TAGS=()
+          for tag in "${TAGS[@]}"; do
+            DOCKER_TAGS+=("nearprotocol/sandbox:$tag")
+          done
+
+          CSV=$(IFS=','; echo "${DOCKER_TAGS[*]}")
+          echo "DOCKER_TAGS=${CSV}" >> $GITHUB_ENV
+
+          # VERSION for the S3 binary download
+          if [ "$GITHUB_EVENT_NAME" = "release" ]; then
+            echo "SANDBOX_VERSION=${GITHUB_REF_NAME}" >> $GITHUB_ENV
+          else
+            echo "SANDBOX_VERSION=${BRANCH}/${COMMIT}" >> $GITHUB_ENV
+          fi
+
+      - name: Build and push sandbox Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: docker/sandbox
+          push: true
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            VERSION=${{ env.SANDBOX_VERSION }}
+          tags: ${{ env.DOCKER_TAGS }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 

@@ -1,12 +1,11 @@
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
+use crate::utils::process_blocks::deploy_test_contract;
 use assert_matches::assert_matches;
 use near_chain_configs::Genesis;
 use near_primitives::types::{AccountId, BlockHeight, Gas};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
-
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
-use crate::utils::process_blocks::deploy_test_contract;
 
 /// Create a `TestEnv` with an account and a contract deployed to that account.
 fn prepare_env_with_contract(

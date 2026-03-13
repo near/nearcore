@@ -1,6 +1,4 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-
+use crate::setup::builder::TestLoopBuilder;
 use near_async::time::Duration;
 use near_crypto::Signature;
 use near_network::types::NetworkRequests;
@@ -8,9 +6,8 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Block;
 use near_primitives::block_body::BlockBody;
 use near_primitives::sharding::ShardChunkHeader;
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::{create_validators_spec, validators_spec_clients};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 const TIMEOUT_SECONDS: i64 = 5;
 
@@ -18,12 +15,7 @@ const TIMEOUT_SECONDS: i64 = 5;
 fn block_chunk_signature_rejection() {
     init_test_logger();
 
-    let validators_spec = create_validators_spec(2, 0);
-    let clients = validators_spec_clients(&validators_spec);
-    let genesis = TestLoopBuilder::new_genesis_builder().validators_spec(validators_spec).build();
-    let mut builder = TestLoopBuilder::new().skip_warmup();
-    builder = builder.genesis(genesis).epoch_config_store_from_genesis().clients(clients);
-    let mut env = builder.build();
+    let mut env = TestLoopBuilder::new().validators(2, 0).skip_warmup().build();
 
     let mutated_blocks = Arc::new(AtomicUsize::new(0));
 

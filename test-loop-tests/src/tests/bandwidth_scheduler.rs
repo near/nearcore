@@ -10,13 +10,12 @@
 //! of the scheduler algorithm itself, check out `ChainSimulator` which tests the scheduler on
 //! various scenarios and is able to run for much longer while using less CPU time.
 
-use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap};
-use std::convert::Infallible;
-use std::rc::Rc;
-use std::sync::Arc;
-use std::task::Poll;
-
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::drop_condition::DropCondition;
+use crate::setup::env::TestLoopEnv;
+use crate::setup::state::NodeExecutionData;
+use crate::utils::receipts::action_receipt_v1_to_latest;
+use crate::utils::transactions::{TransactionRunner, run_txs_parallel};
 use bytesize::ByteSize;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
@@ -40,6 +39,7 @@ use near_primitives::receipt::{
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::Balance;
 use near_primitives::types::{AccountId, BlockHeight, Gas, Nonce, ShardId, ShardIndex};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter;
@@ -49,18 +49,16 @@ use near_store::{ShardUId, Trie, TrieDBStorage};
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
+use std::cell::RefCell;
+use std::collections::{BTreeMap, HashMap};
+use std::convert::Infallible;
+use std::rc::Rc;
+use std::sync::Arc;
+use std::task::Poll;
 use testlib::bandwidth_scheduler::{
     ChunkBandwidthStats, LinkGenerators, RandomReceiptSizeGenerator, TestBandwidthStats,
     TestScenario, TestScenarioBuilder, TestSummary,
 };
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::drop_condition::DropCondition;
-use crate::setup::env::TestLoopEnv;
-use crate::setup::state::NodeExecutionData;
-use crate::utils::receipts::action_receipt_v1_to_latest;
-use crate::utils::transactions::{TransactionRunner, run_txs_parallel};
-use near_primitives::types::Balance;
 
 /// 3 shards, random receipt sizes
 #[test]
@@ -167,6 +165,7 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(vec![node_account])
+        .delay_warmup()
         .build()
         .drop(DropCondition::ChunksProducedByHeight(missing_chunks_map))
         .warmup();

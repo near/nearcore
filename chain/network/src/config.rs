@@ -19,6 +19,7 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::AccountId;
 use near_primitives::validator_signer::ValidatorSigner;
 use std::collections::HashSet;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 /// How much height horizon to give to consider peer up to date.
@@ -134,6 +135,8 @@ pub struct NetworkConfig {
     pub node_addr: Option<tcp::ListenerAddr>,
     pub node_key: SecretKey,
     pub validator: ValidatorConfig,
+    /// If set, overrides the auto-discovered public address for Tier3 state sync.
+    pub tier3_public_addr: Option<SocketAddr>,
 
     pub peer_store: peer_store::Config,
     pub snapshot_hosts: snapshot_hosts::Config,
@@ -335,6 +338,7 @@ impl NetworkConfig {
             node_addr,
             node_key,
             validator,
+            tier3_public_addr: cfg.experimental.tier3_public_addr,
             peer_store: peer_store::Config {
                 boot_nodes: if cfg.boot_nodes.is_empty() {
                     vec![]
@@ -435,6 +439,7 @@ impl NetworkConfig {
             node_addr: Some(node_addr),
             node_key,
             validator,
+            tier3_public_addr: None,
             peer_store: peer_store::Config {
                 boot_nodes: vec![],
                 blacklist: blacklist::Blacklist::default(),

@@ -1,11 +1,14 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
+use crate::utils::account::create_account_id;
+use crate::utils::node::TestLoopNode;
+use crate::utils::transactions::{BalanceMismatchError, execute_money_transfers};
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::GenesisConfig;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_client::sync::SYNC_V2_ENABLED;
 use near_epoch_manager::epoch_sync::{
     derive_epoch_sync_proof_from_last_block, find_target_epoch_to_produce_proof_for,
 };
@@ -14,11 +17,8 @@ use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockHeightDelta};
 use near_store::adapter::StoreAdapter;
-
-use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
-use crate::setup::env::TestLoopEnv;
-use crate::utils::client_queries::ClientQueries;
-use crate::utils::transactions::{BalanceMismatchError, execute_money_transfers};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 const NUM_CLIENTS: usize = 4;
 
@@ -50,16 +50,12 @@ fn setup_initial_blockchain(transaction_validity_period: BlockHeightDelta) -> Te
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
-        .build()
-        .warmup();
+        .build();
 
-    let first_epoch_tracked_shards = {
-        let clients = node_datas
-            .iter()
-            .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
-            .collect_vec();
-        clients.tracked_shards_for_each_client()
-    };
+    let first_epoch_tracked_shards = node_datas
+        .iter()
+        .map(|node_data| TestLoopNode { data: &test_loop.data, node_data }.tracked_shards())
+        .collect_vec();
     tracing::info!(?first_epoch_tracked_shards, "first epoch tracked shards");
 
     if transaction_validity_period <= 1 {
@@ -81,12 +77,10 @@ fn setup_initial_blockchain(transaction_validity_period: BlockHeightDelta) -> Te
 }
 
 fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> TestLoopEnv {
-    let genesis = env.shared_state.genesis.clone();
-    let tempdir_path = env.shared_state.tempdir.path().to_path_buf();
     let identifier = format!("account{}", env.node_datas.len());
-    let account_id = identifier.parse().unwrap();
-    let node_state = NodeStateBuilder::new(genesis, tempdir_path)
-        .account_id(account_id)
+    let node_state = env
+        .node_state_builder()
+        .account_id(&create_account_id(&identifier))
         .config_modifier(|config| {
             // Enable epoch sync, and make the horizon small enough to trigger it.
             config.epoch_sync.epoch_sync_horizon_num_epochs = 3;
@@ -157,32 +151,32 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
         },
         Duration::seconds(30),
     );
-    assert_eq!(
-        sync_status_history.borrow().as_slice(),
-        &[
-            // Initial state.
+    let expected: Vec<String> = if SYNC_V2_ENABLED {
+        vec![
             "AwaitingPeers",
-            // State after having enough peers.
             "NoSync",
-            // EpochSync should be entered first.
             "EpochSync",
-            // EpochSync should succeed.
-            "EpochSyncDone",
-            // Header sync happens next to bring forward HEADER_HEAD.
             "HeaderSync",
-            // State sync downloads the state from state dumps.
             "StateSync",
-            // State sync is done.
-            "StateSyncDone",
-            // Block sync picks up from where StateSync left off, and finishes the sync.
             "BlockSync",
-            // NoSync means we're up to date.
-            "NoSync"
+            "NoSync",
         ]
-        .into_iter()
-        .map(|s| s.to_string())
-        .collect::<Vec<_>>()
-    );
+    } else {
+        vec![
+            "AwaitingPeers",
+            "NoSync",
+            "EpochSync",
+            "HeaderSync",
+            "StateSync",
+            "StateSyncDone",
+            "BlockSync",
+            "NoSync",
+        ]
+    }
+    .into_iter()
+    .map(|s| s.to_string())
+    .collect();
+    assert_eq!(sync_status_history.borrow().as_slice(), expected);
 
     TestLoopEnv { test_loop, node_datas, shared_state }
 }

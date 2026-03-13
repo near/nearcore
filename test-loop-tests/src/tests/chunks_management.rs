@@ -1,6 +1,5 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-
+use crate::setup::builder::TestLoopBuilder;
+use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 use near_async::messaging::Handler as _;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
@@ -15,9 +14,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockId, BlockReference, EpochId, NumSeats};
 use parking_lot::RwLock;
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Configuration for `test4` validator in tests.
 struct Test4Config {
@@ -82,8 +80,7 @@ impl Test {
                 config.max_block_wait_delay = 3 * self.block_timeout;
                 config.chunk_distribution_network = chunk_distribution_config.clone();
             })
-            .build()
-            .warmup();
+            .build();
 
         for node_datas in &env.node_datas {
             let from_whom = node_datas.account_id.clone();

@@ -1,5 +1,5 @@
 use crate::storage_mutator::ShardUpdateState;
-
+use anyhow::Context;
 use near_crypto::PublicKey;
 use near_primitives::borsh;
 use near_primitives::receipt::{Receipt, ReceiptOrStateStoredReceipt, TrieQueueIndices};
@@ -7,8 +7,6 @@ use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{ShardIndex, StateRoot};
 use near_store::{ShardTries, Trie};
-
-use anyhow::Context;
 use std::borrow::Cow;
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeSet, HashMap};

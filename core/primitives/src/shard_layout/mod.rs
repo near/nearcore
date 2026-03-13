@@ -26,7 +26,6 @@ use near_primitives_core::types::{ShardId, ShardIndex};
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::BTreeSet;
 use std::{fmt, str};
-
 pub use v0::ShardLayoutV0;
 pub use v1::{ShardLayoutV1, ShardsSplitMapV1};
 pub use v2::{ShardLayoutV2, ShardsSplitMapV2};
@@ -186,6 +185,14 @@ impl ShardLayout {
         last_split: ShardId,
     ) -> Self {
         Self::V3(ShardLayoutV3::new(boundary_accounts, shard_ids, shards_split_map, last_split))
+    }
+
+    /// Returns whether this shard layout supports resharding.
+    pub fn resharding_supported(&self) -> bool {
+        match self {
+            Self::V0(_) | Self::V1(_) => false,
+            Self::V2(_) | Self::V3(_) => true,
+        }
     }
 
     /// Maps an account to the shard_id that it belongs to in this shard_layout
@@ -381,9 +388,11 @@ impl ShardLayout {
     /// Returns all the shards from the previous shard layout that were
     /// split into multiple shards in this shard layout.
     pub fn get_split_parent_shard_ids(&self) -> BTreeSet<ShardId> {
-        // V3 doesn't store shards which weren't split in the map
-        if let ShardLayout::V3(v3) = self {
-            return BTreeSet::from([v3.last_split]);
+        // V3 doesn't store shards which weren't split in the map, so we can return early.
+        // Using explicit match to force handling a new shard layout version when it's added.
+        match self {
+            ShardLayout::V0(_) | ShardLayout::V1(_) | ShardLayout::V2(_) => {}
+            ShardLayout::V3(v3) => return BTreeSet::from([v3.last_split]),
         }
 
         let mut parent_shard_ids = BTreeSet::new();
