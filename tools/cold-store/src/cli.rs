@@ -12,14 +12,15 @@ use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{BlockHeight, ShardId, StateChangeCause};
-use near_store::adapter::StoreAdapter;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::adapter::trie_store::{TrieStoreUpdateAdapter, get_shard_uid_mapping};
 use near_store::archive::cold_storage::{copy_all_data_to_cold, update_cold_db, update_cold_head};
 use near_store::db::metadata::DbKind;
 use near_store::flat::FlatStorageManager;
 use near_store::{
-    COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY, ShardTries, ShardUId, StateSnapshotConfig, TAIL_KEY,
-    Trie, TrieConfig, TrieUpdate, get_delayed_receipt_indices, get_promise_yield_indices, set,
+    COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY, ShardTries, ShardUId, StateSnapshotConfig,
+    StoreUpdate, TAIL_KEY, Trie, TrieConfig, TrieUpdate, get_delayed_receipt_indices,
+    get_promise_yield_indices, set,
 };
 use near_store::{DBCol, NodeStorage, Store, StoreOpener};
 use nearcore::NearConfig;
@@ -70,6 +71,8 @@ enum SubCommand {
     ResetCold(ResetColdCmd),
     /// Recover tries at prev state roots of the first block in a new shard layout after ReshardingV2.
     RecoverBoundaryReshardingV2,
+    /// Backfills hot db with given Trie node from cold db.
+    BackfillTrieNodeFromCold(BackfillTrieNodeFromColdCmd),
 }
 
 impl ColdStoreCommand {
@@ -112,6 +115,7 @@ impl ColdStoreCommand {
             SubCommand::RecoverBoundaryReshardingV2 => {
                 RecoverBoundaryReshardingV2Cmd::run(&storage, &home_dir, &near_config)
             }
+            SubCommand::BackfillTrieNodeFromCold(cmd) => cmd.run(&storage),
         }
     }
 
@@ -917,4 +921,32 @@ fn extract_chunk_from_block(block: &Block, shard_id: &ShardId) -> anyhow::Result
         .deref()
         .clone();
     Ok(chunk)
+}
+
+#[derive(clap::Args)]
+struct BackfillTrieNodeFromColdCmd {
+    shard_uid: ShardUId,
+    node_hash: CryptoHash,
+}
+
+impl BackfillTrieNodeFromColdCmd {
+    pub fn run(self, storage: &NodeStorage) -> anyhow::Result<()> {
+        let cold_store = storage
+            .get_cold_store()
+            .ok_or_else(|| anyhow::anyhow!("Cold storage is not configured"))?;
+        let data = cold_store
+            .trie_store()
+            .get(self.shard_uid, &self.node_hash)
+            .expect("Trie node does not exist in cold db");
+
+        let mut store_update = storage.get_hot_store().store_update();
+        store_update.trie_store_update().increment_refcount_by(
+            self.shard_uid,
+            &self.node_hash,
+            &data,
+            StoreUpdate::ONE,
+        );
+        store_update.commit();
+        Ok(())
+    }
 }

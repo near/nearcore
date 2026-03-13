@@ -317,7 +317,7 @@ impl StoreUpdateAdapter for StoreUpdate {
 }
 
 impl StoreUpdate {
-    const ONE: std::num::NonZeroU32 = match std::num::NonZeroU32::new(1) {
+    pub const ONE: std::num::NonZeroU32 = match std::num::NonZeroU32::new(1) {
         Some(num) => num,
         None => panic!(),
     };
