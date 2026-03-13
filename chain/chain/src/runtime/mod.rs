@@ -920,8 +920,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                         }
                         break;
                     }
-                    skips_since_last_progress = 0;
-
                     let current_nonce = if let Some(nonce) =
                         signer_cache.cached_nonce(signer_id, public_key, nonce_index)
                     {
@@ -957,6 +955,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     .expect("peek_next() returned Some, so next() should return Some as well");
                 num_checked_transactions += 1;
                 consumed_any_tx = true;
+                skips_since_last_progress = 0;
 
                 if skip_tx_hashes.contains(&validated_tx.get_hash()) {
                     skipped_transactions.push(validated_tx);
