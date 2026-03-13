@@ -340,10 +340,8 @@ fn test_global_distribution_receipt_has_receipt_to_tx() {
 /// Tests that ReceiptToTx entries for GlobalContractDistribution receipts are garbage collected.
 ///
 /// GCD receipts (both initial and forwarded) don't produce execution outcomes — they just
-/// install contract code on shards. GC iterates OutcomeIds to find receipt IDs to delete
-/// from ReceiptToTx, but GCD receipt IDs never appear there.
-///
-/// This test is expected to FAIL with current code, exposing the GC leak.
+/// install contract code on shards. Their ReceiptToTx entries are tracked via
+/// `ReceiptSource::ReceiptToTxGc` in ProcessedReceiptIds and cleaned up during GC.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_global_distribution_receipt_to_tx_gc() {

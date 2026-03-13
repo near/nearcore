@@ -7,7 +7,6 @@ use near_chain_configs::TrackedShardsConfig;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::config::TEST_CONFIG_YIELD_TIMEOUT_LENGTH;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
-use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -15,8 +14,6 @@ use near_primitives::receipt::{
     VersionedReceiptEnum,
 };
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::test_utils::create_user_test_signer;
-use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{Balance, ShardId};
 use near_primitives::utils::get_block_shard_id;
 use near_store::{DBCol, ShardUId};
@@ -44,29 +41,18 @@ fn test_processed_receipt_ids_gc() {
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
         .build();
 
-    let signer = create_user_test_signer(&user_account);
-
     // Deploy the test contract.
-    let contract_code = near_test_contracts::rs_contract().to_vec();
-    let block_hash = env.validator().head().last_block_hash;
-    let deploy_tx =
-        SignedTransaction::deploy_contract(1, &user_account, contract_code, &signer, block_hash);
+    let deploy_tx = env.validator().tx_deploy_test_contract(&user_account);
     env.validator_runner().run_tx(deploy_tx, Duration::seconds(5));
 
     // Call yield_create — produces a local receipt and a PromiseYield instant receipt.
-    let block_hash = env.validator().head().last_block_hash;
-    let tx = SignedTransaction::from_actions(
-        2,
-        user_account.clone(),
-        user_account,
-        &signer,
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "call_yield_create_return_promise".to_string(),
-            args: vec![42u8; 16],
-            gas: Gas::from_teragas(300),
-            deposit: Balance::ZERO,
-        }))],
-        block_hash,
+    let tx = env.validator().tx_call(
+        &user_account,
+        &user_account,
+        "call_yield_create_return_promise",
+        vec![42u8; 16],
+        Balance::ZERO,
+        Gas::from_teragas(300),
     );
     let tx_hash = tx.get_hash();
     env.validator().submit_tx(tx);
@@ -187,29 +173,18 @@ fn test_receipt_to_tx_saved_and_gced() {
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
         .build();
 
-    let signer = create_user_test_signer(&user_account);
-
     // Deploy the test contract.
-    let contract_code = near_test_contracts::rs_contract().to_vec();
-    let block_hash = env.validator().head().last_block_hash;
-    let deploy_tx =
-        SignedTransaction::deploy_contract(1, &user_account, contract_code, &signer, block_hash);
+    let deploy_tx = env.validator().tx_deploy_test_contract(&user_account);
     env.validator_runner().run_tx(deploy_tx, Duration::seconds(5));
 
     // Call yield_create — produces a local receipt and a PromiseYield instant receipt.
-    let block_hash = env.validator().head().last_block_hash;
-    let tx = SignedTransaction::from_actions(
-        2,
-        user_account.clone(),
-        user_account.clone(),
-        &signer,
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "call_yield_create_return_promise".to_string(),
-            args: vec![42u8; 16],
-            gas: Gas::from_teragas(300),
-            deposit: Balance::ZERO,
-        }))],
-        block_hash,
+    let tx = env.validator().tx_call(
+        &user_account,
+        &user_account,
+        "call_yield_create_return_promise",
+        vec![42u8; 16],
+        Balance::ZERO,
+        Gas::from_teragas(300),
     );
     let tx_hash = tx.get_hash();
     env.validator().submit_tx(tx);
@@ -308,19 +283,10 @@ fn test_receipt_to_tx_gc_with_outcomes_disabled() {
         })
         .build();
 
-    let signer = create_user_test_signer(&user_account);
-
     // Send a simple transfer transaction. This produces a receipt that will
     // have a ReceiptToTx mapping.
-    let block_hash = env.validator().head().last_block_hash;
-    let tx = SignedTransaction::send_money(
-        1,
-        user_account.clone(),
-        user_account,
-        &signer,
-        Balance::from_yoctonear(100),
-        block_hash,
-    );
+    let tx =
+        env.validator().tx_send_money(&user_account, &user_account, Balance::from_yoctonear(100));
     let tx_hash = tx.get_hash();
     env.validator().submit_tx(tx);
 
@@ -401,13 +367,8 @@ fn test_data_receipt_receipt_to_tx_gc() {
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
         .build();
 
-    let signer = create_user_test_signer(&user_account);
-
     // Deploy the test contract.
-    let contract_code = near_test_contracts::rs_contract().to_vec();
-    let block_hash = env.validator().head().last_block_hash;
-    let deploy_tx =
-        SignedTransaction::deploy_contract(1, &user_account, contract_code, &signer, block_hash);
+    let deploy_tx = env.validator().tx_deploy_test_contract(&user_account);
     env.validator_runner().run_tx(deploy_tx, Duration::seconds(5));
 
     // Call call_promise with create+then to generate a cross-contract call with callback.
@@ -439,19 +400,14 @@ fn test_data_receipt_receipt_to_tx_gc() {
             "id": 1
         }
     ]);
-    let block_hash = env.validator().head().last_block_hash;
-    let tx = SignedTransaction::from_actions(
-        2,
-        user_account.clone(),
-        user_account,
-        &signer,
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "call_promise".to_string(),
-            args: serde_json::to_vec(&args).unwrap(),
-            gas: Gas::from_teragas(300),
-            deposit: Balance::ZERO,
-        }))],
-        block_hash,
+    let args_bytes = serde_json::to_vec(&args).unwrap();
+    let tx = env.validator().tx_call(
+        &user_account,
+        &user_account,
+        "call_promise",
+        args_bytes,
+        Balance::ZERO,
+        Gas::from_teragas(300),
     );
     env.validator_runner().run_tx(tx, Duration::seconds(5));
 
@@ -516,7 +472,6 @@ fn test_promise_resume_receipt_to_tx_gc() {
     init_test_logger();
 
     let user_account = create_account_id("account0");
-    let signer = create_user_test_signer(&user_account);
 
     let runtime_config = RuntimeConfig::test();
     assert_eq!(
@@ -535,30 +490,18 @@ fn test_promise_resume_receipt_to_tx_gc() {
         .build();
 
     // Deploy the test contract.
-    let genesis_block = env.validator().client().chain.get_block_by_height(0).unwrap();
-    let deploy_tx = SignedTransaction::deploy_contract(
-        1,
-        &user_account,
-        near_test_contracts::rs_contract().into(),
-        &signer,
-        *genesis_block.hash(),
-    );
+    let deploy_tx = env.validator().tx_deploy_test_contract(&user_account);
     env.validator().submit_tx(deploy_tx);
     env.validator_runner().run_until_head_height(2);
 
     // Call yield_create — creates a yield that will timeout.
-    let yield_tx = SignedTransaction::from_actions(
-        2,
-        user_account.clone(),
-        user_account.clone(),
-        &signer,
-        vec![Action::FunctionCall(Box::new(FunctionCallAction {
-            method_name: "call_yield_create_return_promise".to_string(),
-            args: vec![42u8; 16],
-            gas: Gas::from_teragas(300),
-            deposit: Balance::ZERO,
-        }))],
-        *genesis_block.hash(),
+    let yield_tx = env.validator().tx_call(
+        &user_account,
+        &user_account,
+        "call_yield_create_return_promise",
+        vec![42u8; 16],
+        Balance::ZERO,
+        Gas::from_teragas(300),
     );
     env.validator().submit_tx(yield_tx);
     env.validator_runner().run_until_head_height(4);
@@ -642,8 +585,7 @@ fn test_cross_shard_receipt_to_tx_gc_on_source_only_node() {
     const GC_STEP_PERIOD: Duration =
         Duration::milliseconds(setup::builder::MIN_BLOCK_PROD_TIME as i64);
 
-    let validators_spec = create_validators_spec(1, 0);
-    let validator_id = validators_spec_clients(&validators_spec)[0].clone();
+    let validator_id = create_account_id("validator0");
     let observer_id = create_account_id("observer");
 
     // Use "account5" as boundary — sender is "account0" (before boundary),
@@ -662,22 +604,12 @@ fn test_cross_shard_receipt_to_tx_gc_on_source_only_node() {
     );
     let source_shard_uid = ShardUId::from_shard_id_and_layout(sender_shard_id, &shard_layout);
 
-    let genesis = TestLoopBuilder::new_genesis_builder()
+    let mut env = TestLoopBuilder::new()
         .epoch_length(CROSS_SHARD_EPOCH_LENGTH)
         .shard_layout(shard_layout)
-        .validators_spec(validators_spec)
-        .add_user_accounts_simple(
-            &[sender.clone(), receiver.clone()],
-            Balance::from_near(1_000_000),
-        )
-        .build();
-
-    let clients = vec![validator_id.clone(), observer_id.clone()];
-    let source_shard_uid_clone = source_shard_uid;
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
+        .add_user_account(&sender, Balance::from_near(1_000_000))
+        .add_user_account(&receiver, Balance::from_near(1_000_000))
+        .add_non_validator_client(&observer_id)
         .gc_num_epochs_to_keep(CROSS_SHARD_GC_NUM_EPOCHS_TO_KEEP)
         .config_modifier(move |config, client_index| {
             if client_index == 0 {
@@ -685,24 +617,17 @@ fn test_cross_shard_receipt_to_tx_gc_on_source_only_node() {
                 config.tracked_shards_config = TrackedShardsConfig::AllShards;
             } else {
                 // Observer tracks only the source shard + short GC period.
-                config.tracked_shards_config =
-                    TrackedShardsConfig::Shards(vec![source_shard_uid_clone]);
+                config.tracked_shards_config = TrackedShardsConfig::Shards(vec![source_shard_uid]);
                 config.gc.gc_step_period = GC_STEP_PERIOD;
             }
         })
         .build();
 
-    let signer = create_user_test_signer(&sender);
-
     // Step 1: Submit a cross-shard transfer (sender → receiver).
-    let block_hash = env.node_for_account(&validator_id).head().last_block_hash;
-    let tx = SignedTransaction::send_money(
-        1,
-        sender,
-        receiver,
-        &signer,
+    let tx = env.node_for_account(&validator_id).tx_send_money(
+        &sender,
+        &receiver,
         Balance::from_yoctonear(100),
-        block_hash,
     );
     let tx_hash = tx.get_hash();
     env.node_for_account(&validator_id).submit_tx(tx);
