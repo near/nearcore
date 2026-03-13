@@ -893,22 +893,6 @@ impl RuntimeAdapter for NightshadeRuntime {
 
             // Take a single transaction from this transaction group
             while let Some(tx_peek) = transaction_group_iter.peek_next() {
-                let group_key: TransactionGroupKey = (
-                    tx_peek.signer_id().clone(),
-                    tx_peek.public_key().clone(),
-                    tx_peek.nonce().nonce_index(),
-                );
-
-                // Skip groups that stalled on a previous iteration.
-                if stalled_groups.contains(&group_key) {
-                    skips_since_last_progress += 1;
-                    if skips_since_last_progress > stalled_groups.len() {
-                        break 'add_txs_loop;
-                    }
-                    break;
-                }
-                skips_since_last_progress = 0;
-
                 // Stop adding transactions if the size limit would be exceeded
                 if total_size.saturating_add(tx_peek.get_size()) > size_limit as u64 {
                     prepared_transactions.limited_by = PrepareTransactionsLimit::Size;
@@ -925,6 +909,19 @@ impl RuntimeAdapter for NightshadeRuntime {
                     let signer_id = tx_peek.signer_id();
                     let public_key = tx_peek.public_key();
                     let nonce_index = tx_peek.nonce().nonce_index();
+                    let group_key: TransactionGroupKey =
+                        (signer_id.clone(), public_key.clone(), nonce_index);
+
+                    // Skip groups that stalled on a previous iteration.
+                    if stalled_groups.contains(&group_key) {
+                        skips_since_last_progress += 1;
+                        if skips_since_last_progress > stalled_groups.len() {
+                            break 'add_txs_loop;
+                        }
+                        break;
+                    }
+                    skips_since_last_progress = 0;
+
                     let current_nonce = if let Some(nonce) =
                         signer_cache.cached_nonce(signer_id, public_key, nonce_index)
                     {
