@@ -924,8 +924,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let signer_key =
                     (validated_tx.signer_id().clone(), validated_tx.public_key().clone());
                 let nonce_index = validated_tx.nonce().nonce_index();
-                let cache =
-                    signer_cache.get_or_load_entry_mut(&state_update, signer_key, nonce_index)?;
+                let mut cache = signer_cache.get_or_load(&state_update, signer_key, nonce_index)?;
 
                 let cost = match tx_cost(
                     runtime_config,
