@@ -428,8 +428,7 @@ fn test_global_distribution_receipt_to_tx_gc() {
     let gc_target = current_height + EPOCH_LENGTH * gc_num_epochs_to_keep + 1;
     env.run_until_head_height(gc_target);
 
-    // Assert all distribution ReceiptToTx entries are gone. This will FAIL because
-    // GCD receipts don't produce execution outcomes and GC never finds them.
+    // Assert all distribution ReceiptToTx entries have been garbage collected.
     let store = env.chunk_producer_node().store();
     for receipt_id in &distribution_receipt_ids {
         assert!(

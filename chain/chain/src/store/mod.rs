@@ -1676,17 +1676,8 @@ impl<'a> ChainStoreUpdate<'a> {
             .map(|pr| ProcessedReceiptMetadata::new(*pr.receipt.receipt_id(), pr.source.clone()))
             .collect();
         if self.chain_store.save_receipt_to_tx {
-            // Deduplicate against already-processed receipts to avoid duplicate
-            // ReceiptToTx deletes during GC (both Local/Delayed/Instant and
-            // ReceiptToTxGc delete ReceiptToTx, causing a store overwrite panic).
-            // This primarily filters out local receipts that are processed in the
-            // same chunk where they were created.
-            let seen_ids: HashSet<CryptoHash> =
-                processed_receipts.iter().map(|pr| *pr.receipt.receipt_id()).collect();
             for id in receipt_to_tx_ids {
-                if !seen_ids.contains(&id) {
-                    metadata.push(ProcessedReceiptMetadata::new(id, ReceiptSource::ReceiptToTxGc));
-                }
+                metadata.push(ProcessedReceiptMetadata::new(id, ReceiptSource::ReceiptToTxGc));
             }
         }
         self.chain_store_cache_update

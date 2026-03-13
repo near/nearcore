@@ -1096,7 +1096,6 @@ impl<'a> ChainStoreUpdate<'a> {
             match entry.source() {
                 ReceiptSource::Local | ReceiptSource::Delayed | ReceiptSource::Instant => {
                     self.gc_col(DBCol::Receipts, entry.receipt_id().as_bytes());
-                    self.gc_col(DBCol::ReceiptToTx, entry.receipt_id().as_bytes());
                 }
                 ReceiptSource::ReceiptToTxGc => {
                     self.gc_col(DBCol::ReceiptToTx, entry.receipt_id().as_bytes());

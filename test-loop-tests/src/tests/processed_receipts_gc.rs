@@ -97,6 +97,8 @@ fn test_processed_receipt_ids_gc() {
         vec![
             ProcessedReceiptMetadata::new(instant_receipt_id, ReceiptSource::Instant),
             ProcessedReceiptMetadata::new(local_receipt_id, ReceiptSource::Local),
+            ProcessedReceiptMetadata::new(local_receipt_id, ReceiptSource::ReceiptToTxGc),
+            ProcessedReceiptMetadata::new(instant_receipt_id, ReceiptSource::ReceiptToTxGc),
         ]
     );
 
