@@ -59,6 +59,8 @@ use primitive_types::U256;
 use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
 use std::collections::{BTreeSet, HashSet};
 
+const TEST_STRICT_NONCE_TTL: u64 = 64;
+
 struct TestEnvConfig {
     epoch_length: BlockHeightDelta,
     has_reward: bool,
@@ -1565,7 +1567,7 @@ fn generate_transaction_pool(signers: &Vec<Signer>, block_hash: CryptoHash) -> T
     }
     transactions.shuffle(&mut rng);
 
-    let mut pool = TransactionPool::new(TEST_SEED, None, 64, "");
+    let mut pool = TransactionPool::new(TEST_SEED, None, TEST_STRICT_NONCE_TTL, "");
     for transaction in transactions {
         assert_eq!(pool.insert_transaction(transaction), InsertTransactionResult::Success);
     }
@@ -1794,7 +1796,7 @@ fn test_prepare_transactions_shared_balance_across_keys() {
     );
 
     const TEST_SEED: RngSeed = [3; 32];
-    let mut pool = TransactionPool::new(TEST_SEED, None, 64, "");
+    let mut pool = TransactionPool::new(TEST_SEED, None, TEST_STRICT_NONCE_TTL, "");
     pool.insert_transaction(ValidatedTransaction::new_for_test(tx1));
     pool.insert_transaction(ValidatedTransaction::new_for_test(tx2));
 
@@ -1979,7 +1981,7 @@ fn test_strict_nonce_u64_max_not_included() {
         env.head.prev_block_hash,
     );
     const TEST_SEED: RngSeed = [3; 32];
-    let mut pool = TransactionPool::new(TEST_SEED, None, 64, "");
+    let mut pool = TransactionPool::new(TEST_SEED, None, TEST_STRICT_NONCE_TTL, "");
     pool.insert_transaction(ValidatedTransaction::new_for_test(strict_tx));
 
     let (prepared, skipped) = env
@@ -2042,7 +2044,7 @@ fn test_strict_nonce_gap_does_not_count_towards_state_size_soft_limit() {
     // Only gapped strict-nonce txs: nonce=100, but current nonce=0.
     let num_gapped = 3;
     const TEST_SEED: RngSeed = [3; 32];
-    let mut pool = TransactionPool::new(TEST_SEED, None, 64, "");
+    let mut pool = TransactionPool::new(TEST_SEED, None, TEST_STRICT_NONCE_TTL, "");
     for i in 2..=4 {
         let account_id: AccountId = format!("test{i}").parse().unwrap();
         let signer = InMemorySigner::test_signer(&account_id);
