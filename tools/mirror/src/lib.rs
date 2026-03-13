@@ -1610,7 +1610,7 @@ impl<T: ChainAccess> TxMirror<T> {
                             tracing::warn!(
                                 target: "mirror",
                                 ?err,
-                                source_height = source_height,
+                                %source_height,
                                 shard_id = %ch.shard_id,
                                 tx_hash = %source_tx.hash(),
                                 "failed to map actions for source tx, skipping",
@@ -1665,7 +1665,7 @@ impl<T: ChainAccess> TxMirror<T> {
                         tracing::warn!(
                             target: "mirror",
                             ?err,
-                            source_height = source_height,
+                            %source_height,
                             shard_id = %ch.shard_id,
                             tx_hash = %source_tx.hash(),
                             "failed to prepare target tx, skipping",
@@ -1690,7 +1690,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     tracing::warn!(
                         target: "mirror",
                         ?err,
-                        source_height = source_height,
+                        %source_height,
                         shard_id = %ch.shard_id,
                         tx_hash = %source_tx.hash(),
                         "failed to add tx function call keys",
@@ -1714,7 +1714,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     tracing::warn!(
                         target: "mirror",
                         ?err,
-                        source_height = source_height,
+                        %source_height,
                         shard_id = %ch.shard_id,
                         receipt_idx = idx,
                         "failed to add receipt function call keys",
@@ -1724,7 +1724,7 @@ impl<T: ChainAccess> TxMirror<T> {
             tracing::trace!(
                 target: "mirror",
                 tx_count = txs.len(),
-                source_height = source_height,
+                %source_height,
                 shard_id = %ch.shard_id,
                 "prepared txs",
             );
@@ -1748,7 +1748,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     tracing::warn!(
                         target: "mirror",
                         ?err,
-                        source_height = source_height,
+                        %source_height,
                         create_account_height = create_account_height,
                         "failed to add create account txs",
                     );
