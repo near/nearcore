@@ -17,6 +17,10 @@ const NETWORK_MESSAGE_MAX_SIZE_BYTES: usize = 512 * MIB as usize;
 /// Maximum capacity of write buffer in bytes.
 const MAX_WRITE_BUFFER_CAPACITY_BYTES: usize = GIB as usize;
 
+/// Timeout for individual write operations (write + flush) to detect if the connection is
+/// stuck due to a half-open TCP connection where the peer stopped ACKing writes.
+const WRITE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
 type ReadHalf = tokio::io::ReadHalf<tokio::net::TcpStream>;
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
@@ -187,8 +191,18 @@ impl FramedStream {
                 if msg.len() > NETWORK_MESSAGE_MAX_SIZE_BYTES {
                     metrics::MessageDropped::InputTooLong.inc_unknown_msg();
                 } else {
-                    writer.write_u32_le(msg.len() as u32).await?;
-                    writer.write_all(&msg[..]).await?;
+                    tokio::time::timeout(WRITE_TIMEOUT, async {
+                        writer.write_u32_le(msg.len() as u32).await?;
+                        writer.write_all(&msg[..]).await?;
+                        io::Result::Ok(())
+                    })
+                    .await
+                    .map_err(|_| {
+                        io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            "write timed out, connection may be half-open",
+                        )
+                    })??;
                 }
                 stats.messages_to_send.fetch_sub(1, Ordering::Release);
                 stats.bytes_to_send.fetch_sub(msg.len() as u64, Ordering::Release);
@@ -204,7 +218,12 @@ impl FramedStream {
             // and added to the queue at a rate similar to flush latency. To fix that
             // we would need to put writer.flush() and queue_recv.recv() into a tokio::select
             // and make sure that both are cancellation-safe.
-            writer.flush().await?;
+            tokio::time::timeout(WRITE_TIMEOUT, writer.flush()).await.map_err(|_| {
+                io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "flush timed out, connection may be half-open",
+                )
+            })??;
         }
         Ok(())
     }
