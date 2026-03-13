@@ -23,6 +23,16 @@ use std::io;
 use std::sync::Arc;
 use time::Duration;
 
+/// Result of a single initialization attempt.
+enum InitializationAttempt {
+    /// Initialized successfully, ready to archive.
+    Initialized,
+    /// Node hasn't synced past genesis yet, retry later.
+    WaitingForGenesis,
+    /// Fatal error, stop the writer.
+    Fatal,
+}
+
 /// Result of a single archiving attempt.
 #[derive(Debug)]
 enum CloudArchivingResult {
@@ -170,12 +180,12 @@ impl CloudArchivalWriter {
         while !self.handle.0.is_cancelled() {
             let sleep_duration = if !initialized {
                 match self.try_initialize_cloud_heads(&runtime_adapter).await {
-                    Some(true) => {
+                    InitializationAttempt::Initialized => {
                         initialized = true;
                         Duration::ZERO
                     }
-                    Some(false) => self.config.polling_interval,
-                    None => return,
+                    InitializationAttempt::WaitingForGenesis => self.config.polling_interval,
+                    InitializationAttempt::Fatal => return,
                 }
             } else {
                 match self.try_archive_data().await {
@@ -189,13 +199,17 @@ impl CloudArchivalWriter {
     }
 
     /// Checks if the node is ready, then initializes cloud heads.
-    /// Returns `Some(true)` on success, `Some(false)` if not ready yet,
-    /// `None` on fatal error.
     async fn try_initialize_cloud_heads(
         &self,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
-    ) -> Option<bool> {
-        let hot_final_height = self.get_hot_final_head_height().ok()?;
+    ) -> InitializationAttempt {
+        let hot_final_height = match self.get_hot_final_head_height() {
+            Ok(h) => h,
+            Err(error) => {
+                tracing::error!(target: "cloud_archival", ?error, "failed to get hot final head height");
+                return InitializationAttempt::Fatal;
+            }
+        };
         if hot_final_height <= self.genesis_height {
             tracing::debug!(
                 target: "cloud_archival",
@@ -203,16 +217,16 @@ impl CloudArchivalWriter {
                 genesis_height = self.genesis_height,
                 "waiting for node to sync past genesis",
             );
-            return Some(false);
+            return InitializationAttempt::WaitingForGenesis;
         }
         match self.initialize_cloud_heads(runtime_adapter).await {
             Ok(()) => {
                 tracing::info!(target: "cloud_archival", "cloud archival initialized");
-                Some(true)
+                InitializationAttempt::Initialized
             }
             Err(error) => {
                 tracing::error!(target: "cloud_archival", ?error, "cloud archival initialization failed");
-                None
+                InitializationAttempt::Fatal
             }
         }
     }
@@ -258,7 +272,7 @@ impl CloudArchivalWriter {
     /// Only archives components whose individual heads are behind.
     async fn try_archive_data_impl(&self) -> Result<CloudArchivingResult, CloudArchivingError> {
         let min_head =
-            self.get_cloud_min_head_local()?.expect("CLOUD_MIN_HEAD should exist in hot store");
+            self.get_local_cloud_min_head()?.expect("CLOUD_MIN_HEAD should exist in hot store");
         let height_to_archive = min_head + 1;
         let hot_final_height = self.get_hot_final_head_height()?;
         tracing::trace!(target: "cloud_archival", height_to_archive, hot_final_height, "try_archive");
@@ -322,7 +336,7 @@ impl CloudArchivalWriter {
         // TODO(cloud_archival): Race condition between this check and the upload below.
         // Will be replaced with ifGenerationMatch:0 atomic uploads + hash metadata verification.
         let ext_head = self.cloud_storage.retrieve_cloud_block_head_if_exists().await?;
-        if ext_head.map_or(false, |h| h >= height) {
+        if ext_head.is_some_and(|h| h >= height) {
             return Ok(false);
         }
         if self.epoch_manager.is_next_block_epoch_start(block_hash)? {
@@ -354,7 +368,7 @@ impl CloudArchivalWriter {
             // TODO(cloud_archival): Race condition between this check and the upload below.
             // Will be replaced with ifGenerationMatch:0 atomic uploads + hash metadata verification.
             let ext_head = self.cloud_storage.retrieve_cloud_shard_head_if_exists(shard_id).await?;
-            if ext_head.map_or(false, |h| h >= height) {
+            if ext_head.is_some_and(|h| h >= height) {
                 continue;
             }
             self.cloud_storage
@@ -390,7 +404,7 @@ impl CloudArchivalWriter {
         let (block_head_local, shard_heads_local, min_height_local) =
             self.collect_resolved_heads(hot_final_height, block_head_ext, &shard_heads_ext);
 
-        self.ensure_cloud_head_available_for_archiving(runtime_adapter, min_height_local)?;
+        self.ensure_min_cloud_head_available_for_archiving(runtime_adapter, min_height_local)?;
         self.log_initialization_status(block_head_ext, &shard_heads_ext, hot_final_height);
         self.set_local_heads(block_head_local, &shard_heads_local, min_height_local)?;
 
@@ -520,7 +534,7 @@ impl CloudArchivalWriter {
     /// writer needs data from the entire epoch containing `min_head` -
     /// `gc_stop_height` is the earliest height whose epoch data is guaranteed
     /// to be retained.
-    fn ensure_cloud_head_available_for_archiving(
+    fn ensure_min_cloud_head_available_for_archiving(
         &self,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         min_head: BlockHeight,
@@ -556,7 +570,7 @@ impl CloudArchivalWriter {
     }
 
     /// Returns the locally stored cloud min head height, if any.
-    fn get_cloud_min_head_local(&self) -> io::Result<Option<BlockHeight>> {
+    fn get_local_cloud_min_head(&self) -> io::Result<Option<BlockHeight>> {
         Ok(self
             .hot_store
             .get_ser::<Tip>(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY)
