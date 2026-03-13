@@ -35,7 +35,8 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::Gas;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
-    BlockHeightDelta, Nonce, ValidatorId, ValidatorInfoIdentifier, ValidatorKickoutReason,
+    BlockHeightDelta, Nonce, StateChangeCause, ValidatorId, ValidatorInfoIdentifier,
+    ValidatorKickoutReason,
 };
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -1722,6 +1723,84 @@ fn test_prepare_transactions_duplicate_nonces() {
             tx.nonce().nonce()
         );
     }
+}
+
+/// When the same account has transactions under two different public keys,
+/// the signer cache must share account state (balance) across keys.
+/// Otherwise each key's group sees the full balance independently.
+#[test]
+fn test_prepare_transactions_shared_balance_across_keys() {
+    let (mut env, chain, _) = get_test_env_with_chain_and_pool();
+
+    let account_id: AccountId = "test1".parse().unwrap();
+    let signer1 = InMemorySigner::test_signer(&account_id);
+    let signer2 =
+        InMemorySigner::from_seed(account_id.clone(), near_crypto::KeyType::ED25519, "second_key");
+    let block_hash = env.head.prev_block_hash;
+
+    // Add a second full-access key for the same account directly in the trie.
+    let shard_layout = env.epoch_manager.get_shard_layout_from_prev_block(&block_hash).unwrap();
+    let shard_id = shard_layout.shard_ids().next().unwrap();
+    let shard_uid =
+        shard_id_to_uid(env.epoch_manager.as_ref(), shard_id, &env.head.epoch_id).unwrap();
+    {
+        let trie = env.runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[0]);
+        let mut state_update = TrieUpdate::new(trie);
+        near_store::set_access_key(
+            &mut state_update,
+            account_id.clone(),
+            signer2.public_key(),
+            &AccessKey::full_access(),
+        );
+        state_update.commit(StateChangeCause::InitialState);
+        let trie_changes = state_update.finalize().unwrap().trie_changes;
+        let mut store_update = env.runtime.tries.store_update();
+        env.state_roots[0] =
+            env.runtime.tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+        store_update.commit();
+    }
+
+    // The account balance is TESTING_INIT_BALANCE (1B NEAR), with TESTING_INIT_STAKE locked.
+    // Available = TESTING_INIT_BALANCE - TESTING_INIT_STAKE = 950M NEAR.
+    // Create two transfers of 600M each (one per key). With shared balance,
+    // only the first can succeed. With independent balances, both would succeed.
+    let transfer_amount = Balance::from_near(600_000_000);
+    let receiver: AccountId = "test2".parse().unwrap();
+    let tx1 = SignedTransaction::send_money(
+        1,
+        account_id.clone(),
+        receiver.clone(),
+        &signer1,
+        transfer_amount,
+        block_hash,
+    );
+    let tx2 = SignedTransaction::send_money(
+        1,
+        account_id,
+        receiver,
+        &signer2,
+        transfer_amount,
+        block_hash,
+    );
+
+    let mut pool = TransactionPool::new([3; 32], None, "");
+    pool.insert_transaction(ValidatedTransaction::new_for_test(tx1));
+    pool.insert_transaction(ValidatedTransaction::new_for_test(tx2));
+
+    let storage_config = RuntimeStorageConfig {
+        state_root: env.state_roots[0],
+        use_flat_storage: true,
+        source: StorageDataSource::Db,
+        state_patch: Default::default(),
+    };
+    let mut iter = pool.pool_iterator();
+    let result = prepare_transactions(&env, &chain, &mut iter, storage_config).unwrap();
+
+    assert_eq!(
+        result.transactions.len(),
+        1,
+        "expected only one transfer to be included when both share the same account balance"
+    );
 }
 
 /// Check that transactions validation fails if provided empty storage proof.

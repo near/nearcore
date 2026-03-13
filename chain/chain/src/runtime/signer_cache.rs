@@ -6,9 +6,6 @@ use near_store::{TrieAccess, get_access_key, get_account, get_gas_key_nonce};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
-/// Key for looking up per-key cached state.
-pub(crate) type SignerKey = (AccountId, PublicKey);
-
 /// Per-(account, public_key) cached state.
 struct KeyEntry {
     access_key: AccessKey,
@@ -32,7 +29,7 @@ pub(crate) struct SignerCacheView<'a> {
 /// for the same account share one balance/nonce, preventing double-spend.
 pub(crate) struct SignerCache {
     accounts: HashMap<AccountId, Account>,
-    key_entries: HashMap<SignerKey, KeyEntry>,
+    key_entries: HashMap<AccountId, HashMap<PublicKey, KeyEntry>>,
 }
 
 impl SignerCache {
@@ -45,49 +42,42 @@ impl SignerCache {
     pub fn get_or_load(
         &mut self,
         trie: &dyn TrieAccess,
-        key: SignerKey,
+        account_id: &AccountId,
+        public_key: &PublicKey,
         nonce_index: Option<NonceIndex>,
     ) -> Result<SignerCacheView<'_>, Error> {
-        let (account_id, public_key) = &key;
-
         // Ensure the account is loaded.
-        if let Entry::Vacant(e) = self.accounts.entry(account_id.clone()) {
+        if !self.accounts.contains_key(account_id) {
             let account = get_account(trie, account_id)
                 .map_err(|_| Error::InvalidTransactions)?
                 .ok_or(Error::InvalidTransactions)?;
-            e.insert(account);
+            self.accounts.insert(account_id.clone(), account);
         }
+        let account = self.accounts.get_mut(account_id).expect("inserted above");
 
-        // Ensure the key entry is loaded (access key + any requested gas key nonce).
-        match self.key_entries.entry(key.clone()) {
-            Entry::Occupied(mut e) => {
-                if let Some(idx) = nonce_index {
-                    if !e.get().gas_key_nonces.contains_key(&idx) {
-                        let nonce = get_gas_key_nonce(trie, account_id, public_key, idx)
-                            .map_err(|_| Error::InvalidTransactions)?
-                            .ok_or(Error::InvalidTransactions)?;
-                        e.get_mut().gas_key_nonces.insert(idx, nonce);
-                    }
-                }
-            }
-            Entry::Vacant(e) => {
-                let access_key = get_access_key(trie, account_id, public_key)
+        // Ensure the key entry is loaded.
+        let per_key = self.key_entries.entry(account_id.clone()).or_default();
+        if !per_key.contains_key(public_key) {
+            let access_key = get_access_key(trie, account_id, public_key)
+                .map_err(|_| Error::InvalidTransactions)?
+                .ok_or(Error::InvalidTransactions)?;
+            per_key.insert(
+                public_key.clone(),
+                KeyEntry { access_key, gas_key_nonces: HashMap::new() },
+            );
+        }
+        let key_entry = per_key.get_mut(public_key).expect("inserted above");
+
+        // Ensure the requested gas key nonce is loaded.
+        if let Some(idx) = nonce_index {
+            if let Entry::Vacant(e) = key_entry.gas_key_nonces.entry(idx) {
+                let nonce = get_gas_key_nonce(trie, account_id, public_key, idx)
                     .map_err(|_| Error::InvalidTransactions)?
                     .ok_or(Error::InvalidTransactions)?;
-                let gas_key_nonces = if let Some(idx) = nonce_index {
-                    let nonce = get_gas_key_nonce(trie, account_id, public_key, idx)
-                        .map_err(|_| Error::InvalidTransactions)?
-                        .ok_or(Error::InvalidTransactions)?;
-                    HashMap::from([(idx, nonce)])
-                } else {
-                    HashMap::new()
-                };
-                e.insert(KeyEntry { access_key, gas_key_nonces });
+                e.insert(nonce);
             }
         }
 
-        let account = self.accounts.get_mut(&key.0).expect("inserted above");
-        let key_entry = self.key_entries.get_mut(&key).expect("inserted above");
         Ok(SignerCacheView {
             account,
             access_key: &mut key_entry.access_key,
