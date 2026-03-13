@@ -417,9 +417,8 @@ impl Pool {
                 // Only 1 connection per account key is allowed.
                 // Having 2 peers use the same account key is an invalid setup,
                 // which violates the BFT consensus anyway.
-                // NOTE: TCP_USER_TIMEOUT is now set on all sockets (see tcp.rs) and
-                // write timeouts are enforced in the send loop (see peer/stream.rs) to
-                // detect half-open connections within ~30s instead of minutes/hours.
+                // NOTE: write timeouts are enforced in the send loop (see peer/stream.rs)
+                // to detect half-open connections within ~30s instead of minutes/hours.
                 if let Some(conn) = pool
                     .ready_by_account_key
                     .insert(owned_account.account_key.clone(), peer.clone())

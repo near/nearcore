@@ -19,7 +19,7 @@ const MAX_WRITE_BUFFER_CAPACITY_BYTES: usize = GIB as usize;
 
 /// Timeout for individual write operations (write + flush) to detect if the connection is
 /// stuck due to a half-open TCP connection where the peer stopped ACKing writes.
-pub(crate) const WRITE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+const WRITE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 type ReadHalf = tokio::io::ReadHalf<tokio::net::TcpStream>;
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
@@ -177,7 +177,7 @@ impl FramedStream {
             }
         }
     }
-    pub(crate) async fn run_send_loop(
+    async fn run_send_loop(
         tcp_send: WriteHalf,
         mut queue_recv: tokio::sync::mpsc::UnboundedReceiver<Frame>,
         stats: Arc<connection::Stats>,
@@ -231,5 +231,56 @@ impl FramedStream {
             })??;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::stats::metrics;
+
+    /// Simulates a half-open TCP connection by holding the receiver socket open without reading.
+    /// The sender's TCP buffer fills up, writes block, and the write timeout fires.
+    /// Uses run_send_loop directly with a short timeout (5s) to keep the test fast.
+    #[tokio::test]
+    async fn write_timeout_on_half_open_connection() {
+        near_o11y::testonly::init_test_logger();
+        let listener = tokio::net::TcpListener::bind("[::1]:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (client, server) =
+            tokio::join!(tokio::net::TcpStream::connect(addr), listener.accept(),);
+        let client = client.unwrap();
+        // Hold the server socket open without reading — simulates a process that crashed
+        // without sending FIN (e.g. killed with SIGKILL, or network partition).
+        let _server = server.unwrap().0;
+
+        let (_, tcp_send) = tokio::io::split(client);
+        let (queue_send, queue_recv) = tokio::sync::mpsc::unbounded_channel();
+        let stats: Arc<connection::Stats> = Arc::default();
+        let buf_size_metric = Arc::new(metrics::MetricGuard::new(
+            &*metrics::PEER_DATA_WRITE_BUFFER_SIZE,
+            vec!["test_half_open".to_string()],
+        ));
+
+        // Enqueue enough large messages to fill the TCP send buffer.
+        for _ in 0..64 {
+            let _ = queue_send.send(Frame(vec![0u8; 1024 * 1024]));
+        }
+        // Close the sender so run_send_loop will drain the queue and exit.
+        drop(queue_send);
+
+        // Use a short write timeout (5s) to keep the test fast.
+        let write_timeout = std::time::Duration::from_secs(5);
+        let result = FramedStream::run_send_loop(
+            tcp_send,
+            queue_recv,
+            stats,
+            buf_size_metric,
+            write_timeout,
+        )
+        .await;
+
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::TimedOut);
     }
 }
