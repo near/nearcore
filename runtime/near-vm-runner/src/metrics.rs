@@ -34,18 +34,14 @@ static COMPILED_CONTRACT_CACHE_LOOKUPS_TOTAL: LazyLock<IntCounterVec> = LazyLock
 });
 
 static COMPILED_CONTRACT_CACHE_ITEMS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
-    try_create_int_gauge_vec(
-        "near_vm_compiled_contract_cache_items",
-        "Number of items currently in the in-memory compiled contract cache",
-        &["cache_id"],
-    )
-    .unwrap()
+    try_create_int_gauge_vec("near_any_cache_items", "Number of AnyCache items", &["cache_id"])
+        .unwrap()
 });
 
 static COMPILED_CONTRACT_CACHE_WEIGHT_BYTES: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec(
-        "near_vm_compiled_contract_cache_weight_bytes",
-        "Total weight in bytes of items currently in the in-memory compiled contract cache",
+        "near_any_cache_weight_bytes",
+        "Total weight in bytes of AnyCache items",
         &["cache_id"],
     )
     .unwrap()
