@@ -1130,7 +1130,12 @@ impl JsonRpcHandler {
             match self.run_coordinator_request_on_node(request.clone(), node).await {
                 Ok(val) => return Ok(val),
                 Err(e) => {
-                    last_error = Some(e);
+                    match e.error_struct.as_ref() {
+                        Some(RpcErrorKind::RequestValidationError(_)) => return Err(e), // request invalid, don't retry
+                        Some(RpcErrorKind::HandlerError(_))
+                        | Some(RpcErrorKind::InternalError(_))
+                        | None => last_error = Some(e), // Save the error and try another node
+                    };
                 }
             }
         }
