@@ -594,7 +594,12 @@ async fn test_invalid_methods() {
         });
         let (status, response_bytes) = client
             .transport
-            .send_http_request("/", json.to_string().as_bytes().to_vec(), JSONRPC_RESPONSE_LIMIT)
+            .send_http_request(
+                "/",
+                json.to_string().as_bytes().to_vec(),
+                JSONRPC_RESPONSE_LIMIT,
+                &[],
+            )
             .await
             .unwrap();
 
@@ -627,7 +632,7 @@ async fn test_parse_error_status_code() {
 
     let (status, _response_bytes) = client
         .transport
-        .send_http_request("/", json.to_string().as_bytes().to_vec(), JSONRPC_RESPONSE_LIMIT)
+        .send_http_request("/", json.to_string().as_bytes().to_vec(), JSONRPC_RESPONSE_LIMIT, &[])
         .await
         .unwrap();
 
@@ -651,7 +656,7 @@ async fn slow_test_bad_handler_error_status_code() {
 
     let (status, _response_bytes) = client
         .transport
-        .send_http_request("/", json.to_string().as_bytes().to_vec(), JSONRPC_RESPONSE_LIMIT)
+        .send_http_request("/", json.to_string().as_bytes().to_vec(), JSONRPC_RESPONSE_LIMIT, &[])
         .await
         .unwrap();
 
@@ -672,7 +677,7 @@ async fn test_good_handler_error_status_code() {
 
     let (status, _response_bytes) = client
         .transport
-        .send_http_request("/", json.to_string().as_bytes().to_vec(), JSONRPC_RESPONSE_LIMIT)
+        .send_http_request("/", json.to_string().as_bytes().to_vec(), JSONRPC_RESPONSE_LIMIT, &[])
         .await
         .unwrap();
 

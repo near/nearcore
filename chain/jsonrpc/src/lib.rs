@@ -32,6 +32,7 @@ use near_client_primitives::types::{
     StatusError,
 };
 pub use near_jsonrpc_client_internal as client;
+use near_jsonrpc_client_internal::SHARDED_RPC_COORDINATOR_HEADER;
 pub use near_jsonrpc_primitives as primitives;
 use near_jsonrpc_primitives::errors::{RpcError, RpcErrorKind};
 use near_jsonrpc_primitives::message::{Message, Request};
@@ -72,14 +73,16 @@ use near_o11y::metrics::{Encoder, TextEncoder, prometheus};
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockId, BlockReference};
+use near_primitives::types::{AccountId, BlockId, BlockReference, ShardId};
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, GasPriceView, LightClientBlockView,
     MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, SplitStorageInfoView,
     StateChangesKindsView, StateChangesView, TxExecutionStatus, TxStatusView,
 };
+use parking_lot::RwLock;
 use serde_json::{Value, json};
+use sharded_rpc::{BlockHint, RequestSource, RpcNodeHandle, ShardHint, ShardedRpcPool};
 use std::future::Future;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -91,6 +94,7 @@ use tower_http::limit::RequestBodyLimitLayer;
 
 mod api;
 mod metrics;
+pub mod sharded_rpc;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
@@ -125,6 +129,21 @@ fn default_enable_debug_rpc() -> bool {
     false
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct ShardedRpcConfig {
+    /// All nodes in a sharded rpc pool, might include information about this node as well.
+    pub nodes: Vec<ShardedRpcNodeConfig>,
+}
+
+/// Information about a single node in a sharded rpc pool
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct ShardedRpcNodeConfig {
+    /// The jsonrpc address (e.g "http://127.0.0.1:3030")
+    pub address: String,
+    /// Shards that this node tracks (static configuration for now)
+    pub tracked_shards: Vec<ShardId>,
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct RpcConfig {
     pub addr: tcp::ListenerAddr,
@@ -142,6 +161,8 @@ pub struct RpcConfig {
     // be read from this directory, instead of the contents compiled into the binary. This allows
     // for quick iterative development.
     pub experimental_debug_pages_src_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sharded_rpc: Option<ShardedRpcConfig>,
 }
 
 impl Default for RpcConfig {
@@ -154,6 +175,7 @@ impl Default for RpcConfig {
             limits_config: Default::default(),
             enable_debug_rpc: false,
             experimental_debug_pages_src_path: None,
+            sharded_rpc: None,
         }
     }
 }
@@ -189,6 +211,28 @@ where
     F: Future<Output = Result<V, E>> + Send,
 {
     Box::pin(async move { serialize_response(callback(R::parse(request.params)?).await?) })
+}
+
+/// Like `process_method_call`, but dispatches between a sharded handler (for
+/// user requests) and a local handler (for coordinator-forwarded requests).
+async fn process_sharded_method_call<'a, R, FSharded, FLocal, E, V>(
+    request: Request,
+    source: RequestSource,
+    sharded_handler: impl FnOnce(R) -> FSharded + 'a,
+    local_handler: impl FnOnce(R) -> FLocal + 'a,
+) -> Result<Value, RpcError>
+where
+    R: RpcRequest + Send,
+    FSharded: Future<Output = Result<Value, RpcError>>,
+    FLocal: Future<Output = Result<V, E>> + Send,
+    V: serde::ser::Serialize,
+    RpcError: From<E>,
+{
+    let request = R::parse(request.params)?;
+    match source {
+        RequestSource::User => sharded_handler(request).await,
+        RequestSource::Coordinator => serialize_response(local_handler(request).await?),
+    }
 }
 
 #[easy_ext::ext(FromNetworkClientResponses)]
@@ -335,13 +379,16 @@ struct JsonRpcHandler {
     debug_pages_src_path: Option<PathBuf>,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
     block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
+    pool: Arc<RwLock<ShardedRpcPool>>,
 }
 
 impl JsonRpcHandler {
-    async fn process(&self, message: Message) -> Message {
+    async fn process(&self, message: Message, source: RequestSource) -> Message {
         let id = message.id();
         match message {
-            Message::Request(request) => Message::response(id, self.process_request(request).await),
+            Message::Request(request) => {
+                Message::response(id, self.process_request(request, source).await)
+            }
             _ => Message::error(RpcError::parse_error(
                 "JSON RPC Request format was expected".to_owned(),
             )),
@@ -350,9 +397,13 @@ impl JsonRpcHandler {
 
     // `process_request` increments affected metrics but the request processing is done by
     // `process_request_internal`.
-    async fn process_request(&self, request: Request) -> Result<Value, RpcError> {
+    async fn process_request(
+        &self,
+        request: Request,
+        source: RequestSource,
+    ) -> Result<Value, RpcError> {
         let timer = Instant::now();
-        let (metrics_name, response) = self.process_request_internal(request).await;
+        let (metrics_name, response) = self.process_request_internal(request, source).await;
 
         metrics::HTTP_RPC_REQUEST_COUNT.with_label_values(&[&metrics_name]).inc();
         metrics::RPC_PROCESSING_TIME
@@ -374,6 +425,7 @@ impl JsonRpcHandler {
     async fn process_request_internal(
         &self,
         request: Request,
+        source: RequestSource,
     ) -> (String, Result<Value, RpcError>) {
         let method_name = request.method.to_string();
         let request = match self.process_adversarial_request_internal(request).await {
@@ -381,7 +433,7 @@ impl JsonRpcHandler {
             Err(request) => request,
         };
 
-        let request = match self.process_basic_requests_internal(request).await {
+        let request = match self.process_basic_requests_internal(request, source).await {
             Ok(response) => return (method_name, response),
             Err(request) => request,
         };
@@ -424,6 +476,7 @@ impl JsonRpcHandler {
     async fn process_basic_requests_internal(
         &self,
         request: Request,
+        source: RequestSource,
     ) -> Result<Result<Value, RpcError>, Request> {
         Ok(match request.method.as_ref() {
             // Handlers ordered alphabetically
@@ -477,7 +530,13 @@ impl JsonRpcHandler {
                 process_method_call(request, |_params: ()| self.client_config()).await
             }
             "EXPERIMENTAL_view_account" => {
-                process_method_call(request, |params| self.view_account(params)).await
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| self.view_account_sharded(params),
+                    |params| self.view_account_local(params),
+                )
+                .await
             }
             "EXPERIMENTAL_view_code" => {
                 process_method_call(request, |params| self.view_code(params)).await
@@ -1017,7 +1076,104 @@ impl JsonRpcHandler {
         Ok(query_response.rpc_into())
     }
 
-    async fn view_account(
+    async fn view_account_sharded(
+        &self,
+        request_data: RpcViewAccountRequest,
+    ) -> Result<Value, RpcError> {
+        let block_hint = request_data.block_reference.clone().into();
+        let shard_hint = ShardHint::Account(request_data.account_id.clone());
+        self.run_coordinator_request(
+            "EXPERIMENTAL_view_account",
+            request_data,
+            block_hint,
+            shard_hint,
+        )
+        .await
+    }
+
+    /// Run a single sharded-rpc coordinator sub-request.
+    /// Automatically routes the request to the nodes that will be able to handle it based on the
+    /// provided block and shard hints. Automatically takes care of retries.
+    /// Works for simple coordinator sub-queries, meaning queries that can be answered by a single
+    /// node based on its local data. Doesn't handle combining data from multiple nodes.
+    /// This function can be used as a basic building block for writing more complex sharded-rpc handlers.
+    async fn run_coordinator_request(
+        &self,
+        method: &str,
+        params: impl serde::Serialize,
+        block_hint: BlockHint,
+        shard_hint: ShardHint,
+    ) -> Result<Value, RpcError> {
+        // Find the nodes that might be able to answer the query.
+        let rpc_nodes = {
+            let pool_read_guard = self.pool.read();
+            pool_read_guard.nodes_for_query(block_hint, shard_hint)?
+        };
+
+        // Prepare the request.
+        let request = match Message::request(
+            method.to_string(),
+            serde_json::to_value(params)
+                .map_err(|e| RpcError::serialization_error(e.to_string()))?,
+        ) {
+            Message::Request(r) => r,
+            _ => {
+                return Err(RpcError::new_internal_error(
+                    None,
+                    "run_coordinator_request: failed to create a request".to_string(),
+                ));
+            }
+        };
+
+        // Try to run the request until it succeeds on one of the nodes.
+        let mut last_error = None;
+        for node in rpc_nodes {
+            match self.run_coordinator_request_on_node(request.clone(), node).await {
+                Ok(val) => return Ok(val),
+                Err(e) => {
+                    match e.error_struct.as_ref() {
+                        Some(RpcErrorKind::RequestValidationError(_)) => return Err(e), // request invalid, don't retry
+                        Some(RpcErrorKind::HandlerError(_))
+                        | Some(RpcErrorKind::InternalError(_))
+                        | None => last_error = Some(e), // Save the error and try another node
+                    };
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| {
+            RpcError::new_internal_error(None, "no nodes available to handle the query".to_string())
+        }))
+    }
+
+    async fn run_coordinator_request_on_node(
+        &self,
+        request: Request,
+        node: RpcNodeHandle,
+    ) -> Result<Value, RpcError> {
+        match node {
+            RpcNodeHandle::RemoteNode(client) => {
+                let message =
+                    client.transport.send_jsonrpc_request(Message::Request(request), true).await?;
+
+                match message {
+                    Message::Response(resp) => resp.result,
+                    _ => {
+                        Err(RpcError::parse_error("failed to parse JSON RPC response".to_string()))
+                    }
+                }
+            }
+            RpcNodeHandle::LocalNode => {
+                // Box::pin is required because of async recursion
+                Box::pin(
+                    async move { self.process_request(request, RequestSource::Coordinator).await },
+                )
+                .await
+            }
+        }
+    }
+
+    async fn view_account_local(
         &self,
         request_data: RpcViewAccountRequest,
     ) -> Result<RpcViewAccountResponse, RpcViewAccountError> {
@@ -1752,9 +1908,15 @@ async fn handle_unknown_block(request: Message, handler: State<Arc<JsonRpcHandle
 
 async fn rpc_handler(
     State(handler): State<Arc<JsonRpcHandler>>,
+    headers: axum::http::HeaderMap,
     Json(request): Json<Message>,
 ) -> Response {
-    let message = handler.process(request.clone()).await;
+    let source = if headers.contains_key(SHARDED_RPC_COORDINATOR_HEADER) {
+        RequestSource::Coordinator
+    } else {
+        RequestSource::User
+    };
+    let message = handler.process(request.clone(), source).await;
     let Message::Response(response) = &message else {
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     };
@@ -2001,6 +2163,7 @@ pub fn create_jsonrpc_app(
     block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
     #[cfg(feature = "test_features")] gc_sender: GCSenderForRpc,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
+    pool: Arc<RwLock<ShardedRpcPool>>,
 ) -> Router {
     let RpcConfig {
         cors_allowed_origins,
@@ -2026,6 +2189,7 @@ pub fn create_jsonrpc_app(
         #[cfg(feature = "test_features")]
         gc_sender,
         block_notification_watcher,
+        pool,
     });
 
     // Build router
@@ -2078,6 +2242,7 @@ pub async fn start_http(
     block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
     #[cfg(feature = "test_features")] gc_sender: GCSenderForRpc,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
+    pool: Arc<RwLock<ShardedRpcPool>>,
     future_spawner: &dyn FutureSpawner,
 ) {
     let addr = config.addr;
@@ -2098,6 +2263,7 @@ pub async fn start_http(
         #[cfg(feature = "test_features")]
         gc_sender,
         entity_debug_handler,
+        pool,
     );
 
     // Bind to socket here, so callers can be sure they can connect once this function returns.

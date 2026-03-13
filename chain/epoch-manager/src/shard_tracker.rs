@@ -110,6 +110,33 @@ impl ShardTracker {
         }
     }
 
+    /// Check if this RPC node tracks some shard in this epoch.
+    /// TODO(sharded-rpc): this could probably be a more generic function, maybe
+    /// `node_tracks_shard_at_epoch`? Could other ShardTracker methods be implemented using it?
+    pub fn rpc_tracks_shard_at_epoch(
+        &self,
+        shard_id: ShardId,
+        epoch_id: &EpochId,
+    ) -> Result<bool, EpochError> {
+        // Does this node track the shard based on the TrackedShardsConfig?
+        if self.tracks_shard_at_epoch(shard_id, epoch_id)? {
+            return Ok(true);
+        }
+
+        // Does this node track the shard because it's a validator node?
+        if let Some(vs) = self.validator_signer.get() {
+            if self.epoch_manager.cares_about_shard_in_epoch(
+                epoch_id,
+                vs.validator_id(),
+                shard_id,
+            )? {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
     fn tracks_shard(&self, shard_id: ShardId, prev_hash: &CryptoHash) -> Result<bool, EpochError> {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
         self.tracks_shard_at_epoch(shard_id, &epoch_id)
@@ -285,6 +312,14 @@ impl ShardTracker {
             EpochSelection::Next,
         );
         cares_about_shard || will_care_about_shard
+    }
+
+    pub fn tracked_shards_config(&self) -> &TrackedShardsConfig {
+        &self.tracked_shards_config
+    }
+
+    pub fn epoch_manager(&self) -> &Arc<dyn EpochManagerAdapter> {
+        &self.epoch_manager
     }
 
     /// Returns whether the node is configured for all shards tracking.
