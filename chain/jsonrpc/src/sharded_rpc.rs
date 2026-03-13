@@ -158,11 +158,18 @@ impl ShardedRpcPool {
                     Err(Error::DBNotFoundErr(_)) => return Ok(self.all_nodes()), // Unknown block, try all nodes
                     Err(e) => return Err(make_rpc_error(e)),
                 };
-                // TODO(sharded-rpc): only check next epoch if we're close to the epoch boundary.
-                self.nodes_for_account_in_epochs(
-                    vec![head.epoch_id, head.next_epoch_id],
-                    account_id,
-                )?
+
+                // TODO(sharded-rpc): only check adjacent epochs if we're close to the epoch boundary.
+                let mut possible_epochs = vec![head.epoch_id, head.next_epoch_id];
+                if let Ok(prev_epoch) = self
+                    .shard_tracker
+                    .epoch_manager()
+                    .get_prev_epoch_id_from_prev_block(&head.prev_block_hash)
+                {
+                    possible_epochs.push(prev_epoch);
+                }
+
+                self.nodes_for_account_in_epochs(possible_epochs, account_id)?
             }
             _ => self.all_nodes(),
         };
