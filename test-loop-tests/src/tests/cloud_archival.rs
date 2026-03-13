@@ -177,6 +177,7 @@ fn test_cloud_archival_with_cold() {
     let mut h = CloudArchiveHarness::builder().cold_storage(true).build();
     h.run_until_epoch(MIN_GC_NUM_EPOCHS_TO_KEEP + 2);
     h.assert_heads_and_gc_ok();
+    h.assert_snapshots_ok();
     h.shutdown();
 }
 
