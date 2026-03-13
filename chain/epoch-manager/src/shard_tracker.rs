@@ -110,7 +110,7 @@ impl ShardTracker {
         }
     }
 
-    /// Does this RPC node track some shard in this epoch?
+    /// Check if this RPC node tracks some shard in this epoch.
     /// TODO(sharded-rpc): this could probably be a more generic function, maybe
     /// `node_tracks_shard_at_epoch`? Could other ShardTracker methods be implemented using it?
     pub fn rpc_tracks_shard_at_epoch(
