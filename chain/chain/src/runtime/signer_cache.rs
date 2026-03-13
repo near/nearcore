@@ -48,26 +48,27 @@ impl SignerCache {
         nonce_index: Option<NonceIndex>,
     ) -> Result<SignerCacheView<'_>, Error> {
         // Ensure the account is loaded.
-        if !self.accounts.contains_key(account_id) {
-            let account = get_account(trie, account_id)
-                .map_err(|_| Error::InvalidTransactions)?
-                .ok_or(Error::InvalidTransactions)?;
-            self.accounts.insert(account_id.clone(), account);
-        }
-        let account = self.accounts.get_mut(account_id).expect("inserted above");
+        let account = match self.accounts.entry(account_id.clone()) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => {
+                let account = get_account(trie, account_id)
+                    .map_err(|_| Error::InvalidTransactions)?
+                    .ok_or(Error::InvalidTransactions)?;
+                entry.insert(account)
+            }
+        };
 
         // Ensure the key entry is loaded.
         let per_key = self.key_entries.entry(account_id.clone()).or_default();
-        if !per_key.contains_key(public_key) {
-            let access_key = get_access_key(trie, account_id, public_key)
-                .map_err(|_| Error::InvalidTransactions)?
-                .ok_or(Error::InvalidTransactions)?;
-            per_key.insert(
-                public_key.clone(),
-                KeyEntry { access_key, gas_key_nonces: HashMap::new() },
-            );
-        }
-        let key_entry = per_key.get_mut(public_key).expect("inserted above");
+        let key_entry = match per_key.entry(public_key.clone()) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => {
+                let access_key = get_access_key(trie, account_id, public_key)
+                    .map_err(|_| Error::InvalidTransactions)?
+                    .ok_or(Error::InvalidTransactions)?;
+                entry.insert(KeyEntry { access_key, gas_key_nonces: HashMap::new() })
+            }
+        };
 
         // Ensure the requested gas key nonce is loaded.
         if let Some(idx) = nonce_index {
