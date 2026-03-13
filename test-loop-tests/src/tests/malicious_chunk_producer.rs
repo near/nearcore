@@ -211,7 +211,7 @@ fn test_producer_sending_large_encoded_length_chunks() {
 
     env.node_runner(0).run_for_number_of_blocks(10);
 
-    env.test_loop.shutdown_and_drain_remaining_events(Duration::seconds(20));
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Tests chain behavior when a malicious chunk producer withholds chunk parts

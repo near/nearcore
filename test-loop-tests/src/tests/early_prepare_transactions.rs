@@ -232,25 +232,25 @@ impl MetricTrackers {
 fn test_early_prepare_tx_basic() {
     init_test_logger();
 
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = setup(2, LONG_EPOCH_LENGTH);
-    let start_height = get_tip(&test_loop.data, &node_datas).height;
+    let mut env = setup(2, LONG_EPOCH_LENGTH);
+    let start_height = get_tip(&env.test_loop.data, &env.node_datas).height;
     let metrics = MetricTrackers::new();
 
     // Run the chain for a few heights, submit some transactions at each height
     let mut nonce_counter = 1;
     for _ in 0..5 {
-        let block_hash = get_tip(&test_loop.data, &node_datas).last_block_hash;
-        submit_transactions(&node_datas, block_hash, &mut nonce_counter);
-        run_until_next_height(&mut test_loop, &node_datas);
+        let block_hash = get_tip(&env.test_loop.data, &env.node_datas).last_block_hash;
+        submit_transactions(&env.node_datas, block_hash, &mut nonce_counter);
+        run_until_next_height(&mut env.test_loop, &env.node_datas);
     }
 
     // Run for a few more heights to make sure that all transactions were picked up
     for _ in 0..5 {
-        run_until_next_height(&mut test_loop, &node_datas);
+        run_until_next_height(&mut env.test_loop, &env.node_datas);
     }
 
     // Collect transactions included in chunks
-    let chain_txs = collect_chain_txs(start_height, &test_loop, &node_datas);
+    let chain_txs = collect_chain_txs(start_height, &env.test_loop, &env.node_datas);
 
     // Make sure that all transactions were included, none were rejected/lost.
     assert_all_included(&chain_txs, nonce_counter);
@@ -271,8 +271,7 @@ fn test_early_prepare_tx_basic() {
     assert_eq!(metrics.job_result_not_found_total.get(), 0);
     assert_eq!(metrics.job_error_total.get(), 0);
 
-    TestLoopEnv { test_loop, node_datas, shared_state }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Test that early transaction preparation works as expected when there is a missing chunk
@@ -294,27 +293,30 @@ fn test_early_prepare_tx_missing_chunk() {
         std::iter::once((shard_id, drop_map)).collect(),
     ));
 
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = env;
+    let mut env = env;
     let metrics = MetricTrackers::new();
 
     // Run the chain for a few heights, submit some transactions at each height
     let mut nonce_counter = 1;
     for _ in 0..5 {
-        let block_hash = get_tip(&test_loop.data, &node_datas).last_block_hash;
-        submit_transactions(&node_datas, block_hash, &mut nonce_counter);
-        run_until_next_height(&mut test_loop, &node_datas);
+        let block_hash = get_tip(&env.test_loop.data, &env.node_datas).last_block_hash;
+        submit_transactions(&env.node_datas, block_hash, &mut nonce_counter);
+        run_until_next_height(&mut env.test_loop, &env.node_datas);
     }
 
     // Make sure that there was a missing chunk during those 5 blocks
-    assert_eq!(collect_chain_txs(start_height, &test_loop, &node_datas).num_missing_chunks, 1);
+    assert_eq!(
+        collect_chain_txs(start_height, &env.test_loop, &env.node_datas).num_missing_chunks,
+        1
+    );
 
     // Run for a few more heights to make sure that all transactions were picked up
     for _ in 0..5 {
-        run_until_next_height(&mut test_loop, &node_datas);
+        run_until_next_height(&mut env.test_loop, &env.node_datas);
     }
 
     // Collect transactions included in chunks
-    let chain_txs = collect_chain_txs(start_height, &test_loop, &node_datas);
+    let chain_txs = collect_chain_txs(start_height, &env.test_loop, &env.node_datas);
 
     // Make sure that all transactions were included, none were rejected/lost.
     assert_all_included(&chain_txs, nonce_counter);
@@ -337,8 +339,7 @@ fn test_early_prepare_tx_missing_chunk() {
     assert_eq!(metrics.job_result_not_found_total.get(), 1);
     assert_eq!(metrics.job_error_total.get(), 0);
 
-    TestLoopEnv { test_loop, node_datas, shared_state }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Test that early transaction preparation works as expected when there is a missing block
@@ -363,29 +364,32 @@ fn test_early_prepare_tx_missing_block() {
     // Drop a block 3 heights after the start height
     let env = env.drop(DropCondition::BlocksByHeight(std::iter::once(start_height + 3).collect()));
 
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = env;
+    let mut env = env;
     let metrics = MetricTrackers::new();
 
     // Run the chain for a few heights, submit some transactions at each height
     let mut nonce_counter = 1;
     // Use one block hash for all transactions. Preparing using the latest hash can sometimes cause the transactions
     // to get rejected when they are prepared on top of the missing block, which isn't on the canonical chain.
-    let tx_block_hash = get_tip(&test_loop.data, &node_datas).last_block_hash;
+    let tx_block_hash = get_tip(&env.test_loop.data, &env.node_datas).last_block_hash;
     for _ in 0..5 {
-        submit_transactions(&node_datas, tx_block_hash, &mut nonce_counter);
-        run_until_next_height(&mut test_loop, &node_datas);
+        submit_transactions(&env.node_datas, tx_block_hash, &mut nonce_counter);
+        run_until_next_height(&mut env.test_loop, &env.node_datas);
     }
 
     // Make sure that there was a missing block during those 5 blocks
-    assert_eq!(collect_chain_txs(start_height, &test_loop, &node_datas).num_missing_blocks, 1);
+    assert_eq!(
+        collect_chain_txs(start_height, &env.test_loop, &env.node_datas).num_missing_blocks,
+        1
+    );
 
     // Run for a few more heights to make sure that all transactions were picked up
     for _ in 0..5 {
-        run_until_next_height(&mut test_loop, &node_datas);
+        run_until_next_height(&mut env.test_loop, &env.node_datas);
     }
 
     // Collect transactions included in chunks
-    let chain_txs = collect_chain_txs(start_height, &test_loop, &node_datas);
+    let chain_txs = collect_chain_txs(start_height, &env.test_loop, &env.node_datas);
 
     // Make sure that all transactions were included, none were rejected/lost.
     assert_all_included(&chain_txs, nonce_counter);
@@ -412,8 +416,7 @@ fn test_early_prepare_tx_missing_block() {
     assert_eq!(metrics.job_result_not_found_total.get(), 0);
     assert_eq!(metrics.job_error_total.get(), 0);
 
-    TestLoopEnv { test_loop, node_datas, shared_state }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Test that early transaction preparation works as expected when there is an epoch switch
@@ -424,32 +427,32 @@ fn test_early_prepare_tx_epoch_switch() {
     init_test_logger();
 
     let short_epoch_length = 6;
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = setup(2, short_epoch_length);
-    let start_tip = get_tip(&test_loop.data, &node_datas);
+    let mut env = setup(2, short_epoch_length);
+    let start_tip = get_tip(&env.test_loop.data, &env.node_datas);
     let start_height = start_tip.height;
     let metrics = MetricTrackers::new();
 
     // Run the chain for a few heights, submit some transactions at each height
     let mut nonce_counter = 1;
     for _ in 0..5 {
-        let block_hash = get_tip(&test_loop.data, &node_datas).last_block_hash;
-        submit_transactions(&node_datas, block_hash, &mut nonce_counter);
-        run_until_next_height(&mut test_loop, &node_datas);
+        let block_hash = get_tip(&env.test_loop.data, &env.node_datas).last_block_hash;
+        submit_transactions(&env.node_datas, block_hash, &mut nonce_counter);
+        run_until_next_height(&mut env.test_loop, &env.node_datas);
     }
 
     // Make sure that the epoch switch happened while submitting transactions
-    assert_eq!(start_tip.next_epoch_id, get_tip(&test_loop.data, &node_datas).epoch_id);
+    assert_eq!(start_tip.next_epoch_id, get_tip(&env.test_loop.data, &env.node_datas).epoch_id);
 
     // Run for a few more heights to make sure that all transactions were picked up
     for _ in 0..2 {
-        run_until_next_height(&mut test_loop, &node_datas);
+        run_until_next_height(&mut env.test_loop, &env.node_datas);
     }
 
     // There should be only one epoch switch in the test
-    assert_eq!(start_tip.next_epoch_id, get_tip(&test_loop.data, &node_datas).epoch_id);
+    assert_eq!(start_tip.next_epoch_id, get_tip(&env.test_loop.data, &env.node_datas).epoch_id);
 
     // Collect transactions included in chunks
-    let chain_txs = collect_chain_txs(start_height, &test_loop, &node_datas);
+    let chain_txs = collect_chain_txs(start_height, &env.test_loop, &env.node_datas);
 
     // Make sure that all transactions were included, none were rejected/lost.
     assert_all_included(&chain_txs, nonce_counter);
@@ -471,6 +474,5 @@ fn test_early_prepare_tx_epoch_switch() {
     assert_eq!(metrics.job_result_not_found_total.get(), 1);
     assert_eq!(metrics.job_error_total.get(), 0);
 
-    TestLoopEnv { test_loop, node_datas, shared_state }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

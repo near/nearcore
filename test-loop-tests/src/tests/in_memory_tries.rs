@@ -1,5 +1,4 @@
 use crate::setup::builder::TestLoopBuilder;
-use crate::setup::env::TestLoopEnv;
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::execute_money_transfers;
 use itertools::Itertools;
@@ -46,17 +45,17 @@ fn test_load_memtrie_after_empty_chunks() {
         .genesis_height(10000)
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder
+    let mut env = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(client_accounts)
         .build();
 
-    execute_money_transfers(&mut test_loop, &node_datas, &accounts).unwrap();
+    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
 
     // Make sure the chain progresses for several epochs.
-    let client_handle = node_datas[0].client_sender.actor_handle();
-    test_loop.run_until(
+    let client_handle = env.node_datas[0].client_sender.actor_handle();
+    env.test_loop.run_until(
         |test_loop_data| {
             test_loop_data.get(&client_handle).client.chain.head().unwrap().height
                 > 10000 + epoch_length * 10
@@ -67,9 +66,10 @@ fn test_load_memtrie_after_empty_chunks() {
     // Find client currently tracking shard with index 0.
     let shard_uid = shard_layout.shard_uids().next().unwrap();
     let shard_id = shard_uid.shard_id();
-    let tracked_shards_per_node = node_datas
+    let tracked_shards_per_node = env
+        .node_datas
         .iter()
-        .map(|node_data| TestLoopNode { data: &test_loop.data, node_data }.tracked_shards())
+        .map(|node_data| TestLoopNode { data: &env.test_loop.data, node_data }.tracked_shards())
         .collect_vec();
     tracing::info!(?tracked_shards_per_node, "current tracked shards");
     let idx = tracked_shards_per_node
@@ -79,7 +79,8 @@ fn test_load_memtrie_after_empty_chunks() {
         .expect("Not found any client tracking shard 0");
 
     // Unload memtrie and load it back, check that it doesn't panic.
-    let client = TestLoopNode { data: &test_loop.data, node_data: &node_datas[idx] }.client();
+    let client =
+        TestLoopNode { data: &env.test_loop.data, node_data: &env.node_datas[idx] }.client();
     client.runtime_adapter.get_tries().unload_memtrie(&shard_uid);
     client
         .runtime_adapter
@@ -89,6 +90,5 @@ fn test_load_memtrie_after_empty_chunks() {
 
     // Give the test a chance to finish off remaining events in the event loop, which can
     // be important for properly shutting down the nodes.
-    TestLoopEnv { test_loop, node_datas, shared_state }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

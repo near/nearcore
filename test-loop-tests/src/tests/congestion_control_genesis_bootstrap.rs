@@ -1,5 +1,4 @@
 use crate::setup::builder::TestLoopBuilder;
-use crate::setup::env::TestLoopEnv;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain::genesis::get_genesis_congestion_infos;
@@ -45,22 +44,21 @@ fn test_congestion_control_genesis_bootstrap() {
         .minimum_validators_per_shard(1)
         .build_store_for_genesis_protocol_version();
 
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder
+    let mut env = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
         .build();
 
-    test_loop.run_for(Duration::seconds(5));
+    env.test_loop.run_for(Duration::seconds(5));
 
     for i in 0..clients.len() {
         check_genesis_congestion_info_in_store(
-            &mut test_loop.data.get_mut(&node_datas[i].client_sender.actor_handle()).client,
+            &mut env.test_loop.data.get_mut(&env.node_datas[i].client_sender.actor_handle()).client,
         );
     }
 
-    TestLoopEnv { test_loop, node_datas, shared_state }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Tests that genesis congestion infos computation succeeds even when genesis state is missing.
