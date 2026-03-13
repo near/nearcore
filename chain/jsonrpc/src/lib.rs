@@ -1106,7 +1106,7 @@ impl JsonRpcHandler {
         // Find the nodes that might be able to answer the query.
         let rpc_nodes = {
             let pool_read_guard = self.pool.read();
-            pool_read_guard.get_nodes_for_query(block_hint, shard_hint)?
+            pool_read_guard.nodes_for_query(block_hint, shard_hint)?
         };
 
         // Prepare the request.

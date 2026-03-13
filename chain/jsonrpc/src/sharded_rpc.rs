@@ -122,12 +122,12 @@ impl ShardedRpcPool {
     }
 
     /// Returns all nodes that might be able to serve a query with the given routing hints.
-    pub fn get_nodes_for_query(
+    pub fn nodes_for_query(
         &self,
         block_hint: BlockHint,
         shard_hint: ShardHint,
     ) -> Result<Vec<RpcNodeHandle>, RpcError> {
-        // TODO(sharded-rpc): Implement the rest of the routing logic.
+        // TODO(sharded-rpc): Handle all (shard_hint, block_hint) combinations.
         // TODO(sharded-rpc): what should happen when the block is not known?
 
         let nodes = match (&block_hint, &shard_hint) {
