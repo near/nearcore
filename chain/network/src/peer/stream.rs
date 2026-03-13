@@ -19,7 +19,7 @@ const MAX_WRITE_BUFFER_CAPACITY_BYTES: usize = GIB as usize;
 
 /// Timeout for individual write operations (write + flush) to detect if the connection is
 /// stuck due to a half-open TCP connection where the peer stopped ACKing writes.
-const WRITE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+pub(crate) const WRITE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 type ReadHalf = tokio::io::ReadHalf<tokio::net::TcpStream>;
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
@@ -85,7 +85,9 @@ impl FramedStream {
             let error_sender = error_sender.clone();
             let m = send_buf_size_metric.clone();
             async move {
-                if let Err(err) = Self::run_send_loop(tcp_send, queue_recv, stats, m).await {
+                if let Err(err) =
+                    Self::run_send_loop(tcp_send, queue_recv, stats, m, WRITE_TIMEOUT).await
+                {
                     error_sender.send(Error::Send(SendError::IO(err)));
                 }
             }
@@ -175,11 +177,12 @@ impl FramedStream {
             }
         }
     }
-    async fn run_send_loop(
+    pub(crate) async fn run_send_loop(
         tcp_send: WriteHalf,
         mut queue_recv: tokio::sync::mpsc::UnboundedReceiver<Frame>,
         stats: Arc<connection::Stats>,
         buf_size_metric: Arc<metrics::IntGaugeGuard>,
+        write_timeout: std::time::Duration,
     ) -> io::Result<()> {
         const WRITE_BUFFER_CAPACITY: usize = 8 * 1024;
         let mut writer = tokio::io::BufWriter::with_capacity(WRITE_BUFFER_CAPACITY, tcp_send);
@@ -191,13 +194,14 @@ impl FramedStream {
                 if msg.len() > NETWORK_MESSAGE_MAX_SIZE_BYTES {
                     metrics::MessageDropped::InputTooLong.inc_unknown_msg();
                 } else {
-                    tokio::time::timeout(WRITE_TIMEOUT, async {
+                    tokio::time::timeout(write_timeout, async {
                         writer.write_u32_le(msg.len() as u32).await?;
                         writer.write_all(&msg[..]).await?;
                         io::Result::Ok(())
                     })
                     .await
                     .map_err(|_| {
+                        tracing::warn!(target: "network", timeout_secs = write_timeout.as_secs(), "write timed out, closing half-open connection");
                         io::Error::new(
                             io::ErrorKind::TimedOut,
                             "write timed out, connection may be half-open",
@@ -218,7 +222,8 @@ impl FramedStream {
             // and added to the queue at a rate similar to flush latency. To fix that
             // we would need to put writer.flush() and queue_recv.recv() into a tokio::select
             // and make sure that both are cancellation-safe.
-            tokio::time::timeout(WRITE_TIMEOUT, writer.flush()).await.map_err(|_| {
+            tokio::time::timeout(write_timeout, writer.flush()).await.map_err(|_| {
+                tracing::warn!(target: "network", timeout_secs = write_timeout.as_secs(), "flush timed out, closing half-open connection");
                 io::Error::new(
                     io::ErrorKind::TimedOut,
                     "flush timed out, connection may be half-open",
