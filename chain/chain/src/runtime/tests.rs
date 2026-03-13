@@ -2016,6 +2016,7 @@ fn test_strict_nonce_u64_max_not_included() {
 /// drained. Without resetting `skips_since_last_progress` on progress,
 /// the loop would break early after seeing enough stalled skips.
 #[test]
+#[cfg(feature = "test_features")]
 fn test_strict_nonce_stalled_groups_do_not_starve_valid_groups() {
     let (env, chain, _) = get_test_env_with_chain_and_pool();
     let prev_hash = env.head.prev_block_hash;
