@@ -32,7 +32,7 @@ fn test_rpc_view_account_forwarding() {
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
         .add_user_account_simple(alice.clone(), Balance::from_near(100))
-        .add_user_account_simple(zoe.clone(), Balance::from_near(100))
+        .add_user_account_simple(zoe.clone(), Balance::from_near(200))
         .build();
 
     let rpc0: AccountId = create_account_id("rpc0");
@@ -86,10 +86,10 @@ fn test_rpc_view_account_forwarding() {
     run_view_account(&alice_node, &alice, Balance::from_near(100)).unwrap();
 
     // Query zoe's account from the node that doesn't track her shard.
-    run_view_account(&alice_node, &zoe, Balance::from_near(100)).unwrap();
+    run_view_account(&alice_node, &zoe, Balance::from_near(200)).unwrap();
 
     // Query zoe's account from the node that does track her shard.
-    run_view_account(&zoe_node, &zoe, Balance::from_near(100)).unwrap();
+    run_view_account(&zoe_node, &zoe, Balance::from_near(200)).unwrap();
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
