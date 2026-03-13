@@ -1,5 +1,4 @@
-use std::str::FromStr;
-
+use crate::resharding::event_type::{ReshardingEventType, ReshardingSplitShardParams};
 use near_chain_configs::GenesisConfig;
 use near_primitives::chains::MAINNET;
 use near_primitives::epoch_manager::EpochConfigStore;
@@ -14,8 +13,7 @@ use near_store::flat::{BlockInfo, FlatStorageManager};
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::{DBCol, ShardTries, StateSnapshotConfig, Store, StoreConfig, TrieConfig};
 use near_vm_runner::logic::ProtocolVersion;
-
-use crate::resharding::event_type::{ReshardingEventType, ReshardingSplitShardParams};
+use std::str::FromStr;
 
 /// Hashes of the blocks where resharding happened on mainnet.
 /// These are from resharding at protocol versions 75, 76, and 78 respectively.

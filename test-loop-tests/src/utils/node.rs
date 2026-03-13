@@ -1,6 +1,5 @@
-use std::sync::Arc;
-use std::task::Poll;
-
+use crate::setup::state::NodeExecutionData;
+use crate::utils::transactions::TransactionRunner;
 use futures::future::BoxFuture;
 use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::CanSend;
@@ -14,7 +13,7 @@ use near_client::{Client, ProcessTxRequest, Query, QueryError, ViewClientActor};
 use near_crypto::PublicKey;
 use near_jsonrpc::client::JsonRpcClient;
 use near_jsonrpc_primitives::errors::RpcError;
-use near_primitives::action::Action;
+use near_primitives::action::{Action, GlobalContractDeployMode, GlobalContractIdentifier};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
@@ -24,7 +23,7 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
-use near_primitives::types::{AccountId, Balance, BlockHeight, ShardId};
+use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, ShardId};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccessKeyView, AccountView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest,
@@ -33,9 +32,8 @@ use near_primitives::views::{
 use near_store::Store;
 use near_store::adapter::StoreAdapter as _;
 use parking_lot::Mutex;
-
-use crate::setup::state::NodeExecutionData;
-use crate::utils::transactions::TransactionRunner;
+use std::sync::Arc;
+use std::task::Poll;
 
 /// Represents a single node in the test loop setup.
 ///
@@ -178,10 +176,13 @@ impl<'a> TestLoopNode<'a> {
             .collect()
     }
 
-    pub fn submit_tx(&self, tx: SignedTransaction) {
+    /// Submit a signed transaction to this node's RPC handler. Returns the transaction hash.
+    pub fn submit_tx(&self, tx: SignedTransaction) -> CryptoHash {
+        let tx_hash = tx.get_hash();
         let process_tx_request =
             ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
         self.node_data.rpc_handler_sender.send(process_tx_request);
+        tx_hash
     }
 
     /// Build a signed transaction from raw actions, auto-determining nonce,
@@ -234,6 +235,38 @@ impl<'a> TestLoopNode<'a> {
     /// Deploy the standard test contract (`near_test_contracts::rs_contract`).
     pub fn tx_deploy_test_contract(&self, contract_id: &AccountId) -> SignedTransaction {
         self.tx_deploy_contract(contract_id, near_test_contracts::rs_contract().to_vec())
+    }
+
+    /// Build a deploy-global-contract transaction.
+    pub fn tx_deploy_global_contract(
+        &self,
+        deployer_id: &AccountId,
+        code: Vec<u8>,
+        deploy_mode: GlobalContractDeployMode,
+    ) -> SignedTransaction {
+        SignedTransaction::deploy_global_contract(
+            self.get_next_nonce(deployer_id),
+            deployer_id.clone(),
+            code,
+            &create_user_test_signer(deployer_id),
+            self.head().last_block_hash,
+            deploy_mode,
+        )
+    }
+
+    /// Build a use-global-contract transaction.
+    pub fn tx_use_global_contract(
+        &self,
+        user_id: &AccountId,
+        identifier: GlobalContractIdentifier,
+    ) -> SignedTransaction {
+        SignedTransaction::use_global_contract(
+            self.get_next_nonce(user_id),
+            user_id,
+            &create_user_test_signer(user_id),
+            self.head().last_block_hash,
+            identifier,
+        )
     }
 
     /// Build a function-call transaction.
@@ -293,10 +326,22 @@ impl<'a> TestLoopNode<'a> {
         )
     }
 
-    pub fn get_next_nonce(&self, account_id: &AccountId) -> u64 {
+    /// Returns the next nonce for `account_id`, suitable for submitting
+    /// multiple transactions in the same block before on-chain nonces update.
+    ///
+    /// Takes the maximum of the on-chain nonce and any internally tracked pending
+    /// nonce, then records the result so subsequent calls keep incrementing.
+    pub fn get_next_nonce(&self, account_id: &AccountId) -> Nonce {
         let signer = create_user_test_signer(account_id);
         let access_key = self.view_access_key_query(account_id, &signer.public_key()).unwrap();
-        access_key.nonce + 1
+        let on_chain_next = access_key.nonce + 1;
+        let mut pending = self.node_data.pending_nonces.lock();
+        let next = match pending.get(account_id) {
+            Some(&local) => on_chain_next.max(local + 1),
+            None => on_chain_next,
+        };
+        pending.insert(account_id.clone(), next);
+        next
     }
 }
 

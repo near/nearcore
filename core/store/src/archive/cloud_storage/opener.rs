@@ -1,12 +1,9 @@
-use std::io::Result;
-use std::sync::Arc;
-
-use near_external_storage::ExternalConnection;
-
-use near_chain_configs::ExternalStorageLocation;
-
 use crate::archive::cloud_storage::CloudStorage;
 use crate::archive::cloud_storage::config::CloudStorageContext;
+use near_chain_configs::ExternalStorageLocation;
+use near_external_storage::ExternalConnection;
+use std::io::Result;
+use std::sync::Arc;
 
 /// Opener for the external archival storage, which results in an `CloudStorage` instance.
 pub struct CloudStorageOpener {

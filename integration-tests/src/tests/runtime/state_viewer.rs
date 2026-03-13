@@ -1,7 +1,5 @@
-use std::{collections::HashMap, io, sync::Arc};
-
+use crate::utils::runtime_utils::{TEST_SHARD_UID, get_runtime_and_trie, get_test_trie_viewer};
 use borsh::BorshDeserialize;
-
 use near_primitives::{
     account::{Account, AccountContract},
     hash::{CryptoHash, hash as sha256},
@@ -19,9 +17,8 @@ use near_primitives::{
 use near_store::{NibbleSlice, RawTrieNode, RawTrieNodeWithSize, ShardUId, set_account};
 use node_runtime::state_viewer::errors;
 use node_runtime::state_viewer::*;
+use std::{collections::HashMap, io, sync::Arc};
 use testlib::runtime_utils::alice_account;
-
-use crate::utils::runtime_utils::{TEST_SHARD_UID, get_runtime_and_trie, get_test_trie_viewer};
 
 struct ProofVerifier {
     nodes: HashMap<CryptoHash, RawTrieNodeWithSize>,

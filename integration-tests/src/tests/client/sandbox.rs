@@ -1,3 +1,5 @@
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
@@ -9,9 +11,6 @@ use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
 use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, Nonce};
-
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
 
 fn test_setup() -> (TestEnv, Signer) {
     let epoch_length = 5;

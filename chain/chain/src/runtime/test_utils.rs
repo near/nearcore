@@ -1,6 +1,4 @@
-use std::path::Path;
-use std::sync::Arc;
-
+use super::NightshadeRuntime;
 use near_chain_configs::{
     DEFAULT_GC_NUM_EPOCHS_TO_KEEP, DEFAULT_STATE_PARTS_COMPRESSION_LEVEL, GenesisConfig,
 };
@@ -8,8 +6,8 @@ use near_epoch_manager::EpochManagerHandle;
 use near_parameters::RuntimeConfigStore;
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
-
-use super::NightshadeRuntime;
+use std::path::Path;
+use std::sync::Arc;
 
 impl NightshadeRuntime {
     pub fn test_with_runtime_config_store(

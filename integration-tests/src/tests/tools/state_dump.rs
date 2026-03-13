@@ -1,7 +1,3 @@
-use std::collections::{HashMap, HashSet};
-use std::path::Path;
-use std::sync::Arc;
-
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
 use near_chain::{ChainStoreAccess, Provenance};
@@ -26,6 +22,9 @@ use near_store::test_utils::create_test_store;
 use near_store::{ShardUId, Store};
 use nearcore::NightshadeRuntime;
 use nearcore::config::{Config, NearConfig};
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
+use std::sync::Arc;
 
 fn setup(
     epoch_length: NumBlocks,

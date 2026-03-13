@@ -1,14 +1,12 @@
-use std::sync::Arc;
-
+use crate::Store;
+use crate::adapter::StoreAdapter;
 use near_chain_primitives::Error;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{
     Direction, MerklePath, MerklePathItem, PartialMerkleTree, combine_hash,
 };
 use near_primitives::types::NumBlocks;
-
-use crate::Store;
-use crate::adapter::StoreAdapter;
+use std::sync::Arc;
 
 /// Implement block merkle proof retrieval.
 ///

@@ -193,12 +193,7 @@ Available methods:
 | `tx_delete_account(account, beneficiary)` | Delete an account |
 | `tx_from_actions(signer, receiver, actions)` | Build from raw actions |
 
-For batch-submitting multiple transactions without waiting (where auto-nonce won't work), use `get_next_nonce` and manage nonces manually:
-
-```rust
-let mut nonce = env.rpc_node().get_next_nonce(&account);
-// build multiple txs, incrementing nonce each time
-```
+The `tx_*` helpers automatically track nonces, so multiple transactions for the same signer can be created without waiting for processing in between. For advanced use cases, `get_next_nonce` is also available.
 
 ### Account helpers
 

@@ -1,7 +1,6 @@
-use tokio_util::sync::CancellationToken;
-
 use crate::futures::FutureSpawner;
 use crate::tokio::runtime::AsyncDroppableRuntime;
+use tokio_util::sync::CancellationToken;
 
 #[derive(Clone)]
 pub struct CancellableFutureSpawner {

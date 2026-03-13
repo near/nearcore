@@ -1,11 +1,9 @@
-use std::fmt::Debug;
-
-use futures::FutureExt;
-use futures::future::BoxFuture;
-
 use crate::messaging::{AsyncSendError, CanSend, CanSendAsync, Handler};
 use crate::multithread::runtime_handle::{MultithreadRuntimeHandle, MultithreadRuntimeMessage};
 use crate::{next_message_sequence_num, pretty_type_name};
+use futures::FutureExt;
+use futures::future::BoxFuture;
+use std::fmt::Debug;
 
 impl<A, M> CanSend<M> for MultithreadRuntimeHandle<A>
 where

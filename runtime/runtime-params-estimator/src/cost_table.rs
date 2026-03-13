@@ -1,11 +1,10 @@
+use crate::cost::Cost;
 use anyhow::Context;
 use near_primitives::types::Gas;
 use num_rational::Ratio;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::str::FromStr;
-
-use crate::cost::Cost;
 
 /// For each [`Cost`], the price of a single unit in [`Gas`].
 ///

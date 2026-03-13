@@ -1,10 +1,8 @@
-use std::collections::{HashMap, HashSet};
-
-use near_primitives::hash::CryptoHash;
-use near_primitives::types::BlockHeight;
-
 use crate::metrics;
 use crate::missing_chunks::BlockLike;
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::BlockHeight;
+use std::collections::{HashMap, HashSet};
 
 /// Blocks that are waiting for optimistic block to be applied.
 pub struct PendingBlocksPool<Block: BlockLike> {

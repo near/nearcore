@@ -1,22 +1,19 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-
+use super::FlatStorageReshardingStatus;
+use super::delta::{CachedFlatStateDelta, FlatStateDelta};
+use super::metrics::FlatStorageMetrics;
+use super::types::FlatStorageError;
+use crate::adapter::flat_store::{FlatStoreAdapter, FlatStoreUpdateAdapter};
+use crate::flat::BlockInfo;
+use crate::flat::delta::{BlockWithChangesInfo, CachedFlatStateChanges};
+use crate::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
 use near_primitives::types::BlockHeight;
 use parking_lot::RwLock;
-
-use crate::adapter::flat_store::{FlatStoreAdapter, FlatStoreUpdateAdapter};
-use crate::flat::BlockInfo;
-use crate::flat::delta::{BlockWithChangesInfo, CachedFlatStateChanges};
-use crate::flat::{FlatStorageReadyStatus, FlatStorageStatus};
-
-use super::FlatStorageReshardingStatus;
-use super::delta::{CachedFlatStateDelta, FlatStateDelta};
-use super::metrics::FlatStorageMetrics;
-use super::types::FlatStorageError;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 /// FlatStorage stores information on which blocks flat storage current supports key lookups on.
 /// Note that this struct is shared by multiple threads, the chain thread, threads that apply chunks,
@@ -520,7 +517,6 @@ mod tests {
     use crate::flat::{FlatStorageReadyStatus, FlatStorageStatus};
     use crate::test_utils::create_test_store;
     use assert_matches::assert_matches;
-
     use near_o11y::testonly::init_test_logger;
     use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::shard_layout::ShardUId;

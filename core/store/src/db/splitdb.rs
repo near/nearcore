@@ -1,11 +1,9 @@
-use itertools::{self, EitherOrBoth};
-use std::cmp::Ordering;
-use std::sync::Arc;
-
-use near_o11y::log_assert_fail;
-
 use crate::DBCol;
 use crate::db::{DBIterator, DBIteratorItem, DBSlice, DBTransaction, Database, StoreStatistics};
+use itertools::{self, EitherOrBoth};
+use near_o11y::log_assert_fail;
+use std::cmp::Ordering;
+use std::sync::Arc;
 
 /// A database that provides access to the hot and cold databases.
 ///
@@ -193,11 +191,9 @@ impl Database for SplitDB {
 
 #[cfg(test)]
 mod test {
-    use itertools::Itertools;
-
     use super::*;
-
     use crate::db::{ColdDB, DBOp, DBTransaction, testdb::TestDB};
+    use itertools::Itertools;
 
     const FOO: &[u8] = b"FOO";
     const BAR: &[u8] = b"BAR";

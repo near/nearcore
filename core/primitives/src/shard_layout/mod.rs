@@ -26,7 +26,6 @@ use near_primitives_core::types::{ShardId, ShardIndex};
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::BTreeSet;
 use std::{fmt, str};
-
 pub use v0::ShardLayoutV0;
 pub use v1::{ShardLayoutV1, ShardsSplitMapV1};
 pub use v2::{ShardLayoutV2, ShardsSplitMapV2};

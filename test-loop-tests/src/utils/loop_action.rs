@@ -1,10 +1,8 @@
-use std::cell::Cell;
-use std::rc::Rc;
-
+use crate::setup::state::NodeExecutionData;
 use near_async::test_loop::data::TestLoopData;
 use near_primitives::types::AccountId;
-
-use crate::setup::state::NodeExecutionData;
+use std::cell::Cell;
+use std::rc::Rc;
 
 /// Signature of functions callable from inside the inner loop of a testloop test.
 pub(crate) type LoopActionFn = Box<dyn Fn(&[NodeExecutionData], &mut TestLoopData, AccountId)>;

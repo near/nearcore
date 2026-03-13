@@ -1,3 +1,4 @@
+use crate::ApplyState;
 use near_crypto::Signer;
 use near_parameters::{ExtCosts, ParameterCost, RuntimeConfig};
 use near_primitives::account::AccessKey;
@@ -10,8 +11,6 @@ use near_store::test_utils::TestTriesBuilder;
 use near_store::{ShardUId, get_account, set_account};
 use std::sync::Arc;
 use testlib::runtime_utils::bob_account;
-
-use crate::ApplyState;
 
 mod apply;
 

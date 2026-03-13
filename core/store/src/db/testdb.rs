@@ -1,10 +1,9 @@
+use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, refcount};
+use crate::{DBCol, StoreStatistics, deserialized_column};
 use parking_lot::RwLock;
 use std::collections::BTreeMap;
 use std::ops::Bound;
 use std::sync::Arc;
-
-use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, refcount};
-use crate::{DBCol, StoreStatistics, deserialized_column};
 
 /// An in-memory database intended for tests and IO-agnostic estimations.
 pub struct TestDB {

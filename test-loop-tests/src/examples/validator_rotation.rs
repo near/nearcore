@@ -1,14 +1,13 @@
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
+use crate::utils::account::create_account_ids;
+use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 use itertools::Itertools as _;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, NumSeats};
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::env::TestLoopEnv;
-use crate::utils::account::create_account_ids;
-use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
@@ -39,8 +38,7 @@ fn test_validator_rotation() {
         .genesis(genesis)
         .clients(accounts)
         .epoch_config_store(epoch_config_store)
-        .build()
-        .warmup();
+        .build();
 
     let client_actor_handle = env.node_datas[0].client_sender.actor_handle();
 

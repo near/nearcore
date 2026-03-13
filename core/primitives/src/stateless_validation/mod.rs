@@ -1,8 +1,7 @@
+use crate::types::EpochId;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::{BlockHeight, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
-
-use crate::types::EpochId;
 
 pub mod chunk_endorsement;
 pub mod chunk_endorsements_bitmap;

@@ -1,25 +1,19 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
-use crate::setup::state::NodeExecutionData;
+use crate::utils::account::create_account_id;
 use crate::utils::run_for_number_of_blocks;
-use crate::utils::transactions::{
-    TransactionRunner, call_contract, check_txs, deploy_contract, execute_tx, make_accounts,
-    prepare_transfer_tx,
-};
+use crate::utils::transactions::{TransactionRunner, check_txs, execute_tx, make_accounts};
 use assert_matches::assert_matches;
 use core::panic;
 use itertools::Itertools;
-use near_async::test_loop::TestLoopV2;
-use near_async::test_loop::data::{TestLoopData, TestLoopDataHandle};
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_client::client_actor::ClientActor;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::RuntimeConfig;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, Balance, BlockHeight, Gas};
+use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::types::BlockHeightDelta;
 
@@ -39,33 +33,25 @@ fn slow_test_congestion_control_simple() {
     init_test_logger();
 
     // Test setup
-
-    let contract_id: AccountId = "000".parse().unwrap();
+    let epoch_length = 10;
+    let contract_id: AccountId = create_account_id("000");
     let mut accounts = make_accounts(NUM_ACCOUNTS);
     accounts.push(contract_id.clone());
-
-    let (env, rpc_id) = setup(&accounts, 10, &["account3", "account5", "account7"]);
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = env;
-
-    // Test
+    let (mut env, rpc_id) = setup(&accounts, epoch_length, &["account3", "account5", "account7"]);
 
     // Deploy the contract.
-    do_deploy_contract(&mut test_loop, &node_datas, &rpc_id, &contract_id);
+    let tx = env.node_for_account(&rpc_id).tx_deploy_test_contract(&contract_id);
+    env.runner_for_account(&rpc_id).run_tx(tx, Duration::seconds(5));
 
     // Call the contract from all accounts.
-    do_call_contract(&mut test_loop, &node_datas, &rpc_id, &contract_id, &accounts);
+    do_call_contract(&mut env, &rpc_id, &contract_id, &accounts);
 
     // Make sure the chain progresses for several epochs.
-    let client_handle = node_datas[0].client_sender.actor_handle();
-    test_loop.run_until(
-        |test_loop_data: &mut TestLoopData| height_condition(test_loop_data, &client_handle, 10050),
-        Duration::seconds(100),
-    );
+    env.node_runner(0).run_for_number_of_blocks(2 * epoch_length as usize);
 
     // Give the test a chance to finish off remaining events in the event loop, which can
     // be important for properly shutting down the nodes.
-    TestLoopEnv { test_loop, node_datas, shared_state }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[cfg_attr(not(feature = "test_features"), ignore)]
@@ -116,7 +102,11 @@ fn slow_test_one_shard_congested() {
 
     // Send transfer from shard 1 to shard 1 – should succeed
     let block_time = client_actor.client.config.max_block_production_delay;
-    let tx = prepare_transfer_tx(&mut env, &shard1_acc1, &shard1_acc2, Balance::from_near(1));
+    let tx = env.node_for_account(&rpc_id).tx_send_money(
+        &shard1_acc1,
+        &shard1_acc2,
+        Balance::from_near(1),
+    );
     let tx_outcome = execute_tx(
         &mut env.test_loop,
         &rpc_id,
@@ -128,7 +118,11 @@ fn slow_test_one_shard_congested() {
     assert_matches!(tx_outcome.status, FinalExecutionStatus::SuccessValue(_));
 
     // Send transfer from shard 1 to shard 2 – should fail, because shard 2 is congested
-    let tx = prepare_transfer_tx(&mut env, &shard1_acc1, &shard2_acc1, Balance::from_near(1));
+    let tx = env.node_for_account(&rpc_id).tx_send_money(
+        &shard1_acc1,
+        &shard2_acc1,
+        Balance::from_near(1),
+    );
     let tx_error = execute_tx(
         &mut env.test_loop,
         &rpc_id,
@@ -179,61 +173,33 @@ fn setup(
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
-        .build()
-        .warmup();
+        .build();
     (env, rpc_id.clone())
-}
-
-/// Deploy the contract and wait until the transaction is executed.
-fn do_deploy_contract(
-    test_loop: &mut TestLoopV2,
-    node_datas: &Vec<NodeExecutionData>,
-    rpc_id: &AccountId,
-    contract_id: &AccountId,
-) {
-    tracing::info!(target: "test", ?rpc_id, ?contract_id, "deploying contract");
-    let code = near_test_contracts::rs_contract().to_vec();
-    let tx = deploy_contract(test_loop, node_datas, rpc_id, contract_id, code, 1);
-    test_loop.run_for(Duration::seconds(5));
-    check_txs(&test_loop.data, node_datas, rpc_id, &[tx]);
 }
 
 /// Call the contract from all accounts and wait until the transactions are executed.
 fn do_call_contract(
-    test_loop: &mut TestLoopV2,
-    node_datas: &Vec<NodeExecutionData>,
+    env: &mut TestLoopEnv,
     rpc_id: &AccountId,
     contract_id: &AccountId,
     accounts: &Vec<AccountId>,
 ) {
     tracing::info!(target: "test", ?rpc_id, ?contract_id, "calling contract");
-    let method_name = "burn_gas_raw".to_owned();
     let burn_gas = Gas::from_teragas(250);
     let args = burn_gas.as_gas().to_le_bytes().to_vec();
     let mut txs = vec![];
+    let node = env.node_for_account(rpc_id);
     for sender_id in accounts {
-        let tx = call_contract(
-            test_loop,
-            node_datas,
-            rpc_id,
-            &sender_id,
-            &contract_id,
-            method_name.clone(),
+        let tx = node.tx_call(
+            sender_id,
+            contract_id,
+            "burn_gas_raw",
             args.clone(),
-            2,
+            Balance::ZERO,
+            Gas::from_teragas(300),
         );
-        txs.push(tx);
+        txs.push(node.submit_tx(tx));
     }
-    test_loop.run_for(Duration::seconds(20));
-    check_txs(&test_loop.data, node_datas, &rpc_id, &txs);
-}
-
-/// The condition that can be used for the test loop to wait until the chain
-/// height is greater than the target height.
-fn height_condition(
-    test_loop_data: &TestLoopData,
-    client_handle: &TestLoopDataHandle<ClientActor>,
-    target_height: BlockHeight,
-) -> bool {
-    test_loop_data.get(&client_handle).client.chain.head().unwrap().height > target_height
+    env.test_loop.run_for(Duration::seconds(20));
+    check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &txs);
 }

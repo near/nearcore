@@ -1,22 +1,19 @@
+use super::SYNC_V2_ENABLED;
 use super::block::BlockSync;
 use super::epoch::EpochSync;
 use super::header::HeaderSync;
 use super::state::StateSync;
 use crate::sync::state::StateSyncResult;
-use near_async::time::{Clock, Utc};
 use near_chain::chain::ApplyChunksDoneSender;
 use near_chain::types::Tip;
-use near_chain::{BlockHeader, BlockProcessingArtifact, Chain};
+use near_chain::{BlockProcessingArtifact, Chain, ChainStoreAccess};
 use near_chain_configs::ClientConfig;
-use near_chunks::logic::get_shards_cares_about_this_or_next_epoch;
-use near_client_primitives::types::{StateSyncStatus, SyncStatus};
+use near_client_primitives::types::{EpochSyncStatus, StateSyncStatus, SyncStatus};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::types::HighestHeightPeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use rand::seq::SliceRandom;
-use rand::thread_rng;
-use std::collections::HashMap;
+use near_store::adapter::StoreAdapter;
 
 // A small helper macro to unwrap a result of some state sync operation. If the
 // result is an error this macro will log it and return from the function.
@@ -31,11 +28,8 @@ macro_rules! unwrap_and_report_state_sync_result (($obj: ident) => (match $obj {
 
 /// Handles syncing chain to the actual state of the network.
 pub struct SyncHandler {
-    clock: Clock,
     config: ClientConfig,
     pub sync_status: SyncStatus,
-    /// A map storing the last time a block was requested for state sync.
-    last_time_sync_block_requested: HashMap<CryptoHash, near_async::time::Utc>,
     /// Keeps track of information needed to perform the initial Epoch Sync
     pub epoch_sync: EpochSync,
     /// Keeps track of syncing headers.
@@ -56,7 +50,6 @@ pub enum SyncHandlerRequest {
 
 impl SyncHandler {
     pub fn new(
-        clock: Clock,
         config: ClientConfig,
         epoch_sync: EpochSync,
         header_sync: HeaderSync,
@@ -64,10 +57,8 @@ impl SyncHandler {
         block_sync: BlockSync,
     ) -> Self {
         Self {
-            clock,
             config,
             sync_status: SyncStatus::AwaitingPeers,
-            last_time_sync_block_requested: HashMap::new(),
             epoch_sync,
             header_sync,
             state_sync,
@@ -77,11 +68,42 @@ impl SyncHandler {
 
     /// Handle the SyncRequirement::SyncNeeded.
     ///
-    /// This method performs whatever syncing technique is needed (epoch sync, header sync,
-    /// state sync, block sync) to make progress towards bring the node up to date.
-    ///
-    /// Returns true iff state sync is completed.
+    /// Dispatches to v1 or v2 handler based on `SYNC_V2_ENABLED`.
+    /// When enabled, the v2 logic runs. Otherwise, falls back to the
+    /// legacy v1 handler below.
     pub fn handle_sync_needed(
+        &mut self,
+        chain: &mut Chain,
+        shard_tracker: &ShardTracker,
+        highest_height: u64,
+        highest_height_peers: &[HighestHeightPeerInfo],
+        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+    ) -> Option<SyncHandlerRequest> {
+        if SYNC_V2_ENABLED {
+            match self.handle_sync_needed_v2(
+                chain,
+                shard_tracker,
+                highest_height,
+                highest_height_peers,
+                apply_chunks_done_sender,
+            ) {
+                Ok(request) => return request,
+                Err(err) => {
+                    tracing::error!(target: "sync", ?err, "sync: error in v2 handler");
+                    return None;
+                }
+            }
+        }
+        self.handle_sync_needed_v1(
+            chain,
+            shard_tracker,
+            highest_height,
+            highest_height_peers,
+            apply_chunks_done_sender,
+        )
+    }
+
+    fn handle_sync_needed_v1(
         &mut self,
         chain: &mut Chain,
         shard_tracker: &ShardTracker,
@@ -121,53 +143,31 @@ impl SyncHandler {
         let update_sync_status_result = self.update_sync_status(chain);
         unwrap_and_report_state_sync_result!(update_sync_status_result);
 
-        let sync_hash = match &self.sync_status {
-            SyncStatus::StateSync(s) => s.sync_hash,
+        let state_sync_status = match &mut self.sync_status {
+            SyncStatus::StateSync(s) => s,
             // sync hash isn't known yet. Return and try again later.
             _ => return None,
         };
 
-        let block_header = chain.get_block_header(&sync_hash);
-        let block_header = unwrap_and_report_state_sync_result!(block_header);
-        let shards_to_sync = get_shards_cares_about_this_or_next_epoch(
-            &block_header,
-            &shard_tracker,
-            chain.epoch_manager.as_ref(),
-        );
-
-        let blocks_to_request =
-            self.request_sync_blocks(chain, &block_header, highest_height_peers);
-
-        let state_sync_status = match &mut self.sync_status {
-            SyncStatus::StateSync(s) => s,
-            _ => unreachable!("Sync status should have been StateSync!"),
-        };
-
-        // Waiting for all the sync blocks to be available because they are
-        // needed to finalize state sync.
-        if !blocks_to_request.is_empty() {
-            tracing::debug!(target: "sync", ?blocks_to_request, "waiting for sync blocks");
-            return Some(SyncHandlerRequest::NeedRequestBlocks(blocks_to_request));
-        }
-
-        let state_sync_result = self.state_sync.run(sync_hash, state_sync_status, &shards_to_sync);
-        let state_sync_result = unwrap_and_report_state_sync_result!(state_sync_result);
-        if matches!(state_sync_result, StateSyncResult::InProgress) {
-            return None;
-        }
-
-        tracing::info!(target: "sync", "state sync: all shards are done");
-        let mut block_processing_artifacts = BlockProcessingArtifact::default();
-
-        let reset_heads_result = chain.reset_heads_post_state_sync(
-            sync_hash,
-            &mut block_processing_artifacts,
+        let state_sync_result = self.state_sync.run(
+            state_sync_status,
+            shard_tracker,
+            chain,
+            highest_height_peers,
             apply_chunks_done_sender,
         );
-        unwrap_and_report_state_sync_result!(reset_heads_result);
-        self.sync_status.update(SyncStatus::StateSyncDone);
-
-        Some(SyncHandlerRequest::NeedProcessBlockArtifact(block_processing_artifacts))
+        let state_sync_result = unwrap_and_report_state_sync_result!(state_sync_result);
+        match state_sync_result {
+            StateSyncResult::NeedBlocks(blocks) => {
+                tracing::debug!(target: "sync", ?blocks, "waiting for sync blocks");
+                Some(SyncHandlerRequest::NeedRequestBlocks(blocks))
+            }
+            StateSyncResult::InProgress => None,
+            StateSyncResult::Completed(block_processing_artifacts) => {
+                self.sync_status.update(SyncStatus::StateSyncDone);
+                Some(SyncHandlerRequest::NeedProcessBlockArtifact(block_processing_artifacts))
+            }
+        }
     }
 
     /// Update sync status to StateSync and reset data if needed.
@@ -193,7 +193,6 @@ impl SyncHandler {
         let new_state_sync_status = StateSyncStatus::new(sync_hash);
         let new_sync_status = SyncStatus::StateSync(new_state_sync_status);
         self.sync_status.update(new_sync_status);
-        self.last_time_sync_block_requested.clear();
         Ok(())
     }
 
@@ -247,101 +246,171 @@ impl SyncHandler {
             &chain,
             highest_height,
             highest_height_peers,
-            self.config.sync_max_block_requests,
         )?;
         Ok(block_sync_result)
     }
 
-    /// Verifies if the node possesses the given block. If the block is absent,
-    /// the node should request it from peers.
+    /// V2 sync handler — single linear pipeline.
     ///
-    /// the return value is a tuple (request_block, have_block)
+    ///   EpochSync → HeaderSync → StateSync → BlockSync → NoSync
     ///
-    /// the return value (false, false) means that the node already requested
-    /// the block but hasn't received it yet
-    fn sync_block_status(
-        &self,
-        chain: &Chain,
-        sync_hash: &CryptoHash,
-        block_hash: &CryptoHash,
-        now: Utc,
-    ) -> (bool, bool) {
-        // The sync hash block is saved as an orphan. The other blocks are saved
-        // as regular blocks. Check if block exists depending on that.
-        let block_exists = if sync_hash == block_hash {
-            chain.is_orphan(block_hash)
-        } else {
-            chain.block_exists(block_hash)
-        };
-
-        if block_exists {
-            return (false, true);
+    /// Near horizon (within `epoch_sync_horizon`): enters at BlockSync.
+    ///   Both header sync and block sync are called each tick. Header sync
+    ///   fetches batches of headers, populating the `NextBlockHashes` chain.
+    ///   Block sync walks that chain via `get_next_block_hash()` — when no
+    ///   headers exist ahead it gets `DBNotFoundErr` and waits until the
+    ///   next 2s timeout retry, so it naturally self-paces behind header sync.
+    ///
+    /// Far horizon (beyond `epoch_sync_horizon`): enters at EpochSync.
+    ///   After epoch sync completes, headers advance past the epoch boundary,
+    ///   state sync downloads state at the sync hash, and finally block sync
+    ///   catches up.
+    fn handle_sync_needed_v2(
+        &mut self,
+        chain: &mut Chain,
+        shard_tracker: &ShardTracker,
+        highest_height: u64,
+        highest_height_peers: &[HighestHeightPeerInfo],
+        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+    ) -> Result<Option<SyncHandlerRequest>, near_chain::Error> {
+        if matches!(self.sync_status, SyncStatus::NoSync | SyncStatus::AwaitingPeers) {
+            self.decide_initial_phase(chain, highest_height)?;
         }
-        let timeout = self.config.state_sync_external_timeout;
-        let timeout = near_async::time::Duration::try_from(timeout);
-        let timeout = timeout.unwrap();
 
-        let Some(last_time) = self.last_time_sync_block_requested.get(block_hash) else {
-            return (true, false);
-        };
+        match &mut self.sync_status {
+            SyncStatus::EpochSync(EpochSyncStatus::Done) => {
+                // Epoch sync finished - transition to header sync
+                // download the remaining headers before starting state sync.
+                let header_head = chain.header_head()?;
+                self.sync_status.update(SyncStatus::HeaderSync {
+                    start_height: header_head.height,
+                    current_height: header_head.height,
+                    highest_height,
+                });
+            }
+            SyncStatus::EpochSync(epoch_sync_status) => {
+                // Epoch sync still in progress (NotStarted or InProgress) —
+                // keep requesting/waiting for the epoch sync proof from a peer.
+                self.epoch_sync.run_v2(epoch_sync_status, highest_height_peers)?;
+            }
+            SyncStatus::HeaderSync { current_height, highest_height: hh, .. } => {
+                // ban stalling peers during primary header sync
+                self.header_sync.run_v2(chain, highest_height, highest_height_peers, true)?;
 
-        if (now - *last_time) >= timeout {
-            tracing::error!(
-                target: "sync",
-                %block_hash,
-                ?timeout,
-                "state sync: block request timed out"
-            );
-            (true, false)
-        } else {
-            (false, false)
+                let header_head = chain.header_head()?;
+                *current_height = header_head.height;
+                *hh = highest_height;
+
+                // Once we have enough headers (within block_header_fetch_horizon of
+                // highest_height), look up the sync hash and transition to state sync.
+                let min_header_height =
+                    highest_height.saturating_sub(self.config.block_header_fetch_horizon);
+                if header_head.height >= min_header_height {
+                    if let Some(sync_hash) = chain.find_sync_hash()? {
+                        tracing::debug!(target: "sync", ?sync_hash, "sync: transition to state sync");
+                        self.sync_status
+                            .update(SyncStatus::StateSync(StateSyncStatus::new(sync_hash)));
+                    }
+                }
+            }
+            SyncStatus::StateSync(state_sync_status) => {
+                match self.state_sync.run(
+                    state_sync_status,
+                    shard_tracker,
+                    chain,
+                    highest_height_peers,
+                    apply_chunks_done_sender,
+                )? {
+                    StateSyncResult::NeedBlocks(blocks) => {
+                        // NeedBlocks requests are forwarded to the caller so the client can fetch
+                        // the blocks required by state sync.
+                        tracing::debug!(num_blocks = blocks.len(), "v2: waiting for sync blocks");
+                        return Ok(Some(SyncHandlerRequest::NeedRequestBlocks(blocks)));
+                    }
+                    StateSyncResult::InProgress => {}
+                    StateSyncResult::Completed(artifacts) => {
+                        let head = chain.head()?;
+                        self.sync_status.update(SyncStatus::BlockSync {
+                            start_height: head.height,
+                            current_height: head.height,
+                            highest_height,
+                        });
+                        return Ok(Some(SyncHandlerRequest::NeedProcessBlockArtifact(artifacts)));
+                    }
+                }
+            }
+            SyncStatus::BlockSync { current_height, highest_height: hh, .. } => {
+                // Fetching remaining blocks to catch up to the network tip.
+                // Header sync continues alongside block sync — it extends the
+                // NextBlockHashes chain while block sync follows it. Exit from
+                // sync is handled by run_sync_step() detecting AlreadyCaughtUp.
+                // don't ban during block sync — peers may be serving blocks
+                self.header_sync.run_v2(chain, highest_height, highest_height_peers, false)?;
+                self.block_sync.run_v2(chain, highest_height_peers)?;
+
+                let head = chain.head()?;
+                *current_height = head.height;
+                *hh = highest_height;
+            }
+            status => unreachable!("unexpected sync status in handle_sync_needed_v2: {:?}", status),
         }
+        Ok(None)
     }
 
-    /// Checks if the sync blocks are available and requests them if needed.
-    /// Returns true if all the blocks are available.
-    fn request_sync_blocks(
+    /// Decide the initial sync phase based on node state and network distance.
+    ///
+    /// Checks (in order):
+    /// 1. Archival or near horizon: if archival or head (block head) is within
+    ///    the epoch sync horizon, enter BlockSync.
+    /// 2. Restart recovery: if an epoch sync proof exists and header_head is
+    ///    within the epoch sync horizon, the node crashed mid-pipeline but is
+    ///    still close enough to resume via HeaderSync.
+    /// 3. Epoch sync: everything else. Stale nodes (header_head past genesis)
+    ///    are detected in the epoch sync response handler and trigger data reset.
+    fn decide_initial_phase(
         &mut self,
         chain: &Chain,
-        block_header: &BlockHeader,
-        highest_height_peers: &[HighestHeightPeerInfo],
-    ) -> Vec<(CryptoHash, PeerId)> {
-        let now = self.clock.now_utc();
+        highest_height: u64,
+    ) -> Result<(), near_chain::Error> {
+        let head = chain.head()?;
+        let header_head = chain.header_head()?;
+        let horizon = self.config.epoch_sync.epoch_sync_horizon_num_epochs * chain.epoch_length;
+        let head_within_horizon = head.height + horizon >= highest_height;
+        let header_head_within_horizon = header_head.height + horizon >= highest_height;
 
-        let sync_hash = *block_header.hash();
-        let prev_hash = *block_header.prev_hash();
-
-        let mut needed_block_hashes = vec![prev_hash, sync_hash];
-        let mut extra_block_hashes = chain.get_extra_sync_block_hashes(&prev_hash);
-        tracing::trace!(target: "sync", ?needed_block_hashes, ?extra_block_hashes, "request_sync_blocks: block hashes for state sync");
-        needed_block_hashes.append(&mut extra_block_hashes);
-        let mut blocks_to_request = vec![];
-
-        for hash in needed_block_hashes.clone() {
-            let (request_block, have_block) = self.sync_block_status(chain, &sync_hash, &hash, now);
-            tracing::trace!(target: "sync", ?hash, ?request_block, ?have_block, "request_sync_blocks");
-
-            if have_block {
-                self.last_time_sync_block_requested.remove(&hash);
-            }
-
-            if !request_block {
-                tracing::trace!(target: "sync", ?hash, ?have_block, "request_sync_blocks: skipping - no request");
-                continue;
-            }
-
-            let peer_info = highest_height_peers.choose(&mut thread_rng());
-            let Some(peer_info) = peer_info else {
-                tracing::trace!(target: "sync", ?hash, "request_sync_blocks: skipping - no peer");
-                continue;
-            };
-            let peer_id = peer_info.peer_info.id.clone();
-            self.last_time_sync_block_requested.insert(hash, now);
-            blocks_to_request.push((hash, peer_id));
+        // Archival nodes must process every block; epoch sync would skip them.
+        // Near horizon nodes can catch up with header+block sync alone.
+        if self.config.archive || head_within_horizon {
+            tracing::info!(target: "sync", ?head, ?highest_height, "entering block sync");
+            self.sync_status.update(SyncStatus::BlockSync {
+                start_height: head.height,
+                current_height: head.height,
+                highest_height,
+            });
+            return Ok(());
         }
 
-        tracing::trace!(target: "sync", num_blocks_to_request = blocks_to_request.len(), "request_sync_blocks: done");
+        // Restart recovery: epoch sync proof exists and header_head is close
+        // enough to the tip to resume from where we left off. Enter HeaderSync
+        // which will transition to StateSync once headers are caught up.
+        // Previously downloaded state parts are preserved (DBCol::StateParts).
+        let has_epoch_sync_proof =
+            chain.chain_store().store().epoch_store().get_epoch_sync_proof()?.is_some();
+        if has_epoch_sync_proof && header_head_within_horizon {
+            tracing::info!(target: "sync", ?head, ?header_head, ?highest_height, "restart recovery: resuming with header sync");
+            self.sync_status.update(SyncStatus::HeaderSync {
+                start_height: header_head.height,
+                current_height: header_head.height,
+                highest_height,
+            });
+            return Ok(());
+        }
 
-        blocks_to_request
+        // Far horizon — initiate epoch sync. Stale nodes (header_head past
+        // genesis from a prior sync attempt) will be detected in the epoch sync
+        // response handler, which triggers data reset before applying the proof.
+        tracing::info!(target: "sync", ?head, ?header_head, ?highest_height, "entering epoch sync");
+        self.sync_status.update(SyncStatus::EpochSync(EpochSyncStatus::NotStarted));
+        Ok(())
     }
 }

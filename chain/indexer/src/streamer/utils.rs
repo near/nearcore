@@ -1,3 +1,4 @@
+use crate::INDEXER;
 use near_indexer_primitives::IndexerTransactionWithOutcome;
 use near_parameters::RuntimeConfig;
 use near_primitives::action::Action;
@@ -5,8 +6,6 @@ use near_primitives::receipt::Receipt;
 use near_primitives::types::Balance;
 use near_primitives::views::{ExecutionStatusView, ReceiptEnumView, ReceiptView};
 use node_runtime::config::calculate_tx_cost;
-
-use crate::INDEXER;
 
 pub(crate) fn convert_transactions_sir_into_local_receipts<'a>(
     tx_iter: impl IntoIterator<Item = &'a IndexerTransactionWithOutcome>,

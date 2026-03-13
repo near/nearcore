@@ -1,23 +1,3 @@
-use assert_matches::assert_matches;
-use itertools::Itertools;
-use near_async::test_loop::data::TestLoopData;
-use near_async::time::Duration;
-use near_chain_configs::TrackedShardsConfig;
-use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
-use near_o11y::testonly::init_test_logger;
-use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
-use near_primitives::epoch_manager::{
-    DynamicReshardingConfig, EpochConfig, EpochConfigStore, ShardLayoutConfig,
-};
-use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{ShardLayout, shard_uids_to_ids};
-use near_primitives::types::{AccountId, Balance, BlockHeightDelta, Gas, ShardId, ShardIndex};
-use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
-use std::cell::Cell;
-use std::collections::{BTreeMap, HashMap};
-use std::sync::Arc;
-
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
@@ -38,12 +18,31 @@ use crate::utils::setups::{derive_new_epoch_config_from_boundary, two_upgrades_v
 use crate::utils::sharding::{
     get_shards_will_care_about, get_tracked_shards, print_and_assert_shard_accounts,
 };
-use crate::utils::transactions::{
-    check_txs, create_account, deploy_contract, deploy_global_contract, get_smallest_height_head,
-    use_global_contract,
-};
+use crate::utils::transactions::{check_txs, get_smallest_height_head};
 use crate::utils::trie_sanity::{TrieSanityCheck, check_state_shard_uid_mapping_after_resharding};
+use assert_matches::assert_matches;
+use itertools::Itertools;
+use near_async::test_loop::data::TestLoopData;
+use near_async::time::Duration;
+use near_chain_configs::TrackedShardsConfig;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
+use near_crypto::Signer;
+use near_o11y::testonly::init_test_logger;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
+use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
+use near_primitives::epoch_manager::{
+    DynamicReshardingConfig, EpochConfig, EpochConfigStore, ShardLayoutConfig,
+};
+use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::{ShardLayout, shard_uids_to_ids};
+use near_primitives::test_utils::create_user_test_signer;
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::{AccountId, Balance, BlockHeightDelta, Gas, ShardId, ShardIndex};
+use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
+use std::cell::Cell;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 /// Default and minimal epoch length used in resharding tests.
 const DEFAULT_EPOCH_LENGTH: u64 = 7;
@@ -467,21 +466,12 @@ fn setup_global_contracts(
     use_test_global_contract: &[(AccountId, GlobalContractIdentifier)],
     test_setup_transactions: &mut Vec<CryptoHash>,
 ) {
-    let mut nonce = 100;
-
     // Deploy global contracts
+    let node = env.node_for_account(client_account_id);
     for (deployer_id, deploy_mode) in deploy_test_global_contract {
-        let deploy_contract_tx = deploy_global_contract(
-            &mut env.test_loop,
-            &env.node_datas,
-            client_account_id,
-            deployer_id.clone(),
-            near_test_contracts::backwards_compatible_rs_contract().into(),
-            nonce,
-            deploy_mode.clone(),
-        );
-        nonce += 1;
-        test_setup_transactions.push(deploy_contract_tx);
+        let code = near_test_contracts::backwards_compatible_rs_contract().into();
+        let tx = node.tx_deploy_global_contract(deployer_id, code, deploy_mode.clone());
+        test_setup_transactions.push(node.submit_tx(tx));
     }
 
     // Make sure the global contract is deployed before the usage transactions.
@@ -491,17 +481,10 @@ fn setup_global_contracts(
     *test_setup_transactions = vec![];
 
     // Use global contracts
+    let node = env.node_for_account(client_account_id);
     for (user_id, identifier) in use_test_global_contract {
-        let use_contract_tx = use_global_contract(
-            &mut env.test_loop,
-            &env.node_datas,
-            client_account_id,
-            user_id.clone(),
-            nonce,
-            identifier.clone(),
-        );
-        nonce += 1;
-        test_setup_transactions.push(use_contract_tx);
+        let tx = node.tx_use_global_contract(user_id, identifier.clone());
+        test_setup_transactions.push(node.submit_tx(tx));
     }
 }
 
@@ -607,6 +590,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         .cold_storage_archival_clients(params.archivals.clone())
         .load_memtries_for_tracked_shards(params.load_memtries_for_tracked_shards)
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
+        .delay_warmup()
         .build()
         .drop(DropCondition::ProtocolUpgradeChunkRange(
             base_protocol_version + 1,
@@ -625,15 +609,10 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         );
     }
     for contract_id in &params.deploy_test_contract {
-        let deploy_contract_tx = deploy_contract(
-            &mut env.test_loop,
-            &env.node_datas,
-            &client_account_id,
-            contract_id,
-            near_test_contracts::backwards_compatible_rs_contract().into(),
-            1,
-        );
-        test_setup_transactions.push(deploy_contract_tx);
+        let node = env.node_for_account(&client_account_id);
+        let code = near_test_contracts::backwards_compatible_rs_contract().into();
+        let tx = node.tx_deploy_contract(contract_id, code);
+        test_setup_transactions.push(node.submit_tx(tx));
     }
     if !params.disable_temporary_account_test {
         let create_account_tx = create_account(
@@ -1741,4 +1720,29 @@ fn slow_test_resharding_v3_delayed_receipts_gc_correctness() {
         ))
         .build();
     test_resharding_v3_base(params);
+}
+
+fn create_account(
+    env: &TestLoopEnv,
+    rpc_id: &AccountId,
+    originator: &AccountId,
+    new_account_id: &AccountId,
+    amount: Balance,
+    nonce: u64,
+) -> CryptoHash {
+    let node = env.node_for_account(rpc_id);
+    let signer = create_user_test_signer(originator);
+    let new_signer: Signer = create_user_test_signer(new_account_id);
+
+    let tx = SignedTransaction::create_account(
+        nonce,
+        originator.clone(),
+        new_account_id.clone(),
+        amount,
+        new_signer.public_key(),
+        &signer,
+        node.head().last_block_hash,
+    );
+
+    node.submit_tx(tx)
 }

@@ -1,6 +1,7 @@
-use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
-
+use super::drop_condition::ClientToShardsManagerSender;
+use super::state::{NodeExecutionData, NodeSetupState, SharedState};
+use crate::utils::peer_manager_actor::TestLoopPeerManagerActor;
+use crate::utils::rpc::{TestLoopRpcTransport, create_testloop_jsonrpc_router};
 use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::test_loop::TestLoopV2;
@@ -35,6 +36,7 @@ use near_client::{
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_jsonrpc::client::RpcTransport;
+use near_jsonrpc::sharded_rpc::ShardedRpcPool;
 use near_primitives::genesis::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
@@ -43,13 +45,10 @@ use near_store::config::SplitStorageConfig;
 use near_store::{StoreConfig, TrieConfig};
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::state_sync::StateSyncDumper;
+use parking_lot::RwLock;
+use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 use tokio::sync::broadcast;
-
-use crate::utils::peer_manager_actor::TestLoopPeerManagerActor;
-use crate::utils::rpc::{TestLoopRpcTransport, create_testloop_jsonrpc_router};
-
-use super::drop_condition::ClientToShardsManagerSender;
-use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 
 #[allow(clippy::large_stack_frames)]
 pub fn setup_client(
@@ -436,6 +435,8 @@ pub fn setup_client(
         network_adapter.as_multi_sender(),
         chunk_executor_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
+        spice_chunk_validator_adapter.as_sender(),
+        spice_chunk_validator_adapter.as_sender(),
     );
 
     let apply_chunks_iteration_mode = ApplyChunksIterationMode::Sequential;
@@ -491,6 +492,12 @@ pub fn setup_client(
         spice_core_writer_actor,
         Some(spice_core_writer_adapter),
     );
+
+    let sharded_rpc_pool = Arc::new(RwLock::new(ShardedRpcPool::new_with_nodes(
+        vec![], // nodes will be initialized later, once all testloop nodes are created.
+        shard_tracker.clone(),
+        runtime_adapter.store().chain_store(),
+    )));
 
     let state_sync_dumper = StateSyncDumper {
         clock: test_loop.clock(),
@@ -553,6 +560,7 @@ pub fn setup_client(
         &gc_actor_sender,
         &genesis.config,
         block_notification_watch_receiver,
+        sharded_rpc_pool.clone(),
     );
     let jsonrpc_transport: Arc<dyn RpcTransport> =
         Arc::new(TestLoopRpcTransport::new(jsonrpc_router));
@@ -577,7 +585,9 @@ pub fn setup_client(
         cloud_storage_sender,
         cloud_archival_writer_handle,
         jsonrpc_transport,
+        sharded_rpc_pool,
         expected_execution_delay: Arc::new(AtomicU64::new(0)),
+        pending_nonces: Default::default(),
     };
 
     // Add the client to the network shared state before returning data

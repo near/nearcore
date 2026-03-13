@@ -1,8 +1,3 @@
-use near_async::time::Clock;
-use near_store::trie::AccessOptions;
-use rand::Rng;
-use std::sync::Arc;
-
 use crate::ChainStoreAccess;
 use crate::chain::Chain;
 use crate::garbage_collection::GCMode;
@@ -11,7 +6,7 @@ use crate::test_utils::{
     get_chain_with_num_shards,
 };
 use crate::types::Tip;
-
+use near_async::time::Clock;
 use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, GCConfig};
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Block;
@@ -23,7 +18,10 @@ use near_primitives::types::{BlockHeight, StateRoot};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::gen_changes;
+use near_store::trie::AccessOptions;
 use near_store::{ShardTries, Trie, WrappedTrieChanges};
+use rand::Rng;
+use std::sync::Arc;
 
 // Build a chain of num_blocks on top of prev_block
 fn do_fork(

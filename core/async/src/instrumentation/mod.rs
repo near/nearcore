@@ -1,6 +1,5 @@
-use near_time::Clock;
-
 use crate::instrumentation::{data::ALL_ACTOR_INSTRUMENTATIONS, reader::InstrumentedThreadsView};
+use near_time::Clock;
 
 pub(crate) mod data;
 mod instrumented_window;

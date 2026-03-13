@@ -1710,10 +1710,9 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
-    use std::path::{Path, PathBuf};
-    use std::str::FromStr;
-
+    use crate::config::{
+        CONFIG_FILENAME, Config, create_localnet_configs, generate_or_load_key, init_configs,
+    };
     use itertools::Itertools;
     use near_async::time::Duration;
     use near_chain_configs::{GCConfig, Genesis, GenesisValidationMode, TrackedShardsConfig};
@@ -1721,11 +1720,10 @@ mod tests {
     use near_primitives::types::{AccountId, NumShards, ShardId};
     use near_store::ShardUId;
     use serde_json::json;
+    use std::io::Write;
+    use std::path::{Path, PathBuf};
+    use std::str::FromStr;
     use tempfile::tempdir;
-
-    use crate::config::{
-        CONFIG_FILENAME, Config, create_localnet_configs, generate_or_load_key, init_configs,
-    };
 
     #[test]
     fn test_old_tracked_config_fields_are_parsed() {

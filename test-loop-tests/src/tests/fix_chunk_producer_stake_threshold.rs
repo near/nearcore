@@ -56,8 +56,7 @@ fn slow_test_fix_cp_stake_threshold() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
-        .build()
-        .warmup();
+        .build();
 
     let client = &test_loop.data.get(&node_datas[0].client_sender.actor_handle()).client;
     let validators = get_epoch_all_validators(client);

@@ -1,12 +1,11 @@
-use std::convert::From;
-use std::sync::Arc;
-
 use super::alloc::Allocator;
 use super::frozen::{FrozenArena, FrozenArenaMemory};
 use super::single_thread::{STArena, STArenaMemory};
 use super::{
     Arena, ArenaMemory, ArenaMemoryMut, ArenaMut, ArenaPos, ArenaSliceMut, ArenaWithDealloc,
 };
+use std::convert::From;
+use std::sync::Arc;
 
 /// HybridArenaMemory represents a combination of owned and shared memory.
 ///
@@ -172,10 +171,9 @@ impl ArenaWithDealloc for HybridArena {
 
 #[cfg(test)]
 mod tests {
+    use super::HybridArena;
     use crate::trie::mem::arena::single_thread::STArena;
     use crate::trie::mem::arena::{Arena, ArenaMemory, ArenaMemoryMut, ArenaMut, ArenaPos};
-
-    use super::HybridArena;
 
     #[test]
     fn test_hybrid_arena() {

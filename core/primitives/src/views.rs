@@ -526,18 +526,21 @@ pub struct NetworkInfoView {
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub enum EpochSyncStatusView {
+    NotStarted,
+    InProgress { source_peer_height: BlockHeight, source_peer_id: String, attempt_time: String },
+    Done,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum SyncStatusView {
     /// Initial state. Not enough peers to do anything yet.
     AwaitingPeers,
     /// Not syncing / Done syncing.
     NoSync,
     /// Syncing using light-client headers to a recent epoch
-    EpochSync {
-        source_peer_height: BlockHeight,
-        source_peer_id: String,
-        attempt_time: String,
-    },
-    EpochSyncDone,
+    EpochSync(EpochSyncStatusView),
     /// Downloading block headers for fast sync.
     HeaderSync {
         start_height: BlockHeight,

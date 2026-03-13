@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-
 use crate::account::{Account, accounts_from_dir, update_account_nonces};
 use crate::block_service::BlockService;
 use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler};
