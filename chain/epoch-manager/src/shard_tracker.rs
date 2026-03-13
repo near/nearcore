@@ -110,6 +110,33 @@ impl ShardTracker {
         }
     }
 
+    /// Check if this RPC node tracks some shard in this epoch.
+    /// TODO(sharded-rpc): this could probably be a more generic function, maybe
+    /// `node_tracks_shard_at_epoch`? Could other ShardTracker methods be implemented using it?
+    pub fn rpc_tracks_shard_at_epoch(
+        &self,
+        shard_id: ShardId,
+        epoch_id: &EpochId,
+    ) -> Result<bool, EpochError> {
+        // Does this node track the shard based on the TrackedShardsConfig?
+        if self.tracks_shard_at_epoch(shard_id, epoch_id)? {
+            return Ok(true);
+        }
+
+        // Does this node track the shard because it's a validator node?
+        if let Some(vs) = self.validator_signer.get() {
+            if self.epoch_manager.cares_about_shard_in_epoch(
+                epoch_id,
+                vs.validator_id(),
+                shard_id,
+            )? {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
     fn tracks_shard(&self, shard_id: ShardId, prev_hash: &CryptoHash) -> Result<bool, EpochError> {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
         self.tracks_shard_at_epoch(shard_id, &epoch_id)
@@ -287,15 +314,24 @@ impl ShardTracker {
         cares_about_shard || will_care_about_shard
     }
 
+    pub fn tracked_shards_config(&self) -> &TrackedShardsConfig {
+        &self.tracked_shards_config
+    }
+
+    pub fn epoch_manager(&self) -> &Arc<dyn EpochManagerAdapter> {
+        &self.epoch_manager
+    }
+
     /// Returns whether the node is configured for all shards tracking.
     pub fn tracks_all_shards(&self) -> bool {
         self.tracked_shards_config.tracks_all_shards()
     }
 
-    /// Returns whether the tracker configuration is valid for cold store. Currently it is only valid if it
-    /// tracks given non-empty subset of shards. Tracking based on `Accounts` is likely to work as well, but
-    /// this hasn't been fully tested or verified yet. Consider enabling support after proper validation.
-    pub fn is_valid_for_cold_store(&self) -> bool {
+    /// Returns whether the tracker is configured to track a non-empty subset of
+    /// shards. Currently only `AllShards` or a non-empty `Shards` list qualify.
+    /// Tracking based on `Accounts` is likely to work as well, but this hasn't
+    /// been fully tested or verified yet.
+    pub fn tracks_non_empty_subset_of_shards(&self) -> bool {
         self.tracked_shards_config.tracks_non_empty_subset_of_shards()
     }
 

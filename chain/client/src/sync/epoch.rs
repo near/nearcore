@@ -144,41 +144,7 @@ impl EpochSync {
         Ok(proof)
     }
 
-    /// Returns true if the node is far enough behind that epoch sync is needed.
-    /// Pure query — does not mutate any state. Used by the v2 handler's
-    /// `decide_initial_phase()` and internally by `run()`.
-    ///
-    /// Checks three conditions in order:
-    /// 1. Horizon: is `header_head + epoch_sync_horizon` < `highest_height`?
-    /// 2. Archival: archival nodes must not skip blocks via epoch sync.
-    /// 3. Stale gate: non-genesis nodes can only epoch sync when SyncV2 is enabled.
-    pub fn is_epoch_sync_needed(
-        &self,
-        chain: &Chain,
-        highest_height: BlockHeight,
-    ) -> Result<bool, Error> {
-        let tip_height = chain.chain_store().header_head()?.height;
-        let horizon = self.config.epoch_sync_horizon_num_epochs * chain.epoch_length;
-        // Within the epoch sync horizon — header/block sync is sufficient.
-        if tip_height + horizon >= highest_height {
-            return Ok(false);
-        }
-        // Archival nodes must process every block; epoch sync would skip them.
-        if self.archive {
-            tracing::debug!(tip_height, highest_height, "skipping epoch sync: archival node");
-            return Ok(false);
-        }
-        // Without SyncV2, only fresh (genesis) nodes may epoch sync. Stale nodes
-        // (tip beyond genesis) must not — there is no handler to manage the
-        // post-epoch-sync pipeline (headers → state → blocks).
-        if !SYNC_V2_ENABLED && tip_height != chain.genesis().height() {
-            return Ok(false);
-        }
-        tracing::debug!(tip_height, highest_height, horizon, "epoch sync needed");
-        Ok(true)
-    }
-
-    /// Performs the epoch sync logic if applicable in the current state of the blockchain.
+    /// Performs the V1 epoch sync logic if applicable in the current state of the blockchain.
     /// This is periodically called by the client actor.
     pub fn run(
         &self,
@@ -187,7 +153,18 @@ impl EpochSync {
         highest_height: BlockHeight,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<(), Error> {
-        if !self.is_epoch_sync_needed(chain, highest_height)? {
+        // Archival nodes must process every block; epoch sync would skip them.
+        if self.archive {
+            return Ok(());
+        }
+        // Within the epoch sync horizon — header/block sync is sufficient.
+        let tip_height = chain.chain_store().header_head()?.height;
+        let horizon = self.config.epoch_sync_horizon_num_epochs * chain.epoch_length;
+        if tip_height + horizon >= highest_height {
+            return Ok(());
+        }
+        // V1: only fresh (genesis) nodes may epoch sync.
+        if tip_height != chain.genesis().height() {
             return Ok(());
         }
         // Ensure we're in the EpochSync status, creating it if needed.
@@ -211,7 +188,7 @@ impl EpochSync {
         match status {
             EpochSyncStatus::InProgress { attempt_time, source_peer_id, .. } => {
                 if *attempt_time + self.config.timeout_for_epoch_sync < self.clock.now_utc() {
-                    tracing::warn!(%source_peer_id, "epoch sync from peer timed out, retrying");
+                    tracing::warn!(target: "sync", %source_peer_id, "epoch sync from peer timed out, retrying");
                 } else {
                     return Ok(());
                 }
@@ -225,7 +202,7 @@ impl EpochSync {
             .choose(&mut rand::thread_rng())
             .ok_or_else(|| Error::Other("No peers to request epoch sync from".to_string()))?;
 
-        tracing::info!(peer_id=?peer.peer_info.id, "bootstrapping node via epoch sync");
+        tracing::info!(target: "sync", peer_id=?peer.peer_info.id, "bootstrapping node via epoch sync");
 
         *status = EpochSyncStatus::InProgress {
             source_peer_id: peer.peer_info.id.clone(),
@@ -258,11 +235,11 @@ impl EpochSync {
             ..
         }) = status
         else {
-            tracing::warn!(%source_peer, "ignoring unexpected epoch sync proof");
+            tracing::warn!(target: "sync", %source_peer, "ignoring unexpected epoch sync proof");
             return Ok(false);
         };
         if *source_peer_id != *source_peer {
-            tracing::warn!(%source_peer, expected_peer = %source_peer_id, "ignoring epoch sync proof from unexpected peer");
+            tracing::warn!(target: "sync", %source_peer, expected_peer = %source_peer_id, "ignoring epoch sync proof from unexpected peer");
             return Ok(false);
         }
         if proof
@@ -273,6 +250,7 @@ impl EpochSync {
             >= *source_peer_height
         {
             tracing::error!(
+                target: "sync",
                 %source_peer,
                 "ignoring epoch sync proof from peer that is too recent"
             );
@@ -286,6 +264,7 @@ impl EpochSync {
             < *source_peer_height
         {
             tracing::error!(
+                target: "sync",
                 %source_peer,
                 "ignoring epoch sync proof from peer that is too old"
             );
@@ -383,7 +362,7 @@ impl EpochSync {
         store_update.commit();
 
         *status = SyncStatus::EpochSync(EpochSyncStatus::Done);
-        tracing::info!(epoch_id=?last_header.epoch_id(), "bootstrapped from epoch sync");
+        tracing::info!(target: "sync", epoch_id=?last_header.epoch_id(), "bootstrapped from epoch sync");
 
         Ok(())
     }
@@ -615,7 +594,7 @@ impl Handler<EpochSyncRequestMessage> for ClientActor {
                 let chain_store = epoch_store.chain_store();
                 let head = chain_store.head();
                 let genesis_height = chain_store.get_genesis_height();
-                tracing::warn!(?head, ?genesis_height, "no epoch sync proof is stored");
+                tracing::warn!(target: "sync", ?head, ?genesis_height, "no epoch sync proof is stored");
                 return;
             };
             self.client.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
@@ -637,7 +616,7 @@ impl Handler<EpochSyncRequestMessage> for ClientActor {
                     ) {
                         Ok(epoch_sync_proof) => epoch_sync_proof,
                         Err(err) => {
-                            tracing::error!(?err, "failed to derive epoch sync proof");
+                            tracing::error!(target: "sync", ?err, "failed to derive epoch sync proof");
                             return;
                         }
                     };
@@ -658,14 +637,14 @@ impl Handler<EpochSyncResponseMessage> for ClientActor {
             SyncStatus::EpochSync(EpochSyncStatus::InProgress { source_peer_id, .. })
                 if *source_peer_id == msg.from_peer => {}
             _ => {
-                tracing::warn!(from_peer = %msg.from_peer, "ignoring unsolicited epoch sync response");
+                tracing::warn!(target: "sync", from_peer = %msg.from_peer, "ignoring unsolicited epoch sync response");
                 return;
             }
         }
         let (proof, _) = match msg.proof.decode() {
             Ok(proof) => proof,
             Err(err) => {
-                tracing::error!(?err, "failed to uncompress epoch sync proof");
+                tracing::error!(target: "sync", ?err, "failed to uncompress epoch sync proof");
                 return;
             }
         };
@@ -682,7 +661,7 @@ impl Handler<EpochSyncResponseMessage> for ClientActor {
             Ok(true) => {}
             Ok(false) => return, // silently ignored (logged inside validate_proof)
             Err(err) => {
-                tracing::error!(?err, "failed to validate epoch sync proof");
+                tracing::error!(target: "sync", ?err, "failed to validate epoch sync proof");
                 return;
             }
         }
@@ -691,13 +670,13 @@ impl Handler<EpochSyncResponseMessage> for ClientActor {
         let tip_height = match self.client.chain.header_head() {
             Ok(head) => head.height,
             Err(err) => {
-                tracing::error!(?err, "failed to read header head while handling epoch sync proof");
+                tracing::error!(target: "sync", ?err, "failed to read header head while handling epoch sync proof");
                 return;
             }
         };
         let genesis_height = self.client.chain.genesis().height();
         if SYNC_V2_ENABLED && tip_height != genesis_height {
-            tracing::info!("stale node validated epoch sync proof, requesting data reset");
+            tracing::info!(target: "sync", "stale node validated epoch sync proof, requesting data reset");
             if let Some(tx) = self.shutdown_signal.take() {
                 let _ = tx.send(ShutdownReason::EpochSyncDataReset);
             }
@@ -711,7 +690,7 @@ impl Handler<EpochSyncResponseMessage> for ClientActor {
             proof,
             self.client.epoch_manager.as_ref(),
         ) {
-            tracing::error!(?err, "failed to apply epoch sync proof");
+            tracing::error!(target: "sync", ?err, "failed to apply epoch sync proof");
         }
     }
 }

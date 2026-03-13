@@ -8,6 +8,7 @@ use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::GenesisConfig;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_client::sync::SYNC_V2_ENABLED;
 use near_epoch_manager::epoch_sync::{
     derive_epoch_sync_proof_from_last_block, find_target_epoch_to_produce_proof_for,
 };
@@ -45,34 +46,35 @@ fn setup_initial_blockchain(transaction_validity_period: BlockHeightDelta) -> Te
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
 
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = TestLoopBuilder::new()
+    let mut env = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
         .build();
 
-    let first_epoch_tracked_shards = node_datas
+    let first_epoch_tracked_shards = env
+        .node_datas
         .iter()
-        .map(|node_data| TestLoopNode { data: &test_loop.data, node_data }.tracked_shards())
+        .map(|node_data| TestLoopNode { data: &env.test_loop.data, node_data }.tracked_shards())
         .collect_vec();
     tracing::info!(?first_epoch_tracked_shards, "first epoch tracked shards");
 
     if transaction_validity_period <= 1 {
         // If we're testing handling expired transactions, the money transfers should fail at the end when checking
         // account balances, since some transactions expired.
-        match execute_money_transfers(&mut test_loop, &node_datas, &accounts) {
+        match execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts) {
             Ok(()) => panic!("Expected money transfers to fail due to expired transactions"),
             Err(BalanceMismatchError { .. }) => {}
         }
     } else {
-        execute_money_transfers(&mut test_loop, &node_datas, &accounts).unwrap();
+        execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     }
 
     // Make sure the chain progressed for several epochs.
-    let client_actor = test_loop.data.get(&node_datas[0].client_sender.actor_handle());
+    let client_actor = env.test_loop.data.get(&env.node_datas[0].client_sender.actor_handle());
     assert!(client_actor.client.chain.head().unwrap().height > 10050);
 
-    TestLoopEnv { test_loop, node_datas, shared_state }
+    env
 }
 
 fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> TestLoopEnv {
@@ -91,29 +93,27 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
         .build();
     env.add_node(&identifier, node_state);
 
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = env;
-
     // Allow talking only with the source node.
-    let new_node_peer_id = node_datas.last().unwrap().peer_id.clone();
-    shared_state.network_shared_state.allow_all_requests();
-    for (index, data) in node_datas[..node_datas.len() - 1].iter().enumerate() {
+    let new_node_peer_id = env.node_datas.last().unwrap().peer_id.clone();
+    env.shared_state.network_shared_state.allow_all_requests();
+    for (index, data) in env.node_datas[..env.node_datas.len() - 1].iter().enumerate() {
         if index != source_node {
-            shared_state
+            env.shared_state
                 .network_shared_state
                 .disallow_requests(data.peer_id.clone(), new_node_peer_id.clone());
-            shared_state
+            env.shared_state
                 .network_shared_state
                 .disallow_requests(new_node_peer_id.clone(), data.peer_id.clone());
         }
     }
 
     // Check that the new node will reach a high height as well.
-    let client_sender = &node_datas.last().unwrap().client_sender;
+    let client_sender = &env.node_datas.last().unwrap().client_sender;
     let new_node = client_sender.actor_handle();
     let sync_status_history = Rc::new(RefCell::new(Vec::new()));
     {
         let sync_status_history = sync_status_history.clone();
-        test_loop.set_every_event_callback(move |test_loop_data| {
+        env.test_loop.set_every_event_callback(move |test_loop_data| {
             let client = &test_loop_data.get(&new_node).client;
             let header_head_height = client.chain.header_head().unwrap().height;
             let head_height = client.chain.head().unwrap().height;
@@ -131,8 +131,8 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
         });
     }
     let new_node = client_sender.actor_handle();
-    let node0 = node_datas[0].client_sender.actor_handle();
-    test_loop.run_until(
+    let node0 = env.node_datas[0].client_sender.actor_handle();
+    env.test_loop.run_until(
         |test_loop_data| {
             let new_node_height = test_loop_data.get(&new_node).client.chain.head().unwrap().height;
             let node0_height = test_loop_data.get(&node0).client.chain.head().unwrap().height;
@@ -141,41 +141,43 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
         Duration::seconds(20),
     );
 
-    let current_height = test_loop.data.get(&node0).client.chain.head().unwrap().height;
+    let current_height = env.test_loop.data.get(&node0).client.chain.head().unwrap().height;
     // Run for at least two more epochs to make sure everything continues to be fine.
-    test_loop.run_until(
+    env.test_loop.run_until(
         |test_loop_data| {
             let new_node_height = test_loop_data.get(&new_node).client.chain.head().unwrap().height;
             new_node_height >= current_height + 30
         },
         Duration::seconds(30),
     );
-    assert_eq!(
-        sync_status_history.borrow().as_slice(),
-        &[
-            // Initial state.
+    let expected: Vec<String> = if SYNC_V2_ENABLED {
+        vec![
             "AwaitingPeers",
-            // State after having enough peers.
             "NoSync",
-            // EpochSync should be entered and succeed.
             "EpochSync",
-            // Header sync happens next to bring forward HEADER_HEAD.
             "HeaderSync",
-            // State sync downloads the state from state dumps.
             "StateSync",
-            // State sync is done.
-            "StateSyncDone",
-            // Block sync picks up from where StateSync left off, and finishes the sync.
             "BlockSync",
-            // NoSync means we're up to date.
-            "NoSync"
+            "NoSync",
         ]
-        .into_iter()
-        .map(|s| s.to_string())
-        .collect::<Vec<_>>()
-    );
+    } else {
+        vec![
+            "AwaitingPeers",
+            "NoSync",
+            "EpochSync",
+            "HeaderSync",
+            "StateSync",
+            "StateSyncDone",
+            "BlockSync",
+            "NoSync",
+        ]
+    }
+    .into_iter()
+    .map(|s| s.to_string())
+    .collect();
+    assert_eq!(sync_status_history.borrow().as_slice(), expected);
 
-    TestLoopEnv { test_loop, node_datas, shared_state }
+    env
 }
 
 // Test that a new node that only has genesis can use Epoch Sync to bring itself

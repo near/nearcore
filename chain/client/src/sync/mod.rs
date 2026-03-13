@@ -9,4 +9,4 @@ pub mod state;
 /// When true, the sync handler uses the linear V2 pipeline
 /// (EpochSync → HeaderSync → StateSync → BlockSync) instead of the
 /// legacy V1 logic.
-pub const SYNC_V2_ENABLED: bool = false;
+pub const SYNC_V2_ENABLED: bool = cfg!(feature = "nightly");
