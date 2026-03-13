@@ -307,43 +307,6 @@ impl<'a> Drop for PoolIteratorWrapper<'a> {
         self.pool.transaction_pool_size_metric.set(self.pool.transaction_size() as i64);
     }
 }
-
-/// On creation we transform a list of transactions into a list of singleton transaction groups
-/// that we later can iterate through. This weird structure is motivated by `prepare_transactions`,
-/// where we take first valid transaction from each transaction group.
-pub struct TransactionGroupIteratorWrapper {
-    groups: Vec<TransactionGroup>,
-    current_index: usize,
-}
-
-impl TransactionGroupIteratorWrapper {
-    pub fn new(validated_txs: impl IntoIterator<Item = ValidatedTransaction>) -> Self {
-        let groups = validated_txs
-            .into_iter()
-            .map(|validated_tx| TransactionGroup {
-                key: PoolKey::default(),
-                transactions: vec![validated_tx],
-                removed_transaction_hashes: vec![],
-                removed_transaction_size: 0,
-            })
-            .collect();
-
-        TransactionGroupIteratorWrapper { groups, current_index: 0 }
-    }
-}
-
-impl TransactionGroupIterator for TransactionGroupIteratorWrapper {
-    fn next(&mut self) -> Option<&mut TransactionGroup> {
-        if self.current_index < self.groups.len() {
-            let group_ref = &mut self.groups[self.current_index];
-            self.current_index += 1;
-            Some(group_ref)
-        } else {
-            None
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
