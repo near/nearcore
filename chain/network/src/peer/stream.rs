@@ -201,7 +201,7 @@ impl FramedStream {
                     })
                     .await
                     .map_err(|_| {
-                        tracing::warn!(target: "network", timeout_secs = write_timeout.as_secs(), "write timed out, closing half-open connection");
+                        tracing::debug!(target: "network", timeout_secs = write_timeout.as_secs(), "write timed out, closing half-open connection");
                         io::Error::new(
                             io::ErrorKind::TimedOut,
                             "write timed out, connection may be half-open",
