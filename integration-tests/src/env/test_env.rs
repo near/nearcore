@@ -361,8 +361,8 @@ impl TestEnv {
                 ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
                     self.clients[id].on_chunk_completed(partial_chunk, shard_chunk, None);
                 }
-                ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
-                    self.clients[id].on_invalid_chunk(encoded_chunk);
+                ShardsManagerResponse::InvalidChunk { encoded_chunk, partial_chunk } => {
+                    self.clients[id].on_invalid_chunk(encoded_chunk, partial_chunk, None);
                 }
                 ShardsManagerResponse::ChunkHeaderReadyForInclusion {
                     chunk_header,

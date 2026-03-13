@@ -2059,8 +2059,12 @@ impl Handler<SpanWrapped<ShardsManagerResponse>> for ClientActor {
                     Some(self.client.myself_sender.apply_chunks_done.clone()),
                 );
             }
-            ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
-                self.client.on_invalid_chunk(encoded_chunk);
+            ShardsManagerResponse::InvalidChunk { encoded_chunk, partial_chunk } => {
+                self.client.on_invalid_chunk(
+                    encoded_chunk,
+                    partial_chunk,
+                    Some(self.client.myself_sender.apply_chunks_done.clone()),
+                );
             }
             ShardsManagerResponse::ChunkHeaderReadyForInclusion {
                 chunk_header,

@@ -1437,13 +1437,68 @@ impl Client {
     }
 
     /// Called asynchronously when the ShardsManager finishes processing a chunk but the chunk
-    /// is invalid.
-    pub fn on_invalid_chunk(&mut self, encoded_chunk: EncodedShardChunk) {
+    /// is invalid (malicious chunk producer).
+    ///
+    /// Persists the chunk as evidence. Under SPICE, constructs an empty chunk
+    /// and feeds it through `on_chunk_completed` so block processing is not stalled.
+    pub fn on_invalid_chunk(
+        &mut self,
+        encoded_chunk: EncodedShardChunk,
+        partial_chunk: PartialEncodedChunk,
+        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+    ) {
+        let header = encoded_chunk.cloned_header();
+        let chunk_hash = header.chunk_hash();
+        tracing::warn!(
+            target: "client",
+            ?chunk_hash,
+            height = header.height_created(),
+            shard_id = %header.shard_id(),
+            "received invalid chunk from shards manager",
+        );
+
         let mut update = self.chain.mut_chain_store().store_update();
         update.save_invalid_chunk(encoded_chunk);
         if let Err(err) = update.commit() {
             tracing::error!(target: "client", ?err, "error saving invalid chunk");
         }
+
+        let prev_block_hash = header.prev_block_hash();
+        let protocol_version = match self
+            .epoch_manager
+            .get_epoch_id_from_prev_block(prev_block_hash)
+            .and_then(|epoch_id| self.epoch_manager.get_epoch_protocol_version(&epoch_id))
+        {
+            Ok(v) => v,
+            Err(err) => {
+                tracing::error!(target: "client", ?err, "cannot determine protocol version for invalid chunk");
+                return;
+            }
+        };
+        if !ProtocolFeature::Spice.enabled(protocol_version) {
+            return;
+        }
+
+        metrics::SPICE_INVALID_CHUNK_REPLACED_WITH_EMPTY_TOTAL
+            .with_label_values(&[&header.shard_id().to_string()])
+            .inc();
+        // Persist the partial chunk with original (malicious) parts to
+        // DBCol::PartialChunks so block-syncing peers can fetch them.
+        // We intentionally do NOT store a ShardChunk in DBCol::Chunks:
+        // the header commits to malicious content, so pairing it with an
+        // empty body would break validate_chunk_proofs for any reader.
+        // Instead the chunk executor checks DBCol::InvalidChunks and
+        // uses empty transactions.
+        //
+        // TODO(spice): paths that call get_chunk_clone_from_header on an
+        // invalid chunk will get ChunkMissing. Known affected:
+        //   - state sync: compute_state_response_header will fail to
+        //     build the response. Fix by either skipping malicious
+        //     chunks in the sync header or choosing a different sync
+        //     point.
+        //   - replay-archive: replay_chunk will bail. Fix by checking
+        //     DBCol::InvalidChunks and skipping validation.
+        self.on_chunk_completed(partial_chunk, None, apply_chunks_done_sender);
     }
 
     pub fn sync_block_headers(
