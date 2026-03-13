@@ -223,7 +223,7 @@ impl FramedStream {
             // we would need to put writer.flush() and queue_recv.recv() into a tokio::select
             // and make sure that both are cancellation-safe.
             tokio::time::timeout(write_timeout, writer.flush()).await.map_err(|_| {
-                tracing::warn!(target: "network", timeout_secs = write_timeout.as_secs(), "flush timed out, closing half-open connection");
+                tracing::debug!(target: "network", timeout_secs = write_timeout.as_secs(), "flush timed out, closing half-open connection");
                 io::Error::new(
                     io::ErrorKind::TimedOut,
                     "flush timed out, connection may be half-open",
