@@ -64,8 +64,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::instrument;
 use trie_update_wrapper::TrieUpdateWitnessSizeWrapper;
 
-type TransactionGroupKey = (AccountId, PublicKey, Option<NonceIndex>);
-
 pub mod errors;
 mod metrics;
 mod signer_overlay;
@@ -850,13 +848,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut rejected_invalid_tx = 0;
         let mut rejected_invalid_for_chain = 0;
 
-        // Groups where the strict-nonce gap check broke on the first peek
-        // without consuming any transaction. These groups will remain
-        // unchanged so we skip them on subsequent iterations to avoid an
-        // infinite loop in the pool iterator.
-        let mut stalled_groups: HashSet<TransactionGroupKey> = HashSet::new();
-        let mut skips_since_last_progress: usize = 0;
-
         // Add new transactions to the result until some limit is hit or the transactions run out.
         'add_txs_loop: while let Some(transaction_group_iter) = transaction_groups.next() {
             if total_gas_burnt >= transactions_gas_limit {
@@ -889,8 +880,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
 
-            let mut consumed_any_tx = false;
-
             // Take a single transaction from this transaction group
             while let Some(tx_peek) = transaction_group_iter.peek_next() {
                 // Stop adding transactions if the size limit would be exceeded
@@ -909,17 +898,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                     let signer_id = tx_peek.signer_id();
                     let public_key = tx_peek.public_key();
                     let nonce_index = tx_peek.nonce().nonce_index();
-                    let group_key: TransactionGroupKey =
-                        (signer_id.clone(), public_key.clone(), nonce_index);
-
-                    // Skip groups that stalled on a previous iteration.
-                    if stalled_groups.contains(&group_key) {
-                        skips_since_last_progress += 1;
-                        if skips_since_last_progress > stalled_groups.len() {
-                            break 'add_txs_loop;
-                        }
-                        break;
-                    }
                     let current_nonce = if let Some(nonce) =
                         signer_overlay.cached_nonce(signer_id, public_key, nonce_index)
                     {
@@ -938,9 +916,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                     if let Some(current_nonce) = current_nonce {
                         let tx_nonce = tx_peek.nonce().nonce();
                         if tx_nonce > current_nonce.saturating_add(1) {
-                            if !consumed_any_tx {
-                                stalled_groups.insert(group_key.clone());
-                            }
                             break;
                         }
                     }
@@ -954,8 +929,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                     .next()
                     .expect("peek_next() returned Some, so next() should return Some as well");
                 num_checked_transactions += 1;
-                consumed_any_tx = true;
-                skips_since_last_progress = 0;
 
                 if skip_tx_hashes.contains(&validated_tx.get_hash()) {
                     skipped_transactions.push(validated_tx);

@@ -213,17 +213,22 @@ pub struct PoolIteratorWrapper<'a> {
 
     /// Queue of transaction groups. Each group there is sorted by nonce.
     sorted_groups: VecDeque<TransactionGroup>,
+
+    /// Groups that made no progress (no transactions popped) since the last
+    /// yield. Parked here so the iterator stops cycling them, but still
+    /// returned to the pool on Drop.
+    stalled_groups: Vec<TransactionGroup>,
 }
 
 impl<'a> PoolIteratorWrapper<'a> {
     pub fn new(pool: &'a mut TransactionPool) -> Self {
-        Self { pool, sorted_groups: Default::default() }
+        Self { pool, sorted_groups: Default::default(), stalled_groups: Vec::new() }
     }
 }
 
 /// The iterator works with the following algorithm:
 /// On next(), the iterator tries to get a transaction group from the pool, sorts transactions in
-/// it, and add it to the back of the sorted groups queue.
+/// it, and adds it to the back of the sorted groups queue.
 /// Remembers the last used key, so it can continue from the next key.
 ///
 /// If the pool is empty, the iterator gets the group from the front of the sorted groups queue.
@@ -231,13 +236,17 @@ impl<'a> PoolIteratorWrapper<'a> {
 /// If this group is empty (no transactions left inside), then the iterator discards it and
 /// updates `unique_transactions` in the pool. Then gets the next one.
 ///
-/// Once a non-empty group is found, this group is pushed to the back of the sorted groups queue
-/// and the iterator returns a mutable reference to this group.
+/// If the group made no progress since the last yield (no transactions popped), it is moved to
+/// `stalled_groups` and will not be yielded again. This prevents infinite cycling when a group
+/// cannot make progress (handles strict-nonce gap).
+///
+/// Once a non-empty group that made progress is found, this group is pushed to the back of the
+/// sorted groups queue and the iterator returns a mutable reference to this group.
 ///
 /// If the sorted groups queue is empty, the iterator returns None.
 ///
 /// When the iterator is dropped, `unique_transactions` in the pool is updated for every group.
-/// And all non-empty group from the sorted groups queue are inserted back into the pool.
+/// All non-empty groups from both sorted_groups and stalled_groups are inserted back into the pool.
 impl<'a> TransactionGroupIterator for PoolIteratorWrapper<'a> {
     fn next(&mut self) -> Option<&mut TransactionGroup> {
         if !self.pool.transactions.is_empty() {
@@ -263,12 +272,13 @@ impl<'a> TransactionGroupIterator for PoolIteratorWrapper<'a> {
                 transactions: validated_txs,
                 removed_transaction_hashes: vec![],
                 removed_transaction_size: 0,
+                removed_count_at_yield: 0,
             });
             Some(self.sorted_groups.back_mut().expect("just pushed"))
         } else {
-            while let Some(sorted_group) = self.sorted_groups.pop_front() {
-                if sorted_group.transactions.is_empty() {
-                    for hash in sorted_group.removed_transaction_hashes {
+            while let Some(mut group) = self.sorted_groups.pop_front() {
+                if group.transactions.is_empty() {
+                    for hash in group.removed_transaction_hashes {
                         self.pool.unique_transactions.remove(&hash);
                     }
                     // See the comment in `insert_transaction` where we increase the size for reasoning
@@ -276,15 +286,19 @@ impl<'a> TransactionGroupIterator for PoolIteratorWrapper<'a> {
                     self.pool.total_transaction_size = self
                         .pool
                         .total_transaction_size
-                        .checked_sub(sorted_group.removed_transaction_size)
+                        .checked_sub(group.removed_transaction_size)
                         .expect("Total transaction size dropped below zero");
 
                     self.pool
                         .transaction_pool_count_metric
                         .set(self.pool.unique_transactions.len() as i64);
                     self.pool.transaction_pool_size_metric.set(self.pool.transaction_size() as i64);
+                } else if group.removed_transaction_hashes.len() == group.removed_count_at_yield {
+                    // No transactions were popped since last yield, keep as a stalled group.
+                    self.stalled_groups.push(group);
                 } else {
-                    self.sorted_groups.push_back(sorted_group);
+                    group.removed_count_at_yield = group.removed_transaction_hashes.len();
+                    self.sorted_groups.push_back(group);
                     return Some(self.sorted_groups.back_mut().expect("just pushed"));
                 }
             }
@@ -298,7 +312,7 @@ impl<'a> TransactionGroupIterator for PoolIteratorWrapper<'a> {
 /// removed from the pool's unique_transactions.
 impl<'a> Drop for PoolIteratorWrapper<'a> {
     fn drop(&mut self) {
-        for group in self.sorted_groups.drain(..) {
+        for group in self.sorted_groups.drain(..).chain(self.stalled_groups.drain(..)) {
             for hash in group.removed_transaction_hashes {
                 self.pool.unique_transactions.remove(&hash);
             }
@@ -319,6 +333,7 @@ impl<'a> Drop for PoolIteratorWrapper<'a> {
         self.pool.transaction_pool_size_metric.set(self.pool.transaction_size() as i64);
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;

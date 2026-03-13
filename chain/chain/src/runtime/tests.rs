@@ -2012,9 +2012,9 @@ fn test_strict_nonce_u64_max_not_included() {
     assert_eq!(pool.len(), 0);
 }
 
-/// Non-stalled groups interleaved with stalled groups must all be fully
-/// drained. Without resetting `skips_since_last_progress` on progress,
-/// the loop would break early after seeing enough stalled skips.
+/// Non-stalled groups interleaved with stalled strict-nonce groups must
+/// all be fully drained. The pool iterator parks groups that make no
+/// progress, so stalled groups do not starve valid ones.
 #[test]
 #[cfg(feature = "test_features")]
 fn test_strict_nonce_stalled_groups_do_not_starve_valid_groups() {
