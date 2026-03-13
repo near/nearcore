@@ -321,7 +321,7 @@ impl FilesystemContractRuntimeCache {
             any_cache
         };
         #[cfg(not(feature = "metrics"))]
-        assert!(
+        debug_assert!(
             memcache_metrics_identifier.is_none(),
             "memcache_metrics_identifier is only supported with the `metrics` feature"
         );
