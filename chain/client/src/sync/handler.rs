@@ -6,13 +6,14 @@ use super::state::StateSync;
 use crate::sync::state::StateSyncResult;
 use near_chain::chain::ApplyChunksDoneSender;
 use near_chain::types::Tip;
-use near_chain::{BlockProcessingArtifact, Chain};
+use near_chain::{BlockProcessingArtifact, Chain, ChainStoreAccess};
 use near_chain_configs::ClientConfig;
 use near_client_primitives::types::{EpochSyncStatus, StateSyncStatus, SyncStatus};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::types::HighestHeightPeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_store::adapter::StoreAdapter;
 
 // A small helper macro to unwrap a result of some state sync operation. If the
 // result is an error this macro will log it and return from the function.
@@ -111,12 +112,8 @@ impl SyncHandler {
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Option<SyncHandlerRequest> {
         // Run epoch sync first; if this is applicable then nothing else is.
-        let epoch_sync_result = self.epoch_sync.run(
-            &mut self.sync_status,
-            &chain,
-            highest_height,
-            &highest_height_peers,
-        );
+        let epoch_sync_result =
+            self.epoch_sync.run(&mut self.sync_status, &chain, &highest_height_peers);
         unwrap_and_report_state_sync_result!(epoch_sync_result);
 
         // Run header sync as long as there are headers to catch up.
@@ -356,23 +353,60 @@ impl SyncHandler {
         Ok(None)
     }
 
-    /// Decide whether to enter at EpochSync (far horizon) or BlockSync (near horizon).
+    /// Decide the initial sync phase based on node state and network distance.
+    ///
+    /// Checks (in order):
+    /// 1. Archival or near horizon: if archival or head (block head) is within
+    ///    the epoch sync horizon, enter BlockSync.
+    /// 2. Restart recovery: if an epoch sync proof exists and header_head is
+    ///    within the epoch sync horizon, the node crashed mid-pipeline but is
+    ///    still close enough to resume via HeaderSync.
+    /// 3. Epoch sync: everything else. Stale nodes (header_head past genesis)
+    ///    are detected in the epoch sync response handler and trigger data reset.
     fn decide_initial_phase(
         &mut self,
         chain: &Chain,
         highest_height: u64,
     ) -> Result<(), near_chain::Error> {
-        if self.epoch_sync.is_epoch_sync_needed(chain, highest_height)? {
-            tracing::info!(highest_height, "v2: entering epoch sync (far horizon)");
-            self.sync_status.update(SyncStatus::EpochSync(EpochSyncStatus::NotStarted));
-        } else {
-            let head = chain.head()?;
+        let head = chain.head()?;
+        let header_head = chain.header_head()?;
+        let horizon = self.config.epoch_sync.epoch_sync_horizon_num_epochs * chain.epoch_length;
+        let head_within_horizon = head.height + horizon >= highest_height;
+        let header_head_within_horizon = header_head.height + horizon >= highest_height;
+
+        // Archival nodes must process every block; epoch sync would skip them.
+        // Near horizon nodes can catch up with header+block sync alone.
+        if self.config.archive || head_within_horizon {
+            tracing::debug!(target: "sync", ?head, ?highest_height, "entering block sync");
             self.sync_status.update(SyncStatus::BlockSync {
                 start_height: head.height,
                 current_height: head.height,
                 highest_height,
             });
+            return Ok(());
         }
+
+        // Restart recovery: epoch sync proof exists and header_head is close
+        // enough to the tip to resume from where we left off. Enter HeaderSync
+        // which will transition to StateSync once headers are caught up.
+        // Previously downloaded state parts are preserved (DBCol::StateParts).
+        let has_epoch_sync_proof =
+            chain.chain_store().store().epoch_store().get_epoch_sync_proof()?.is_some();
+        if has_epoch_sync_proof && header_head_within_horizon {
+            tracing::info!(target: "sync", ?head, ?header_head, ?highest_height, "restart recovery: resuming with header sync");
+            self.sync_status.update(SyncStatus::HeaderSync {
+                start_height: header_head.height,
+                current_height: header_head.height,
+                highest_height,
+            });
+            return Ok(());
+        }
+
+        // Far horizon — initiate epoch sync. Stale nodes (header_head past
+        // genesis from a prior sync attempt) will be detected in the epoch sync
+        // response handler, which triggers data reset before applying the proof.
+        tracing::info!(target: "sync", ?head, ?header_head, ?highest_height, "entering epoch sync");
+        self.sync_status.update(SyncStatus::EpochSync(EpochSyncStatus::NotStarted));
         Ok(())
     }
 }

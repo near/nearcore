@@ -234,9 +234,9 @@ struct TestLoopNetworkSharedStateInner {
 }
 
 /// Senders available for the networking layer, for one node in the test loop.
-struct OneClientSenders {
-    client_sender: ClientSenderForTestLoopNetwork,
-    view_client_sender: ViewClientSenderForTestLoopNetwork,
+pub(crate) struct OneClientSenders {
+    pub(crate) client_sender: ClientSenderForTestLoopNetwork,
+    pub(crate) view_client_sender: ViewClientSenderForTestLoopNetwork,
     rpc_handler_sender: TxRequestHandleSenderForTestLoopNetwork,
     chunk_endorsement_handler_sender: ChunkEndorsementSenderForTestLoopNetwork,
     partial_witness_sender: PartialWitnessSenderForNetwork,
@@ -341,7 +341,7 @@ impl TestLoopNetworkSharedState {
         guard.disallowed_peer_links = HashMap::new();
     }
 
-    fn account_to_peer_id(&self, account_id: &AccountId) -> PeerId {
+    pub(crate) fn account_to_peer_id(&self, account_id: &AccountId) -> PeerId {
         let guard = self.0.lock();
         guard.account_to_peer_id.get(account_id).unwrap().clone()
     }
@@ -367,7 +367,11 @@ impl TestLoopNetworkSharedState {
         guard.senders.get(peer_id).unwrap().clone()
     }
 
-    fn senders_for_peer(&self, origin: &PeerId, peer_id: &PeerId) -> Arc<OneClientSenders> {
+    pub(crate) fn senders_for_peer(
+        &self,
+        origin: &PeerId,
+        peer_id: &PeerId,
+    ) -> Arc<OneClientSenders> {
         let guard = self.0.lock();
         if Self::is_peer_link_disallowed(&guard, origin, peer_id) {
             return guard.drop_events_senders.clone();

@@ -14,7 +14,8 @@
 
 use super::util::{
     TEST_EPOCH_SYNC_HORIZON, assert_far_horizon_sync_sequence, assert_near_horizon_sync_sequence,
-    restrict_to_single_peer, run_until_synced, track_sync_status, verify_balances_on_synced_node,
+    restrict_to_single_peer, run_until_synced, throttle_header_sync, track_sync_status,
+    verify_balances_on_synced_node,
 };
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_account_id;
@@ -306,17 +307,142 @@ fn test_far_horizon_archival_skips_epoch_sync() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
-// TODO(sync-v2): test restart during header sync — node has epoch sync proof and partial
-// headers, should resume HeaderSync on restart.
+// Scenario: A fresh node doing far-horizon sync is killed mid-header-sync
+// and restarted. On restart, the node has the epoch sync proof and partial
+// headers. It should detect it still needs headers and resume HeaderSync.
+//
+// Setup:
+//   - 4 validators, epoch_length=10, 4 shards
+//   - Network runs past the horizon with cross-shard money transfers
+//   - Fresh node restricted to single peer, throttled header sync, killed
+//     mid-HeaderSync, restarted
+//
+// Assertions:
+//   - Restarted node catches up to network tip
 #[test]
-#[ignore]
-fn test_far_horizon_restart_during_header_sync() {}
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_far_horizon_restart_during_header_sync() {
+    if !SYNC_V2_ENABLED {
+        return;
+    }
+    init_test_logger();
 
-// TODO(sync-v2): test restart during state sync — node has epoch sync proof + full
-// headers but no shard state, should re-enter StateSync on restart.
+    let epoch_length = 10;
+    let accounts = make_accounts(100);
+    let mut env = TestLoopBuilder::new()
+        .validators(4, 0)
+        .num_shards(4)
+        .epoch_length(epoch_length)
+        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
+        .build();
+
+    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
+    env.node_runner(0).run_until_head_height(far_horizon_height(epoch_length));
+
+    let new_account = create_account_id("new_node");
+    let node_state = env
+        .node_state_builder()
+        .account_id(&new_account)
+        .config_modifier(|config| {
+            config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
+        })
+        .build();
+    env.add_node("new_node", node_state);
+    let new_node_idx = env.node_datas.len() - 1;
+    restrict_to_single_peer(&env.shared_state, &env.node_datas, new_node_idx, 0);
+
+    // Throttle header responses so header sync takes multiple events, creating
+    // observable intermediate states for run_until. Use 10 headers per request
+    // so header sync completes quickly enough that validators don't advance
+    // past the epoch sync horizon.
+    throttle_header_sync(&mut env.test_loop, &env.shared_state, &env.node_datas[new_node_idx], 10);
+
+    // Run until new node is in the MIDDLE of HeaderSync (current_height > start_height).
+    let new_node_handle = env.node_datas[new_node_idx].client_sender.actor_handle();
+    env.test_loop.run_until(
+        |data| {
+            let status = &data.get(&new_node_handle).client.sync_handler.sync_status;
+            matches!(status, SyncStatus::HeaderSync { start_height, current_height, .. }
+                if *current_height > *start_height)
+        },
+        Duration::seconds(20),
+    );
+
+    let killed_state = env.kill_node("new_node");
+
+    env.restart_node("restart_header_sync", killed_state);
+    let restarted_idx = env.node_datas.len() - 1;
+    restrict_to_single_peer(&env.shared_state, &env.node_datas, restarted_idx, 0);
+
+    run_until_synced(&mut env.test_loop, &env.node_datas, restarted_idx, 0);
+    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
+}
+
+// Scenario: A fresh node doing far-horizon sync is killed mid-state-sync
+// and restarted. On restart, the node has epoch sync proof + full headers
+// but no shard state. It should detect the missing state and re-enter
+// StateSync.
+//
+// Setup:
+//   - 4 validators, epoch_length=10, 4 shards
+//   - Network runs past the horizon with cross-shard money transfers
+//   - Fresh node restricted to single peer, killed mid-StateSync, restarted
+//
+// Assertions:
+//   - Restarted node catches up to network tip
 #[test]
-#[ignore]
-fn test_far_horizon_restart_during_state_sync() {}
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_far_horizon_restart_during_state_sync() {
+    if !SYNC_V2_ENABLED {
+        return;
+    }
+    init_test_logger();
+
+    let epoch_length = 10;
+    let accounts = make_accounts(100);
+    let mut env = TestLoopBuilder::new()
+        .validators(4, 0)
+        .num_shards(4)
+        .epoch_length(epoch_length)
+        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
+        .build();
+
+    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
+    env.node_runner(0).run_until_head_height(far_horizon_height(epoch_length));
+
+    let new_account = create_account_id("new_node");
+    let node_state = env
+        .node_state_builder()
+        .account_id(&new_account)
+        .config_modifier(|config| {
+            config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
+        })
+        .build();
+    env.add_node("new_node", node_state);
+    let new_node_idx = env.node_datas.len() - 1;
+    restrict_to_single_peer(&env.shared_state, &env.node_datas, new_node_idx, 0);
+
+    // Run until new node enters StateSync.
+    let new_node_handle = env.node_datas[new_node_idx].client_sender.actor_handle();
+    env.test_loop.run_until(
+        |data| {
+            let status = &data.get(&new_node_handle).client.sync_handler.sync_status;
+            matches!(status, SyncStatus::StateSync(_))
+        },
+        Duration::seconds(20),
+    );
+
+    let killed_state = env.kill_node("new_node");
+
+    env.restart_node("restart_state_sync", killed_state);
+    let restarted_idx = env.node_datas.len() - 1;
+    restrict_to_single_peer(&env.shared_state, &env.node_datas, restarted_idx, 0);
+
+    run_until_synced(&mut env.test_loop, &env.node_datas, restarted_idx, 0);
+    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
+}
 
 // Scenario: A fresh node doing far-horizon sync is killed mid-block-sync
 // and restarted. On restart, the node has epoch sync proof + headers +
@@ -384,11 +510,92 @@ fn test_far_horizon_restart_during_block_sync() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
-// TODO(sync-v2): test restart near epoch boundary — node killed near boundary, network
-// advances many epochs, restart should sync via far-horizon pipeline.
+// Scenario: A fresh node doing far-horizon sync is killed mid-state-sync
+// and then the chain advances far beyond the epoch sync horizon. On restart,
+// the node's header_head is stale (outside the horizon), so decide_initial_phase
+// falls through to EpochSync. The epoch sync response handler detects
+// header_head != genesis (prior sync state) and triggers data reset.
+//
+// This tests the "long downtime" path: a node that was mid-sync but went
+// offline long enough that recovery is no longer viable and a full data
+// reset is required.
+//
+// Setup:
+//   - 4 validators, epoch_length=10, 4 shards
+//   - Network runs past the horizon with cross-shard money transfers
+//   - Fresh node reaches StateSync (header_head near tip), killed
+//   - Validators advance well past the epoch sync horizon
+//   - Restart node — header_head is outside horizon → EpochSync → data reset
+//
+// Assertions:
+//   - Restarted node is denylisted (data reset triggered)
 #[test]
-#[ignore]
-fn test_far_horizon_restart_near_epoch_boundary() {}
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_far_horizon_restart_after_long_downtime() {
+    if !SYNC_V2_ENABLED {
+        return;
+    }
+    init_test_logger();
+
+    let epoch_length = 10;
+    let accounts = make_accounts(100);
+    let mut env = TestLoopBuilder::new()
+        .validators(4, 0)
+        .num_shards(4)
+        .epoch_length(epoch_length)
+        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
+        .build();
+
+    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
+    env.node_runner(0).run_until_head_height(far_horizon_height(epoch_length));
+
+    // Add a fresh node, run until it enters StateSync (header_head near tip).
+    let new_account = create_account_id("new_node");
+    let node_state = env
+        .node_state_builder()
+        .account_id(&new_account)
+        .config_modifier(|config| {
+            config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
+        })
+        .build();
+    env.add_node("new_node", node_state);
+    let new_node_idx = env.node_datas.len() - 1;
+    restrict_to_single_peer(&env.shared_state, &env.node_datas, new_node_idx, 0);
+
+    let new_node_handle = env.node_datas[new_node_idx].client_sender.actor_handle();
+    env.test_loop.run_until(
+        |data| {
+            let status = &data.get(&new_node_handle).client.sync_handler.sync_status;
+            matches!(status, SyncStatus::StateSync(_))
+        },
+        Duration::seconds(20),
+    );
+
+    let killed_state = env.kill_node("new_node");
+
+    // Advance validators well past the epoch sync horizon from the node's
+    // header_head so recovery is no longer viable.
+    env.node_runner(0).run_for_number_of_blocks(far_horizon_height(epoch_length) as usize);
+
+    // Restart — header_head is outside the horizon → enters EpochSync →
+    // response handler detects header_head != genesis → triggers data reset.
+    let restart_id = "new_node_long_downtime";
+    env.restart_node(restart_id, killed_state);
+    let restarted_idx = env.node_datas.len() - 1;
+    restrict_to_single_peer(&env.shared_state, &env.node_datas, restarted_idx, 0);
+
+    env.node_runner(0).run_for_number_of_blocks(5);
+
+    // is_denylisted checks that the node sent an EpochSyncDataReset shutdown
+    // signal, which the test loop captures by denylisting the node's identifier.
+    assert!(
+        env.test_loop.is_denylisted(restart_id),
+        "node should have been denylisted via EpochSyncDataReset after long downtime"
+    );
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
+}
 
 // Scenario: Before a fresh node joins, some accounts submit staking
 // transactions. The synced node must correctly retrieve the staking-modified
