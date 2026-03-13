@@ -289,11 +289,9 @@ fn test_early_prepare_tx_missing_chunk() {
     let shard_id = ShardLayout::single_shard().shard_ids().next().unwrap();
     let mut drop_map = vec![true; 1000];
     drop_map[start_height_after_epoch as usize + 3] = false;
-    let env = env.drop(DropCondition::ChunksProducedByHeight(
+    let mut env = env.drop(DropCondition::ChunksProducedByHeight(
         std::iter::once((shard_id, drop_map)).collect(),
     ));
-
-    let mut env = env;
     let metrics = MetricTrackers::new();
 
     // Run the chain for a few heights, submit some transactions at each height
@@ -362,9 +360,8 @@ fn test_early_prepare_tx_missing_block() {
     let start_height = get_tip(&env.test_loop.data, &env.node_datas).height;
 
     // Drop a block 3 heights after the start height
-    let env = env.drop(DropCondition::BlocksByHeight(std::iter::once(start_height + 3).collect()));
-
-    let mut env = env;
+    let mut env =
+        env.drop(DropCondition::BlocksByHeight(std::iter::once(start_height + 3).collect()));
     let metrics = MetricTrackers::new();
 
     // Run the chain for a few heights, submit some transactions at each height
