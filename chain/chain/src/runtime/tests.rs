@@ -2024,23 +2024,24 @@ fn test_strict_nonce_stalled_groups_do_not_starve_valid_groups() {
     const TEST_SEED: RngSeed = [3; 32];
     let mut pool = TransactionPool::new(TEST_SEED, None, "");
 
-    // Use pool key ordering to pick which account is the valid (non-stalled)
-    // group. We want the valid group to sort last so that stalled groups are
-    // visited first.
+    // Sort accounts by pool key so we can pick which are stalled (visited
+    // first) and which are valid (visited later).
     let accounts: Vec<AccountId> = (1..=4).map(|i| format!("test{i}").parse().unwrap()).collect();
     let mut keyed: Vec<_> = accounts
         .iter()
         .map(|id| {
             let signer = InMemorySigner::test_signer(id);
-            let key = pool.compute_key_for_test(id, &signer.public_key(), Some(0));
+            let key = pool.compute_key_for_test(id, &signer.public_key(), None);
             (key, id.clone())
         })
         .collect();
     keyed.sort();
-    let valid_account = &keyed.last().unwrap().1;
+    let stalled = &keyed[..2];
+    let strict_valid_account = &keyed[2].1;
+    let non_strict_valid_account = &keyed[3].1;
 
-    // Stalled groups: gapped strict-nonce txs (nonce=100, ak_nonce=0 -> gap).
-    for (_, account_id) in &keyed[..keyed.len() - 1] {
+    // Stalled groups (2): gapped strict-nonce txs (nonce=100, ak_nonce=0).
+    for (_, account_id) in stalled {
         let signer = InMemorySigner::test_signer(account_id);
         let tx = SignedTransaction::from_actions_v1_strict(
             TransactionNonce::from_nonce(100),
@@ -2053,17 +2054,32 @@ fn test_strict_nonce_stalled_groups_do_not_starve_valid_groups() {
         pool.insert_transaction(ValidatedTransaction::new_for_test(tx));
     }
 
-    // Valid group: two strict-nonce txs (nonce=1 and nonce=2).
-    // The second tx can only be included if the loop revisits this group
-    // after skipping the stalled ones.
-    let valid_signer = InMemorySigner::test_signer(valid_account);
+    // Valid strict-nonce group: sequential nonces (1, 2). Verifies the loop
+    // revisits this group after skipping stalled ones.
+    let strict_signer = InMemorySigner::test_signer(strict_valid_account);
     for nonce in 1..=2 {
         let tx = SignedTransaction::from_actions_v1_strict(
             TransactionNonce::from_nonce(nonce),
-            valid_account.clone(),
+            strict_valid_account.clone(),
             "test1".parse().unwrap(),
-            &valid_signer,
+            &strict_signer,
             vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })],
+            prev_hash,
+        );
+        pool.insert_transaction(ValidatedTransaction::new_for_test(tx));
+    }
+
+    // Valid non-strict group: nonces 1..=5. Uses more txs than stalled
+    // groups so the loop must revisit this group multiple times, resetting
+    // the stalled skip counter on each consumption.
+    let non_strict_signer = InMemorySigner::test_signer(non_strict_valid_account);
+    for nonce in 1..=5 {
+        let tx = SignedTransaction::send_money(
+            nonce,
+            non_strict_valid_account.clone(),
+            "test1".parse().unwrap(),
+            &non_strict_signer,
+            Balance::from_yoctonear(1),
             prev_hash,
         );
         pool.insert_transaction(ValidatedTransaction::new_for_test(tx));
@@ -2078,9 +2094,9 @@ fn test_strict_nonce_stalled_groups_do_not_starve_valid_groups() {
     )
     .unwrap();
 
-    assert_eq!(prepared.transactions.len(), 2, "both valid txs should be included");
+    assert_eq!(prepared.transactions.len(), 7, "all valid txs should be included");
     assert!(skipped.0.is_empty());
-    assert_eq!(pool.len(), 3, "gapped txs stay in pool");
+    assert_eq!(pool.len(), 2, "gapped txs stay in pool");
 }
 
 /// Gapped strict-nonce transactions should not inflate the recorded witness
