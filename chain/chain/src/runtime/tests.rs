@@ -1783,7 +1783,8 @@ fn test_prepare_transactions_shared_balance_across_keys() {
         block_hash,
     );
 
-    let mut pool = TransactionPool::new([3; 32], None, "");
+    const TEST_SEED: RngSeed = [3; 32];
+    let mut pool = TransactionPool::new(TEST_SEED, None, "");
     pool.insert_transaction(ValidatedTransaction::new_for_test(tx1));
     pool.insert_transaction(ValidatedTransaction::new_for_test(tx2));
 
