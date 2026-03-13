@@ -1,5 +1,6 @@
 use crate::setup::builder::{ArchivalKind, TestLoopBuilder};
 use crate::setup::env::TestLoopEnv;
+use crate::utils::account::archival_account_id;
 use crate::utils::cloud_archival::{
     bootstrap_reader_at_height, check_account_balance, check_data_at_height,
     gc_and_heads_sanity_checks, get_cloud_head, get_writer_handle, run_node_until,
@@ -39,7 +40,7 @@ impl CloudArchiveHarnessBuilder {
         let archival_kind =
             if self.cold_storage { ArchivalKind::ColdAndCloud } else { ArchivalKind::Cloud };
         let user_account: AccountId = CloudArchiveHarness::USER_ACCOUNT.parse().unwrap();
-        let archival_id: AccountId = "archival".parse().unwrap();
+        let archival_id = archival_account_id();
 
         let env = TestLoopBuilder::new()
             .shard_layout(ShardLayout::multi_shard(3, 3))
@@ -47,12 +48,8 @@ impl CloudArchiveHarnessBuilder {
             .add_user_account(&user_account, CloudArchiveHarness::USER_BALANCE)
             .enable_archival_node(archival_kind)
             .gc_num_epochs_to_keep(MIN_GC_NUM_EPOCHS_TO_KEEP)
-            .config_modifier(move |config, client_index| {
-                // The archival node is appended after validators, so it is the
-                // last client (index 1 with 1 validator). Only set the writer
-                // config on the archival node.
-                let archival_index = 1;
-                if client_index != archival_index {
+            .config_modifier(move |config, _client_index| {
+                if !config.archive {
                     return;
                 }
                 config.cloud_archival_writer = Some(CloudArchivalWriterConfig {
@@ -136,7 +133,7 @@ impl CloudArchiveHarness {
     /// and epoch data uploaded. Derives `final_epoch_height` from the current
     /// chain head.
     fn assert_snapshots_ok(&self) {
-        let head_height = self.env.node_for_account(&self.archival_id).head().height;
+        let head_height = self.env.archival_node().head().height;
         let final_epoch_height = head_height / self.epoch_length;
         snapshots_sanity_check(&self.env, &self.archival_id, final_epoch_height);
     }
@@ -151,8 +148,7 @@ impl CloudArchiveHarness {
     }
 
     fn gc_tail(&self) -> BlockHeight {
-        let node = self.env.node_for_account(&self.archival_id);
-        node.client().chain.chain_store().tail()
+        self.env.archival_node().client().chain.chain_store().tail()
     }
 
     fn shutdown(mut self) {

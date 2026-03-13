@@ -268,12 +268,6 @@ impl TestLoopBuilder {
         self.set_archival_clients(accounts, ClientType::enable_archival_cold)
     }
 
-    /// Set the accounts whose clients should be configured as cloud archival nodes in the test loop.
-    /// These accounts must already be in the `clients` list.
-    pub(crate) fn cloud_storage_archival_clients(self, accounts: Vec<AccountId>) -> Self {
-        self.set_archival_clients(accounts, ClientType::enable_archival_cloud)
-    }
-
     fn set_archival_clients(
         mut self,
         accounts: Vec<AccountId>,
@@ -755,18 +749,6 @@ impl ClientType {
                 panic!("cold storage is already enabled")
             }
             _ => *self = ClientType::Archival(ArchivalKind::Cold),
-        }
-    }
-
-    fn enable_archival_cloud(&mut self) {
-        match self {
-            ClientType::Archival(ArchivalKind::Cold) => {
-                *self = ClientType::Archival(ArchivalKind::ColdAndCloud)
-            }
-            ClientType::Archival(ArchivalKind::Cloud | ArchivalKind::ColdAndCloud) => {
-                panic!("cloud storage is already enabled")
-            }
-            _ => *self = ClientType::Archival(ArchivalKind::Cloud),
         }
     }
 }
