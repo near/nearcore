@@ -200,11 +200,9 @@ pub fn throttle_header_sync(
                     future_spawner.spawn("throttled header response", async move {
                         let response = future.await.unwrap().unwrap();
                         let truncated = response.into_iter().take(max_headers).collect();
-                        drop(
-                            responder.send_async(
-                                BlockHeadersResponse(truncated, peer_id).span_wrap(),
-                            ),
-                        );
+                        let future = responder
+                            .send_async(BlockHeadersResponse(truncated, peer_id).span_wrap());
+                        drop(future);
                     });
                     None // handled — don't pass to default handler
                 }
