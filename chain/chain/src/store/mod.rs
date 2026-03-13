@@ -1671,16 +1671,15 @@ impl<'a> ChainStoreUpdate<'a> {
         processed_receipts: Vec<ProcessedReceipt>,
         receipt_to_tx_ids: Vec<CryptoHash>,
     ) {
-        let mut seen_ids: HashSet<CryptoHash> = HashSet::new();
-        let mut metadata: Vec<ProcessedReceiptMetadata> = Vec::new();
-        for pr in &processed_receipts {
-            let id = *pr.receipt.receipt_id();
-            seen_ids.insert(id);
-            metadata.push(ProcessedReceiptMetadata::new(id, pr.source.clone()));
-        }
+        let mut metadata: Vec<ProcessedReceiptMetadata> = processed_receipts
+            .iter()
+            .map(|pr| ProcessedReceiptMetadata::new(*pr.receipt.receipt_id(), pr.source.clone()))
+            .collect();
         if self.chain_store.save_receipt_to_tx {
+            let seen_ids: HashSet<CryptoHash> =
+                processed_receipts.iter().map(|pr| *pr.receipt.receipt_id()).collect();
             for id in receipt_to_tx_ids {
-                if seen_ids.insert(id) {
+                if !seen_ids.contains(&id) {
                     metadata.push(ProcessedReceiptMetadata::new(id, ReceiptSource::ReceiptToTxGc));
                 }
             }
