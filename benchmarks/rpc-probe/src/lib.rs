@@ -79,7 +79,7 @@ async fn fetch_nonce(
     client: &JsonRpcClient,
     account_id: &AccountId,
     public_key: &PublicKey,
-) -> Option<Nonce> {
+) -> Result<Nonce, String> {
     let response = client
         .query(RpcQueryRequest {
             block_reference: BlockReference::Finality(Finality::None),
@@ -89,10 +89,10 @@ async fn fetch_nonce(
             },
         })
         .await
-        .ok()?;
+        .map_err(|e| e.to_string())?;
     match response.kind {
-        QueryResponseKind::AccessKey(AccessKeyView { nonce, .. }) => Some(nonce),
-        _ => None,
+        QueryResponseKind::AccessKey(AccessKeyView { nonce, .. }) => Ok(nonce),
+        other => Err(format!("unexpected response kind: {other:?}")),
     }
 }
 
@@ -110,15 +110,15 @@ async fn init_nonces(
         for &idx in &pending {
             let account = &accounts[idx];
             match fetch_nonce(client, &account.account_id, &account.public_key).await {
-                Some(nonce) => {
+                Ok(nonce) => {
                     account.set_nonce(nonce);
                     tracing::info!(target: "rpc-probe",
                         account_id = %account.account_id, nonce,
                         "initialized write probe nonce");
                 }
-                None => {
+                Err(err) => {
                     tracing::warn!(target: "rpc-probe",
-                        account_id = %account.account_id, attempt,
+                        account_id = %account.account_id, attempt, %err,
                         "failed to fetch nonce");
                     still_pending.push(idx);
                 }
