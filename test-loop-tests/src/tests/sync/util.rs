@@ -1,12 +1,18 @@
 use crate::setup::state::{NodeExecutionData, SharedState};
 use crate::utils::node::TestLoopNode;
+use near_async::futures::{FutureSpawner, FutureSpawnerExt};
+use near_async::messaging::CanSendAsync;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_client::QueryError;
+use near_network::client::{BlockHeadersRequest, BlockHeadersResponse};
+use near_network::types::NetworkRequests;
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::types::AccountId;
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Arc;
 
 /// Epoch sync horizon used across sync tests. Explicitly configured on each
 /// test's syncing node to avoid depending on the production default.
@@ -152,4 +158,56 @@ pub fn restrict_to_single_peer(
                 .disallow_requests(new_peer.clone(), data.peer_id.clone());
         }
     }
+}
+
+/// Throttle header sync on a node by limiting the number of headers returned
+/// per request.
+///
+/// Registers an override handler on the node's peer manager that intercepts
+/// outgoing `BlockHeadersRequest` messages, routes them to the peer's
+/// ViewClient (same as the default handler), but truncates the response to
+/// `max_headers` before sending it back.
+///
+/// This is needed because `MAX_BLOCK_HEADERS = 512` far exceeds typical test
+/// chain lengths (~27 headers), causing header sync to complete in a single
+/// event. With truncation, header sync takes multiple events, creating
+/// observable intermediate states for `run_until` conditions.
+pub fn throttle_header_sync(
+    test_loop: &mut TestLoopV2,
+    shared_state: &SharedState,
+    node_data: &NodeExecutionData,
+    max_headers: usize,
+) {
+    let network_shared_state = shared_state.network_shared_state.clone();
+    let account_id = node_data.account_id.clone();
+    let future_spawner: Arc<dyn FutureSpawner> =
+        Arc::new(test_loop.future_spawner(&node_data.identifier));
+
+    node_data.register_override_handler(
+        &mut test_loop.data,
+        Box::new(move |request| {
+            match request {
+                NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
+                    let my_peer_id = network_shared_state.account_to_peer_id(&account_id);
+                    let responder = network_shared_state
+                        .senders_for_peer(&peer_id, &my_peer_id)
+                        .client_sender
+                        .clone();
+                    let future = network_shared_state
+                        .senders_for_peer(&my_peer_id, &peer_id)
+                        .view_client_sender
+                        .send_async(BlockHeadersRequest(hashes));
+                    future_spawner.spawn("throttled header response", async move {
+                        let response = future.await.unwrap().unwrap();
+                        let truncated = response.into_iter().take(max_headers).collect();
+                        let future = responder
+                            .send_async(BlockHeadersResponse(truncated, peer_id).span_wrap());
+                        drop(future);
+                    });
+                    None // handled — don't pass to default handler
+                }
+                other => Some(other),
+            }
+        }),
+    );
 }

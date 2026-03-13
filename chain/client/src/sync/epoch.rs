@@ -144,41 +144,7 @@ impl EpochSync {
         Ok(proof)
     }
 
-    /// Returns true if the node is far enough behind that epoch sync is needed.
-    /// Pure query — does not mutate any state. Used by the v2 handler's
-    /// `decide_initial_phase()` and internally by `run()`.
-    ///
-    /// Checks three conditions in order:
-    /// 1. Horizon: is `header_head + epoch_sync_horizon` < `highest_height`?
-    /// 2. Archival: archival nodes must not skip blocks via epoch sync.
-    /// 3. Stale gate: non-genesis nodes can only epoch sync when SyncV2 is enabled.
-    pub fn is_epoch_sync_needed(
-        &self,
-        chain: &Chain,
-        highest_height: BlockHeight,
-    ) -> Result<bool, Error> {
-        let tip_height = chain.chain_store().header_head()?.height;
-        let horizon = self.config.epoch_sync_horizon_num_epochs * chain.epoch_length;
-        // Within the epoch sync horizon — header/block sync is sufficient.
-        if tip_height + horizon >= highest_height {
-            return Ok(false);
-        }
-        // Archival nodes must process every block; epoch sync would skip them.
-        if self.archive {
-            tracing::debug!(tip_height, highest_height, "skipping epoch sync: archival node");
-            return Ok(false);
-        }
-        // Without SyncV2, only fresh (genesis) nodes may epoch sync. Stale nodes
-        // (tip beyond genesis) must not — there is no handler to manage the
-        // post-epoch-sync pipeline (headers → state → blocks).
-        if !SYNC_V2_ENABLED && tip_height != chain.genesis().height() {
-            return Ok(false);
-        }
-        tracing::debug!(tip_height, highest_height, horizon, "epoch sync needed");
-        Ok(true)
-    }
-
-    /// Performs the epoch sync logic if applicable in the current state of the blockchain.
+    /// Performs the V1 epoch sync logic if applicable in the current state of the blockchain.
     /// This is periodically called by the client actor.
     pub fn run(
         &self,
@@ -187,7 +153,18 @@ impl EpochSync {
         highest_height: BlockHeight,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<(), Error> {
-        if !self.is_epoch_sync_needed(chain, highest_height)? {
+        // Archival nodes must process every block; epoch sync would skip them.
+        if self.archive {
+            return Ok(());
+        }
+        // Within the epoch sync horizon — header/block sync is sufficient.
+        let tip_height = chain.chain_store().header_head()?.height;
+        let horizon = self.config.epoch_sync_horizon_num_epochs * chain.epoch_length;
+        if tip_height + horizon >= highest_height {
+            return Ok(());
+        }
+        // V1: only fresh (genesis) nodes may epoch sync.
+        if tip_height != chain.genesis().height() {
             return Ok(());
         }
         // Ensure we're in the EpochSync status, creating it if needed.
