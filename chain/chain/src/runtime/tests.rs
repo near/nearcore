@@ -1760,11 +1760,11 @@ fn test_prepare_transactions_shared_balance_across_keys() {
         store_update.commit();
     }
 
-    // The account balance is TESTING_INIT_BALANCE (1B NEAR), with TESTING_INIT_STAKE locked.
-    // Available = TESTING_INIT_BALANCE - TESTING_INIT_STAKE = 950M NEAR.
-    // Create two transfers of 600M each (one per key). With shared balance,
-    // only the first can succeed. With independent balances, both would succeed.
-    let transfer_amount = Balance::from_near(600_000_000);
+    // Each transfer exceeds half the available balance, so only one can succeed
+    // if the balance is shared. With independent balances both would succeed.
+    let available = TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap();
+    let transfer_amount =
+        available.checked_div(2).unwrap().checked_add(Balance::from_near(1)).unwrap();
     let receiver: AccountId = "test2".parse().unwrap();
     let tx1 = SignedTransaction::send_money(
         1,
