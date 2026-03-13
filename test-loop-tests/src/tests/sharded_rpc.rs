@@ -49,8 +49,7 @@ fn test_rpc_view_account_forwarding() {
                 _ => {} // validator keeps default
             }
         })
-        .build()
-        .warmup();
+        .build();
 
     // Determine which node tracks which account.
     let (alice_node, zoe_node) =
