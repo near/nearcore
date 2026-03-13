@@ -1,5 +1,5 @@
 use crate::Error;
-use crate::runtime::signer_cache::SignerCache;
+use crate::runtime::signer_overlay::SignerOverlay;
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext,
     PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
@@ -66,7 +66,7 @@ use trie_update_wrapper::TrieUpdateWitnessSizeWrapper;
 
 pub mod errors;
 mod metrics;
-mod signer_cache;
+mod signer_overlay;
 pub mod test_utils;
 #[cfg(test)]
 mod tests;
@@ -827,10 +827,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         // invalid transactions to be included.
         let next_block_height = prev_block.height + 1;
 
-        // Interim updates for accounts and nonces are written to signer_cache, not back
-        // to the state_update.
+        // Interim updates for accounts and nonces are written to signer_overlay,
+        // not back to the state_update.
         let state_update = TrieUpdateWitnessSizeWrapper::new(storage);
-        let mut signer_cache = SignerCache::new();
+        let mut signer_overlay = SignerOverlay::new();
 
         // Total amount of gas burnt for converting transactions towards receipts.
         let mut total_gas_burnt = Gas::ZERO;
@@ -922,7 +922,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
 
                 let nonce_index = validated_tx.nonce().nonce_index();
-                let (account, key_entry) = signer_cache.get_or_load_entry_mut(
+                let (account, key_entry) = signer_overlay.get_or_load_entry_mut(
                     &state_update,
                     validated_tx.signer_id(),
                     validated_tx.public_key(),
@@ -968,7 +968,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 };
                 match verdict {
                     TxVerdict::Success(result) => {
-                        // Update account, access key, and gas key nonce (if relevant) in the cache.
+                        // Update account, access key, and gas key nonce (if relevant) in the overlay.
                         result.apply(account, &mut key_entry.access_key);
                         if let Some((idx, nonce)) = result.gas_key_nonce_update() {
                             key_entry.gas_key_nonces.insert(idx, nonce);

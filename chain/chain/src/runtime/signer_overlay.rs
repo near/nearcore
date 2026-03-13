@@ -6,30 +6,31 @@ use near_store::{TrieAccess, get_access_key, get_account, get_gas_key_nonce};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
-/// Per-(account, public_key) cached state.
+/// Per-(account, public_key) state in the overlay.
 pub(crate) struct KeyEntry {
     pub access_key: AccessKey,
     pub gas_key_nonces: HashMap<NonceIndex, Nonce>,
 }
 
-/// Per-account cached state: the account itself plus per-key entries.
+/// Per-account state in the overlay: the account itself plus per-key entries.
 struct AccountEntry {
     account: Account,
     keys: HashMap<PublicKey, KeyEntry>,
 }
 
-/// Caches signer account and access key data across transaction groups within
-/// a single `prepare_transactions` call. Avoids redundant trie reads and
-/// eliminates the need to write intermediate state back to the trie overlay.
+/// Ephemeral overlay for signer account and access key data during a single
+/// `prepare_transactions` call. Loads from the trie on first access and
+/// accumulates mutations (balance deductions, nonce increments) locally
+/// without writing back to the trie.
 ///
 /// Account state is keyed by `AccountId` alone so that multiple public keys
 /// for the same account share one account state (e.g., balance), preventing
 /// double-spend across those keys.
-pub(crate) struct SignerCache {
+pub(crate) struct SignerOverlay {
     entries: HashMap<AccountId, AccountEntry>,
 }
 
-impl SignerCache {
+impl SignerOverlay {
     pub fn new() -> Self {
         Self { entries: HashMap::new() }
     }
