@@ -3,6 +3,7 @@ use crate::utils::account::create_account_id;
 use near_async::time::Duration;
 use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::ValidatorsSpec;
+use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::types::view_account::RpcViewAccountRequest;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
@@ -55,66 +56,40 @@ fn test_rpc_view_account_forwarding() {
     let (alice_node, zoe_node) =
         if alice_shard == rpc0_shard.shard_id() { (rpc0, rpc1) } else { (rpc1, rpc0) };
 
+    // Helper to run jsonrpc view_account request for some account on some node.
+    let mut run_view_account = |node_id: &AccountId,
+                                account: &AccountId,
+                                expected_balance: Balance|
+     -> Result<(), RpcError> {
+        let result = env.runner_for_account(&node_id).run_jsonrpc_query(
+            |client| {
+                client.EXPERIMENTAL_view_account(RpcViewAccountRequest {
+                    block_reference: BlockReference::Finality(Finality::None),
+                    account_id: account.clone(),
+                })
+            },
+            Duration::seconds(5),
+        )?;
+        assert_eq!(
+            result.account.amount, expected_balance,
+            "node_id: {}, account: {}",
+            node_id, account
+        );
+        Ok(())
+    };
+
     // Query alice's account from the node that does NOT track her shard.
     // This forces the request to be forwarded to the other node.
-    let result = env
-        .runner_for_account(&zoe_node)
-        .run_jsonrpc_query(
-            |client| {
-                client.EXPERIMENTAL_view_account(RpcViewAccountRequest {
-                    block_reference: BlockReference::Finality(Finality::None),
-                    account_id: alice.clone(),
-                })
-            },
-            Duration::seconds(5),
-        )
-        .unwrap();
-    assert_eq!(result.account.amount, Balance::from_near(100));
+    run_view_account(&zoe_node, &alice, Balance::from_near(100)).unwrap();
 
     // Also query from the node that DOES track alice's shard (should work locally).
-    let result = env
-        .runner_for_account(&alice_node)
-        .run_jsonrpc_query(
-            |client| {
-                client.EXPERIMENTAL_view_account(RpcViewAccountRequest {
-                    block_reference: BlockReference::Finality(Finality::None),
-                    account_id: alice.clone(),
-                })
-            },
-            Duration::seconds(5),
-        )
-        .unwrap();
-    assert_eq!(result.account.amount, Balance::from_near(100));
+    run_view_account(&alice_node, &alice, Balance::from_near(100)).unwrap();
 
     // Query zoe's account from the node that doesn't track her shard.
-    let result = env
-        .runner_for_account(&alice_node)
-        .run_jsonrpc_query(
-            |client| {
-                client.EXPERIMENTAL_view_account(RpcViewAccountRequest {
-                    block_reference: BlockReference::Finality(Finality::None),
-                    account_id: zoe.clone(),
-                })
-            },
-            Duration::seconds(5),
-        )
-        .unwrap();
-    assert_eq!(result.account.amount, Balance::from_near(100));
+    run_view_account(&alice_node, &zoe, Balance::from_near(100)).unwrap();
 
     // Query zoe's account from the node that does track her shard.
-    let result = env
-        .runner_for_account(&zoe_node)
-        .run_jsonrpc_query(
-            |client| {
-                client.EXPERIMENTAL_view_account(RpcViewAccountRequest {
-                    block_reference: BlockReference::Finality(Finality::None),
-                    account_id: zoe.clone(),
-                })
-            },
-            Duration::seconds(5),
-        )
-        .unwrap();
-    assert_eq!(result.account.amount, Balance::from_near(100));
+    run_view_account(&zoe_node, &zoe, Balance::from_near(100)).unwrap();
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
