@@ -250,6 +250,7 @@ impl EpochSync {
             >= *source_peer_height
         {
             tracing::error!(
+                target: "sync",
                 %source_peer,
                 "ignoring epoch sync proof from peer that is too recent"
             );
@@ -263,6 +264,7 @@ impl EpochSync {
             < *source_peer_height
         {
             tracing::error!(
+                target: "sync",
                 %source_peer,
                 "ignoring epoch sync proof from peer that is too old"
             );
