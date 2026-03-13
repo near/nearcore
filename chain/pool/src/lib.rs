@@ -71,6 +71,7 @@ impl TransactionPool {
 
     /// Computes the pool key for a given (account, public_key, nonce_index) tuple.
     /// Exposed for tests that need to assert iteration order.
+    #[cfg(any(test, feature = "test_features"))]
     pub fn compute_key_for_test(
         &self,
         account_id: &AccountId,
