@@ -324,7 +324,7 @@ impl SyncHandler {
                     StateSyncResult::NeedBlocks(blocks) => {
                         // NeedBlocks requests are forwarded to the caller so the client can fetch
                         // the blocks required by state sync.
-                        tracing::debug!(num_blocks = blocks.len(), "v2: waiting for sync blocks");
+                        tracing::debug!(target: "sync", num_blocks = blocks.len(), "v2: waiting for sync blocks");
                         return Ok(Some(SyncHandlerRequest::NeedRequestBlocks(blocks)));
                     }
                     StateSyncResult::InProgress => {}
