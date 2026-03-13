@@ -952,6 +952,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     .next()
                     .expect("peek_next() returned Some, so next() should return Some as well");
                 num_checked_transactions += 1;
+                consumed_any_tx = true;
 
                 if skip_tx_hashes.contains(&validated_tx.get_hash()) {
                     skipped_transactions.push(validated_tx);
@@ -984,7 +985,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                     validated_tx.public_key(),
                     nonce_index,
                 )?;
-                consumed_any_tx = true;
 
                 let cost = match tx_cost(
                     runtime_config,
