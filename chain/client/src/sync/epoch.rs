@@ -144,20 +144,26 @@ impl EpochSync {
         Ok(proof)
     }
 
-    /// Performs the epoch sync logic if applicable in the current state of the blockchain.
+    /// Performs the V1 epoch sync logic if applicable in the current state of the blockchain.
     /// This is periodically called by the client actor.
     pub fn run(
         &self,
         status: &mut SyncStatus,
         chain: &Chain,
+        highest_height: BlockHeight,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<(), Error> {
         // Archival nodes must process every block; epoch sync would skip them.
         if self.archive {
             return Ok(());
         }
-        // V1: only fresh (genesis) nodes may epoch sync.
+        // Within the epoch sync horizon — header/block sync is sufficient.
         let tip_height = chain.chain_store().header_head()?.height;
+        let horizon = self.config.epoch_sync_horizon_num_epochs * chain.epoch_length;
+        if tip_height + horizon >= highest_height {
+            return Ok(());
+        }
+        // V1: only fresh (genesis) nodes may epoch sync.
         if tip_height != chain.genesis().height() {
             return Ok(());
         }

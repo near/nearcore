@@ -112,8 +112,12 @@ impl SyncHandler {
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Option<SyncHandlerRequest> {
         // Run epoch sync first; if this is applicable then nothing else is.
-        let epoch_sync_result =
-            self.epoch_sync.run(&mut self.sync_status, &chain, &highest_height_peers);
+        let epoch_sync_result = self.epoch_sync.run(
+            &mut self.sync_status,
+            &chain,
+            highest_height,
+            &highest_height_peers,
+        );
         unwrap_and_report_state_sync_result!(epoch_sync_result);
 
         // Run header sync as long as there are headers to catch up.

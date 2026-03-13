@@ -1452,7 +1452,12 @@ fn test_reject_block_headers_during_epoch_sync() {
 
     // Running epoch sync, sets SyncStatus::EpochSync
     assert_matches!(
-        sync_client.sync_handler.epoch_sync.run(status, chain, &highest_height_peers),
+        sync_client.sync_handler.epoch_sync.run(
+            status,
+            chain,
+            blocks.len() as u64,
+            &highest_height_peers
+        ),
         Ok(()),
         "Epoch sync failure"
     );
