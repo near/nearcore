@@ -12,7 +12,7 @@ struct KeyEntry {
     gas_key_nonces: HashMap<NonceIndex, Nonce>,
 }
 
-/// Combined mutable view returned by [`SignerCache::get_or_load`].
+/// Combined mutable view returned by [`SignerCache::get_or_load_entry_mut`].
 /// The `account` is shared across all public keys for the same account_id,
 /// while `access_key` and `gas_key_nonces` are per-(account_id, public_key).
 pub(crate) struct SignerCacheView<'a> {
@@ -26,7 +26,8 @@ pub(crate) struct SignerCacheView<'a> {
 /// eliminates the need to write intermediate state back to the trie overlay.
 ///
 /// Account state is keyed by `AccountId` alone so that multiple public keys
-/// for the same account share one balance/nonce, preventing double-spend.
+/// for the same account share one account state (e.g., balance), preventing
+/// double-spend across those keys.
 pub(crate) struct SignerCache {
     accounts: HashMap<AccountId, Account>,
     key_entries: HashMap<AccountId, HashMap<PublicKey, KeyEntry>>,
@@ -39,7 +40,7 @@ impl SignerCache {
 
     /// Returns a combined view of account + per-key state, loading from the
     /// trie on first access.
-    pub fn get_or_load(
+    pub fn get_or_load_entry_mut(
         &mut self,
         trie: &dyn TrieAccess,
         account_id: &AccountId,
