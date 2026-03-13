@@ -4935,10 +4935,13 @@ dependencies = [
 name = "near-rpc-probe"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
+ "near-crypto",
  "near-jsonrpc-client-internal",
  "near-jsonrpc-primitives",
  "near-o11y",
  "near-primitives",
+ "parking_lot 0.12.1",
  "serde",
  "serde_json",
  "tokio",
