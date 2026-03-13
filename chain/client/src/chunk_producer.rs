@@ -132,11 +132,17 @@ impl ChunkProducer {
             chain: chain_store.clone(),
             epoch_manager,
             runtime_adapter,
-            sharded_tx_pool: Arc::new(Mutex::new(ShardedTransactionPool::new(
-                rng_seed,
-                transaction_pool_size_limit,
-                strict_nonce_ttl,
-            ))),
+            sharded_tx_pool: Arc::new(Mutex::new({
+                let mut pool = ShardedTransactionPool::new(
+                    rng_seed,
+                    transaction_pool_size_limit,
+                    strict_nonce_ttl,
+                );
+                if let Ok(tip) = chain_store.head() {
+                    pool.update_head_height(tip.height);
+                }
+                pool
+            })),
             reed_solomon_encoder: ReedSolomon::new(data_parts, parity_parts).unwrap(),
             chunk_production_info: lru::LruCache::new(
                 NonZeroUsize::new(PRODUCTION_TIMES_CACHE_SIZE).unwrap(),

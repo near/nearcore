@@ -49,7 +49,7 @@ pub struct ShardedTransactionPool {
     strict_nonce_ttl: BlockHeight,
 
     /// Latest known block height, propagated to lazily created per-shard pools
-    /// so that strict-nonce admission timestamps are not stuck at 0.
+    /// so that strict-nonce admission heights do not start at 0.
     head_height: BlockHeight,
 }
 
@@ -59,7 +59,13 @@ impl ShardedTransactionPool {
         pool_size_limit: Option<u64>,
         strict_nonce_ttl: BlockHeight,
     ) -> Self {
-        Self { tx_pools: HashMap::new(), rng_seed, pool_size_limit, strict_nonce_ttl, head_height: 0 }
+        Self {
+            tx_pools: HashMap::new(),
+            rng_seed,
+            pool_size_limit,
+            strict_nonce_ttl,
+            head_height: 0,
+        }
     }
 
     pub fn get_pool_iterator(&mut self, shard_uid: ShardUId) -> Option<PoolIteratorWrapper<'_>> {
@@ -181,16 +187,15 @@ mod tests {
     use near_crypto::{InMemorySigner, KeyType};
     use near_o11y::testonly::init_test_logger;
     use near_pool::types::TransactionGroupIterator;
-    use near_primitives::{
-        epoch_info::RngSeed,
-        hash::CryptoHash,
-        shard_layout::ShardLayout,
-        transaction::{SignedTransaction, ValidatedTransaction},
-        types::{AccountId, Balance, ShardId},
-    };
+    use near_primitives::action::{Action, TransferAction};
+    use near_primitives::epoch_info::RngSeed;
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::shard_layout::ShardLayout;
+    use near_primitives::transaction::{SignedTransaction, TransactionNonce, ValidatedTransaction};
+    use near_primitives::types::{AccountId, Balance, ShardId};
     use near_store::ShardUId;
     use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
-    use std::{collections::HashMap, str::FromStr};
+    use std::{collections::HashMap, str::FromStr, sync::Arc};
 
     const TEST_SEED: RngSeed = [3; 32];
 
@@ -314,5 +319,39 @@ mod tests {
             assert_eq!(total, n);
         }
         tracing::info!("finished");
+    }
+
+    #[test]
+    fn test_lazy_pool_initialization_inherits_head_height() {
+        let ttl = 10;
+        let mut pool = ShardedTransactionPool::new(TEST_SEED, None, ttl);
+        let shard_uid = ShardUId::single_shard();
+
+        // Advance head before any per-shard pool exists.
+        let initial_head_height = 100;
+        pool.update_head_height(initial_head_height);
+
+        // Insert a strict-nonce tx — this lazily creates the shard pool.
+        let signer_id: AccountId = "alice.near".parse().unwrap();
+        let signer =
+            Arc::new(InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, "alice.near"));
+        let tx = SignedTransaction::from_actions_v1_strict(
+            TransactionNonce::from_nonce(1),
+            signer_id,
+            "bob.near".parse().unwrap(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })],
+            CryptoHash::default(),
+        );
+        pool.insert_transaction(shard_uid, ValidatedTransaction::new_for_test(tx));
+        assert_eq!(pool.pool_for_shard(shard_uid).len(), 1);
+
+        // At the TTL boundary relative to initial_head_height, tx should still be there.
+        pool.update_head_height(initial_head_height + ttl);
+        assert_eq!(pool.pool_for_shard(shard_uid).len(), 1);
+
+        // Past the TTL, tx should be evicted.
+        pool.update_head_height(initial_head_height + ttl + 1);
+        assert_eq!(pool.pool_for_shard(shard_uid).len(), 0);
     }
 }
