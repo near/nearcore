@@ -47,6 +47,10 @@ pub struct ShardedTransactionPool {
 
     /// TTL in blocks for strict-nonce transactions.
     strict_nonce_ttl: BlockHeight,
+
+    /// Latest known block height, propagated to lazily created per-shard pools
+    /// so that strict-nonce admission timestamps are not stuck at 0.
+    head_height: BlockHeight,
 }
 
 impl ShardedTransactionPool {
@@ -55,7 +59,7 @@ impl ShardedTransactionPool {
         pool_size_limit: Option<u64>,
         strict_nonce_ttl: BlockHeight,
     ) -> Self {
-        Self { tx_pools: HashMap::new(), rng_seed, pool_size_limit, strict_nonce_ttl }
+        Self { tx_pools: HashMap::new(), rng_seed, pool_size_limit, strict_nonce_ttl, head_height: 0 }
     }
 
     pub fn get_pool_iterator(&mut self, shard_uid: ShardUId) -> Option<PoolIteratorWrapper<'_>> {
@@ -92,19 +96,23 @@ impl ShardedTransactionPool {
     /// Updates the head height for all shard pools and evicts expired
     /// strict-nonce transactions.
     pub fn update_head_height(&mut self, height: BlockHeight) {
+        self.head_height = self.head_height.max(height);
         for pool in self.tx_pools.values_mut() {
             pool.update_head_height(height);
         }
     }
 
     fn pool_for_shard(&mut self, shard_uid: ShardUId) -> &mut TransactionPool {
+        let head_height = self.head_height;
         self.tx_pools.entry(shard_uid).or_insert_with(|| {
-            TransactionPool::new(
+            let mut pool = TransactionPool::new(
                 Self::random_seed(&self.rng_seed, shard_uid.shard_id()),
                 self.pool_size_limit,
                 self.strict_nonce_ttl,
                 &shard_uid.to_string(),
-            )
+            );
+            pool.update_head_height(head_height);
+            pool
         })
     }
 
