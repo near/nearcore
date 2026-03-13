@@ -1441,6 +1441,8 @@ fn test_reject_block_headers_during_epoch_sync() {
     let sync_client = &mut env.clients[1];
     let status = &mut sync_client.sync_handler.sync_status;
     let chain = &sync_client.chain;
+    let highest_height =
+        sync_client.config.epoch_sync.epoch_sync_horizon_num_epochs * epoch_length + 1;
     let highest_height_peers = vec![HighestHeightPeerInfo {
         archival: false,
         genesis_id: GenesisId::default(),
@@ -1455,7 +1457,7 @@ fn test_reject_block_headers_during_epoch_sync() {
         sync_client.sync_handler.epoch_sync.run(
             status,
             chain,
-            blocks.len() as u64,
+            highest_height,
             &highest_height_peers
         ),
         Ok(()),

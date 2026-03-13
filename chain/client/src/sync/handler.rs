@@ -381,7 +381,7 @@ impl SyncHandler {
         // Archival nodes must process every block; epoch sync would skip them.
         // Near horizon nodes can catch up with header+block sync alone.
         if self.config.archive || head_within_horizon {
-            tracing::debug!(target: "sync", ?head, ?highest_height, "entering block sync");
+            tracing::info!(target: "sync", ?head, ?highest_height, "entering block sync");
             self.sync_status.update(SyncStatus::BlockSync {
                 start_height: head.height,
                 current_height: head.height,

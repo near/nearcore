@@ -374,8 +374,15 @@ fn test_far_horizon_restart_during_header_sync() {
     env.restart_node("restart_header_sync", killed_state);
     let restarted_idx = env.node_datas.len() - 1;
     restrict_to_single_peer(&env.shared_state, &env.node_datas, restarted_idx, 0);
+    let history = track_sync_status(&mut env.test_loop, &env.node_datas, restarted_idx);
 
     run_until_synced(&mut env.test_loop, &env.node_datas, restarted_idx, 0);
+    // Headers were partially synced before kill, so restart resumes
+    // HeaderSync before continuing through the rest of the pipeline.
+    let expected =
+        vec!["AwaitingPeers", "NoSync", "HeaderSync", "StateSync", "BlockSync", "NoSync"];
+    assert_eq!(*history.borrow(), expected, "unexpected restart recovery sync sequence");
+
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
@@ -439,8 +446,15 @@ fn test_far_horizon_restart_during_state_sync() {
     env.restart_node("restart_state_sync", killed_state);
     let restarted_idx = env.node_datas.len() - 1;
     restrict_to_single_peer(&env.shared_state, &env.node_datas, restarted_idx, 0);
+    let history = track_sync_status(&mut env.test_loop, &env.node_datas, restarted_idx);
 
     run_until_synced(&mut env.test_loop, &env.node_datas, restarted_idx, 0);
+    // Headers were fully synced before kill, so HeaderSync completes instantly
+    // (not observable as a distinct status) and the node enters StateSync directly.
+    // The final NoSync is not captured before the test ends.
+    let expected = vec!["AwaitingPeers", "NoSync", "StateSync", "BlockSync"];
+    assert_eq!(*history.borrow(), expected, "unexpected restart recovery sync sequence");
+
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
