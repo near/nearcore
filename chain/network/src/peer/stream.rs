@@ -19,7 +19,7 @@ const MAX_WRITE_BUFFER_CAPACITY_BYTES: usize = GIB as usize;
 
 /// Timeout for individual write operations (write + flush) to detect if the connection is
 /// stuck due to a half-open TCP connection where the peer stopped ACKing writes.
-const WRITE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+const WRITE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
 type ReadHalf = tokio::io::ReadHalf<tokio::net::TcpStream>;
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
