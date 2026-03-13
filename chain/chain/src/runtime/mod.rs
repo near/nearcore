@@ -923,19 +923,19 @@ impl RuntimeAdapter for NightshadeRuntime {
                     let current_nonce = if let Some(nonce) =
                         signer_cache.cached_nonce(signer_id, public_key, nonce_index)
                     {
-                        Ok(nonce)
+                        Some(nonce)
                     } else {
                         peek_nonce_for_gap_check(
                             &state_update.trie_update.trie,
                             signer_id,
                             public_key,
                             nonce_index,
-                        )
+                        )?
                     };
                     // When the key exists, check for a nonce gap. When the
                     // key is missing, let the tx through so full validation
                     // can reject it.
-                    if let Ok(current_nonce) = current_nonce {
+                    if let Some(current_nonce) = current_nonce {
                         let tx_nonce = tx_peek.nonce().nonce();
                         if tx_nonce > current_nonce.saturating_add(1) {
                             if !consumed_any_tx {
@@ -1580,25 +1580,23 @@ impl RuntimeAdapter for NightshadeRuntime {
 
 /// Reads the current nonce for a strict-nonce gap check using a throwaway
 /// trie recorder to avoid inflating the recorded witness size. Does not
-/// cache the result. Returns `Err` when the key does not exist, signaling
-/// the caller to skip the gap check and let full validation handle the
-/// missing-key rejection.
+/// cache the result. Returns `Ok(None)` when the key does not exist,
+/// signaling the caller to skip the gap check and let full validation
+/// handle the missing-key rejection.
 fn peek_nonce_for_gap_check(
     trie: &Trie,
     account_id: &AccountId,
     public_key: &PublicKey,
     nonce_index: Option<NonceIndex>,
-) -> Result<Nonce, Error> {
+) -> Result<Option<Nonce>, Error> {
     let throwaway_trie = trie.recording_reads_new_recorder();
     if let Some(idx) = nonce_index {
         get_gas_key_nonce(&throwaway_trie, account_id, public_key, idx)
-            .map_err(|_| Error::InvalidTransactions)?
-            .ok_or(Error::InvalidTransactions)
+            .map_err(|_| Error::InvalidTransactions)
     } else {
         let access_key = get_access_key(&throwaway_trie, account_id, public_key)
-            .map_err(|_| Error::InvalidTransactions)?
-            .ok_or(Error::InvalidTransactions)?;
-        Ok(access_key.nonce)
+            .map_err(|_| Error::InvalidTransactions)?;
+        Ok(access_key.map(|ak| ak.nonce))
     }
 }
 
