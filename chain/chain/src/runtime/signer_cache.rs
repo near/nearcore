@@ -7,18 +7,15 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
 /// Per-(account, public_key) cached state.
-struct KeyEntry {
-    access_key: AccessKey,
-    gas_key_nonces: HashMap<NonceIndex, Nonce>,
+pub(crate) struct KeyEntry {
+    pub access_key: AccessKey,
+    pub gas_key_nonces: HashMap<NonceIndex, Nonce>,
 }
 
-/// Combined mutable view returned by [`SignerCache::get_or_load_entry_mut`].
-/// The `account` is shared across all public keys for the same account_id,
-/// while `access_key` and `gas_key_nonces` are per-(account_id, public_key).
-pub(crate) struct SignerCacheView<'a> {
-    pub account: &'a mut Account,
-    pub access_key: &'a mut AccessKey,
-    pub gas_key_nonces: &'a mut HashMap<NonceIndex, Nonce>,
+/// Per-account cached state: the account itself plus per-key entries.
+struct AccountEntry {
+    account: Account,
+    keys: HashMap<PublicKey, KeyEntry>,
 }
 
 /// Caches signer account and access key data across transaction groups within
@@ -29,38 +26,39 @@ pub(crate) struct SignerCacheView<'a> {
 /// for the same account share one account state (e.g., balance), preventing
 /// double-spend across those keys.
 pub(crate) struct SignerCache {
-    accounts: HashMap<AccountId, Account>,
-    key_entries: HashMap<AccountId, HashMap<PublicKey, KeyEntry>>,
+    entries: HashMap<AccountId, AccountEntry>,
 }
 
 impl SignerCache {
     pub fn new() -> Self {
-        Self { accounts: HashMap::new(), key_entries: HashMap::new() }
+        Self { entries: HashMap::new() }
     }
 
-    /// Returns a combined view of account + per-key state, loading from the
-    /// trie on first access.
+    /// Returns mutable references to the account and per-key state, loading
+    /// from the trie on first access.
     pub fn get_or_load_entry_mut(
         &mut self,
         trie: &dyn TrieAccess,
         account_id: &AccountId,
         public_key: &PublicKey,
         nonce_index: Option<NonceIndex>,
-    ) -> Result<SignerCacheView<'_>, Error> {
+    ) -> Result<(&mut Account, &mut KeyEntry), Error> {
         // Ensure the account is loaded.
-        let account = match self.accounts.entry(account_id.clone()) {
+        let entry = match self.entries.entry(account_id.clone()) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
                 let account = get_account(trie, account_id)
                     .map_err(|_| Error::InvalidTransactions)?
                     .ok_or(Error::InvalidTransactions)?;
-                entry.insert(account)
+                entry.insert(AccountEntry { account, keys: HashMap::new() })
             }
         };
 
+        // Destructure to split the borrow between account and keys.
+        let AccountEntry { account, keys } = entry;
+
         // Ensure the key entry is loaded.
-        let per_key = self.key_entries.entry(account_id.clone()).or_default();
-        let key_entry = match per_key.entry(public_key.clone()) {
+        let key_entry = match keys.entry(public_key.clone()) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
                 let access_key = get_access_key(trie, account_id, public_key)
@@ -80,10 +78,6 @@ impl SignerCache {
             }
         }
 
-        Ok(SignerCacheView {
-            account,
-            access_key: &mut key_entry.access_key,
-            gas_key_nonces: &mut key_entry.gas_key_nonces,
-        })
+        Ok((account, key_entry))
     }
 }

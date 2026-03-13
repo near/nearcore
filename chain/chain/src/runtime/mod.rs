@@ -922,7 +922,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
 
                 let nonce_index = validated_tx.nonce().nonce_index();
-                let cache = signer_cache.get_or_load_entry_mut(
+                let (account, key_entry) = signer_cache.get_or_load_entry_mut(
                     &state_update,
                     validated_tx.signer_id(),
                     validated_tx.public_key(),
@@ -942,14 +942,14 @@ impl RuntimeAdapter for NightshadeRuntime {
                     }
                 };
                 let verdict = if let Some(nonce_index) = nonce_index {
-                    let current_nonce = *cache
+                    let current_nonce = *key_entry
                         .gas_key_nonces
                         .get(&nonce_index)
                         .expect("loaded by get_or_load_entry_mut");
                     verify_and_charge_gas_key_tx_ephemeral(
                         runtime_config,
-                        cache.account,
-                        cache.access_key,
+                        account,
+                        &mut key_entry.access_key,
                         current_nonce,
                         validated_tx.to_tx(),
                         &cost,
@@ -958,8 +958,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                 } else {
                     verify_and_charge_tx_ephemeral(
                         runtime_config,
-                        cache.account,
-                        cache.access_key,
+                        account,
+                        &mut key_entry.access_key,
                         validated_tx.to_tx(),
                         &cost,
                         Some(next_block_height),
@@ -969,9 +969,9 @@ impl RuntimeAdapter for NightshadeRuntime {
                 match verdict {
                     TxVerdict::Success(result) => {
                         // Update account, access key, and gas key nonce (if relevant) in the cache.
-                        result.apply(cache.account, cache.access_key);
+                        result.apply(account, &mut key_entry.access_key);
                         if let Some((idx, nonce)) = result.gas_key_nonce_update() {
-                            cache.gas_key_nonces.insert(idx, nonce);
+                            key_entry.gas_key_nonces.insert(idx, nonce);
                         }
                         tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "including transaction that passed validation and verification");
                         total_gas_burnt = total_gas_burnt.checked_add(result.gas_burnt).unwrap();
