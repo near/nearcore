@@ -482,7 +482,7 @@ fn run_added_node_test_case(t: AddedNodeTest) {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_added_node_simple() {
     if SYNC_V2_ENABLED {
-        // V2 does not support V1's state sync entry path (check_state_needed / should_state_sync).
+        // TODO(sync-v2): evaluate coverage — V2 does not support V1's state sync entry path.
         return;
     }
     init_test_logger();
@@ -504,7 +504,7 @@ fn slow_test_added_node_simple() {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_added_node_empty_shard() {
     if SYNC_V2_ENABLED {
-        // V2 does not support V1's state sync entry path (check_state_needed / should_state_sync).
+        // TODO(sync-v2): evaluate coverage — V2 does not support V1's state sync entry path.
         return;
     }
     init_test_logger();
@@ -526,7 +526,7 @@ fn slow_test_added_node_empty_shard() {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_added_node_missing_chunks() {
     if SYNC_V2_ENABLED {
-        // V2 does not support V1's state sync entry path (check_state_needed / should_state_sync).
+        // TODO(sync-v2): evaluate coverage — V2 does not support V1's state sync entry path.
         return;
     }
     init_test_logger();
@@ -554,7 +554,7 @@ fn slow_test_added_node_missing_chunks() {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_added_node_from_fork() {
     if SYNC_V2_ENABLED {
-        // V2 does not support V1's state sync entry path (check_state_needed / should_state_sync).
+        // TODO(sync-v2): evaluate coverage — V2 does not support V1's state sync entry path.
         return;
     }
     init_test_logger();
@@ -580,7 +580,7 @@ fn slow_test_added_node_from_fork() {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_added_node_no_parts_provided() {
     if SYNC_V2_ENABLED {
-        // V2 does not support V1's state sync entry path (check_state_needed / should_state_sync).
+        // TODO(sync-v2): evaluate coverage — V2 does not support V1's state sync entry path.
         return;
     }
     init_test_logger();

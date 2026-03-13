@@ -46,6 +46,9 @@ pub fn track_sync_status(
 /// The synced node must track all shards (`TrackedShardsConfig::AllShards`).
 /// If any account query returns `UnavailableShard` on the synced node, the
 /// function panics — callers must ensure all shards are tracked.
+///
+/// TODO(sync-v2): support querying accounts from the correct node based on shard
+/// tracking, so we don't need AllShards on the synced node.
 pub fn verify_balances_on_synced_node(
     test_loop_data: &TestLoopData,
     node_datas: &[NodeExecutionData],
@@ -83,7 +86,7 @@ pub fn verify_balances_on_synced_node(
             "balance mismatch for {account} on synced node"
         );
     }
-    tracing::info!(total = accounts.len(), "balance verification complete");
+    tracing::debug!(total = accounts.len(), "balance verification complete");
 }
 
 /// Expected V2 far-horizon sync status sequence.

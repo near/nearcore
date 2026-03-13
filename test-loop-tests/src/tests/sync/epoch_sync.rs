@@ -152,7 +152,6 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
         Duration::seconds(30),
     );
     let expected: Vec<String> = if SYNC_V2_ENABLED {
-        // V2 transitions directly StateSync → BlockSync (no StateSyncDone).
         vec![
             "AwaitingPeers",
             "NoSync",

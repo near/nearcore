@@ -257,7 +257,7 @@ fn test_far_horizon_archival_skips_epoch_sync() {
         .validators(4, 0)
         .epoch_length(epoch_length)
         // Validators need gc >= chain length so archival node can fetch all blocks from genesis.
-        // far_horizon_height(10)=50, so gc=20 (200 blocks) is more than enough.
+        // far_horizon_height(10)=50, so gc=10 (100 blocks) is more than enough.
         .gc_num_epochs_to_keep(gc_num_epochs_to_keep)
         .build();
 
@@ -306,13 +306,13 @@ fn test_far_horizon_archival_skips_epoch_sync() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
-// TODO: test restart during header sync — node has epoch sync proof and partial
+// TODO(sync-v2): test restart during header sync — node has epoch sync proof and partial
 // headers, should resume HeaderSync on restart.
 #[test]
 #[ignore]
 fn test_far_horizon_restart_during_header_sync() {}
 
-// TODO: test restart during state sync — node has epoch sync proof + full
+// TODO(sync-v2): test restart during state sync — node has epoch sync proof + full
 // headers but no shard state, should re-enter StateSync on restart.
 #[test]
 #[ignore]
@@ -384,7 +384,7 @@ fn test_far_horizon_restart_during_block_sync() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
-// TODO: test restart near epoch boundary — node killed near boundary, network
+// TODO(sync-v2): test restart near epoch boundary — node killed near boundary, network
 // advances many epochs, restart should sync via far-horizon pipeline.
 #[test]
 #[ignore]
