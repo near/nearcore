@@ -69,18 +69,6 @@ impl TransactionPool {
         }
     }
 
-    /// Computes the pool key for a given (account, public_key, nonce_index) tuple.
-    /// Exposed for tests that need to assert iteration order.
-    #[cfg(any(test, feature = "test_features"))]
-    pub fn compute_key_for_test(
-        &self,
-        account_id: &AccountId,
-        public_key: &PublicKey,
-        nonce_index: Option<NonceIndex>,
-    ) -> CryptoHash {
-        self.key(account_id, public_key, nonce_index)
-    }
-
     fn key(
         &self,
         account_id: &AccountId,
@@ -760,5 +748,45 @@ mod tests {
         }
         assert_eq!(pool.len(), 0);
         assert_eq!(pool.transaction_size(), 0);
+    }
+
+    /// Groups where the caller never pops a transaction (simulating a
+    /// strict-nonce gap) must not starve groups that make progress. The
+    /// iterator should park stalled groups and terminate.
+    #[test]
+    fn test_stalled_groups_do_not_starve_valid_groups() {
+        let mut pool = TransactionPool::new(TEST_SEED, None, "");
+
+        // 3 groups: "alice" (5 txs), "bob" (3 txs), "stalled" (2 txs).
+        let (tx_count_alice, tx_count_bob, tx_count_stalled) = (5, 3, 2);
+        for tx in generate_transactions("alice.near", "alice.near", 1, tx_count_alice) {
+            pool.insert_transaction(tx);
+        }
+        for tx in generate_transactions("bob.near", "bob.near", 1, tx_count_bob) {
+            pool.insert_transaction(tx);
+        }
+        for tx in generate_transactions("stalled.near", "stalled.near", 1, tx_count_stalled) {
+            pool.insert_transaction(tx);
+        }
+        assert_eq!(pool.len() as u64, tx_count_alice + tx_count_bob + tx_count_stalled);
+
+        // Pop from "alice" and "bob" groups (making progress) but not from "stalled".
+        let stalled_id: AccountId = "stalled.near".parse().unwrap();
+        let mut consumed = vec![];
+        let mut iter = pool.pool_iterator();
+        while let Some(group) = iter.next() {
+            let Some(peek) = group.peek_next() else { continue };
+            if *peek.signer_id() == stalled_id {
+                // Simulate stall: don't pop any transaction.
+                continue;
+            }
+            if let Some(tx) = group.next() {
+                consumed.push(tx.into_signed_tx());
+            }
+        }
+        drop(iter);
+
+        assert_eq!(consumed.len() as u64, tx_count_alice + tx_count_bob);
+        assert_eq!(pool.len() as u64, tx_count_stalled);
     }
 }

@@ -24,7 +24,6 @@ near-crypto = { workspace = true, features = ["rand"] }
 near-primitives = { workspace = true, features = ["test_utils"] }
 
 [features]
-test_features = []
 nightly = [
   "near-o11y/nightly",
   "near-primitives/nightly",
