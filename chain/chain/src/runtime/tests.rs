@@ -1666,8 +1666,7 @@ fn prepare_transactions_extra(
     let congestion_info = block.block_congestion_info();
     let next_epoch_id = env.epoch_manager.get_epoch_id_from_prev_block(&prev_hash)?;
 
-    let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
-    let mut trie = env.runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[shard_index]);
+    let mut trie = env.runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[0]);
     trie = trie.recording_reads_new_recorder();
     let state_update = TrieUpdate::new(trie);
 
