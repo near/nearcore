@@ -1794,7 +1794,7 @@ fn test_prepare_transactions_shared_balance_across_keys() {
     );
 
     const TEST_SEED: RngSeed = [3; 32];
-    let mut pool = TransactionPool::new(TEST_SEED, None, "");
+    let mut pool = TransactionPool::new(TEST_SEED, None, 64, "");
     pool.insert_transaction(ValidatedTransaction::new_for_test(tx1));
     pool.insert_transaction(ValidatedTransaction::new_for_test(tx2));
 
@@ -1979,7 +1979,7 @@ fn test_strict_nonce_u64_max_not_included() {
         env.head.prev_block_hash,
     );
     const TEST_SEED: RngSeed = [3; 32];
-    let mut pool = TransactionPool::new(TEST_SEED, None, "");
+    let mut pool = TransactionPool::new(TEST_SEED, None, 64, "");
     pool.insert_transaction(ValidatedTransaction::new_for_test(strict_tx));
 
     let (prepared, skipped) = env
@@ -2042,7 +2042,7 @@ fn test_strict_nonce_gap_does_not_count_towards_state_size_soft_limit() {
     // Only gapped strict-nonce txs: nonce=100, but current nonce=0.
     let num_gapped = 3;
     const TEST_SEED: RngSeed = [3; 32];
-    let mut pool = TransactionPool::new(TEST_SEED, None, "");
+    let mut pool = TransactionPool::new(TEST_SEED, None, 64, "");
     for i in 2..=4 {
         let account_id: AccountId = format!("test{i}").parse().unwrap();
         let signer = InMemorySigner::test_signer(&account_id);
