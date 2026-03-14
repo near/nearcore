@@ -1209,7 +1209,7 @@ impl ShardsManagerActor {
             Err((err, chunk)) => {
                 // Not expected to be reachable because reed_solomon_decode above already
                 // deserializes the content as TransactionReceipt.
-                tracing::debug!(target: "chunks", ?err, "invalid, failed to decode");
+                tracing::error!(target: "chunks", ?err, "invalid, failed to decode");
                 return Ok(ChunkDecodeResult::Invalid(*chunk));
             }
         };
