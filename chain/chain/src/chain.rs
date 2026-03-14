@@ -60,7 +60,7 @@ use near_primitives::block::{
     Block, BlockValidityError, ChunkType, Chunks, Tip, compute_bp_hash_from_validator_stakes,
 };
 use near_primitives::block_header::BlockHeader;
-use near_primitives::challenge::{ChunkProofs, MaybeEncodedShardChunk};
+use near_primitives::challenge::ChunkProofs;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::{CryptoHash, hash};
@@ -72,8 +72,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{
-    ChunkHash, EncodedShardChunk, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
-    StateSyncInfo,
+    ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof, StateSyncInfo,
 };
 use near_primitives::state_sync::ReceiptProofResponse;
 use near_primitives::stateless_validation::ChunkProductionKey;
@@ -1088,20 +1087,6 @@ impl Chain {
         for (shard_index, chunk_header) in block.chunks().iter().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index)?;
             let chunk_hash = chunk_header.chunk_hash();
-            // Check if any chunks are invalid in this block.
-            if let Some(encoded_chunk) = self.chain_store.is_invalid_chunk(chunk_hash) {
-                let merkle_paths = block.chunks().compute_chunk_headers_root().1;
-                let merkle_proof =
-                    merkle_paths.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
-                let chunk_proof = ChunkProofs {
-                    block_header: borsh::to_vec(&block.header()).expect("Failed to serialize"),
-                    merkle_proof: merkle_proof.clone(),
-                    chunk: Box::new(MaybeEncodedShardChunk::Encoded(EncodedShardChunk::clone(
-                        &encoded_chunk,
-                    ))),
-                };
-                return Err(Error::InvalidChunkProofs(Box::new(chunk_proof)));
-            }
             match chunk_header {
                 ChunkType::New(chunk_header) => {
                     if !self.chain_store.partial_chunk_exists(chunk_hash) {
