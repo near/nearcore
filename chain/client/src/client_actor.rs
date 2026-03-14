@@ -2043,7 +2043,7 @@ impl Handler<SpanWrapped<ShardsManagerResponse>> for ClientActor {
     fn handle(&mut self, msg: SpanWrapped<ShardsManagerResponse>) {
         let msg = msg.span_unwrap();
         match msg {
-            ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
+            ShardsManagerResponse::ChunkCompleted { partial_chunk, decoded_chunk } => {
                 let _span = tracing::debug_span!(
                     target: "client",
                     "chunk_completed",
@@ -2055,14 +2055,7 @@ impl Handler<SpanWrapped<ShardsManagerResponse>> for ClientActor {
                 .entered();
                 self.client.on_chunk_completed(
                     partial_chunk,
-                    shard_chunk,
-                    Some(self.client.myself_sender.apply_chunks_done.clone()),
-                );
-            }
-            ShardsManagerResponse::InvalidChunk { encoded_chunk, partial_chunk } => {
-                self.client.on_invalid_chunk(
-                    encoded_chunk,
-                    partial_chunk,
+                    decoded_chunk,
                     Some(self.client.myself_sender.apply_chunks_done.clone()),
                 );
             }
