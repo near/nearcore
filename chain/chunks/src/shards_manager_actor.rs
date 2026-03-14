@@ -1884,7 +1884,7 @@ impl ShardsManagerActor {
                 &self.shard_tracker,
             );
 
-            self.complete_chunk(partial_chunk, DecodedChunk::None);
+            self.complete_chunk(partial_chunk, None);
             return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts);
         }
 
@@ -1911,12 +1911,11 @@ impl ShardsManagerActor {
                     // For consistency, only persist shard_chunk if we actually care about the
                     // shard. Don't persist if we don't care about the shard, even if we
                     // accidentally got enough parts to reconstruct the full shard.
-                    let decoded_chunk = if cares_about_shard {
-                        DecodedChunk::Valid(shard_chunk)
+                    if cares_about_shard {
+                        self.complete_chunk(partial_chunk, Some(shard_chunk));
                     } else {
-                        DecodedChunk::None
-                    };
-                    self.complete_chunk(partial_chunk, decoded_chunk);
+                        self.complete_chunk(partial_chunk, None);
+                    }
                     return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts);
                 }
                 ChunkDecodeResult::Invalid(_encoded_chunk) => {
@@ -1960,13 +1959,21 @@ impl ShardsManagerActor {
     }
 
     /// A helper function to be called after a chunk is considered complete
-    fn complete_chunk(&mut self, partial_chunk: PartialEncodedChunk, decoded_chunk: DecodedChunk) {
+    fn complete_chunk(
+        &mut self,
+        partial_chunk: PartialEncodedChunk,
+        shard_chunk: Option<ShardChunk>,
+    ) {
         let _span = debug_span!(target: "chunks", "complete_chunk").entered();
         let chunk_hash = partial_chunk.chunk_hash();
         self.encoded_chunks.mark_entry_complete(&chunk_hash);
         self.encoded_chunks.remove_from_cache_if_outside_horizon(&chunk_hash);
         self.requested_partial_encoded_chunks.remove(&chunk_hash);
         tracing::debug!(target: "chunks", ?chunk_hash, "completed chunk");
+        let decoded_chunk = match shard_chunk {
+            Some(chunk) => DecodedChunk::Valid(chunk),
+            None => DecodedChunk::None,
+        };
         self.client_adapter.send(
             ShardsManagerResponse::ChunkCompleted { partial_chunk, decoded_chunk }.span_wrap(),
         );
