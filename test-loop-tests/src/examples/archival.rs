@@ -1,6 +1,5 @@
 use crate::setup::builder::{ArchivalKind, TestLoopBuilder};
 use near_async::messaging::Handler;
-use near_async::time::Duration;
 use near_client::GetBlock;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::types::{BlockId, BlockReference};
@@ -45,6 +44,4 @@ fn test_archival_node_with_cold_storage() {
     // Archival node can still serve the early block via split storage.
     let archival_result = env.archival_node_mut().view_client_actor().handle(early_block_request);
     assert!(archival_result.is_ok(), "archival node should retain all blocks via cold storage");
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

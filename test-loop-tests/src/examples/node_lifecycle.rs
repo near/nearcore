@@ -1,6 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_account_id;
-use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
 
 #[test]
@@ -38,8 +37,6 @@ fn test_restart_node() {
     env.node_runner(stable_node_idx).run_for_number_of_blocks(5);
 
     assert_eq!(env.node_for_account(&restart_account).head().height, env.node(1).head().height);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[test]
@@ -62,6 +59,4 @@ fn test_add_node() {
 
     // Verify the new node synced to the same height as a validator
     assert_eq!(env.node_for_account(&new_account_id).head().height, env.node(0).head().height);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
