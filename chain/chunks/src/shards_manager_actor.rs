@@ -174,8 +174,6 @@ enum ProcessPartialEncodedChunkResult {
     /// The PartialEncodedChunk is not within the horizon of the chain head.
     /// The chunk has been dropped without processing any part of it.
     OutsideHorizon,
-    /// Chunk was fully received but failed validation (malicious chunk producer).
-    DecodeFailed,
 }
 
 #[derive(Clone, Debug)]
@@ -1910,7 +1908,7 @@ impl ShardsManagerActor {
                     let chunk_hash = encoded_chunk.chunk_hash();
                     self.encoded_chunks.remove(&chunk_hash);
                     self.requested_partial_encoded_chunks.remove(&chunk_hash);
-                    return Ok(ProcessPartialEncodedChunkResult::DecodeFailed);
+                    return Err(Error::InvalidChunk);
                 }
             }
         }
@@ -2293,8 +2291,7 @@ impl ShardsManagerActor {
                     Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts) |
                     Ok(ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts) |
                     Ok(ProcessPartialEncodedChunkResult::NeedBlock) |
-                    Ok(ProcessPartialEncodedChunkResult::OutsideHorizon) |
-                    Ok(ProcessPartialEncodedChunkResult::DecodeFailed) => { return HandleNetworkRequestResult::Ok; }
+                    Ok(ProcessPartialEncodedChunkResult::OutsideHorizon) => { return HandleNetworkRequestResult::Ok; }
                     Err(e) => {
                         tracing::debug!(target: "chunks", ?e, "error processing partial encoded chunk");
                         return HandleNetworkRequestResult::Err;
