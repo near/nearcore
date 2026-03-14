@@ -1,5 +1,4 @@
 use near_primitives::errors::EpochError;
-use near_primitives::sharding::EncodedShardChunk;
 use std::fmt;
 
 #[derive(Debug)]
@@ -10,9 +9,6 @@ pub enum Error {
     InvalidMerkleProof,
     InvalidChunkSignature,
     InvalidChunkHeader,
-    /// Chunk body is invalid (Byzantine chunk producer). Contains the encoded
-    /// chunk to be forwarded to the client as evidence.
-    InvalidChunk(Box<EncodedShardChunk>),
     DuplicateChunkHeight,
     UnknownChunk,
     KnownPart,
