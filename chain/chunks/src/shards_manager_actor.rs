@@ -80,7 +80,7 @@
 
 use crate::adapter::ShardsManagerRequestFromClient;
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
-use crate::client::{ShardsManagerResponse, ShardsManagerResponseSender};
+use crate::client::{DecodedChunk, ShardsManagerResponse, ShardsManagerResponseSender};
 use crate::logic::{
     chunk_needs_to_be_fetched_from_archival, create_partial_chunk, make_outgoing_receipts_proofs,
     make_partial_encoded_chunk_from_owned_parts_and_needed_receipts, need_part, need_receipt,
@@ -1884,7 +1884,7 @@ impl ShardsManagerActor {
                 &self.shard_tracker,
             );
 
-            self.complete_chunk(partial_chunk, None);
+            self.complete_chunk(partial_chunk, DecodedChunk::None);
             return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts);
         }
 
@@ -1911,11 +1911,12 @@ impl ShardsManagerActor {
                     // For consistency, only persist shard_chunk if we actually care about the
                     // shard. Don't persist if we don't care about the shard, even if we
                     // accidentally got enough parts to reconstruct the full shard.
-                    if cares_about_shard {
-                        self.complete_chunk(partial_chunk, Some(shard_chunk));
+                    let decoded_chunk = if cares_about_shard {
+                        DecodedChunk::Valid(shard_chunk)
                     } else {
-                        self.complete_chunk(partial_chunk, None);
-                    }
+                        DecodedChunk::None
+                    };
+                    self.complete_chunk(partial_chunk, decoded_chunk);
                     return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts);
                 }
                 ChunkDecodeResult::Invalid(_encoded_chunk) => {
@@ -1945,9 +1946,9 @@ impl ShardsManagerActor {
                     self.encoded_chunks.mark_decode_failed(&chunk_hash);
                     self.requested_partial_encoded_chunks.remove(&chunk_hash);
                     self.client_adapter.send(
-                        ShardsManagerResponse::InvalidChunk {
-                            encoded_chunk,
+                        ShardsManagerResponse::ChunkCompleted {
                             partial_chunk,
+                            decoded_chunk: DecodedChunk::Invalid(encoded_chunk),
                         }
                         .span_wrap(),
                     );
@@ -1959,19 +1960,16 @@ impl ShardsManagerActor {
     }
 
     /// A helper function to be called after a chunk is considered complete
-    fn complete_chunk(
-        &mut self,
-        partial_chunk: PartialEncodedChunk,
-        shard_chunk: Option<ShardChunk>,
-    ) {
+    fn complete_chunk(&mut self, partial_chunk: PartialEncodedChunk, decoded_chunk: DecodedChunk) {
         let _span = debug_span!(target: "chunks", "complete_chunk").entered();
         let chunk_hash = partial_chunk.chunk_hash();
         self.encoded_chunks.mark_entry_complete(&chunk_hash);
         self.encoded_chunks.remove_from_cache_if_outside_horizon(&chunk_hash);
         self.requested_partial_encoded_chunks.remove(&chunk_hash);
         tracing::debug!(target: "chunks", ?chunk_hash, "completed chunk");
-        self.client_adapter
-            .send(ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk }.span_wrap());
+        self.client_adapter.send(
+            ShardsManagerResponse::ChunkCompleted { partial_chunk, decoded_chunk }.span_wrap(),
+        );
     }
 
     /// Try to process chunks in the chunk cache whose previous block hash is `prev_block_hash` and
@@ -3447,7 +3445,10 @@ mod test {
 
         let messages = drain_client_messages(&fixture);
         assert_eq!(messages.len(), 1);
-        assert_matches!(messages[0], ShardsManagerResponse::InvalidChunk { .. });
+        assert_matches!(
+            messages[0],
+            ShardsManagerResponse::ChunkCompleted { decoded_chunk: DecodedChunk::Invalid(_), .. }
+        );
     }
 
     #[test]
@@ -3515,6 +3516,9 @@ mod test {
 
         let messages = drain_client_messages(&fixture);
         assert_eq!(messages.len(), 1);
-        assert_matches!(messages[0], ShardsManagerResponse::InvalidChunk { .. });
+        assert_matches!(
+            messages[0],
+            ShardsManagerResponse::ChunkCompleted { decoded_chunk: DecodedChunk::Invalid(_), .. }
+        );
     }
 }

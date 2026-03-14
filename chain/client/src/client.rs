@@ -41,6 +41,7 @@ use near_chain::{
 };
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdatableClientConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
+use near_chunks::client::DecodedChunk;
 use near_chunks::logic::{create_partial_chunk, persist_chunk};
 use near_client_primitives::types::{BlockNotificationMessage, Error, StateSyncStatus, SyncStatus};
 use near_epoch_manager::EpochManagerAdapter;
@@ -61,7 +62,7 @@ use near_primitives::network::PeerId;
 use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
-    EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader, ShardChunkWithEncoding,
+    EncodedShardChunk, PartialEncodedChunk, ShardChunkHeader, ShardChunkWithEncoding,
     StateSyncInfo, StateSyncInfoV1,
 };
 use near_primitives::stateless_validation::ChunkProductionKey;
@@ -1395,7 +1396,7 @@ impl Client {
     pub fn on_chunk_completed(
         &mut self,
         partial_chunk: PartialEncodedChunk,
-        shard_chunk: Option<ShardChunk>,
+        decoded_chunk: DecodedChunk,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) {
         let chunk_header = partial_chunk.cloned_header();
@@ -1413,6 +1414,17 @@ impl Client {
             shard_layout.get_shard_index(shard_id).expect("Could not obtain shard index");
         self.block_production_info
             .record_chunk_collected(partial_chunk.height_created(), shard_index);
+
+        let shard_chunk = match decoded_chunk {
+            DecodedChunk::Valid(shard_chunk) => Some(shard_chunk),
+            DecodedChunk::None => None,
+            DecodedChunk::Invalid(encoded_chunk) => {
+                if !self.handle_invalid_chunk(encoded_chunk, &chunk_header) {
+                    return;
+                }
+                None
+            }
+        };
 
         // Filter the parts if we don't need full storage for untracked shards
         let filtered_partial_chunk = if !self.config.save_untracked_partial_chunks_parts
@@ -1436,34 +1448,29 @@ impl Client {
             .maybe_process_optimistic_block(Some(self.myself_sender.apply_chunks_done.clone()));
     }
 
-    /// Called asynchronously when the ShardsManager finishes processing a chunk but the chunk
-    /// is invalid (malicious chunk producer).
-    ///
-    /// Persists the chunk as evidence. Under SPICE, constructs an empty chunk
-    /// and feeds it through `on_chunk_completed` so block processing is not stalled.
-    pub fn on_invalid_chunk(
+    /// Saves the invalid chunk as evidence and checks whether block processing
+    /// should continue (SPICE replaces invalid chunks with empty execution).
+    /// Returns true if processing should continue, false to bail.
+    fn handle_invalid_chunk(
         &mut self,
         encoded_chunk: EncodedShardChunk,
-        partial_chunk: PartialEncodedChunk,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
-    ) {
-        let header = encoded_chunk.cloned_header();
-        let chunk_hash = header.chunk_hash();
+        chunk_header: &ShardChunkHeader,
+    ) -> bool {
+        let chunk_hash = encoded_chunk.chunk_hash();
+        let shard_id = chunk_header.shard_id();
         tracing::warn!(
             target: "client",
             ?chunk_hash,
-            height = header.height_created(),
-            shard_id = %header.shard_id(),
-            "received invalid chunk from shards manager",
+            height = chunk_header.height_created(),
+            shard_id = %shard_id,
+            "received invalid chunk, saving as evidence",
         );
-
         let mut update = self.chain.mut_chain_store().store_update();
         update.save_invalid_chunk(encoded_chunk);
         if let Err(err) = update.commit() {
             tracing::error!(target: "client", ?err, "error saving invalid chunk");
         }
-
-        let prev_block_hash = header.prev_block_hash();
+        let prev_block_hash = chunk_header.prev_block_hash();
         let protocol_version = match self
             .epoch_manager
             .get_epoch_id_from_prev_block(prev_block_hash)
@@ -1472,18 +1479,15 @@ impl Client {
             Ok(v) => v,
             Err(err) => {
                 tracing::error!(target: "client", ?err, "cannot determine protocol version for invalid chunk");
-                return;
+                return false;
             }
         };
         if !ProtocolFeature::Spice.enabled(protocol_version) {
-            return;
+            return false;
         }
-
         metrics::SPICE_INVALID_CHUNK_REPLACED_WITH_EMPTY_TOTAL
-            .with_label_values(&[&header.shard_id().to_string()])
+            .with_label_values(&[&shard_id.to_string()])
             .inc();
-        // Persist the partial chunk with original (malicious) parts to
-        // DBCol::PartialChunks so block-syncing peers can fetch them.
         // We intentionally do NOT store a ShardChunk in DBCol::Chunks:
         // the header commits to malicious content, so pairing it with an
         // empty body would break validate_chunk_proofs for any reader.
@@ -1498,7 +1502,7 @@ impl Client {
         //     point.
         //   - replay-archive: replay_chunk will bail. Fix by checking
         //     DBCol::InvalidChunks and skipping validation.
-        self.on_chunk_completed(partial_chunk, None, apply_chunks_done_sender);
+        true
     }
 
     pub fn sync_block_headers(
