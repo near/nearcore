@@ -9,6 +9,7 @@ pub enum Error {
     InvalidMerkleProof,
     InvalidChunkSignature,
     InvalidChunkHeader,
+    InvalidChunk,
     DuplicateChunkHeight,
     UnknownChunk,
     KnownPart,
