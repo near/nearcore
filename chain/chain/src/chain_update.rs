@@ -691,17 +691,6 @@ impl<'a> ChainUpdate<'a> {
             &shard_uid,
             new_chunk_extra.into(),
         );
-        let receipt_to_tx_ids: Vec<CryptoHash> =
-            apply_result.receipt_to_tx.iter().map(|(id, _)| *id).collect();
-        if !receipt_to_tx_ids.is_empty() {
-            self.chain_store_update.save_processed_receipt_ids(
-                block_header.hash(),
-                shard_id,
-                vec![],
-                receipt_to_tx_ids,
-            );
-        }
-        self.chain_store_update.save_receipt_to_tx(apply_result.receipt_to_tx);
         Ok(true)
     }
 
