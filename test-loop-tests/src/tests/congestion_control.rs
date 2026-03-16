@@ -48,9 +48,6 @@ fn slow_test_congestion_control_simple() {
 
     // Make sure the chain progresses for several epochs.
     env.node_runner(0).run_for_number_of_blocks(2 * epoch_length as usize);
-
-    // Give the test a chance to finish off remaining events in the event loop, which can
-    // be important for properly shutting down the nodes.
 }
 
 #[cfg_attr(not(feature = "test_features"), ignore)]
