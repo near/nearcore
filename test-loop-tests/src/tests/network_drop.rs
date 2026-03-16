@@ -40,6 +40,4 @@ fn network_drop_random_messages() {
     // run_until_head_height because dropped messages slow things down.
     env.node_runner(0)
         .run_until_head_height_with_timeout(TARGET_HEIGHT, Duration::seconds(TIMEOUT_SECONDS));
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }

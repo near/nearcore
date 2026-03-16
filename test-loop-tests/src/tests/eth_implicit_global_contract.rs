@@ -221,8 +221,6 @@ fn test_eth_implicit_global_contract_mainnet_upgrade() {
     env.test_loop.run_for(Duration::seconds(2));
     let after = env.validator().view_account_query(&receiver).unwrap().amount;
     assert_eq!(after.checked_sub(before).unwrap(), transfer_amount, "new account transfer failed");
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
 fn view_global_contract_hash(env: &TestLoopEnv, account: &AccountId) -> Option<CryptoHash> {

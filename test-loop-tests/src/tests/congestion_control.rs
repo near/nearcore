@@ -51,7 +51,6 @@ fn slow_test_congestion_control_simple() {
 
     // Give the test a chance to finish off remaining events in the event loop, which can
     // be important for properly shutting down the nodes.
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[cfg_attr(not(feature = "test_features"), ignore)]
@@ -132,8 +131,6 @@ fn slow_test_one_shard_congested() {
     )
     .unwrap_err();
     assert_matches!(tx_error, InvalidTxError::ShardStuck { shard_id, .. } if shard_id == Into::<u32>::into(shard2));
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 fn setup(

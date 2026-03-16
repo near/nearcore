@@ -144,8 +144,6 @@ fn run_test_chunk_validator_kickout(accounts: Vec<AccountId>, test_case: TestCas
         // Timeout at producing 5 epochs, approximately.
         Duration::seconds((5 * epoch_length) as i64),
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Checks that chunk validator with low endorsement stats is kicked out when the chunks it would validate are all dropped.

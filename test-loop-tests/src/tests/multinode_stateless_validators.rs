@@ -90,7 +90,6 @@ fn slow_test_stateless_validators_with_multi_test_loop() {
 
     // Give the test a chance to finish off remaining events in the event loop, which can
     // be important for properly shutting down the nodes.
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Returns the CurrentEpochValidatorInfo for each validator account for the given epoch id.

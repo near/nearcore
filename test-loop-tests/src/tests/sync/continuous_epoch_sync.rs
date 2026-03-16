@@ -1,5 +1,4 @@
 use crate::setup::builder::TestLoopBuilder;
-use near_async::time::Duration;
 use near_epoch_manager::epoch_sync::derive_epoch_sync_proof_from_last_block;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
@@ -36,8 +35,6 @@ fn test_epoch_sync_proof_update() {
         let head_hash = env.validator().head().last_block_hash;
         validate_epoch_sync_proof(&epoch_store, &head_hash);
     }
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
 // Test that epoch sync proof is correctly updated even in presence of forks.
@@ -93,8 +90,6 @@ fn test_epoch_sync_proof_update_with_forks() {
         let head = chain_store.head().unwrap();
         validate_epoch_sync_proof(&chain_store.epoch_store(), &head.last_block_hash);
     }
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
 // Test that a stale node (one that has data beyond genesis but is far behind the
@@ -142,7 +137,6 @@ fn test_epoch_sync_stale_node_triggers_reset() {
     );
 
     tracing::info!(node0_head, "stale node data reset test passed");
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
 // Test that a fresh node (genesis-only) can bootstrap via epoch sync using the
@@ -215,8 +209,6 @@ fn test_epoch_sync_bootstrap_fresh_node() {
         .map(|s| s.to_string())
         .collect::<Vec<_>>()
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
 // Validate that the epoch sync proof stored in epoch_store matches the one derived

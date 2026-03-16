@@ -302,8 +302,6 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
     let delayed_blocks_count = handler.read().delayed_blocks_count;
     assert!(delayed_blocks_count > 0, "no blocks were delayed");
     println!("Delayed {} blocks", delayed_blocks_count);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
 struct NetworkHandlingData {

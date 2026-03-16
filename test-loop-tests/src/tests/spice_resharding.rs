@@ -86,6 +86,4 @@ fn test_spice_certified_results_across_resharding() {
         certified_shard_layout,
         "expected the first block of the resharded epoch to have its last certified block in the previous epoch with different shard count"
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }

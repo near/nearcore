@@ -121,8 +121,6 @@ fn test_max_receipt_size() {
     );
     let sum_4_res = env.rpc_runner().run_tx(sum_4_tx, Duration::seconds(5));
     assert_eq!(sum_4_res, 10u64.to_le_bytes().to_vec());
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 // A function call will generate a new receipt. Size of this receipt will be equal to
@@ -212,8 +210,6 @@ fn test_max_receipt_size_promise_return() {
     env.rpc_runner().run_tx(assert_test_completed, Duration::seconds(5));
 
     assert_oversized_receipt_occurred(&env.validator());
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Return a value that is as large as max_receipt_size. The value will be wrapped in a data receipt
@@ -275,8 +271,6 @@ fn test_max_receipt_size_value_return() {
     env.rpc_runner().run_tx(assert_test_completed, Duration::seconds(5));
 
     assert_oversized_receipt_occurred(&env.validator());
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Yielding produces a new action receipt, resuming produces a new data receipt.
@@ -362,8 +356,6 @@ fn test_max_receipt_size_yield_resume() {
             )),
         }));
     assert_eq!(resume_receipt_res.status, expected_resume_status);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Assert that there was an incoming receipt with size above max_receipt_size

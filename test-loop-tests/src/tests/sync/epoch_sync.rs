@@ -189,7 +189,6 @@ fn slow_test_epoch_sync_from_genesis() {
     init_test_logger();
     let env = setup_initial_blockchain(20);
     let env = bootstrap_node_via_epoch_sync(env, 0);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 // Tests that after epoch syncing, we can use the new node to bootstrap another
@@ -202,7 +201,6 @@ fn slow_test_epoch_sync_from_another_epoch_synced_node() {
     let env = setup_initial_blockchain(20);
     let env = bootstrap_node_via_epoch_sync(env, 0);
     let env = bootstrap_node_via_epoch_sync(env, 4);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 #[test]
@@ -213,7 +211,6 @@ fn slow_test_epoch_sync_transaction_validity_period_one_epoch() {
     let env = setup_initial_blockchain(10);
     let env = bootstrap_node_via_epoch_sync(env, 0);
     let env = bootstrap_node_via_epoch_sync(env, 4);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 #[test]
@@ -224,7 +221,6 @@ fn slow_test_epoch_sync_with_expired_transactions() {
     let env = setup_initial_blockchain(1);
     let env = bootstrap_node_via_epoch_sync(env, 0);
     let env = bootstrap_node_via_epoch_sync(env, 4);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 impl TestLoopEnv {
@@ -311,7 +307,6 @@ fn slow_test_initial_epoch_sync_proof_sanity() {
     // it is to reduce the stateful-ness of the system so that we may modify the way the proof
     // is presented in the future (for e.g. bug fixes) without a DB migration.
     env.assert_epoch_sync_proof_existence_on_disk(0, false);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 #[test]
@@ -343,7 +338,6 @@ fn slow_test_epoch_sync_proof_sanity_from_epoch_synced_node() {
     // On the new node we should have a proof but missing headers for the old epochs.
     env.assert_epoch_sync_proof_existence_on_disk(4, true);
     env.assert_header_existence(4, env.shared_state.genesis.config.genesis_height + 1, false);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 #[test]
@@ -355,7 +349,6 @@ fn slow_test_epoch_sync_proof_sanity_shorter_transaction_validity_period() {
     let proof = env.derive_epoch_sync_proof(0);
     let final_head_height = env.chain_final_head_height(0);
     sanity_check_epoch_sync_proof(&proof, final_head_height, &env.shared_state.genesis.config, 1);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 #[test]
@@ -368,5 +361,4 @@ fn slow_test_epoch_sync_proof_sanity_zero_transaction_validity_period() {
     let final_head_height = env.chain_final_head_height(0);
     // The proof should still be for the previous epoch, for state sync purposes.
     sanity_check_epoch_sync_proof(&proof, final_head_height, &env.shared_state.genesis.config, 1);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }

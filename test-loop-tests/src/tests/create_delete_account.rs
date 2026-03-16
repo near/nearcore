@@ -115,8 +115,6 @@ fn test_instant_delete_account() {
         env.rpc_node().view_account_query(contract_account),
         Err(QueryError::UnknownAccount { .. })
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 fn as_action_receipt(receipt: &Receipt) -> VersionedActionReceipt<'_> {

@@ -219,8 +219,6 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
     let bandwidth_stats =
         analyze_workload_blocks(first_height.unwrap(), last_height.unwrap(), client);
 
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
-
     let summary = bandwidth_stats.summarize(&active_links);
     println!("{}", summary);
     summary
