@@ -153,14 +153,6 @@ impl TestLoopEnv {
         self.restart_node(identifier, node_state);
     }
 
-    /// Used to finish off remaining events that are still in the loop. This can be necessary if the
-    /// destructor of some components wait for certain condition to become true. Otherwise, the
-    /// destructors may end up waiting forever. This also helps avoid a panic when destructing
-    /// TestLoop itself, as it asserts that all events have been handled.
-    pub fn shutdown_and_drain_remaining_events(mut self, timeout: Duration) {
-        self.do_shutdown(timeout);
-    }
-
     fn do_shutdown(&mut self, timeout: Duration) {
         // State sync dumper is not an Actor, handle stopping separately.
         for node_data in &self.node_datas {
