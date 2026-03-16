@@ -1,3 +1,7 @@
+use crate::setup::builder::TestLoopBuilder;
+use crate::utils::account::{
+    create_account_ids, create_validators_spec, validators_spec_clients_with_rpc,
+};
 use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_client::QueryError;
@@ -8,11 +12,6 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{Balance, Gas};
 use near_primitives::views::FinalExecutionStatus;
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::{
-    create_account_ids, create_validators_spec, validators_spec_clients_with_rpc,
-};
 
 /// Tests that a receipt containing a single DeleteAccount action is processed
 /// as an instant receipt (in the same block as the parent receipt that created it).
@@ -37,8 +36,7 @@ fn test_instant_delete_account() {
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(clients)
-        .build()
-        .warmup();
+        .build();
 
     let [contract_account, beneficiary] = &user_accounts;
     let contract_signer = create_user_test_signer(contract_account);

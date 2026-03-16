@@ -1,8 +1,6 @@
-use near_async::time::Duration;
-use near_o11y::testonly::init_test_logger;
-
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_account_id;
+use near_o11y::testonly::init_test_logger;
 
 #[test]
 fn test_restart_node() {
@@ -15,8 +13,7 @@ fn test_restart_node() {
         .validators(4, 0)
         .epoch_length(epoch_length)
         .gc_num_epochs_to_keep(20)
-        .build()
-        .warmup();
+        .build();
 
     let stable_node_idx = 1;
     let restart_node_data = &env.node_datas[0];
@@ -40,16 +37,13 @@ fn test_restart_node() {
     env.node_runner(stable_node_idx).run_for_number_of_blocks(5);
 
     assert_eq!(env.node_for_account(&restart_account).head().height, env.node(1).head().height);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[test]
 fn test_add_node() {
     init_test_logger();
 
-    let mut env =
-        TestLoopBuilder::new().validators(4, 0).gc_num_epochs_to_keep(20).build().warmup();
+    let mut env = TestLoopBuilder::new().validators(4, 0).gc_num_epochs_to_keep(20).build();
 
     // Let the chain progress for a few blocks
     env.node_runner(0).run_for_number_of_blocks(10);
@@ -65,6 +59,4 @@ fn test_add_node() {
 
     // Verify the new node synced to the same height as a validator
     assert_eq!(env.node_for_account(&new_account_id).head().height, env.node(0).head().height);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

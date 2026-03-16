@@ -124,7 +124,6 @@ traits!(SecretKey, 32, |s| s.0.as_bytes(), "secret key");
 #[cfg(test)]
 mod tests {
     use super::*;
-
     use secp256k1::rand::rngs::OsRng;
     use serde::{Deserialize, Serialize};
     use serde_json::{from_str, to_string};

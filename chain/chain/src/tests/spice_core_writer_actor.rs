@@ -1,3 +1,11 @@
+use crate::spice_core::SpiceCoreReader;
+use crate::spice_core_writer_actor::{
+    ExecutionResultEndorsed, InvalidSpiceEndorsementError, ProcessChunkError, SpiceCoreWriterActor,
+};
+use crate::test_utils::{
+    get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
+};
+use crate::{BlockProcessingArtifact, Chain, Provenance};
 use assert_matches::assert_matches;
 use itertools::Itertools as _;
 use near_async::messaging::{IntoSender as _, Sender, noop};
@@ -24,15 +32,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
-
-use crate::spice_core::SpiceCoreReader;
-use crate::spice_core_writer_actor::{
-    ExecutionResultEndorsed, InvalidSpiceEndorsementError, ProcessChunkError, SpiceCoreWriterActor,
-};
-use crate::test_utils::{
-    get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
-};
-use crate::{BlockProcessingArtifact, Chain, Provenance};
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]

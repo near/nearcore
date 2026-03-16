@@ -1,3 +1,6 @@
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::drop_condition::DropCondition;
+use crate::utils::transactions::{TransactionRunner, execute_tx, get_shared_block_hash};
 use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::test_loop::data::TestLoopData;
@@ -19,11 +22,6 @@ use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Deref;
 use std::sync::Arc;
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::drop_condition::DropCondition;
-use crate::setup::env::TestLoopEnv;
-use crate::utils::transactions::{TransactionRunner, execute_tx, get_shared_block_hash};
 
 /// Check that when some shard misses 5 chunks in a row, we reject txs where
 /// receiver belongs to that shard due to congestion control before protocol
@@ -114,17 +112,18 @@ fn slow_test_tx_inclusion() {
     // Immediately start voting for the new protocol version
     let protocol_upgrade_schedule = ProtocolUpgradeVotingSchedule::new_immediate(new_protocol);
 
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder
+    let mut env = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .protocol_upgrade_schedule(protocol_upgrade_schedule)
         .clients(clients)
+        .delay_warmup()
         .build()
         .drop(DropCondition::ProtocolUpgradeChunkRange(new_protocol, old_chunk_range_to_drop))
         .drop(DropCondition::ProtocolUpgradeChunkRange(new_protocol, new_chunk_range_to_drop))
         .warmup();
 
-    let client_handle = node_datas[0].client_sender.actor_handle();
+    let client_handle = env.node_datas[0].client_sender.actor_handle();
     let last_observed_height = Cell::new(0);
 
     let is_new_height = |block_header: &BlockHeader| -> bool {
@@ -167,7 +166,7 @@ fn slow_test_tx_inclusion() {
         block_header.height() >= last_epoch_old_version_first_height.get() + 5
     };
 
-    test_loop.run_until(success_condition, Duration::seconds((4 * epoch_length) as i64));
+    env.test_loop.run_until(success_condition, Duration::seconds((4 * epoch_length) as i64));
 
     // Check that tx is rejected with ShardStuck error.
     let account0: AccountId = "account0".parse().unwrap();
@@ -179,13 +178,13 @@ fn slow_test_tx_inclusion() {
         account4.clone(),
         &account0_signer,
         Balance::from_near(1000),
-        get_shared_block_hash(&node_datas, &test_loop.data),
+        get_shared_block_hash(&env.node_datas, &env.test_loop.data),
     );
     let tx_exec_res = execute_tx(
-        &mut test_loop,
+        &mut env.test_loop,
         &rpc_id,
         TransactionRunner::new(tx, false),
-        &node_datas,
+        &env.node_datas,
         Duration::seconds(20),
     );
     assert_matches!(tx_exec_res, Err(InvalidTxError::ShardStuck { .. }));
@@ -216,7 +215,7 @@ fn slow_test_tx_inclusion() {
         block_header.height() >= new_version_first_height.get() + 10
     };
 
-    test_loop.run_until(success_condition, Duration::seconds((2 * epoch_length) as i64));
+    env.test_loop.run_until(success_condition, Duration::seconds((2 * epoch_length) as i64));
 
     // Check that tx is accepted with new protocol version.
     let tx = SignedTransaction::send_money(
@@ -225,17 +224,16 @@ fn slow_test_tx_inclusion() {
         account4,
         &account0_signer,
         Balance::from_near(1000),
-        get_shared_block_hash(&node_datas, &test_loop.data),
+        get_shared_block_hash(&env.node_datas, &env.test_loop.data),
     );
     let tx_exec_res = execute_tx(
-        &mut test_loop,
+        &mut env.test_loop,
         &rpc_id,
         TransactionRunner::new(tx, false),
-        &node_datas,
+        &env.node_datas,
         Duration::seconds(20),
     );
     assert_matches!(tx_exec_res, Ok(_));
 
-    TestLoopEnv { test_loop, node_datas, shared_state }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

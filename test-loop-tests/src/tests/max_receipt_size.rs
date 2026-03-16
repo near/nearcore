@@ -1,3 +1,7 @@
+use crate::setup::builder::TestLoopBuilder;
+use crate::utils::account::create_account_id;
+use crate::utils::node::TestLoopNode;
+use crate::utils::receipts::action_receipt_v1_to_latest;
 use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_chain::{ReceiptFilter, get_incoming_receipts_for_shard};
@@ -15,11 +19,6 @@ use near_primitives::types::{Balance, Gas};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 
-use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::create_account_id;
-use crate::utils::node::TestLoopNode;
-use crate::utils::receipts::action_receipt_v1_to_latest;
-
 /// Generating receipts larger than the size limit should cause the transaction to fail.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
@@ -32,8 +31,7 @@ fn test_max_receipt_size() {
     let mut env = TestLoopBuilder::new()
         .enable_rpc()
         .add_user_account(&account, Balance::from_near(10_000))
-        .build()
-        .warmup();
+        .build();
 
     // We can't test receipt limit by submitting large transactions because we hit the transaction size limit
     // before hitting the receipt size limit.
@@ -143,8 +141,7 @@ fn test_max_receipt_size_promise_return() {
     let mut env = TestLoopBuilder::new()
         .enable_rpc()
         .add_user_account(&account, Balance::from_near(10_000))
-        .build()
-        .warmup();
+        .build();
 
     // Deploy the test contract
     let deploy_contract_tx = SignedTransaction::deploy_contract(
@@ -235,8 +232,7 @@ fn test_max_receipt_size_value_return() {
     let mut env = TestLoopBuilder::new()
         .enable_rpc()
         .add_user_account(&account, Balance::from_near(10_000))
-        .build()
-        .warmup();
+        .build();
 
     // Deploy the test contract
     let deploy_contract_tx = SignedTransaction::deploy_contract(
@@ -294,8 +290,7 @@ fn test_max_receipt_size_yield_resume() {
     let mut env = TestLoopBuilder::new()
         .enable_rpc()
         .add_user_account(&account, Balance::from_near(10_000))
-        .build()
-        .warmup();
+        .build();
 
     // Deploy the test contract
     let deploy_contract_tx = SignedTransaction::deploy_contract(

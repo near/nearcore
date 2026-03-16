@@ -1,3 +1,4 @@
+use super::{Params, RpcFrom, RpcRequest};
 use near_async::messaging::AsyncSendError;
 use near_client_primitives::types::GetSplitStorageInfoError;
 use near_jsonrpc_primitives::{
@@ -5,8 +6,6 @@ use near_jsonrpc_primitives::{
     types::split_storage::{RpcSplitStorageInfoError, RpcSplitStorageInfoRequest},
 };
 use serde_json::Value;
-
-use super::{Params, RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcSplitStorageInfoRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {

@@ -1,9 +1,8 @@
-use std::net::SocketAddr;
-
 use crate::network_protocol::PeerAddr;
 use crate::rate_limits::messages_limits;
 use crate::stun;
 use near_async::time::Duration;
+use std::net::SocketAddr;
 
 /// Time to persist Accounts Id in the router without removing them in seconds.
 pub const TTL_ACCOUNT_ID_ROUTER: i64 = 60 * 60;

@@ -1,3 +1,4 @@
+use crate::utils::account::{create_account_ids, create_validators_spec, validators_spec_clients};
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
@@ -15,13 +16,10 @@ use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::network::PeerId;
-
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::version::get_protocol_upgrade_schedule;
 use near_store::adapter::StoreAdapter;
-
-use crate::utils::account::{create_account_ids, create_validators_spec, validators_spec_clients};
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use nearcore::NightshadeRuntime;
@@ -156,5 +154,7 @@ fn test_raw_client_test_loop_setup() {
     test_loop.data.register_actor("node0", client_actor, Some(client_adapter));
 
     test_loop.run_for(Duration::seconds(10));
-    test_loop.shutdown_and_drain_remaining_events(Duration::seconds(1));
+
+    test_loop.initiate_shutdown();
+    test_loop.run_for(Duration::seconds(1));
 }

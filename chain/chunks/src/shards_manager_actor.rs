@@ -258,6 +258,15 @@ impl RequestPool {
     }
 }
 
+#[cfg(feature = "test_features")]
+#[derive(Debug)]
+pub enum AdvDistributeChunksMode {
+    /// Only send chunk parts to the block producer for the chunk's height,
+    /// withholding from all other validators. Also drop responses to part
+    /// requests so other nodes cannot recover the withheld parts.
+    WithholdFromNonBlockProducer,
+}
+
 pub struct ShardsManagerActor {
     clock: time::Clock,
     /// Contains validator info about this node. This field is mutable and optional. Use with caution!
@@ -292,6 +301,9 @@ pub struct ShardsManagerActor {
     // header_head is much newer.
     chain_header_head: Tip,
     chunk_request_retry_period: Duration,
+
+    #[cfg(feature = "test_features")]
+    pub adv_distribute_chunks_mode: Option<AdvDistributeChunksMode>,
 }
 
 impl messaging::Actor for ShardsManagerActor {
@@ -327,6 +339,15 @@ impl HandlerWithContext<ShardsManagerRequestFromNetwork> for ShardsManagerActor 
         }
     }
 }
+
+#[cfg(feature = "test_features")]
+impl Handler<AdvDistributeChunksMode> for ShardsManagerActor {
+    fn handle(&mut self, msg: AdvDistributeChunksMode) {
+        tracing::info!(target: "adversary", mode = ?msg, "setting adversary distribute chunks mode");
+        self.adv_distribute_chunks_mode = Some(msg);
+    }
+}
+
 pub fn start_shards_manager(
     actor_system: ActorSystem,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -406,6 +427,8 @@ impl ShardsManagerActor {
             chain_head: initial_chain_head,
             chain_header_head: initial_chain_header_head,
             chunk_request_retry_period,
+            #[cfg(feature = "test_features")]
+            adv_distribute_chunks_mode: None,
         }
     }
 
@@ -884,6 +907,14 @@ impl ShardsManagerActor {
         route_back: CryptoHash,
         me: Option<&AccountId>,
     ) {
+        #[cfg(feature = "test_features")]
+        if matches!(
+            self.adv_distribute_chunks_mode,
+            Some(AdvDistributeChunksMode::WithholdFromNonBlockProducer)
+        ) {
+            // In adversarial mode, do not respond to PartialEncodedChunkRequest messages.
+            return;
+        }
         let _span = tracing::debug_span!(
             target: "chunks",
             "process_partial_encoded_chunk_request",
@@ -2127,6 +2158,19 @@ impl ShardsManagerActor {
                 );
 
             if Some(&to_whom) != me {
+                #[cfg(feature = "test_features")]
+                if matches!(
+                    self.adv_distribute_chunks_mode,
+                    Some(AdvDistributeChunksMode::WithholdFromNonBlockProducer)
+                ) {
+                    let block_producer = self
+                        .epoch_manager
+                        .get_block_producer(&epoch_id, chunk_header.height_created())
+                        .unwrap();
+                    if to_whom != block_producer {
+                        continue;
+                    }
+                }
                 self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::PartialEncodedChunkMessage {
                         account_id: to_whom.clone(),
@@ -2321,6 +2365,10 @@ impl PartialEncodedChunkResponseSource {
 
 #[cfg(test)]
 mod test {
+    use super::*;
+    use crate::DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON;
+    use crate::logic::persist_chunk;
+    use crate::test_utils::*;
     use assert_matches::assert_matches;
     use near_async::messaging::IntoSender;
     use near_async::time::FakeClock;
@@ -2334,11 +2382,6 @@ mod test {
     use near_primitives::validator_signer::EmptyValidatorSigner;
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;
-
-    use super::*;
-    use crate::DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON;
-    use crate::logic::persist_chunk;
-    use crate::test_utils::*;
 
     fn mutable_validator_signer(account_id: &AccountId) -> MutableValidatorSigner {
         MutableConfigValue::new(

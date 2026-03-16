@@ -1,6 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
-use crate::setup::env::TestLoopEnv;
 use crate::utils::validators::get_epoch_all_validators;
 use itertools::Itertools;
 use near_async::test_loop::data::TestLoopData;
@@ -82,6 +81,7 @@ fn run_test_chunk_validator_kickout(accounts: Vec<AccountId>, test_case: TestCas
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
+        .delay_warmup()
         .build();
 
     let env = match &test_case {
@@ -96,11 +96,12 @@ fn run_test_chunk_validator_kickout(accounts: Vec<AccountId>, test_case: TestCas
             env.drop(DropCondition::EndorsementsFrom(account_id.clone()))
         }
     };
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = env.warmup();
+    let mut env = env.warmup();
 
     // Run chain until our targeted chunk validator is (not) kicked out.
-    let client_handle = node_datas[0].client_sender.actor_handle();
-    let initial_validators = get_epoch_all_validators(&test_loop.data.get(&client_handle).client);
+    let client_handle = env.node_datas[0].client_sender.actor_handle();
+    let initial_validators =
+        get_epoch_all_validators(&env.test_loop.data.get(&client_handle).client);
     assert_eq!(initial_validators.len(), NUM_ACCOUNTS);
     assert!(initial_validators.contains(&test_case.selected_account().to_string()));
     let success_condition = |test_loop_data: &mut TestLoopData| -> bool {
@@ -138,14 +139,13 @@ fn run_test_chunk_validator_kickout(accounts: Vec<AccountId>, test_case: TestCas
         }
     };
 
-    test_loop.run_until(
+    env.test_loop.run_until(
         success_condition,
         // Timeout at producing 5 epochs, approximately.
         Duration::seconds((5 * epoch_length) as i64),
     );
 
-    TestLoopEnv { test_loop, node_datas, shared_state }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Checks that chunk validator with low endorsement stats is kicked out when the chunks it would validate are all dropped.

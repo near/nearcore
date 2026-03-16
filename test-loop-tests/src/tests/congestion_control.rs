@@ -173,8 +173,7 @@ fn setup(
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
-        .build()
-        .warmup();
+        .build();
     (env, rpc_id.clone())
 }
 

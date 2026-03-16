@@ -1,11 +1,10 @@
 use crate::commands::*;
 use crate::congestion_control::CongestionControlCmd;
 use crate::contract_accounts::ContractAccountFilter;
+use crate::latest_witnesses::StateWitnessCmd;
 use crate::replay_headers::replay_headers;
 use crate::rocksdb_stats::get_rocksdb_stats;
 use crate::trie_iteration_benchmark::TrieIterationBenchmarkCmd;
-
-use crate::latest_witnesses::StateWitnessCmd;
 use near_chain::types::RuntimeStorageConfig;
 use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
 use near_epoch_manager::EpochManager;

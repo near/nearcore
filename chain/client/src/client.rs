@@ -320,6 +320,7 @@ impl Client {
             chain.genesis().clone(),
             multi_spawner.epoch_sync,
             config.epoch_sync.clone(),
+            config.archive,
             &chain.chain_store.store(),
         );
         let header_sync = HeaderSync::new(
@@ -337,6 +338,7 @@ impl Client {
             config.block_fetch_horizon,
             config.archive,
             config.state_sync_enabled,
+            config.sync_max_block_requests,
         );
 
         let state_sync = StateSync::new(

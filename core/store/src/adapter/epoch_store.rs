@@ -1,3 +1,6 @@
+use super::{StoreAdapter, StoreUpdateAdapter, StoreUpdateHolder};
+use crate::db::COMPRESSED_EPOCH_SYNC_PROOF_KEY;
+use crate::{DBCol, Store, StoreUpdate, metrics};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
@@ -8,11 +11,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::utils::compression::CompressedData;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
-
-use crate::db::COMPRESSED_EPOCH_SYNC_PROOF_KEY;
-use crate::{DBCol, Store, StoreUpdate, metrics};
-
-use super::{StoreAdapter, StoreUpdateAdapter, StoreUpdateHolder};
 
 #[derive(Clone)]
 pub struct EpochStoreAdapter {

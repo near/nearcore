@@ -1,5 +1,4 @@
 use crate::setup::builder::TestLoopBuilder;
-use crate::setup::env::TestLoopEnv;
 use crate::utils::validators::get_epoch_all_validators;
 use itertools::Itertools;
 use near_async::time::Duration;
@@ -48,14 +47,13 @@ fn slow_test_fix_validator_stake_threshold() {
         .add_user_accounts_simple(&accounts, initial_balance)
         .build();
 
-    let TestLoopEnv { test_loop, node_datas, shared_state } = test_loop_builder
+    let env = test_loop_builder
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(clients)
-        .build()
-        .warmup();
+        .build();
 
-    let client = &test_loop.data.get(&node_datas[0].client_sender.actor_handle()).client;
+    let client = &env.test_loop.data.get(&env.node_datas[0].client_sender.actor_handle()).client;
 
     let head = client.chain.head().unwrap();
     let epoch_id =
@@ -79,6 +77,5 @@ fn slow_test_fix_validator_stake_threshold() {
         total_stake.checked_div(62_499).unwrap().as_near()
     );
 
-    TestLoopEnv { test_loop, node_datas, shared_state }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

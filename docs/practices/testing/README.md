@@ -151,9 +151,6 @@ cluster with multiple nodes, and doing RPC calls.
 See `pytest/tests/sanity/deploy_call_smart_contract.py` to see how contracts can
 be deployed, or transactions called.
 
-See `pytest/tests/sanity/staking1.py` to see how staking transactions can be
-issued.
-
 See `pytest/tests/sanity/state_sync.py` to see how to delay the launch of the
 whole cluster by using `init_cluster` instead of `start_cluster`, and then
 launching nodes manually.

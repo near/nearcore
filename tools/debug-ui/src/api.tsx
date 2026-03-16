@@ -112,7 +112,16 @@ export type SyncStatusView =
     | 'AwaitingPeers'
     | 'NoSync'
     | {
-        EpochSync: { epoch_ord: number };
+        EpochSync:
+            | 'NotStarted'
+            | {
+                  InProgress: {
+                      source_peer_height: number;
+                      source_peer_id: string;
+                      attempt_time: string;
+                  };
+              }
+            | 'Done';
     }
     | {
         HeaderSync: {

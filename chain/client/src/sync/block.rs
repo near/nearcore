@@ -41,6 +41,9 @@ pub struct BlockSync {
 
     /// Whether State Sync should be enabled when a node falls far enough behind.
     state_sync_enabled: bool,
+
+    /// Maximum number of blocks to request in a single batch.
+    max_block_requests: usize,
 }
 
 impl BlockSync {
@@ -50,6 +53,7 @@ impl BlockSync {
         block_fetch_horizon: BlockHeightDelta,
         archive: bool,
         state_sync_enabled: bool,
+        max_block_requests: usize,
     ) -> Self {
         BlockSync {
             clock,
@@ -58,6 +62,7 @@ impl BlockSync {
             block_fetch_horizon,
             archive,
             state_sync_enabled,
+            max_block_requests,
         }
     }
 
@@ -69,7 +74,6 @@ impl BlockSync {
         chain: &Chain,
         highest_height: BlockHeight,
         highest_height_peers: &[HighestHeightPeerInfo],
-        max_block_requests: usize,
     ) -> Result<bool, near_chain::Error> {
         let _span =
             tracing::debug_span!(target: "sync", "run_sync", sync_type = "BlockSync").entered();
@@ -82,7 +86,7 @@ impl BlockSync {
                 return Ok(true);
             }
             BlockSyncDue::RequestBlock => {
-                self.block_sync(chain, highest_height_peers, max_block_requests)?;
+                self.block_sync(chain, highest_height_peers)?;
             }
             BlockSyncDue::WaitForBlock => {
                 // Do nothing.
@@ -182,7 +186,6 @@ impl BlockSync {
         &mut self,
         chain: &Chain,
         highest_height_peers: &[HighestHeightPeerInfo],
-        max_block_requests: usize,
     ) -> Result<(), near_chain::Error> {
         // Update last request now because we want to update it whether or not
         // the rest of the logic succeeds.
@@ -209,7 +212,7 @@ impl BlockSync {
         // blocks that we don't have yet.
         let mut next_hash = reference_hash;
         let mut num_requests = 0;
-        for _ in 0..max_block_requests {
+        for _ in 0..self.max_block_requests {
             next_hash = match chain.chain_store().get_next_block_hash(&next_hash) {
                 Ok(hash) => hash,
                 Err(e) => match e {
@@ -277,13 +280,38 @@ impl BlockSync {
         Ok(())
     }
 
-    /// Checks if we should run block sync and ask for more full blocks.
-    /// Block sync is due either if the chain head has changed since the last request
-    /// or if time since the last request is > BLOCK_REQUEST_TIMEOUT_MS
+    /// Request blocks from peers if a request is due (head changed or
+    /// timeout elapsed). Does not check whether state sync is needed
+    /// and does not update `SyncStatus`.
+    pub fn run_v2(
+        &mut self,
+        chain: &Chain,
+        highest_height_peers: &[HighestHeightPeerInfo],
+    ) -> Result<(), near_chain::Error> {
+        let head = chain.head()?;
+        match self.block_request_due(&head) {
+            BlockSyncDue::RequestBlock => {
+                self.block_sync(chain, highest_height_peers)?;
+            }
+            BlockSyncDue::WaitForBlock => {}
+            BlockSyncDue::StateSync => unreachable!("block_request_due never returns StateSync"),
+        }
+        Ok(())
+    }
+
+    /// Returns whether block sync should request new blocks, wait, or
+    /// yield to state sync. Checks `state_needed` first, then delegates
+    /// to `block_request_due()` for the timeout/head-freshness check.
     fn block_sync_due(&self, head: &Tip, header_head: &Tip) -> BlockSyncDue {
         if self.check_state_needed(head, header_head) {
             return BlockSyncDue::StateSync;
         }
+        self.block_request_due(head)
+    }
+
+    /// Returns whether a new block request is due based on head freshness
+    /// and request timeout. Does not check whether state sync is needed.
+    fn block_request_due(&self, head: &Tip) -> BlockSyncDue {
         match &self.last_request {
             None => {
                 // Request the next block.

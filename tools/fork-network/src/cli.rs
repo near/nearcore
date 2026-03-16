@@ -1464,9 +1464,8 @@ impl ForkNetworkCommand {
         }
 
         // Create probe accounts (2 per shard) for the RPC probe.
-        // These are separate from benchmark accounts and stored in their own file.
-        // TODO: create one access key per RPC node on each probe account so that
-        // write probes on multiple RPC nodes don't collide on nonces.
+        // Each probe account gets one access key per RPC node so that write
+        // probes on multiple RPC nodes don't collide on nonces.
         if num_rpcs > 0 {
             let state_roots_map: HashMap<ShardUId, StateRoot> = shard_uids
                 .iter()
@@ -1483,7 +1482,10 @@ impl ForkNetworkCommand {
                 StorageMutator::new(runtime.get_tries(), update_state, shard_layout.clone())?;
 
             let probe_prefixes = Self::shard_account_prefixes(shard_layout);
-            let mut probe_account_infos: Vec<AccountData> = Vec::new();
+
+            // per_rpc_accounts[rpc_idx] = vec of AccountData for that RPC's file.
+            let mut per_rpc_accounts: Vec<Vec<AccountData>> =
+                (0..num_rpcs).map(|_| Vec::new()).collect();
 
             for (shard_idx, account_prefix) in probe_prefixes.into_iter().enumerate() {
                 for probe_idx in 0..2 {
@@ -1507,32 +1509,45 @@ impl ForkNetworkCommand {
                         ),
                     )?;
 
-                    let key_seed = format!("{account_id}_rpc_0");
-                    let secret_key = SecretKey::from_seed(near_crypto::KeyType::ED25519, &key_seed);
-                    let public_key = secret_key.public_key();
+                    // Create one access key per RPC node.
+                    for rpc_idx in 0..num_rpcs {
+                        let key_seed = format!("{account_id}_rpc_{rpc_idx}");
+                        let secret_key =
+                            SecretKey::from_seed(near_crypto::KeyType::ED25519, &key_seed);
+                        let public_key = secret_key.public_key();
 
-                    storage_mutator.set_access_key(
-                        shard_idx,
-                        account_id.clone(),
-                        public_key.clone(),
-                        AccessKey::full_access(),
-                    )?;
+                        storage_mutator.set_access_key(
+                            shard_idx,
+                            account_id.clone(),
+                            public_key.clone(),
+                            AccessKey::full_access(),
+                        )?;
 
-                    probe_account_infos.push(AccountData {
-                        account_id: account_id.clone(),
-                        public_key: public_key.to_string(),
-                        secret_key: secret_key.to_string(),
-                        nonce: 0,
-                    });
+                        per_rpc_accounts[rpc_idx as usize].push(AccountData {
+                            account_id: account_id.clone(),
+                            public_key: public_key.to_string(),
+                            secret_key: secret_key.to_string(),
+                            nonce: 0,
+                        });
+                    }
                 }
             }
 
             state_roots = storage_mutator.commit()?;
 
-            let probe_accounts_path = accounts_path.join("probe_accounts.json");
-            let probe_file = File::create(&probe_accounts_path)?;
-            let probe_writer = BufWriter::new(probe_file);
-            serde_json::to_writer(probe_writer, &probe_account_infos)?;
+            // Write one probe accounts file per RPC node.
+            for rpc_idx in 0..num_rpcs {
+                let filename = format!("probe_accounts_rpc_{rpc_idx}.json");
+                let path = accounts_path.join(&filename);
+                let file = File::create(&path)?;
+                let writer = BufWriter::new(file);
+                serde_json::to_writer(writer, &per_rpc_accounts[rpc_idx as usize])?;
+            }
+            tracing::info!(
+                num_probe_accounts = per_rpc_accounts[0].len(),
+                num_rpcs,
+                "created probe accounts with per-rpc access keys"
+            );
         }
 
         Ok(state_roots)

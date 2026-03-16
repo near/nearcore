@@ -1,5 +1,5 @@
-use std::collections::HashMap;
-
+use crate::setup::builder::TestLoopBuilder;
+use crate::utils::transactions::execute_money_transfers;
 use itertools::Itertools;
 use near_async::messaging::Handler;
 use near_async::time::Duration;
@@ -9,10 +9,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, EpochId, EpochReference};
 use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo};
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::env::TestLoopEnv;
-use crate::utils::transactions::execute_money_transfers;
+use std::collections::HashMap;
 
 const NUM_ACCOUNTS: usize = 20;
 const NUM_SHARDS: u64 = 4;
@@ -57,27 +54,24 @@ fn slow_test_stateless_validators_with_multi_test_loop() {
     let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
-        .build()
-        .warmup();
+    let mut env =
+        builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
 
     // Capture the initial validator info in the first epoch.
-    let client_handle = node_datas[0].client_sender.actor_handle();
-    let chain = &test_loop.data.get(&client_handle).client.chain;
+    let client_handle = env.node_datas[0].client_sender.actor_handle();
+    let chain = &env.test_loop.data.get(&client_handle).client.chain;
     let initial_epoch_id = chain.head().unwrap().epoch_id;
 
     let non_validator_accounts = accounts.iter().skip(NUM_VALIDATORS).cloned().collect_vec();
-    execute_money_transfers(&mut test_loop, &node_datas, &non_validator_accounts).unwrap();
+    execute_money_transfers(&mut env.test_loop, &env.node_datas, &non_validator_accounts).unwrap();
 
     // Capture the id of the epoch we will check for the correct validator information in assert_validator_info.
-    let prev_epoch_id = test_loop.data.get(&client_handle).client.chain.head().unwrap().epoch_id;
+    let prev_epoch_id =
+        env.test_loop.data.get(&client_handle).client.chain.head().unwrap().epoch_id;
     assert_ne!(prev_epoch_id, initial_epoch_id);
 
     // Run the chain until it transitions to a different epoch then prev_epoch_id.
-    test_loop.run_until(
+    env.test_loop.run_until(
         |test_loop_data| {
             test_loop_data.get(&client_handle).client.chain.head().unwrap().epoch_id
                 != prev_epoch_id
@@ -86,9 +80,9 @@ fn slow_test_stateless_validators_with_multi_test_loop() {
     );
 
     // Check the validator information for the epoch with the prev_epoch_id.
-    let view_client_handle = node_datas[0].view_client_sender.actor_handle();
+    let view_client_handle = env.node_datas[0].view_client_sender.actor_handle();
     assert_validator_info(
-        test_loop.data.get_mut(&view_client_handle),
+        env.test_loop.data.get_mut(&view_client_handle),
         prev_epoch_id,
         initial_epoch_id,
         accounts.clone(),
@@ -96,8 +90,7 @@ fn slow_test_stateless_validators_with_multi_test_loop() {
 
     // Give the test a chance to finish off remaining events in the event loop, which can
     // be important for properly shutting down the nodes.
-    TestLoopEnv { test_loop, node_datas, shared_state }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Returns the CurrentEpochValidatorInfo for each validator account for the given epoch id.

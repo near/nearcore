@@ -1,11 +1,9 @@
-use near_async::time::Duration;
+use crate::setup::builder::TestLoopBuilder;
+use crate::utils::node::TestLoopNode;
 use near_client::NetworkAdversarialMessage;
 use near_client::client_actor::AdvProduceChunksMode;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::types::BlockHeight;
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::utils::node::TestLoopNode;
 
 /// This test demonstrates how to trigger missing chunk at a certain height.
 /// Requires "test_features" feature to be enabled.
@@ -13,7 +11,7 @@ use crate::utils::node::TestLoopNode;
 fn missing_chunk_example_test() {
     init_test_logger();
     let missing_chunk_heigh = 8;
-    let mut env = TestLoopBuilder::new().num_shards(2).chunk_producer_per_shard().build().warmup();
+    let mut env = TestLoopBuilder::new().num_shards(2).chunk_producer_per_shard().build();
 
     let mut validator_runner = env.node_runner(0);
     // Note: waiting for height H results in chunk already produced for H+1.
@@ -36,8 +34,6 @@ fn missing_chunk_example_test() {
     assert_eq!(get_chunk_mask(&validator_node, missing_chunk_heigh - 1), vec![true, true]);
     assert_eq!(get_chunk_mask(&validator_node, missing_chunk_heigh), vec![false, true]);
     assert_eq!(get_chunk_mask(&validator_node, missing_chunk_heigh + 1), vec![true, true]);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
 #[test]
@@ -45,8 +41,7 @@ fn missing_chunk_window_example_test() {
     init_test_logger();
 
     let num_shards = 2;
-    let mut env =
-        TestLoopBuilder::new().num_shards(num_shards).chunk_producer_per_shard().build().warmup();
+    let mut env = TestLoopBuilder::new().num_shards(num_shards).chunk_producer_per_shard().build();
 
     let window_size = 5;
     let skip_length = 2;
@@ -107,8 +102,6 @@ fn missing_chunk_window_example_test() {
         shard_missing_chunk_states[1].last_missing_height,
         "expected to have different heights with missing chunk with high probability"
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
 fn get_chunk_mask(node: &TestLoopNode<'_>, block_height: BlockHeight) -> Vec<bool> {

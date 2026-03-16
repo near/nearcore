@@ -1,8 +1,10 @@
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-
+use super::drop_condition::{DropCondition, TestLoopChunksStorage};
+use crate::utils::peer_manager_actor::{
+    ChunkEndorsementSenderForTestLoopNetwork, ClientSenderForTestLoopNetwork,
+    SpiceDataDistributorSenderForTestLoopNetwork, TestLoopNetworkBlockInfo,
+    TestLoopNetworkSharedState, TestLoopPeerManagerActor, TxRequestHandleSenderForTestLoopNetwork,
+    ViewClientSenderForTestLoopNetwork,
+};
 use near_async::messaging::{IntoMultiSender, IntoSender, Sender};
 use near_async::test_loop::data::TestLoopDataHandle;
 use near_async::test_loop::sender::TestLoopSender;
@@ -21,6 +23,7 @@ use near_client::{
 };
 use near_jsonrpc::ViewClientSenderForRpc;
 use near_jsonrpc::client::{JsonRpcClient, RpcTransport};
+use near_jsonrpc::sharded_rpc::ShardedRpcPool;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::PartialWitnessSenderForNetwork;
@@ -34,16 +37,12 @@ use near_store::archive::cloud_storage::CloudStorage;
 use near_store::test_utils::TestNodeStorage;
 use nearcore::state_sync::StateSyncDumpHandle;
 use parking_lot::Mutex;
+use parking_lot::RwLock;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tempfile::TempDir;
-
-use crate::utils::peer_manager_actor::{
-    ChunkEndorsementSenderForTestLoopNetwork, ClientSenderForTestLoopNetwork,
-    SpiceDataDistributorSenderForTestLoopNetwork, TestLoopNetworkBlockInfo,
-    TestLoopNetworkSharedState, TestLoopPeerManagerActor, TxRequestHandleSenderForTestLoopNetwork,
-    ViewClientSenderForTestLoopNetwork,
-};
-
-use super::drop_condition::{DropCondition, TestLoopChunksStorage};
 
 const NETWORK_DELAY: Duration = Duration::milliseconds(10);
 
@@ -100,6 +99,7 @@ pub struct NodeExecutionData {
     pub cloud_storage_sender: TestLoopDataHandle<Option<Arc<CloudStorage>>>,
     pub cloud_archival_writer_handle: TestLoopDataHandle<Option<CloudArchivalWriterHandle>>,
     pub jsonrpc_transport: Arc<dyn RpcTransport>,
+    pub sharded_rpc_pool: Arc<RwLock<ShardedRpcPool>>,
     /// Extra blocks of delay between consensus head and execution head.
     /// Set by delay_endorsements_propagation to account for certification delay in timeouts.
     /// It is Arc<_> so updates are visible through clones.

@@ -273,6 +273,14 @@ impl TestLoopV2 {
         self.pending_denylist.clone()
     }
 
+    /// Returns true if the given identifier has been denylisted (e.g. via
+    /// a shutdown signal). Checks both the committed denylist and the pending
+    /// buffer that hasn't been drained yet.
+    pub fn is_denylisted(&self, identifier: &str) -> bool {
+        self.denylisted_identifiers.contains(identifier)
+            || self.pending_denylist.lock().iter().any(|id| id == identifier)
+    }
+
     /// Returns a clock that will always return the current virtual time.
     pub fn clock(&self) -> Clock {
         self.clock.clock()
@@ -443,14 +451,16 @@ impl TestLoopV2 {
         }
     }
 
-    pub fn shutdown_and_drain_remaining_events(mut self, maximum_duration: Duration) {
-        self.shutting_down.store(true, Ordering::Relaxed);
-        self.run_for(maximum_duration);
-        // Implicitly dropped here, which asserts that no more events are remaining.
-    }
-
     pub fn run_instant(&mut self) {
         self.run_for(Duration::ZERO);
+    }
+
+    pub fn initiate_shutdown(&mut self) {
+        self.shutting_down.store(true, Ordering::Relaxed);
+    }
+
+    pub fn is_shutting_down(&self) -> bool {
+        self.shutting_down.load(Ordering::Relaxed)
     }
 }
 

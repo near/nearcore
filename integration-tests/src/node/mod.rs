@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 pub use crate::node::process_node::ProcessNode;
 pub use crate::node::runtime_node::RuntimeNode;
 pub use crate::node::thread_node::ThreadNode;
@@ -20,6 +18,7 @@ use near_vm_runner::ContractCode;
 use nearcore::NearConfig;
 use nearcore::config::{Config, create_localnet_configs_from_seeds};
 use parking_lot::RwLock;
+use std::sync::Arc;
 use testlib::runtime_utils::{alice_account, bob_account};
 
 mod process_node;

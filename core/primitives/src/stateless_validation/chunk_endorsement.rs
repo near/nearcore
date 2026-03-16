@@ -1,5 +1,4 @@
-use std::fmt::Debug;
-
+use super::ChunkProductionKey;
 use crate::sharding::{ChunkHash, ShardChunkHeader};
 use crate::types::{EpochId, SignatureDifferentiator};
 use crate::validator_signer::ValidatorSigner;
@@ -7,8 +6,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::types::{AccountId, BlockHeight, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
-
-use super::ChunkProductionKey;
+use std::fmt::Debug;
 
 /// The endorsement of a chunk by a chunk validator. By providing this, a
 /// chunk validator has verified that the chunk state witness is correct.
@@ -17,7 +15,7 @@ use super::ChunkProductionKey;
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum ChunkEndorsement {
-    V1 = 0, // Deprecated
+    // V1 was deprecated
     V2(ChunkEndorsementV2) = 1,
 }
 
@@ -42,7 +40,6 @@ impl ChunkEndorsement {
 
     pub fn chunk_production_key(&self) -> ChunkProductionKey {
         match self {
-            ChunkEndorsement::V1 => unreachable!("V1 chunk endorsement is deprecated"),
             ChunkEndorsement::V2(v2) => ChunkProductionKey {
                 shard_id: v2.metadata.shard_id,
                 epoch_id: v2.metadata.epoch_id,
@@ -53,28 +50,24 @@ impl ChunkEndorsement {
 
     pub fn account_id(&self) -> &AccountId {
         match self {
-            ChunkEndorsement::V1 => unreachable!("V1 chunk endorsement is deprecated"),
             ChunkEndorsement::V2(v2) => &v2.metadata.account_id,
         }
     }
 
     pub fn chunk_hash(&self) -> ChunkHash {
         match self {
-            ChunkEndorsement::V1 => unreachable!("V1 chunk endorsement is deprecated"),
             ChunkEndorsement::V2(v2) => v2.inner.chunk_hash.clone(),
         }
     }
 
     pub fn signature(&self) -> Signature {
         match self {
-            ChunkEndorsement::V1 => unreachable!("V1 chunk endorsement is deprecated"),
             ChunkEndorsement::V2(v2) => v2.signature.clone(),
         }
     }
 
     pub fn verify(&self, public_key: &PublicKey) -> bool {
         match self {
-            ChunkEndorsement::V1 => unreachable!("V1 chunk endorsement is deprecated"),
             ChunkEndorsement::V2(v2) => v2.verify(public_key),
         }
     }
@@ -92,14 +85,12 @@ impl ChunkEndorsement {
     /// Returns the account ID of the chunk validator that generated this endorsement.
     pub fn validator_account(&self) -> &AccountId {
         match self {
-            ChunkEndorsement::V1 => unreachable!("V1 chunk endorsement is deprecated"),
             ChunkEndorsement::V2(v2) => &v2.metadata.account_id,
         }
     }
 
     pub fn shard_id(&self) -> ShardId {
         match self {
-            ChunkEndorsement::V1 => unreachable!("V1 chunk endorsement is deprecated"),
             ChunkEndorsement::V2(v2) => v2.metadata.shard_id,
         }
     }

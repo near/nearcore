@@ -1,6 +1,6 @@
-use std::collections::BTreeMap;
-use std::sync::Arc;
-
+use crate::setup::builder::TestLoopBuilder;
+use crate::utils::account::{create_validators_spec, validators_spec_clients};
+use crate::utils::setups::derive_new_epoch_config_from_boundary;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_o11y::testonly::init_test_logger;
@@ -8,10 +8,8 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
 use near_primitives::version::PROTOCOL_VERSION;
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::{create_validators_spec, validators_spec_clients};
-use crate::utils::setups::derive_new_epoch_config_from_boundary;
+use std::collections::BTreeMap;
+use std::sync::Arc;
 
 #[test]
 fn resharding_example_test() {
@@ -46,8 +44,7 @@ fn resharding_example_test() {
         .genesis(genesis)
         .clients(clients)
         .epoch_config_store(epoch_config_store)
-        .build()
-        .warmup();
+        .build();
 
     let epoch_manager = env.validator().client().epoch_manager.clone();
     let epoch_id = env.validator().head().epoch_id;
@@ -63,6 +60,4 @@ fn resharding_example_test() {
 
     let epoch_id = env.validator().head().epoch_id;
     assert_eq!(epoch_manager.get_shard_layout(&epoch_id).unwrap(), new_shard_layout);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }

@@ -1314,6 +1314,32 @@ impl PeerManagerActor {
                 );
                 NetworkResponses::NoResponse
             }
+            NetworkRequests::SpiceChunkContractAccesses(targets, accesses) => {
+                for target in targets {
+                    self.state.send_message_to_account(
+                        &self.clock,
+                        &target,
+                        T1MessageBody::SpiceChunkContractAccesses(accesses.clone()).into(),
+                    );
+                }
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::SpiceContractCodeRequest(target, request) => {
+                self.state.send_message_to_account(
+                    &self.clock,
+                    &target,
+                    T1MessageBody::SpiceContractCodeRequest(request).into(),
+                );
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::SpiceContractCodeResponse(target, response) => {
+                self.state.send_message_to_account(
+                    &self.clock,
+                    &target,
+                    T1MessageBody::SpiceContractCodeResponse(response).into(),
+                );
+                NetworkResponses::NoResponse
+            }
         }
     }
 

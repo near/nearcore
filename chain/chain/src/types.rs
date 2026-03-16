@@ -1,7 +1,3 @@
-use std::collections::HashSet;
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time::{Duration, Utc};
 use near_chain_configs::GenesisConfig;
@@ -53,6 +49,9 @@ use near_vm_runner::ContractRuntimeCache;
 use node_runtime::PostStateReadyCallback;
 use node_runtime::SignedValidPeriodTransactions;
 use num_rational::Rational32;
+use std::collections::HashSet;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use tracing::instrument;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -349,7 +348,6 @@ pub struct ApplyChunkBlockContext {
     pub block_type: BlockType,
     pub height: BlockHeight,
     pub prev_block_hash: CryptoHash,
-    pub last_final_block_hash: CryptoHash,
     pub block_timestamp: u64,
     pub gas_price: Balance,
     pub random_seed: CryptoHash,
@@ -368,7 +366,6 @@ impl ApplyChunkBlockContext {
             block_type: BlockType::Normal,
             height: header.height(),
             prev_block_hash: *header.prev_hash(),
-            last_final_block_hash: *header.last_final_block(),
             block_timestamp: header.raw_timestamp(),
             gas_price,
             random_seed: *header.random_value(),
@@ -667,6 +664,7 @@ pub struct LatestKnown {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use near_async::time::{Clock, Utc};
     use near_primitives::block::Approval;
     use near_primitives::genesis::{genesis_block, genesis_chunks};
@@ -676,8 +674,6 @@ mod tests {
     use near_primitives::transaction::{ExecutionMetadata, ExecutionOutcome, ExecutionStatus};
     use near_primitives::version::PROTOCOL_VERSION;
     use std::sync::Arc;
-
-    use super::*;
 
     #[test]
     fn test_block_produce() {

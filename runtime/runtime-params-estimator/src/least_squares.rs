@@ -113,9 +113,8 @@ fn split_pos_neg(num: Ratio<i128>) -> (Ratio<u64>, Ratio<u64>) {
 
 #[cfg(test)]
 mod tests {
-    use num_traits::ToPrimitive;
-
     use super::*;
+    use num_traits::ToPrimitive;
 
     #[track_caller]
     fn check_least_squares_method(xs: &[u64], ys: &[u64], expected: (f64, f64, &[f64])) {

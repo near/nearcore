@@ -2,14 +2,13 @@ pub mod delegate;
 
 // This type used to be defined here, then moved to core primitives to give access to the vm
 // runtime. Reexporting it here avoids breakage on depending crates.
-pub use near_primitives_core::global_contract::GlobalContractIdentifier;
-
 use crate::{
     deterministic_account_id::DeterministicAccountStateInit, trie_key::GlobalContractCodeIdentifier,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::account::AccessKey;
+pub use near_primitives_core::global_contract::GlobalContractIdentifier;
 use near_primitives_core::types::{AccountId, Balance, Gas};
 use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;

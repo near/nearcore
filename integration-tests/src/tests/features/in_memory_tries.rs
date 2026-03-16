@@ -1,3 +1,5 @@
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use near_async::messaging::CanSend;
 use near_async::time::{FakeClock, Utc};
 use near_chain::{Block, Provenance};
@@ -19,9 +21,6 @@ use near_store::{ShardUId, TrieConfig};
 use rand::seq::IteratorRandom;
 use rand::{Rng, thread_rng};
 use std::collections::{HashMap, HashSet};
-
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
 
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.

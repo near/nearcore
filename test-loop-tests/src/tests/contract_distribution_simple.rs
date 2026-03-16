@@ -1,12 +1,3 @@
-use itertools::Itertools;
-use near_async::time::Duration;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_o11y::testonly::init_test_logger;
-use near_primitives::gas::Gas;
-use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, Balance};
-use near_vm_runner::ContractCode;
-
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::rpc_account_id;
@@ -16,6 +7,14 @@ use crate::utils::contract_distribution::{
 };
 use crate::utils::get_node_head_height;
 use crate::utils::transactions::{make_account, make_accounts};
+use itertools::Itertools;
+use near_async::time::Duration;
+use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_o11y::testonly::init_test_logger;
+use near_primitives::gas::Gas;
+use near_primitives::shard_layout::ShardLayout;
+use near_primitives::types::{AccountId, Balance};
+use near_vm_runner::ContractCode;
 
 const EPOCH_LENGTH: u64 = 10;
 const GENESIS_HEIGHT: u64 = 1000;
@@ -281,10 +280,5 @@ fn setup(accounts: &Vec<AccountId>) -> TestLoopEnv {
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
 
-    builder
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
-        .build()
-        .warmup()
+    builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build()
 }

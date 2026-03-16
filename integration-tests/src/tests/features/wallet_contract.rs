@@ -1,3 +1,6 @@
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
+use crate::utils::process_blocks::produce_blocks_from_height;
 use assert_matches::assert_matches;
 use aurora_engine_transactions::EthTransactionKind;
 use aurora_engine_transactions::eip_2930::Transaction2930;
@@ -30,10 +33,6 @@ use near_wallet_contract::{
 use node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
 use node_runtime::config::total_prepaid_gas;
 use testlib::runtime_utils::{alice_account, bob_account};
-
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
-use crate::utils::process_blocks::produce_blocks_from_height;
 
 /// Try to process tx in the next blocks, check that tx and all generated receipts succeed.
 /// Return height of the next block.

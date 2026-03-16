@@ -1,13 +1,3 @@
-pub use near_client_primitives::types::{
-    Error, GetBlock, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree, GetChunk,
-    GetClientConfig, GetExecutionOutcome, GetExecutionOutcomeResponse,
-    GetExecutionOutcomesForBlock, GetGasPrice, GetMaintenanceWindows, GetNetworkInfo,
-    GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetShardChunk, GetSplitStorageInfo,
-    GetStateChanges, GetStateChangesInBlock, GetStateChangesWithCauseInBlock,
-    GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfo, GetValidatorOrdered, Query,
-    QueryError, Status, StatusResponse, SyncStatus, TxStatus, TxStatusError,
-};
-
 pub use crate::chunk_endorsement_handler::{
     ChunkEndorsementHandlerActor, spawn_chunk_endorsement_handler_actor,
 };
@@ -28,6 +18,15 @@ pub use near_chain::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,
 };
 pub use near_client_primitives::debug::DebugStatus;
+pub use near_client_primitives::types::{
+    Error, GetBlock, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree, GetChunk,
+    GetClientConfig, GetExecutionOutcome, GetExecutionOutcomeResponse,
+    GetExecutionOutcomesForBlock, GetGasPrice, GetMaintenanceWindows, GetNetworkInfo,
+    GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetShardChunk, GetSplitStorageInfo,
+    GetStateChanges, GetStateChangesInBlock, GetStateChangesWithCauseInBlock,
+    GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfo, GetValidatorOrdered, Query,
+    QueryError, Status, StatusResponse, SyncStatus, TxStatus, TxStatusError,
+};
 pub use near_network::client::{
     BlockApproval, BlockResponse, ProcessTxRequest, ProcessTxResponse, SetNetworkInfo,
 };

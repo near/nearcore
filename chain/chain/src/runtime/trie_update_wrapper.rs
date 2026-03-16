@@ -1,9 +1,8 @@
-use std::cell::RefCell;
-use std::collections::HashSet;
-
 use near_primitives::trie_key::{SmallKeyVec, TrieKey};
 use near_store::trie::AccessOptions;
 use near_store::{StorageError, TrieAccess, TrieUpdate};
+use std::cell::RefCell;
+use std::collections::HashSet;
 
 /// Wraps TrieUpdate and estimates recorded storage proof size for all reads as if the reads were
 /// done on a real Trie, not TrieUpdate.
@@ -135,8 +134,8 @@ impl TrieAccess for TrieUpdateWitnessSizeWrapper {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
+    use super::TrieUpdateWitnessSizeWrapper;
+    use crate::runtime::trie_update_wrapper::TRIE_INSERT_BASE_SIZE_ESTIMATION;
     use near_crypto::{ED25519PublicKey, PublicKey};
     use near_primitives::account::AccessKey;
     use near_primitives::shard_layout::ShardLayout;
@@ -145,10 +144,7 @@ mod tests {
     use near_store::test_utils::{TestTriesBuilder, test_populate_trie};
     use near_store::trie::AccessOptions;
     use near_store::{Trie, TrieAccess, TrieUpdate};
-
-    use crate::runtime::trie_update_wrapper::TRIE_INSERT_BASE_SIZE_ESTIMATION;
-
-    use super::TrieUpdateWitnessSizeWrapper;
+    use std::str::FromStr;
 
     fn make_wrapper_for_test(
         initial_trie: Vec<(TrieKey, Vec<u8>)>,

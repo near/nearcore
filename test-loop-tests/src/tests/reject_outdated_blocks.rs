@@ -1,5 +1,4 @@
 use crate::setup::builder::TestLoopBuilder;
-use crate::setup::env::TestLoopEnv;
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain::{Block, Error, Provenance};
@@ -61,15 +60,14 @@ fn slow_test_reject_blocks_with_outdated_protocol_version() {
         .add_user_accounts_simple(&accounts, initial_balance)
         .build();
 
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = test_loop_builder
+    let mut env = test_loop_builder
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(clients)
-        .build()
-        .warmup();
+        .build();
 
-    let client = &test_loop.data.get(&node_datas[0].client_sender.actor_handle()).client;
-    let rpc_handler = &test_loop.data.get(&node_datas[0].rpc_handler_sender.actor_handle());
+    let client = &env.test_loop.data.get(&env.node_datas[0].client_sender.actor_handle()).client;
+    let rpc_handler = &env.test_loop.data.get(&env.node_datas[0].rpc_handler_sender.actor_handle());
 
     let height = client.chain.head().unwrap().height;
     let latest_block = client.chain.get_block_by_height(height).unwrap();
@@ -77,7 +75,8 @@ fn slow_test_reject_blocks_with_outdated_protocol_version() {
     let _ = rpc_handler.process_tx(tx, false, false);
 
     // check if block is rejected due to the outdated version
-    let client = &mut test_loop.data.get_mut(&node_datas[0].client_sender.actor_handle()).client;
+    let client =
+        &mut env.test_loop.data.get_mut(&env.node_datas[0].client_sender.actor_handle()).client;
     let mut old_version_block = client.produce_block(height + 1).unwrap().unwrap();
     std::sync::Arc::make_mut(&mut old_version_block)
         .mut_header()
@@ -85,6 +84,5 @@ fn slow_test_reject_blocks_with_outdated_protocol_version() {
     let res = client.process_block_test(old_version_block.clone().into(), Provenance::NONE);
     assert!(matches!(res, Err(Error::InvalidProtocolVersion)));
 
-    TestLoopEnv { test_loop, node_datas, shared_state }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

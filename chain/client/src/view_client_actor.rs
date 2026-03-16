@@ -13,7 +13,6 @@ use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, get_epoch_block_producers_view,
     retrieve_headers,
 };
-
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, ProtocolConfigView};
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_client_primitives::types::{

@@ -9,17 +9,15 @@ use crate::runner::VMKindExt;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
 use parking_lot::Mutex;
-
+#[cfg(not(windows))]
+use rand::Rng as _;
 use std::any::Any;
 use std::collections::HashMap;
 use std::fmt;
-use std::num::NonZeroUsize;
-use std::sync::Arc;
-
-#[cfg(not(windows))]
-use rand::Rng as _;
 #[cfg(not(windows))]
 use std::io::{Read, Write};
+use std::num::NonZeroUsize;
+use std::sync::Arc;
 
 #[cfg(any(feature = "wasmtime_vm", all(feature = "near_vm", target_arch = "x86_64")))]
 // FIXME(ProtocolSchema): this isn't really part of the protocol schema??
@@ -253,7 +251,7 @@ impl FilesystemContractRuntimeCache {
         StorePath: AsRef<std::path::Path> + ?Sized,
         ContractCachePath: AsRef<std::path::Path> + ?Sized,
     {
-        Self::with_memory_cache(home_dir, store_path, contract_cache_path, 0)
+        Self::with_memory_cache(home_dir, store_path, contract_cache_path, 0, None)
     }
 
     /// When setting up a cache of compiled contracts, also set-up a `size` element in-memory
@@ -269,6 +267,7 @@ impl FilesystemContractRuntimeCache {
         store_path: Option<&StorePath>,
         contract_cache_path: &ContractCachePath,
         memcache_expected_item_count: usize,
+        memcache_metrics_identifier: Option<String>,
     ) -> std::io::Result<Self>
     where
         StorePath: AsRef<std::path::Path> + ?Sized,
@@ -309,13 +308,26 @@ impl FilesystemContractRuntimeCache {
         // The constant is chosen somewhat arbitrarily.
         let expected_cache_item_count = memcache_expected_item_count * 4;
 
+        let any_cache = AnyCache::new(
+            expected_cache_item_count,
+            memcache_expected_item_count as u64 * AVG_COMPILED_CONTRACT_WEIGHT,
+        );
+        #[cfg(feature = "metrics")]
+        let any_cache = if let Some(id) = memcache_metrics_identifier {
+            any_cache.with_metrics_identifier(id)
+        } else {
+            any_cache
+        };
+        #[cfg(not(feature = "metrics"))]
+        debug_assert!(
+            memcache_metrics_identifier.is_none(),
+            "memcache_metrics_identifier is only supported with the `metrics` feature"
+        );
+
         Ok(Self {
             state: Arc::new(FilesystemContractRuntimeCacheState {
                 dir,
-                any_cache: AnyCache::new(
-                    expected_cache_item_count,
-                    memcache_expected_item_count as u64 * AVG_COMPILED_CONTRACT_WEIGHT,
-                ),
+                any_cache,
                 test_temp_dir: None,
             }),
         })
@@ -575,6 +587,10 @@ impl<K: std::hash::Hash + Eq, V> LruWeightedCache<K, V> {
 /// Used primarily for storage of artifacts on a per-VM basis.
 pub struct AnyCache {
     cache: Option<Mutex<LruWeightedCache<CryptoHash, Box<AnyCacheValue>>>>,
+    /// Optional identifier for this cache instance, used as a label when reporting metrics.
+    /// Metrics are only reported when this is set.
+    #[cfg(feature = "metrics")]
+    identifier: Option<String>,
 }
 
 impl AnyCache {
@@ -585,7 +601,16 @@ impl AnyCache {
             } else {
                 None
             },
+            #[cfg(feature = "metrics")]
+            identifier: None,
         }
+    }
+
+    #[cfg(feature = "metrics")]
+    #[cfg_attr(windows, allow(dead_code))]
+    fn with_metrics_identifier(mut self, identifier: String) -> Self {
+        self.identifier = Some(identifier);
+        self
     }
 
     pub fn clear(&self) {
@@ -593,7 +618,9 @@ impl AnyCache {
             let mut cache_guard = cache.lock();
             cache_guard.clear();
             #[cfg(feature = "metrics")]
-            crate::metrics::set_compiled_contract_cache_metrics(0, 0);
+            if let Some(id) = &self.identifier {
+                crate::metrics::set_compiled_contract_cache_metrics(id, 0, 0);
+            }
         }
     }
 
@@ -663,7 +690,13 @@ impl AnyCache {
         let mut locked = cache.lock();
         locked.put(key, weight, generated);
         #[cfg(feature = "metrics")]
-        crate::metrics::set_compiled_contract_cache_metrics(locked.len(), locked.current_weight());
+        if let Some(id) = &self.identifier {
+            crate::metrics::set_compiled_contract_cache_metrics(
+                id,
+                locked.len(),
+                locked.current_weight(),
+            );
+        }
         Ok(result)
     }
 

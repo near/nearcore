@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::errors::ErrorKind;
 use futures::StreamExt;
 use near_async::messaging::CanSendAsync;
@@ -9,6 +7,7 @@ use near_client_primitives::types::QueryError;
 use near_crypto::PublicKey;
 use near_primitives::types::{AccountId, Balance, BlockReference};
 use near_primitives::views::{AccessKeyPermissionView, QueryRequest, QueryResponseKind};
+use std::collections::HashMap;
 
 /// Map from account ID to per-key gas key balances.
 pub(crate) struct GasKeyInfo(HashMap<AccountId, AccountGasKeysBalance>);

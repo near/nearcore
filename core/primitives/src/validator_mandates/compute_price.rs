@@ -105,9 +105,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use rand::{Rng, SeedableRng};
-
     use super::*;
+    use rand::{Rng, SeedableRng};
 
     // Test case where the target number of mandates is larger than the total stake.
     // This should never happen in production, but nearcore tests sometimes have

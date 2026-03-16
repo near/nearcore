@@ -268,9 +268,8 @@ impl<T: ReedSolomonEncoderDeserialize> ReedSolomonPartsTracker<T> {
 
 #[cfg(test)]
 mod tests {
-    use assert_matches::assert_matches;
-
     use super::*;
+    use assert_matches::assert_matches;
 
     #[test]
     fn reed_solomon_decode_returns_error_with_large_encoded_length() {

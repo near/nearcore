@@ -1,3 +1,4 @@
+use crate::env::test_env::TestEnv;
 use near_async::messaging::CanSend;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::NetworkRequests;
@@ -5,8 +6,6 @@ use near_network::types::PartialEncodedChunkRequestMsg;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::hash::CryptoHash;
 use std::collections::HashSet;
-
-use crate::env::test_env::TestEnv;
 
 #[test]
 fn test_request_chunk_restart() {

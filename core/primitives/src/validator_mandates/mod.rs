@@ -281,17 +281,15 @@ impl ShuffledShardIds {
 
 #[cfg(test)]
 mod tests {
-    use near_crypto::PublicKey;
-    use near_primitives_core::types::Balance;
-    use rand::SeedableRng;
-    use rand_chacha::ChaCha8Rng;
-
+    use super::{ChunkValidatorStakeAssignment, ShuffledShardIds, ValidatorMandates};
     use crate::{
         types::ValidatorId, types::validator_stake::ValidatorStake,
         validator_mandates::ValidatorMandatesConfig,
     };
-
-    use super::{ChunkValidatorStakeAssignment, ShuffledShardIds, ValidatorMandates};
+    use near_crypto::PublicKey;
+    use near_primitives_core::types::Balance;
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
 
     /// Returns a new, fixed RNG to be used only in tests. Using a fixed RNG facilitates testing as
     /// it makes outcomes based on that RNG deterministic.
