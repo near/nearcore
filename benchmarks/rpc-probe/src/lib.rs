@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
+use tracing::Span;
 
 pub mod metrics;
 
@@ -182,7 +183,51 @@ fn send_tx_metric_label(wait_until: &TxExecutionStatus) -> &'static str {
     }
 }
 
+/// Read-only probe: fetch the current gas price.
+#[tracing::instrument(target = "rpc-probe", skip_all, fields(method = "gas_price"))]
+async fn probe_gas_price(client: Arc<JsonRpcClient>) {
+    let start = std::time::Instant::now();
+    let result = client.gas_price(None).await;
+    record_probe("gas_price", start, &result);
+}
+
+/// Read-only probe: query account state and cache the latest block hash.
+#[tracing::instrument(
+    target = "rpc-probe",
+    skip(client, hash_cache),
+    fields(method = "view_account")
+)]
+async fn probe_view_account(
+    client: Arc<JsonRpcClient>,
+    account_id: AccountId,
+    hash_cache: Arc<Mutex<Option<CryptoHash>>>,
+) {
+    let start = std::time::Instant::now();
+    let result = client
+        .query(RpcQueryRequest {
+            block_reference: BlockReference::Finality(Finality::None),
+            request: QueryRequest::ViewAccount { account_id },
+        })
+        .await;
+    if let Ok(ref resp) = result {
+        *hash_cache.lock() = Some(resp.block_hash);
+    }
+    record_probe("view_account", start, &result);
+}
+
 /// Fire-and-forget write probe: send a native transfer and measure e2e latency.
+#[tracing::instrument(
+    target = "rpc-probe",
+    skip_all,
+    fields(
+        method = "send_tx",
+        sender_id = %sender.account_id,
+        receiver_id = %receiver_id,
+        wait_until = ?wait_until,
+        tx_hash = tracing::field::Empty,
+        nonce = tracing::field::Empty,
+    )
+)]
 async fn probe_native_transfer(
     client: Arc<JsonRpcClient>,
     sender: Arc<WriteProbeAccount>,
@@ -199,6 +244,8 @@ async fn probe_native_transfer(
         TRANSFER_AMOUNT,
         block_hash,
     );
+    Span::current().record("tx_hash", tracing::field::display(signed_tx.get_hash()));
+    Span::current().record("nonce", nonce);
 
     let label = send_tx_metric_label(&wait_until);
     let start = std::time::Instant::now();
@@ -318,30 +365,11 @@ async fn probe_loop(
 
         // Spawn each probe as a fire-and-forget task so slow probes don't
         // block the ticker or delay each other.
-        let gas_client = client.clone();
-        tokio::spawn(async move {
-            let start = std::time::Instant::now();
-            let result = gas_client.gas_price(None).await;
-            record_probe("gas_price", start, &result);
-        });
+        tokio::spawn(probe_gas_price(client.clone()));
 
         if !accounts.is_empty() {
             let account_id = accounts[account_idx % accounts.len()].account_id.clone();
-            let view_client = client.clone();
-            let hash_cache = latest_block_hash.clone();
-            tokio::spawn(async move {
-                let start = std::time::Instant::now();
-                let result = view_client
-                    .query(RpcQueryRequest {
-                        block_reference: BlockReference::Finality(Finality::None),
-                        request: QueryRequest::ViewAccount { account_id },
-                    })
-                    .await;
-                if let Ok(ref resp) = result {
-                    *hash_cache.lock() = Some(resp.block_hash);
-                }
-                record_probe("view_account", start, &result);
-            });
+            tokio::spawn(probe_view_account(client.clone(), account_id, latest_block_hash.clone()));
             account_idx = account_idx.wrapping_add(1);
         }
 
@@ -352,31 +380,23 @@ async fn probe_loop(
             if let Some(block_hash) = *latest_block_hash.lock() {
                 let sender_opt = wa[write_idx % wa.len()].clone();
                 let receiver_opt = wa[(write_idx + 1) % wa.len()].account_id.clone();
-                let client_opt = client.clone();
-                tokio::spawn(async move {
-                    probe_native_transfer(
-                        client_opt,
-                        sender_opt,
-                        receiver_opt,
-                        block_hash,
-                        TxExecutionStatus::ExecutedOptimistic,
-                    )
-                    .await;
-                });
+                tokio::spawn(probe_native_transfer(
+                    client.clone(),
+                    sender_opt,
+                    receiver_opt,
+                    block_hash,
+                    TxExecutionStatus::ExecutedOptimistic,
+                ));
 
                 let sender_final = wa[(write_idx + 1) % wa.len()].clone();
                 let receiver_final = wa[(write_idx + 2) % wa.len()].account_id.clone();
-                let client_final = client.clone();
-                tokio::spawn(async move {
-                    probe_native_transfer(
-                        client_final,
-                        sender_final,
-                        receiver_final,
-                        block_hash,
-                        TxExecutionStatus::Final,
-                    )
-                    .await;
-                });
+                tokio::spawn(probe_native_transfer(
+                    client.clone(),
+                    sender_final,
+                    receiver_final,
+                    block_hash,
+                    TxExecutionStatus::Final,
+                ));
 
                 write_idx = write_idx.wrapping_add(2);
             }
