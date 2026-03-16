@@ -221,7 +221,8 @@ impl OrphanBlockPool {
         let mut queue = vec![(parent_hash, 0)];
         while let Some((prev_hash, depth)) = queue.pop() {
             if depth == target_depth {
-                break;
+                // Don't process the children of this block, their depth will be above target_depth.
+                continue;
             }
             if let Some(block_hashes) = self.prev_hash_idx.get(&prev_hash) {
                 for hash in block_hashes {
