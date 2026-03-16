@@ -1329,16 +1329,18 @@ mod tests {
 /// Adding new variants is safe for protocol but may cause deserialization
 /// failures if the node rolls back to an older binary. Recovery via epoch sync.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ReceiptSource {
-    Local,
-    Delayed,
-    Instant,
+    Local = 0,
+    Delayed = 1,
+    Instant = 2,
     /// Marker for receipt IDs that only need their `ReceiptToTx` index entry
     /// garbage-collected. Used for receipts whose `ReceiptToTx` mapping was saved
     /// on the source shard but that don't appear in `OutcomeIds` (e.g. data
     /// receipts, PromiseResume, cross-shard receipts on a source-only node,
     /// GlobalContractDistribution receipts).
-    ReceiptToTxGc,
+    ReceiptToTxGc = 3,
 }
 
 /// A processed receipt together with its source. Runtime-only struct, not serialized to DB.
@@ -1350,8 +1352,10 @@ pub struct ProcessedReceipt {
 
 /// Lightweight metadata about a processed receipt, stored instead of the full receipt.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ProcessedReceiptMetadata {
-    V0(ProcessedReceiptMetadataV0),
+    V0(ProcessedReceiptMetadataV0) = 0,
 }
 
 impl ProcessedReceiptMetadata {
@@ -1381,9 +1385,11 @@ pub struct ProcessedReceiptMetadataV0 {
 /// Describes the origin of a receipt: either created directly from a transaction,
 /// or spawned as a child of another receipt.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ReceiptOrigin {
-    FromTransaction(ReceiptOriginTransaction),
-    FromReceipt(ReceiptOriginReceipt),
+    FromTransaction(ReceiptOriginTransaction) = 0,
+    FromReceipt(ReceiptOriginReceipt) = 1,
 }
 
 /// A receipt that was created directly from a signed transaction.
@@ -1403,8 +1409,10 @@ pub struct ReceiptOriginReceipt {
 /// Versioned mapping from receipt_id to its origin information.
 /// Stored in `DBCol::ReceiptToTx` to enable reverse lookups from receipt to originating transaction.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ReceiptToTxInfo {
-    V1(ReceiptToTxInfoV1),
+    V1(ReceiptToTxInfoV1) = 0,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
