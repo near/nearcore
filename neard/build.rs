@@ -141,5 +141,10 @@ fn try_main() -> Result<()> {
 
     println!("cargo:rustc-env=NEARD_FEATURES={}", get_enabled_features());
 
+    let profile = std::env::var("PROFILE").unwrap_or_default();
+    if profile == "release" {
+        println!("cargo:rustc-env=NEAR_RELEASE_BUILD=release");
+    }
+
     Ok(())
 }
