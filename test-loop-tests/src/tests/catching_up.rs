@@ -272,8 +272,6 @@ fn test_catchup_random_single_part_sync_common(
             }
         }
     }
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
 /// Makes sure that consecutive blocks are produced by 12 validators split into three epochs.
@@ -370,8 +368,6 @@ fn slow_test_catchup_sanity_blocks_produced() {
         },
         Duration::seconds(120),
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
 #[test]
@@ -466,6 +462,4 @@ fn slow_test_all_chunks_accepted() {
         },
         Duration::seconds(last_height as i64),
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }

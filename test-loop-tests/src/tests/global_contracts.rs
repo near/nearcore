@@ -50,8 +50,6 @@ fn test_global_contract_deploy_insufficient_balance_for_storage() {
             index: _
         }))
     );
-
-    env.shutdown();
 }
 
 #[test]
@@ -68,8 +66,6 @@ fn test_use_non_existent_global_contract() {
             index: _
         }))
     );
-
-    env.shutdown();
 }
 
 #[test]
@@ -107,8 +103,6 @@ fn test_global_contract_update() {
         // containing the function we call here
         env.assert_call_global_contract_success(account.clone(), account.clone());
     }
-
-    env.shutdown();
 }
 
 #[test]
@@ -162,8 +156,6 @@ fn test_deploy_and_call_global_contract(deploy_mode: GlobalContractDeployMode) {
             baseline_storage_usage + env.contract.code().len() as StorageUsage
         );
     }
-
-    env.shutdown();
 }
 
 fn test_global_contract_rpc_calls(deploy_mode: GlobalContractDeployMode) {
@@ -182,8 +174,6 @@ fn test_global_contract_rpc_calls(deploy_mode: GlobalContractDeployMode) {
 
     let view_global_code_result = env.view_global_contract_code(identifier);
     assert_eq!(view_global_code_result.hash, *env.contract.hash());
-
-    env.shutdown();
 }
 
 #[test]
@@ -212,8 +202,6 @@ fn test_use_global_contract_delegate(deploy_mode: GlobalContractDeployMode) {
     // Using relayer's account to trigger function call since user account has
     // zero balance and cannot pay for the transaction.
     env.assert_call_global_contract_success(relayer_account, user_account);
-
-    env.shutdown();
 }
 
 struct GlobalContractsTestEnv {
@@ -524,9 +512,5 @@ impl GlobalContractsTestEnv {
 
     fn runtime_query(&self, query: QueryRequest) -> QueryResponse {
         self.env.rpc_node().runtime_query(query).unwrap()
-    }
-
-    fn shutdown(self) {
-        self.env.shutdown_and_drain_remaining_events(Duration::seconds(10));
     }
 }

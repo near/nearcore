@@ -151,8 +151,6 @@ fn test_spice_chain() {
         assert_eq!(got_balance, want_balance);
         assert_ne!(*balance_change, 0);
     }
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[test]
@@ -202,8 +200,6 @@ fn test_spice_chain_with_delayed_execution() {
     let view_account_result =
         env.node_for_account(&producer_account).view_account_query(&receiver).unwrap();
     assert_eq!(view_account_result.amount, Balance::from_near(1));
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Sets up a spice env with delayed endorsements so execution lags behind
@@ -265,8 +261,6 @@ fn test_spice_rpc_get_block_by_finality() {
     let block_doomslug =
         view_client.handle(GetBlock(BlockReference::Finality(Finality::DoomSlug))).unwrap();
     assert!(block_doomslug.header.height <= execution_head.height);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[test]
@@ -317,8 +311,6 @@ fn test_spice_rpc_unknown_block_past_execution_head() {
         matches!(query_result, Err(QueryError::UnknownBlock { .. })),
         "query past execution_head should be unknown block, got: {query_result:?}"
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[test]
@@ -345,8 +337,6 @@ fn test_spice_garbage_collection() {
 
     // We want to make sure that gc runs at least once and it doesn't trigger any asserts.
     env.rpc_runner().run_until(|node| node.tail() >= epoch_length, Duration::seconds(20));
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 // TODO(spice-resharding): Add a test for witness GC during resharding.
@@ -400,8 +390,6 @@ fn test_spice_garbage_collection_witnesses() {
     let node = env.node(0);
     let chain_store = &node.client().chain.chain_store;
     assert_witness_gc_invariant(chain_store, &tracked_shards);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Verifies witness GC invariant: witness exists iff block is uncertified.
@@ -494,8 +482,6 @@ fn test_restart_rpc_node() {
 
     let view_account_result = env.rpc_node().view_account_query(&receiver).unwrap();
     assert_eq!(view_account_result.amount, Balance::from_near(1));
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[test]
@@ -576,8 +562,6 @@ fn test_restart_producer_node() {
     let view_account_result =
         env.node_for_account(&restart_account).view_account_query(&receiver).unwrap();
     assert_eq!(view_account_result.amount, Balance::from_near(1));
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[test]
@@ -678,8 +662,6 @@ fn test_restart_validator_node() {
     let view_account_result =
         env.node_for_account(&producer).view_account_query(&receiver).unwrap();
     assert_eq!(view_account_result.amount, Balance::from_near(1));
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[cfg(feature = "test_features")]
@@ -812,7 +794,6 @@ fn test_spice_chain_with_missing_chunks() {
         assert_eq!(got_balance, want_balance);
         assert_ne!(*balance_change, 0);
     }
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Verifies that validator-only nodes (non-chunk-producers) do not emit
@@ -861,8 +842,6 @@ fn test_spice_validator_only_does_not_distribute_witness_and_receipts() {
         0,
         "validator-only nodes must not distribute witnesses or receipt proofs"
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Verifies that validator-only nodes (non-chunk-producers) still send
@@ -906,8 +885,6 @@ fn test_spice_validator_only_sends_endorsements() {
         endorsement_count.load(Ordering::SeqCst) > 0,
         "validator-only nodes must send chunk endorsements"
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 fn schedule_send_money_txs(

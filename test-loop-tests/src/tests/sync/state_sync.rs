@@ -179,7 +179,6 @@ fn test_state_sync_simple_two_node() {
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
     assert_shard_shuffling_happened(&env, &clients);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
 // 5 validators, 4 shards, no chunk drops. More validators than shards means some shards
@@ -214,7 +213,6 @@ fn test_state_sync_simple_five_node() {
     let target = env.node(0).head().height;
     assert_all_nodes_advanced(&env, target - 1);
     assert_shard_shuffling_happened(&env, &clients);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
 // 2 validators, 4 shards, no extra accounts. With only validator + "near" accounts,
@@ -243,7 +241,6 @@ fn test_state_sync_empty_shard() {
         .build();
     env.node_runner(0).run_for_number_of_blocks(40);
     assert_shard_shuffling_happened(&env, &clients);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
 // Drop shard 0's chunk at offset 0 (first block of each epoch). The sync hash requires
@@ -284,7 +281,6 @@ fn test_state_sync_miss_chunks_first_block() {
     let target = env.node(0).head().height;
     assert_all_nodes_advanced(&env, target - 1);
     assert_shard_shuffling_happened(&env, &clients);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
 // Drop shards 0 and 1 chunks at offset 1 (second block of each epoch). Similar to
@@ -322,7 +318,6 @@ fn test_state_sync_miss_chunks_second_block() {
     let target = env.node(0).head().height;
     assert_all_nodes_advanced(&env, target - 1);
     assert_shard_shuffling_happened(&env, &clients);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
 // Drop shards 0 and 2 chunks at offset 2 (third block of each epoch). The sync hash is
@@ -360,7 +355,6 @@ fn test_state_sync_miss_chunks_third_block() {
     let target = env.node(0).head().height;
     assert_all_nodes_advanced(&env, target - 1);
     assert_shard_shuffling_happened(&env, &clients);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
 // Miss chunks at the sync hash block itself (4th block, shards 0, 1). The sync hash block
@@ -399,7 +393,6 @@ fn test_state_sync_miss_chunks_sync_block() {
     let target = env.node(0).head().height;
     assert_all_nodes_advanced(&env, target - 1);
     assert_shard_shuffling_happened(&env, &clients);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
 // Miss shard 1 at offset 3 (sync hash block) and shard 3 at offset 1. Combines an early
@@ -437,7 +430,6 @@ fn test_state_sync_miss_chunks_sync_prev_block() {
     let target = env.node(0).head().height;
     assert_all_nodes_advanced(&env, target - 1);
     assert_shard_shuffling_happened(&env, &clients);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
 // Complex miss pattern: all 4 shards have interleaved chunk misses in the blocks leading
@@ -478,7 +470,6 @@ fn test_state_sync_miss_chunks_before_last_chunk_included() {
     let target = env.node(0).head().height;
     assert_all_nodes_advanced(&env, target - 1);
     assert_shard_shuffling_happened(&env, &clients);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
 // Combination of all chunk miss patterns across 4 shards simultaneously:
@@ -519,7 +510,6 @@ fn test_state_sync_miss_chunks_multiple() {
     let target = env.node(0).head().height;
     assert_all_nodes_advanced(&env, target - 1);
     assert_shard_shuffling_happened(&env, &clients);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
 // Extra non-validator node with a per-epoch tracked shards schedule that exercises
@@ -571,7 +561,6 @@ fn test_state_sync_untrack_then_track() {
     let target = env.node(0).head().height;
     assert_all_nodes_advanced(&env, target - 1);
     assert_shard_shuffling_happened(&env, &validators);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
 // Drop the block at the sync hash height, creating a fork. The block producer for this
@@ -607,7 +596,6 @@ fn test_state_sync_from_fork() {
     env.node_runner(0).run_for_number_of_blocks(40);
     assert_fork_happened(&env, skip_block_height);
     assert_shard_shuffling_happened(&env, &clients);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
 // Same fork scenario with 6 validators (vs 5 in from_fork) so a different node produces
@@ -643,7 +631,6 @@ fn test_state_sync_to_fork() {
     env.node_runner(0).run_for_number_of_blocks(40);
     assert_fork_happened(&env, skip_block_height);
     assert_shard_shuffling_happened(&env, &clients);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
 // Skip a block ONE AFTER the sync hash (delta=+1). The sync hash block is finalized
@@ -679,7 +666,6 @@ fn test_state_sync_fork_after_sync() {
     env.node_runner(0).run_for_number_of_blocks(40);
     assert_fork_happened(&env, skip_block_height);
     assert_shard_shuffling_happened(&env, &clients);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
 // Skip a block ONE BEFORE the sync hash (delta=-1). The fork is right before the state
@@ -714,7 +700,6 @@ fn test_state_sync_fork_before_sync() {
     env.node_runner(0).run_for_number_of_blocks(40);
     assert_fork_happened(&env, skip_block_height);
     assert_shard_shuffling_happened(&env, &clients);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
 fn await_sync_hash(env: &mut TestLoopEnv) -> CryptoHash {
@@ -788,7 +773,6 @@ fn test_state_request() {
         .clients(clients)
         .build();
     spam_state_sync_header_reqs(&mut env);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
 // State sync during protocol upgrade. Starts at PROTOCOL_VERSION - 1, and the chain
@@ -823,5 +807,4 @@ fn test_state_sync_protocol_upgrade() {
     let version = client.epoch_manager.get_epoch_protocol_version(&tip.epoch_id).unwrap();
     assert_eq!(version, PROTOCOL_VERSION);
     assert_shard_shuffling_happened(&env, &clients);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }

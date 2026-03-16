@@ -57,8 +57,6 @@ fn test_congestion_control_genesis_bootstrap() {
             &mut env.test_loop.data.get_mut(&env.node_datas[i].client_sender.actor_handle()).client,
         );
     }
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Tests that genesis congestion infos computation succeeds even when genesis state is missing.

@@ -90,7 +90,6 @@ fn test_far_horizon_full_pipeline() {
 
     assert_far_horizon_sync_sequence(&sync_history.borrow());
     verify_balances_on_synced_node(&env.test_loop.data, &env.node_datas, new_node_idx, &accounts);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 // Scenario: After a fresh node catches up via far-horizon sync, a second
@@ -168,7 +167,6 @@ fn test_far_horizon_chained_epoch_sync() {
 
     env.node_runner(new_node1_idx).run_for_number_of_blocks(3 * epoch_length as usize);
     verify_balances_on_synced_node(&env.test_loop.data, &env.node_datas, new_node1_idx, &accounts);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 // Scenario: A non-genesis node (one that has progressed past genesis) falls
@@ -221,7 +219,6 @@ fn test_far_horizon_stale_node_shutdown() {
         env.test_loop.is_denylisted(&restart_id),
         "stale node should have been denylisted via EpochSyncDataReset shutdown signal"
     );
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 // Scenario: An archival node that falls behind the network should NOT use
@@ -304,7 +301,6 @@ fn test_far_horizon_archival_skips_epoch_sync() {
         result.is_ok(),
         "archival node should have block at height {early_height} via split store"
     );
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 // Scenario: A fresh node doing far-horizon sync is killed mid-header-sync
@@ -382,8 +378,6 @@ fn test_far_horizon_restart_during_header_sync() {
     let expected =
         vec!["AwaitingPeers", "NoSync", "HeaderSync", "StateSync", "BlockSync", "NoSync"];
     assert_eq!(*history.borrow(), expected, "unexpected restart recovery sync sequence");
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 // Scenario: A fresh node doing far-horizon sync is killed mid-state-sync
@@ -454,8 +448,6 @@ fn test_far_horizon_restart_during_state_sync() {
     // The final NoSync is not captured before the test ends.
     let expected = vec!["AwaitingPeers", "NoSync", "StateSync", "BlockSync"];
     assert_eq!(*history.borrow(), expected, "unexpected restart recovery sync sequence");
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 // Scenario: A fresh node doing far-horizon sync is killed mid-block-sync
@@ -521,7 +513,6 @@ fn test_far_horizon_restart_during_block_sync() {
     restrict_to_single_peer(&env.shared_state, &env.node_datas, restarted_idx, 0);
 
     run_until_synced(&mut env.test_loop, &env.node_datas, restarted_idx, 0);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 // Scenario: A fresh node doing far-horizon sync is killed mid-state-sync
@@ -607,8 +598,6 @@ fn test_far_horizon_restart_after_long_downtime() {
         env.test_loop.is_denylisted(restart_id),
         "node should have been denylisted via EpochSyncDataReset after long downtime"
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 // Scenario: Before a fresh node joins, some accounts submit staking
@@ -696,7 +685,6 @@ fn test_far_horizon_staking_state() {
     // accounts don't meet the validator seat price and their locked balance
     // returns to 0 at the epoch boundary.
     verify_balances_on_synced_node(&env.test_loop.data, &env.node_datas, new_node_idx, &accounts);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 // Scenario: While a fresh node is actively syncing through the far-horizon
@@ -796,5 +784,4 @@ fn test_far_horizon_tx_during_sync() {
     env.node_runner(new_node_idx).run_for_number_of_blocks(2 * epoch_length as usize);
     assert_far_horizon_sync_sequence(&sync_history.borrow());
     assert!(tx_counter > 0, "expected at least some txs to be injected during sync");
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }

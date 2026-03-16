@@ -90,6 +90,4 @@ fn test_rpc_view_account_forwarding() {
 
     // Query zoe's account from the node that does track her shard.
     run_view_account(&zoe_node, &zoe, Balance::from_near(200)).unwrap();
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

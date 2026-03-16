@@ -1,6 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::validators::get_epoch_all_validators;
-use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_o11y::testonly::init_test_logger;
@@ -60,6 +59,4 @@ fn slow_test_fix_cp_stake_threshold() {
     let client = &env.test_loop.data.get(&env.node_datas[0].client_sender.actor_handle()).client;
     let validators = get_epoch_all_validators(client);
     assert_eq!(validators, vec![String::from("test0"), String::from("test1")]);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

@@ -442,8 +442,6 @@ fn run_test_with_added_node(state: TestState) {
     );
 
     produce_chunks(&mut env, accounts.clone(), skip_block_height);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
 #[derive(Debug)]
@@ -675,6 +673,4 @@ fn slow_test_added_node_no_parts_provided() {
         syncing_final_epoch = ?client.chain.head().unwrap().epoch_id,
         "Test completed: Syncing node header height increased by 10 blocks and is in a new epoch during state sync"
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }

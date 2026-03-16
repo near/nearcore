@@ -1,7 +1,6 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::validators::get_epoch_all_validators;
 use itertools::Itertools;
-use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_o11y::testonly::init_test_logger;
@@ -76,6 +75,4 @@ fn slow_test_fix_validator_stake_threshold() {
         epoch_info.seat_price().as_near(),
         total_stake.checked_div(62_499).unwrap().as_near()
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

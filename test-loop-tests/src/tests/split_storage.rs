@@ -2,7 +2,6 @@ use crate::setup::builder::{ArchivalKind, TestLoopBuilder};
 use crate::utils::account::create_account_id;
 use assert_matches::assert_matches;
 use near_async::messaging::Handler;
-use near_async::time::Duration;
 use near_chain_configs::TrackedShardsConfig;
 use near_client::{GetBlock, GetSplitStorageInfo};
 use near_client_primitives::types::GetBlockError;
@@ -46,8 +45,6 @@ fn test_split_storage_cold_head_advances() {
         cold_head_height >= final_head_height - 10,
         "cold head ({cold_head_height}) should be close to final head ({final_head_height})"
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Tests that a killed-and-restarted archival node with cold storage can catch
@@ -128,6 +125,4 @@ fn test_split_storage_archival_node_sync() {
     let info = info.unwrap();
     assert_eq!(info.hot_db_kind.as_deref(), Some("Hot"));
     assert!(info.cold_head_height.is_some(), "cold head should be set after restart");
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

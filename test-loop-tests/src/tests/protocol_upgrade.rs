@@ -188,8 +188,6 @@ pub(crate) fn test_protocol_upgrade(
         }
     }
     assert_eq!(&*observed_missing_chunks.borrow(), &expected_missing_chunks);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[test]

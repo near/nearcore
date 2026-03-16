@@ -95,6 +95,4 @@ fn test_access_key_changes_includes_gas_key_nonces() {
         .count();
     assert_eq!(access_key_updates, 1); // Only for the new gas key.
     assert_eq!(gas_key_nonce_updates, num_nonces as usize);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
