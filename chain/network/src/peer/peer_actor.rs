@@ -219,13 +219,12 @@ struct HandshakeSpec {
     partial_edge_info: PartialEdgeInfo,
 }
 
-type HandshakeSignalSender = tokio::sync::oneshot::Sender<std::convert::Infallible>;
-pub type HandshakeSignal = tokio::sync::oneshot::Receiver<std::convert::Infallible>;
+type HandshakeSignalSender = tokio::sync::oneshot::Sender<Result<(), ClosingReason>>;
+pub type HandshakeSignal = tokio::sync::oneshot::Receiver<Result<(), ClosingReason>>;
 
 impl PeerActor {
     /// Spawns a PeerActor on a separate tokio runtime and awaits for the
-    /// handshake to succeed/fail. The actual result is not returned because we do not yet
-    /// implement a mechanism to propagate handshake result.
+    /// handshake to succeed/fail.
     pub(crate) async fn spawn_and_handshake(
         clock: time::Clock,
         actor_system: ActorSystem,
@@ -233,9 +232,9 @@ impl PeerActor {
         network_state: Arc<NetworkState>,
     ) -> anyhow::Result<TokioRuntimeHandle<Self>> {
         let (addr, handshake_signal) = Self::spawn(clock, actor_system, stream, network_state)?;
-        // Await for the handshake to complete, by awaiting the handshake_signal channel.
-        // This is a receiver of Infallible, so it only completes when the channel is closed.
-        handshake_signal.await.err().unwrap();
+        handshake_signal
+            .await
+            .map_err(|_| anyhow::anyhow!("handshake signal channel dropped"))??;
         Ok(addr)
     }
 
@@ -705,7 +704,12 @@ impl PeerActor {
                     match register_result {
                         Ok(()) => {
                             act.peer_info = Some(peer_info).into();
-                            act.peer_status = PeerStatus::Ready(conn.clone());
+                            let PeerStatus::Connecting(send, _) =
+                                std::mem::replace(&mut act.peer_status, PeerStatus::Ready(conn.clone()))
+                            else {
+                                unreachable!("expected Connecting status during registration");
+                            };
+                            let _ = send.send(Ok(()));
                             // Respond to handshake if it's inbound and connection was consolidated.
                             if act.peer_type == PeerType::Inbound {
                                 act.send_handshake(HandshakeSpec{
@@ -1614,34 +1618,28 @@ impl messaging::Actor for PeerActor {
             }
         }
 
-        match &self.peer_status {
+        let reason = self.closing_reason.clone().unwrap_or(ClosingReason::Unknown);
+        match std::mem::replace(&mut self.peer_status, PeerStatus::Stopped) {
             // If PeerActor is in Connecting state, then
             // it was not registered in the NetworkState,
             // so there is nothing to be done.
-            PeerStatus::Connecting(..) => {
+            PeerStatus::Connecting(send, _) => {
+                let _ = send.send(Err(reason.clone()));
                 // TODO(gprusak): reporting ConnectionClosed event is quite scattered right now and
                 // it is very ugly: it may happen here, in spawn_inner, or in NetworkState::unregister().
                 // We should find a way to centralize it.
                 #[cfg(test)]
                 self.network_state.config.event_sink.send(Event::ConnectionClosed(
-                    ConnectionClosedEvent {
-                        stream_id: self.stream_id,
-                        reason: self.closing_reason.clone().unwrap_or(ClosingReason::Unknown),
-                    },
+                    ConnectionClosedEvent { stream_id: self.stream_id, reason },
                 ));
             }
             // Clean up the Connection from the NetworkState.
             PeerStatus::Ready(conn) => {
                 let network_state = self.network_state.clone();
                 let clock = self.clock.clone();
-                let conn = conn.clone();
-                network_state.unregister(
-                    &clock,
-                    &conn,
-                    self.stream_id,
-                    self.closing_reason.clone().unwrap_or(ClosingReason::Unknown),
-                );
+                network_state.unregister(&clock, &conn, self.stream_id, reason);
             }
+            PeerStatus::Stopped => {}
         }
     }
 }
@@ -1763,6 +1761,7 @@ impl messaging::Handler<stream::Frame> for PeerActor {
                     // Handle the message.
                     this.handle_msg_ready(conn.clone(), peer_msg);
                 }
+                PeerStatus::Stopped => {}
             }
         });
     }
@@ -1823,4 +1822,6 @@ enum PeerStatus {
     Connecting(HandshakeSignalSender, ConnectingStatus),
     /// Ready to go.
     Ready(Arc<connection::Connection>),
+    /// Actor has been stopped.
+    Stopped,
 }
