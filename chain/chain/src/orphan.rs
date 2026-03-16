@@ -501,8 +501,7 @@ mod tests {
         // Create children of D and E
         let block_f =
             TestBlockBuilder::from_prev_block(clock.clone(), &block_d, signer.clone()).build();
-        let block_g =
-            TestBlockBuilder::from_prev_block(clock.clone(), &block_e, signer.clone()).build();
+        let block_g = TestBlockBuilder::from_prev_block(clock.clone(), &block_e, signer).build();
 
         // Add all 6 blocks as orphans.
         let mut pool = OrphanBlockPool::new();
@@ -510,8 +509,8 @@ mod tests {
         pool.add(make_orphan(&clock, block_c.clone()), false);
         pool.add(make_orphan(&clock, block_d.clone()), false);
         pool.add(make_orphan(&clock, block_e.clone()), false);
-        pool.add(make_orphan(&clock, block_f.clone()), false);
-        pool.add(make_orphan(&clock, block_g.clone()), false);
+        pool.add(make_orphan(&clock, block_f), false);
+        pool.add(make_orphan(&clock, block_g), false);
 
         // Query for all orphans within depth 2 from block_a.
         let result = pool.get_orphans_within_depth(*block_a.hash(), 2);
