@@ -640,7 +640,6 @@ pub async fn start_with_config_and_synchronization_impl(
     // Spawn after start_client so that Chain::new has initialized FINAL_HEAD_KEY in the store.
     spawn_trie_metrics_loop(
         actor_system.clone(),
-        config.clone(),
         storage.get_hot_store(),
         config.client_config.log_summary_period,
         epoch_manager.clone(),
