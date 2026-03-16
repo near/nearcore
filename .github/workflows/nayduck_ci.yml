@@ -28,13 +28,13 @@ jobs:
 
       - name: Checkout nearcore repository
         if: github.event_name != 'workflow_dispatch'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           persist-credentials: false
 
       - name: Checkout nearcore repository for workflow dispatch
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{github.event.inputs.neard-branch}}
           persist-credentials: false
@@ -89,7 +89,7 @@ jobs:
     runs-on: warp-ubuntu-2404-x64-8x
     if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
       - uses: WarpBuilds/setup-python@v5
