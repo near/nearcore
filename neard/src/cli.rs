@@ -947,8 +947,8 @@ fn normalize_whitespace(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Checks the provided kernel parameter  from /proc/sys
-/// and prints an error if it is not set to the expected value.
+/// Checks the provided kernel parameter from /proc/sys
+/// and prints a warning if it is not set to the expected value.
 #[cfg(target_os = "linux")]
 fn check_kernel_param(param_name: &str, expected_value: &str) {
     // Convert the dotted param_name into a path under /proc/sys
@@ -965,14 +965,12 @@ fn check_kernel_param(param_name: &str, expected_value: &str) {
             let expected_normalized = normalize_whitespace(expected_value);
 
             if actual_normalized != expected_normalized {
-                tracing::error!(
+                tracing::warn!(
                     %param_name,
                     %actual_normalized,
                     %expected_normalized,
                     "parameter is set to incorrect value, please run `scripts/set_kernel_params.sh`"
                 );
-            } else {
-                tracing::info!(%param_name, %expected_normalized, "parameter is set to expected value");
             }
         }
         Err(e) => {
