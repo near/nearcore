@@ -1,8 +1,7 @@
-use crate::NearConfig;
 use near_async::ActorSystem;
 use near_async::futures::FutureSpawnerExt;
 use near_async::time::Duration;
-use near_chain::{Block, ChainStore, ChainStoreAccess};
+use near_chain::Block;
 use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::metrics::{
@@ -13,6 +12,7 @@ use near_o11y::metrics::{
 use near_primitives::types::ShardId;
 use near_primitives::{shard_layout::ShardLayout, state_record::StateRecord, trie_key};
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use near_store::{ShardUId, Store, Trie, TrieDBStorage};
 use std::sync::Arc;
 use std::sync::LazyLock;
@@ -101,18 +101,11 @@ fn log_trie_item(key: &[u8], value: Vec<u8>) {
 }
 
 fn export_postponed_receipt_count(
-    near_config: &NearConfig,
     store: &Store,
     epoch_manager: &dyn EpochManagerAdapter,
 ) -> anyhow::Result<()> {
-    let chain_store = ChainStore::new(
-        store.clone(),
-        near_config.client_config.save_trie_changes,
-        near_config.genesis.config.transaction_validity_period,
-    );
-
-    let head = chain_store.final_head()?;
-    let block = chain_store.get_block(&head.last_block_hash);
+    let head = store.chain_store().final_head()?;
+    let block = store.chain_store().get_block(&head.last_block_hash);
     if matches!(block, Err(Error::DBNotFoundErr(_))) {
         // The head block might be missing during node startup and syncing.
         tracing::trace!(target: "metrics", "trie-stats - head block not found {head:?}");
@@ -132,7 +125,7 @@ fn export_postponed_receipt_count(
         let count = get_postponed_receipt_count_for_shard(
             shard_id,
             &shard_layout,
-            &chain_store,
+            &store.chunk_store(),
             &block,
             store,
         );
@@ -152,12 +145,12 @@ fn export_postponed_receipt_count(
 fn get_postponed_receipt_count_for_shard(
     shard_id: ShardId,
     shard_layout: &ShardLayout,
-    chain_store: &ChainStore,
+    chunk_store: &ChunkStoreAdapter,
     block: &Block,
     store: &Store,
 ) -> Result<i64, anyhow::Error> {
     let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
-    let chunk_extra = chain_store.get_chunk_extra(block.hash(), &shard_uid)?;
+    let chunk_extra = chunk_store.get_chunk_extra(block.hash(), &shard_uid)?;
     let state_root = chunk_extra.state_root();
     let storage = TrieDBStorage::new(store.trie_store(), shard_uid);
     let storage = Arc::new(storage);
@@ -192,7 +185,6 @@ fn get_postponed_receipt_count_for_trie(trie: Trie) -> Result<i64, anyhow::Error
 /// Spawns a background loop that will periodically log trie related metrics.
 pub fn spawn_trie_metrics_loop(
     actor_system: ActorSystem,
-    near_config: NearConfig,
     store: Store,
     period: Duration,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -209,7 +201,7 @@ pub fn spawn_trie_metrics_loop(
             interval.tick().await;
 
             let start_time = std::time::Instant::now();
-            let result = export_postponed_receipt_count(&near_config, &store, epoch_manager.as_ref());
+            let result = export_postponed_receipt_count(&store, epoch_manager.as_ref());
             if let Err(err) = result {
                 tracing::error!(target: "metrics", %err, "error when exporting postponed receipts count");
             };
