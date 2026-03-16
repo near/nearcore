@@ -123,8 +123,8 @@ pub(crate) enum ClosingReason {
     TooLargeClockSkew,
     #[error("owned_account.peer_id doesn't match handshake.sender_peer_id")]
     OwnedAccountMismatch,
-    #[error("PeerActor stopped NOT via PeerActor::stop()")]
-    Unknown,
+    #[error("actor system shutting down")]
+    ActorSystemShutdown,
 }
 
 impl ClosingReason {
@@ -144,7 +144,7 @@ impl ClosingReason {
             ClosingReason::DisconnectMessage => false,  // graceful disconnect
             ClosingReason::TooLargeClockSkew => true,   // reconnect will fail for the same reason
             ClosingReason::OwnedAccountMismatch => true, // misbehaving peer
-            ClosingReason::Unknown => false,            // only happens in tests
+            ClosingReason::ActorSystemShutdown => false, // node shutting down
         }
     }
 }
@@ -1591,14 +1591,12 @@ impl messaging::Actor for PeerActor {
     }
 
     fn stop_actor(&mut self) {
-        // closing_reason may be None in case the whole actor system is stopped.
-        // It happens a lot in tests.
         metrics::PEER_CONNECTIONS_TOTAL.dec();
         match &self.closing_reason {
             None => {
-                // Due to actor system shutdown, sometimes closing reason may be not set.
-                // But it is only expected to happen in tests.
-                tracing::error!(target:"network", "closing reason not set, this should happen only in tests");
+                // Actor system is shutting down without an explicit stop() call.
+                // This happens in tests and during node shutdown.
+                tracing::debug!(target: "network", peer_info = %self.peer_info, "peer disconnected due to actor system shutdown");
             }
             Some(reason) => {
                 tracing::debug!(target: "network", my_node_id = ?self.my_node_info.id, peer_info = %self.peer_info, %reason, "peer disconnected");
@@ -1626,7 +1624,10 @@ impl messaging::Actor for PeerActor {
                 self.network_state.config.event_sink.send(Event::ConnectionClosed(
                     ConnectionClosedEvent {
                         stream_id: self.stream_id,
-                        reason: self.closing_reason.clone().unwrap_or(ClosingReason::Unknown),
+                        reason: self
+                            .closing_reason
+                            .clone()
+                            .unwrap_or(ClosingReason::ActorSystemShutdown),
                     },
                 ));
             }
@@ -1639,7 +1640,7 @@ impl messaging::Actor for PeerActor {
                     &clock,
                     &conn,
                     self.stream_id,
-                    self.closing_reason.clone().unwrap_or(ClosingReason::Unknown),
+                    self.closing_reason.clone().unwrap_or(ClosingReason::ActorSystemShutdown),
                 );
             }
         }
