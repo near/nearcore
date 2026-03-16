@@ -167,7 +167,8 @@ impl TestLoopEnv {
             self.test_loop.data.get_mut(&node_data.state_sync_dumper_handle).stop();
         }
 
-        self.test_loop.initiate_shutdown(timeout);
+        self.test_loop.initiate_shutdown();
+        self.test_loop.run_for(timeout);
     }
 
     pub fn get_node_data_by_account_id(&self, account_id: &AccountId) -> &NodeExecutionData {
