@@ -142,8 +142,6 @@ fn test_processed_receipt_ids_gc() {
         store.get(DBCol::ReceiptToTx, instant_receipt_id.as_ref()).is_none(),
         "ReceiptToTx for instant receipt should be garbage collected"
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Tests that ReceiptToTx entries are saved for local receipts, instant receipts, and
@@ -253,8 +251,6 @@ fn test_receipt_to_tx_saved_and_gced() {
         store.get(DBCol::ReceiptToTx, instant_receipt_id.as_ref()).is_none(),
         "receipt_to_tx for instant receipt should be garbage collected"
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Tests that ReceiptToTx entries are properly garbage collected even when
@@ -347,8 +343,6 @@ fn test_receipt_to_tx_gc_with_outcomes_disabled() {
             "receipt_to_tx for {receipt_id} should be garbage collected"
         );
     }
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Tests that ReceiptToTx entries for data receipts are garbage collected.
@@ -459,8 +453,6 @@ fn test_data_receipt_receipt_to_tx_gc() {
             "receipt_to_tx for data receipt {receipt_id} should be garbage collected"
         );
     }
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Tests that ReceiptToTx entries for PromiseResume receipts are garbage collected.
@@ -566,8 +558,6 @@ fn test_promise_resume_receipt_to_tx_gc() {
         store.get(DBCol::ReceiptToTx, resume_receipt_id.as_ref()).is_none(),
         "receipt_to_tx for PromiseResume receipt should be garbage collected"
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Tests that ReceiptToTx entries for cross-shard action receipts are GC'd on a
@@ -683,5 +673,4 @@ fn test_cross_shard_receipt_to_tx_gc_on_source_only_node() {
         "ReceiptToTx for cross-shard receipt should be garbage collected on source-only observer"
     );
 
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

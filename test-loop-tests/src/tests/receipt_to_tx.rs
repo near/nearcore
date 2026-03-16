@@ -65,8 +65,6 @@ fn test_save_receipt_to_tx_false() {
         !has_receipt_to_tx_gc,
         "ProcessedReceiptIds should not contain ReceiptToTxGc entries when save_receipt_to_tx is false"
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// ReceiptToTx data persists to disk and survives a client restart.
@@ -128,8 +126,6 @@ fn test_receipt_to_tx_persists_across_restart() {
         .get_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx, receipt_id.as_ref())
         .expect("receipt_to_tx entry should persist across restart");
     assert_eq!(info_before, info_after, "receipt_to_tx entry should be identical after restart");
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// `save_receipt_to_tx` works independently from `save_tx_outcomes`.
@@ -183,8 +179,6 @@ fn test_save_receipt_to_tx_independent_of_outcomes() {
             ),
         });
     assert!(found_receipt, "receipt_to_tx entry should exist even when save_tx_outcomes is false");
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// When both save_receipt_to_tx and save_tx_outcomes are false, neither
@@ -261,8 +255,6 @@ fn test_no_index_when_both_disabled() {
         receipt_to_tx_before,
         "no new ReceiptToTx when save_receipt_to_tx is false"
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Restart persistence in index-only mode
@@ -356,8 +348,6 @@ fn test_receipt_to_tx_persists_across_restart_index_only() {
             "receipt_to_tx entry should be identical after restart"
         );
     }
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Refund receipts (from unspent gas) should get a ReceiptToTx entry with
@@ -441,5 +431,4 @@ fn test_refund_receipt_has_receipt_to_tx() {
         other => panic!("expected FromReceipt origin for refund receipt, got {other:?}"),
     }
 
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

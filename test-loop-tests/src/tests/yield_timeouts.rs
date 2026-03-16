@@ -691,5 +691,4 @@ fn test_yield_timeout_resume_receipt_has_receipt_to_tx() {
     }
 
     assert_no_promise_yield_status_in_state(&env);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

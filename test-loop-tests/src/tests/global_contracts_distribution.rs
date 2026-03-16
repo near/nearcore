@@ -325,8 +325,6 @@ fn test_global_distribution_receipt_has_receipt_to_tx() {
             }
         }
     }
-
-    env.shutdown();
 }
 
 /// Tests that ReceiptToTx entries for GlobalContractDistribution receipts are garbage collected.
@@ -428,6 +426,4 @@ fn test_global_distribution_receipt_to_tx_gc() {
             "receipt_to_tx for distribution receipt {receipt_id} should be garbage collected"
         );
     }
-
-    env.shutdown();
 }
