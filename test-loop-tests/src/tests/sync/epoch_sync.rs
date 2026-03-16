@@ -188,7 +188,7 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
 fn slow_test_epoch_sync_from_genesis() {
     init_test_logger();
     let env = setup_initial_blockchain(20);
-    let env = bootstrap_node_via_epoch_sync(env, 0);
+    bootstrap_node_via_epoch_sync(env, 0);
 }
 
 // Tests that after epoch syncing, we can use the new node to bootstrap another
@@ -200,7 +200,7 @@ fn slow_test_epoch_sync_from_another_epoch_synced_node() {
     init_test_logger();
     let env = setup_initial_blockchain(20);
     let env = bootstrap_node_via_epoch_sync(env, 0);
-    let env = bootstrap_node_via_epoch_sync(env, 4);
+    bootstrap_node_via_epoch_sync(env, 4);
 }
 
 #[test]
@@ -210,7 +210,7 @@ fn slow_test_epoch_sync_transaction_validity_period_one_epoch() {
     init_test_logger();
     let env = setup_initial_blockchain(10);
     let env = bootstrap_node_via_epoch_sync(env, 0);
-    let env = bootstrap_node_via_epoch_sync(env, 4);
+    bootstrap_node_via_epoch_sync(env, 4);
 }
 
 #[test]
@@ -220,7 +220,7 @@ fn slow_test_epoch_sync_with_expired_transactions() {
     init_test_logger();
     let env = setup_initial_blockchain(1);
     let env = bootstrap_node_via_epoch_sync(env, 0);
-    let env = bootstrap_node_via_epoch_sync(env, 4);
+    bootstrap_node_via_epoch_sync(env, 4);
 }
 
 impl TestLoopEnv {
