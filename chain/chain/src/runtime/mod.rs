@@ -267,6 +267,8 @@ impl NightshadeRuntime {
             is_first_block_of_version
         );
 
+        let save_receipt_to_tx =
+            self.save_receipt_to_tx && apply_reason == ApplyChunkReason::UpdateTrackedShard;
         let apply_state = ApplyState {
             apply_reason,
             block_height,
@@ -282,7 +284,7 @@ impl NightshadeRuntime {
             config: config.clone(),
             cache: Some(self.compiled_contract_cache.handle()),
             is_new_chunk,
-            save_receipt_to_tx: self.save_receipt_to_tx,
+            save_receipt_to_tx,
             congestion_info,
             bandwidth_requests,
             trie_access_tracker_state: Default::default(),
