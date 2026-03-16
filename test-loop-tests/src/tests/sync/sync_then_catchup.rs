@@ -13,7 +13,6 @@ use super::util::{
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_account_id;
 use crate::utils::transactions::{execute_money_transfers, make_accounts};
-use near_async::time::Duration;
 use near_chain_configs::TrackedShardsConfig;
 use near_client::sync::SYNC_V2_ENABLED;
 use near_o11y::testonly::init_test_logger;
@@ -98,5 +97,4 @@ fn test_sync_then_shard_catchup() {
     env.node_runner(new_node_idx).run_for_number_of_blocks(3 * epoch_length as usize);
 
     assert_far_horizon_sync_sequence(&sync_history.borrow());
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }

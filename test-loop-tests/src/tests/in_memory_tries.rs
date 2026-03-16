@@ -87,8 +87,4 @@ fn test_load_memtrie_after_empty_chunks() {
         .get_tries()
         .load_memtrie(&shard_uid, None, true)
         .expect("Couldn't load memtrie");
-
-    // Give the test a chance to finish off remaining events in the event loop, which can
-    // be important for properly shutting down the nodes.
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

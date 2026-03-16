@@ -234,6 +234,4 @@ fn slow_test_tx_inclusion() {
         Duration::seconds(20),
     );
     assert_matches!(tx_exec_res, Ok(_));
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

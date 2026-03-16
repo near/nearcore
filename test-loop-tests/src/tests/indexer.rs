@@ -38,8 +38,6 @@ fn test_indexer_basic() {
         let msg = receive_indexer_message(&mut env, &mut indexer_receiver);
         assert_eq!(msg.block.header.height, expected_height);
     }
-
-    shutdown(env);
 }
 
 #[test]
@@ -71,8 +69,6 @@ fn test_indexer_local_receipt() {
     let receipt_execution_outcome = &indexer_shard.receipt_execution_outcomes[0];
     assert_eq!(receipt_execution_outcome.receipt.receipt_id, receipt_id);
     assert_eq!(&receipt_execution_outcome.execution_outcome, receipt_outcome);
-
-    shutdown(env);
 }
 
 /// Test that instant receipts (PromiseYield) are correctly indexed.
@@ -168,8 +164,6 @@ fn test_indexer_instant_receipt() {
         panic!("expected Action receipt variant for PromiseYield callback");
     };
     assert!(is_promise_yield, "receipt should have is_promise_yield=true");
-
-    shutdown(env);
 }
 
 #[test]
@@ -214,8 +208,6 @@ fn test_indexer_delayed_local_receipt() {
     let delayed_receipt_outcome = &shard_outcomes[0];
     assert_eq!(delayed_receipt_outcome.execution_outcome, last_tx_receipt_outcome.into());
     assert_eq!(delayed_receipt_outcome.receipt.receipt_id, last_tx_receipt_id);
-
-    shutdown(env);
 }
 
 #[test]
@@ -254,8 +246,6 @@ fn test_indexer_failed_local_tx() {
     assert_matches!(outcome.status, ExecutionStatusView::Failure(_));
     assert!(outcome.receipt_ids.is_empty());
     assert!(indexer_shard.receipt_execution_outcomes.is_empty());
-
-    shutdown(env);
 }
 
 #[test]
@@ -285,8 +275,6 @@ fn test_indexer_deploy_contract_local_tx() {
         panic!("expected single deploy contract action")
     };
     assert_eq!(code, CryptoHash::hash_bytes(near_test_contracts::rs_contract()).as_bytes());
-
-    shutdown(env);
 }
 
 /// Test that `receipt_execution_outcomes` preserves execution order (not hash-sorted order).
@@ -341,8 +329,6 @@ fn test_indexer_receipt_execution_outcomes_order() {
         actual_receipt_ids, expected_receipt_ids,
         "receipt execution outcomes must be in execution order"
     );
-
-    shutdown(env);
 }
 
 fn user_account() -> AccountId {
@@ -406,10 +392,6 @@ fn receive_indexer_message(
         Duration::seconds(20),
     );
     ret.unwrap()
-}
-
-fn shutdown(env: TestLoopEnv) {
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 fn next_nonce() -> Nonce {

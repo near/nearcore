@@ -270,8 +270,6 @@ fn test_early_prepare_tx_basic() {
     assert_eq!(metrics.job_result_used_total.get(), 10);
     assert_eq!(metrics.job_result_not_found_total.get(), 0);
     assert_eq!(metrics.job_error_total.get(), 0);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Test that early transaction preparation works as expected when there is a missing chunk
@@ -336,8 +334,6 @@ fn test_early_prepare_tx_missing_chunk() {
     assert_eq!(metrics.job_result_used_total.get(), 9);
     assert_eq!(metrics.job_result_not_found_total.get(), 1);
     assert_eq!(metrics.job_error_total.get(), 0);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Test that early transaction preparation works as expected when there is a missing block
@@ -412,8 +408,6 @@ fn test_early_prepare_tx_missing_block() {
     assert_eq!(metrics.job_result_used_total.get(), 10);
     assert_eq!(metrics.job_result_not_found_total.get(), 0);
     assert_eq!(metrics.job_error_total.get(), 0);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Test that early transaction preparation works as expected when there is an epoch switch
@@ -470,6 +464,4 @@ fn test_early_prepare_tx_epoch_switch() {
     assert_eq!(metrics.job_result_used_total.get(), 6);
     assert_eq!(metrics.job_result_not_found_total.get(), 1);
     assert_eq!(metrics.job_error_total.get(), 0);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

@@ -49,8 +49,6 @@ fn block_chunk_signature_rejection() {
 
     assert!(height0 <= 3, "expected node0 to stall after signature tampering");
     assert!(height1 <= 3, "expected node1 to stall after signature tampering");
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
 fn first_chunk_mut(block: &mut Block) -> Option<&mut ShardChunkHeader> {

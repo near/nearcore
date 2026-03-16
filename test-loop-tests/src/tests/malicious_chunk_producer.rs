@@ -142,8 +142,6 @@ fn test_producer_with_expired_transactions() {
     let [metric] = applied_tx_metric.get_metric() else { panic!("unexpected metric shape") };
     let applied_txs = metric.get_counter().get_value();
     assert_eq!(applied_txs, 76.0, "should have applied the submitted transactions");
-
-    test_loop_env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[test]
@@ -210,8 +208,6 @@ fn test_producer_sending_large_encoded_length_chunks() {
     ));
 
     env.node_runner(0).run_for_number_of_blocks(10);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Tests chain behavior when a malicious chunk producer withholds chunk parts
@@ -262,6 +258,4 @@ fn test_chunk_parts_withholding_attack() {
     // The attack should also cause honest block producers to skip (they
     // can't verify the withheld chunk and won't send approvals).
     assert!(honest_skipped, "expected at least one honest block producer to skip");
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

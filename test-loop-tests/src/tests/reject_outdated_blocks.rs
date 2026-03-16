@@ -1,6 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
 use itertools::Itertools;
-use near_async::time::Duration;
 use near_chain::{Block, Error, Provenance};
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_chain_configs::test_genesis::ValidatorsSpec;
@@ -83,6 +82,4 @@ fn slow_test_reject_blocks_with_outdated_protocol_version() {
         .set_latest_protocol_version(PROTOCOL_VERSION - 1);
     let res = client.process_block_test(old_version_block.clone().into(), Provenance::NONE);
     assert!(matches!(res, Err(Error::InvalidProtocolVersion)));
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

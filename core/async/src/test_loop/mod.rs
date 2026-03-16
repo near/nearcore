@@ -456,11 +456,8 @@ impl TestLoopV2 {
     }
 
     pub fn initiate_shutdown(&mut self) {
+        assert!(!self.shutting_down.load(Ordering::Relaxed), "shutdown was already initiated");
         self.shutting_down.store(true, Ordering::Relaxed);
-    }
-
-    pub fn is_shutting_down(&self) -> bool {
-        self.shutting_down.load(Ordering::Relaxed)
     }
 }
 

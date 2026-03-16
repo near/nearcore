@@ -75,8 +75,6 @@ fn test_contract_distribution_single_account(wait_cache_populate: bool, clear_ca
 
     let end_height = get_node_head_height(&env, &accounts[0]);
     assert_all_chunk_endorsements_received(&mut env, start_height, end_height);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Tests a simple scenario where we deploy and call a contract.
@@ -163,8 +161,6 @@ fn test_contract_distribution_different_accounts(wait_cache_populate: bool, clea
 
     let end_height = get_node_head_height(&env, &accounts[0]);
     assert_all_chunk_endorsements_received(&mut env, start_height, end_height);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Tests a simple scenario where we deploy and call a contract on two different accounts.
@@ -247,8 +243,6 @@ fn test_contract_distribution_deploy_and_call_multiple_contracts() {
 
     let end_height = get_node_head_height(&env, &accounts[0]);
     assert_all_chunk_endorsements_received(&mut env, start_height, end_height);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 fn setup(accounts: &Vec<AccountId>) -> TestLoopEnv {

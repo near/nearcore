@@ -63,7 +63,6 @@ fn test_near_horizon_block_sync() {
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
 
     assert_near_horizon_sync_sequence(&sync_history.borrow());
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 // Scenario: A node that is exactly at the edge of `epoch_sync_horizon` should
@@ -110,7 +109,6 @@ fn test_near_horizon_epoch_sync_boundary() {
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
 
     assert_near_horizon_sync_sequence(&sync_history.borrow());
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 // Scenario: A fresh node doing near-horizon block sync is killed mid-sync
@@ -162,7 +160,6 @@ fn test_near_horizon_restart_during_block_sync() {
     let restarted_idx = env.node_datas.len() - 1;
 
     run_until_synced(&mut env.test_loop, &env.node_datas, restarted_idx, 0);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 // Scenario: A fresh node has epoch_sync_horizon=10 but gc=3. The network is
@@ -215,5 +212,4 @@ fn test_near_horizon_sync_beyond_gc_window() {
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
 
     assert_near_horizon_sync_sequence(&sync_history.borrow());
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }

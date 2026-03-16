@@ -55,8 +55,6 @@ fn test_state_transition_data_gc_simple() {
             .chain_store,
         &shard_layout.shard_ids().collect(),
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
 #[test]
@@ -120,8 +118,6 @@ fn test_state_transition_data_gc_when_resharding() {
     );
 
     assert_state_transition_data_is_cleared(&chain_store, &new_shard_layout.shard_ids().collect());
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
 fn assert_state_transition_data_is_cleared(
