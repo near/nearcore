@@ -430,5 +430,4 @@ fn test_refund_receipt_has_receipt_to_tx() {
         }
         other => panic!("expected FromReceipt origin for refund receipt, got {other:?}"),
     }
-
 }

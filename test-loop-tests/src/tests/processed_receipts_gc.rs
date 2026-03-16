@@ -672,5 +672,4 @@ fn test_cross_shard_receipt_to_tx_gc_on_source_only_node() {
         observer_store.get(DBCol::ReceiptToTx, receipt_id.as_ref()).is_none(),
         "ReceiptToTx for cross-shard receipt should be garbage collected on source-only observer"
     );
-
 }
