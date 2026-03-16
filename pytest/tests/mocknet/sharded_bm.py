@@ -59,7 +59,10 @@ def get_num_shards(args):
 
 
 def find_instances(forknet_name, filter_expr, expected_count, label):
-    """Query GCP for instances matching a filter and validate the count."""
+    """Query GCP for instances matching a filter and validate the count.
+
+    Returns a list of (name, internal_ip) tuples.
+    """
     cmd = [
         "gcloud", "compute", "instances", "list", f"--project={PROJECT}",
         f"--filter=name~'-{forknet_name}-' AND {filter_expr}",
@@ -71,22 +74,23 @@ def find_instances(forknet_name, filter_expr, expected_count, label):
         logger.error(
             f"Expected {expected_count} {label} instances, got {len(data)}")
         sys.exit(1)
-    return [row.split()[0] for row in data]
+    return [(row.split()[0], row.split()[1]) for row in data]
 
 
 def fetch_forknet_details(forknet_name, bm_params):
     """Fetch the forknet details from GCP."""
-    cp_instance_names = find_instances(
+    cp_instances = find_instances(
         forknet_name,
         "-labels.role=rpc AND -name~'traffic' AND -name~'tracing' AND -name~'prometheus'",
         bm_params['chunk_producers'],
         "CP",
     )
+    cp_instance_names = [name for name, _ip in cp_instances]
 
     num_rpcs = bm_params.get('rpcs', 0)
-    rpc_instance_names = (find_instances(forknet_name, "labels.role=rpc",
-                                         num_rpcs, "RPC")
-                          if num_rpcs > 0 else [])
+    rpc_instances = (find_instances(forknet_name, "labels.role=rpc", num_rpcs,
+                                    "RPC") if num_rpcs > 0 else [])
+    rpc_instance_names = [name for name, _ip in rpc_instances]
 
     # Discover tracing server
     find_tracing_server_cmd = [
@@ -105,6 +109,7 @@ def fetch_forknet_details(forknet_name, bm_params):
     return {
         "cp_instance_names": cp_instance_names,
         "rpc_instance_names": rpc_instance_names,
+        "rpc_instances": rpc_instances,
         "tracing_server_internal_ip": internal_ip,
         "tracing_server_external_ip": external_ip,
     }
@@ -329,39 +334,65 @@ def handle_init(args):
 
 
 def configure_rpc_nodes(args):
-    """Configure RPC nodes with shard tracking and RPC-specific config overrides.
+    """Configure RPC nodes with shard tracking, RPC-specific config overrides,
+    and the sharded RPC pool so nodes can forward queries to each other.
 
-    Applies base_rpc_config_patch.json and sets tracked_shards_config to divide shards across the
-    RPC nodes evenly.
+    Applies base_rpc_config_patch.json, sets tracked_shards_config to divide
+    shards across the RPC nodes evenly, and writes rpc.sharded_rpc into each
+    node's config.json with the full list of all RPC node addresses.
     """
-    rpc_names = args.forknet_details['rpc_instance_names']
-    if not rpc_names:
+    rpc_instances = args.forknet_details['rpc_instances']
+    if not rpc_instances:
         return
 
-    num_rpcs = len(rpc_names)
+    num_rpcs = len(rpc_instances)
     num_shards = get_num_shards(args)
     rpc_config_patch = f"{BENCHNET_DIR}/cases/base_rpc_config_patch.json"
+    rpc_port = 3030
 
-    for i, rpc_name in enumerate(sorted(rpc_names)):
+    # Pre-compute shard assignments and addresses for all RPC nodes.
+    sorted_instances = sorted(rpc_instances, key=lambda x: x[0])
+    rpc_assignments = []
+    for i, (name, ip) in enumerate(sorted_instances):
         start_shard = i * num_shards // num_rpcs
         end_shard = (i + 1) * num_shards // num_rpcs
+        shard_ids = list(range(start_shard, end_shard))
+        rpc_assignments.append({
+            'name':
+                name,
+            'ip':
+                ip,
+            'address':
+                f"http://[{ip}]:{rpc_port}"
+                if ':' in ip else f"http://{ip}:{rpc_port}",
+            'tracked_shards':
+                shard_ids,
+        })
 
-        if end_shard - start_shard == num_shards:
+    sharded_rpc_nodes = [{
+        "address": r['address'],
+        "tracked_shards": r['tracked_shards']
+    } for r in rpc_assignments]
+    sharded_rpc_config = json.dumps({"nodes": sharded_rpc_nodes})
+
+    for rpc in rpc_assignments:
+        shard_ids = rpc['tracked_shards']
+
+        if len(shard_ids) == num_shards:
             tracked_shards_jq = '.tracked_shards_config = "AllShards"'
         else:
-            shard_ids = list(range(start_shard, end_shard))
             tracked_shards_jq = f'.tracked_shards_config = {{"Schedule": [{json.dumps(shard_ids)}]}}'
 
         run_cmd_args = copy.deepcopy(args)
-        run_cmd_args.host_filter = rpc_name
+        run_cmd_args.host_filter = rpc['name']
         run_cmd_args.cmd = (
             f"python3 {BENCHNET_DIR}/helpers/json_updater.py {CONFIG_PATH} {rpc_config_patch}"
             f" && jq '{tracked_shards_jq}' {CONFIG_PATH} > tmp.json && mv tmp.json {CONFIG_PATH}"
+            f" && jq --argjson srpc '{sharded_rpc_config}'"
+            f" '.rpc.sharded_rpc = $srpc' {CONFIG_PATH} > tmp.json && mv tmp.json {CONFIG_PATH}"
         )
         run_remote_cmd(CommandContext(run_cmd_args))
-        logger.info(
-            f"Configured RPC {rpc_name}: shards {list(range(start_shard, end_shard))}"
-        )
+        logger.info(f"Configured RPC {rpc['name']}: shards {shard_ids}")
 
 
 def configure_rpc_probe(args):
