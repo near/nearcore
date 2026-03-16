@@ -281,6 +281,8 @@ fn test_state_sync_miss_chunks_first_block() {
         .warmup();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
+    let target = env.node(0).head().height;
+    assert_all_nodes_advanced(&env, target - 1);
     assert_shard_shuffling_happened(&env, &clients);
     env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
@@ -317,6 +319,8 @@ fn test_state_sync_miss_chunks_second_block() {
         .warmup();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
+    let target = env.node(0).head().height;
+    assert_all_nodes_advanced(&env, target - 1);
     assert_shard_shuffling_happened(&env, &clients);
     env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
@@ -353,6 +357,8 @@ fn test_state_sync_miss_chunks_third_block() {
         .warmup();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
+    let target = env.node(0).head().height;
+    assert_all_nodes_advanced(&env, target - 1);
     assert_shard_shuffling_happened(&env, &clients);
     env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
@@ -390,6 +396,8 @@ fn test_state_sync_miss_chunks_sync_block() {
         .warmup();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
+    let target = env.node(0).head().height;
+    assert_all_nodes_advanced(&env, target - 1);
     assert_shard_shuffling_happened(&env, &clients);
     env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
@@ -426,6 +434,8 @@ fn test_state_sync_miss_chunks_sync_prev_block() {
         .warmup();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
+    let target = env.node(0).head().height;
+    assert_all_nodes_advanced(&env, target - 1);
     assert_shard_shuffling_happened(&env, &clients);
     env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
@@ -465,6 +475,8 @@ fn test_state_sync_miss_chunks_before_last_chunk_included() {
         .warmup();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
+    let target = env.node(0).head().height;
+    assert_all_nodes_advanced(&env, target - 1);
     assert_shard_shuffling_happened(&env, &clients);
     env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
@@ -504,6 +516,8 @@ fn test_state_sync_miss_chunks_multiple() {
         .warmup();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
+    let target = env.node(0).head().height;
+    assert_all_nodes_advanced(&env, target - 1);
     assert_shard_shuffling_happened(&env, &clients);
     env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }

@@ -15,6 +15,10 @@ use near_network::client::{
     ProcessTxResponse, SpiceChunkEndorsementMessage,
 };
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
+use near_network::spice_data_distribution::{
+    SpiceChunkContractAccessesMessage, SpiceContractCodeRequestMessage,
+    SpiceContractCodeResponseMessage,
+};
 use near_network::spice_data_distribution::{SpiceIncomingPartialData, SpicePartialDataRequest};
 use near_network::state_witness::{
     ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
@@ -70,6 +74,9 @@ pub struct SpiceDataDistributorSenderForTestLoopNetwork {
     pub receipts: Sender<SpiceDistributorOutgoingReceipts>,
     pub incoming_data: Sender<SpiceIncomingPartialData>,
     pub data_requests: Sender<SpicePartialDataRequest>,
+    pub contract_accesses: Sender<SpiceChunkContractAccessesMessage>,
+    pub contract_code_request: Sender<SpiceContractCodeRequestMessage>,
+    pub contract_code_response: Sender<SpiceContractCodeResponseMessage>,
 }
 
 /// This message is used to allow TestLoopPeerManagerActor to construct NetworkInfo for each
@@ -227,9 +234,9 @@ struct TestLoopNetworkSharedStateInner {
 }
 
 /// Senders available for the networking layer, for one node in the test loop.
-struct OneClientSenders {
-    client_sender: ClientSenderForTestLoopNetwork,
-    view_client_sender: ViewClientSenderForTestLoopNetwork,
+pub(crate) struct OneClientSenders {
+    pub(crate) client_sender: ClientSenderForTestLoopNetwork,
+    pub(crate) view_client_sender: ViewClientSenderForTestLoopNetwork,
     rpc_handler_sender: TxRequestHandleSenderForTestLoopNetwork,
     chunk_endorsement_handler_sender: ChunkEndorsementSenderForTestLoopNetwork,
     partial_witness_sender: PartialWitnessSenderForNetwork,
@@ -334,7 +341,7 @@ impl TestLoopNetworkSharedState {
         guard.disallowed_peer_links = HashMap::new();
     }
 
-    fn account_to_peer_id(&self, account_id: &AccountId) -> PeerId {
+    pub(crate) fn account_to_peer_id(&self, account_id: &AccountId) -> PeerId {
         let guard = self.0.lock();
         guard.account_to_peer_id.get(account_id).unwrap().clone()
     }
@@ -360,7 +367,11 @@ impl TestLoopNetworkSharedState {
         guard.senders.get(peer_id).unwrap().clone()
     }
 
-    fn senders_for_peer(&self, origin: &PeerId, peer_id: &PeerId) -> Arc<OneClientSenders> {
+    pub(crate) fn senders_for_peer(
+        &self,
+        origin: &PeerId,
+        peer_id: &PeerId,
+    ) -> Arc<OneClientSenders> {
         let guard = self.0.lock();
         if Self::is_peer_link_disallowed(&guard, origin, peer_id) {
             return guard.drop_events_senders.clone();
@@ -772,6 +783,29 @@ fn network_message_to_spice_data_distributor_handler(
                 .senders_for_account(&my_account_id, &producer)
                 .spice_data_distributor_actor
                 .send(request);
+            None
+        }
+        NetworkRequests::SpiceChunkContractAccesses(targets, accesses) => {
+            for target in targets {
+                shared_state
+                    .senders_for_account(&my_account_id, &target)
+                    .spice_data_distributor_actor
+                    .send(SpiceChunkContractAccessesMessage(accesses.clone()));
+            }
+            None
+        }
+        NetworkRequests::SpiceContractCodeRequest(target, request) => {
+            shared_state
+                .senders_for_account(&my_account_id, &target)
+                .spice_data_distributor_actor
+                .send(SpiceContractCodeRequestMessage(request));
+            None
+        }
+        NetworkRequests::SpiceContractCodeResponse(target, response) => {
+            shared_state
+                .senders_for_account(&my_account_id, &target)
+                .spice_data_distributor_actor
+                .send(SpiceContractCodeResponseMessage(response));
             None
         }
         _ => Some(request),

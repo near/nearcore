@@ -35,8 +35,6 @@ fn test_basic_token_transfer() {
         env.rpc_node().query_balance(&receiver),
         initial_balance.checked_add(transfer_amount).unwrap()
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Demonstrates deploying a contract and calling a method on it.
@@ -64,8 +62,6 @@ fn test_deploy_and_call_contract() {
     let outcome = env.rpc_runner().execute_tx(call_tx, Duration::seconds(5)).unwrap();
 
     assert_eq!(outcome.receipts_outcome[0].outcome.logs, vec!["hello"]);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Demonstrates creating and deleting an account.
@@ -99,8 +95,6 @@ fn test_create_and_delete_account() {
         env.rpc_node().view_account_query(&new_account),
         Err(QueryError::UnknownAccount { .. })
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Demonstrates running jsonrpc queries in TestLoop.
@@ -116,6 +110,4 @@ fn test_jsonrpc_block_by_height() {
         .unwrap();
 
     assert_eq!(result.header.height, 1, "expected block height 1, got {}", result.header.height);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

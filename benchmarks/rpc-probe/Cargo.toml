@@ -9,6 +9,9 @@ license.workspace = true
 publish = false
 
 [dependencies]
+anyhow.workspace = true
+near-crypto = { workspace = true }
+parking_lot.workspace = true
 near-jsonrpc-client-internal = { workspace = true }
 near-jsonrpc-primitives = { workspace = true }
 near-o11y = { workspace = true }

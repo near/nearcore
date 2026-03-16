@@ -1,143 +1,160 @@
-use crate::setup::builder::TestLoopBuilder;
+use crate::setup::builder::{ArchivalKind, TestLoopBuilder};
+use crate::setup::env::TestLoopEnv;
+use crate::utils::account::archival_account_id;
 use crate::utils::cloud_archival::{
     bootstrap_reader_at_height, check_account_balance, check_data_at_height,
-    gc_and_heads_sanity_checks, pause_and_resume_writer_with_sanity_checks, run_node_until,
-    snapshots_sanity_check,
+    gc_and_heads_sanity_checks, get_cloud_head, get_writer_handle, run_node_until,
+    snapshots_sanity_check, stop_and_restart_node,
 };
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_o11y::testonly::init_test_logger;
+use near_chain_configs::{CloudArchivalWriterConfig, MIN_GC_NUM_EPOCHS_TO_KEEP};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta};
 
-const MIN_GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
-/// Minimum epoch length assumed in tests.
-const MIN_EPOCH_LENGTH: BlockHeightDelta = 10;
-/// Minimum number of epochs to wait before GC can trigger.
-const MIN_NUM_EPOCHS_TO_WAIT: u64 = MIN_GC_NUM_EPOCHS_TO_KEEP + 1;
-
-const TEST_USER_ACCOUNT: &str = "user_account";
-const TEST_USER_BALANCE: Balance = Balance::from_near(42);
-
-/// Parameters controlling the behavior of cloud archival tests.
-#[derive(derive_builder::Builder)]
-#[builder(pattern = "owned", build_fn(skip))]
-struct TestCloudArchivalParameters {
-    /// If true, disables the cloud archival writer for this test.
-    disable_writer: bool,
-    /// Number of epochs the test should run; must be at least
-    /// `MINIMUM_NUM_EPOCHS_TO_WAIT`.
-    num_epochs_to_wait: u64,
-    /// Whether to run the cold-store loop.
-    enable_cold_storage: bool,
-    /// Number of blocks for which the cloud archival writer should be paused.
-    pause_writer_for_num_of_blocks: Option<BlockHeightDelta>,
-    /// If set, verify that data at the block height was archived.
-    check_data_at_height: Option<BlockHeight>,
-    bootstrap_reader_at_height: Option<BlockHeight>,
+/// Test harness for cloud archival tests. Owns the `TestLoopEnv` and exposes
+/// composable action and assertion methods so each test reads as an explicit
+/// Arrange-Act-Assert sequence.
+struct CloudArchiveHarness {
+    env: TestLoopEnv,
+    /// Account ID of the cloud archival node that writes to cloud storage.
+    archival_id: AccountId,
+    /// Epoch length in blocks.
+    epoch_length: BlockHeightDelta,
+    /// Whether cold (split) storage is enabled on the archival node.
+    cold_storage_enabled: bool,
+    /// Account ID of the reader node, set after `bootstrap_reader()`.
+    reader_id: Option<AccountId>,
 }
 
-impl TestCloudArchivalParametersBuilder {
-    fn build(self) -> TestCloudArchivalParameters {
-        let num_epochs_to_wait = self.num_epochs_to_wait.unwrap_or(MIN_NUM_EPOCHS_TO_WAIT);
-        assert!(num_epochs_to_wait >= MIN_NUM_EPOCHS_TO_WAIT);
-        let disable_writer = self.disable_writer.unwrap_or_default();
-        if disable_writer {
-            assert!(self.pause_writer_for_num_of_blocks.is_none());
-        }
+struct CloudArchiveHarnessBuilder {
+    cold_storage: bool,
+}
 
-        TestCloudArchivalParameters {
-            disable_writer,
-            num_epochs_to_wait,
-            enable_cold_storage: self.enable_cold_storage.unwrap_or(false),
-            pause_writer_for_num_of_blocks: self.pause_writer_for_num_of_blocks.unwrap_or_default(),
-            check_data_at_height: self.check_data_at_height.unwrap_or(None),
-            bootstrap_reader_at_height: self.bootstrap_reader_at_height.unwrap_or(None),
+impl CloudArchiveHarnessBuilder {
+    fn cold_storage(mut self, enabled: bool) -> Self {
+        self.cold_storage = enabled;
+        self
+    }
+
+    fn build(self) -> CloudArchiveHarness {
+        let archival_kind =
+            if self.cold_storage { ArchivalKind::ColdAndCloud } else { ArchivalKind::Cloud };
+        let user_account: AccountId = CloudArchiveHarness::USER_ACCOUNT.parse().unwrap();
+        let archival_id = archival_account_id();
+
+        let env = TestLoopBuilder::new()
+            .shard_layout(ShardLayout::multi_shard(3, 3))
+            .epoch_length(CloudArchiveHarness::DEFAULT_EPOCH_LENGTH)
+            .add_user_account(&user_account, CloudArchiveHarness::USER_BALANCE)
+            .enable_archival_node(archival_kind)
+            .gc_num_epochs_to_keep(MIN_GC_NUM_EPOCHS_TO_KEEP)
+            .config_modifier(move |config, _client_index| {
+                if !config.archive {
+                    return;
+                }
+                config.cloud_archival_writer = Some(CloudArchivalWriterConfig {
+                    archive_block_data: true,
+                    ..Default::default()
+                });
+            })
+            .build();
+
+        CloudArchiveHarness {
+            env,
+            archival_id,
+            epoch_length: CloudArchiveHarness::DEFAULT_EPOCH_LENGTH,
+            cold_storage_enabled: self.cold_storage,
+            reader_id: None,
         }
     }
 }
 
-/// Base setup for sanity-checking cloud archival flow.
-fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
-    init_test_logger();
+impl CloudArchiveHarness {
+    const DEFAULT_EPOCH_LENGTH: BlockHeightDelta = 10;
+    const USER_ACCOUNT: &str = "user_account";
+    const USER_BALANCE: Balance = Balance::from_near(42);
 
-    let shard_layout = ShardLayout::multi_shard(3, 3);
-    let user_account: AccountId = TEST_USER_ACCOUNT.parse().unwrap();
-    let validator_id: AccountId = "cp0".parse().unwrap();
-    let validators_spec = ValidatorsSpec::desired_roles(&[validator_id.as_str()], &[]);
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(MIN_EPOCH_LENGTH)
-        .add_user_account_simple(user_account.clone(), TEST_USER_BALANCE)
-        .validators_spec(validators_spec)
-        .shard_layout(shard_layout)
-        .build();
-    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-
-    let archival_id: AccountId = "archival".parse().unwrap();
-    let all_clients = vec![archival_id.clone(), validator_id];
-    let cold_storage_archival_clients =
-        if params.enable_cold_storage { vec![archival_id.clone()] } else { vec![] };
-    let cloud_storage_archival_clients = vec![archival_id.clone()];
-    let archival_index = all_clients.iter().position(|id| id == &archival_id).unwrap();
-
-    let mut builder = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(all_clients)
-        .cold_storage_archival_clients(cold_storage_archival_clients)
-        .cloud_storage_archival_clients(cloud_storage_archival_clients)
-        .gc_num_epochs_to_keep(MIN_GC_NUM_EPOCHS_TO_KEEP);
-
-    if !params.disable_writer {
-        builder = builder.config_modifier(move |config, client_index| {
-            if client_index != archival_index {
-                return;
-            }
-            config.cloud_archival_writer = Some(Default::default());
-        });
+    fn builder() -> CloudArchiveHarnessBuilder {
+        CloudArchiveHarnessBuilder { cold_storage: false }
     }
 
-    let mut env = builder.build();
+    fn run_until(&mut self, height: BlockHeight) {
+        run_node_until(&mut self.env, &self.archival_id, height);
+    }
 
-    if let Some(resume_height) = params.pause_writer_for_num_of_blocks {
-        pause_and_resume_writer_with_sanity_checks(
-            &mut env,
-            resume_height,
-            MIN_EPOCH_LENGTH,
-            &archival_id,
-            params.enable_cold_storage,
+    fn run_until_epoch(&mut self, num_epochs: u64) {
+        self.run_until(num_epochs * self.epoch_length);
+    }
+
+    fn pause_writer(&self) {
+        get_writer_handle(&self.env, &self.archival_id).0.stop();
+    }
+
+    fn resume_writer(&mut self) {
+        get_writer_handle(&self.env, &self.archival_id).0.resume();
+        let node_data = self.env.get_node_data_by_account_id(&self.archival_id);
+        let node_identifier = node_data.identifier.clone();
+        stop_and_restart_node(&mut self.env, node_identifier.as_str());
+    }
+
+    fn bootstrap_reader(&mut self, target_height: BlockHeight) {
+        let reader_id: AccountId = "reader".parse().unwrap();
+        bootstrap_reader_at_height(&mut self.env, &reader_id, target_height);
+        self.reader_id = Some(reader_id);
+    }
+
+    fn kill_reader(&mut self) {
+        let reader_id = self.reader_id.take().expect("no reader to kill");
+        self.env.kill_node(reader_id.as_ref());
+    }
+
+    /// Checks heads alignment and GC tail bounds. Use after a full run when
+    /// GC has had time to trigger.
+    fn assert_heads_and_gc_ok(&self) {
+        gc_and_heads_sanity_checks(
+            &self.env,
+            &self.archival_id,
+            self.cold_storage_enabled,
+            Some(self.epoch_length),
         );
     }
 
-    let target_height = params.num_epochs_to_wait * MIN_EPOCH_LENGTH;
-    run_node_until(&mut env, &archival_id, target_height);
-
-    println!("Final sanity checks");
-    gc_and_heads_sanity_checks(
-        &env,
-        &archival_id,
-        params.enable_cold_storage,
-        Some(MIN_EPOCH_LENGTH),
-    );
-
-    if let Some(block_height) = params.check_data_at_height {
-        check_data_at_height(&env, &archival_id, block_height);
+    /// Checks heads alignment expecting gc_tail == 1 (no GC has happened yet).
+    /// Use during pause scenarios before GC can advance past genesis.
+    fn assert_heads_ok_before_gc(&self) {
+        gc_and_heads_sanity_checks(&self.env, &self.archival_id, self.cold_storage_enabled, None);
     }
-    snapshots_sanity_check(&env, &archival_id, params.num_epochs_to_wait);
 
-    let reader_id: AccountId = "reader".parse().unwrap();
-    if let Some(target_block_height) = params.bootstrap_reader_at_height {
-        bootstrap_reader_at_height(&mut env, &reader_id, target_block_height);
-        check_account_balance(&env, &reader_id, &user_account, TEST_USER_BALANCE);
-        // Kill the reader node immediately after bootstrapping. We only want to
-        // verify that state sync + delta application produces the correct state.
-        // If left running, the reader tries to sync to the latest chain head and
-        // requests blocks from cp0 that have already been garbage collected.
-        env.kill_node(reader_id.as_ref());
+    fn assert_external_data_at_height(&self, height: BlockHeight) {
+        check_data_at_height(&self.env, &self.archival_id, height);
     }
-    env.test_loop.run_for(Duration::seconds(5));
 
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
+    /// Checks that each epoch (except the final one) has complete snapshots
+    /// and epoch data uploaded. Derives `final_epoch_height` from the current
+    /// chain head.
+    fn assert_snapshots_ok(&self) {
+        let head_height = self.env.archival_node().head().height;
+        let final_epoch_height = head_height / self.epoch_length;
+        snapshots_sanity_check(&self.env, &self.archival_id, final_epoch_height);
+    }
+
+    fn assert_reader_account_balance(&self, account: &AccountId, expected: Balance) {
+        let reader_id = self.reader_id.as_ref().expect("no reader bootstrapped");
+        check_account_balance(&self.env, reader_id, account, expected);
+    }
+
+    fn cloud_head(&self) -> BlockHeight {
+        get_cloud_head(&self.env, &self.archival_id)
+    }
+
+    fn gc_tail(&self) -> BlockHeight {
+        self.env.archival_node().client().chain.chain_store().tail()
+    }
+
+    fn shutdown(mut self) {
+        self.env.test_loop.run_for(Duration::seconds(5));
+        self.env.shutdown_and_drain_remaining_events(Duration::seconds(10));
+    }
 }
 
 /// Verifies that `cloud_head` progresses without crashes.
@@ -145,7 +162,11 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_basic() {
-    test_cloud_archival_base(TestCloudArchivalParametersBuilder::default().build());
+    let mut h = CloudArchiveHarness::builder().build();
+    h.run_until_epoch(MIN_GC_NUM_EPOCHS_TO_KEEP + 2);
+    h.assert_heads_and_gc_ok();
+    h.assert_snapshots_ok();
+    h.shutdown();
 }
 
 /// Verifies that both `cloud_head` and `cold_head` progress with cold DB enabled.
@@ -153,9 +174,11 @@ fn test_cloud_archival_basic() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_with_cold() {
-    test_cloud_archival_base(
-        TestCloudArchivalParametersBuilder::default().enable_cold_storage(true).build(),
-    );
+    let mut h = CloudArchiveHarness::builder().cold_storage(true).build();
+    h.run_until_epoch(MIN_GC_NUM_EPOCHS_TO_KEEP + 2);
+    h.assert_heads_and_gc_ok();
+    h.assert_snapshots_ok();
+    h.shutdown();
 }
 
 /// Verifies that while the cloud writer is paused, GC stop never exceeds the first block
@@ -164,19 +187,27 @@ fn test_cloud_archival_with_cold() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_resume() {
-    let gc_period_num_blocks = MIN_GC_NUM_EPOCHS_TO_KEEP * MIN_EPOCH_LENGTH;
-    // Pause the cloud writer long enough so that, if it were possible, GC could overtake
-    // `cloud_head`. Place `cloud_head` in the middle of the epoch so that the first block
-    // of the epoch containing `cloud_head` could potentially be garbage collected.
-    let resume_writer_after_num_blocks = Some(2 * gc_period_num_blocks + MIN_EPOCH_LENGTH / 2);
-    // After resuming writer, wait one more GC window to expose potential crash.
-    let num_epochs_to_wait = 3 * MIN_GC_NUM_EPOCHS_TO_KEEP;
-    test_cloud_archival_base(
-        TestCloudArchivalParametersBuilder::default()
-            .num_epochs_to_wait(num_epochs_to_wait)
-            .pause_writer_for_num_of_blocks(resume_writer_after_num_blocks)
-            .build(),
-    );
+    let mut h = CloudArchiveHarness::builder().build();
+
+    // Cloud head advances within first epoch.
+    h.run_until(h.epoch_length);
+    let cloud_head = h.cloud_head();
+    assert!(2 < cloud_head && cloud_head + 1 < h.epoch_length);
+
+    // Pause writer and advance enough for GC to want to collect cloud_head's
+    // epoch. cloud_head is in epoch 1; GC tries to collect it once the chain
+    // is MIN_GC_NUM_EPOCHS_TO_KEEP + 1 epochs ahead.
+    h.pause_writer();
+    let resume_height = (MIN_GC_NUM_EPOCHS_TO_KEEP + 2) * h.epoch_length + h.epoch_length / 2;
+    h.run_until(resume_height);
+    h.assert_heads_ok_before_gc();
+
+    // Resume and run far enough for GC to collect blocks up to resume_height.
+    h.resume_writer();
+    h.run_until_epoch(2 * MIN_GC_NUM_EPOCHS_TO_KEEP + 4);
+    h.assert_heads_and_gc_ok();
+    h.assert_snapshots_ok();
+    h.shutdown();
 }
 
 /// Verifies that block data can be read from the cloud.
@@ -184,24 +215,37 @@ fn test_cloud_archival_resume() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_read_data_at_height() {
-    let block_height = Some(MIN_EPOCH_LENGTH / 2);
-    test_cloud_archival_base(
-        TestCloudArchivalParametersBuilder::default().check_data_at_height(block_height).build(),
-    );
+    let mut h = CloudArchiveHarness::builder().build();
+    // 2 epochs is enough for the writer to upload data for height 5.
+    h.run_until_epoch(2);
+    h.assert_external_data_at_height(h.epoch_length / 2);
+    h.shutdown();
 }
 
-/// Verifies that a reader node can bootstrap its state from cloud storage by
-/// downloading a state snapshot and then applying per-block state deltas.
+/// Verifies that a reader node can bootstrap from cloud storage using a
+/// state snapshot and per-block state deltas.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_use_snapshot() {
-    let epochs_num = 3 + MIN_GC_NUM_EPOCHS_TO_KEEP;
-    let block_height = MIN_EPOCH_LENGTH + MIN_EPOCH_LENGTH / 2;
-    test_cloud_archival_base(
-        TestCloudArchivalParametersBuilder::default()
-            .num_epochs_to_wait(epochs_num)
-            .bootstrap_reader_at_height(Some(block_height))
-            .build(),
+    let mut h = CloudArchiveHarness::builder().build();
+    // Run enough epochs for the target height (mid-epoch-2) to be gc-ed
+    // locally, so the reader must bootstrap entirely from cloud.
+    let epochs = 3 + MIN_GC_NUM_EPOCHS_TO_KEEP;
+    h.run_until_epoch(epochs);
+    h.assert_heads_and_gc_ok();
+    h.assert_snapshots_ok();
+
+    // Bootstrap reader at mid-epoch-2. Verify the target was gc-ed locally
+    // so the reader must use cloud storage.
+    let target = h.epoch_length + h.epoch_length / 2;
+    assert!(h.gc_tail() > target, "target height should be gc-ed");
+    h.bootstrap_reader(target);
+    h.assert_reader_account_balance(
+        &CloudArchiveHarness::USER_ACCOUNT.parse().unwrap(),
+        CloudArchiveHarness::USER_BALANCE,
     );
+    h.kill_reader();
+
+    h.shutdown();
 }

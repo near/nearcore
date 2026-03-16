@@ -74,37 +74,39 @@ fn test_spice_chain() {
         .genesis_height(10000)
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } =
+    let mut env =
         builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
 
     let client_handles =
-        node_datas.iter().map(|data| data.client_sender.actor_handle()).collect_vec();
+        env.node_datas.iter().map(|data| data.client_sender.actor_handle()).collect_vec();
 
     // TODO(spice): Should be able to use execute_money_transfers here eventually. It shouldn't reach into
     // runtime directly though, or do it correctly with separated execution and chunks.
 
-    let client = &test_loop.data.get(&client_handles[0]).client;
+    let client = &env.test_loop.data.get(&client_handles[0]).client;
     let epoch_manager = client.epoch_manager.clone();
 
+    let node_datas = &env.node_datas;
     let get_balance = |test_loop_data: &mut TestLoopData, account: &AccountId, epoch_id| {
         let shard_id = shard_layout.account_id_to_shard_id(account);
         let cp =
             &epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, shard_id).unwrap()[0];
-        let node_data = get_node_data(&node_datas, cp);
+        let node_data = get_node_data(node_datas, cp);
         let node = TestLoopNode { data: test_loop_data, node_data };
         node.view_account_query(account).unwrap().amount
     };
 
     let epoch_id = client.chain.head().unwrap().epoch_id;
     for account in &accounts {
-        let got_balance = get_balance(&mut test_loop.data, account, epoch_id);
+        let got_balance = get_balance(&mut env.test_loop.data, account, epoch_id);
         assert_eq!(got_balance, INITIAL_BALANCE);
     }
 
-    let (sent_txs, balance_changes) = schedule_send_money_txs(&node_datas, &accounts, &test_loop);
+    let (sent_txs, balance_changes) =
+        schedule_send_money_txs(&env.node_datas, &accounts, &env.test_loop);
 
     let mut observed_txs = HashSet::new();
-    test_loop.run_until(
+    env.test_loop.run_until(
         |test_loop_data| {
             let clients = client_handles
                 .iter()
@@ -137,12 +139,12 @@ fn test_spice_chain() {
 
     assert_eq!(*sent_txs.lock(), observed_txs);
 
-    let client = &test_loop.data.get(&client_handles[0]).client;
+    let client = &env.test_loop.data.get(&client_handles[0]).client;
     let epoch_id = client.chain.head().unwrap().epoch_id;
 
     assert!(!balance_changes.is_empty());
     for (account, balance_change) in &balance_changes {
-        let got_balance = get_balance(&mut test_loop.data, account, epoch_id);
+        let got_balance = get_balance(&mut env.test_loop.data, account, epoch_id);
         let want_balance = Balance::from_yoctonear(
             (INITIAL_BALANCE.as_yoctonear() as i128 + balance_change).try_into().unwrap(),
         );
@@ -150,8 +152,7 @@ fn test_spice_chain() {
         assert_ne!(*balance_change, 0);
     }
 
-    TestLoopEnv { test_loop, node_datas, shared_state }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[test]
@@ -646,7 +647,6 @@ fn test_restart_validator_node() {
     let future_spawner = env.test_loop.future_spawner("TransactionRunner");
 
     let start_height = env.node_for_account(&producer).head().height;
-    let producer_identifier = env.get_node_data_by_account_id(&producer).identifier.clone();
     env.runner_for_account(&producer).run_until(
         |node| {
             let client = node.client();
@@ -660,7 +660,7 @@ fn test_restart_validator_node() {
         Duration::seconds(5),
     );
 
-    let new_node_identifier = format!("{}-restart", producer_identifier);
+    let new_node_identifier = format!("{}-restart", validator_identifier);
     env.restart_node(&new_node_identifier, killed_node_state);
     // After restart new node_datas are created.
 

@@ -154,5 +154,7 @@ fn test_raw_client_test_loop_setup() {
     test_loop.data.register_actor("node0", client_actor, Some(client_adapter));
 
     test_loop.run_for(Duration::seconds(10));
-    test_loop.shutdown_and_drain_remaining_events(Duration::seconds(1));
+
+    test_loop.initiate_shutdown();
+    test_loop.run_for(Duration::seconds(1));
 }

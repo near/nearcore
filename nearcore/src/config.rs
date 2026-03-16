@@ -884,6 +884,7 @@ impl NightshadeRuntime {
             config.config.store.path.as_ref(),
             &config.config.contract_cache_path(),
             config.config.max_loaded_contracts,
+            Some("filesystem".to_string()),
         )?;
         Ok(NightshadeRuntime::new(
             store,

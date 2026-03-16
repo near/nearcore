@@ -60,6 +60,4 @@ fn resharding_example_test() {
 
     let epoch_id = env.validator().head().epoch_id;
     assert_eq!(epoch_manager.get_shard_layout(&epoch_id).unwrap(), new_shard_layout);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }

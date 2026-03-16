@@ -321,6 +321,7 @@ impl Client {
             chain.genesis().clone(),
             multi_spawner.epoch_sync,
             config.epoch_sync.clone(),
+            config.archive,
             &chain.chain_store.store(),
         );
         let header_sync = HeaderSync::new(

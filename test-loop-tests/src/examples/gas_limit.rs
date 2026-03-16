@@ -55,8 +55,6 @@ fn test_gas_limit() {
             )
     );
     assert!(gas_burnt > Gas::from_teragas(1000));
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 fn burn_gas(
