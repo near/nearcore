@@ -451,14 +451,16 @@ impl TestLoopV2 {
         }
     }
 
-    pub fn shutdown_and_drain_remaining_events(mut self, maximum_duration: Duration) {
-        self.shutting_down.store(true, Ordering::Relaxed);
-        self.run_for(maximum_duration);
-        // Implicitly dropped here, which asserts that no more events are remaining.
-    }
-
     pub fn run_instant(&mut self) {
         self.run_for(Duration::ZERO);
+    }
+
+    pub fn initiate_shutdown(&mut self) {
+        self.shutting_down.store(true, Ordering::Relaxed);
+    }
+
+    pub fn is_shutting_down(&self) -> bool {
+        self.shutting_down.load(Ordering::Relaxed)
     }
 }
 

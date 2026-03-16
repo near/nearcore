@@ -158,12 +158,17 @@ impl TestLoopEnv {
     /// destructors may end up waiting forever. This also helps avoid a panic when destructing
     /// TestLoop itself, as it asserts that all events have been handled.
     pub fn shutdown_and_drain_remaining_events(mut self, timeout: Duration) {
+        self.do_shutdown(timeout);
+    }
+
+    fn do_shutdown(&mut self, timeout: Duration) {
         // State sync dumper is not an Actor, handle stopping separately.
-        for node_data in self.node_datas {
+        for node_data in &self.node_datas {
             self.test_loop.data.get_mut(&node_data.state_sync_dumper_handle).stop();
         }
 
-        self.test_loop.shutdown_and_drain_remaining_events(timeout);
+        self.test_loop.initiate_shutdown();
+        self.test_loop.run_for(timeout);
     }
 
     pub fn get_node_data_by_account_id(&self, account_id: &AccountId) -> &NodeExecutionData {
@@ -261,5 +266,13 @@ impl TestLoopEnv {
         let genesis = self.shared_state.genesis.clone();
         let tempdir_path = self.shared_state.tempdir.path().to_path_buf();
         NodeStateBuilder::new(genesis, tempdir_path)
+    }
+}
+
+impl Drop for TestLoopEnv {
+    fn drop(&mut self) {
+        if !self.test_loop.is_shutting_down() {
+            self.do_shutdown(Duration::seconds(30));
+        }
     }
 }
