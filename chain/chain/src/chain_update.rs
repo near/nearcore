@@ -147,10 +147,13 @@ impl<'a> ChainUpdate<'a> {
                     shard_id,
                     apply_result.outgoing_receipts,
                 );
+                let receipt_to_tx_ids: Vec<CryptoHash> =
+                    apply_result.receipt_to_tx.iter().map(|(id, _)| *id).collect();
                 self.chain_store_update.save_processed_receipt_ids(
                     block_hash,
                     shard_id,
                     apply_result.processed_receipts,
+                    receipt_to_tx_ids,
                 );
                 // Save receipt and transaction results.
                 self.chain_store_update.save_outcomes_with_proofs(
@@ -209,7 +212,6 @@ impl<'a> ChainUpdate<'a> {
                     shard_uid.shard_id(),
                     apply_result.stats,
                 );
-                self.chain_store_update.save_receipt_to_tx(apply_result.receipt_to_tx);
             }
         };
         Ok(())
@@ -592,6 +594,14 @@ impl<'a> ChainUpdate<'a> {
             apply_result.outcomes,
             outcome_proofs,
         );
+        let receipt_to_tx_ids: Vec<CryptoHash> =
+            apply_result.receipt_to_tx.iter().map(|(id, _)| *id).collect();
+        self.chain_store_update.save_processed_receipt_ids(
+            block_header.hash(),
+            shard_id,
+            apply_result.processed_receipts,
+            receipt_to_tx_ids,
+        );
         self.chain_store_update.save_receipt_to_tx(apply_result.receipt_to_tx);
         // Saving all incoming receipts.
         for receipt_proof_response in receipt_proof_responses {
@@ -681,6 +691,16 @@ impl<'a> ChainUpdate<'a> {
             &shard_uid,
             new_chunk_extra.into(),
         );
+        let receipt_to_tx_ids: Vec<CryptoHash> =
+            apply_result.receipt_to_tx.iter().map(|(id, _)| *id).collect();
+        if !receipt_to_tx_ids.is_empty() {
+            self.chain_store_update.save_processed_receipt_ids(
+                block_header.hash(),
+                shard_id,
+                vec![],
+                receipt_to_tx_ids,
+            );
+        }
         self.chain_store_update.save_receipt_to_tx(apply_result.receipt_to_tx);
         Ok(true)
     }

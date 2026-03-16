@@ -1324,11 +1324,21 @@ mod tests {
 }
 
 /// Source of a processed receipt, used to track how a receipt was applied.
+///
+/// Stored in `DBCol::ProcessedReceiptIds` (local-only, not part of consensus).
+/// Adding new variants is safe for protocol but may cause deserialization
+/// failures if the node rolls back to an older binary. Recovery via epoch sync.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
 pub enum ReceiptSource {
     Local,
     Delayed,
     Instant,
+    /// Marker for receipt IDs that only need their `ReceiptToTx` index entry
+    /// garbage-collected. Used for receipts whose `ReceiptToTx` mapping was saved
+    /// on the source shard but that don't appear in `OutcomeIds` (e.g. data
+    /// receipts, PromiseResume, cross-shard receipts on a source-only node,
+    /// GlobalContractDistribution receipts).
+    ReceiptToTxGc,
 }
 
 /// A processed receipt together with its source. Runtime-only struct, not serialized to DB.

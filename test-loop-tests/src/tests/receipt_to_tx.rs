@@ -3,7 +3,9 @@ use crate::utils::account::create_account_id;
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{ReceiptOrigin, ReceiptToTxInfo};
+use near_primitives::receipt::{
+    ProcessedReceiptMetadata, ReceiptOrigin, ReceiptSource, ReceiptToTxInfo,
+};
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{Balance, Gas, ShardId};
@@ -52,6 +54,16 @@ fn test_save_receipt_to_tx_false() {
     assert!(
         store.get_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx, receipt_id.as_ref()).is_none(),
         "receipt_to_tx should not be saved when save_receipt_to_tx is false"
+    );
+
+    // Verify no ReceiptToTxGc entries in ProcessedReceiptIds.
+    let has_receipt_to_tx_gc = store
+        .iter_ser::<Vec<ProcessedReceiptMetadata>>(DBCol::ProcessedReceiptIds)
+        .flat_map(|(_, entries)| entries)
+        .any(|entry| matches!(entry.source(), ReceiptSource::ReceiptToTxGc));
+    assert!(
+        !has_receipt_to_tx_gc,
+        "ProcessedReceiptIds should not contain ReceiptToTxGc entries when save_receipt_to_tx is false"
     );
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
