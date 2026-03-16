@@ -153,16 +153,6 @@ impl TestLoopEnv {
         self.restart_node(identifier, node_state);
     }
 
-    fn do_shutdown(&mut self, timeout: Duration) {
-        // State sync dumper is not an Actor, handle stopping separately.
-        for node_data in &self.node_datas {
-            self.test_loop.data.get_mut(&node_data.state_sync_dumper_handle).stop();
-        }
-
-        self.test_loop.initiate_shutdown();
-        self.test_loop.run_for(timeout);
-    }
-
     pub fn get_node_data_by_account_id(&self, account_id: &AccountId) -> &NodeExecutionData {
         let idx = self.account_data_idx(account_id);
         &self.node_datas[idx]
@@ -263,8 +253,11 @@ impl TestLoopEnv {
 
 impl Drop for TestLoopEnv {
     fn drop(&mut self) {
-        if !self.test_loop.is_shutting_down() {
-            self.do_shutdown(Duration::seconds(30));
+        // State sync dumper is not an Actor, handle stopping separately.
+        for node_data in &self.node_datas {
+            self.test_loop.data.get_mut(&node_data.state_sync_dumper_handle).stop();
         }
+        self.test_loop.initiate_shutdown();
+        self.test_loop.run_for(Duration::seconds(30));
     }
 }
