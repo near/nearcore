@@ -57,7 +57,6 @@ fn main() {
         runtime,
         store,
         false,
-        near_config.client_config.save_tx_outcomes,
     );
     store_validator.validate();
 
