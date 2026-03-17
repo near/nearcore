@@ -359,7 +359,7 @@ pub struct Config {
     /// chunks and underutilized the capacity of the network.
     pub transaction_pool_size_limit: Option<u64>,
     /// TTL in blocks for gapped strict-nonce transactions in the pool.
-    pub transaction_pool_strict_nonce_ttl_blocks: BlockHeight,
+    pub transaction_pool_strict_nonce_ttl_blocks: Option<BlockHeightDelta>,
     // Configuration for resharding.
     pub resharding_config: ReshardingConfig,
     /// If the node is not a chunk producer within that many blocks, then route
@@ -487,8 +487,7 @@ impl Default for Config {
             epoch_sync: default_epoch_sync(),
             state_sync_enabled: default_state_sync_enabled(),
             transaction_pool_size_limit: default_transaction_pool_size_limit(),
-            transaction_pool_strict_nonce_ttl_blocks:
-                default_transaction_pool_strict_nonce_ttl_blocks(),
+            transaction_pool_strict_nonce_ttl_blocks: None,
             enable_multiline_logging: default_enable_multiline_logging(),
             resharding_config: ReshardingConfig::default(),
             tx_routing_height_horizon: default_tx_routing_height_horizon(),
@@ -762,7 +761,8 @@ impl NearConfig {
                 epoch_sync: config.epoch_sync.unwrap_or_default(),
                 transaction_pool_size_limit: config.transaction_pool_size_limit,
                 transaction_pool_strict_nonce_ttl_blocks: config
-                    .transaction_pool_strict_nonce_ttl_blocks,
+                    .transaction_pool_strict_nonce_ttl_blocks
+                    .unwrap_or_else(default_transaction_pool_strict_nonce_ttl_blocks),
                 enable_multiline_logging: config.enable_multiline_logging.unwrap_or(true),
                 resharding_config: MutableConfigValue::new(
                     config.resharding_config,

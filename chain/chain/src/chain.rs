@@ -2719,7 +2719,7 @@ impl Chain {
     pub fn strict_nonce_ttl_check(
         &self,
         prev_block_height: BlockHeight,
-        strict_nonce_ttl: BlockHeight,
+        strict_nonce_ttl: BlockHeightDelta,
     ) -> impl Fn(&SignedTransaction) -> bool + Send + 'static {
         let chain_store = self.chain_store.clone();
         move |tx: &SignedTransaction| -> bool {

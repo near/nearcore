@@ -611,7 +611,7 @@ pub fn default_transaction_pool_size_limit() -> Option<u64> {
     Some(100_000_000) // 100 MB.
 }
 
-pub fn default_transaction_pool_strict_nonce_ttl_blocks() -> BlockHeight {
+pub fn default_transaction_pool_strict_nonce_ttl_blocks() -> BlockHeightDelta {
     64
 }
 
@@ -830,7 +830,7 @@ pub struct ClientConfig {
     /// TTL in blocks for gapped strict-nonce transactions in the pool. Transactions with a
     /// nonce gap whose block_hash is older than this many blocks are evicted during
     /// prepare_transactions.
-    pub transaction_pool_strict_nonce_ttl_blocks: BlockHeight,
+    pub transaction_pool_strict_nonce_ttl_blocks: BlockHeightDelta,
     // Allows more detailed logging, for example a list of orphaned blocks.
     pub enable_multiline_logging: bool,
     // Configuration for resharding.
