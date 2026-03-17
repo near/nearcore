@@ -16,7 +16,8 @@
 //!   on where head sits within the current epoch. gc_stop is an epoch boundary, not a fixed
 //!   offset from head.
 //!
-//! Migrated from pytests: `gc_after_sync.py`, `gc_after_sync1.py`, `gc_sync_after_sync.py`.
+//! Covers the regression from #2980 where state sync cleared block infos needed
+//! for `gc_stop_height` computation.
 
 use super::util::{
     TEST_EPOCH_SYNC_HORIZON, assert_far_horizon_sync_sequence, assert_near_horizon_sync_sequence,
@@ -190,10 +191,8 @@ fn test_gc_incremental() {
 //   - Blocks below tail are not accessible
 //   - Blocks from tail to head are accessible
 //
-// Replaces `gc_sync_after_sync.py`: the original pytest tested GC after multiple V1
-// state syncs, but under V2 stale nodes get their DB wiped (EpochSyncDataReset),
-// making the multi-sync scenario redundant. This near-horizon variant is more
-// meaningful under V2.
+// Under V2 stale nodes get their DB wiped (EpochSyncDataReset), making the
+// multi-sync GC scenario redundant. This near-horizon variant is more meaningful.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_gc_boundary_after_near_horizon_sync() {

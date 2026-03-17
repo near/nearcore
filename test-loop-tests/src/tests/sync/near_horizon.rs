@@ -165,28 +165,25 @@ fn test_near_horizon_restart_during_block_sync() {
     run_until_synced(&mut env.test_loop, &env.node_datas, restarted_idx, 0);
 }
 
-// Scenario: Kill a validator that tracks all shards, reduce its tracked shards
-// config to a subset, and restart. The node block-syncs to catch up, then runs
-// past epoch boundaries where the schedule rotates to different shards.
+// Scenario: A validator tracking all shards is killed mid-epoch, its tracked
+// shards config is reduced to a schedule, and it restarts behind the network.
+// The node block-syncs to catch up, then runs past epoch boundaries where the
+// schedule rotates to different shards.
 //
-// Mirrors the pytest `block_sync_flat_storage.py`: the node starts with AllShards
-// (so it has state for every shard), then the config is changed to a schedule
-// that tracks only shard [0] now and [1, 2, 3] next epoch. On restart the node
-// must correctly handle chunks for the shards it will care about next epoch.
+// This tests that flat storage and memtrie loading correctly handle tracked
+// shards changing between restarts (regression coverage for PR #9368 / #10820).
 //
 // Setup:
 //   - 4 validators, epoch_length=10, 4 shards, all tracking AllShards
 //   - 100 user accounts with cross-shard money transfers
-//   - Run past 1 epoch boundary, kill node 0, change config to
-//     Schedule: [[0], [0], [1, 2, 3]], advance 1 epoch, restart
+//   - Run past 1 epoch boundary, kill node 0
+//   - Change config to Schedule: [[0], [0], [1, 2, 3]]
+//   - Advance remaining validators ~1 epoch, then restart node 0
 //
 // Assertions:
-//   - Node catches up via block sync after the gap
+//   - Node catches up via near-horizon sync (BlockSync)
 //   - Node survives 2 more epoch boundaries (schedule rotates to [1, 2, 3])
 //   - No IncorrectStateRoot or FlatStorage panics
-//
-// This is a regression test for PR #9368 / PR #10820: flat storage and memtrie
-// loading must handle tracked shards changing between restarts.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
@@ -212,7 +209,7 @@ fn test_near_horizon_change_tracked_shards_on_restart() {
     let mut killed_state = env.kill_node(&node0_identifier);
 
     // Change tracked shards: track only shard [0] now, [1, 2, 3] next epoch.
-    // Same schedule as the pytest: [[0], [0], [1, 2, 3]].
+    // Schedule: [[0], [0], [1, 2, 3]].
     killed_state.client_config.tracked_shards_config = TrackedShardsConfig::Schedule(vec![
         vec![ShardId::new(0)],
         vec![ShardId::new(0)],

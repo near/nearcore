@@ -61,7 +61,7 @@ fn test_sync_then_shard_catchup() {
     env.node_runner(0).run_until_head_height((TEST_EPOCH_SYNC_HORIZON + 3) * epoch_length);
 
     // Add a fresh non-validator with a rotating shard schedule.
-    // The schedule mirrors the pytest's [[0],[0],[1],[2],[3],[1],[2],[3]].
+    // Schedule: [[0],[0],[1],[2],[3],[1],[2],[3]].
     // After sync, when the node enters a new epoch, its tracked shard changes,
     // triggering the catchup path for the newly tracked shard.
     let schedule = vec![
