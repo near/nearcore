@@ -40,13 +40,20 @@ async fn t3_disconnect() {
     let mut events = pm.events.from_now();
     let peer = conn.handshake(&clock.clock()).await;
 
+    // Capture the PM-side stream_id from the HandshakeCompleted event.
+    let stream_id = events
+        .recv_until(|ev| match ev {
+            Event::HandshakeCompleted(ev) => Some(ev.stream_id),
+            _ => None,
+        })
+        .await;
+
     // Send a Disconnect message from the peer side over T3.
     peer.send(PeerMessage::Disconnect(Disconnect { remove_from_connection_store: false })).await;
 
-    // The PM side should see DisconnectMessage, not DisallowedMessage.
     let reason = events
         .recv_until(|ev| match ev {
-            Event::ConnectionClosed(ev) => Some(ev.reason),
+            Event::ConnectionClosed(ev) if ev.stream_id == stream_id => Some(ev.reason),
             _ => None,
         })
         .await;
