@@ -153,6 +153,7 @@ impl ChunkProducer {
         shard_id: ShardId,
         signer: &Arc<ValidatorSigner>,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
+        validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
     ) -> Result<Option<ProduceChunkResult>, Error> {
         let chunk_proposer = self
             .epoch_manager
@@ -186,6 +187,7 @@ impl ChunkProducer {
             shard_id,
             signer,
             chain_validate,
+            validate_tx_ttl,
         )
     }
 
@@ -254,6 +256,7 @@ impl ChunkProducer {
         shard_id: ShardId,
         validator_signer: &Arc<ValidatorSigner>,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
+        validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
     ) -> Result<Option<ProduceChunkResult>, Error> {
         let span = tracing::Span::current();
         let timer = Instant::now();
@@ -301,6 +304,7 @@ impl ChunkProducer {
                         prev_block,
                         chunk_extra.as_ref(),
                         chain_validate,
+                        validate_tx_ttl,
                         protocol_version,
                     )?,
                 },
@@ -313,6 +317,7 @@ impl ChunkProducer {
                     prev_block,
                     chunk_extra.as_ref(),
                     chain_validate,
+                    validate_tx_ttl,
                     protocol_version,
                 )?,
             }
@@ -445,6 +450,7 @@ impl ChunkProducer {
         prev_block: &Block,
         chunk_extra: &ChunkExtra,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
+        validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
         protocol_version: ProtocolVersion,
     ) -> Result<PreparedTransactions, Error> {
         let shard_id = shard_uid.shard_id();
@@ -484,6 +490,7 @@ impl ChunkProducer {
                     prev_block_context,
                     &mut iter,
                     chain_validate,
+                    validate_tx_ttl,
                     self.chunk_transactions_time_limit.get(),
                 )?
             }
@@ -591,6 +598,7 @@ impl ChunkProducer {
         prev_block_context: PrepareTransactionsBlockContext,
         prev_chunk_tx_hashes: HashSet<CryptoHash>,
         tx_validity_period_check: impl Fn(&SignedTransaction) -> bool + Send + 'static,
+        validate_tx_ttl: impl Fn(&SignedTransaction) -> bool + Send + 'static,
     ) {
         // next_epoch_id is epoch_id of the current block (block for which height we are preparing
         // transactions).
@@ -642,6 +650,7 @@ impl ChunkProducer {
             prev_block_context,
             tx_pool: self.sharded_tx_pool.clone(),
             tx_validity_period_check: Box::new(tx_validity_period_check),
+            validate_tx_ttl: Box::new(validate_tx_ttl),
             prev_chunk_tx_hashes,
             time_limit: self.chunk_transactions_time_limit.get(),
         };

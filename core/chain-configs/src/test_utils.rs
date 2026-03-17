@@ -6,6 +6,7 @@ use crate::{
     default_chunks_cache_height_horizon, default_enable_early_prepare_transactions,
     default_orphan_state_witness_max_size, default_orphan_state_witness_pool_size,
     default_produce_chunk_add_transactions_time_limit,
+    default_transaction_pool_strict_nonce_ttl_blocks,
 };
 use chrono::{DateTime, Utc};
 use near_crypto::{InMemorySigner, PublicKey};
@@ -325,6 +326,8 @@ impl ClientConfig {
             state_sync: StateSyncConfig::default(),
             epoch_sync: EpochSyncConfig::default(),
             transaction_pool_size_limit: None,
+            transaction_pool_strict_nonce_ttl_blocks:
+                default_transaction_pool_strict_nonce_ttl_blocks(),
             enable_multiline_logging: false,
             resharding_config: MutableConfigValue::new(
                 ReshardingConfig::default(),
