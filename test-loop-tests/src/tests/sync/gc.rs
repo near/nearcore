@@ -41,7 +41,7 @@ const GC_EPOCHS: u64 = 3;
 ///   a full pass the tail sits one below gc_stop.
 /// - `head - gc_stop` is in `[(gc-1)*EPOCH_LENGTH, gc*EPOCH_LENGTH - 1]`: gc_stop is an
 ///   epoch boundary, so the exact offset depends on where head sits in the current epoch.
-/// - Genesis block (height 1) is accessible (genesis_height defaults to 1 in tests).
+/// - Genesis block (height 1) is accessible if above tail (not GC'd).
 /// - Blocks in `(genesis_height, tail)` are not accessible (GC'd or never downloaded).
 /// - Blocks from tail to head are accessible.
 fn assert_gc_boundaries(env: &TestLoopEnv, node_idx: usize) {
@@ -68,11 +68,13 @@ fn assert_gc_boundaries(env: &TestLoopEnv, node_idx: usize) {
         head.height
     );
 
-    // Genesis block should always be accessible.
-    assert!(
-        client.chain.get_block_by_height(genesis_height).is_ok(),
-        "genesis block at height {genesis_height} should be accessible"
-    );
+    // Genesis block is accessible only if it hasn't been GC'd (i.e., above tail).
+    if genesis_height >= tail {
+        assert!(
+            client.chain.get_block_by_height(genesis_height).is_ok(),
+            "genesis block at height {genesis_height} should be accessible (above tail={tail})"
+        );
+    }
 
     // Blocks between genesis and tail should be GC'd or never downloaded.
     for h in (genesis_height + 1)..tail {
