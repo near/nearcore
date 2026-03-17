@@ -447,12 +447,8 @@ impl NetworkState {
             }
 
             #[cfg(test)]
-            let emit_reason = reason.clone();
-
-            // The rest of this function has to do with banning or routing,
-            // which are applicable only for TIER2.
-            if conn.tier != tcp::Tier::T2 {
-                #[cfg(test)]
+            {
+                let emit_reason = reason.clone();
                 this.config.event_sink.send(
                     crate::peer_manager::peer_manager_actor::Event::ConnectionClosed(
                         crate::peer::peer_actor::ConnectionClosedEvent {
@@ -461,6 +457,11 @@ impl NetworkState {
                         },
                     ),
                 );
+            }
+
+            // The rest of this function has to do with banning or routing,
+            // which are applicable only for TIER2.
+            if conn.tier != tcp::Tier::T2 {
                 return;
             }
 
@@ -500,16 +501,6 @@ impl NetworkState {
             if this.connection_store.connection_closed(&conn.peer_info, &conn.peer_type, &reason) {
                 this.pending_reconnect.lock().push(conn.peer_info.clone());
             }
-
-            #[cfg(test)]
-            this.config.event_sink.send(
-                crate::peer_manager::peer_manager_actor::Event::ConnectionClosed(
-                    crate::peer::peer_actor::ConnectionClosedEvent {
-                        stream_id: _stream_id,
-                        reason: emit_reason,
-                    },
-                ),
-            );
         });
     }
 
