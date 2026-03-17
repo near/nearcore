@@ -76,9 +76,9 @@ fn test_rpc_view_account_forwarding() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
 
-    let mut run = |node_id: &AccountId,
-                   account: &AccountId,
-                   expected_balance: Balance|
+    let mut run_view_account = |node_id: &AccountId,
+                               account: &AccountId,
+                               expected_balance: Balance|
      -> Result<(), RpcError> {
         let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
             |client| {
@@ -94,11 +94,11 @@ fn test_rpc_view_account_forwarding() {
     };
 
     // Cross-shard forwarding.
-    run(&h.zoe_node, &h.alice, Balance::from_near(100)).unwrap();
-    run(&h.alice_node, &h.zoe, Balance::from_near(200)).unwrap();
+    run_view_account(&h.zoe_node, &h.alice, Balance::from_near(100)).unwrap();
+    run_view_account(&h.alice_node, &h.zoe, Balance::from_near(200)).unwrap();
     // Local.
-    run(&h.alice_node, &h.alice, Balance::from_near(100)).unwrap();
-    run(&h.zoe_node, &h.zoe, Balance::from_near(200)).unwrap();
+    run_view_account(&h.alice_node, &h.alice, Balance::from_near(100)).unwrap();
+    run_view_account(&h.zoe_node, &h.zoe, Balance::from_near(200)).unwrap();
 }
 
 /// Standard `query` ViewAccount should be forwarded to the right shard.
@@ -107,9 +107,9 @@ fn test_rpc_query_view_account_forwarding() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
 
-    let mut run = |node_id: &AccountId,
-                   account: &AccountId,
-                   expected_balance: Balance|
+    let mut run_query_view_account = |node_id: &AccountId,
+                                      account: &AccountId,
+                                      expected_balance: Balance|
      -> Result<(), RpcError> {
         let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
             |client| {
@@ -130,11 +130,11 @@ fn test_rpc_query_view_account_forwarding() {
     };
 
     // Cross-shard forwarding.
-    run(&h.zoe_node, &h.alice, Balance::from_near(100)).unwrap();
-    run(&h.alice_node, &h.zoe, Balance::from_near(200)).unwrap();
+    run_query_view_account(&h.zoe_node, &h.alice, Balance::from_near(100)).unwrap();
+    run_query_view_account(&h.alice_node, &h.zoe, Balance::from_near(200)).unwrap();
     // Local.
-    run(&h.alice_node, &h.alice, Balance::from_near(100)).unwrap();
-    run(&h.zoe_node, &h.zoe, Balance::from_near(200)).unwrap();
+    run_query_view_account(&h.alice_node, &h.alice, Balance::from_near(100)).unwrap();
+    run_query_view_account(&h.zoe_node, &h.zoe, Balance::from_near(200)).unwrap();
 }
 
 /// Standard `query` ViewAccessKey should be forwarded to the right shard.
@@ -143,7 +143,7 @@ fn test_rpc_query_view_access_key_forwarding() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
 
-    let mut run = |node_id: &AccountId, account: &AccountId| -> Result<(), RpcError> {
+    let mut run_query_view_access_key = |node_id: &AccountId, account: &AccountId| -> Result<(), RpcError> {
         let public_key =
             near_primitives::test_utils::create_user_test_signer(account.as_ref()).public_key();
         let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
@@ -166,9 +166,9 @@ fn test_rpc_query_view_access_key_forwarding() {
     };
 
     // Cross-shard forwarding.
-    run(&h.zoe_node, &h.alice).unwrap();
-    run(&h.alice_node, &h.zoe).unwrap();
+    run_query_view_access_key(&h.zoe_node, &h.alice).unwrap();
+    run_query_view_access_key(&h.alice_node, &h.zoe).unwrap();
     // Local.
-    run(&h.alice_node, &h.alice).unwrap();
-    run(&h.zoe_node, &h.zoe).unwrap();
+    run_query_view_access_key(&h.alice_node, &h.alice).unwrap();
+    run_query_view_access_key(&h.zoe_node, &h.zoe).unwrap();
 }
