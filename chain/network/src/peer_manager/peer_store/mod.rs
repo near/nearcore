@@ -393,9 +393,8 @@ impl PeerStore {
         clock: &time::Clock,
         peer_id: &PeerId,
         result: Result<(), anyhow::Error>,
-    ) -> anyhow::Result<()> {
+    ) {
         let mut inner = self.0.lock();
-
         let Some(peer_state) = inner.peer_states.get_mut(peer_id) else {
             // The peer can be removed from the store (e.g., expired by remove_expired)
             // while the outbound connection attempt is in flight. If the connection
@@ -403,9 +402,10 @@ impl PeerStore {
             // unexpected happened.
             if result.is_err() {
                 tracing::debug!(target: "network", %peer_id, "peer expired from store during failed connection attempt");
-                return Ok(());
+            } else {
+                tracing::error!(target: "network", %peer_id, "failed to store connection attempt");
             }
-            bail!("Peer {} is missing in the peer store", peer_id);
+            return;
         };
         if result.is_err() {
             // Marks the peer status as Unknown (as we failed to connect to it).
@@ -414,8 +414,6 @@ impl PeerStore {
         peer_state.last_outbound_attempt =
             Some((clock.now_utc(), result.map_err(|err| err.to_string())));
         peer_state.last_seen = clock.now_utc();
-
-        Ok(())
     }
 
     pub fn peer_ban(
