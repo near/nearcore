@@ -260,7 +260,7 @@ impl<'a> TransactionGroupIterator for PoolIteratorWrapper<'a> {
                 transactions: validated_txs,
                 removed_transaction_hashes: vec![],
                 removed_transaction_size: 0,
-                removed_count_at_yield: 0,
+                removed_any_since_yield: false,
             });
             Some(self.sorted_groups.back_mut().expect("just pushed"))
         } else {
@@ -281,11 +281,11 @@ impl<'a> TransactionGroupIterator for PoolIteratorWrapper<'a> {
                         .transaction_pool_count_metric
                         .set(self.pool.unique_transactions.len() as i64);
                     self.pool.transaction_pool_size_metric.set(self.pool.transaction_size() as i64);
-                } else if group.removed_transaction_hashes.len() == group.removed_count_at_yield {
+                } else if !group.removed_any_since_yield {
                     // No transactions were popped since last yield, keep as a stalled group.
                     self.stalled_groups.push(group);
                 } else {
-                    group.removed_count_at_yield = group.removed_transaction_hashes.len();
+                    group.removed_any_since_yield = false;
                     self.sorted_groups.push_back(group);
                     return Some(self.sorted_groups.back_mut().expect("just pushed"));
                 }
