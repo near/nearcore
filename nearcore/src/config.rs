@@ -359,6 +359,7 @@ pub struct Config {
     /// chunks and underutilized the capacity of the network.
     pub transaction_pool_size_limit: Option<u64>,
     /// TTL in blocks for gapped strict-nonce transactions in the pool.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub transaction_pool_strict_nonce_ttl_blocks: Option<BlockHeightDelta>,
     // Configuration for resharding.
     pub resharding_config: ReshardingConfig,
