@@ -388,8 +388,8 @@ def configure_rpc_nodes(args):
         run_cmd_args.cmd = (
             f"python3 {BENCHNET_DIR}/helpers/json_updater.py {CONFIG_PATH} {rpc_config_patch}"
             f" && jq '{tracked_shards_jq}' {CONFIG_PATH} > tmp.json && mv tmp.json {CONFIG_PATH}"
-            f" && jq --argjson srpc '{sharded_rpc_config}'"
-            f" '.rpc.sharded_rpc = $srpc' {CONFIG_PATH} > tmp.json && mv tmp.json {CONFIG_PATH}"
+            f" && jq --argjson sharded_rpc '{sharded_rpc_config}'"
+            f" '.rpc.sharded_rpc = $sharded_rpc' {CONFIG_PATH} > tmp.json && mv tmp.json {CONFIG_PATH}"
         )
         run_remote_cmd(CommandContext(run_cmd_args))
         logger.info(f"Configured RPC {rpc['name']}: shards {shard_ids}")
