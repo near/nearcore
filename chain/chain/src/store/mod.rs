@@ -511,6 +511,22 @@ impl ChainStore {
             })
             .collect()
     }
+
+    /// Builds a closure that checks whether a gapped strict-nonce transaction's
+    /// block_hash is still within the TTL window relative to `prev_block_height`.
+    pub fn strict_nonce_ttl_check(
+        &self,
+        prev_block_height: BlockHeight,
+        strict_nonce_ttl: BlockHeightDelta,
+    ) -> impl Fn(&SignedTransaction) -> bool + Send + 'static {
+        let chain_store = self.clone();
+        move |tx: &SignedTransaction| -> bool {
+            let Ok(base_header) = chain_store.get_block_header(&tx.transaction.block_hash()) else {
+                return false;
+            };
+            prev_block_height <= base_header.height() + strict_nonce_ttl
+        }
+    }
 }
 
 impl ChainStore {

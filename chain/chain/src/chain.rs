@@ -2721,13 +2721,7 @@ impl Chain {
         prev_block_height: BlockHeight,
         strict_nonce_ttl: BlockHeightDelta,
     ) -> impl Fn(&SignedTransaction) -> bool + Send + 'static {
-        let chain_store = self.chain_store.clone();
-        move |tx: &SignedTransaction| -> bool {
-            let Ok(base_header) = chain_store.get_block_header(&tx.transaction.block_hash()) else {
-                return false;
-            };
-            prev_block_height <= base_header.height() + strict_nonce_ttl
-        }
+        self.chain_store.strict_nonce_ttl_check(prev_block_height, strict_nonce_ttl)
     }
 
     pub fn early_prepare_transaction_validity_check(

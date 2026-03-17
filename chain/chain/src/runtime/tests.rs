@@ -1865,7 +1865,7 @@ fn test_prepare_transactions_helper(
 #[test]
 fn test_prepare_transactions_extra() {
     let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool();
-    let validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool = &|_| true;
+    let validate_tx_ttl = &|_: &SignedTransaction| true;
 
     // First run the preparation without any extra arguments
     let (prepared, skipped) = prepare_transactions_extra(
@@ -2082,7 +2082,7 @@ fn test_strict_nonce_gap_does_not_count_towards_state_size_soft_limit() {
                 congestion_info: Default::default(),
             },
             &mut PoolIteratorWrapper::new(&mut pool),
-            &mut |_: &SignedTransaction| true,
+            &|_| true,
             &|_| true,
             HashSet::new(),
             None,
@@ -2100,12 +2100,14 @@ fn test_strict_nonce_gap_does_not_count_towards_state_size_soft_limit() {
     assert_eq!(prepared.limited_by, PrepareTransactionsLimit::NoMoreTxsInPool);
 }
 
-/// Gapped strict-nonce transactions are evicted when validate_tx_ttl returns
-/// false (expired), but kept when it returns true (still valid).
+/// Gapped strict-nonce transactions are evicted when their block_hash is older
+/// than the TTL, but kept when still within range.
 #[test]
 fn test_strict_nonce_gap_ttl_eviction() {
     let (env, chain, _) = get_test_env_with_chain_and_pool();
     let prev_hash = env.head.prev_block_hash;
+    // env.head.height == 1, prev_hash is genesis (height 0).
+    // TTL check: prev_block_height <= base_header.height() + ttl, i.e. 1 <= 0 + ttl.
 
     const TEST_SEED: RngSeed = [3; 32];
     let mut pool = TransactionPool::new(TEST_SEED, None, "");
@@ -2123,29 +2125,29 @@ fn test_strict_nonce_gap_ttl_eviction() {
     pool.insert_transaction(ValidatedTransaction::new_for_test(gapped_tx));
     assert_eq!(pool.len(), 1);
 
-    // With validate_tx_ttl returning true, gapped tx stays in the pool.
-    let validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool = &|_| true;
+    // TTL=1: 1 <= 0 + 1 holds, gapped tx stays in the pool.
+    let ttl_valid = chain.chain_store().strict_nonce_ttl_check(env.head.height, 1);
     let (prepared, skipped) = prepare_transactions_extra(
         &env,
         &chain,
         &mut PoolIteratorWrapper::new(&mut pool),
         HashSet::new(),
-        validate_tx_ttl,
+        &ttl_valid,
         None,
     )
     .unwrap();
     assert!(prepared.transactions.is_empty());
     assert!(skipped.0.is_empty());
-    assert_eq!(pool.len(), 1, "gapped tx should be kept when TTL is valid");
+    assert_eq!(pool.len(), 1, "gapped tx should be kept when TTL is sufficient");
 
-    // With validate_tx_ttl returning false, gapped tx is evicted.
-    let validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool = &|_| false;
+    // TTL=0: 1 <= 0 + 0 does not hold, gapped tx is evicted.
+    let ttl_expired = chain.chain_store().strict_nonce_ttl_check(env.head.height, 0);
     let (prepared, skipped) = prepare_transactions_extra(
         &env,
         &chain,
         &mut PoolIteratorWrapper::new(&mut pool),
         HashSet::new(),
-        validate_tx_ttl,
+        &ttl_expired,
         None,
     )
     .unwrap();
