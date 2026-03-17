@@ -18,6 +18,12 @@ use std::sync::Arc;
 /// test's syncing node to avoid depending on the production default.
 pub const TEST_EPOCH_SYNC_HORIZON: u64 = 2;
 
+/// Height past the epoch sync horizon for far-horizon tests.
+/// Nodes at genesis need to be this far behind to trigger far-horizon sync.
+pub fn far_horizon_height(epoch_length: u64) -> u64 {
+    (TEST_EPOCH_SYNC_HORIZON + 3) * epoch_length
+}
+
 /// Set up sync status tracking for a node. Returns the history vector.
 ///
 /// Installs an `every_event_callback` on the test loop that records each
