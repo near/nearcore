@@ -37,16 +37,9 @@ async fn t3_disconnect() {
 
     let cfg = chain.make_config(rng);
     let conn = pm.start_outbound(chain.clone(), cfg, tcp::Tier::T3).await;
+    let stream_id = conn.stream.id();
     let mut events = pm.events.from_now();
     let peer = conn.handshake(&clock.clock()).await;
-
-    // Capture the PM-side stream_id from the HandshakeCompleted event.
-    let stream_id = events
-        .recv_until(|ev| match ev {
-            Event::HandshakeCompleted(ev) => Some(ev.stream_id),
-            _ => None,
-        })
-        .await;
 
     // Send a Disconnect message from the peer side over T3.
     peer.send(PeerMessage::Disconnect(Disconnect { remove_from_connection_store: false })).await;
