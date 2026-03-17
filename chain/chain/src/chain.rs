@@ -3511,7 +3511,13 @@ impl Chain {
                     self.epoch_manager.get_epoch_height_from_prev_block(prev_prev_hash)?;
                 let shard_layout =
                     &self.epoch_manager.get_shard_layout_from_prev_block(prev_prev_hash)?;
-                let shard_uids = shard_layout.shard_uids().enumerate().collect();
+                let shard_uids = shard_layout
+                    .shard_uids()
+                    .enumerate()
+                    .filter(|&(_, shard_uid)| {
+                        self.shard_tracker.cares_about_shard(prev_prev_hash, shard_uid.shard_id())
+                    })
+                    .collect();
 
                 let make_snapshot_callback = &snapshot_callbacks.make_snapshot_callback;
                 make_snapshot_callback(min_chunk_prev_height, epoch_height, shard_uids, prev_block);
