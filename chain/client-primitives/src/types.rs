@@ -41,7 +41,7 @@ impl From<near_primitives::errors::EpochError> for Error {
 #[derive(Clone, Copy, Debug)]
 pub enum ShardSyncStatus {
     StateDownloadHeader,
-    StateDownloadParts,
+    StateDownloadParts { done: u64, total: u64 },
     StateApplyScheduling,
     StateApplyInProgress { done: u64, total: u64 },
     StateApplyFinalizing,
@@ -56,7 +56,7 @@ impl ShardSyncStatus {
             // Avoid reusing values for different states.
             // When introducing a new state, always assign a unique, new value to prevent confusion.
             ShardSyncStatus::StateDownloadHeader => 0,
-            ShardSyncStatus::StateDownloadParts => 1,
+            ShardSyncStatus::StateDownloadParts { .. } => 1,
             ShardSyncStatus::StateApplyScheduling => 2,
             ShardSyncStatus::StateApplyInProgress { .. } => 3,
             ShardSyncStatus::StateApplyFinalizing => 4,
@@ -78,7 +78,9 @@ impl ToString for ShardSyncStatus {
     fn to_string(&self) -> String {
         match self {
             ShardSyncStatus::StateDownloadHeader => "header".to_string(),
-            ShardSyncStatus::StateDownloadParts => "parts".to_string(),
+            ShardSyncStatus::StateDownloadParts { done, total } => {
+                format!("parts ({done}/{total})")
+            }
             ShardSyncStatus::StateApplyScheduling => "apply scheduling".to_string(),
             ShardSyncStatus::StateApplyInProgress { done, total } => {
                 format!("apply in progress ({done}/{total})")

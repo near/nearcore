@@ -90,7 +90,7 @@ pub(super) async fn run_state_sync_for_shard(
         .set(num_parts as i64);
 
     return_if_cancelled!(cancel);
-    *status.lock() = ShardSyncStatus::StateDownloadParts;
+    *status.lock() = ShardSyncStatus::StateDownloadParts { done: 0, total: num_parts };
     let mut parts_to_download: Vec<u64> = (0..num_parts).collect();
     {
         // Peer selection is designed such that different nodes downloading the same part will tend
@@ -131,6 +131,10 @@ pub(super) async fn run_state_sync_for_shard(
                 res.as_ref().err().map(|_| parts_to_download[task_index])
             })
             .collect();
+        *status.lock() = ShardSyncStatus::StateDownloadParts {
+            done: num_parts - parts_to_download.len() as u64,
+            total: num_parts,
+        };
         // Wait before retrying the failed parts
         if !parts_to_download.is_empty() {
             tracing::debug!(
