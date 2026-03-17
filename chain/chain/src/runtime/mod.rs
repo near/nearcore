@@ -53,9 +53,9 @@ use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
-    ApplyState, Runtime, SignedValidPeriodTransactions, TxVerdict, ValidatorAccountsUpdate,
-    get_signer_and_access_key, validate_transaction, verify_and_charge_gas_key_tx_ephemeral,
-    verify_and_charge_tx_ephemeral,
+    ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxVerdict,
+    ValidatorAccountsUpdate, get_signer_and_access_key, validate_transaction,
+    verify_and_charge_gas_key_tx_ephemeral, verify_and_charge_tx_ephemeral,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -675,6 +675,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: StateRoot,
         validated_tx: &ValidatedTransaction,
         current_protocol_version: ProtocolVersion,
+        pending_constraints: &PendingConstraints,
     ) -> Result<(), InvalidTxError> {
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
         let tx = validated_tx.to_tx();
@@ -707,6 +708,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 &tx,
                 &cost,
                 block_height,
+                pending_constraints,
             ) {
                 TxVerdict::Success(_) => Ok(()),
                 TxVerdict::DepositFailed { error, .. } | TxVerdict::Failed(error) => Err(error),
@@ -720,6 +722,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 &cost,
                 block_height,
                 current_protocol_version,
+                pending_constraints,
             ) {
                 TxVerdict::Success(_) => Ok(()),
                 TxVerdict::Failed(error) => Err(error),
@@ -954,6 +957,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         validated_tx.to_tx(),
                         &cost,
                         Some(next_block_height),
+                        &PendingConstraints::default(),
                     )
                 } else {
                     verify_and_charge_tx_ephemeral(
@@ -964,6 +968,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         &cost,
                         Some(next_block_height),
                         protocol_version,
+                        &PendingConstraints::default(),
                     )
                 };
                 match verdict {

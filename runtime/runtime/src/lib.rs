@@ -233,6 +233,28 @@ pub struct ValidatorAccountsUpdate {
     pub protocol_treasury_account_id: Option<AccountId>,
 }
 
+/// Constraints from pending (included-but-not-yet-certified) transactions
+/// for balance and nonce validation during chunk production.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingConstraints {
+    /// Total balance already committed by this account's pending access key
+    /// transactions (total_cost) plus pending gas key deposit costs.
+    pub paid_from_balance: Balance,
+    /// Total gas key cost already committed by pending gas key transactions
+    /// signed with this key, plus any pending WithdrawFromGasKey amounts
+    /// targeting this key.
+    pub paid_from_gas_key: Balance,
+    /// Maximum nonce seen among pending transactions for this (account, key,
+    /// nonce_index) combination.
+    pub max_nonce: Nonce,
+}
+
+impl Default for PendingConstraints {
+    fn default() -> Self {
+        Self { paid_from_balance: Balance::ZERO, paid_from_gas_key: Balance::ZERO, max_nonce: 0 }
+    }
+}
+
 /// Outcome of transaction verification and charging.
 ///
 /// Returned by both `verify_and_charge_tx_ephemeral` and
@@ -1931,6 +1953,7 @@ impl Runtime {
                     &tx.transaction,
                     &cost,
                     Some(block_height),
+                    &PendingConstraints::default(),
                 )
             } else {
                 // Regular access key transaction
@@ -1942,6 +1965,7 @@ impl Runtime {
                     &cost,
                     Some(block_height),
                     processing_state.protocol_version,
+                    &PendingConstraints::default(),
                 )
             };
 

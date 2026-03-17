@@ -28,8 +28,8 @@ use near_vm_runner::FilesystemContractRuntimeCache;
 use near_vm_runner::logic::LimitConfig;
 use node_runtime::config::tx_cost;
 use node_runtime::{
-    ApplyState, Runtime, SignedValidPeriodTransactions, TxVerdict, get_signer_and_access_key,
-    set_tx_state_changes, verify_and_charge_tx_ephemeral,
+    ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxVerdict,
+    get_signer_and_access_key, set_tx_state_changes, verify_and_charge_tx_ephemeral,
 };
 use std::collections::{HashMap, VecDeque};
 use std::iter;
@@ -471,6 +471,7 @@ impl Testbed<'_> {
             &cost,
             block_height,
             PROTOCOL_VERSION,
+            &PendingConstraints::default(),
         ) else {
             panic!("tx verification should not fail in estimator");
         };
