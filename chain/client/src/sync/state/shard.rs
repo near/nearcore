@@ -121,14 +121,12 @@ pub(super) async fn run_state_sync_for_shard(
                 respawn_for_parallelism(&*future_spawner, "state sync download part", future)
             })
             .buffered(concurrency_limit.into())
-            .inspect(|result| {
-                if result.is_ok() {
-                    parts_downloaded += 1;
-                    *status.lock() = ShardSyncStatus::StateDownloadParts {
-                        done: parts_downloaded,
-                        total: num_parts,
-                    };
-                }
+            .inspect_ok(|_| {
+                parts_downloaded += 1;
+                *status.lock() = ShardSyncStatus::StateDownloadParts {
+                    done: parts_downloaded,
+                    total: num_parts,
+                };
             })
             .collect::<Vec<_>>()
             .await;
@@ -224,12 +222,12 @@ pub(super) async fn run_state_sync_for_shard(
             respawn_for_parallelism(&*future_spawner, "state sync apply part", future)
         })
         .buffer_unordered(concurrency_limit.into())
-        .try_for_each(|_| {
+        .inspect_ok(|_| {
             parts_done += 1;
             *status.lock() =
                 ShardSyncStatus::StateApplyInProgress { done: parts_done, total: num_parts };
-            futures::future::ready(Ok(()))
         })
+        .try_collect::<Vec<_>>()
         .await?;
 
     return_if_cancelled!(cancel);
