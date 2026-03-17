@@ -444,11 +444,11 @@ impl JsonRpcHandler {
                     Ok(params) => params,
                     Err(err) => return (method_name, Err(RpcError::from(err))),
                 };
-                let metrics_name = match params.request {
+                let metrics_name = match &params.request {
                     QueryRequest::ViewAccount { .. } => "query_view_account",
                     QueryRequest::ViewCode { .. } => "query_view_code",
                     QueryRequest::ViewState { include_proof, .. } => {
-                        if include_proof {
+                        if *include_proof {
                             "query_view_state_with_proof"
                         } else {
                             "query_view_state"
@@ -465,7 +465,11 @@ impl JsonRpcHandler {
                         "query_view_global_contract_code_by_account_id"
                     }
                 };
-                (metrics_name.to_string(), process_query_response(self.query(params).await))
+                let result = match source {
+                    RequestSource::User => self.query_sharded(params).await,
+                    RequestSource::Coordinator => process_query_response(self.query(params).await),
+                };
+                (metrics_name.to_string(), result)
             }
             _ => {
                 ("UNSUPPORTED_METHOD".to_string(), Err(RpcError::method_not_found(request.method)))
@@ -1074,6 +1078,18 @@ impl JsonRpcHandler {
             .view_client_send(ClientQuery::new(request_data.block_reference, request_data.request))
             .await?;
         Ok(query_response.rpc_into())
+    }
+
+    async fn query_sharded(&self, request_data: RpcQueryRequest) -> Result<Value, RpcError> {
+        match &request_data.request {
+            QueryRequest::ViewAccount { account_id, .. }
+            | QueryRequest::ViewAccessKey { account_id, .. } => {
+                let block_hint = request_data.block_reference.clone().into();
+                let shard_hint = ShardHint::Account(account_id.clone());
+                self.run_coordinator_request("query", request_data, block_hint, shard_hint).await
+            }
+            _ => process_query_response(self.query(request_data).await),
+        }
     }
 
     async fn view_account_sharded(
