@@ -1592,25 +1592,16 @@ impl messaging::Actor for PeerActor {
 
     fn stop_actor(&mut self) {
         metrics::PEER_CONNECTIONS_TOTAL.dec();
-        match &self.closing_reason {
-            None => {
-                // Actor system is shutting down without an explicit stop() call.
-                // This happens in tests and during node shutdown.
-                tracing::debug!(target: "network", peer_info = %self.peer_info, "peer disconnected due to actor system shutdown");
-            }
-            Some(reason) => {
-                tracing::debug!(target: "network", my_node_id = ?self.my_node_info.id, peer_info = %self.peer_info, %reason, "peer disconnected");
+        let closing_reason =
+            self.closing_reason.take().unwrap_or(ClosingReason::ActorSystemShutdown);
 
-                // If we are on the inbound side of the connection, set a flag in the disconnect
-                // message advising the outbound side whether to attempt to re-establish the connection.
-                let remove_from_connection_store =
-                    self.peer_type == PeerType::Inbound && reason.remove_from_connection_store();
+        tracing::debug!(target: "network", my_node_id = ?self.my_node_info.id, peer_info = %self.peer_info, %closing_reason, "peer disconnected");
 
-                self.send_message(&PeerMessage::Disconnect(Disconnect {
-                    remove_from_connection_store,
-                }));
-            }
-        }
+        // If we are on the inbound side of the connection, set a flag in the disconnect
+        // message advising the outbound side whether to attempt to re-establish the connection.
+        let remove_from_connection_store =
+            self.peer_type == PeerType::Inbound && closing_reason.remove_from_connection_store();
+        self.send_message(&PeerMessage::Disconnect(Disconnect { remove_from_connection_store }));
 
         match &self.peer_status {
             // If PeerActor is in Connecting state, then
@@ -1622,13 +1613,7 @@ impl messaging::Actor for PeerActor {
                 // We should find a way to centralize it.
                 #[cfg(test)]
                 self.network_state.config.event_sink.send(Event::ConnectionClosed(
-                    ConnectionClosedEvent {
-                        stream_id: self.stream_id,
-                        reason: self
-                            .closing_reason
-                            .clone()
-                            .unwrap_or(ClosingReason::ActorSystemShutdown),
-                    },
+                    ConnectionClosedEvent { stream_id: self.stream_id, reason: closing_reason },
                 ));
             }
             // Clean up the Connection from the NetworkState.
@@ -1636,12 +1621,7 @@ impl messaging::Actor for PeerActor {
                 let network_state = self.network_state.clone();
                 let clock = self.clock.clone();
                 let conn = conn.clone();
-                network_state.unregister(
-                    &clock,
-                    &conn,
-                    self.stream_id,
-                    self.closing_reason.clone().unwrap_or(ClosingReason::ActorSystemShutdown),
-                );
+                network_state.unregister(&clock, &conn, self.stream_id, closing_reason);
             }
         }
     }
