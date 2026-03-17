@@ -56,11 +56,11 @@ fn blocks_produced_in_epoch(env: &TestLoopEnv, epoch_id: &EpochId, account_id: &
 /// Scenario (`kickouts_standard_80_percent()`, `block_producer_kickout_threshold=80`):
 ///
 /// ```text
-/// epoch:   E         E+1          E+2
-///        ─────────┬───────────┬────────────
-/// node:  killed   │ restarts, │ kicked out
-///        mid-E    │ still a   │ (bad perf
-///                 │ validator │ in E)
+///          E                    E+1                      E+2
+///        ──────────────────┬──────────────────────  ┬──────────────────────
+/// node:  produced blocks,  │ restarts mid-epoch,    │ kicked out
+///        killed mid-epoch  │ syncs via BlockSync,   │ (bad production
+///                          │ still in validator set │ in epoch E)
 /// ```
 ///
 /// Steps:
@@ -102,14 +102,14 @@ fn test_validator_kickout_after_restart() {
 
     // Run all validators for a few blocks in epoch E, then kill one.
     env.node_runner(0).run_until_head_height(3);
-    let epoch_e = env.node(0).head().epoch_id.clone();
+    let epoch_e = env.node(0).head().epoch_id;
 
     let node_identifier = env.node_datas[0].identifier.clone();
     let killed_state = env.kill_node(&node_identifier);
 
     // Remaining 3 validators advance to epoch E+1.
     env.node_runner(1).run_until_new_epoch();
-    let epoch_e1 = env.node(1).head().epoch_id.clone();
+    let epoch_e1 = env.node(1).head().epoch_id;
 
     // Restart the killed validator in E+1 and verify near-horizon sync.
     env.restart_node("node0_restart", killed_state);
@@ -120,7 +120,7 @@ fn test_validator_kickout_after_restart() {
 
     // Advance to epoch E+2, then one more to verify chain keeps progressing.
     env.node_runner(1).run_until_new_epoch();
-    let epoch_e2 = env.node(1).head().epoch_id.clone();
+    let epoch_e2 = env.node(1).head().epoch_id;
     env.node_runner(1).run_until_new_epoch();
 
     // Validator set membership: in E and E+1 (decided before E ended), kicked in E+2.
@@ -152,13 +152,11 @@ fn test_validator_kickout_after_restart() {
 ///           >80% of its assigned blocks):
 ///
 /// ```text
-/// epoch:    E                              E+1         E+2
-///         ──────────────────────────────┬───────────┬───────────
-/// node:   run ~~> kill at    restart    │ still in  │ still in
-///         ~10%    ~height    mid-E,     │ validator │ validator
-///                 0.1*EL     produces   │ set       │ set
-///                            remaining  │           │
-///                            ~90% of E  │           │
+///          E                                    E+1              E+2
+///        ───────────────────────────────── ┬────────────────┬──────────────────────
+/// node:  run ~10%, killed, restart mid-E,  │ still in       │ still in
+///        syncs via BlockSync, produces     │ validator set  │ validator set
+///        remaining ~90% of blocks          │                │ (>80% production in E)
 /// ```
 ///
 /// Steps:
@@ -198,7 +196,7 @@ fn test_validator_no_kickout_after_quick_restart() {
 
     // Run all validators for ~10% of epoch E (~8 blocks), then kill one.
     env.node_runner(0).run_until_head_height(8);
-    let epoch_e = env.node(0).head().epoch_id.clone();
+    let epoch_e = env.node(0).head().epoch_id;
 
     let node_identifier = env.node_datas[0].identifier.clone();
     let killed_state = env.kill_node(&node_identifier);
@@ -214,7 +212,7 @@ fn test_validator_no_kickout_after_quick_restart() {
 
     // All validators continue through E+1 and into E+2.
     env.node_runner(1).run_until_new_epoch();
-    let epoch_e1 = env.node(1).head().epoch_id.clone();
+    let epoch_e1 = env.node(1).head().epoch_id;
     env.node_runner(1).run_until_new_epoch();
 
     // Validator set membership: in E, E+1, and E+2 (not kicked — produced >80%).

@@ -231,16 +231,16 @@ fn test_near_horizon_change_tracked_shards_on_restart() {
 
     // Run past 2 more epoch boundaries so the schedule rotates through all entries,
     // including the [1, 2, 3] entry that exercises the re-track path.
-    env.node_runner(1).run_until_new_epoch();
-    env.node_runner(1).run_until_new_epoch();
+    env.node_runner(restarted_idx).run_until_new_epoch();
+    env.node_runner(restarted_idx).run_until_new_epoch();
 
-    // Verify node 0 kept up with the network.
+    // Verify node 0 kept up with the network. The restarted node may be 1 block
+    // ahead of node 1 since run_until_new_epoch is driven from the restarted node.
     let restarted_height = env.node(restarted_idx).head().height;
     let reference_height = env.node(1).head().height;
     assert!(
-        restarted_height >= reference_height - 1,
-        "restarted node fell behind at height {restarted_height}, expected >= {}",
-        reference_height - 1,
+        restarted_height >= reference_height,
+        "restarted node fell behind: {restarted_height} < {reference_height}"
     );
 }
 

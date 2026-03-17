@@ -41,14 +41,13 @@ const GC_EPOCHS: u64 = 3;
 ///   a full pass the tail sits one below gc_stop.
 /// - `head - gc_stop` is in `[(gc-1)*EPOCH_LENGTH, gc*EPOCH_LENGTH - 1]`: gc_stop is an
 ///   epoch boundary, so the exact offset depends on where head sits in the current epoch.
-/// - Blocks below tail are not accessible (never downloaded or GC'd).
+/// - Genesis block (height 1) is accessible (genesis_height defaults to 1 in tests).
+/// - Blocks in `(genesis_height, tail)` are not accessible (GC'd or never downloaded).
 /// - Blocks from tail to head are accessible.
-///
-/// Heights 0-1 are skipped: genesis (height 0) is not in the chain store after epoch
-/// sync, and height 1 is an epoch sync bootstrapping artifact that may persist.
 fn assert_gc_boundaries(env: &TestLoopEnv, node_idx: usize) {
     let client = env.node(node_idx).client();
     let head = client.chain.head().unwrap();
+    let genesis_height = client.chain.genesis().height();
     let tail = client.chain.tail();
     let gc_stop = client.runtime_adapter.get_gc_stop_height(&head.last_block_hash);
 
@@ -69,7 +68,14 @@ fn assert_gc_boundaries(env: &TestLoopEnv, node_idx: usize) {
         head.height
     );
 
-    for h in 2..tail {
+    // Genesis block should always be accessible.
+    assert!(
+        client.chain.get_block_by_height(genesis_height).is_ok(),
+        "genesis block at height {genesis_height} should be accessible"
+    );
+
+    // Blocks between genesis and tail should be GC'd or never downloaded.
+    for h in (genesis_height + 1)..tail {
         assert!(
             client.chain.get_block_by_height(h).is_err(),
             "block at height {h} should not be accessible (below tail={tail})"
@@ -157,14 +163,15 @@ fn test_gc_boundary_after_sync() {
     run_gc_after_far_horizon_sync(None);
 }
 
-// Same as `test_gc_boundary_after_sync` but with `gc_blocks_limit=10` (GC processes
-// at most 10 blocks per pass instead of the default 100). This exercises the
-// incremental GC code path where `gc_stop_height` computation runs across multiple
-// small batches — the specific path that failed in #2980.
+// Same as `test_gc_boundary_after_sync` but with `gc_blocks_limit=2` — the production
+// default (test default is 100, which processes all blocks in a single pass). With
+// gc_blocks_limit=2, GC needs many passes to clean up, exercising the incremental
+// code path where `gc_stop_height` computation runs across multiple small batches —
+// the specific path that failed in #2980.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_gc_incremental() {
-    run_gc_after_far_horizon_sync(Some(10));
+    run_gc_after_far_horizon_sync(Some(2));
 }
 
 // Scenario: A fresh node syncs via near-horizon (BlockSync only, no epoch sync or
