@@ -1686,6 +1686,7 @@ fn prepare_transactions_extra(
                 .check_transaction_validity_period(&block.header(), tx.transaction.block_hash())
                 .is_ok()
         },
+        &|_| true,
         skip_tx_hashes,
         default_produce_chunk_add_transactions_time_limit(),
         cancel,
@@ -2000,6 +2001,7 @@ fn test_strict_nonce_u64_max_not_included() {
                     .check_transaction_validity_period(&block.header(), tx.transaction.block_hash())
                     .is_ok()
             },
+            &|_| true,
             HashSet::new(),
             default_produce_chunk_add_transactions_time_limit(),
             None,
@@ -2074,6 +2076,7 @@ fn test_strict_nonce_gap_does_not_count_towards_state_size_soft_limit() {
             },
             &mut PoolIteratorWrapper::new(&mut pool),
             &mut |_: &SignedTransaction| true,
+            &|_| true,
             HashSet::new(),
             None,
             None,
@@ -2088,6 +2091,82 @@ fn test_strict_nonce_gap_does_not_count_towards_state_size_soft_limit() {
     // The 1-byte soft limit was NOT hit because the gap check used a
     // throwaway trie. Without proper accounting this would be StorageProofSize.
     assert_eq!(prepared.limited_by, PrepareTransactionsLimit::NoMoreTxsInPool);
+}
+
+/// Gapped strict-nonce transactions are evicted when validate_tx_ttl returns
+/// false (expired), but kept when it returns true (still valid).
+#[test]
+fn test_strict_nonce_gap_ttl_eviction() {
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let prev_hash = env.head.prev_block_hash;
+
+    const TEST_SEED: RngSeed = [3; 32];
+    let mut pool = TransactionPool::new(TEST_SEED, None, "");
+
+    let signer = InMemorySigner::test_signer(&"test1".parse::<AccountId>().unwrap());
+    // Gapped: nonce=100 but ak_nonce=0.
+    let gapped_tx = SignedTransaction::from_actions_v1_strict(
+        TransactionNonce::from_nonce(100),
+        "test1".parse().unwrap(),
+        "test2".parse().unwrap(),
+        &signer,
+        vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })],
+        prev_hash,
+    );
+    pool.insert_transaction(ValidatedTransaction::new_for_test(gapped_tx));
+    assert_eq!(pool.len(), 1);
+
+    // With validate_tx_ttl returning true, gapped tx stays in the pool.
+    let (prepared, _) = prepare_transactions_extra(
+        &env,
+        &chain,
+        &mut PoolIteratorWrapper::new(&mut pool),
+        HashSet::new(),
+        None,
+    )
+    .unwrap();
+    assert!(prepared.transactions.is_empty());
+    assert_eq!(pool.len(), 1, "gapped tx should be kept when TTL is valid");
+
+    // Now override prepare_transactions_extra to use validate_tx_ttl = false.
+    let prev_hash = env.head.prev_block_hash;
+    let shard_layout = env.epoch_manager.get_shard_layout_from_prev_block(&prev_hash).unwrap();
+    let shard_uid = shard_layout.shard_uids().next().unwrap();
+    let shard_id = shard_uid.shard_id();
+    let block = chain.get_block(&prev_hash).unwrap();
+    let congestion_info = block.block_congestion_info();
+    let next_epoch_id = env.epoch_manager.get_epoch_id_from_prev_block(&prev_hash).unwrap();
+    let mut trie = env.runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[0]);
+    trie = trie.recording_reads_new_recorder();
+    let state_update = TrieUpdate::new(trie);
+
+    let (prepared, _) = env
+        .runtime
+        .prepare_transactions_extra(
+            state_update,
+            shard_id,
+            PrepareTransactionsBlockContext {
+                next_gas_price: env.runtime.genesis_config.min_gas_price,
+                height: env.head.height,
+                next_epoch_id,
+                congestion_info,
+            },
+            &mut PoolIteratorWrapper::new(&mut pool),
+            &mut |tx: &SignedTransaction| -> bool {
+                chain
+                    .chain_store()
+                    .check_transaction_validity_period(&block.header(), tx.transaction.block_hash())
+                    .is_ok()
+            },
+            &|_| false, // TTL expired
+            HashSet::new(),
+            default_produce_chunk_add_transactions_time_limit(),
+            None,
+        )
+        .unwrap();
+
+    assert!(prepared.transactions.is_empty());
+    assert_eq!(pool.len(), 0, "gapped tx should be evicted when TTL expired");
 }
 
 #[test]

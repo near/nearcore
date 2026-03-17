@@ -781,6 +781,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             prev_block,
             transaction_groups,
             chain_validate,
+            &|_| true,
             HashSet::new(),
             time_limit,
             None,
@@ -811,6 +812,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
+        validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
         skip_tx_hashes: HashSet<CryptoHash>,
         time_limit: Option<Duration>,
         cancel: Option<Arc<AtomicBool>>,
@@ -916,6 +918,10 @@ impl RuntimeAdapter for NightshadeRuntime {
                     if let Some(current_nonce) = current_nonce {
                         let tx_nonce = tx_peek.nonce().nonce();
                         if tx_nonce > current_nonce.saturating_add(1) {
+                            if !validate_tx_ttl(tx_peek.to_signed_tx()) {
+                                transaction_group_iter.next();
+                                continue;
+                            }
                             break;
                         }
                     }

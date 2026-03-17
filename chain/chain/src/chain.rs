@@ -2713,6 +2713,23 @@ impl Chain {
         }
     }
 
+    /// Returns a closure that checks whether a strict-nonce transaction's
+    /// block_hash is still within the configured TTL. Used to evict gapped
+    /// strict-nonce transactions from the pool during prepare_transactions.
+    pub fn strict_nonce_ttl_check(
+        &self,
+        prev_block_height: BlockHeight,
+        strict_nonce_ttl: BlockHeight,
+    ) -> impl Fn(&SignedTransaction) -> bool + Send + 'static {
+        let chain_store = self.chain_store.clone();
+        move |tx: &SignedTransaction| -> bool {
+            let Ok(base_header) = chain_store.get_block_header(&tx.transaction.block_hash()) else {
+                return false;
+            };
+            prev_block_height <= base_header.height() + strict_nonce_ttl
+        }
+    }
+
     pub fn early_prepare_transaction_validity_check(
         &self,
         prev_block_height: BlockHeight,

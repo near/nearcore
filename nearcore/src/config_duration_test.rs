@@ -46,6 +46,7 @@ fn test_config_duration_all_std() {
         tracked_shadow_validator: Some(AccountId::from_str("test").unwrap()),
         tracked_shard_schedule: Some(Default::default()),
         transaction_pool_size_limit: Some(Default::default()),
+        transaction_pool_strict_nonce_ttl_blocks: Default::default(),
         state_sync: Some(Default::default()),
         trie_viewer_state_size_limit: Some(Default::default()),
         network: near_network::config_json::Config {

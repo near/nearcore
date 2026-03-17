@@ -591,6 +591,7 @@ impl ChunkProducer {
         prev_block_context: PrepareTransactionsBlockContext,
         prev_chunk_tx_hashes: HashSet<CryptoHash>,
         tx_validity_period_check: impl Fn(&SignedTransaction) -> bool + Send + 'static,
+        validate_tx_ttl: impl Fn(&SignedTransaction) -> bool + Send + 'static,
     ) {
         // next_epoch_id is epoch_id of the current block (block for which height we are preparing
         // transactions).
@@ -642,6 +643,7 @@ impl ChunkProducer {
             prev_block_context,
             tx_pool: self.sharded_tx_pool.clone(),
             tx_validity_period_check: Box::new(tx_validity_period_check),
+            validate_tx_ttl: Box::new(validate_tx_ttl),
             prev_chunk_tx_hashes,
             time_limit: self.chunk_transactions_time_limit.get(),
         };
