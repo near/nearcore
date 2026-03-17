@@ -90,7 +90,8 @@ pub(super) async fn run_state_sync_for_shard(
         .set(num_parts as i64);
 
     return_if_cancelled!(cancel);
-    *status.lock() = ShardSyncStatus::StateDownloadParts;
+    let mut parts_downloaded: u64 = 0;
+    *status.lock() = ShardSyncStatus::StateDownloadParts { done: 0, total: num_parts };
     let mut parts_to_download: Vec<u64> = (0..num_parts).collect();
     {
         // Peer selection is designed such that different nodes downloading the same part will tend
@@ -120,6 +121,13 @@ pub(super) async fn run_state_sync_for_shard(
                 respawn_for_parallelism(&*future_spawner, "state sync download part", future)
             })
             .buffered(concurrency_limit.into())
+            .inspect_ok(|_| {
+                parts_downloaded += 1;
+                *status.lock() = ShardSyncStatus::StateDownloadParts {
+                    done: parts_downloaded,
+                    total: num_parts,
+                };
+            })
             .collect::<Vec<_>>()
             .await;
         attempt_count += 1;
@@ -150,7 +158,7 @@ pub(super) async fn run_state_sync_for_shard(
     }
 
     return_if_cancelled!(cancel);
-    *status.lock() = ShardSyncStatus::StateApplyInProgress;
+    *status.lock() = ShardSyncStatus::StateApplyInProgress { done: 0, total: num_parts };
     runtime.get_tries().unload_memtrie(&shard_uid);
 
     // Clear flat storage before applying state parts.
@@ -191,7 +199,8 @@ pub(super) async fn run_state_sync_for_shard(
     }
 
     return_if_cancelled!(cancel);
-    let _results = tokio_stream::iter(0..num_parts)
+    let mut parts_done: u64 = 0;
+    tokio_stream::iter(0..num_parts)
         .map(|part_id| {
             let store = store.clone();
             let runtime = runtime.clone();
@@ -213,6 +222,11 @@ pub(super) async fn run_state_sync_for_shard(
             respawn_for_parallelism(&*future_spawner, "state sync apply part", future)
         })
         .buffer_unordered(concurrency_limit.into())
+        .inspect_ok(|_| {
+            parts_done += 1;
+            *status.lock() =
+                ShardSyncStatus::StateApplyInProgress { done: parts_done, total: num_parts };
+        })
         .try_collect::<Vec<_>>()
         .await?;
 
