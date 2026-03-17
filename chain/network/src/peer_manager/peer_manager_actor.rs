@@ -202,7 +202,7 @@ impl messaging::Actor for PeerManagerActor {
 
     /// Try to gracefully disconnect from connected peers.
     fn stop_actor(&mut self) {
-        tracing::warn!("peer manager stopping");
+        tracing::debug!(target: "network", "peer manager stopping");
         self.state.tier2.broadcast_message(Arc::new(PeerMessage::Disconnect(Disconnect {
             remove_from_connection_store: false,
         })));
