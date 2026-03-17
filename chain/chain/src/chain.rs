@@ -2079,12 +2079,24 @@ impl Chain {
         let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
 
         // If the full block is not available, skip getting candidate.
-        // This is possible if the node just went through state sync.
         let Ok(last_final_block) = self.get_block(&last_final_block_hash) else {
-            tracing::warn!(
-                %last_final_block_hash,
-                "get_new_flat_storage_head could not get last final block",
-            );
+            if self.get_block_header(&last_final_block_hash).is_ok() {
+                // Header exists but body is missing. This is expected right
+                // after state sync: the node has headers but not block bodies
+                // for blocks before the sync hash. Self-resolves once finality
+                // advances past the gap.
+                tracing::debug!(
+                    target: "chain",
+                    %last_final_block_hash,
+                    "last final block body not available, likely right after state sync",
+                );
+            } else {
+                tracing::warn!(
+                    target: "chain",
+                    %last_final_block_hash,
+                    "get_new_flat_storage_head could not get last final block",
+                );
+            }
             return Ok(None);
         };
 
