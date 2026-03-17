@@ -12,10 +12,13 @@ use super::util::{
 };
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_account_id;
+use crate::utils::transactions::{execute_money_transfers, make_accounts};
 use near_async::time::Duration;
+use near_chain_configs::TrackedShardsConfig;
 use near_client::SyncStatus;
 use near_client::sync::SYNC_V2_ENABLED;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::types::{Balance, ShardId};
 
 // Scenario: A fresh node starts with only genesis data while the network is
 // 1 block below the epoch sync horizon. The node is within horizon distance,
@@ -160,6 +163,85 @@ fn test_near_horizon_restart_during_block_sync() {
     let restarted_idx = env.node_datas.len() - 1;
 
     run_until_synced(&mut env.test_loop, &env.node_datas, restarted_idx, 0);
+}
+
+// Scenario: Kill a validator that tracks all shards, reduce its tracked shards
+// config to a subset, and restart. The node block-syncs to catch up, then runs
+// past epoch boundaries where the schedule rotates to different shards.
+//
+// Mirrors the pytest `block_sync_flat_storage.py`: the node starts with AllShards
+// (so it has state for every shard), then the config is changed to a schedule
+// that tracks only shard [0] now and [1, 2, 3] next epoch. On restart the node
+// must correctly handle chunks for the shards it will care about next epoch.
+//
+// Setup:
+//   - 4 validators, epoch_length=10, 4 shards, all tracking AllShards
+//   - 100 user accounts with cross-shard money transfers
+//   - Run past 1 epoch boundary, kill node 0, change config to
+//     Schedule: [[0], [0], [1, 2, 3]], advance 1 epoch, restart
+//
+// Assertions:
+//   - Node catches up via block sync after the gap
+//   - Node survives 2 more epoch boundaries (schedule rotates to [1, 2, 3])
+//   - No IncorrectStateRoot or FlatStorage panics
+//
+// This is a regression test for PR #9368 / PR #10820: flat storage and memtrie
+// loading must handle tracked shards changing between restarts.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_near_horizon_change_tracked_shards_on_restart() {
+    init_test_logger();
+    let epoch_length = 10;
+    let accounts = make_accounts(100);
+    let mut env = TestLoopBuilder::new()
+        .validators(4, 0)
+        .num_shards(4)
+        .epoch_length(epoch_length)
+        .track_all_shards()
+        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
+        .build();
+
+    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
+    // Run past 1 epoch boundary so all nodes have state for all shards.
+    env.node_runner(0).run_until_new_epoch();
+
+    // Kill node 0 mid-epoch.
+    env.node_runner(0).run_for_number_of_blocks(5);
+    let node0_identifier = env.node_datas[0].identifier.clone();
+    let mut killed_state = env.kill_node(&node0_identifier);
+
+    // Change tracked shards: track only shard [0] now, [1, 2, 3] next epoch.
+    // Same schedule as the pytest: [[0], [0], [1, 2, 3]].
+    killed_state.client_config.tracked_shards_config = TrackedShardsConfig::Schedule(vec![
+        vec![ShardId::new(0)],
+        vec![ShardId::new(0)],
+        vec![ShardId::new(1), ShardId::new(2), ShardId::new(3)],
+    ]);
+
+    // Advance remaining validators ~1 epoch so node 0 falls behind (needs block sync).
+    env.node_runner(1).run_until_new_epoch();
+
+    // Restart node 0 — it block-syncs to catch up.
+    env.restart_node("node0_restart", killed_state);
+    let restarted_idx = env.node_datas.len() - 1;
+    let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, restarted_idx);
+    run_until_synced(&mut env.test_loop, &env.node_datas, restarted_idx, 1);
+    assert_near_horizon_sync_sequence(&sync_history.borrow());
+
+    // Run past 2 more epoch boundaries so the schedule rotates through all entries,
+    // including the [1, 2, 3] entry that exercises the re-track path.
+    env.node_runner(1).run_until_new_epoch();
+    env.node_runner(1).run_until_new_epoch();
+
+    // Verify node 0 kept up with the network.
+    let restarted_height = env.node(restarted_idx).head().height;
+    let reference_height = env.node(1).head().height;
+    assert!(
+        restarted_height >= reference_height - 1,
+        "restarted node fell behind at height {restarted_height}, expected >= {}",
+        reference_height - 1,
+    );
 }
 
 // Scenario: A fresh node has epoch_sync_horizon=10 but gc=3. The network is

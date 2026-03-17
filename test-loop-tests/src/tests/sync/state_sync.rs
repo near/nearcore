@@ -808,26 +808,3 @@ fn test_state_sync_protocol_upgrade() {
     assert_eq!(version, PROTOCOL_VERSION);
     assert_shard_shuffling_happened(&env, &clients);
 }
-
-/// Kill a non-validator node mid-epoch, change its tracked shards config, and restart.
-/// Verifies that flat storage is correctly initialized for newly-tracked shards on restart.
-///
-/// Scenario:
-/// 1. 5 validators + 1 non-validator, 4 shards, shard shuffling enabled.
-/// 2. Non-validator initially tracks shards [0, 1] via `TrackedShardsConfig::Schedule`.
-/// 3. Run for 1.5 epochs with cross-shard money transfers.
-/// 4. Kill the non-validator mid-epoch.
-/// 5. Restart it with a modified schedule: now tracks shards [2, 3] in the current epoch
-///    (shards it wasn't tracking before the kill).
-/// 6. Verify the node catches up without `IncorrectStateRoot` errors.
-///
-/// This is a regression test for PR #9368: flat storage was not initialized for next-epoch
-/// shards when a node's tracked shards changed between restarts, causing "FlatStorage not
-/// ready" fallbacks and `IncorrectStateRoot` errors.
-///
-/// Migrated from `block_sync_flat_storage.py`.
-#[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_state_sync_change_tracked_shards_on_restart() {
-    todo!("Implement: kill non-validator, change tracked_shards_config, restart, verify catch-up");
-}
