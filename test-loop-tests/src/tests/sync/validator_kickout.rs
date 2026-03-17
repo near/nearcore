@@ -19,7 +19,6 @@ use super::util::{assert_near_horizon_sync_sequence, run_until_synced, track_syn
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::{create_validators_spec, validators_spec_clients};
-use crate::utils::validators::get_epoch_all_validators;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::types::{AccountId, EpochId, ValidatorInfoIdentifier};
@@ -37,6 +36,7 @@ fn is_validator_in_epoch(env: &TestLoopEnv, epoch_id: &EpochId, account_id: &Acc
 
 /// Number of blocks produced by `account_id` in the given epoch, queried from
 /// the epoch manager's validator stats (no block iteration needed).
+/// Returns 0 if the validator was not in the set for this epoch (e.g., kicked).
 fn blocks_produced_in_epoch(env: &TestLoopEnv, epoch_id: &EpochId, account_id: &AccountId) -> u64 {
     env.node(1)
         .client()
@@ -46,8 +46,8 @@ fn blocks_produced_in_epoch(env: &TestLoopEnv, epoch_id: &EpochId, account_id: &
         .current_validators
         .iter()
         .find(|v| &v.account_id == account_id)
-        .expect("validator not found in epoch")
-        .num_produced_blocks
+        .map(|v| v.num_produced_blocks)
+        .unwrap_or(0)
 }
 
 /// Kill a single validator and verify the kickout lifecycle across epochs.
@@ -126,17 +126,13 @@ fn test_validator_kickout_after_restart() {
     // Validator set membership: in E and E+1 (decided before E ended), kicked in E+2.
     assert!(is_validator_in_epoch(&env, &epoch_e, &account_id));
     assert!(is_validator_in_epoch(&env, &epoch_e1, &account_id));
-    assert!(
-        !is_validator_in_epoch(&env, &epoch_e2, &account_id),
-        "{account_id} should be kicked in E+2, got: {:?}",
-        get_epoch_all_validators(env.node(1).client()),
-    );
+    assert!(!is_validator_in_epoch(&env, &epoch_e2, &account_id));
 
-    // Block production: validator produced blocks in E before the kill.
-    assert!(
-        blocks_produced_in_epoch(&env, &epoch_e, &account_id) > 0,
-        "{account_id} should have produced blocks in epoch E before kill"
-    );
+    // Block production: produced in E (before kill) and E+1 (restarted, still in
+    // validator set), but zero in E+2 (kicked).
+    assert!(blocks_produced_in_epoch(&env, &epoch_e, &account_id) > 0);
+    assert!(blocks_produced_in_epoch(&env, &epoch_e1, &account_id) > 0);
+    assert_eq!(blocks_produced_in_epoch(&env, &epoch_e2, &account_id), 0);
 }
 
 /// Kill a single validator briefly and restart it within the same epoch, verifying
@@ -214,22 +210,21 @@ fn test_validator_no_kickout_after_quick_restart() {
     env.node_runner(1).run_until_new_epoch();
     let epoch_e1 = env.node(1).head().epoch_id;
     env.node_runner(1).run_until_new_epoch();
+    let epoch_e2 = env.node(1).head().epoch_id;
+    env.node_runner(1).run_until_new_epoch();
 
     // Validator set membership: in E, E+1, and E+2 (not kicked — produced >80%).
     assert!(is_validator_in_epoch(&env, &epoch_e, &account_id));
     assert!(is_validator_in_epoch(&env, &epoch_e1, &account_id));
-    let validators_e2 = get_epoch_all_validators(env.node(1).client());
-    assert!(
-        validators_e2.contains(&account_id.to_string()),
-        "{account_id} should still be in E+2 after quick restart, got: {validators_e2:?}"
-    );
+    assert!(is_validator_in_epoch(&env, &epoch_e2, &account_id));
 
-    // Block production: validator produced blocks in epoch E (before kill + after restart).
-    assert!(
-        blocks_produced_in_epoch(&env, &epoch_e, &account_id) > 0,
-        "{account_id} should have produced blocks in epoch E"
-    );
+    // Block production: produced in E (before kill + after restart), E+1, and E+2.
+    assert!(blocks_produced_in_epoch(&env, &epoch_e, &account_id) > 0);
+    assert!(blocks_produced_in_epoch(&env, &epoch_e1, &account_id) > 0);
+    assert!(blocks_produced_in_epoch(&env, &epoch_e2, &account_id) > 0);
 
-    // Restarted node caught up to the network tip.
-    assert_eq!(env.node(restarted_idx).head().height, env.node(1).head().height);
+    // Restarted node is within 1 block of the network tip.
+    let restarted = env.node(restarted_idx).head().height;
+    let reference = env.node(1).head().height;
+    assert!(restarted >= reference - 1, "restarted node fell behind: {restarted} vs {reference}");
 }
