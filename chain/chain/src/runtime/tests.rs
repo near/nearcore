@@ -2108,7 +2108,6 @@ fn test_strict_nonce_gap_ttl_eviction() {
     let (env, chain, _) = get_test_env_with_chain_and_pool();
     let prev_hash = env.head.prev_block_hash;
     // env.head.height == 1, prev_hash is genesis (height 0).
-    // TTL check: prev_block_height <= base_header.height() + ttl, i.e. 1 <= 0 + ttl.
 
     const TEST_SEED: RngSeed = [3; 32];
     let mut pool = TransactionPool::new(TEST_SEED, None, "");
