@@ -1,6 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::node::TestLoopNode;
-use near_async::time::Duration;
 use near_client::NetworkAdversarialMessage;
 use near_client::client_actor::AdvProduceChunksMode;
 use near_o11y::testonly::init_test_logger;
@@ -35,8 +34,6 @@ fn missing_chunk_example_test() {
     assert_eq!(get_chunk_mask(&validator_node, missing_chunk_heigh - 1), vec![true, true]);
     assert_eq!(get_chunk_mask(&validator_node, missing_chunk_heigh), vec![false, true]);
     assert_eq!(get_chunk_mask(&validator_node, missing_chunk_heigh + 1), vec![true, true]);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
 #[test]
@@ -105,8 +102,6 @@ fn missing_chunk_window_example_test() {
         shard_missing_chunk_states[1].last_missing_height,
         "expected to have different heights with missing chunk with high probability"
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
 fn get_chunk_mask(node: &TestLoopNode<'_>, block_height: BlockHeight) -> Vec<bool> {

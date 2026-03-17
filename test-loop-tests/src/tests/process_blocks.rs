@@ -137,8 +137,6 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
             assert_eq!(ban_counter, 0);
         }
     }
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
 /// If a peer sends a block whose header is valid and passes basic validation, the peer is not banned.
@@ -283,6 +281,4 @@ fn test_produce_block_with_approvals_arrived_early() {
     // block.
     let client = &env.test_loop.data.get(client_actor_handle).client;
     assert!(client.chain.get_block_by_height(block_withholding_height + 1).is_ok());
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }

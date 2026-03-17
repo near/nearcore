@@ -19,8 +19,6 @@ fn test_rpc_block_by_height() {
         .unwrap();
 
     assert_eq!(result.header.height, 1, "expected block height 1, got {}", result.header.height);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Submit a simple transfer transaction using jsonrpc "broadcast_tx_commit" and wait for it to finish.
@@ -61,6 +59,4 @@ fn test_rpc_broadcast_tx_commit_transfer() {
         "expected SuccessValue in status, got {:?}",
         outcome.status
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

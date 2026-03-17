@@ -1,6 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
-use crate::setup::env::TestLoopEnv;
 use itertools::Itertools;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
@@ -104,7 +103,7 @@ pub(crate) fn test_protocol_upgrade(
     // Immediately start voting for the new protocol version
     let protocol_upgrade_schedule = ProtocolUpgradeVotingSchedule::new_immediate(new_protocol);
 
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder
+    let mut env = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .protocol_upgrade_schedule(protocol_upgrade_schedule)
@@ -114,7 +113,7 @@ pub(crate) fn test_protocol_upgrade(
         .drop(DropCondition::ProtocolUpgradeChunkRange(new_protocol, chunk_ranges_to_drop.clone()))
         .warmup();
 
-    let client_handle = node_datas[0].client_sender.actor_handle();
+    let client_handle = env.node_datas[0].client_sender.actor_handle();
     let epoch_ids_with_old_protocol = RefCell::new(BTreeSet::new());
     let epoch_ids_with_new_protocol = RefCell::new(BTreeSet::new());
     let first_new_protocol_height = Cell::new(None);
@@ -173,7 +172,7 @@ pub(crate) fn test_protocol_upgrade(
             && epoch_ids_with_new_protocol.borrow().len() >= 2
     };
 
-    test_loop.run_until(success_condition, Duration::seconds((7 * epoch_length) as i64));
+    env.test_loop.run_until(success_condition, Duration::seconds((7 * epoch_length) as i64));
 
     // Validate that the correct chunks were missing
     let upgraded_epoch_start = first_new_protocol_height.get().unwrap();
@@ -189,9 +188,6 @@ pub(crate) fn test_protocol_upgrade(
         }
     }
     assert_eq!(&*observed_missing_chunks.borrow(), &expected_missing_chunks);
-
-    TestLoopEnv { test_loop, node_datas, shared_state }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[test]

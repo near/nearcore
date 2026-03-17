@@ -174,8 +174,6 @@ fn test_gas_key_transaction() {
     // Verify receiver got the transfer
     let receiver_balance = env.rpc_node().view_account_query(receiver).unwrap().amount;
     assert_eq!(receiver_balance, initial_balance.checked_add(transfer_amount).unwrap());
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 #[test]
@@ -276,8 +274,6 @@ fn test_gas_key_refund() {
     // converted to a receipt, then refunded when the function call failed.
     let sender_balance_after = env.rpc_node().view_account_query(sender).unwrap().amount;
     assert_eq!(sender_balance_after, sender_balance_before);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 /// Verify that when a gas key transaction's deposit exceeds the account balance, gas is still
@@ -420,8 +416,6 @@ fn test_gas_key_deposit_failed() {
     let gas_key_nonce_after =
         get_gas_key_nonce(&env, sender, &gas_key_signer.public_key(), nonce_index);
     assert_eq!(gas_key_nonce_after, gas_key_nonce + 1);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 struct HostFunctionTestSetup {
@@ -619,8 +613,6 @@ fn test_gas_key_transfer_host_function() {
             .checked_add(reward)
             .unwrap(),
     );
-
-    setup.env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 /// Test that a contract can create a gas key with full access using the host function.
@@ -671,8 +663,6 @@ fn test_gas_key_add_full_access_host_function() {
         panic!("expected GasKeyNonces response");
     };
     assert_eq!(nonces_view.nonces.len(), num_nonces as usize);
-
-    setup.env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 /// Test that a contract can create a gas key with function call permission using the host function.
@@ -734,8 +724,6 @@ fn test_gas_key_add_function_call_host_function() {
         panic!("expected GasKeyNonces response");
     };
     assert_eq!(nonces_view.nonces.len(), num_nonces as usize);
-
-    setup.env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 /// Test that a nonzero allowance on a gas key function call is rejected by the verifier.
@@ -803,8 +791,6 @@ fn test_gas_key_add_function_call_nonzero_allowance_rejected() {
     // Verify no gas key was created
     let result = setup.env.rpc_node().view_access_key_query(&account, &gas_key_signer.public_key());
     assert!(result.is_err(), "expected gas key to not exist after failed AddKey");
-
-    setup.env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 /// Test creating a gas key via host function, funding it, then using it to send a transaction.
@@ -877,8 +863,6 @@ fn test_gas_key_add_then_fund_then_use() {
     let updated_nonce =
         get_gas_key_nonce(&setup.env, &account, &gas_key_signer.public_key(), nonce_index);
     assert_eq!(updated_nonce, gas_key_nonce + 1);
-
-    setup.env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 enum GasKeyKind {
@@ -1004,6 +988,4 @@ fn test_gas_key_fee_parity(mode: GasKeyKind) {
     let result =
         setup.env.rpc_node().view_access_key_query(&account, &gas_key_b_signer.public_key());
     assert!(result.is_err(), "gas key B should not exist after deletion");
-
-    setup.env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }

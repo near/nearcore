@@ -224,7 +224,6 @@ fn test_yield_then_resume_one_block_apart() {
     );
 
     assert_no_promise_yield_status_in_state(&env);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Submit one transaction which yields and saves data_id to state.
@@ -319,7 +318,6 @@ fn test_yield_then_resume_same_block() {
     }
 
     assert_no_promise_yield_status_in_state(&env);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Submit one transaction with two actions. The first action yields and saves data_id to the state.
@@ -396,7 +394,6 @@ fn test_yield_then_resume_two_actions() {
     }
 
     assert_no_promise_yield_status_in_state(&env);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Similar to `test_yield_then_resume_two_actions`, but after the first action, another action fails.
@@ -444,8 +441,6 @@ fn test_yield_then_resume_two_actions_failure() {
 
     // PromiseYieldStatus change was not committed to the trie.
     assert_no_promise_yield_status_in_state(&env);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 // 1 node
@@ -636,5 +631,4 @@ fn test_yield_resume_across_protocol_upgrade() {
     );
 
     assert_no_promise_yield_status_in_state(&env);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

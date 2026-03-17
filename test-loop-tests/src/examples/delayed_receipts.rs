@@ -84,6 +84,4 @@ fn delayed_receipt_example_test() {
         block_with_txs.header().height(),
         last_receipts_executed_block.header().prev_height().unwrap()
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

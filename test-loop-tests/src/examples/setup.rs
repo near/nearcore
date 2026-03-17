@@ -1,6 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{create_account_id, create_validators_spec, validators_spec_clients};
-use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::gas::Gas;
 use near_primitives::types::Balance;
@@ -16,8 +15,6 @@ fn test_setup_default() {
     let mut env = TestLoopBuilder::new().build();
 
     env.validator_runner().run_for_number_of_blocks(1);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(1));
 }
 
 /// Demonstrates a multi-validator setup with an RPC node.
@@ -40,8 +37,6 @@ fn test_setup_multiple_validators_with_rpc() {
     env.node_runner(2).run_for_number_of_blocks(1);
     // RPC node
     env.rpc_runner().run_for_number_of_blocks(1);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(1));
 }
 
 /// Demonstrates a multi-shard setup with one chunk producer per shard.
@@ -62,8 +57,6 @@ fn test_setup_multishard() {
     let node1_tracked_shards = env.node(1).tracked_shards();
     assert_eq!(node1_tracked_shards.len(), 1);
     assert_ne!(&node0_tracked_shards[0], &node1_tracked_shards[0]);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(1));
 }
 
 /// Demonstrates adding a user account via the builder API.
@@ -76,8 +69,6 @@ fn test_setup_user_account() {
     let env = TestLoopBuilder::new().add_user_account(&user_account, initial_balance).build();
 
     assert_eq!(env.validator().query_balance(&user_account), initial_balance);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(1));
 }
 
 /// Demonstrates overriding genesis parameters with non-default values
@@ -116,8 +107,6 @@ fn test_setup_genesis_overrides() {
     assert_eq!(genesis_config.minimum_stake_ratio, minimum_stake_ratio);
     assert_eq!(genesis_config.min_gas_price, min_gas_price);
     assert_eq!(genesis_config.max_gas_price, max_gas_price);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(1));
 }
 
 /// Demonstrates manually providing genesis and clients via `.genesis()` and `.clients()`.
@@ -136,6 +125,4 @@ fn test_setup_manual_genesis() {
     let mut env = TestLoopBuilder::new().genesis(genesis).clients(clients).build();
 
     env.validator_runner().run_for_number_of_blocks(1);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(1));
 }

@@ -74,37 +74,39 @@ fn test_spice_chain() {
         .genesis_height(10000)
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } =
+    let mut env =
         builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
 
     let client_handles =
-        node_datas.iter().map(|data| data.client_sender.actor_handle()).collect_vec();
+        env.node_datas.iter().map(|data| data.client_sender.actor_handle()).collect_vec();
 
     // TODO(spice): Should be able to use execute_money_transfers here eventually. It shouldn't reach into
     // runtime directly though, or do it correctly with separated execution and chunks.
 
-    let client = &test_loop.data.get(&client_handles[0]).client;
+    let client = &env.test_loop.data.get(&client_handles[0]).client;
     let epoch_manager = client.epoch_manager.clone();
 
+    let node_datas = &env.node_datas;
     let get_balance = |test_loop_data: &mut TestLoopData, account: &AccountId, epoch_id| {
         let shard_id = shard_layout.account_id_to_shard_id(account);
         let cp =
             &epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, shard_id).unwrap()[0];
-        let node_data = get_node_data(&node_datas, cp);
+        let node_data = get_node_data(node_datas, cp);
         let node = TestLoopNode { data: test_loop_data, node_data };
         node.view_account_query(account).unwrap().amount
     };
 
     let epoch_id = client.chain.head().unwrap().epoch_id;
     for account in &accounts {
-        let got_balance = get_balance(&mut test_loop.data, account, epoch_id);
+        let got_balance = get_balance(&mut env.test_loop.data, account, epoch_id);
         assert_eq!(got_balance, INITIAL_BALANCE);
     }
 
-    let (sent_txs, balance_changes) = schedule_send_money_txs(&node_datas, &accounts, &test_loop);
+    let (sent_txs, balance_changes) =
+        schedule_send_money_txs(&env.node_datas, &accounts, &env.test_loop);
 
     let mut observed_txs = HashSet::new();
-    test_loop.run_until(
+    env.test_loop.run_until(
         |test_loop_data| {
             let clients = client_handles
                 .iter()
@@ -137,21 +139,18 @@ fn test_spice_chain() {
 
     assert_eq!(*sent_txs.lock(), observed_txs);
 
-    let client = &test_loop.data.get(&client_handles[0]).client;
+    let client = &env.test_loop.data.get(&client_handles[0]).client;
     let epoch_id = client.chain.head().unwrap().epoch_id;
 
     assert!(!balance_changes.is_empty());
     for (account, balance_change) in &balance_changes {
-        let got_balance = get_balance(&mut test_loop.data, account, epoch_id);
+        let got_balance = get_balance(&mut env.test_loop.data, account, epoch_id);
         let want_balance = Balance::from_yoctonear(
             (INITIAL_BALANCE.as_yoctonear() as i128 + balance_change).try_into().unwrap(),
         );
         assert_eq!(got_balance, want_balance);
         assert_ne!(*balance_change, 0);
     }
-
-    TestLoopEnv { test_loop, node_datas, shared_state }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[test]
@@ -201,8 +200,6 @@ fn test_spice_chain_with_delayed_execution() {
     let view_account_result =
         env.node_for_account(&producer_account).view_account_query(&receiver).unwrap();
     assert_eq!(view_account_result.amount, Balance::from_near(1));
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Sets up a spice env with delayed endorsements so execution lags behind
@@ -264,8 +261,6 @@ fn test_spice_rpc_get_block_by_finality() {
     let block_doomslug =
         view_client.handle(GetBlock(BlockReference::Finality(Finality::DoomSlug))).unwrap();
     assert!(block_doomslug.header.height <= execution_head.height);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[test]
@@ -316,8 +311,6 @@ fn test_spice_rpc_unknown_block_past_execution_head() {
         matches!(query_result, Err(QueryError::UnknownBlock { .. })),
         "query past execution_head should be unknown block, got: {query_result:?}"
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[test]
@@ -344,8 +337,6 @@ fn test_spice_garbage_collection() {
 
     // We want to make sure that gc runs at least once and it doesn't trigger any asserts.
     env.rpc_runner().run_until(|node| node.tail() >= epoch_length, Duration::seconds(20));
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 // TODO(spice-resharding): Add a test for witness GC during resharding.
@@ -399,8 +390,6 @@ fn test_spice_garbage_collection_witnesses() {
     let node = env.node(0);
     let chain_store = &node.client().chain.chain_store;
     assert_witness_gc_invariant(chain_store, &tracked_shards);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Verifies witness GC invariant: witness exists iff block is uncertified.
@@ -493,8 +482,6 @@ fn test_restart_rpc_node() {
 
     let view_account_result = env.rpc_node().view_account_query(&receiver).unwrap();
     assert_eq!(view_account_result.amount, Balance::from_near(1));
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[test]
@@ -575,8 +562,6 @@ fn test_restart_producer_node() {
     let view_account_result =
         env.node_for_account(&restart_account).view_account_query(&receiver).unwrap();
     assert_eq!(view_account_result.amount, Balance::from_near(1));
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[test]
@@ -677,8 +662,6 @@ fn test_restart_validator_node() {
     let view_account_result =
         env.node_for_account(&producer).view_account_query(&receiver).unwrap();
     assert_eq!(view_account_result.amount, Balance::from_near(1));
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[cfg(feature = "test_features")]
@@ -811,7 +794,6 @@ fn test_spice_chain_with_missing_chunks() {
         assert_eq!(got_balance, want_balance);
         assert_ne!(*balance_change, 0);
     }
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Verifies that validator-only nodes (non-chunk-producers) do not emit
@@ -860,8 +842,6 @@ fn test_spice_validator_only_does_not_distribute_witness_and_receipts() {
         0,
         "validator-only nodes must not distribute witnesses or receipt proofs"
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Verifies that validator-only nodes (non-chunk-producers) still send
@@ -905,8 +885,6 @@ fn test_spice_validator_only_sends_endorsements() {
         endorsement_count.load(Ordering::SeqCst) > 0,
         "validator-only nodes must send chunk endorsements"
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 fn schedule_send_money_txs(

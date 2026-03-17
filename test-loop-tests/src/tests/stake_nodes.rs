@@ -82,8 +82,6 @@ fn test_stake_nodes_impl(epoch_length: u64, execution_delay: u64) {
         |node| get_epoch_all_validators_sorted(node.client()) == expected,
         Duration::seconds(60),
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Starts 4 nodes with 4 validators. Nodes 0-1 reduce stake to ~1 NEAR.
@@ -195,8 +193,6 @@ fn test_validator_kickout_impl(epoch_length: u64, execution_delay: u64) {
         assert_eq!(view.locked, TESTING_INIT_STAKE, "remaining validator {i}");
         assert_eq!(view.amount, TESTING_INIT_BALANCE, "remaining validator {i}");
     }
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Starts 4 nodes, genesis has 2 validator seats.
@@ -292,8 +288,6 @@ fn test_validator_join_impl(epoch_length: u64, execution_delay: u64) {
         },
         Duration::seconds(120),
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Tests the full validator lifecycle: a non-validator stakes to join the validator set,
@@ -414,8 +408,6 @@ fn test_staking_join_and_leave_impl(execution_delay: u64) {
     let view = env.node(0).view_account_query(&accounts[2]).unwrap();
     assert!(view.locked.is_zero());
     assert_eq!(view.amount, TESTING_INIT_BALANCE);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Verifies that a validator who unstakes and then re-stakes in an uncertified chunk
@@ -510,8 +502,6 @@ fn test_spice_uncertified_restake_prevents_stake_return() {
     // Verify that the unstaker's locked balance was NOT returned.
     let account = env.node(unstaker_idx).view_account_query(&unstaker).unwrap();
     assert_eq!(account.locked, initial_stake, "stake should NOT have been returned");
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Checks that during the first epoch, total_supply matches total_supply in genesis.
@@ -601,6 +591,4 @@ fn test_inflation() {
             "total supply should match expected inflation in epoch 2"
         );
     }
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

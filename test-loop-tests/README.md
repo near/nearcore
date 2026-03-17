@@ -122,11 +122,7 @@ let account = env.validator().view_account_query(&account_id).unwrap();
 assert_eq!(account.amount, Balance::from_near(42));
 ```
 
-After that, properly shut down the test environment:
-
-```rust
-env.shutdown_and_drain_remaining_events(Duration::seconds(20));
-```
+The test environment shuts down automatically when dropped (with a 30-second default timeout).
 
 ## Examples
 

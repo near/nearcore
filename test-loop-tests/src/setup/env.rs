@@ -47,26 +47,24 @@ impl TestLoopEnv {
     /// `genesis_height + 2` and it has all chunks.
     /// Needed because for smaller heights blocks may not get all chunks and/or
     /// approvals.
-    pub fn warmup(self) -> Self {
-        let Self { mut test_loop, node_datas: datas, shared_state } = self;
-
+    pub fn warmup(mut self) -> Self {
         // This may happen if you're calling warmup twice or have set skip_warmup in builder.
-        assert!(shared_state.warmup_pending.load(Ordering::Relaxed), "warmup already done");
-        shared_state.warmup_pending.store(false, Ordering::Relaxed);
+        assert!(self.shared_state.warmup_pending.load(Ordering::Relaxed), "warmup already done");
+        self.shared_state.warmup_pending.store(false, Ordering::Relaxed);
 
-        let client_handle = datas[0].client_sender.actor_handle();
-        let client_actor = test_loop.data.get(&client_handle);
+        let client_handle = self.node_datas[0].client_sender.actor_handle();
+        let client_actor = self.test_loop.data.get(&client_handle);
         let max_block_production_delay = client_actor.client.config.max_block_production_delay;
         let genesis_height = client_actor.client.chain.genesis().height();
-        test_loop.run_until(
+        self.test_loop.run_until(
             |test_loop_data| {
                 let client_actor = test_loop_data.get(&client_handle);
                 client_actor.client.chain.head().unwrap().height == genesis_height + 4
             },
             max_block_production_delay * 5,
         );
-        for idx in 0..datas.len() {
-            let client_handle = datas[idx].client_sender.actor_handle();
+        for idx in 0..self.node_datas.len() {
+            let client_handle = self.node_datas[idx].client_sender.actor_handle();
             let event = move |test_loop_data: &mut TestLoopData| {
                 let client_actor = test_loop_data.get(&client_handle);
                 let block =
@@ -74,10 +72,10 @@ impl TestLoopEnv {
                 let num_shards = block.header().chunk_mask().len();
                 assert_eq!(block.header().chunk_mask(), vec![true; num_shards]);
             };
-            test_loop.send_adhoc_event("assertions".to_owned(), Box::new(event));
+            self.test_loop.send_adhoc_event("assertions".to_owned(), Box::new(event));
         }
-        test_loop.run_instant();
-        Self { test_loop, node_datas: datas, shared_state }
+        self.test_loop.run_instant();
+        self
     }
 
     /// Function to stop a node in test loop environment.
@@ -153,19 +151,6 @@ impl TestLoopEnv {
     pub fn add_node(&mut self, identifier: &str, node_state: NodeSetupState) {
         // Logically this function is the same as restart_node
         self.restart_node(identifier, node_state);
-    }
-
-    /// Used to finish off remaining events that are still in the loop. This can be necessary if the
-    /// destructor of some components wait for certain condition to become true. Otherwise, the
-    /// destructors may end up waiting forever. This also helps avoid a panic when destructing
-    /// TestLoop itself, as it asserts that all events have been handled.
-    pub fn shutdown_and_drain_remaining_events(mut self, timeout: Duration) {
-        // State sync dumper is not an Actor, handle stopping separately.
-        for node_data in self.node_datas {
-            self.test_loop.data.get_mut(&node_data.state_sync_dumper_handle).stop();
-        }
-
-        self.test_loop.shutdown_and_drain_remaining_events(timeout);
     }
 
     pub fn get_node_data_by_account_id(&self, account_id: &AccountId) -> &NodeExecutionData {
@@ -263,5 +248,16 @@ impl TestLoopEnv {
         let genesis = self.shared_state.genesis.clone();
         let tempdir_path = self.shared_state.tempdir.path().to_path_buf();
         NodeStateBuilder::new(genesis, tempdir_path)
+    }
+}
+
+impl Drop for TestLoopEnv {
+    fn drop(&mut self) {
+        // State sync dumper is not an Actor, handle stopping separately.
+        for node_data in &self.node_datas {
+            self.test_loop.data.get_mut(&node_data.state_sync_dumper_handle).stop();
+        }
+        self.test_loop.initiate_shutdown();
+        self.test_loop.run_for(Duration::seconds(30));
     }
 }

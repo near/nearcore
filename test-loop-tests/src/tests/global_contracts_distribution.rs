@@ -101,8 +101,6 @@ fn test_global_receipt_distribution_at_resharding_boundary() {
     }
     env.env.test_loop.run_for(Duration::seconds(2));
     check_txs(&mut env.env.test_loop.data, &env.env.node_datas, &env.chunk_producer, &use_txs);
-
-    env.shutdown();
 }
 
 /// Test that nonce-based idempotency prevents stale overwrites during global contract updates.
@@ -161,8 +159,6 @@ fn test_global_contract_nonce_prevents_stale_overwrite() {
         );
         env.env.runner_for_account(&env.chunk_producer).run_tx(tx, Duration::seconds(5));
     }
-
-    env.shutdown();
 }
 
 struct GlobalContractsReshardingTestEnv {
@@ -230,9 +226,5 @@ impl GlobalContractsReshardingTestEnv {
 
     fn chunk_producer_node(&self) -> TestLoopNode<'_> {
         self.env.node_for_account(&self.chunk_producer)
-    }
-
-    fn shutdown(self) {
-        self.env.shutdown_and_drain_remaining_events(Duration::seconds(10));
     }
 }

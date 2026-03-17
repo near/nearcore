@@ -22,7 +22,6 @@ use near_ping::PingCommand;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
 use near_primitives::types::{Gas, NumSeats, NumShards, ProtocolVersion, ShardId};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_replay_archive_tool::ReplayArchiveCommand;
 use near_state_parts::cli::StatePartsCommand;
 use near_state_parts_dump_check::cli::StatePartsDumpCheckCommand;
@@ -640,7 +639,7 @@ impl RunCmd {
 /// Archival nodes skip deletion to prevent accidental data loss.
 fn check_epoch_sync_data_reset_marker(hot_store_path: &Path, is_archival: bool) {
     let marker_path = hot_store_path.join(EPOCH_SYNC_DATA_RESET_MARKER_FILE_NAME);
-    if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) || !marker_path.exists() {
+    if !near_client::sync::SYNC_V2_ENABLED || !marker_path.exists() {
         return;
     }
     if is_archival {
@@ -948,8 +947,8 @@ fn normalize_whitespace(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Checks the provided kernel parameter  from /proc/sys
-/// and prints an error if it is not set to the expected value.
+/// Checks the provided kernel parameter from /proc/sys
+/// and prints a warning if it is not set to the expected value.
 #[cfg(target_os = "linux")]
 fn check_kernel_param(param_name: &str, expected_value: &str) {
     // Convert the dotted param_name into a path under /proc/sys
@@ -966,14 +965,12 @@ fn check_kernel_param(param_name: &str, expected_value: &str) {
             let expected_normalized = normalize_whitespace(expected_value);
 
             if actual_normalized != expected_normalized {
-                tracing::error!(
+                tracing::warn!(
                     %param_name,
                     %actual_normalized,
                     %expected_normalized,
                     "parameter is set to incorrect value, please run `scripts/set_kernel_params.sh`"
                 );
-            } else {
-                tracing::info!(%param_name, %expected_normalized, "parameter is set to expected value");
             }
         }
         Err(e) => {

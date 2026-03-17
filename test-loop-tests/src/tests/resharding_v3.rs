@@ -807,8 +807,6 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     );
     let client = &env.test_loop.data.get(&client_handles[client_index]).client;
     trie_sanity_check.check_epochs(client);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[test]

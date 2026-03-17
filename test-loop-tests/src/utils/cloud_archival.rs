@@ -15,7 +15,7 @@ use near_primitives::types::{
 };
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::{BlockData, CloudStorage};
-use near_store::db::CLOUD_HEAD_KEY;
+use near_store::db::CLOUD_MIN_HEAD_KEY;
 use near_store::flat::FlatStorageManager;
 use near_store::trie::AccessOptions;
 use near_store::{
@@ -68,42 +68,15 @@ pub fn gc_and_heads_sanity_checks(
     }
 }
 
-/// Pauses the archival writer, runs sanity checks, then resumes it.
-pub fn pause_and_resume_writer_with_sanity_checks(
-    mut env: &mut TestLoopEnv,
-    resume_height: BlockHeight,
-    epoch_length: BlockHeightDelta,
-    writer_id: &AccountId,
-    split_store_enabled: bool,
-) {
-    // Run the node so that the cloud head advances a bit, but remains within the first epoch.
-    run_node_until(&mut env, &writer_id, epoch_length);
-    let cloud_head = get_cloud_head(&env, &writer_id);
-    assert!(2 < cloud_head && cloud_head + 1 < epoch_length);
-
-    // Stop the writer and let the node reach `resume_height` while the writer is paused.
-    get_writer_handle(&env, &writer_id).0.stop();
-    let node_data = env.get_node_data_by_account_id(&writer_id);
-    let node_identifier = node_data.identifier.clone();
-    env.runner_for_account(&writer_id).run_until_head_height(resume_height);
-
-    // Run sanity checks.
-    gc_and_heads_sanity_checks(env, writer_id, split_store_enabled, None);
-
-    // Resume the writer and restart the node.
-    get_writer_handle(&env, &writer_id).0.resume();
-    stop_and_restart_node(&mut env, node_identifier.as_str());
-}
-
 /// Stops a node and restarts it with a new identifier `<old>-restart`.
-fn stop_and_restart_node(env: &mut TestLoopEnv, node_identifier: &str) {
+pub(crate) fn stop_and_restart_node(env: &mut TestLoopEnv, node_identifier: &str) {
     let node_state = env.kill_node(node_identifier);
     let new_identifier = format!("{}-restart", node_identifier);
     env.restart_node(&new_identifier, node_state);
 }
 
 /// Returns the cloud archival writer handle for `archival_id`.
-fn get_writer_handle<'a>(
+pub(crate) fn get_writer_handle<'a>(
     env: &'a TestLoopEnv,
     writer_id: &AccountId,
 ) -> &'a CloudArchivalWriterHandle {
@@ -124,9 +97,9 @@ fn get_cloud_storage(env: &TestLoopEnv, archival_id: &AccountId) -> Arc<CloudSto
     cloud_storage.clone().unwrap()
 }
 
-fn get_cloud_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockHeight {
+pub(crate) fn get_cloud_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockHeight {
     let hot_store = get_hot_store(env, writer_id);
-    hot_store.get_ser::<Tip>(DBCol::BlockMisc, CLOUD_HEAD_KEY).unwrap().height
+    hot_store.get_ser::<Tip>(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY).unwrap().height
 }
 
 /// Runs tests to verify that data for the block height exists in the archive.
@@ -206,7 +179,7 @@ pub fn snapshots_sanity_check(
     // Epoch data is uploaded by the cloud archival writer at the last block of each
     // epoch, so it covers all epochs fully passed by the cloud head.
     let cloud_head_tip: Tip =
-        store.get_ser(DBCol::BlockMisc, CLOUD_HEAD_KEY).expect("cloud head should exist");
+        store.get_ser(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY).expect("cloud head should exist");
     let cloud_head_epoch_info = EpochInfo::try_from_slice(
         &store.get(DBCol::EpochInfo, cloud_head_tip.epoch_id.as_ref()).unwrap(),
     )

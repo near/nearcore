@@ -3,7 +3,6 @@ use crate::setup::env::TestLoopEnv;
 use crate::utils::account::create_account_ids;
 use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 use itertools::Itertools as _;
-use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
@@ -83,6 +82,4 @@ fn test_validator_rotation() {
 
     runner.run_for_an_epoch(&mut env);
     assert_current_validators(&env, &validators[1]);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }

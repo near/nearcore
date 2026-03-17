@@ -1,5 +1,4 @@
 use crate::setup::builder::TestLoopBuilder;
-use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
 use crate::utils::transactions::execute_money_transfers_with_delay;
 use itertools::Itertools;
@@ -72,7 +71,7 @@ fn slow_test_view_requests_to_archival_node() {
         .genesis_height(GENESIS_HEIGHT)
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder
+    let mut env = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(all_clients)
@@ -81,16 +80,16 @@ fn slow_test_view_requests_to_archival_node() {
         .build();
 
     let non_validator_accounts = accounts.iter().skip(NUM_VALIDATORS).cloned().collect_vec();
-    let client_handle = node_datas[ARCHIVAL_CLIENT].client_sender.actor_handle();
-    let client = &test_loop.data.get(&client_handle).client;
+    let client_handle = env.node_datas[ARCHIVAL_CLIENT].client_sender.actor_handle();
+    let client = &env.test_loop.data.get(&client_handle).client;
     let transaction_delay = if client.config.enable_early_prepare_transactions {
         Duration::milliseconds(100)
     } else {
         Duration::milliseconds(300)
     };
     execute_money_transfers_with_delay(
-        &mut test_loop,
-        &node_datas,
+        &mut env.test_loop,
+        &env.node_datas,
         &non_validator_accounts,
         transaction_delay,
     )
@@ -98,7 +97,7 @@ fn slow_test_view_requests_to_archival_node() {
 
     // Run the chain until it garbage collects blocks from the first epoch.
     let target_height: u64 = EPOCH_LENGTH * (GC_NUM_EPOCHS_TO_KEEP + 2) + 6;
-    test_loop.run_until(
+    env.test_loop.run_until(
         |test_loop_data| {
             let chain = &test_loop_data.get(&client_handle).client.chain;
             chain.head().unwrap().height >= target_height
@@ -106,11 +105,8 @@ fn slow_test_view_requests_to_archival_node() {
         Duration::seconds(target_height as i64),
     );
 
-    let mut view_client_tester = ViewClientTester::new(&mut test_loop, &node_datas);
+    let mut view_client_tester = ViewClientTester::new(&mut env.test_loop, &env.node_datas);
     view_client_tester.run_tests(&shard_layout);
-
-    TestLoopEnv { test_loop, node_datas, shared_state }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 struct ViewClientTester<'a> {

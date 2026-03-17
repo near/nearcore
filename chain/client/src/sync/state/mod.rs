@@ -353,7 +353,7 @@ impl StateSync {
         let sync_hash = sync_status.sync_hash;
         let _span =
             tracing::debug_span!(target: "sync", "run_sync", sync_type = "StateSync").entered();
-        tracing::debug!(%sync_hash, ?tracking_shards, "syncing state");
+        tracing::debug!(target: "sync", %sync_hash, ?tracking_shards, "syncing state");
 
         let mut all_done = true;
         for shard_id in tracking_shards {
@@ -363,7 +363,7 @@ impl StateSync {
                     Ok(result) => {
                         entry.remove();
                         if let Err(err) = result {
-                            tracing::error!(%shard_id, ?err, "state sync failed for shard");
+                            tracing::error!(target: "sync", %shard_id, ?err, "state sync failed for shard");
                             return Err(err);
                         }
                         ShardSyncStatus::StateSyncDone

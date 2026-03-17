@@ -127,6 +127,4 @@ fn test_processed_receipt_ids_gc() {
         store.get(DBCol::ProcessedReceiptIds, &metadata_key).is_none(),
         "receipt metadata should be garbage collected from DBCol::ProcessedReceiptIds"
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

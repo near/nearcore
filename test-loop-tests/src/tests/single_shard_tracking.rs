@@ -74,8 +74,6 @@ fn test_rpc_single_shard_tracking() {
 
     assert_old_chunks_are_cleared(chain_store, &tracked_shards_set);
     assert_new_chunks_exist(chain_store, &tracked_shards_set);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
 /// Tests that an archival node tracking a parent shard correctly tracks its children after resharding.
@@ -168,8 +166,6 @@ fn test_archival_single_shard_tracking_when_resharding() {
     assert_old_chunks_are_cleared(&chain_store, &expected_stored_shard_uids);
     // New chunks should no longer be produced for the parent shard.
     assert_new_chunks_exist(&chain_store, &shards_tracked_after_resharding);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
 fn assert_old_chunks_are_cleared(

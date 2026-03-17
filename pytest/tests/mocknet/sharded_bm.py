@@ -365,18 +365,21 @@ def configure_rpc_nodes(args):
 
 
 def configure_rpc_probe(args):
-    """Copy probe account files to RPC nodes and write rpc_probe config into config.json."""
+    """Copy per-RPC probe account files and write rpc_probe config into config.json."""
     rpc_names = args.forknet_details['rpc_instance_names']
     if not rpc_names:
         return
 
     probe_accounts_path = f"{BENCHNET_DIR}/user-data/probe_accounts.json"
 
-    # Copy probe_accounts.json from NEAR_HOME to BENCHNET_DIR on each RPC node.
-    run_cmd_args = copy.deepcopy(args)
-    run_cmd_args.host_filter = f"({'|'.join(rpc_names)})"
-    run_cmd_args.cmd = f"mkdir -p {BENCHNET_DIR}/user-data && cp {NEAR_HOME}/user-data/probe_accounts.json {probe_accounts_path}"
-    run_remote_cmd(CommandContext(run_cmd_args))
+    # Copy the per-RPC probe accounts file to each RPC node.
+    for i, rpc_name in enumerate(sorted(rpc_names)):
+        src_file = f"{NEAR_HOME}/user-data/probe_accounts_rpc_{i}.json"
+        run_cmd_args = copy.deepcopy(args)
+        run_cmd_args.host_filter = rpc_name
+        run_cmd_args.cmd = (f"mkdir -p {BENCHNET_DIR}/user-data"
+                            f" && cp {src_file} {probe_accounts_path}")
+        run_remote_cmd(CommandContext(run_cmd_args))
 
     # Write rpc_probe config into config.json on RPC nodes only.
     run_cmd_args2 = copy.deepcopy(args)

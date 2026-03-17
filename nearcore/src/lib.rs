@@ -40,6 +40,7 @@ use near_client::{
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_jsonrpc::sharded_rpc::ShardedRpcPool;
 use near_network::PeerManagerActor;
 use near_network::types::PeerManagerAdapter;
 use near_primitives::genesis::GenesisId;
@@ -51,6 +52,7 @@ use near_store::genesis::initialize_sharded_genesis_state;
 use near_store::metrics::spawn_db_metrics_loop;
 use near_store::{NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
+use parking_lot::RwLock;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -415,15 +417,6 @@ pub async fn start_with_config_and_synchronization_impl(
         Some(home_dir),
     );
 
-    // Spawn this after initializing genesis, or else the metrics may fail to be exported.
-    spawn_trie_metrics_loop(
-        actor_system.clone(),
-        config.clone(),
-        storage.get_hot_store(),
-        config.client_config.log_summary_period,
-        epoch_manager.clone(),
-    );
-
     let shard_tracker = ShardTracker::new(
         config.client_config.tracked_shards_config.clone(),
         epoch_manager.clone(),
@@ -463,6 +456,9 @@ pub async fn start_with_config_and_synchronization_impl(
         } else {
             (epoch_manager.clone(), shard_tracker.clone(), runtime.clone())
         };
+
+    // Split storage (cold+hot) when available, otherwise just hot storage.
+    let maybe_split_store = split_store.clone().unwrap_or_else(|| storage.get_hot_store());
 
     let result = create_cold_store_actor(
         config.config.save_trie_changes,
@@ -641,6 +637,14 @@ pub async fn start_with_config_and_synchronization_impl(
         block_notification_watch_sender,
         spice_client_config,
     );
+    // Spawn after start_client so that Chain::new has initialized FINAL_HEAD_KEY in the store.
+    spawn_trie_metrics_loop(
+        actor_system.clone(),
+        storage.get_hot_store(),
+        config.client_config.log_summary_period,
+        epoch_manager.clone(),
+    );
+
     client_adapter_for_shards_manager.bind(client_actor.clone());
     client_adapter_for_partial_witness_actor.bind(ChunkValidationSenderForPartialWitness {
         chunk_state_witness: chunk_validation_actor.into_sender(),
@@ -675,7 +679,7 @@ pub async fn start_with_config_and_synchronization_impl(
         network_adapter.as_sender(),
         client_adapter_for_shards_manager.as_sender(),
         config.validator_signer.clone(),
-        split_store.unwrap_or_else(|| storage.get_hot_store()),
+        maybe_split_store.clone(),
         config.client_config.chunk_request_retry_period,
         config.client_config.chunks_cache_height_horizon,
     );
@@ -688,6 +692,7 @@ pub async fn start_with_config_and_synchronization_impl(
         epoch_length: config.client_config.epoch_length,
         transaction_validity_period: config.genesis.config.transaction_validity_period,
     };
+    let rpc_shard_tracker = view_shard_tracker.clone();
     let rpc_handler = spawn_rpc_handler_actor(
         actor_system.clone(),
         rpc_handler_config,
@@ -747,6 +752,11 @@ pub async fn start_with_config_and_synchronization_impl(
     network_adapter.bind(network_actor.clone());
     #[cfg(feature = "json_rpc")]
     if let Some(rpc_config) = config.rpc_config {
+        let sharded_rpc_pool = Arc::new(RwLock::new(ShardedRpcPool::new(
+            rpc_config.sharded_rpc.clone(),
+            rpc_shard_tracker,
+            maybe_split_store.chain_store(),
+        )));
         let entity_debug_handler = EntityDebugHandlerImpl {
             epoch_manager: view_epoch_manager,
             runtime: view_runtime,
@@ -765,6 +775,7 @@ pub async fn start_with_config_and_synchronization_impl(
             #[cfg(feature = "test_features")]
             _gc_actor.into_multi_sender(),
             Arc::new(entity_debug_handler),
+            sharded_rpc_pool,
             actor_system.new_future_spawner("jsonrpc").as_ref(),
         )
         .await;

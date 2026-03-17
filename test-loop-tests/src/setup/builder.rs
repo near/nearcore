@@ -1,6 +1,6 @@
 use super::env::TestLoopEnv;
 use super::setup::setup_client;
-use super::state::{NodeSetupState, SharedState};
+use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 use crate::utils::account::{
     archival_account_id, create_validators_spec, validators_spec_clients,
     validators_spec_clients_with_rpc,
@@ -17,6 +17,8 @@ use near_chain_configs::{
     ClientConfig, DumpConfig, ExternalStorageConfig, ExternalStorageLocation, Genesis,
     StateSyncConfig, SyncConfig, TrackedShardsConfig,
 };
+use near_jsonrpc::client::JsonRpcClient;
+use near_jsonrpc::sharded_rpc::ShardedRpcNode;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::gas::Gas;
@@ -268,12 +270,6 @@ impl TestLoopBuilder {
         self.set_archival_clients(accounts, ClientType::enable_archival_cold)
     }
 
-    /// Set the accounts whose clients should be configured as cloud archival nodes in the test loop.
-    /// These accounts must already be in the `clients` list.
-    pub(crate) fn cloud_storage_archival_clients(self, accounts: Vec<AccountId>) -> Self {
-        self.set_archival_clients(accounts, ClientType::enable_archival_cloud)
-    }
-
     fn set_archival_clients(
         mut self,
         accounts: Vec<AccountId>,
@@ -407,7 +403,32 @@ impl TestLoopBuilder {
             })
             .collect_vec();
 
+        Self::setup_sharded_rpc_pools(&datas);
+
         TestLoopEnv { test_loop, node_datas: datas, shared_state }
+    }
+
+    /// Wire each node's sharded RPC pool with clients pointing to all nodes.
+    fn setup_sharded_rpc_pools(datas: &[NodeExecutionData]) {
+        let all_nodes: Vec<ShardedRpcNode> = datas
+            .iter()
+            .map(|data| {
+                let client =
+                    Arc::new(JsonRpcClient::new_with_transport(data.jsonrpc_transport.clone()));
+                let pool = data.sharded_rpc_pool.read();
+                // TODO(sharded-rpc): find the right shard_ids in TestLoop.
+                let tracked_shards = match pool.shard_tracker.tracked_shards_config() {
+                    TrackedShardsConfig::Shards(uids) => {
+                        uids.iter().map(|uid| uid.shard_id()).collect()
+                    }
+                    _ => vec![],
+                };
+                ShardedRpcNode { client, tracked_shards }
+            })
+            .collect();
+        for data in datas {
+            data.sharded_rpc_pool.write().nodes = all_nodes.clone();
+        }
     }
 
     fn setup_shared_state(
@@ -755,18 +776,6 @@ impl ClientType {
                 panic!("cold storage is already enabled")
             }
             _ => *self = ClientType::Archival(ArchivalKind::Cold),
-        }
-    }
-
-    fn enable_archival_cloud(&mut self) {
-        match self {
-            ClientType::Archival(ArchivalKind::Cold) => {
-                *self = ClientType::Archival(ArchivalKind::ColdAndCloud)
-            }
-            ClientType::Archival(ArchivalKind::Cloud | ArchivalKind::ColdAndCloud) => {
-                panic!("cloud storage is already enabled")
-            }
-            _ => *self = ClientType::Archival(ArchivalKind::Cloud),
         }
     }
 }

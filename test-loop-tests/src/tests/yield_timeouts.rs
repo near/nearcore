@@ -365,7 +365,6 @@ fn test_simple_yield_timeout() {
     );
 
     assert_no_promise_yield_status_in_state(&env);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Yield timeouts have the least (worst) priority for inclusion to a chunk.
@@ -416,7 +415,6 @@ fn test_yield_timeout_under_congestion() {
     );
 
     assert_no_promise_yield_status_in_state(&env);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// In this case we invoke yield_resume at the last block possible.
@@ -475,7 +473,6 @@ fn test_yield_resume_just_before_timeout() {
     );
 
     assert_no_promise_yield_status_in_state(&env);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// In this test we introduce congestion to delay the yield timeout so that we can invoke
@@ -529,7 +526,6 @@ fn test_yield_resume_after_timeout_height() {
     );
 
     assert_no_promise_yield_status_in_state(&env);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// In this test there is no block produced at height YIELD_TIMEOUT_HEIGHT.
@@ -605,5 +601,4 @@ fn test_skip_timeout_height() {
     );
 
     assert_no_promise_yield_status_in_state(&env);
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

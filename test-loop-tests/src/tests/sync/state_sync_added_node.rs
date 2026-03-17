@@ -14,6 +14,7 @@ use near_chain_configs::test_genesis::{
 };
 use near_chain_configs::{StateSyncConfig, TrackedShardsConfig};
 use near_client::SyncStatus;
+use near_client::sync::SYNC_V2_ENABLED;
 use near_network::client::ProcessTxRequest;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::EpochConfigStore;
@@ -441,8 +442,6 @@ fn run_test_with_added_node(state: TestState) {
     );
 
     produce_chunks(&mut env, accounts.clone(), skip_block_height);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
 #[derive(Debug)]
@@ -480,6 +479,10 @@ fn run_added_node_test_case(t: AddedNodeTest) {
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_added_node_simple() {
+    if SYNC_V2_ENABLED {
+        // TODO(sync-v2): evaluate coverage — V2 does not support V1's state sync entry path.
+        return;
+    }
     init_test_logger();
     let t = AddedNodeTest {
         num_validators: 5,
@@ -498,6 +501,10 @@ fn slow_test_added_node_simple() {
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_added_node_empty_shard() {
+    if SYNC_V2_ENABLED {
+        // TODO(sync-v2): evaluate coverage — V2 does not support V1's state sync entry path.
+        return;
+    }
     init_test_logger();
     let t = AddedNodeTest {
         num_validators: 2,
@@ -516,6 +523,10 @@ fn slow_test_added_node_empty_shard() {
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_added_node_missing_chunks() {
+    if SYNC_V2_ENABLED {
+        // TODO(sync-v2): evaluate coverage — V2 does not support V1's state sync entry path.
+        return;
+    }
     init_test_logger();
     let chunks_produced = vec![
         (ShardId::new(0), vec![false]),
@@ -540,6 +551,10 @@ fn slow_test_added_node_missing_chunks() {
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_added_node_from_fork() {
+    if SYNC_V2_ENABLED {
+        // TODO(sync-v2): evaluate coverage — V2 does not support V1's state sync entry path.
+        return;
+    }
     init_test_logger();
     let t = AddedNodeTest {
         num_validators: 5,
@@ -562,6 +577,10 @@ fn slow_test_added_node_from_fork() {
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_added_node_no_parts_provided() {
+    if SYNC_V2_ENABLED {
+        // TODO(sync-v2): evaluate coverage — V2 does not support V1's state sync entry path.
+        return;
+    }
     init_test_logger();
 
     let TestState { mut env, .. } =
@@ -654,6 +673,4 @@ fn slow_test_added_node_no_parts_provided() {
         syncing_final_epoch = ?client.chain.head().unwrap().epoch_id,
         "Test completed: Syncing node header height increased by 10 blocks and is in a new epoch during state sync"
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }

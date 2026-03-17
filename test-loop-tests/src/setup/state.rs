@@ -23,6 +23,7 @@ use near_client::{
 };
 use near_jsonrpc::ViewClientSenderForRpc;
 use near_jsonrpc::client::{JsonRpcClient, RpcTransport};
+use near_jsonrpc::sharded_rpc::ShardedRpcPool;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::PartialWitnessSenderForNetwork;
@@ -36,6 +37,7 @@ use near_store::archive::cloud_storage::CloudStorage;
 use near_store::test_utils::TestNodeStorage;
 use nearcore::state_sync::StateSyncDumpHandle;
 use parking_lot::Mutex;
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -97,6 +99,7 @@ pub struct NodeExecutionData {
     pub cloud_storage_sender: TestLoopDataHandle<Option<Arc<CloudStorage>>>,
     pub cloud_archival_writer_handle: TestLoopDataHandle<Option<CloudArchivalWriterHandle>>,
     pub jsonrpc_transport: Arc<dyn RpcTransport>,
+    pub sharded_rpc_pool: Arc<RwLock<ShardedRpcPool>>,
     /// Extra blocks of delay between consensus head and execution head.
     /// Set by delay_endorsements_propagation to account for certification delay in timeouts.
     /// It is Arc<_> so updates are visible through clones.

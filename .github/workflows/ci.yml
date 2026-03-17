@@ -29,28 +29,22 @@ jobs:
             id: linux
             os: warp-ubuntu-2404-x64-16x
             type: stable
-            upload_profraws: true
             run_on_pr: true
           # TODO(spice): Once the feature is close to release make it part of nightly.
           - name: Linux Spice
             id: linux-spice
             os: warp-ubuntu-2404-x64-16x
             type: spice
-            # We disable profraws upload because it causes Github runners to run out of space.
-            # This in turns prevents us from having coverage data for testing with spice.
-            upload_profraws: false
             run_on_pr: true
           - name: Linux Nightly
             id: linux-nightly
             os: warp-ubuntu-2404-x64-16x
             type: nightly
-            upload_profraws: true
             run_on_pr: true
           - name: MacOS
             id: macos
             os: warp-macos-latest-arm64-6x
             type: stable
-            upload_profraws: false
             run_on_pr: false
     timeout-minutes: 90
     permissions:
@@ -90,22 +84,12 @@ jobs:
       - name: just nextest-slow ${{ matrix.type }} (with coverage)
         if: (github.event_name != 'pull_request' || matrix.run_on_pr)
         run: |
-          mkdir -p coverage/profraw/{unit,binaries}
+          mkdir -p coverage/codecov
           just codecov-ci "nextest-slow ${{ matrix.type }}"
 
       # Upload the coverage files
       - if: github.event_name != 'pull_request' || matrix.run_on_pr
-        run: |
-          mv coverage/codecov/{new,unit-${{matrix.id}}}.json
-          mv coverage/profraw/{new,unit/${{matrix.id}}}.tar.zst
-          just tar-bins-for-coverage-ci
-          mv coverage/profraw/binaries/{new,${{matrix.id}}}.tar.zst
-      - if: matrix.upload_profraws && (github.event_name != 'pull_request' || matrix.run_on_pr)
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-profraw-${{ github.sha }}-${{ matrix.name }}
-          path: coverage/profraw
-          retention-days: 2
+        run: mv coverage/codecov/{new,unit-${{matrix.id}}}.json
       - if: github.event_name != 'pull_request' || matrix.run_on_pr
         uses: actions/upload-artifact@v4
         with:
@@ -432,58 +416,6 @@ jobs:
         with:
           tool: cargo-audit
       - run: cargo audit -D warnings
-
-  generate_coverage:
-    name: "Generate Coverage Artifact"
-    runs-on: ubuntu-latest
-    needs:
-      - cargo_nextest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - type: unit
-            profraws: unit
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 1000 # have enough history to find the merge-base between PR and master
-          persist-credentials: false
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: coverage-profraw-*
-          path: coverage/profraw
-          merge-multiple: true
-      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
-        with:
-          tool: cargo-llvm-cov
-      - uses: actions/setup-python@v5
-        with:
-          python-version: 3.11
-          cache: pip
-      - run: pip3 install --user diff-cover
-      - run: for f in coverage/profraw/binaries/*.tar.zst; do tar -x --zstd -f $f; done
-      - name: Retrieve the profraws used to generate this coverage (${{matrix.profraws}})
-        run: |
-          for profile in ${{matrix.profraws}}; do
-            for f in coverage/profraw/$profile/*.tar.zst; do
-              tar -x --zstd -C target/ -f $f
-            done
-          done
-      - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
-      - run: mkdir -p coverage/lcov coverage/html
-      - run: cargo llvm-cov report --profile dev-release --lcov --output-path coverage/lcov/${{matrix.type}}.lcov
-      - run: cargo llvm-cov report --profile dev-release --html --hide-instantiations --output-dir coverage/html/${{matrix.type}}-full
-      - run: git fetch origin master
-      - run: diff-cover --compare-branch=origin/master --html-report coverage/html/${{matrix.type}}-diff.html coverage/lcov/${{matrix.type}}.lcov
-      - uses: actions/upload-artifact@v4
-        with:
-          name: coverage-lcov-${{ matrix.type }}
-          path: coverage/lcov
-      - uses: actions/upload-artifact@v4
-        with:
-          name: coverage-html-${{ matrix.type }}
-          path: coverage/html
 
   upload_coverage:
     name: "Upload Coverage"

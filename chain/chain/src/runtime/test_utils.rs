@@ -75,6 +75,7 @@ impl NightshadeRuntime {
                 None::<&str>,
                 "contract.cache",
                 1,
+                None,
             )
             .expect("filesystem contract cache")
             .handle(),

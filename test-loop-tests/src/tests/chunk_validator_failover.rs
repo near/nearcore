@@ -2,7 +2,6 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_validator_id;
 use crate::utils::contract_distribution::assert_all_chunk_endorsements_received;
 use crate::utils::validators::get_epoch_all_validators;
-use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 
@@ -55,6 +54,4 @@ fn test_chunk_validator_failover() {
         validators.contains(&killed_validator.to_string()),
         "{killed_validator} must still be a validator",
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

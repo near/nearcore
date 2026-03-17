@@ -1,5 +1,4 @@
 use crate::setup::builder::TestLoopBuilder;
-use crate::setup::env::TestLoopEnv;
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{execute_money_transfers, get_anchor_hash, get_next_nonce};
 use itertools::Itertools;
@@ -37,23 +36,24 @@ fn slow_test_sync_from_genesis() {
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
 
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = TestLoopBuilder::new()
+    let mut env = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
         .build();
 
-    let first_epoch_tracked_shards = node_datas
+    let first_epoch_tracked_shards = env
+        .node_datas
         .iter()
-        .map(|node_data| TestLoopNode { data: &test_loop.data, node_data }.tracked_shards())
+        .map(|node_data| TestLoopNode { data: &env.test_loop.data, node_data }.tracked_shards())
         .collect_vec();
     tracing::info!(?first_epoch_tracked_shards, "first epoch tracked shards");
 
-    execute_money_transfers(&mut test_loop, &node_datas, &accounts).unwrap();
+    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
 
     // Make sure the chain progresses for several epochs.
-    let client_handle = node_datas[0].client_sender.actor_handle();
-    test_loop.run_until(
+    let client_handle = env.node_datas[0].client_sender.actor_handle();
+    env.test_loop.run_until(
         |test_loop_data| {
             test_loop_data.get(&client_handle).client.chain.head().unwrap().height > 10050
         },
@@ -61,7 +61,6 @@ fn slow_test_sync_from_genesis() {
     );
 
     // Add new node
-    let mut env = TestLoopEnv { test_loop, node_datas, shared_state };
     let new_node_state = env.node_state_builder().account_id(&accounts[NUM_CLIENTS]).build();
     env.add_node(accounts[NUM_CLIENTS].as_str(), new_node_state);
 
@@ -71,7 +70,6 @@ fn slow_test_sync_from_genesis() {
         |test_loop_data| test_loop_data.get(&new_node).client.chain.head().unwrap().height > 10050,
         Duration::seconds(20),
     );
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Kill all validators simultaneously and restart them, repeating multiple
@@ -177,6 +175,4 @@ fn slow_test_validator_restart_under_cross_shard_load() {
             });
         }
     }
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

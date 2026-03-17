@@ -12,7 +12,6 @@
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
-use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
 use crate::utils::receipts::action_receipt_v1_to_latest;
 use crate::utils::transactions::{TransactionRunner, run_txs_parallel};
@@ -161,7 +160,7 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
 
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = TestLoopBuilder::new()
+    let mut env = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(vec![node_account])
@@ -174,15 +173,15 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
     let mut workload_generator = WorkloadGenerator::init(
         shard_accounts,
         tx_concurrency,
-        &mut test_loop,
-        &node_datas,
+        &mut env.test_loop,
+        &env.node_datas,
         0,
         scenario.link_generators,
     );
 
-    let client_handle = node_datas[0].client_sender.actor_handle();
-    let tx_processor_sender = node_datas[0].rpc_handler_sender.clone();
-    let future_spawner = test_loop.future_spawner("WorkloadGenerator");
+    let client_handle = env.node_datas[0].client_sender.actor_handle();
+    let tx_processor_sender = env.node_datas[0].rpc_handler_sender.clone();
+    let future_spawner = env.test_loop.future_spawner("WorkloadGenerator");
 
     // Run the workload for a number of blocks and verify that the bandwidth requests are generated correctly.
     let mut last_height: Option<BlockHeight> = None;
@@ -212,16 +211,13 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
 
         false
     };
-    test_loop.run_until(testloop_func, Duration::seconds(300));
+    env.test_loop.run_until(testloop_func, Duration::seconds(300));
 
     tracing::info!(target: "scheduler_test", txs_done = %workload_generator.txs_done(), "total transactions completed");
 
-    let client = &test_loop.data.get(&client_handle).client;
+    let client = &env.test_loop.data.get(&client_handle).client;
     let bandwidth_stats =
         analyze_workload_blocks(first_height.unwrap(), last_height.unwrap(), client);
-
-    TestLoopEnv { test_loop, node_datas, shared_state }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
 
     let summary = bandwidth_stats.summarize(&active_links);
     println!("{}", summary);

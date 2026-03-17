@@ -67,8 +67,6 @@ fn test_optimistic_block() {
         let expected_hits = chain.head().map_or(0, |t| t.height - 2);
         assert!(chain.apply_chunk_results_cache.hits() >= (expected_hits as usize));
     }
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[cfg(feature = "test_features")]
@@ -158,8 +156,6 @@ fn test_invalid_optimistic_block() {
             .check_optimistic_block(&make_invalid_ob(&env, OptimisticBlockAdvType::Normal))
             .is_ok()
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Returns the block height within the epoch where the next producer is not the same.
@@ -234,8 +230,6 @@ fn test_optimistic_block_after_missing_block() {
         hit_delta,
         height_delta,
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[cfg(feature = "test_features")]
@@ -345,6 +339,4 @@ fn test_optimistic_block_with_invalidated_outcome() {
         producer_node_hit_delta >= producer_node_height_delta,
         "Producer of the invalid OptimisticBlock must have all hits because it itself uses correct OptimisticBlock"
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

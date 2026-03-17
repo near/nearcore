@@ -110,23 +110,7 @@ codecov RULE:
 
 # generate a codecov report for RULE, CI version
 codecov-ci RULE:
-    #!/usr/bin/env bash
-    set -euxo pipefail
     {{ just_executable() }} codecov "{{ RULE }}"
-    pushd target
-    # Create a tarball with any produced *.profraw files. If the first tar command exits non-zero
-    # create an empty tarball so next steps don't fail.
-    tar -c --zstd -f ../coverage/profraw/new.tar.zst *.profraw 2>/dev/null || tar -c --zstd -f ../coverage/profraw/new.tar.zst --files-from /dev/null
-    popd
-    rm -rf target/*.profraw
-
-# generate a tarball with all the binaries for coverage CI
-tar-bins-for-coverage-ci:
-    #!/usr/bin/env bash
-    find target/dev-release/ \( -name incremental -or -name .fingerprint -or -name out \) -exec rm -rf '{}' \; || true
-    find target/dev-release/ -not -executable -delete || true
-    find target/dev-release/ -name 'build*script*build*' -delete || true
-    tar -c --zstd -f coverage/profraw/binaries/new.tar.zst target/dev-release/
 
 # style checks from python scripts
 python-style-checks:
