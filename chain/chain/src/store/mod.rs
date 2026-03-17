@@ -524,7 +524,7 @@ impl ChainStore {
             let Ok(base_header) = chain_store.get_block_header(&tx.transaction.block_hash()) else {
                 return false;
             };
-            prev_block_height <= base_header.height() + strict_nonce_ttl
+            prev_block_height.saturating_sub(base_header.height()) <= strict_nonce_ttl
         }
     }
 }
