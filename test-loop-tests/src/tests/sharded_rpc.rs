@@ -74,7 +74,7 @@ impl TwoShardHarness {
 #[test]
 fn test_rpc_view_account_forwarding() {
     init_test_logger();
-    let h = &mut TwoShardHarness::new();
+    let mut h = TwoShardHarness::new();
 
     let mut run = |node_id: &AccountId,
                    account: &AccountId,
@@ -105,7 +105,7 @@ fn test_rpc_view_account_forwarding() {
 #[test]
 fn test_rpc_query_view_account_forwarding() {
     init_test_logger();
-    let h = &mut TwoShardHarness::new();
+    let mut h = TwoShardHarness::new();
 
     let mut run = |node_id: &AccountId,
                    account: &AccountId,
@@ -141,7 +141,7 @@ fn test_rpc_query_view_account_forwarding() {
 #[test]
 fn test_rpc_query_view_access_key_forwarding() {
     init_test_logger();
-    let h = &mut TwoShardHarness::new();
+    let mut h = TwoShardHarness::new();
 
     let mut run = |node_id: &AccountId, account: &AccountId| -> Result<(), RpcError> {
         let public_key =

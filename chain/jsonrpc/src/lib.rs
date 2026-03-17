@@ -1080,10 +1080,7 @@ impl JsonRpcHandler {
         Ok(query_response.rpc_into())
     }
 
-    async fn query_sharded(
-        &self,
-        request_data: near_jsonrpc_primitives::types::query::RpcQueryRequest,
-    ) -> Result<Value, RpcError> {
+    async fn query_sharded(&self, request_data: RpcQueryRequest) -> Result<Value, RpcError> {
         match &request_data.request {
             QueryRequest::ViewAccount { account_id, .. }
             | QueryRequest::ViewAccessKey { account_id, .. } => {
