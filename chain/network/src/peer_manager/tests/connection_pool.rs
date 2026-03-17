@@ -50,11 +50,7 @@ async fn t3_disconnect() {
             _ => None,
         })
         .await;
-    assert_ne!(
-        reason,
-        ClosingReason::DisallowedMessage,
-        "Disconnect message should be allowed on T3 connections"
-    );
+    assert_eq!(reason, ClosingReason::DisconnectMessage);
 }
 
 #[tokio::test]
