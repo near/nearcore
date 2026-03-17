@@ -8359,6 +8359,12 @@
               "null"
             ]
           },
+          "transaction_pool_strict_nonce_ttl_blocks": {
+            "description": "TTL in blocks for gapped strict-nonce transactions in the pool. Transactions with a\nnonce gap whose block_hash is older than this many blocks are evicted during\nprepare_transactions.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "transaction_request_handler_threads": {
             "format": "uint",
             "minimum": 0,
@@ -8456,6 +8462,7 @@
           "state_sync_enabled",
           "state_sync",
           "epoch_sync",
+          "transaction_pool_strict_nonce_ttl_blocks",
           "enable_multiline_logging",
           "resharding_config",
           "tx_routing_height_horizon",
