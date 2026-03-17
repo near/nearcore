@@ -5,6 +5,7 @@ use near_async::time::Duration;
 use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_jsonrpc_primitives::errors::RpcError;
+use near_jsonrpc_primitives::message::Message;
 use near_jsonrpc_primitives::types::query::{QueryResponseKind, RpcQueryRequest};
 use near_jsonrpc_primitives::types::view_account::RpcViewAccountRequest;
 use near_o11y::testonly::init_test_logger;
@@ -77,8 +78,8 @@ fn test_rpc_view_account_forwarding() {
     let mut h = TwoShardHarness::new();
 
     let mut run_view_account = |node_id: &AccountId,
-                               account: &AccountId,
-                               expected_balance: Balance|
+                                account: &AccountId,
+                                expected_balance: Balance|
      -> Result<(), RpcError> {
         let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
             |client| {
@@ -143,27 +144,28 @@ fn test_rpc_query_view_access_key_forwarding() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
 
-    let mut run_query_view_access_key = |node_id: &AccountId, account: &AccountId| -> Result<(), RpcError> {
-        let public_key =
-            near_primitives::test_utils::create_user_test_signer(account.as_ref()).public_key();
-        let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
-            |client| {
-                client.query(RpcQueryRequest {
-                    block_reference: BlockReference::Finality(Finality::None),
-                    request: QueryRequest::ViewAccessKey {
-                        account_id: account.clone(),
-                        public_key,
-                    },
-                })
-            },
-            Duration::seconds(5),
-        )?;
-        match result.kind {
-            QueryResponseKind::AccessKey(_) => {}
-            other => panic!("expected AccessKey, got: {other:?}"),
-        }
-        Ok(())
-    };
+    let mut run_query_view_access_key =
+        |node_id: &AccountId, account: &AccountId| -> Result<(), RpcError> {
+            let public_key =
+                near_primitives::test_utils::create_user_test_signer(account.as_ref()).public_key();
+            let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
+                |client| {
+                    client.query(RpcQueryRequest {
+                        block_reference: BlockReference::Finality(Finality::None),
+                        request: QueryRequest::ViewAccessKey {
+                            account_id: account.clone(),
+                            public_key,
+                        },
+                    })
+                },
+                Duration::seconds(5),
+            )?;
+            match result.kind {
+                QueryResponseKind::AccessKey(_) => {}
+                other => panic!("expected AccessKey, got: {other:?}"),
+            }
+            Ok(())
+        };
 
     // Cross-shard forwarding.
     run_query_view_access_key(&h.zoe_node, &h.alice).unwrap();
@@ -171,4 +173,56 @@ fn test_rpc_query_view_access_key_forwarding() {
     // Local.
     run_query_view_access_key(&h.alice_node, &h.alice).unwrap();
     run_query_view_access_key(&h.zoe_node, &h.zoe).unwrap();
+}
+
+/// Cross-shard query for a nonexistent access key should return the backward-compatible
+/// error.
+#[test]
+fn test_rpc_query_unknown_access_key_error_format() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+
+    let alice = h.alice.clone();
+    // Use a public key that doesn't belong to alice.
+    let bogus_key: near_crypto::PublicKey =
+        "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse().unwrap();
+
+    let response = h
+        .env
+        .runner_for_account(&h.zoe_node)
+        .run_jsonrpc_query(
+            |client| {
+                let request = Message::request(
+                    "query".to_string(),
+                    serde_json::to_value(RpcQueryRequest {
+                        block_reference: BlockReference::Finality(Finality::None),
+                        request: QueryRequest::ViewAccessKey {
+                            account_id: alice.clone(),
+                            public_key: bogus_key.clone(),
+                        },
+                    })
+                    .unwrap(),
+                );
+                client.transport.send_jsonrpc_request(request, false)
+            },
+            Duration::seconds(5),
+        )
+        .unwrap();
+
+    // process_query_response wraps UnknownAccessKey as a successful JSON-RPC result.
+    match response {
+        Message::Response(resp) => {
+            let value = resp.result.expect("expected Ok result with backward-compat error JSON");
+            assert!(value.get("error").is_some());
+            assert!(value.get("logs").is_some());
+            assert!(value.get("block_height").is_some());
+            assert!(value.get("block_hash").is_some());
+            let error_msg = value["error"].as_str().unwrap();
+            assert!(
+                error_msg.contains("does not exist while viewing"),
+                "unexpected error message: {error_msg}"
+            );
+        }
+        other => panic!("expected Response, got: {other:?}"),
+    }
 }
