@@ -150,7 +150,7 @@ pub(super) async fn run_state_sync_for_shard(
     }
 
     return_if_cancelled!(cancel);
-    *status.lock() = ShardSyncStatus::StateApplyInProgress;
+    *status.lock() = ShardSyncStatus::StateApplyInProgress { done: 0, total: num_parts };
     runtime.get_tries().unload_memtrie(&shard_uid);
 
     // Clear flat storage before applying state parts.
@@ -191,7 +191,8 @@ pub(super) async fn run_state_sync_for_shard(
     }
 
     return_if_cancelled!(cancel);
-    let _results = tokio_stream::iter(0..num_parts)
+    let mut parts_done: u64 = 0;
+    tokio_stream::iter(0..num_parts)
         .map(|part_id| {
             let store = store.clone();
             let runtime = runtime.clone();
@@ -213,7 +214,12 @@ pub(super) async fn run_state_sync_for_shard(
             respawn_for_parallelism(&*future_spawner, "state sync apply part", future)
         })
         .buffer_unordered(concurrency_limit.into())
-        .try_collect::<Vec<_>>()
+        .try_for_each(|_| {
+            parts_done += 1;
+            *status.lock() =
+                ShardSyncStatus::StateApplyInProgress { done: parts_done, total: num_parts };
+            futures::future::ready(Ok(()))
+        })
         .await?;
 
     return_if_cancelled!(cancel);

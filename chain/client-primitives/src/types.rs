@@ -38,12 +38,12 @@ impl From<near_primitives::errors::EpochError> for Error {
 }
 
 /// Various status of syncing a specific shard.
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum ShardSyncStatus {
     StateDownloadHeader,
     StateDownloadParts,
     StateApplyScheduling,
-    StateApplyInProgress,
+    StateApplyInProgress { done: u64, total: u64 },
     StateApplyFinalizing,
     StateSyncDone,
 }
@@ -58,7 +58,7 @@ impl ShardSyncStatus {
             ShardSyncStatus::StateDownloadHeader => 0,
             ShardSyncStatus::StateDownloadParts => 1,
             ShardSyncStatus::StateApplyScheduling => 2,
-            ShardSyncStatus::StateApplyInProgress => 3,
+            ShardSyncStatus::StateApplyInProgress { .. } => 3,
             ShardSyncStatus::StateApplyFinalizing => 4,
             ShardSyncStatus::StateSyncDone => 5,
         }
@@ -80,7 +80,9 @@ impl ToString for ShardSyncStatus {
             ShardSyncStatus::StateDownloadHeader => "header".to_string(),
             ShardSyncStatus::StateDownloadParts => "parts".to_string(),
             ShardSyncStatus::StateApplyScheduling => "apply scheduling".to_string(),
-            ShardSyncStatus::StateApplyInProgress => "apply in progress".to_string(),
+            ShardSyncStatus::StateApplyInProgress { done, total } => {
+                format!("apply in progress ({done}/{total})")
+            }
             ShardSyncStatus::StateApplyFinalizing => "apply finalizing".to_string(),
             ShardSyncStatus::StateSyncDone => "done".to_string(),
         }
