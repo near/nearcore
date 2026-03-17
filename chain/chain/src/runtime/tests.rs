@@ -1647,6 +1647,7 @@ fn prepare_transactions(
                 .check_transaction_validity_period(&block.header(), tx.transaction.block_hash())
                 .is_ok()
         },
+        &|_| true,
         default_produce_chunk_add_transactions_time_limit(),
     )
 }
@@ -1656,6 +1657,7 @@ fn prepare_transactions_extra(
     chain: &Chain,
     transaction_groups: &mut dyn TransactionGroupIterator,
     skip_tx_hashes: HashSet<CryptoHash>,
+    validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
     cancel: Option<Arc<AtomicBool>>,
 ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
     let prev_hash = env.head.prev_block_hash;
@@ -1686,7 +1688,7 @@ fn prepare_transactions_extra(
                 .check_transaction_validity_period(&block.header(), tx.transaction.block_hash())
                 .is_ok()
         },
-        &|_| true,
+        validate_tx_ttl,
         skip_tx_hashes,
         default_produce_chunk_add_transactions_time_limit(),
         cancel,
@@ -1863,6 +1865,7 @@ fn test_prepare_transactions_helper(
 #[test]
 fn test_prepare_transactions_extra() {
     let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool();
+    let validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool = &|_| true;
 
     // First run the preparation without any extra arguments
     let (prepared, skipped) = prepare_transactions_extra(
@@ -1870,6 +1873,7 @@ fn test_prepare_transactions_extra() {
         &chain,
         &mut PoolIteratorWrapper::new(&mut transaction_pool),
         HashSet::new(),
+        validate_tx_ttl,
         None,
     )
     .unwrap();
@@ -1891,6 +1895,7 @@ fn test_prepare_transactions_extra() {
         &chain,
         &mut PoolIteratorWrapper::new(&mut transaction_pool),
         HashSet::new(),
+        validate_tx_ttl,
         Some(Arc::new(AtomicBool::new(false))),
     )
     .unwrap();
@@ -1908,6 +1913,7 @@ fn test_prepare_transactions_extra() {
         &chain,
         &mut PoolIteratorWrapper::new(&mut transaction_pool),
         HashSet::new(),
+        validate_tx_ttl,
         Some(Arc::new(AtomicBool::new(true))),
     )
     .unwrap();
@@ -1923,6 +1929,7 @@ fn test_prepare_transactions_extra() {
         &chain,
         &mut PoolIteratorWrapper::new(&mut transaction_pool),
         skip_tx_hashes.clone(),
+        validate_tx_ttl,
         None,
     )
     .unwrap();
@@ -2117,55 +2124,33 @@ fn test_strict_nonce_gap_ttl_eviction() {
     assert_eq!(pool.len(), 1);
 
     // With validate_tx_ttl returning true, gapped tx stays in the pool.
-    let (prepared, _) = prepare_transactions_extra(
+    let validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool = &|_| true;
+    let (prepared, skipped) = prepare_transactions_extra(
         &env,
         &chain,
         &mut PoolIteratorWrapper::new(&mut pool),
         HashSet::new(),
+        validate_tx_ttl,
         None,
     )
     .unwrap();
     assert!(prepared.transactions.is_empty());
+    assert!(skipped.0.is_empty());
     assert_eq!(pool.len(), 1, "gapped tx should be kept when TTL is valid");
 
-    // Now override prepare_transactions_extra to use validate_tx_ttl = false.
-    let prev_hash = env.head.prev_block_hash;
-    let shard_layout = env.epoch_manager.get_shard_layout_from_prev_block(&prev_hash).unwrap();
-    let shard_uid = shard_layout.shard_uids().next().unwrap();
-    let shard_id = shard_uid.shard_id();
-    let block = chain.get_block(&prev_hash).unwrap();
-    let congestion_info = block.block_congestion_info();
-    let next_epoch_id = env.epoch_manager.get_epoch_id_from_prev_block(&prev_hash).unwrap();
-    let mut trie = env.runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[0]);
-    trie = trie.recording_reads_new_recorder();
-    let state_update = TrieUpdate::new(trie);
-
-    let (prepared, _) = env
-        .runtime
-        .prepare_transactions_extra(
-            state_update,
-            shard_id,
-            PrepareTransactionsBlockContext {
-                next_gas_price: env.runtime.genesis_config.min_gas_price,
-                height: env.head.height,
-                next_epoch_id,
-                congestion_info,
-            },
-            &mut PoolIteratorWrapper::new(&mut pool),
-            &mut |tx: &SignedTransaction| -> bool {
-                chain
-                    .chain_store()
-                    .check_transaction_validity_period(&block.header(), tx.transaction.block_hash())
-                    .is_ok()
-            },
-            &|_| false, // TTL expired
-            HashSet::new(),
-            default_produce_chunk_add_transactions_time_limit(),
-            None,
-        )
-        .unwrap();
-
+    // With validate_tx_ttl returning false, gapped tx is evicted.
+    let validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool = &|_| false;
+    let (prepared, skipped) = prepare_transactions_extra(
+        &env,
+        &chain,
+        &mut PoolIteratorWrapper::new(&mut pool),
+        HashSet::new(),
+        validate_tx_ttl,
+        None,
+    )
+    .unwrap();
     assert!(prepared.transactions.is_empty());
+    assert!(skipped.0.is_empty());
     assert_eq!(pool.len(), 0, "gapped tx should be evicted when TTL expired");
 }
 

@@ -1836,6 +1836,11 @@ impl Client {
                     }
                 };
 
+                let validate_tx_ttl = self.chain.strict_nonce_ttl_check(
+                    block.header().height(),
+                    self.config.transaction_pool_strict_nonce_ttl_blocks,
+                );
+
                 self.chunk_producer.produce_chunk(
                     block,
                     &epoch_id,
@@ -1844,6 +1849,7 @@ impl Client {
                     shard_id,
                     signer,
                     chain_validate,
+                    &validate_tx_ttl,
                 )
             };
 
