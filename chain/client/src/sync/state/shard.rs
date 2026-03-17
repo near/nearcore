@@ -90,6 +90,7 @@ pub(super) async fn run_state_sync_for_shard(
         .set(num_parts as i64);
 
     return_if_cancelled!(cancel);
+    let mut parts_downloaded: u64 = 0;
     *status.lock() = ShardSyncStatus::StateDownloadParts { done: 0, total: num_parts };
     let mut parts_to_download: Vec<u64> = (0..num_parts).collect();
     {
@@ -120,6 +121,15 @@ pub(super) async fn run_state_sync_for_shard(
                 respawn_for_parallelism(&*future_spawner, "state sync download part", future)
             })
             .buffered(concurrency_limit.into())
+            .inspect(|result| {
+                if result.is_ok() {
+                    parts_downloaded += 1;
+                    *status.lock() = ShardSyncStatus::StateDownloadParts {
+                        done: parts_downloaded,
+                        total: num_parts,
+                    };
+                }
+            })
             .collect::<Vec<_>>()
             .await;
         attempt_count += 1;
@@ -131,10 +141,6 @@ pub(super) async fn run_state_sync_for_shard(
                 res.as_ref().err().map(|_| parts_to_download[task_index])
             })
             .collect();
-        *status.lock() = ShardSyncStatus::StateDownloadParts {
-            done: num_parts - parts_to_download.len() as u64,
-            total: num_parts,
-        };
         // Wait before retrying the failed parts
         if !parts_to_download.is_empty() {
             tracing::debug!(
