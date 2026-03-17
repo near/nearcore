@@ -41,6 +41,7 @@ impl tcp::Tier {
             PeerMessage::Tier3Handshake(_) => self == tcp::Tier::T3,
             PeerMessage::HandshakeFailure(_, _) => true,
             PeerMessage::LastEdge(_) => true,
+            PeerMessage::Disconnect(..) => true,
             PeerMessage::VersionedStateResponse(_) => {
                 self == tcp::Tier::T2 || self == tcp::Tier::T3
             }
@@ -57,7 +58,6 @@ impl tcp::Tier {
             | PeerMessage::BlockRequest(..)
             | PeerMessage::Block(..)
             | PeerMessage::Transaction(..)
-            | PeerMessage::Disconnect(..)
             | PeerMessage::Challenge(..)
             | PeerMessage::SyncSnapshotHosts(..)
             | PeerMessage::StateRequestHeader(..)
