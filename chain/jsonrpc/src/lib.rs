@@ -1088,6 +1088,7 @@ impl JsonRpcHandler {
                 let shard_hint = ShardHint::Account(account_id.clone());
                 self.run_coordinator_request("query", request_data, block_hint, shard_hint).await
             }
+            // TODO(sharded-rpc): implement remaining query variants.
             _ => process_query_response(self.query(request_data).await),
         }
     }
