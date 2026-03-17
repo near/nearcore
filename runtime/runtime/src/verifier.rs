@@ -243,10 +243,7 @@ fn verify_nonce(
             }
         }
         NonceMode::Strict => {
-            let Some(expected) = current_nonce.checked_add(1) else {
-                return Err(InvalidTxError::InvalidNonce { tx_nonce, ak_nonce: current_nonce });
-            };
-            if tx_nonce != expected {
+            if !current_nonce.checked_add(1).is_some_and(|expected| tx_nonce == expected) {
                 return Err(InvalidTxError::InvalidNonce { tx_nonce, ak_nonce: current_nonce });
             }
         }
