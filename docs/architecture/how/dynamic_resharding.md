@@ -224,17 +224,16 @@ The parent shard's memtrie must be loaded when resharding executes (checked at `
 
 ### Key implementation details
 
-- **Background thread**: Uses `std::thread::spawn` + `crossbeam::channel::bounded(1)` rather than rayon or async, because the ~30s I/O-bound load should not block rayon workers (needed for chunk application).
-- **Delta GC retention**: Before spawning the background thread, `spawn_background_memtrie_loading_for_shard()` sets a delta GC retention floor on the shard's `FlatStorage` (via `set_delta_gc_retention()`). This is set atomically with reading the current flat_head height under the FlatStorage write lock. While set, `update_flat_head_impl()` continues advancing the flat head and applying deltas to the FlatState column, but skips deleting deltas with height above the retention floor. This preserves the deltas needed for catch-up after the background load completes.
+- **Background task**: Uses `AsyncComputationSpawner` + `crossbeam::channel::bounded(1)` to run the load as a background task. In production this runs on a separate thread; in test-loop tests it runs deterministically via `TestLoopAsyncComputationSpawner`. The spawner is passed to `spawn_background_memtrie_loading_for_shard()` by the caller (`Chain`).
+- **Flat head pausing**: Before spawning the background task, `spawn_background_memtrie_loading_for_shard()` disables flat head updates on the shard's `FlatStorage` (via `set_flat_head_update_mode(false)`). While disabled, new deltas are still accumulated but the flat head does not advance and deltas are not GC'd. This preserves the deltas needed for catch-up after the background load completes. Flat head updates are re-enabled when loading succeeds, fails, or is cancelled.
 - **Delta catch-up**: After the background load completes, `apply_deltas_to_memtries()` in `core/store/src/trie/mem/loading.rs` applies any flat state deltas accumulated during the loading period. Deltas at or below the base height (flat_head at load start) are skipped, as are deltas whose state roots are already in the memtrie.
-- **Retention cleanup**: The retention floor is cleared when loading succeeds (after memtrie insertion), fails (after logging), or is cancelled (in `retain_memtries()`). On the next flat_head advance after clearing, the accumulated retained deltas are GC'd normally. On node crash, the retention is in-memory only and resets to `None`; leftover deltas on disk are cleaned up on the next flat_head advance after restart.
 - **Safe insertion**: The memtrie is inserted into the active map in `postprocess_ready_block()`, before chunk processing for that block begins. This ensures no in-flight chunk applications see an unexpected memtrie appear mid-processing.
 - **Startup fallback**: If the node restarts during epoch N+1 (after the decision but before execution), `Chain::new()` detects the pending resharding via `EpochManagerAdapter::get_resharding_parent_shard_uid()` (which compares current and next epoch shard layouts) and adds the parent shard for synchronous loading.
-- **Cancellation**: Pending loads for shards that are no longer tracked are cancelled via `retain_memtries()` when memtries are retained at epoch boundaries. Delta GC retention is cleared for cancelled shards.
+- **Cancellation**: Pending loads for shards that are no longer tracked are cancelled via `retain_memtries()` when memtries are retained at epoch boundaries. Flat head updates are re-enabled for cancelled shards.
 
 ### Key files
 
-- `core/store/src/flat/storage.rs` -- `set_delta_gc_retention()`, `clear_delta_gc_retention()`, modified GC filter in `update_flat_head_impl()`
+- `core/store/src/flat/storage.rs` -- `set_flat_head_update_mode()` used to pause/resume flat head updates during loading
 - `core/store/src/trie/mem/loading.rs` -- `apply_deltas_to_memtries()` for reusable delta catch-up (with `base_height` filtering)
 - `core/store/src/trie/shard_tries.rs` -- `spawn_background_memtrie_loading_for_shard()`, `try_finalize_background_memtrie_loading()`, `retain_memtries()` (cancellation)
 - `chain/chain/src/chain.rs` -- `maybe_start_memtrie_preload_for_resharding()` (epoch boundary trigger), `postprocess_ready_block()` (per-block finalization), `Chain::new()` (startup detection)

@@ -45,8 +45,9 @@ use crate::{DoomslugThresholdMode, metrics};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use itertools::Itertools;
 use lru::LruCache;
-use near_async::futures::AsyncComputationSpawner;
-use near_async::futures::AsyncComputationSpawnerExt;
+use near_async::futures::{
+    AsyncComputationSpawner, AsyncComputationSpawnerExt, StdThreadAsyncComputationSpawner,
+};
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain_configs::{MutableValidatorSigner, ProtocolVersionCheckConfig};
@@ -254,6 +255,25 @@ pub enum ApplyChunksIterationMode {
     Sequential,
 }
 
+/// Async computation spawner to be used for background memtrie loading tasks.
+#[derive(Default)]
+pub enum MemtrieLoadingSpawner {
+    /// Use a dedicated OS thread per loading task (default).
+    #[default]
+    Default,
+    /// Use a custom spawner, e.g. for deterministic test-loop execution.
+    Custom(Arc<dyn AsyncComputationSpawner>),
+}
+
+impl MemtrieLoadingSpawner {
+    pub fn into_spawner(self) -> Arc<dyn AsyncComputationSpawner> {
+        match self {
+            MemtrieLoadingSpawner::Default => Arc::new(StdThreadAsyncComputationSpawner),
+            MemtrieLoadingSpawner::Custom(spawner) => spawner,
+        }
+    }
+}
+
 /// Facade to the blockchain block processing and storage.
 /// Provides current view on the state according to the chain state.
 pub struct Chain {
@@ -284,6 +304,8 @@ pub struct Chain {
     apply_chunks_receiver: Receiver<BlockApplyChunksResult>,
     /// Used to spawn the apply chunks jobs.
     apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
+    /// Used to spawn background memtrie loading tasks.
+    memtrie_loading_spawner: Arc<dyn AsyncComputationSpawner>,
     /// Used to decide whether to parallelize shard updates when applying chunks.
     apply_chunks_iteration_mode: ApplyChunksIterationMode,
     pub apply_chunk_results_cache: ApplyChunksResultCache,
@@ -444,6 +466,7 @@ impl Chain {
             apply_chunks_receiver: rc,
             apply_chunks_spawner: ApplyChunksSpawner::default().into_spawner(thread_limit),
             apply_chunks_iteration_mode: ApplyChunksIterationMode::default(),
+            memtrie_loading_spawner: MemtrieLoadingSpawner::default().into_spawner(),
             apply_chunk_results_cache: ApplyChunksResultCache::new(APPLY_CHUNK_RESULTS_CACHE_SIZE),
             last_time_head_updated: clock.now(),
             processed_hashes: LruCache::new(NonZeroUsize::new(PROCESSED_HASHES_POOL_SIZE).unwrap()),
@@ -469,6 +492,7 @@ impl Chain {
         snapshot_callbacks: Option<SnapshotCallbacks>,
         apply_chunks_spawner: ApplyChunksSpawner,
         apply_chunks_iteration_mode: ApplyChunksIterationMode,
+        memtrie_loading_spawner: MemtrieLoadingSpawner,
         validator_signer: MutableValidatorSigner,
         resharding_sender: ReshardingSender,
         on_post_state_ready_sender: Option<PostStateReadySender>,
@@ -625,6 +649,7 @@ impl Chain {
             apply_chunks_receiver: rc,
             apply_chunks_spawner,
             apply_chunks_iteration_mode,
+            memtrie_loading_spawner: memtrie_loading_spawner.into_spawner(),
             apply_chunk_results_cache: ApplyChunksResultCache::new(APPLY_CHUNK_RESULTS_CACHE_SIZE),
             last_time_head_updated: clock.now(),
             pending_state_patch: Default::default(),
@@ -2168,7 +2193,10 @@ impl Chain {
             ?parent_shard_uid,
             "detected upcoming resharding, starting background memtrie load"
         );
-        tries.spawn_background_memtrie_loading_for_shard(parent_shard_uid);
+        tries.spawn_background_memtrie_loading_for_shard(
+            parent_shard_uid,
+            &*self.memtrie_loading_spawner,
+        );
         Ok(())
     }
 

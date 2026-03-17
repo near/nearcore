@@ -174,35 +174,26 @@ pub fn apply_deltas_to_memtries(
         .collect();
 
     tracing::debug!(target: "memtrie", %shard_uid, num_deltas = sorted_deltas.len(), "deltas to apply");
-    let mut max_height = base_height;
+    let max_height = sorted_deltas.last().map(|(height, _, _)| *height).unwrap_or(base_height);
     for (height, hash, prev_hash) in sorted_deltas {
-        max_height = max_height.max(height);
+        let Some(changes) = flat_store.get_delta(shard_uid, hash) else { continue };
+
         let new_state_root = get_state_root(store, hash, shard_uid)?;
-        // Skip deltas whose state roots are already in the memtrie.
-        if memtries.contains_root(&new_state_root) {
-            continue;
-        }
-        if let Some(changes) = flat_store.get_delta(shard_uid, hash) {
-            let old_state_root = get_state_root(store, prev_hash, shard_uid)?;
+        let old_state_root = get_state_root(store, prev_hash, shard_uid)?;
 
-            let mut trie_update = memtries.update(old_state_root, TrackingMode::None)?;
-            for (key, value) in changes.0 {
-                match value {
-                    Some(value) => {
-                        trie_update.insert_memtrie_only(&key, value)?;
-                    }
-                    None => trie_update.generic_delete(0, &key, AccessOptions::DEFAULT)?,
-                };
-            }
-
-            let memtrie_changes = trie_update.to_memtrie_changes_only();
-            let new_root_after_apply = memtries.apply_memtrie_changes(height, &memtrie_changes);
-            if new_root_after_apply != new_state_root {
-                return Err(StorageError::MemTrieLoadingError(format!(
-                    "invalid state root after changes: {new_root_after_apply} != {new_state_root}"
-                )));
-            }
+        let mut trie_update = memtries.update(old_state_root, TrackingMode::None)?;
+        for (key, value) in changes.0 {
+            match value {
+                Some(value) => {
+                    trie_update.insert_memtrie_only(&key, value)?;
+                }
+                None => trie_update.generic_delete(0, &key, AccessOptions::DEFAULT)?,
+            };
         }
+
+        let memtrie_changes = trie_update.to_memtrie_changes_only();
+        let new_root_after_apply = memtries.apply_memtrie_changes(height, &memtrie_changes);
+        assert_eq!(new_root_after_apply, new_state_root);
         tracing::debug!(target: "memtrie", %shard_uid, %height, "applied memtrie changes for height");
     }
 
