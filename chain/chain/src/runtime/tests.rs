@@ -18,6 +18,7 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_o11y::testonly::init_test_logger;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
+use near_primitives::account::AccessKeyPermission;
 use near_primitives::action::FunctionCallAction;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
@@ -30,7 +31,9 @@ use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction, TransferAction};
+use near_primitives::transaction::{
+    Action, DeleteAccountAction, SignedTransaction, StakeAction, TransactionNonce, TransferAction,
+};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::Gas;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
@@ -46,6 +49,7 @@ use near_primitives::views::{
 };
 use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 use near_store::genesis::initialize_genesis_state;
+use near_store::test_utils::test_populate_trie;
 use near_store::trie::AccessOptions;
 use near_store::{NodeStorage, PartialStorage, get_genesis_state_roots};
 use near_vm_runner::FilesystemContractRuntimeCache;
@@ -61,6 +65,7 @@ struct TestEnvConfig {
     minimum_stake_divisor: Option<u64>,
     zero_fees: bool,
     create_flat_storage: bool,
+    runtime_config_store: Option<RuntimeConfigStore>,
 }
 
 /// Environment to test runtime behavior separate from Chain.
@@ -91,6 +96,7 @@ impl TestEnv {
                 minimum_stake_divisor: None,
                 zero_fees: true,
                 create_flat_storage: true,
+                runtime_config_store: None,
             },
         )
     }
@@ -123,8 +129,9 @@ impl TestEnv {
         let genesis_total_supply = genesis.config.total_supply;
         let genesis_protocol_version = genesis.config.protocol_version;
 
-        let runtime_config_store =
-            if config.zero_fees { RuntimeConfigStore::free() } else { RuntimeConfigStore::test() };
+        let runtime_config_store = config.runtime_config_store.unwrap_or_else(|| {
+            if config.zero_fees { RuntimeConfigStore::free() } else { RuntimeConfigStore::test() }
+        });
 
         let compiled_contract_cache =
             FilesystemContractRuntimeCache::new(&dir.as_ref(), None::<&str>, "contract.cache")
@@ -1185,6 +1192,7 @@ fn test_fishermen_stake() {
             minimum_stake_divisor: Some(20000),
             zero_fees: true,
             create_flat_storage: true,
+            runtime_config_store: None,
         },
     );
     let block_producers: Vec<_> =
@@ -1249,6 +1257,7 @@ fn test_fishermen_unstake() {
             minimum_stake_divisor: Some(20000),
             zero_fees: true,
             create_flat_storage: true,
+            runtime_config_store: None,
         },
     );
     let block_producers: Vec<_> =
@@ -1577,6 +1586,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
             minimum_stake_divisor: None,
             zero_fees: false,
             create_flat_storage: false,
+            runtime_config_store: None,
         },
     );
 
@@ -1925,6 +1935,159 @@ fn test_prepare_transactions_extra() {
     assert_eq!(skipped_hashes, skip_tx_hashes);
 
     assert_eq!(transaction_pool.len(), 0);
+}
+
+#[test]
+fn test_strict_nonce_u64_max_not_included() {
+    let (env, chain, _transaction_pool) = get_test_env_with_chain_and_pool();
+    let prev_hash = env.head.prev_block_hash;
+    let shard_layout = env.epoch_manager.get_shard_layout_from_prev_block(&prev_hash).unwrap();
+    let shard_uid = shard_layout.shard_uids().next().unwrap();
+    let shard_id = shard_uid.shard_id();
+    let block = chain.get_block(&prev_hash).unwrap();
+    let congestion_info = block.block_congestion_info();
+    let next_epoch_id = env.epoch_manager.get_epoch_id_from_prev_block(&prev_hash).unwrap();
+
+    // Set the access key nonce to u64::MAX in the actual trie state so that
+    // no strict-nonce tx can satisfy ak_nonce + 1 without overflow.
+    let signer = InMemorySigner::test_signer(&"test1".parse::<AccountId>().unwrap());
+    let ak_key = TrieKey::AccessKey {
+        account_id: "test1".parse().unwrap(),
+        public_key: signer.public_key(),
+    };
+    let ak_value =
+        borsh::to_vec(&AccessKey { nonce: u64::MAX, permission: AccessKeyPermission::FullAccess })
+            .unwrap();
+    let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
+    let state_root = test_populate_trie(
+        &env.runtime.tries,
+        &env.state_roots[shard_index],
+        shard_uid,
+        vec![(ak_key.to_vec(), Some(ak_value))],
+    );
+    let trie = env.runtime.tries.get_trie_for_shard(shard_uid, state_root);
+    let state_update = TrieUpdate::new(trie);
+
+    // Create a strict-nonce tx with nonce u64::MAX (the only value that could
+    // plausibly match saturating_add(1) == u64::MAX).
+    let strict_tx = SignedTransaction::from_actions_v1_strict(
+        TransactionNonce::from_nonce(u64::MAX),
+        "test1".parse().unwrap(),
+        "test2".parse().unwrap(),
+        &signer,
+        vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })],
+        env.head.prev_block_hash,
+    );
+    const TEST_SEED: RngSeed = [3; 32];
+    let mut pool = TransactionPool::new(TEST_SEED, None, "");
+    pool.insert_transaction(ValidatedTransaction::new_for_test(strict_tx));
+
+    let (prepared, skipped) = env
+        .runtime
+        .prepare_transactions_extra(
+            state_update,
+            shard_id,
+            PrepareTransactionsBlockContext {
+                next_gas_price: env.runtime.genesis_config.min_gas_price,
+                height: env.head.height,
+                next_epoch_id,
+                congestion_info,
+            },
+            &mut PoolIteratorWrapper::new(&mut pool),
+            &mut |tx: &SignedTransaction| -> bool {
+                chain
+                    .chain_store()
+                    .check_transaction_validity_period(&block.header(), tx.transaction.block_hash())
+                    .is_ok()
+            },
+            HashSet::new(),
+            default_produce_chunk_add_transactions_time_limit(),
+            None,
+        )
+        .unwrap();
+
+    assert!(prepared.transactions.is_empty(), "strict-nonce tx at u64::MAX should not be included");
+    assert!(skipped.0.is_empty());
+    // The tx was popped from the pool and discarded by the verifier (InvalidNonce).
+    assert_eq!(pool.len(), 0);
+}
+
+/// Gapped strict-nonce transactions should not inflate the recorded witness
+/// size. Sets the storage proof soft limit to 1 byte so that any recorded
+/// trie read would exceed it, then verifies that the gap-check reads do NOT
+/// trigger the limit (because they use a throwaway trie).
+#[test]
+fn test_strict_nonce_gap_does_not_count_towards_state_size_soft_limit() {
+    let mut runtime_config = RuntimeConfig::test();
+    runtime_config.witness_config.new_transactions_validation_state_size_soft_limit = 1;
+    let validators: Vec<AccountId> = (1..=4).map(|i| format!("test{i}").parse().unwrap()).collect();
+    let env = TestEnv::new_with_config(
+        vec![validators],
+        TestEnvConfig {
+            epoch_length: 5,
+            has_reward: false,
+            minimum_stake_divisor: None,
+            zero_fees: false,
+            create_flat_storage: false,
+            runtime_config_store: Some(RuntimeConfigStore::with_one_config(runtime_config)),
+        },
+    );
+    let runtime = &env.runtime;
+
+    let epoch_id = EpochId::default();
+    let shard_layout = env.epoch_manager.get_shard_layout(&epoch_id).unwrap();
+    let shard_uid = shard_layout.shard_uids().next().unwrap();
+    let shard_id = shard_uid.shard_id();
+
+    // Only gapped strict-nonce txs: nonce=100, but current nonce=0.
+    let num_gapped = 3;
+    const TEST_SEED: RngSeed = [3; 32];
+    let mut pool = TransactionPool::new(TEST_SEED, None, "");
+    for i in 2..=4 {
+        let account_id: AccountId = format!("test{i}").parse().unwrap();
+        let signer = InMemorySigner::test_signer(&account_id);
+        let tx = SignedTransaction::from_actions_v1_strict(
+            TransactionNonce::from_nonce(100),
+            account_id,
+            "test1".parse().unwrap(),
+            &signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })],
+            CryptoHash::default(),
+        );
+        pool.insert_transaction(ValidatedTransaction::new_for_test(tx));
+    }
+
+    let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
+    let trie = runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[shard_index]);
+    let trie = trie.recording_reads_new_recorder();
+    let state_update = TrieUpdate::new(trie);
+
+    let (prepared, skipped) = runtime
+        .prepare_transactions_extra(
+            state_update,
+            shard_id,
+            PrepareTransactionsBlockContext {
+                next_gas_price: runtime.genesis_config.min_gas_price,
+                height: 0,
+                next_epoch_id: epoch_id,
+                congestion_info: Default::default(),
+            },
+            &mut PoolIteratorWrapper::new(&mut pool),
+            &mut |_: &SignedTransaction| true,
+            HashSet::new(),
+            None,
+            None,
+        )
+        .unwrap();
+
+    // No txs included (all gapped).
+    assert_eq!(prepared.transactions.len(), 0);
+    assert!(skipped.0.is_empty());
+    // All gapped txs stay in the pool.
+    assert_eq!(pool.len(), num_gapped);
+    // The 1-byte soft limit was NOT hit because the gap check used a
+    // throwaway trie. Without proper accounting this would be StorageProofSize.
+    assert_eq!(prepared.limited_by, PrepareTransactionsLimit::NoMoreTxsInPool);
 }
 
 #[test]
