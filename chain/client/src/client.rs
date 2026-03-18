@@ -1420,10 +1420,11 @@ impl Client {
             DecodedChunk::None => None,
             DecodedChunk::Invalid(encoded_chunk) => {
                 self.save_invalid_chunk(encoded_chunk, &chunk_header);
-                if !near_chain::spice_utils::is_spice_enabled(
-                    self.epoch_manager.as_ref(),
-                    chunk_header.prev_block_hash(),
-                )? {
+                let epoch_id = self
+                    .epoch_manager
+                    .get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
+                let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+                if !ProtocolFeature::Spice.enabled(protocol_version) {
                     return Ok(());
                 }
                 metrics::SPICE_INVALID_CHUNK_REPLACED_WITH_EMPTY_TOTAL
