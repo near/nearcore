@@ -3386,9 +3386,9 @@ mod test {
         assert_eq!(fixture.count_chunk_ready_for_inclusion_messages(), 0);
     }
 
-    /// Drain all messages from the client adapter, returning only the
-    /// InvalidChunk and ChunkCompleted messages (filtering out
-    /// ChunkHeaderReadyForInclusion).
+    /// Drain all messages from the client adapter, returning all
+    /// `ShardsManagerResponse` variants except
+    /// `ChunkHeaderReadyForInclusion`.
     fn drain_client_messages(fixture: &ChunkTestFixture) -> Vec<ShardsManagerResponse> {
         let mut messages = vec![];
         while let Some(msg) = fixture.mock_client_adapter.pop() {
