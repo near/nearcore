@@ -2148,8 +2148,6 @@ impl Chain {
         Ok(Some(new_flat_head))
     }
 
-    /// Update flat storage and memtrie for given `shard_id` and newly
-    /// processed `block`.
     /// If a resharding is upcoming (current epoch's shard layout differs from
     /// the next epoch), start loading the parent shard's memtrie in a background
     /// thread so it's ready by the time resharding executes.
@@ -2185,6 +2183,8 @@ impl Chain {
         Ok(())
     }
 
+    /// Update flat storage and memtrie for given `shard_id` and newly
+    /// processed `block`.
     fn update_flat_storage_and_memtrie(
         &self,
         block: &Block,
