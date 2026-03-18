@@ -504,10 +504,7 @@ fn test_rpc_query_call_function_error_format() {
             let value = resp.result.expect("expected Ok result with backward-compat error JSON");
             assert!(value.get("error").is_some());
             let error_msg = value["error"].as_str().unwrap();
-            assert!(
-                error_msg.contains("MethodNotFound"),
-                "unexpected error message: {error_msg}"
-            );
+            assert!(error_msg.contains("MethodNotFound"), "unexpected error message: {error_msg}");
             assert!(value.get("logs").is_some());
             assert!(value.get("block_height").is_some());
             assert!(value.get("block_hash").is_some());
