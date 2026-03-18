@@ -44,6 +44,7 @@ mod sharded_rpc;
 mod shutdown_signal;
 mod single_shard_tracking;
 mod spice;
+mod spice_malicious_chunk_producer;
 mod spice_resharding;
 mod spice_utils;
 mod split_storage;

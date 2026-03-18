@@ -11,20 +11,26 @@ use near_primitives::{
 };
 use std::collections::HashMap;
 
+/// The decoded content of a completed chunk.
+#[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
+pub enum DecodedChunk {
+    /// We don't track this shard; no body needed.
+    None,
+    /// Decoded and passed validation.
+    Valid(ShardChunk),
+    /// Decoded but failed deserialization or validation (malicious chunk producer).
+    /// The encoded chunk is preserved as evidence for `DBCol::InvalidChunks`.
+    Invalid(EncodedShardChunk),
+}
+
 #[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum ShardsManagerResponse {
     /// Notifies the client that the ShardsManager has collected a complete chunk.
-    /// Note that this does NOT mean that the chunk is fully constructed. If we are
-    /// not tracking the shard this chunk is in, then being complete only means that
-    /// we have received the parts we own, and the receipt proofs corresponding to
-    /// shards that we do track. On the other hand if we are tracking the shard this
-    /// chunk is in, then being complete does mean having the full chunk, in which
-    /// case the shard_chunk is also provided.
-    ChunkCompleted { partial_chunk: PartialEncodedChunk, shard_chunk: Option<ShardChunk> },
-    /// Notifies the client that we have collected a full chunk but the chunk cannot
-    /// be properly decoded.
-    InvalidChunk(EncodedShardChunk),
+    /// The `partial_chunk` is always persisted to `DBCol::PartialChunks`.
+    /// The `decoded_chunk` indicates what we know about the chunk content.
+    ChunkCompleted { partial_chunk: PartialEncodedChunk, decoded_chunk: DecodedChunk },
     /// Notifies the client that the chunk header is ready for inclusion into a new
     /// block, so that if we are a block producer, we may create a block that contains
     /// this chunk now. The producer of this chunk is also provided.

@@ -80,7 +80,7 @@
 
 use crate::adapter::ShardsManagerRequestFromClient;
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
-use crate::client::{ShardsManagerResponse, ShardsManagerResponseSender};
+use crate::client::{DecodedChunk, ShardsManagerResponse, ShardsManagerResponseSender};
 use crate::logic::{
     chunk_needs_to_be_fetched_from_archival, create_partial_chunk, make_outgoing_receipts_proofs,
     make_partial_encoded_chunk_from_owned_parts_and_needed_receipts, need_part, need_receipt,
@@ -1850,7 +1850,7 @@ impl ShardsManagerActor {
                 self.client_adapter.send(
                     ShardsManagerResponse::ChunkHeaderReadyForInclusion {
                         chunk_header: header.clone(),
-                        chunk_producer,
+                        chunk_producer: chunk_producer.clone(),
                     }
                     .span_wrap(),
                 );
@@ -1910,19 +1910,39 @@ impl ShardsManagerActor {
                     }
                     return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts);
                 }
-                ChunkDecodeResult::Invalid(_encoded_chunk) => {
+                ChunkDecodeResult::Invalid(encoded_chunk) => {
                     tracing::warn!(
                         target: "chunks",
                         ?chunk_hash,
                         height = header.height_created(),
                         shard_id = %header.shard_id(),
+                        %chunk_producer,
                         "chunk decode failed, poisoning cache entry",
                     );
                     metrics::CHUNK_DECODE_FAILED_TOTAL
                         .with_label_values(&[&header.shard_id().to_string()])
                         .inc();
+                    // Build a PartialEncodedChunk from the cache entry's parts
+                    // (which include merkle proofs) for persisting to
+                    // DBCol::PartialChunks so block-syncing peers can fetch them.
+                    let entry = self
+                        .encoded_chunks
+                        .get(&chunk_hash)
+                        .expect("cache entry must exist; we just decoded from it");
+                    let partial_chunk = PartialEncodedChunk::new(
+                        header.clone(),
+                        entry.parts.values().cloned().collect(),
+                        entry.receipts.values().cloned().collect(),
+                    );
                     self.encoded_chunks.mark_decode_failed(&chunk_hash);
                     self.requested_partial_encoded_chunks.remove(&chunk_hash);
+                    self.client_adapter.send(
+                        ShardsManagerResponse::ChunkCompleted {
+                            partial_chunk,
+                            decoded_chunk: DecodedChunk::Invalid(encoded_chunk),
+                        }
+                        .span_wrap(),
+                    );
                     return Ok(ProcessPartialEncodedChunkResult::DecodeFailed);
                 }
             }
@@ -1942,8 +1962,13 @@ impl ShardsManagerActor {
         self.encoded_chunks.remove_from_cache_if_outside_horizon(&chunk_hash);
         self.requested_partial_encoded_chunks.remove(&chunk_hash);
         tracing::debug!(target: "chunks", ?chunk_hash, "completed chunk");
-        self.client_adapter
-            .send(ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk }.span_wrap());
+        let decoded_chunk = match shard_chunk {
+            Some(chunk) => DecodedChunk::Valid(chunk),
+            None => DecodedChunk::None,
+        };
+        self.client_adapter.send(
+            ShardsManagerResponse::ChunkCompleted { partial_chunk, decoded_chunk }.span_wrap(),
+        );
     }
 
     /// Try to process chunks in the chunk cache whose previous block hash is `prev_block_hash` and
@@ -3361,6 +3386,20 @@ mod test {
         assert_eq!(fixture.count_chunk_ready_for_inclusion_messages(), 0);
     }
 
+    /// Drain all messages from the client adapter, returning all
+    /// `ShardsManagerResponse` variants except
+    /// `ChunkHeaderReadyForInclusion`.
+    fn drain_client_messages(fixture: &ChunkTestFixture) -> Vec<ShardsManagerResponse> {
+        let mut messages = vec![];
+        while let Some(msg) = fixture.mock_client_adapter.pop() {
+            match msg.span_unwrap() {
+                ShardsManagerResponse::ChunkHeaderReadyForInclusion { .. } => {}
+                other => messages.push(other),
+            }
+        }
+        messages
+    }
+
     /// Helper: create a ShardsManager from the fixture with all shards tracked.
     fn make_shards_manager(fixture: &ChunkTestFixture) -> ShardsManagerActor {
         ShardsManagerActor::new(
@@ -3380,15 +3419,15 @@ mod test {
     }
 
     #[test]
-    fn test_decode_failure_poisons_cache() {
+    fn test_decode_failure_poisons_cache_and_sends_invalid_chunk() {
         let fixture = ChunkTestFixture::default();
         let mut shards_manager = make_shards_manager(&fixture);
 
         let (header, parts) = fixture.make_malicious_encoded_chunk();
-        let chunk_hash = header.chunk_hash().clone();
+        let chunk_hash = header.chunk_hash();
 
         let partial_encoded_chunk = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
-            header,
+            header: header.clone(),
             parts,
             prev_outgoing_receipts: vec![],
         });
@@ -3400,8 +3439,15 @@ mod test {
             .unwrap();
         assert_matches!(result, ProcessPartialEncodedChunkResult::DecodeFailed);
 
-        let entry = shards_manager.encoded_chunks.get(&chunk_hash).unwrap();
+        let entry = shards_manager.encoded_chunks.get(chunk_hash).unwrap();
         assert!(entry.decode_failed);
+
+        let messages = drain_client_messages(&fixture);
+        assert_eq!(messages.len(), 1);
+        assert_matches!(
+            messages[0],
+            ShardsManagerResponse::ChunkCompleted { decoded_chunk: DecodedChunk::Invalid(_), .. }
+        );
     }
 
     #[test]
@@ -3422,6 +3468,7 @@ mod test {
             )
             .unwrap();
         assert_matches!(result, ProcessPartialEncodedChunkResult::DecodeFailed);
+        drain_client_messages(&fixture);
 
         // Send more parts for the same chunk hash. Should be rejected immediately.
         let late_part = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
@@ -3436,10 +3483,14 @@ mod test {
             )
             .unwrap();
         assert_matches!(result, ProcessPartialEncodedChunkResult::DecodeFailed);
+
+        // No additional ChunkCompleted messages should be sent.
+        let messages = drain_client_messages(&fixture);
+        assert!(messages.is_empty());
     }
 
     #[test]
-    fn test_bad_chunk_proofs_poisons_cache() {
+    fn test_bad_chunk_proofs_sends_invalid_chunk() {
         let fixture = ChunkTestFixture::default();
         let mut shards_manager = make_shards_manager(&fixture);
 
@@ -3461,5 +3512,12 @@ mod test {
 
         let entry = shards_manager.encoded_chunks.get(&chunk_hash).unwrap();
         assert!(entry.decode_failed);
+
+        let messages = drain_client_messages(&fixture);
+        assert_eq!(messages.len(), 1);
+        assert_matches!(
+            messages[0],
+            ShardsManagerResponse::ChunkCompleted { decoded_chunk: DecodedChunk::Invalid(_), .. }
+        );
     }
 }
