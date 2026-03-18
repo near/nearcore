@@ -35,6 +35,23 @@ impl SignerOverlay {
         Self { entries: HashMap::new() }
     }
 
+    /// Returns the current nonce from the overlay if available. For gas key
+    /// transactions (nonce_index is Some), returns the gas key nonce;
+    /// otherwise returns the access key nonce. Returns `None` on cache miss.
+    pub fn cached_nonce(
+        &self,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+        nonce_index: Option<NonceIndex>,
+    ) -> Option<Nonce> {
+        let key_entry = self.entries.get(account_id)?.keys.get(public_key)?;
+        if let Some(idx) = nonce_index {
+            key_entry.gas_key_nonces.get(&idx).copied()
+        } else {
+            Some(key_entry.access_key.nonce)
+        }
+    }
+
     /// Returns mutable references to the account and per-key state, loading
     /// from the trie on first access.
     pub fn get_or_load_entry_mut(

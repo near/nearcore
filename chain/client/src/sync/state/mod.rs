@@ -414,7 +414,7 @@ impl StateSync {
             sync_status.sync_status.insert(*shard_id, status);
             metrics::STATE_SYNC_STAGE
                 .with_label_values(&[&shard_id.to_string()])
-                .set(status as i64);
+                .set(status.repr() as i64);
             if status != ShardSyncStatus::StateSyncDone {
                 all_done = false;
             }

@@ -11423,6 +11423,25 @@
           }
         ]
       },
+      "NonceMode": {
+        "description": "Controls how the transaction nonce is validated against the access key nonce.",
+        "oneOf": [
+          {
+            "description": "Any nonce strictly greater than the current access key nonce (default behavior).",
+            "enum": [
+              "monotonic"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Nonce must be exactly `ak_nonce + 1` (sequential ordering).",
+            "enum": [
+              "strict"
+            ],
+            "type": "string"
+          }
+        ]
+      },
       "PeerId": {
         "allOf": [
           {
@@ -13118,6 +13137,12 @@
             "format": "uint64",
             "minimum": 0,
             "nullable": true,
+            "type": "integer"
+          },
+          "transaction_pool_strict_nonce_ttl_blocks": {
+            "description": "TTL in blocks for gapped strict-nonce transactions in the pool. Transactions with a\nnonce gap whose block_hash is older than this many blocks are evicted during\nprepare_transactions.",
+            "format": "uint64",
+            "minimum": 0,
             "type": "integer"
           },
           "transaction_request_handler_threads": {
@@ -18829,6 +18854,19 @@
             "minimum": 0,
             "nullable": true,
             "type": "integer"
+          },
+          "nonce_mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NonceMode"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ]
           },
           "priority_fee": {
             "default": 0,

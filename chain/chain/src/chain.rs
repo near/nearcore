@@ -2080,12 +2080,24 @@ impl Chain {
         let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
 
         // If the full block is not available, skip getting candidate.
-        // This is possible if the node just went through state sync.
         let Ok(last_final_block) = self.get_block(&last_final_block_hash) else {
-            tracing::warn!(
-                %last_final_block_hash,
-                "get_new_flat_storage_head could not get last final block",
-            );
+            if self.get_block_header(&last_final_block_hash).is_ok() {
+                // Header exists but body is missing. This is expected right
+                // after state sync: the node has headers but not block bodies
+                // for blocks before the sync hash. Self-resolves once finality
+                // advances past the gap.
+                tracing::debug!(
+                    target: "chain",
+                    %last_final_block_hash,
+                    "last final block body not available, likely right after state sync",
+                );
+            } else {
+                tracing::warn!(
+                    target: "chain",
+                    %last_final_block_hash,
+                    "get_new_flat_storage_head could not get last final block",
+                );
+            }
             return Ok(None);
         };
 
@@ -2712,6 +2724,17 @@ impl Chain {
                 .check_transaction_validity_period(&prev_block_header, tx.transaction.block_hash())
                 .is_ok()
         }
+    }
+
+    /// Returns a closure that checks whether a strict-nonce transaction's
+    /// block_hash is still within the configured TTL. Used to evict gapped
+    /// strict-nonce transactions from the pool during prepare_transactions.
+    pub fn strict_nonce_ttl_check(
+        &self,
+        prev_block_height: BlockHeight,
+        strict_nonce_ttl: BlockHeightDelta,
+    ) -> impl Fn(&SignedTransaction) -> bool + Send + 'static {
+        self.chain_store.strict_nonce_ttl_check(prev_block_height, strict_nonce_ttl)
     }
 
     pub fn early_prepare_transaction_validity_check(
@@ -3500,7 +3523,13 @@ impl Chain {
                     self.epoch_manager.get_epoch_height_from_prev_block(prev_prev_hash)?;
                 let shard_layout =
                     &self.epoch_manager.get_shard_layout_from_prev_block(prev_prev_hash)?;
-                let shard_uids = shard_layout.shard_uids().enumerate().collect();
+                let shard_uids = shard_layout
+                    .shard_uids()
+                    .enumerate()
+                    .filter(|&(_, shard_uid)| {
+                        self.shard_tracker.cares_about_shard(prev_prev_hash, shard_uid.shard_id())
+                    })
+                    .collect();
 
                 let make_snapshot_callback = &snapshot_callbacks.make_snapshot_callback;
                 make_snapshot_callback(min_chunk_prev_height, epoch_height, shard_uids, prev_block);

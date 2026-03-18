@@ -1391,6 +1391,10 @@ impl ClientActor {
             msg.prev_block_context.height,
             msg.prev_prev_block_header,
         );
+        let validate_tx_ttl = self.client.chain.strict_nonce_ttl_check(
+            msg.prev_block_context.height,
+            self.client.config.transaction_pool_strict_nonce_ttl_blocks,
+        );
         self.client.chunk_producer.start_prepare_transactions_job(
             msg.key,
             msg.shard_uid,
@@ -1398,6 +1402,7 @@ impl ClientActor {
             msg.prev_block_context,
             msg.prev_chunk_tx_hashes,
             tx_validity_period_check,
+            validate_tx_ttl,
         );
     }
 

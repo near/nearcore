@@ -27,11 +27,11 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_part::{PartId, StatePart};
-use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
+use near_primitives::transaction::{NonceMode, SignedTransaction, ValidatedTransaction};
 use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
-    Nonce, NumShards, ShardId, StateRoot, StateRootNode,
+    Nonce, NonceIndex, NumShards, ShardId, StateRoot, StateRootNode,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
@@ -45,7 +45,7 @@ use near_store::flat::FlatStorageManager;
 use near_store::trie::{FindSplitError, find_trie_split, total_mem_usage};
 use near_store::{
     ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
-    TrieConfig, TrieUpdate, WrappedTrieChanges, get_gas_key_nonce,
+    TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_gas_key_nonce,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::{ContractRuntimeCache, precompile_contract};
@@ -754,6 +754,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
+        validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
         time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error> {
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &prev_block.next_epoch_id)?;
@@ -788,6 +789,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             prev_block,
             transaction_groups,
             chain_validate,
+            validate_tx_ttl,
             HashSet::new(),
             time_limit,
             None,
@@ -818,6 +820,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
+        validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
         skip_tx_hashes: HashSet<CryptoHash>,
         time_limit: Option<Duration>,
         cancel: Option<Arc<AtomicBool>>,
@@ -893,6 +896,43 @@ impl RuntimeAdapter for NightshadeRuntime {
                 if total_size.saturating_add(tx_peek.get_size()) > size_limit as u64 {
                     prepared_transactions.limited_by = PrepareTransactionsLimit::Size;
                     break 'add_txs_loop;
+                }
+
+                // Strict nonce gap check: if the tx requires sequential
+                // nonces and there is a gap, leave it in the pool for a
+                // future block rather than popping and discarding it.
+                // Use the signer cache if available; otherwise read through
+                // a throwaway trie to avoid inflating the recorded witness
+                // size for transactions that won't be included.
+                if tx_peek.nonce_mode() == NonceMode::Strict {
+                    let signer_id = tx_peek.signer_id();
+                    let public_key = tx_peek.public_key();
+                    let nonce_index = tx_peek.nonce().nonce_index();
+                    let current_nonce = if let Some(nonce) =
+                        signer_overlay.cached_nonce(signer_id, public_key, nonce_index)
+                    {
+                        Some(nonce)
+                    } else {
+                        peek_nonce_for_gap_check(
+                            &state_update.trie_update.trie,
+                            signer_id,
+                            public_key,
+                            nonce_index,
+                        )?
+                    };
+                    // When the key exists, check for a nonce gap. When the
+                    // key is missing, let the tx through so full validation
+                    // can reject it.
+                    if let Some(current_nonce) = current_nonce {
+                        let tx_nonce = tx_peek.nonce().nonce();
+                        if tx_nonce > current_nonce.saturating_add(1) {
+                            if !validate_tx_ttl(tx_peek.to_signed_tx()) {
+                                transaction_group_iter.next();
+                                continue;
+                            }
+                            break;
+                        }
+                    }
                 }
 
                 // Take the transaction out of the pool. Please take note that
@@ -1522,6 +1562,28 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
         });
         Ok(())
+    }
+}
+
+/// Reads the current nonce for a strict-nonce gap check using a throwaway
+/// trie recorder to avoid inflating the recorded witness size. Does not
+/// cache the result. Returns `Ok(None)` when the key does not exist,
+/// signaling the caller to skip the gap check and let full validation
+/// handle the missing-key rejection.
+fn peek_nonce_for_gap_check(
+    trie: &Trie,
+    account_id: &AccountId,
+    public_key: &PublicKey,
+    nonce_index: Option<NonceIndex>,
+) -> Result<Option<Nonce>, Error> {
+    let throwaway_trie = trie.recording_reads_new_recorder();
+    if let Some(idx) = nonce_index {
+        get_gas_key_nonce(&throwaway_trie, account_id, public_key, idx)
+            .map_err(|_| Error::InvalidTransactions)
+    } else {
+        let access_key = get_access_key(&throwaway_trie, account_id, public_key)
+            .map_err(|_| Error::InvalidTransactions)?;
+        Ok(access_key.map(|ak| ak.nonce))
     }
 }
 
