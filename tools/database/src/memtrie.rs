@@ -85,7 +85,7 @@ impl LoadMemTrieCommand {
         let start_time = std::time::Instant::now();
         runtime.get_tries().load_memtries_for_enabled_shards(
             &selected_shard_uids,
-            &[].into(),
+            None,
             !self.no_parallel,
         )?;
         println!(

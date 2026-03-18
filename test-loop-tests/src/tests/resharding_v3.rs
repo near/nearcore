@@ -1575,11 +1575,6 @@ fn slow_test_resharding_v3_outgoing_receipts_from_splitted_shard() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_load_memtrie() {
-    // TODO(dynamic-resharding): with load_memtries_for_tracked_shards=false, child shard
-    // memtries cannot be created during resharding, causing the chain to stall.
-    if DYNAMIC_RESHARDING {
-        return;
-    }
     let params =
         TestReshardingParametersBuilder::default().load_memtries_for_tracked_shards(false).build();
     test_resharding_v3_base(params);
