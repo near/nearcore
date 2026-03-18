@@ -233,11 +233,12 @@ impl ChunkTestFixture {
         })
     }
 
-    /// Build a chunk that a malicious chunk producer would create: garbage
-    /// encoded content with valid merkle proofs and a properly signed header.
-    /// RS decode succeeds (parts are self-consistent), but borsh
-    /// deserialization of the decoded content fails.
-    pub fn make_malicious_encoded_chunk(&self) -> (ShardChunkHeader, Vec<PartialEncodedChunkPart>) {
+    fn make_malicious_chunk_with_content(
+        &self,
+        content: EncodedShardChunkBody,
+        encoded_length: usize,
+        tx_root: CryptoHash,
+    ) -> (ShardChunkHeader, Vec<PartialEncodedChunkPart>) {
         let signer = create_test_signer(
             self.epoch_manager
                 .get_chunk_producer_info(&ChunkProductionKey {
@@ -249,8 +250,39 @@ impl ChunkTestFixture {
                 .take_account_id()
                 .as_str(),
         );
+        let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
+        let header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+            *self.mock_chunk_header.prev_block_hash(),
+            Default::default(),
+            Default::default(),
+            encoded_merkle_root,
+            encoded_length as u64,
+            self.mock_chunk_header.height_created(),
+            self.mock_chunk_header.shard_id(),
+            Gas::ZERO,
+            Gas::from_gas(1000),
+            Balance::ZERO,
+            CryptoHash::default(),
+            tx_root,
+            vec![],
+            Default::default(),
+            BandwidthRequests::empty(),
+            None,
+            &signer,
+            PROTOCOL_VERSION,
+        ));
+        let encoded_chunk = EncodedShardChunk::V2(EncodedShardChunkV2 { header, content });
+        let all_part_ords: Vec<u64> = (0..self.rs.total_shard_count()).map(|p| p as u64).collect();
+        let partial =
+            encoded_chunk.create_partial_encoded_chunk(all_part_ords, vec![], &merkle_paths);
+        (partial.cloned_header(), partial.parts().to_vec())
+    }
 
-        // Create garbage bytes that will fail borsh deserialization.
+    /// Build a chunk that a malicious chunk producer would create: garbage
+    /// encoded content with valid merkle proofs and a properly signed header.
+    /// RS decode succeeds (parts are self-consistent), but borsh
+    /// deserialization of the decoded content fails.
+    pub fn make_malicious_encoded_chunk(&self) -> (ShardChunkHeader, Vec<PartialEncodedChunkPart>) {
         let garbage: Vec<u8> = (0..64).map(|i| (i * 37 + 7) as u8).collect();
         let encoded_length = garbage.len();
         let data_parts = self.rs.data_shard_count();
@@ -266,33 +298,7 @@ impl ChunkTestFixture {
         self.rs.reconstruct(&mut parts).unwrap();
 
         let content = EncodedShardChunkBody { parts };
-        let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
-
-        let header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-            *self.mock_chunk_header.prev_block_hash(),
-            Default::default(),
-            Default::default(),
-            encoded_merkle_root,
-            encoded_length as u64,
-            self.mock_chunk_header.height_created(),
-            self.mock_chunk_header.shard_id(),
-            Gas::ZERO,
-            Gas::from_gas(1000),
-            Balance::ZERO,
-            CryptoHash::default(),
-            CryptoHash::default(),
-            vec![],
-            Default::default(),
-            BandwidthRequests::empty(),
-            None,
-            &signer,
-            PROTOCOL_VERSION,
-        ));
-        let encoded_chunk = EncodedShardChunk::V2(EncodedShardChunkV2 { header, content });
-        let all_part_ords: Vec<u64> = (0..self.rs.total_shard_count()).map(|p| p as u64).collect();
-        let partial =
-            encoded_chunk.create_partial_encoded_chunk(all_part_ords, vec![], &merkle_paths);
-        (partial.cloned_header(), partial.parts().to_vec())
+        self.make_malicious_chunk_with_content(content, encoded_length, CryptoHash::default())
     }
 
     /// Build a chunk with valid encoded content but a wrong tx_root in the
@@ -301,51 +307,11 @@ impl ChunkTestFixture {
     pub fn make_malicious_chunk_bad_proofs(
         &self,
     ) -> (ShardChunkHeader, Vec<PartialEncodedChunkPart>) {
-        let signer = create_test_signer(
-            self.epoch_manager
-                .get_chunk_producer_info(&ChunkProductionKey {
-                    epoch_id: EpochId::default(),
-                    height_created: self.mock_chunk_header.height_created(),
-                    shard_id: self.mock_chunk_header.shard_id(),
-                })
-                .unwrap()
-                .take_account_id()
-                .as_str(),
-        );
-
-        // Encode valid content (empty transactions and receipts).
         let transaction_receipt = TransactionReceipt(vec![], vec![]);
         let (parts, encoded_length) = reed_solomon_encode(&self.rs, &transaction_receipt);
         let content = EncodedShardChunkBody { parts };
-        let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
-
-        // Use a bogus tx_root so validate_chunk_proofs fails.
         let bad_tx_root = CryptoHash::hash_bytes(b"wrong tx root");
-        let header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-            *self.mock_chunk_header.prev_block_hash(),
-            Default::default(),
-            Default::default(),
-            encoded_merkle_root,
-            encoded_length as u64,
-            self.mock_chunk_header.height_created(),
-            self.mock_chunk_header.shard_id(),
-            Gas::ZERO,
-            Gas::from_gas(1000),
-            Balance::ZERO,
-            CryptoHash::default(),
-            bad_tx_root,
-            vec![],
-            Default::default(),
-            BandwidthRequests::empty(),
-            None,
-            &signer,
-            PROTOCOL_VERSION,
-        ));
-        let encoded_chunk = EncodedShardChunk::V2(EncodedShardChunkV2 { header, content });
-        let all_part_ords: Vec<u64> = (0..self.rs.total_shard_count()).map(|p| p as u64).collect();
-        let partial =
-            encoded_chunk.create_partial_encoded_chunk(all_part_ords, vec![], &merkle_paths);
-        (partial.cloned_header(), partial.parts().to_vec())
+        self.make_malicious_chunk_with_content(content, encoded_length as usize, bad_tx_root)
     }
 
     pub fn count_chunk_completion_messages(&self) -> usize {
