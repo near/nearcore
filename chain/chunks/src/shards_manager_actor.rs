@@ -1923,8 +1923,6 @@ impl ShardsManagerActor {
                         .inc();
                     self.encoded_chunks.mark_decode_failed(&chunk_hash);
                     self.requested_partial_encoded_chunks.remove(&chunk_hash);
-                    self.client_adapter
-                        .send(ShardsManagerResponse::InvalidChunk(encoded_chunk).span_wrap());
                     return Ok(ProcessPartialEncodedChunkResult::DecodeFailed);
                 }
             }
@@ -3363,21 +3361,6 @@ mod test {
         assert_eq!(fixture.count_chunk_ready_for_inclusion_messages(), 0);
     }
 
-    /// Drain all messages from the client adapter, returning only the
-    /// InvalidChunk messages (filtering out ChunkHeaderReadyForInclusion and
-    /// ChunkCompleted).
-    fn drain_invalid_chunk_messages(fixture: &ChunkTestFixture) -> Vec<ShardsManagerResponse> {
-        let mut messages = vec![];
-        while let Some(msg) = fixture.mock_client_adapter.pop() {
-            match msg.span_unwrap() {
-                ShardsManagerResponse::ChunkHeaderReadyForInclusion { .. }
-                | ShardsManagerResponse::ChunkCompleted { .. } => {}
-                other => messages.push(other),
-            }
-        }
-        messages
-    }
-
     /// Helper: create a ShardsManager from the fixture with all shards tracked.
     fn make_shards_manager(fixture: &ChunkTestFixture) -> ShardsManagerActor {
         ShardsManagerActor::new(
@@ -3397,7 +3380,7 @@ mod test {
     }
 
     #[test]
-    fn test_decode_failure_poisons_cache_and_sends_invalid_chunk() {
+    fn test_decode_failure_poisons_cache() {
         let fixture = ChunkTestFixture::default();
         let mut shards_manager = make_shards_manager(&fixture);
 
@@ -3419,10 +3402,6 @@ mod test {
 
         let entry = shards_manager.encoded_chunks.get(&chunk_hash).unwrap();
         assert!(entry.decode_failed);
-
-        let messages = drain_invalid_chunk_messages(&fixture);
-        assert_eq!(messages.len(), 1);
-        assert_matches!(messages[0], ShardsManagerResponse::InvalidChunk(..));
     }
 
     #[test]
@@ -3443,7 +3422,6 @@ mod test {
             )
             .unwrap();
         assert_matches!(result, ProcessPartialEncodedChunkResult::DecodeFailed);
-        drain_invalid_chunk_messages(&fixture);
 
         // Send more parts for the same chunk hash. Should be rejected immediately.
         let late_part = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
@@ -3458,10 +3436,6 @@ mod test {
             )
             .unwrap();
         assert_matches!(result, ProcessPartialEncodedChunkResult::DecodeFailed);
-
-        // No additional InvalidChunk messages should be sent.
-        let messages = drain_invalid_chunk_messages(&fixture);
-        assert!(messages.is_empty());
     }
 
     #[test]
@@ -3487,9 +3461,5 @@ mod test {
 
         let entry = shards_manager.encoded_chunks.get(&chunk_hash).unwrap();
         assert!(entry.decode_failed);
-
-        let messages = drain_invalid_chunk_messages(&fixture);
-        assert_eq!(messages.len(), 1);
-        assert_matches!(messages[0], ShardsManagerResponse::InvalidChunk(..));
     }
 }
