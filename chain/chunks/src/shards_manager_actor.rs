@@ -1918,6 +1918,9 @@ impl ShardsManagerActor {
                         shard_id = %header.shard_id(),
                         "chunk decode failed, poisoning cache entry",
                     );
+                    metrics::CHUNK_DECODE_FAILED_TOTAL
+                        .with_label_values(&[&header.shard_id().to_string()])
+                        .inc();
                     self.encoded_chunks.mark_decode_failed(&chunk_hash);
                     self.requested_partial_encoded_chunks.remove(&chunk_hash);
                     self.client_adapter.send(
