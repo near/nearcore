@@ -58,7 +58,7 @@ fn test_split_storage_cold_head_advances() {
 fn test_split_storage_archival_node_sync() {
     init_test_logger();
 
-    let epoch_length = 5;
+    let epoch_length = 10;
     let gc_num_epochs_to_keep = 3;
     let mut env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
