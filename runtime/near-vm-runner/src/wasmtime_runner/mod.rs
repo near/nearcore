@@ -466,21 +466,66 @@ impl WasmtimeVM {
         let start = std::time::Instant::now();
         let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::Wasmtime)
             .map_err(CompilationError::PrepareError)?;
-        let serialized = self.engine.precompile_module(&prepared_code).map_err(|err| {
-            tracing::error!(?err, "wasmtime failed to compile the prepared code (this is defense-in-depth, the error was recovered from but should be reported to the developers)");
-            CompilationError::WasmtimeCompileError { msg: err.to_string() }
-        });
+        let serialized = self.precompile_catching_panics(&prepared_code)?;
 
         tracing::debug!(
             target: "vm",
             original_size = %code.code().len(),
             prepared_size = %prepared_code.len(),
-            compiled_size = %serialized.as_ref().map(|s| s.len()).unwrap_or(0),
+            compiled_size = %serialized.len(),
             "wasmtime compiled contract",
         );
 
         crate::metrics::compilation_duration(VMKind::Wasmtime, start.elapsed());
-        serialized
+        Ok(serialized)
+    }
+
+    /// Run `precompile_module` with a panic guard so that a Cranelift panic
+    /// does not crash the node. The compilation runs on a dedicated thread to
+    /// isolate the panic; the caller blocks until it finishes.
+    fn precompile_catching_panics(&self, prepared_code: &[u8]) -> Result<Vec<u8>, CompilationError> {
+        let engine = self.engine.clone();
+        let code = prepared_code.to_vec();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                engine.precompile_module(&code)
+            }));
+            let _ = tx.send(result);
+        });
+
+        match rx.recv() {
+            Ok(Ok(Ok(serialized))) => Ok(serialized),
+            Ok(Ok(Err(err))) => {
+                tracing::error!(
+                    ?err,
+                    "wasmtime failed to compile the prepared code (this is defense-in-depth, the error was recovered from but should be reported to the developers)"
+                );
+                Err(CompilationError::WasmtimeCompileError { msg: err.to_string() })
+            }
+            Ok(Err(panic_err)) => {
+                let msg = match panic_err.downcast_ref::<String>() {
+                    Some(s) => s.clone(),
+                    None => match panic_err.downcast_ref::<&str>() {
+                        Some(s) => s.to_string(),
+                        None => "unknown panic".to_string(),
+                    },
+                };
+                tracing::error!(%msg, "cranelift panicked during compilation");
+                Err(CompilationError::WasmtimeCompileError {
+                    msg: format!("compilation panic: {msg}"),
+                })
+            }
+            Err(_) => {
+                // The sender was dropped without sending — this can only
+                // happen if the compilation thread was killed (e.g. OOM or
+                // double-panic). Treat it like a panic.
+                tracing::error!("compilation thread terminated unexpectedly");
+                Err(CompilationError::WasmtimeCompileError {
+                    msg: "compilation thread terminated unexpectedly".to_string(),
+                })
+            }
+        }
     }
 
     #[tracing::instrument(

@@ -1300,6 +1300,8 @@ pub enum PrepareError {
     TooManyTables = 9,
     /// Contract contains too many table elements.
     TooManyTableElements = 10,
+    /// A function body in the contract exceeds the size limit.
+    FunctionBodyTooLarge = 11,
 }
 
 /// A kind of a trap happened during execution of a binary

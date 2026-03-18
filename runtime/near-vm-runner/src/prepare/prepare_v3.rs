@@ -11,6 +11,7 @@ struct PrepareContext<'a> {
     output_code: Vec<u8>,
     function_limit: u64,
     local_limit: u64,
+    function_body_size_limit: u64,
     table_limit: u32,
     table_element_limit: u64,
     validator: wp::Validator,
@@ -38,6 +39,7 @@ impl<'a> PrepareContext<'a> {
             // specified, use that as a limit.
             function_limit: limits.max_functions_number_per_contract.unwrap_or(u64::MAX),
             local_limit: limits.max_locals_per_contract.unwrap_or(u64::MAX),
+            function_body_size_limit: limits.max_function_body_size.unwrap_or(u64::MAX),
             table_limit: limits.max_tables_per_contract.unwrap_or(u32::MAX),
             table_element_limit,
             validator: wp::Validator::new_with_features(features.into()),
@@ -226,6 +228,10 @@ impl<'a> PrepareContext<'a> {
                     self.copy_section(SectionId::Code, range.clone())?;
                 }
                 wp::Payload::CodeSectionEntry(func) => {
+                    let body_size = func.range().len() as u64;
+                    if body_size > self.function_body_size_limit {
+                        return Err(PrepareError::FunctionBodyTooLarge);
+                    }
                     let local_reader =
                         func.get_locals_reader().map_err(|_| PrepareError::Deserialization)?;
                     for local in local_reader {

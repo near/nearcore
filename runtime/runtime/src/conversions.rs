@@ -36,6 +36,7 @@ mod prepare_error {
                 From::TooManyLocals => Self::TooManyLocals,
                 From::TooManyTables => Self::TooManyTables,
                 From::TooManyTableElements => Self::TooManyTableElements,
+                From::FunctionBodyTooLarge => Self::FunctionBodyTooLarge,
             }
         }
     }
