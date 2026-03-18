@@ -3484,7 +3484,7 @@ mod test {
             .unwrap();
         assert_matches!(result, ProcessPartialEncodedChunkResult::DecodeFailed);
 
-        // No additional InvalidChunk/ChunkCompleted messages should be sent.
+        // No additional ChunkCompleted messages should be sent.
         let messages = drain_client_messages(&fixture);
         assert!(messages.is_empty());
     }
