@@ -500,7 +500,6 @@ impl ProtocolFeature {
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,
-
             // Place features that are not yet in Nightly below this line.
         }
     }
