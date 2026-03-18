@@ -1923,9 +1923,8 @@ impl ShardsManagerActor {
                         .inc();
                     self.encoded_chunks.mark_decode_failed(&chunk_hash);
                     self.requested_partial_encoded_chunks.remove(&chunk_hash);
-                    self.client_adapter.send(
-                        ShardsManagerResponse::InvalidChunk(encoded_chunk).span_wrap(),
-                    );
+                    self.client_adapter
+                        .send(ShardsManagerResponse::InvalidChunk(encoded_chunk).span_wrap());
                     return Ok(ProcessPartialEncodedChunkResult::DecodeFailed);
                 }
             }
@@ -3362,5 +3361,135 @@ mod test {
             .process_partial_encoded_chunk(part.into(), Some(&fixture.mock_chunk_part_owner))
             .unwrap();
         assert_eq!(fixture.count_chunk_ready_for_inclusion_messages(), 0);
+    }
+
+    /// Drain all messages from the client adapter, returning only the
+    /// InvalidChunk messages (filtering out ChunkHeaderReadyForInclusion and
+    /// ChunkCompleted).
+    fn drain_invalid_chunk_messages(fixture: &ChunkTestFixture) -> Vec<ShardsManagerResponse> {
+        let mut messages = vec![];
+        while let Some(msg) = fixture.mock_client_adapter.pop() {
+            match msg.span_unwrap() {
+                ShardsManagerResponse::ChunkHeaderReadyForInclusion { .. }
+                | ShardsManagerResponse::ChunkCompleted { .. } => {}
+                other => messages.push(other),
+            }
+        }
+        messages
+    }
+
+    /// Helper: create a ShardsManager from the fixture with all shards tracked.
+    fn make_shards_manager(fixture: &ChunkTestFixture) -> ShardsManagerActor {
+        ShardsManagerActor::new(
+            FakeClock::default().clock(),
+            mutable_validator_signer(&fixture.mock_shard_tracker),
+            Arc::new(fixture.epoch_manager.clone()),
+            Arc::new(fixture.epoch_manager.clone()),
+            fixture.shard_tracker.clone(),
+            fixture.mock_network.as_sender(),
+            fixture.mock_client_adapter.as_sender(),
+            fixture.store.clone(),
+            fixture.mock_chain_head.clone(),
+            fixture.mock_chain_head.clone(),
+            Duration::hours(1),
+            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
+        )
+    }
+
+    #[test]
+    fn test_decode_failure_poisons_cache_and_sends_invalid_chunk() {
+        let fixture = ChunkTestFixture::default();
+        let mut shards_manager = make_shards_manager(&fixture);
+
+        let (header, parts) = fixture.make_malicious_encoded_chunk();
+        let chunk_hash = header.chunk_hash().clone();
+
+        let partial_encoded_chunk = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
+            header,
+            parts,
+            prev_outgoing_receipts: vec![],
+        });
+        let result = shards_manager
+            .process_partial_encoded_chunk(
+                MaybeValidated::from(partial_encoded_chunk),
+                Some(&fixture.mock_shard_tracker),
+            )
+            .unwrap();
+        assert_matches!(result, ProcessPartialEncodedChunkResult::DecodeFailed);
+
+        let entry = shards_manager.encoded_chunks.get(&chunk_hash).unwrap();
+        assert!(entry.decode_failed);
+
+        let messages = drain_invalid_chunk_messages(&fixture);
+        assert_eq!(messages.len(), 1);
+        assert_matches!(messages[0], ShardsManagerResponse::InvalidChunk(..));
+    }
+
+    #[test]
+    fn test_late_parts_rejected_after_decode_failure() {
+        let fixture = ChunkTestFixture::default();
+        let mut shards_manager = make_shards_manager(&fixture);
+
+        let (header, parts) = fixture.make_malicious_encoded_chunk();
+        let partial_encoded_chunk = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
+            header: header.clone(),
+            parts,
+            prev_outgoing_receipts: vec![],
+        });
+        let result = shards_manager
+            .process_partial_encoded_chunk(
+                MaybeValidated::from(partial_encoded_chunk),
+                Some(&fixture.mock_shard_tracker),
+            )
+            .unwrap();
+        assert_matches!(result, ProcessPartialEncodedChunkResult::DecodeFailed);
+        drain_invalid_chunk_messages(&fixture);
+
+        // Send more parts for the same chunk hash. Should be rejected immediately.
+        let late_part = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
+            header,
+            parts: vec![],
+            prev_outgoing_receipts: vec![],
+        });
+        let result = shards_manager
+            .process_partial_encoded_chunk(
+                MaybeValidated::from(late_part),
+                Some(&fixture.mock_shard_tracker),
+            )
+            .unwrap();
+        assert_matches!(result, ProcessPartialEncodedChunkResult::DecodeFailed);
+
+        // No additional InvalidChunk messages should be sent.
+        let messages = drain_invalid_chunk_messages(&fixture);
+        assert!(messages.is_empty());
+    }
+
+    #[test]
+    fn test_bad_chunk_proofs_poisons_cache() {
+        let fixture = ChunkTestFixture::default();
+        let mut shards_manager = make_shards_manager(&fixture);
+
+        let (header, parts) = fixture.make_malicious_chunk_bad_proofs();
+        let chunk_hash = header.chunk_hash().clone();
+
+        let partial_encoded_chunk = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
+            header,
+            parts,
+            prev_outgoing_receipts: vec![],
+        });
+        let result = shards_manager
+            .process_partial_encoded_chunk(
+                MaybeValidated::from(partial_encoded_chunk),
+                Some(&fixture.mock_shard_tracker),
+            )
+            .unwrap();
+        assert_matches!(result, ProcessPartialEncodedChunkResult::DecodeFailed);
+
+        let entry = shards_manager.encoded_chunks.get(&chunk_hash).unwrap();
+        assert!(entry.decode_failed);
+
+        let messages = drain_invalid_chunk_messages(&fixture);
+        assert_eq!(messages.len(), 1);
+        assert_matches!(messages[0], ShardsManagerResponse::InvalidChunk(..));
     }
 }
