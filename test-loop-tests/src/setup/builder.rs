@@ -1,11 +1,11 @@
 use super::env::TestLoopEnv;
+use super::peer_manager_actor::{TestLoopNetworkSharedState, UnreachableActor};
 use super::setup::setup_client;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 use crate::utils::account::{
     archival_account_id, create_validators_spec, validators_spec_clients,
     validators_spec_clients_with_rpc,
 };
-use crate::utils::peer_manager_actor::{TestLoopNetworkSharedState, UnreachableActor};
 use itertools::Itertools;
 use near_async::test_loop::TestLoopV2;
 use near_async::time::{Clock, Duration};
