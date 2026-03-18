@@ -1419,10 +1419,24 @@ impl Client {
             DecodedChunk::Valid(shard_chunk) => Some(shard_chunk),
             DecodedChunk::None => None,
             DecodedChunk::Invalid(encoded_chunk) => {
-                if !self.handle_invalid_chunk(encoded_chunk, &chunk_header) {
-                    return;
+                self.save_invalid_chunk_evidence(encoded_chunk, &chunk_header);
+                let spice_enabled = near_chain::spice_utils::is_spice_enabled(
+                    self.epoch_manager.as_ref(),
+                    chunk_header.prev_block_hash(),
+                );
+                match spice_enabled {
+                    Ok(true) => {
+                        metrics::SPICE_INVALID_CHUNK_REPLACED_WITH_EMPTY_TOTAL
+                            .with_label_values(&[&shard_id.to_string()])
+                            .inc();
+                        None
+                    }
+                    Ok(false) => return,
+                    Err(err) => {
+                        tracing::error!(target: "client", ?err, "cannot determine protocol version for invalid chunk");
+                        return;
+                    }
                 }
-                None
             }
         };
 
@@ -1448,21 +1462,17 @@ impl Client {
             .maybe_process_optimistic_block(Some(self.myself_sender.apply_chunks_done.clone()));
     }
 
-    /// Saves the invalid chunk as evidence and checks whether block processing
-    /// should continue (SPICE replaces invalid chunks with empty execution).
-    /// Returns true if processing should continue, false to bail.
-    fn handle_invalid_chunk(
+    fn save_invalid_chunk_evidence(
         &mut self,
         encoded_chunk: EncodedShardChunk,
         chunk_header: &ShardChunkHeader,
-    ) -> bool {
+    ) {
         let chunk_hash = encoded_chunk.chunk_hash();
-        let shard_id = chunk_header.shard_id();
         tracing::warn!(
             target: "client",
             ?chunk_hash,
             height = chunk_header.height_created(),
-            shard_id = %shard_id,
+            shard_id = %chunk_header.shard_id(),
             "received invalid chunk, saving as evidence",
         );
         let mut update = self.chain.mut_chain_store().store_update();
@@ -1470,39 +1480,6 @@ impl Client {
         if let Err(err) = update.commit() {
             tracing::error!(target: "client", ?err, "error saving invalid chunk");
         }
-        let prev_block_hash = chunk_header.prev_block_hash();
-        let protocol_version = match self
-            .epoch_manager
-            .get_epoch_id_from_prev_block(prev_block_hash)
-            .and_then(|epoch_id| self.epoch_manager.get_epoch_protocol_version(&epoch_id))
-        {
-            Ok(v) => v,
-            Err(err) => {
-                tracing::error!(target: "client", ?err, "cannot determine protocol version for invalid chunk");
-                return false;
-            }
-        };
-        if !ProtocolFeature::Spice.enabled(protocol_version) {
-            return false;
-        }
-        metrics::SPICE_INVALID_CHUNK_REPLACED_WITH_EMPTY_TOTAL
-            .with_label_values(&[&shard_id.to_string()])
-            .inc();
-        // We intentionally do NOT store a ShardChunk in DBCol::Chunks:
-        // the header commits to malicious content, so pairing it with an
-        // empty body would break validate_chunk_proofs for any reader.
-        // Instead the chunk executor checks DBCol::InvalidChunks and
-        // uses empty transactions.
-        //
-        // TODO(spice): paths that call get_chunk_clone_from_header on an
-        // invalid chunk will get ChunkMissing. Known affected:
-        //   - state sync: compute_state_response_header will fail to
-        //     build the response. Fix by either skipping malicious
-        //     chunks in the sync header or choosing a different sync
-        //     point.
-        //   - replay-archive: replay_chunk will bail. Fix by checking
-        //     DBCol::InvalidChunks and skipping validation.
-        true
     }
 
     pub fn sync_block_headers(

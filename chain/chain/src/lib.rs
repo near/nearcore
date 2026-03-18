@@ -47,6 +47,7 @@ pub mod spice_chain;
 pub mod spice_chunk_application;
 pub mod spice_core;
 pub mod spice_core_writer_actor;
+pub mod spice_utils;
 pub mod state_snapshot_actor;
 pub mod state_sync;
 pub mod stateless_validation;
