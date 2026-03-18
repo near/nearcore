@@ -934,14 +934,6 @@ impl ShardsManagerActor {
         let started = self.clock.now();
         let (source, response) = self.prepare_partial_encoded_chunk_response(request);
         let elapsed = (self.clock.now().signed_duration_since(started)).as_seconds_f64();
-        tracing::debug!(
-            target: "chunks",
-            source = source.name_for_metrics(),
-            num_parts = response.parts.len(),
-            num_receipts = response.receipts.len(),
-            chunk_hash = %response.chunk_hash.0,
-            "serving chunk part response"
-        );
         let labels = [
             source.name_for_metrics(),
             if response.parts.is_empty() && response.receipts.is_empty() { "failed" } else { "ok" },
