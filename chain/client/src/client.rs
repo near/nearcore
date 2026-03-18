@@ -1398,7 +1398,7 @@ impl Client {
         partial_chunk: PartialEncodedChunk,
         decoded_chunk: DecodedChunk,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
-    ) {
+    ) -> Result<(), Error> {
         let chunk_header = partial_chunk.cloned_header();
         self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header);
 
@@ -1407,11 +1407,11 @@ impl Client {
         let shard_layout = self
             .epoch_manager
             .get_shard_layout_from_prev_block(&parent_hash)
-            .expect("Could not obtain shard layout");
+            .expect("could not obtain shard layout");
 
         let shard_id = partial_chunk.shard_id();
         let shard_index =
-            shard_layout.get_shard_index(shard_id).expect("Could not obtain shard index");
+            shard_layout.get_shard_index(shard_id).expect("could not obtain shard index");
         self.block_production_info
             .record_chunk_collected(partial_chunk.height_created(), shard_index);
 
@@ -1420,18 +1420,11 @@ impl Client {
             DecodedChunk::None => None,
             DecodedChunk::Invalid(encoded_chunk) => {
                 self.save_invalid_chunk(encoded_chunk, &chunk_header);
-                let spice_enabled = match near_chain::spice_utils::is_spice_enabled(
+                if !near_chain::spice_utils::is_spice_enabled(
                     self.epoch_manager.as_ref(),
                     chunk_header.prev_block_hash(),
-                ) {
-                    Ok(v) => v,
-                    Err(err) => {
-                        tracing::error!(target: "client", ?err, "cannot determine protocol version for invalid chunk");
-                        return;
-                    }
-                };
-                if !spice_enabled {
-                    return;
+                )? {
+                    return Ok(());
                 }
                 metrics::SPICE_INVALID_CHUNK_REPLACED_WITH_EMPTY_TOTAL
                     .with_label_values(&[&shard_id.to_string()])
@@ -1449,9 +1442,7 @@ impl Client {
             partial_chunk
         };
 
-        // TODO(#10569) We would like a proper error handling here instead of `expect`.
-        persist_chunk(Arc::new(filtered_partial_chunk), shard_chunk, self.chain.mut_chain_store())
-            .expect("Could not persist chunk");
+        persist_chunk(Arc::new(filtered_partial_chunk), shard_chunk, self.chain.mut_chain_store())?;
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
         self.chain.optimistic_block_chunks.add_chunk(&shard_layout, chunk_header);
@@ -1460,6 +1451,7 @@ impl Client {
 
         self.chain
             .maybe_process_optimistic_block(Some(self.myself_sender.apply_chunks_done.clone()));
+        Ok(())
     }
 
     fn save_invalid_chunk(
