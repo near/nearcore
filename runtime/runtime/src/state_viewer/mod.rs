@@ -275,6 +275,7 @@ impl TrieViewer {
             config: Arc::clone(config),
             cache: view_state.cache,
             is_new_chunk: false,
+            save_receipt_to_tx: false,
             congestion_info: Default::default(),
             bandwidth_requests: BlockBandwidthRequests::empty(),
             trie_access_tracker_state: Default::default(),

@@ -86,6 +86,7 @@ pub struct NightshadeRuntime {
     gc_num_epochs_to_keep: u64,
     state_parts_compression_lvl: i32,
     is_cloud_archival_writer: bool,
+    save_receipt_to_tx: bool,
 }
 
 impl NightshadeRuntime {
@@ -102,6 +103,7 @@ impl NightshadeRuntime {
         state_snapshot_config: StateSnapshotConfig,
         state_parts_compression_lvl: i32,
         is_cloud_archival_writer: bool,
+        save_receipt_to_tx: bool,
     ) -> Arc<Self> {
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
@@ -138,6 +140,7 @@ impl NightshadeRuntime {
             gc_num_epochs_to_keep: gc_num_epochs_to_keep.max(MIN_GC_NUM_EPOCHS_TO_KEEP),
             state_parts_compression_lvl,
             is_cloud_archival_writer,
+            save_receipt_to_tx,
         })
     }
 
@@ -264,6 +267,8 @@ impl NightshadeRuntime {
             is_first_block_of_version
         );
 
+        let save_receipt_to_tx =
+            self.save_receipt_to_tx && apply_reason == ApplyChunkReason::UpdateTrackedShard;
         let apply_state = ApplyState {
             apply_reason,
             block_height,
@@ -279,6 +284,7 @@ impl NightshadeRuntime {
             config: config.clone(),
             cache: Some(self.compiled_contract_cache.handle()),
             is_new_chunk,
+            save_receipt_to_tx,
             congestion_info,
             bandwidth_requests,
             trie_access_tracker_state: Default::default(),
@@ -364,6 +370,7 @@ impl NightshadeRuntime {
             contract_updates: apply_result.contract_updates,
             stats: apply_result.stats,
             proposed_split,
+            receipt_to_tx: apply_result.receipt_to_tx,
         };
 
         Ok(result)

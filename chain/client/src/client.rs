@@ -293,6 +293,7 @@ impl Client {
         let chain_config = ChainConfig {
             save_trie_changes: config.save_trie_changes,
             save_tx_outcomes: config.save_tx_outcomes,
+            save_receipt_to_tx: config.save_receipt_to_tx,
             save_state_changes: config.save_state_changes,
             background_migration_threads: config.client_background_migration_threads,
             resharding_config: config.resharding_config.clone(),
