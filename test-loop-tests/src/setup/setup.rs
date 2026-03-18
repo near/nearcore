@@ -1,6 +1,6 @@
 use super::drop_condition::ClientToShardsManagerSender;
+use super::peer_manager_actor::TestLoopPeerManagerActor;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
-use crate::utils::peer_manager_actor::TestLoopPeerManagerActor;
 use crate::utils::rpc::{TestLoopRpcTransport, create_testloop_jsonrpc_router};
 use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};

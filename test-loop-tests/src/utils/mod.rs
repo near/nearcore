@@ -11,7 +11,6 @@ pub(crate) mod contract_distribution;
 pub(crate) mod loop_action;
 pub(crate) mod network;
 pub(crate) mod node;
-pub(crate) mod peer_manager_actor;
 pub(crate) mod receipts;
 pub(crate) mod resharding;
 pub(crate) mod rotating_validators_runner;
