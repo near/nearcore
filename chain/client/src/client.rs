@@ -1419,7 +1419,7 @@ impl Client {
             DecodedChunk::Valid(shard_chunk) => Some(shard_chunk),
             DecodedChunk::None => None,
             DecodedChunk::Invalid(encoded_chunk) => {
-                self.save_invalid_chunk_evidence(encoded_chunk, &chunk_header);
+                self.save_invalid_chunk(encoded_chunk, &chunk_header);
                 let spice_enabled = match near_chain::spice_utils::is_spice_enabled(
                     self.epoch_manager.as_ref(),
                     chunk_header.prev_block_hash(),
@@ -1462,7 +1462,7 @@ impl Client {
             .maybe_process_optimistic_block(Some(self.myself_sender.apply_chunks_done.clone()));
     }
 
-    fn save_invalid_chunk_evidence(
+    fn save_invalid_chunk(
         &mut self,
         encoded_chunk: EncodedShardChunk,
         chunk_header: &ShardChunkHeader,
