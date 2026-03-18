@@ -249,27 +249,30 @@ fn test_rpc_query_view_code_forwarding() {
     let mut h = TwoShardHarness::new();
     h.deploy_contract_to_alice();
 
-    let alice = h.alice.clone();
-    // Cross-shard: query alice's code from zoe's node.
-    let result = h
-        .env
-        .runner_for_account(&h.zoe_node)
-        .run_jsonrpc_query(
-            |client| {
-                client.query(RpcQueryRequest {
-                    block_reference: BlockReference::Finality(Finality::None),
-                    request: QueryRequest::ViewCode { account_id: alice.clone() },
-                })
-            },
-            Duration::seconds(5),
-        )
-        .unwrap();
-    match result.kind {
-        QueryResponseKind::ViewCode(view) => {
-            assert!(!view.code.is_empty(), "expected non-empty contract code");
-        }
-        other => panic!("expected ViewCode, got: {other:?}"),
-    }
+    let mut run_query_view_code =
+        |node_id: &AccountId, account: &AccountId| -> Result<(), RpcError> {
+            let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
+                |client| {
+                    client.query(RpcQueryRequest {
+                        block_reference: BlockReference::Finality(Finality::None),
+                        request: QueryRequest::ViewCode { account_id: account.clone() },
+                    })
+                },
+                Duration::seconds(5),
+            )?;
+            match result.kind {
+                QueryResponseKind::ViewCode(view) => {
+                    assert!(!view.code.is_empty(), "node: {node_id}, account: {account}");
+                }
+                other => panic!("expected ViewCode, got: {other:?}"),
+            }
+            Ok(())
+        };
+
+    // Cross-shard.
+    run_query_view_code(&h.zoe_node, &h.alice).unwrap();
+    // Local.
+    run_query_view_code(&h.alice_node, &h.alice).unwrap();
 }
 
 /// Standard `query` ViewState should be forwarded to the right shard.
@@ -294,30 +297,34 @@ fn test_rpc_query_view_state_forwarding() {
     );
     h.env.runner_for_account(&alice_node).run_tx(tx, Duration::seconds(5));
 
-    // Cross-shard: query alice's state from zoe's node.
-    let result = h
-        .env
-        .runner_for_account(&h.zoe_node)
-        .run_jsonrpc_query(
-            |client| {
-                client.query(RpcQueryRequest {
-                    block_reference: BlockReference::Finality(Finality::None),
-                    request: QueryRequest::ViewState {
-                        account_id: alice.clone(),
-                        prefix: StoreKey::from(vec![]),
-                        include_proof: false,
-                    },
-                })
-            },
-            Duration::seconds(5),
-        )
-        .unwrap();
-    match result.kind {
-        QueryResponseKind::ViewState(view) => {
-            assert!(!view.values.is_empty(), "expected non-empty state");
-        }
-        other => panic!("expected ViewState, got: {other:?}"),
-    }
+    let mut run_query_view_state =
+        |node_id: &AccountId, account: &AccountId| -> Result<(), RpcError> {
+            let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
+                |client| {
+                    client.query(RpcQueryRequest {
+                        block_reference: BlockReference::Finality(Finality::None),
+                        request: QueryRequest::ViewState {
+                            account_id: account.clone(),
+                            prefix: StoreKey::from(vec![]),
+                            include_proof: false,
+                        },
+                    })
+                },
+                Duration::seconds(5),
+            )?;
+            match result.kind {
+                QueryResponseKind::ViewState(view) => {
+                    assert!(!view.values.is_empty(), "node: {node_id}, account: {account}");
+                }
+                other => panic!("expected ViewState, got: {other:?}"),
+            }
+            Ok(())
+        };
+
+    // Cross-shard.
+    run_query_view_state(&h.zoe_node, &h.alice).unwrap();
+    // Local.
+    run_query_view_state(&h.alice_node, &h.alice).unwrap();
 }
 
 /// Standard `query` ViewAccessKeyList should be forwarded to the right shard.
@@ -326,27 +333,32 @@ fn test_rpc_query_view_access_key_list_forwarding() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
 
-    let alice = h.alice.clone();
-    // Cross-shard: query alice's access key list from zoe's node.
-    let result = h
-        .env
-        .runner_for_account(&h.zoe_node)
-        .run_jsonrpc_query(
-            |client| {
-                client.query(RpcQueryRequest {
-                    block_reference: BlockReference::Finality(Finality::None),
-                    request: QueryRequest::ViewAccessKeyList { account_id: alice.clone() },
-                })
-            },
-            Duration::seconds(5),
-        )
-        .unwrap();
-    match result.kind {
-        QueryResponseKind::AccessKeyList(view) => {
-            assert!(!view.keys.is_empty(), "expected non-empty access key list");
-        }
-        other => panic!("expected AccessKeyList, got: {other:?}"),
-    }
+    let mut run_query_view_access_key_list =
+        |node_id: &AccountId, account: &AccountId| -> Result<(), RpcError> {
+            let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
+                |client| {
+                    client.query(RpcQueryRequest {
+                        block_reference: BlockReference::Finality(Finality::None),
+                        request: QueryRequest::ViewAccessKeyList { account_id: account.clone() },
+                    })
+                },
+                Duration::seconds(5),
+            )?;
+            match result.kind {
+                QueryResponseKind::AccessKeyList(view) => {
+                    assert!(!view.keys.is_empty(), "node: {node_id}, account: {account}");
+                }
+                other => panic!("expected AccessKeyList, got: {other:?}"),
+            }
+            Ok(())
+        };
+
+    // Cross-shard forwarding.
+    run_query_view_access_key_list(&h.zoe_node, &h.alice).unwrap();
+    run_query_view_access_key_list(&h.alice_node, &h.zoe).unwrap();
+    // Local.
+    run_query_view_access_key_list(&h.alice_node, &h.alice).unwrap();
+    run_query_view_access_key_list(&h.zoe_node, &h.zoe).unwrap();
 }
 
 /// Standard `query` CallFunction should be forwarded to the right shard.
@@ -356,64 +368,79 @@ fn test_rpc_query_call_function_forwarding() {
     let mut h = TwoShardHarness::new();
     h.deploy_contract_to_alice();
 
-    let alice = h.alice.clone();
-    // Cross-shard: call a view function on alice's contract from zoe's node.
-    let result = h
-        .env
-        .runner_for_account(&h.zoe_node)
-        .run_jsonrpc_query(
-            |client| {
-                client.query(RpcQueryRequest {
-                    block_reference: BlockReference::Finality(Finality::None),
-                    request: QueryRequest::CallFunction {
-                        account_id: alice.clone(),
-                        method_name: "log_something".to_string(),
-                        args: FunctionArgs::from(vec![]),
-                    },
-                })
-            },
-            Duration::seconds(5),
-        )
-        .unwrap();
-    match result.kind {
-        QueryResponseKind::CallResult(_) => {}
-        other => panic!("expected CallResult, got: {other:?}"),
-    }
+    let mut run_query_call_function =
+        |node_id: &AccountId, account: &AccountId| -> Result<(), RpcError> {
+            let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
+                |client| {
+                    client.query(RpcQueryRequest {
+                        block_reference: BlockReference::Finality(Finality::None),
+                        request: QueryRequest::CallFunction {
+                            account_id: account.clone(),
+                            method_name: "log_something".to_string(),
+                            args: FunctionArgs::from(vec![]),
+                        },
+                    })
+                },
+                Duration::seconds(5),
+            )?;
+            match result.kind {
+                QueryResponseKind::CallResult(_) => {}
+                other => panic!("expected CallResult, got: {other:?}"),
+            }
+            Ok(())
+        };
+
+    // Cross-shard.
+    run_query_call_function(&h.zoe_node, &h.alice).unwrap();
+    // Local.
+    run_query_call_function(&h.alice_node, &h.alice).unwrap();
 }
 
 /// Standard `query` ViewGasKeyNonces should be forwarded to the right shard.
+/// Genesis accounts don't have gas keys, so this returns UNKNOWN_GAS_KEY.
+/// The important thing is we get that error (not UNAVAILABLE_SHARD), proving forwarding works.
 #[test]
 fn test_rpc_query_view_gas_key_nonces_forwarding() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
 
-    let alice = h.alice.clone();
-    let public_key =
-        near_primitives::test_utils::create_user_test_signer(alice.as_ref()).public_key();
-    // Cross-shard: query alice's gas key nonces from zoe's node.
-    // Genesis accounts don't have gas keys, so this returns UNKNOWN_GAS_KEY.
-    // The important thing is we get that error (not UNAVAILABLE_SHARD), proving forwarding works.
-    let result = h.env.runner_for_account(&h.zoe_node).run_jsonrpc_query(
-        |client| {
-            client.query(RpcQueryRequest {
-                block_reference: BlockReference::Finality(Finality::None),
-                request: QueryRequest::ViewGasKeyNonces {
-                    account_id: alice.clone(),
-                    public_key: public_key.clone(),
+    let mut run_query_view_gas_key_nonces = |node_id: &AccountId, account: &AccountId| {
+        let public_key =
+            near_primitives::test_utils::create_user_test_signer(account.as_ref()).public_key();
+        let err = h
+            .env
+            .runner_for_account(node_id)
+            .run_jsonrpc_query(
+                |client| {
+                    client.query(RpcQueryRequest {
+                        block_reference: BlockReference::Finality(Finality::None),
+                        request: QueryRequest::ViewGasKeyNonces {
+                            account_id: account.clone(),
+                            public_key: public_key.clone(),
+                        },
+                    })
                 },
-            })
-        },
-        Duration::seconds(5),
-    );
-    let err = result.unwrap_err();
-    assert!(err.message.contains("Server error"), "unexpected error: {err:?}");
-    let error_struct = err.error_struct.unwrap();
-    match error_struct {
-        near_jsonrpc_primitives::errors::RpcErrorKind::HandlerError(value) => {
-            assert_eq!(value["name"], "UNKNOWN_GAS_KEY");
+                Duration::seconds(5),
+            )
+            .unwrap_err();
+        assert!(
+            err.message.contains("Server error"),
+            "node: {node_id}, account: {account}, error: {err:?}"
+        );
+        match err.error_struct.unwrap() {
+            near_jsonrpc_primitives::errors::RpcErrorKind::HandlerError(value) => {
+                assert_eq!(value["name"], "UNKNOWN_GAS_KEY");
+            }
+            other => panic!("expected HandlerError, got: {other:?}"),
         }
-        other => panic!("expected HandlerError, got: {other:?}"),
-    }
+    };
+
+    // Cross-shard forwarding.
+    run_query_view_gas_key_nonces(&h.zoe_node, &h.alice);
+    run_query_view_gas_key_nonces(&h.alice_node, &h.zoe);
+    // Local.
+    run_query_view_gas_key_nonces(&h.alice_node, &h.alice);
+    run_query_view_gas_key_nonces(&h.zoe_node, &h.zoe);
 }
 
 /// Standard `query` ViewGlobalContractCodeByAccountId should be forwarded to the right shard.
@@ -441,28 +468,32 @@ fn test_rpc_query_view_global_contract_code_by_account_id_forwarding() {
     );
     h.env.runner_for_account(&alice_node).run_tx(tx, Duration::seconds(5));
 
-    // Cross-shard: query global contract code by alice's account_id from zoe's node.
-    let result = h
-        .env
-        .runner_for_account(&h.zoe_node)
-        .run_jsonrpc_query(
-            |client| {
-                client.query(RpcQueryRequest {
-                    block_reference: BlockReference::Finality(Finality::None),
-                    request: QueryRequest::ViewGlobalContractCodeByAccountId {
-                        account_id: alice.clone(),
-                    },
-                })
-            },
-            Duration::seconds(5),
-        )
-        .unwrap();
-    match result.kind {
-        QueryResponseKind::ViewCode(view) => {
-            assert!(!view.code.is_empty(), "expected non-empty global contract code");
-        }
-        other => panic!("expected ViewCode, got: {other:?}"),
-    }
+    let mut run_query_view_global_contract =
+        |node_id: &AccountId, account: &AccountId| -> Result<(), RpcError> {
+            let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
+                |client| {
+                    client.query(RpcQueryRequest {
+                        block_reference: BlockReference::Finality(Finality::None),
+                        request: QueryRequest::ViewGlobalContractCodeByAccountId {
+                            account_id: account.clone(),
+                        },
+                    })
+                },
+                Duration::seconds(5),
+            )?;
+            match result.kind {
+                QueryResponseKind::ViewCode(view) => {
+                    assert!(!view.code.is_empty(), "node: {node_id}, account: {account}");
+                }
+                other => panic!("expected ViewCode, got: {other:?}"),
+            }
+            Ok(())
+        };
+
+    // Cross-shard.
+    run_query_view_global_contract(&h.zoe_node, &h.alice).unwrap();
+    // Local.
+    run_query_view_global_contract(&h.alice_node, &h.alice).unwrap();
 }
 
 /// Cross-shard CallFunction that triggers a VM error should return the backward-compatible
