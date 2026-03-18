@@ -2053,11 +2053,13 @@ impl Handler<SpanWrapped<ShardsManagerResponse>> for ClientActor {
                     tag_chunk_distribution = true,
                 )
                 .entered();
-                self.client.on_chunk_completed(
+                if let Err(err) = self.client.on_chunk_completed(
                     partial_chunk,
                     decoded_chunk,
                     Some(self.client.myself_sender.apply_chunks_done.clone()),
-                );
+                ) {
+                    tracing::error!(target: "client", ?err, "error processing completed chunk");
+                }
             }
             ShardsManagerResponse::ChunkHeaderReadyForInclusion {
                 chunk_header,
