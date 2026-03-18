@@ -25,11 +25,11 @@ use near_async::time::Duration;
 use near_chain_configs::TrackedShardsConfig;
 use near_client::sync::SYNC_V2_ENABLED;
 use near_client::{GetBlock, SyncStatus};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, BlockId, BlockReference};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 
 // Scenario: A fresh node starts with only genesis data while the network is
 // 5+ epochs ahead. The node must go through the complete far-horizon sync
