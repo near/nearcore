@@ -1420,23 +1420,23 @@ impl Client {
             DecodedChunk::None => None,
             DecodedChunk::Invalid(encoded_chunk) => {
                 self.save_invalid_chunk_evidence(encoded_chunk, &chunk_header);
-                let spice_enabled = near_chain::spice_utils::is_spice_enabled(
+                let spice_enabled = match near_chain::spice_utils::is_spice_enabled(
                     self.epoch_manager.as_ref(),
                     chunk_header.prev_block_hash(),
-                );
-                match spice_enabled {
-                    Ok(true) => {
-                        metrics::SPICE_INVALID_CHUNK_REPLACED_WITH_EMPTY_TOTAL
-                            .with_label_values(&[&shard_id.to_string()])
-                            .inc();
-                        None
-                    }
-                    Ok(false) => return,
+                ) {
+                    Ok(v) => v,
                     Err(err) => {
                         tracing::error!(target: "client", ?err, "cannot determine protocol version for invalid chunk");
                         return;
                     }
+                };
+                if !spice_enabled {
+                    return;
                 }
+                metrics::SPICE_INVALID_CHUNK_REPLACED_WITH_EMPTY_TOTAL
+                    .with_label_values(&[&shard_id.to_string()])
+                    .inc();
+                None
             }
         };
 
