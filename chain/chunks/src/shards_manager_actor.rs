@@ -1910,7 +1910,7 @@ impl ShardsManagerActor {
                     }
                     return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts);
                 }
-                ChunkDecodeResult::Invalid(encoded_chunk) => {
+                ChunkDecodeResult::Invalid(_encoded_chunk) => {
                     tracing::warn!(
                         target: "chunks",
                         ?chunk_hash,
