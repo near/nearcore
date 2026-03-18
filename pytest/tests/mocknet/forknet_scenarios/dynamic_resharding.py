@@ -18,18 +18,4 @@ class DynamicResharding(TestSetup):
         self.genesis_protocol_version = 84
         self.has_archival = False
         self.regions = "us-east1,europe-west4,asia-east1,us-west1"
-        self.neard_binary_url = "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux-x86_64/wiezzel/dynamic-resharding-test/08991eab412b19ce1f3ec699e8ec8c1acd95f9ba/release/neard"
-
-    def amend_epoch_config(self):
-        super().amend_epoch_config()
-
-    def amend_configs_before_test_start(self):
-        super().amend_configs_before_test_start()
-
-    def after_test_start(self):
-        """
-        Use this event to run any commands after the test is started.
-        """
-        super().after_test_start()
-        self._schedule_upgrade_nodes_every_n_minutes(
-            self.upgrade_interval_minutes)
+        self.neard_binary_url = "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux-x86_64/wiezzel/dynamic-resharding-test/release/neard"
