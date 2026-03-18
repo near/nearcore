@@ -19,7 +19,7 @@ pub enum DecodedChunk {
     None,
     /// Decoded and passed validation.
     Valid(ShardChunk),
-    /// Decoded but failed validation (malicious chunk producer).
+    /// Decoded but failed deserialization or validation (malicious chunk producer).
     /// The encoded chunk is preserved as evidence for `DBCol::InvalidChunks`.
     Invalid(EncodedShardChunk),
 }
