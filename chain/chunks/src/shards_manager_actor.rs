@@ -3439,7 +3439,7 @@ mod test {
             .unwrap();
         assert_matches!(result, ProcessPartialEncodedChunkResult::DecodeFailed);
 
-        let entry = shards_manager.encoded_chunks.get(&chunk_hash).unwrap();
+        let entry = shards_manager.encoded_chunks.get(chunk_hash).unwrap();
         assert!(entry.decode_failed);
 
         let messages = drain_client_messages(&fixture);
