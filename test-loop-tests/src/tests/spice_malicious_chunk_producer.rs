@@ -1,6 +1,8 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_account_id;
+use assert_matches::assert_matches;
 use near_chain::ChainStoreAccess;
+use near_chain::near_chain_primitives::Error;
 use near_chain_configs::TrackedShardsConfig;
 use near_client::NetworkAdversarialMessage;
 use near_client::client_actor::AdvProduceChunksMode;
@@ -60,6 +62,9 @@ fn test_spice_chain_with_malicious_chunk_producer() {
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         let chunk_extra = chain_store.get_chunk_extra(&block_hash, &shard_uid).unwrap();
         assert_eq!(chunk_extra.gas_used(), Gas::ZERO, "empty chunk should use zero gas");
+
+        // Verify that the invalid chunk was not stored as a valid ShardChunk in DBCol::Chunks.
+        assert_matches!(chain_store.get_chunk(chunk_hash), Err(Error::ChunkMissing(_)));
         invalid_chunk_count += 1;
     }
     assert!(invalid_chunk_count > 0, "expected at least one invalid chunk stored as evidence");
