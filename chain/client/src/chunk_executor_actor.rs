@@ -828,8 +828,7 @@ impl ChunkExecutorActor {
     ) -> Result<UpdateShardJob, Error> {
         let receipts = collect_receipts(&chunk_context.incoming_receipts);
         let chunk_header = chunk_context.chunk_header;
-        let chunk_hash_val = chunk_header.chunk_hash();
-        let is_invalid = self.chain_store.is_invalid_chunk(&chunk_hash_val).is_some();
+        let is_invalid = self.chain_store.is_invalid_chunk(&chunk_header.chunk_hash()).is_some();
         let (transactions, chunk_hash) = if chunk_header.is_new_chunk(block_context.height)
             && !is_invalid
         {
