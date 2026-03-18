@@ -1407,11 +1407,11 @@ impl Client {
         let shard_layout = self
             .epoch_manager
             .get_shard_layout_from_prev_block(&parent_hash)
-            .expect("could not obtain shard layout");
+            .expect("Could not obtain shard layout");
 
         let shard_id = partial_chunk.shard_id();
         let shard_index =
-            shard_layout.get_shard_index(shard_id).expect("could not obtain shard index");
+            shard_layout.get_shard_index(shard_id).expect("Could not obtain shard index");
         self.block_production_info
             .record_chunk_collected(partial_chunk.height_created(), shard_index);
 
@@ -1425,6 +1425,8 @@ impl Client {
                     .get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
                 let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
                 if !ProtocolFeature::Spice.enabled(protocol_version) {
+                    // Pre-SPICE, we don't process invalid chunks. This is okay as they cannot be
+                    // included on chain as validators will not endorse invalid chunks.
                     return Ok(());
                 }
                 metrics::SPICE_INVALID_CHUNK_REPLACED_WITH_EMPTY_TOTAL
@@ -1443,7 +1445,9 @@ impl Client {
             partial_chunk
         };
 
-        persist_chunk(Arc::new(filtered_partial_chunk), shard_chunk, self.chain.mut_chain_store())?;
+        // TODO(#10569) We would like a proper error handling here instead of `expect`.
+        persist_chunk(Arc::new(filtered_partial_chunk), shard_chunk, self.chain.mut_chain_store())
+            .expect("Could not persist chunk");
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
         self.chain.optimistic_block_chunks.add_chunk(&shard_layout, chunk_header);
