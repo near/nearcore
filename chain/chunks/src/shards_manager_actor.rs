@@ -174,8 +174,8 @@ enum ProcessPartialEncodedChunkResult {
     /// The PartialEncodedChunk is not within the horizon of the chain head.
     /// The chunk has been dropped without processing any part of it.
     OutsideHorizon,
-    /// Chunk body is invalid (malicious chunk producer). The encoded chunk has
-    /// been sent to the client as evidence and the cache entry poisoned.
+    /// Chunk body is invalid (malicious chunk producer). The cache entry has
+    /// been poisoned and the encoded chunk sent to the client as evidence.
     DecodeFailed,
 }
 
