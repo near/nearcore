@@ -224,6 +224,8 @@ yield_timeout_length_in_blocks                           200
 max_yield_payload_size                                 1_024
 max_tables_per_contract                                    1
 max_elements_per_contract_table                       10_000
+max_function_body_size                               262_144
+max_instrumented_code_size                        16_777_216
 flat_storage_reads                      true
 fix_contract_loading_cost               false
 vm_kind                                 Wasmtime
