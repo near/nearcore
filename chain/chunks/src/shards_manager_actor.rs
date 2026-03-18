@@ -174,6 +174,9 @@ enum ProcessPartialEncodedChunkResult {
     /// The PartialEncodedChunk is not within the horizon of the chain head.
     /// The chunk has been dropped without processing any part of it.
     OutsideHorizon,
+    /// Chunk body is invalid (malicious chunk producer). The cache entry has
+    /// been poisoned and the encoded chunk sent to the client as evidence.
+    DecodeFailed,
 }
 
 #[derive(Clone, Debug)]
@@ -1586,6 +1589,9 @@ impl ShardsManagerActor {
             if entry.complete {
                 return Ok(ProcessPartialEncodedChunkResult::Known);
             }
+            if entry.decode_failed {
+                return Ok(ProcessPartialEncodedChunkResult::DecodeFailed);
+            }
             tracing::debug!(target: "chunks", num_parts_in_cache = entry.parts.len(), total_needed = self.epoch_manager.num_data_parts(), tag_chunk_distribution = true);
         } else {
             tracing::debug!(target: "chunks", num_parts_in_cache = 0, total_needed = self.epoch_manager.num_data_parts(), tag_chunk_distribution = true);
@@ -1905,10 +1911,19 @@ impl ShardsManagerActor {
                     return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts);
                 }
                 ChunkDecodeResult::Invalid(encoded_chunk) => {
-                    let chunk_hash = encoded_chunk.chunk_hash();
-                    self.encoded_chunks.remove(&chunk_hash);
+                    tracing::warn!(
+                        target: "chunks",
+                        ?chunk_hash,
+                        height = header.height_created(),
+                        shard_id = %header.shard_id(),
+                        "chunk decode failed, poisoning cache entry",
+                    );
+                    self.encoded_chunks.mark_decode_failed(&chunk_hash);
                     self.requested_partial_encoded_chunks.remove(&chunk_hash);
-                    return Err(Error::InvalidChunk);
+                    self.client_adapter.send(
+                        ShardsManagerResponse::InvalidChunk(encoded_chunk).span_wrap(),
+                    );
+                    return Ok(ProcessPartialEncodedChunkResult::DecodeFailed);
                 }
             }
         }
@@ -2291,7 +2306,8 @@ impl ShardsManagerActor {
                     Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts) |
                     Ok(ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts) |
                     Ok(ProcessPartialEncodedChunkResult::NeedBlock) |
-                    Ok(ProcessPartialEncodedChunkResult::OutsideHorizon) => { return HandleNetworkRequestResult::Ok; }
+                    Ok(ProcessPartialEncodedChunkResult::OutsideHorizon) |
+                    Ok(ProcessPartialEncodedChunkResult::DecodeFailed) => { return HandleNetworkRequestResult::Ok; }
                     Err(e) => {
                         tracing::debug!(target: "chunks", ?e, "error processing partial encoded chunk");
                         return HandleNetworkRequestResult::Err;

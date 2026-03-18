@@ -58,6 +58,9 @@ pub struct EncodedChunksCacheEntry {
     pub received_all_receipts: bool,
     /// Used to check whether a metric was recorded for the time taken to make a chunk able to be reconstructed
     pub could_reconstruct: bool,
+    /// Whether decoding this chunk failed (malicious chunk producer). Poisoned
+    /// entries reject late-arriving parts and stay in cache until GC'd.
+    pub decode_failed: bool,
 }
 
 pub struct EncodedChunksCache {
@@ -94,6 +97,7 @@ impl EncodedChunksCacheEntry {
             received_all_parts: false,
             received_all_receipts: false,
             could_reconstruct: false,
+            decode_failed: false,
         }
     }
 
@@ -135,6 +139,16 @@ impl EncodedChunksCache {
 
     pub fn get(&self, chunk_hash: &ChunkHash) -> Option<&EncodedChunksCacheEntry> {
         self.encoded_chunks.get(chunk_hash)
+    }
+
+    /// Mark an entry as failed, which means a malicious chunk producer signed enough bad parts to
+    /// reconstruct an invalid chunk. Further parts for this chunk are not accepted.
+    pub fn mark_decode_failed(&mut self, chunk_hash: &ChunkHash) {
+        if let Some(entry) = self.encoded_chunks.get_mut(chunk_hash) {
+            entry.decode_failed = true;
+            let previous_block_hash = *entry.header.prev_block_hash();
+            self.remove_chunk_from_incomplete_chunks(&previous_block_hash, chunk_hash);
+        }
     }
 
     /// Mark an entry as complete, which means it has all parts and receipts needed
