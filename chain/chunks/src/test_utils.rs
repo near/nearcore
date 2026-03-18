@@ -239,10 +239,14 @@ impl ChunkTestFixture {
         encoded_length: usize,
         tx_root: CryptoHash,
     ) -> (ShardChunkHeader, Vec<PartialEncodedChunkPart>) {
+        let epoch_id = self
+            .epoch_manager
+            .get_epoch_id_from_prev_block(self.mock_chunk_header.prev_block_hash())
+            .unwrap();
         let signer = create_test_signer(
             self.epoch_manager
                 .get_chunk_producer_info(&ChunkProductionKey {
-                    epoch_id: EpochId::default(),
+                    epoch_id,
                     height_created: self.mock_chunk_header.height_created(),
                     shard_id: self.mock_chunk_header.shard_id(),
                 })
