@@ -486,6 +486,7 @@ impl ProtocolFeature {
             | ProtocolFeature::EthImplicitGlobalContract
             | ProtocolFeature::InstantDeleteAccount => 83,
             ProtocolFeature::Wasmtime => 84,
+            ProtocolFeature::DynamicResharding => 85,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -493,7 +494,6 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::GasKeys => 149,
-            ProtocolFeature::DynamicResharding => 150,
             ProtocolFeature::StrictNonce => 151,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
@@ -517,7 +517,7 @@ pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 80;
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 84;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 85;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 151;
