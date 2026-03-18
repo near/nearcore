@@ -273,6 +273,10 @@ fn make_rpc_error(err: impl std::fmt::Display) -> RpcError {
 /// Checks whether the given IP address belongs to a local network interface
 /// by attempting to bind a UDP socket to it. The OS only allows binding to
 /// IPs assigned to local interfaces, making this a reliable detection method.
+///
+/// Note: the bind may fail in hardened environments even
+/// for local IPs, causing a false negative. This is not a bit problem: the
+/// node would forward requests to itself over the network.
 fn is_local_ip(ip: IpAddr) -> bool {
     if ip.is_loopback() || ip.is_unspecified() {
         return true;
@@ -297,12 +301,17 @@ fn is_local_address(node_url: &str) -> bool {
     }
 }
 
+/// Called once at pool init time, so synchronous DNS resolution is acceptable.
 fn try_resolve_is_local(node_url: &str) -> Result<bool, String> {
     let parsed = Url::parse(node_url).map_err(|e| format!("failed to parse URL: {e}"))?;
     let port = parsed.port_or_known_default().unwrap_or(80);
     let resolved: Vec<SocketAddr> = parsed
         .socket_addrs(|| Some(port))
         .map_err(|e| format!("failed to resolve {node_url}: {e}"))?;
+    // If any resolved address is local, treat the entire entry as self and
+    // drop it from the pool. This avoids the node forwarding requests to
+    // itself over the network, at the cost of also discarding any non-local
+    // addresses that the same hostname may resolve to.
     Ok(resolved.iter().any(|addr| is_local_ip(addr.ip())))
 }
 
