@@ -82,7 +82,9 @@ use near_primitives::views::{
 };
 use parking_lot::RwLock;
 use serde_json::{Value, json};
-use sharded_rpc::{BlockHint, RequestSource, RpcNodeHandle, ShardHint, ShardedRpcPool};
+use sharded_rpc::{
+    BlockHint, CoordinatorRequestStrategy, RequestSource, RpcNodeHandle, ShardHint, ShardedRpcPool,
+};
 use std::future::Future;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -576,7 +578,13 @@ impl JsonRpcHandler {
                 process_method_call(request, |params| self.protocol_config(params)).await
             }
             "EXPERIMENTAL_receipt" => {
-                process_method_call(request, |params| self.receipt(params)).await
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| self.receipt_sharded(params),
+                    |params| self.receipt(params),
+                )
+                .await
             }
             "EXPERIMENTAL_tx_status" => {
                 process_method_call(request, |params| self.tx_status_common(params, true)).await
@@ -1086,7 +1094,14 @@ impl JsonRpcHandler {
             | QueryRequest::ViewAccessKey { account_id, .. } => {
                 let block_hint = request_data.block_reference.clone().into();
                 let shard_hint = ShardHint::Account(account_id.clone());
-                self.run_coordinator_request("query", request_data, block_hint, shard_hint).await
+                self.run_coordinator_request(
+                    "query",
+                    request_data,
+                    block_hint,
+                    shard_hint,
+                    CoordinatorRequestStrategy::Sequential,
+                )
+                .await
             }
             // TODO(sharded-rpc): implement remaining query variants.
             _ => process_query_response(self.query(request_data).await),
@@ -1104,22 +1119,39 @@ impl JsonRpcHandler {
             request_data,
             block_hint,
             shard_hint,
+            CoordinatorRequestStrategy::Sequential,
         )
         .await
     }
 
-    /// Run a single sharded-rpc coordinator sub-request.
+    async fn receipt_sharded(
+        &self,
+        request_data: near_jsonrpc_primitives::types::receipts::RpcReceiptRequest,
+    ) -> Result<Value, RpcError> {
+        self.run_coordinator_request(
+            "EXPERIMENTAL_receipt",
+            request_data,
+            BlockHint::None,
+            ShardHint::None,
+            CoordinatorRequestStrategy::ParallelTakeFirst,
+        )
+        .await
+    }
+
+    /// Run a sharded-rpc coordinator sub-request.
     /// Automatically routes the request to the nodes that will be able to handle it based on the
     /// provided block and shard hints. Automatically takes care of retries.
-    /// Works for simple coordinator sub-queries, meaning queries that can be answered by a single
-    /// node based on its local data. Doesn't handle combining data from multiple nodes.
-    /// This function can be used as a basic building block for writing more complex sharded-rpc handlers.
+    /// The `strategy` parameter controls how nodes are queried:
+    /// - `Sequential`: try nodes one by one (default for targeted shard queries).
+    /// - `ParallelTakeFirst`: fan out to all nodes, return the first success.
+    /// - `ParallelTakeAll`: fan out to all nodes, collect all successes into a JSON array.
     async fn run_coordinator_request(
         &self,
         method: &str,
         params: impl serde::Serialize,
         block_hint: BlockHint,
         shard_hint: ShardHint,
+        strategy: CoordinatorRequestStrategy,
     ) -> Result<Value, RpcError> {
         // Find the nodes that might be able to answer the query.
         let rpc_nodes = {
@@ -1142,25 +1174,107 @@ impl JsonRpcHandler {
             }
         };
 
-        // Try to run the request until it succeeds on one of the nodes.
+        match strategy {
+            CoordinatorRequestStrategy::Sequential => {
+                self.run_coordinator_request_sequential(request, rpc_nodes).await
+            }
+            CoordinatorRequestStrategy::ParallelTakeFirst => {
+                self.run_coordinator_request_parallel_take_first(request, rpc_nodes).await
+            }
+            CoordinatorRequestStrategy::ParallelTakeAll => {
+                self.run_coordinator_request_parallel_take_all(request, rpc_nodes).await
+            }
+        }
+    }
+
+    /// Try nodes one by one in order. Return on first success.
+    async fn run_coordinator_request_sequential(
+        &self,
+        request: Request,
+        rpc_nodes: Vec<RpcNodeHandle>,
+    ) -> Result<Value, RpcError> {
         let mut last_error = None;
         for node in rpc_nodes {
             match self.run_coordinator_request_on_node(request.clone(), node).await {
                 Ok(val) => return Ok(val),
                 Err(e) => {
                     match e.error_struct.as_ref() {
-                        Some(RpcErrorKind::RequestValidationError(_)) => return Err(e), // request invalid, don't retry
+                        Some(RpcErrorKind::RequestValidationError(_)) => return Err(e),
                         Some(RpcErrorKind::HandlerError(_))
                         | Some(RpcErrorKind::InternalError(_))
-                        | None => last_error = Some(e), // Save the error and try another node
+                        | None => last_error = Some(e),
                     };
                 }
             }
         }
-
         Err(last_error.unwrap_or_else(|| {
             RpcError::new_internal_error(None, "no nodes available to handle the query".to_string())
         }))
+    }
+
+    /// Fan out to all nodes concurrently. Return the first success, cancel the rest.
+    async fn run_coordinator_request_parallel_take_first(
+        &self,
+        request: Request,
+        rpc_nodes: Vec<RpcNodeHandle>,
+    ) -> Result<Value, RpcError> {
+        use futures::stream::{FuturesUnordered, StreamExt};
+
+        let futures: FuturesUnordered<_> = rpc_nodes
+            .into_iter()
+            .map(|node| self.run_coordinator_request_on_node(request.clone(), node))
+            .collect();
+        futures::pin_mut!(futures);
+
+        let mut last_error = None;
+        while let Some(result) = futures.next().await {
+            match result {
+                Ok(val) => return Ok(val),
+                Err(e) => match e.error_struct.as_ref() {
+                    Some(RpcErrorKind::RequestValidationError(_)) => return Err(e),
+                    _ => last_error = Some(e),
+                },
+            }
+        }
+        Err(last_error.unwrap_or_else(|| {
+            RpcError::new_internal_error(None, "no nodes available to handle the query".to_string())
+        }))
+    }
+
+    /// Fan out to all nodes concurrently. Collect all successful results into a JSON array.
+    async fn run_coordinator_request_parallel_take_all(
+        &self,
+        request: Request,
+        rpc_nodes: Vec<RpcNodeHandle>,
+    ) -> Result<Value, RpcError> {
+        let results = futures::future::join_all(
+            rpc_nodes
+                .into_iter()
+                .map(|node| self.run_coordinator_request_on_node(request.clone(), node)),
+        )
+        .await;
+
+        let mut successes = Vec::new();
+        let mut last_error = None;
+        for result in results {
+            match result {
+                Ok(val) => successes.push(val),
+                Err(e) => match e.error_struct.as_ref() {
+                    Some(RpcErrorKind::RequestValidationError(_)) => return Err(e),
+                    _ => last_error = Some(e),
+                },
+            }
+        }
+        if successes.is_empty() {
+            Err(last_error.unwrap_or_else(|| {
+                RpcError::new_internal_error(
+                    None,
+                    "no nodes available to handle the query".to_string(),
+                )
+            }))
+        } else {
+            Ok(Value::Array(successes))
+        }
     }
 
     async fn run_coordinator_request_on_node(
