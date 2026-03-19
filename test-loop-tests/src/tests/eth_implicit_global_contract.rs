@@ -112,7 +112,8 @@ fn test_eth_implicit_global_contract_mainnet_upgrade() {
         GlobalContractDeployMode::CodeHash,
     );
     env.validator_runner().run_tx(deploy_tx, Duration::seconds(5));
-    env.test_loop.run_for(Duration::seconds(2));
+    // Make sure that global contract propagation finishes
+    env.validator_runner().run_for_number_of_blocks(2);
 
     // Phase 4: Old account still works after upgrade (rlp_execute transfer).
     let before = env.validator().view_account_query(&receiver).unwrap().amount;
@@ -126,7 +127,6 @@ fn test_eth_implicit_global_contract_mainnet_upgrade() {
         &relayer,
     );
     env.validator_runner().run_tx(tx, Duration::seconds(5));
-    env.test_loop.run_for(Duration::seconds(2));
     let after = env.validator().view_account_query(&receiver).unwrap().amount;
     assert_eq!(after.checked_sub(before).unwrap(), transfer_amount, "old account transfer failed");
 
@@ -137,8 +137,6 @@ fn test_eth_implicit_global_contract_mainnet_upgrade() {
     let create_eth_new_tx =
         env.validator().tx_send_money(&relayer, &eth_new, Balance::from_near(5));
     env.validator_runner().run_tx(create_eth_new_tx, Duration::seconds(5));
-    env.test_loop.run_for(Duration::seconds(2));
-
     assert_eq!(
         env.validator().view_account_query(&eth_new).unwrap().global_contract_hash,
         Some(expected_hash)
@@ -156,7 +154,6 @@ fn test_eth_implicit_global_contract_mainnet_upgrade() {
         &relayer,
     );
     env.validator_runner().run_tx(tx, Duration::seconds(5));
-    env.test_loop.run_for(Duration::seconds(2));
     let after = env.validator().view_account_query(&receiver).unwrap().amount;
     assert_eq!(after.checked_sub(before).unwrap(), transfer_amount, "new account transfer failed");
 }
