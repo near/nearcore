@@ -21,7 +21,7 @@ use near_client_primitives::types::{
     GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetMaintenanceWindows,
     GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProtocolConfig,
     GetProtocolConfigError, GetReceipt, GetReceiptError, GetReceiptToTx, GetReceiptToTxError,
-    GetSplitStorageInfo, GetSplitStorageInfoError, GetStateChangesError,
+    GetReceiptToTxResponse, GetSplitStorageInfo, GetSplitStorageInfoError, GetStateChangesError,
     GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
     GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError,
 };
@@ -1217,13 +1217,13 @@ impl Handler<GetReceipt, Result<Option<ReceiptView>, GetReceiptError>> for ViewC
     }
 }
 
-impl Handler<GetReceiptToTx, Result<(CryptoHash, AccountId), GetReceiptToTxError>>
+impl Handler<GetReceiptToTx, Result<GetReceiptToTxResponse, GetReceiptToTxError>>
     for ViewClientActor
 {
     fn handle(
         &mut self,
         msg: GetReceiptToTx,
-    ) -> Result<(CryptoHash, AccountId), GetReceiptToTxError> {
+    ) -> Result<GetReceiptToTxResponse, GetReceiptToTxError> {
         tracing::debug!(target: "client", ?msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetReceiptToTx"]).start_timer();
@@ -1251,7 +1251,10 @@ impl Handler<GetReceiptToTx, Result<(CryptoHash, AccountId), GetReceiptToTxError
             let ReceiptToTxInfo::V1(v1) = info;
             match v1.origin {
                 ReceiptOrigin::FromTransaction(origin) => {
-                    return Ok((origin.tx_hash, origin.sender_account_id));
+                    return Ok(GetReceiptToTxResponse {
+                        transaction_hash: origin.tx_hash,
+                        sender_account_id: origin.sender_account_id,
+                    });
                 }
                 ReceiptOrigin::FromReceipt(origin) => {
                     current_receipt_id = origin.parent_receipt_id;

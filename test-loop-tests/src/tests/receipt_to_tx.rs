@@ -906,7 +906,7 @@ fn test_receipt_to_tx_depth_exceeded() {
     // = 100 iterations) should succeed since it's exactly at the limit.
     let result = view_client.handle(GetReceiptToTx { receipt_id: receipt_ids[2] });
     assert!(result.is_ok(), "100 hops should succeed, got: {result:?}");
-    let (tx_hash, sender) = result.unwrap();
-    assert_eq!(tx_hash, CryptoHash::hash_bytes(b"tx"));
-    assert_eq!(sender.as_str(), "sender");
+    let response = result.unwrap();
+    assert_eq!(response.transaction_hash, CryptoHash::hash_bytes(b"tx"));
+    assert_eq!(response.sender_account_id.as_str(), "sender");
 }

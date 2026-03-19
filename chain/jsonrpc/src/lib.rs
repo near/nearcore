@@ -17,9 +17,9 @@ use near_client::{
     DebugStatus, GetBlock, GetBlockProof, GetBlockProofResponse, GetChunk, GetClientConfig,
     GetExecutionOutcome, GetExecutionOutcomeResponse, GetGasPrice, GetMaintenanceWindows,
     GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetReceiptToTx,
-    GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
-    ProcessTxRequest, ProcessTxResponse, Query as ClientQuery, QueryError, Status, StatusResponse,
-    TxStatus, TxStatusError,
+    GetReceiptToTxResponse, GetStateChanges, GetStateChangesInBlock, GetValidatorInfo,
+    GetValidatorOrdered, ProcessTxRequest, ProcessTxResponse, Query as ClientQuery, QueryError,
+    Status, StatusResponse, TxStatus, TxStatusError,
 };
 use near_client_primitives::debug::{
     DebugBlockStatusQuery, DebugBlocksStartingMode, DebugStatusResponse,
@@ -348,7 +348,7 @@ pub struct ViewClientSenderForRpc(
     >,
     AsyncSender<GetProtocolConfig, Result<ProtocolConfigView, GetProtocolConfigError>>,
     AsyncSender<GetReceipt, Result<Option<ReceiptView>, GetReceiptError>>,
-    AsyncSender<GetReceiptToTx, Result<(CryptoHash, AccountId), GetReceiptToTxError>>,
+    AsyncSender<GetReceiptToTx, Result<GetReceiptToTxResponse, GetReceiptToTxError>>,
     AsyncSender<GetSplitStorageInfo, Result<SplitStorageInfoView, GetSplitStorageInfoError>>,
     AsyncSender<GetStateChanges, Result<StateChangesView, GetStateChangesError>>,
     AsyncSender<GetStateChangesInBlock, Result<StateChangesKindsView, GetStateChangesError>>,
@@ -1515,12 +1515,12 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::receipts::RpcReceiptToTxResponse,
         near_jsonrpc_primitives::types::receipts::RpcReceiptToTxError,
     > {
-        let (transaction_hash, sender_account_id) = self
+        let response = self
             .view_client_send(GetReceiptToTx { receipt_id: request.receipt_reference.receipt_id })
             .await?;
         Ok(near_jsonrpc_primitives::types::receipts::RpcReceiptToTxResponse {
-            transaction_hash,
-            sender_account_id,
+            transaction_hash: response.transaction_hash,
+            sender_account_id: response.sender_account_id,
         })
     }
 
