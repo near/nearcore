@@ -932,12 +932,14 @@ impl ForkNetworkCommand {
                 config.num_chunk_validator_seats = *num_seats;
             }
             if let Some(shard_layout) = shard_layout_override {
-                let num_shards = shard_layout.num_shards() as usize;
-                config.shard_layout_config =
-                    ShardLayoutConfig::Static { shard_layout: shard_layout.clone() };
-                config.num_block_producer_seats_per_shard =
-                    vec![config.num_block_producer_seats; num_shards];
-                config.avg_hidden_validator_seats_per_shard = vec![0; num_shards];
+                if config.static_shard_layout().is_some() {
+                    let num_shards = shard_layout.num_shards() as usize;
+                    config.shard_layout_config =
+                        ShardLayoutConfig::Static { shard_layout: shard_layout.clone() };
+                    config.num_block_producer_seats_per_shard =
+                        vec![config.num_block_producer_seats; num_shards];
+                    config.avg_hidden_validator_seats_per_shard = vec![0; num_shards];
+                }
             }
             new_epoch_configs.insert(version, Arc::new(config));
         }
