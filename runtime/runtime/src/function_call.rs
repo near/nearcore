@@ -56,6 +56,8 @@ pub(crate) fn action_function_call(
         code_hash,
         account_contract.as_ref(),
         apply_state.apply_reason.clone(),
+        config.wasm_config.eth_implicit_global_contract,
+        &epoch_info_provider.chain_id(),
     )?;
 
     #[cfg(feature = "test_features")]
