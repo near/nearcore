@@ -5,17 +5,19 @@ use crate::contract::ContractStorage;
 use crate::trie::TrieAccess;
 use crate::trie::{KeyLookupMode, TrieChanges};
 use near_primitives::account::AccountContract;
+use near_primitives::account::id::AccountType;
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::global_contract::ContractIsLocalError;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
-use near_primitives::trie_key::{SmallKeyVec, TrieKey};
+use near_primitives::trie_key::{GlobalContractCodeIdentifier, SmallKeyVec, TrieKey};
 use near_primitives::types::{
     AccountId, RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause,
     StateRoot,
 };
 use near_vm_runner::ContractCode;
+use near_wallet_contract::{eth_wallet_global_contract_hash, wallet_contract};
 use std::collections::BTreeMap;
 
 mod iterator;
@@ -318,6 +320,8 @@ impl TrieUpdate {
         code_hash: CryptoHash,
         account_contract: &AccountContract,
         apply_reason: ApplyChunkReason,
+        eth_implicit_global_contract: bool,
+        chain_id: &str,
     ) -> Result<(), StorageError> {
         // The recording of contracts when they are excluded from the witness are only for
         // distributing them to the validators, and not needed for validating the chunks, thus we
@@ -330,11 +334,34 @@ impl TrieUpdate {
         // deployed to the given account. This avoids recording contracts that do not exist or are
         // newly-deployed to the account. Note that the check below to see if the contract exists
         // has no side effects (not charging gas or recording trie nodes)
-        let trie_key = match GlobalContractIdentifier::try_from(account_contract.clone()) {
-            Err(ContractIsLocalError::NotDeployed) => return Ok(()),
-            Err(ContractIsLocalError::Deployed(_)) => TrieKey::ContractCode { account_id },
-            Ok(identifier) => TrieKey::GlobalContractCode { identifier: identifier.into() },
-        };
+        //
+        // For old ETH implicit accounts with wallet contract magic bytes as their code_hash,
+        // the VM uses the global wallet contract hash (not the magic bytes hash). We look up the
+        // global contract in the trie instead of the local one, so that we record the correct
+        // hash for distribution to validators.
+        let (trie_key, expected_hash) =
+            match GlobalContractIdentifier::try_from(account_contract.clone()) {
+                Err(ContractIsLocalError::NotDeployed) => return Ok(()),
+                Err(ContractIsLocalError::Deployed(_)) => {
+                    if eth_implicit_global_contract
+                        && account_id.get_account_type() == AccountType::EthImplicitAccount
+                        && wallet_contract(code_hash).is_some()
+                    {
+                        let global_hash = eth_wallet_global_contract_hash(chain_id);
+                        (
+                            TrieKey::GlobalContractCode {
+                                identifier: GlobalContractCodeIdentifier::CodeHash(global_hash),
+                            },
+                            global_hash,
+                        )
+                    } else {
+                        (TrieKey::ContractCode { account_id }, code_hash)
+                    }
+                }
+                Ok(identifier) => {
+                    (TrieKey::GlobalContractCode { identifier: identifier.into() }, code_hash)
+                }
+            };
         let mut key = SmallKeyVec::new_const();
         trie_key.append_into(&mut key);
         let contract_ref = self
@@ -346,9 +373,9 @@ impl TrieUpdate {
                 if matches!(err, StorageError::MissingTrieValue(_)) { Ok(None) } else { Err(err) }
             })?;
         let contract_exists =
-            contract_ref.is_some_and(|value_ref| value_ref.value_hash() == code_hash);
+            contract_ref.is_some_and(|value_ref| value_ref.value_hash() == expected_hash);
         if contract_exists {
-            self.contract_storage.record_call(code_hash);
+            self.contract_storage.record_call(expected_hash);
         }
         Ok(())
     }
