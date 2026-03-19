@@ -334,7 +334,7 @@ mod tests {
     use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
     use near_o11y::testonly::init_test_logger;
     use near_primitives::hash::CryptoHash;
-    use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
+    use near_primitives::sharding::{EncodedShardChunkBody, ShardChunkHeader, ShardChunkHeaderV3};
     use near_primitives::state::PartialState;
     use near_primitives::stateless_validation::ChunkProductionKey;
     use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateTransition;
@@ -573,6 +573,7 @@ mod tests {
             vec![],
             ChunkExecutionResultHash(CryptoHash::default()),
             CryptoHash::default(),
+            None,
         );
 
         let result = spice_pre_validate_chunk_state_witness(
@@ -618,6 +619,7 @@ mod tests {
             test_chain.transactions(),
             ChunkExecutionResultHash(CryptoHash::default()),
             CryptoHash::default(),
+            None,
         );
 
         let result = spice_pre_validate_chunk_state_witness(
@@ -821,6 +823,7 @@ mod tests {
         transactions: Vec<SignedTransaction>,
         execution_result_hash: ChunkExecutionResultHash,
         contract_accesses_hash: CryptoHash,
+        invalid_chunk_proof: Option<Box<EncodedShardChunkBody>>,
     }
 
     macro_rules! builder_setter {
@@ -839,6 +842,7 @@ mod tests {
         builder_setter!(applied_receipts_hash, CryptoHash);
         builder_setter!(transactions, Vec<SignedTransaction>);
         builder_setter!(execution_result_hash, ChunkExecutionResultHash);
+        builder_setter!(invalid_chunk_proof, Option<Box<EncodedShardChunkBody>>);
 
         fn from_default(default: SpiceChunkStateWitness) -> Self {
             Self {
@@ -849,6 +853,7 @@ mod tests {
                 transactions: default.transactions().to_vec(),
                 execution_result_hash: default.execution_result_hash().clone(),
                 contract_accesses_hash: *default.contract_accesses_hash(),
+                invalid_chunk_proof: default.invalid_chunk_proof().map(|b| Box::new(b.clone())),
             }
         }
 
@@ -861,6 +866,7 @@ mod tests {
                 self.transactions,
                 self.execution_result_hash,
                 self.contract_accesses_hash,
+                self.invalid_chunk_proof,
             )
         }
     }
@@ -1047,6 +1053,7 @@ mod tests {
                 transactions,
                 execution_result.compute_hash(),
                 CryptoHash::default(),
+                None,
             )
         }
 
@@ -1068,6 +1075,7 @@ mod tests {
                 transactions,
                 execution_result.compute_hash(),
                 CryptoHash::default(),
+                None,
             )
         }
 
