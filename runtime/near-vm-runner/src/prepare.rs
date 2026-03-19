@@ -183,8 +183,8 @@ mod tests {
     /// boundary, so the instrumented output is much larger than the input.
     fn contract_with_many_blocks(num_functions: u32) -> Vec<u8> {
         use wasm_encoder::{
-            CodeSection, ExportKind, ExportSection, Function, FunctionSection, Instruction,
-            Module, TypeSection, ValType,
+            CodeSection, ExportKind, ExportSection, Function, FunctionSection, Instruction, Module,
+            TypeSection, ValType,
         };
         let mut module = Module::new();
         let mut types = TypeSection::new();

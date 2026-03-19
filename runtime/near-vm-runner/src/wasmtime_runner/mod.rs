@@ -25,8 +25,8 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::mpsc;
-use std::thread;
 use std::sync::{Arc, LazyLock};
+use std::thread;
 use wasmtime::{
     CallHook, Engine, Extern, ExternType, Instance, InstanceAllocationStrategy, InstancePre,
     Linker, Memory, Module, ModuleExport, PoolingAllocationConfig, ResourcesRequired, Store,
@@ -486,14 +486,15 @@ impl WasmtimeVM {
     /// Run `precompile_module` with a panic guard so that a Cranelift panic
     /// does not crash the node. The compilation runs on a dedicated thread to
     /// isolate the panic; the caller blocks until it finishes.
-    fn precompile_catching_panics(&self, prepared_code: &[u8]) -> Result<Vec<u8>, CompilationError> {
+    fn precompile_catching_panics(
+        &self,
+        prepared_code: &[u8],
+    ) -> Result<Vec<u8>, CompilationError> {
         let engine = self.engine.clone();
         let code = prepared_code.to_vec();
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
-            let result = catch_unwind(AssertUnwindSafe(|| {
-                engine.precompile_module(&code)
-            }));
+            let result = catch_unwind(AssertUnwindSafe(|| engine.precompile_module(&code)));
             let _ = tx.send(result);
         });
 
@@ -510,7 +511,7 @@ impl WasmtimeVM {
                 let msg = match panic_err.downcast_ref::<String>() {
                     Some(s) => s.clone(),
                     None => match panic_err.downcast_ref::<&str>() {
-                        Some(s) => s.to_string(),
+                        Some(s) => (*s).to_string(),
                         None => "unknown panic".to_string(),
                     },
                 };
