@@ -1,14 +1,18 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_account_id;
+use near_async::messaging::Handler;
 use near_async::time::Duration;
+use near_client_primitives::types::{GetReceiptToTx, GetReceiptToTxError};
+use near_jsonrpc_primitives::types::receipts::{ReceiptReference, RpcReceiptToTxRequest};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ProcessedReceiptMetadata, ReceiptOrigin, ReceiptSource, ReceiptToTxInfo,
+    ProcessedReceiptMetadata, ReceiptOrigin, ReceiptOriginReceipt, ReceiptOriginTransaction,
+    ReceiptSource, ReceiptToTxInfo, ReceiptToTxInfoV1,
 };
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{Balance, Gas, ShardId};
+use near_primitives::types::{AccountId, Balance, Gas, ShardId};
 use near_store::DBCol;
 
 const EPOCH_LENGTH: u64 = 5;
@@ -430,4 +434,479 @@ fn test_refund_receipt_has_receipt_to_tx() {
         }
         other => panic!("expected FromReceipt origin for refund receipt, got {other:?}"),
     }
+}
+
+/// RPC: Send a transaction, get the receipt_id from the outcome, call
+/// EXPERIMENTAL_receipt_to_tx, and verify the response matches.
+#[test]
+fn test_receipt_to_tx_rpc_direct() {
+    init_test_logger();
+
+    let user_account = create_account_id("account0");
+
+    let mut env = TestLoopBuilder::new()
+        .enable_rpc()
+        .add_user_account(&user_account, Balance::from_near(1_000_000))
+        .epoch_length(EPOCH_LENGTH)
+        .build();
+
+    let signer = create_user_test_signer(&user_account);
+    let tx = SignedTransaction::send_money(
+        1,
+        user_account.clone(),
+        user_account.clone(),
+        &signer,
+        Balance::from_yoctonear(100),
+        env.rpc_node().head().last_block_hash,
+    );
+    let tx_hash = tx.get_hash();
+    let outcome = env.rpc_runner().execute_tx(tx, Duration::seconds(10)).unwrap();
+    let receipt_id = outcome.transaction_outcome.outcome.receipt_ids[0];
+
+    let response = env
+        .rpc_runner()
+        .run_jsonrpc_query(
+            |client| {
+                client.EXPERIMENTAL_receipt_to_tx(RpcReceiptToTxRequest {
+                    receipt_reference: ReceiptReference { receipt_id },
+                })
+            },
+            Duration::seconds(5),
+        )
+        .unwrap();
+
+    assert_eq!(response.transaction_hash, tx_hash);
+    assert_eq!(response.sender_account_id, user_account);
+}
+
+/// RPC: Deploy a contract, call a method that generates a refund receipt
+/// (depth=2: tx → action receipt → refund receipt). Query the refund
+/// receipt_id and verify it resolves back to the original transaction.
+#[test]
+fn test_receipt_to_tx_rpc_chain_walk() {
+    init_test_logger();
+
+    let user_account = create_account_id("account0");
+
+    let min_gas_price = Balance::from_yoctonear(100_000_000);
+    let mut env = TestLoopBuilder::new()
+        .enable_rpc()
+        .add_user_account(&user_account, Balance::from_near(1_000_000))
+        .epoch_length(EPOCH_LENGTH)
+        .gas_prices(min_gas_price, min_gas_price)
+        .build();
+
+    let signer = create_user_test_signer(&user_account);
+
+    // Deploy the test contract.
+    let deploy_tx = SignedTransaction::deploy_contract(
+        1,
+        &user_account,
+        near_test_contracts::rs_contract().to_vec(),
+        &signer,
+        env.rpc_node().head().last_block_hash,
+    );
+    env.rpc_runner().run_tx(deploy_tx, Duration::seconds(5));
+
+    // Call a cheap method with 300 TGas — most gas is unused, generating a refund.
+    let call_tx = SignedTransaction::call(
+        2,
+        user_account.clone(),
+        user_account.clone(),
+        &signer,
+        Balance::ZERO,
+        "log_something".to_owned(),
+        vec![],
+        Gas::from_teragas(300),
+        env.rpc_node().head().last_block_hash,
+    );
+    let call_tx_hash = call_tx.get_hash();
+    let outcome = env.rpc_runner().execute_tx(call_tx, Duration::seconds(10)).unwrap();
+
+    // Find the refund receipt: the action receipt's child.
+    let action_receipt_id = outcome.transaction_outcome.outcome.receipt_ids[0];
+    let action_outcome = outcome
+        .receipts_outcome
+        .iter()
+        .find(|r| r.id == action_receipt_id)
+        .expect("action receipt outcome should exist");
+    assert!(
+        !action_outcome.outcome.receipt_ids.is_empty(),
+        "action receipt should have spawned a refund receipt"
+    );
+    let refund_receipt_id = action_outcome.outcome.receipt_ids[0];
+
+    // Query the refund receipt — should resolve through the chain back to the tx.
+    let response = env
+        .rpc_runner()
+        .run_jsonrpc_query(
+            |client| {
+                client.EXPERIMENTAL_receipt_to_tx(RpcReceiptToTxRequest {
+                    receipt_reference: ReceiptReference { receipt_id: refund_receipt_id },
+                })
+            },
+            Duration::seconds(5),
+        )
+        .unwrap();
+
+    assert_eq!(response.transaction_hash, call_tx_hash);
+    assert_eq!(response.sender_account_id, user_account);
+}
+
+/// RPC: Query a random receipt_id that doesn't exist. Verify error.
+#[test]
+fn test_receipt_to_tx_rpc_unknown_receipt() {
+    init_test_logger();
+
+    let mut env = TestLoopBuilder::new().enable_rpc().epoch_length(EPOCH_LENGTH).build();
+
+    let fake_receipt_id = CryptoHash::hash_bytes(b"nonexistent");
+    let result = env.rpc_runner().run_jsonrpc_query(
+        |client| {
+            client.EXPERIMENTAL_receipt_to_tx(RpcReceiptToTxRequest {
+                receipt_reference: ReceiptReference { receipt_id: fake_receipt_id },
+            })
+        },
+        Duration::seconds(5),
+    );
+
+    let err = result.unwrap_err();
+    let err_str = format!("{:?}", err);
+    assert!(err_str.contains("UNKNOWN_RECEIPT"), "expected UNKNOWN_RECEIPT error, got: {err_str}");
+}
+
+/// RPC: When save_receipt_to_tx=false, verify that the endpoint returns
+/// an Unsupported error.
+#[test]
+fn test_receipt_to_tx_rpc_unsupported_disabled() {
+    init_test_logger();
+
+    let mut env = TestLoopBuilder::new()
+        .enable_rpc()
+        .epoch_length(EPOCH_LENGTH)
+        .config_modifier(|config, _| {
+            config.save_receipt_to_tx = false;
+        })
+        .build();
+
+    let fake_receipt_id = CryptoHash::hash_bytes(b"any");
+    let result = env.rpc_runner().run_jsonrpc_query(
+        |client| {
+            client.EXPERIMENTAL_receipt_to_tx(RpcReceiptToTxRequest {
+                receipt_reference: ReceiptReference { receipt_id: fake_receipt_id },
+            })
+        },
+        Duration::seconds(5),
+    );
+
+    let err = result.unwrap_err();
+    let err_str = format!("{:?}", err);
+    assert!(err_str.contains("UNSUPPORTED"), "expected UNSUPPORTED error, got: {err_str}");
+    assert!(
+        err_str.contains("save_receipt_to_tx"),
+        "error should mention save_receipt_to_tx, got: {err_str}"
+    );
+}
+
+/// When tracked_shards_config is not AllShards, the handler should return
+/// Unsupported. Since enable_rpc() forces AllShards on the RPC node, we
+/// send the GetReceiptToTx message directly to a validator node's
+/// ViewClientActor which has partial shard tracking.
+#[test]
+fn test_receipt_to_tx_unsupported_partial_tracking() {
+    init_test_logger();
+
+    let mut env = TestLoopBuilder::new().epoch_length(EPOCH_LENGTH).build();
+
+    // The validator node has TrackedShardsConfig::NoShards (single-shard tracking),
+    // not AllShards. Send GetReceiptToTx directly to its ViewClientActor.
+    let handle = env.node_datas[0].view_client_sender.actor_handle();
+    let view_client: &mut near_client::ViewClientActor = env.test_loop.data.get_mut(&handle);
+    let result = view_client.handle(GetReceiptToTx { receipt_id: CryptoHash::hash_bytes(b"any") });
+
+    match result {
+        Err(GetReceiptToTxError::Unsupported(msg)) => {
+            assert!(msg.contains("all shards"), "error should mention all shards, got: {msg}");
+        }
+        other => panic!("expected Unsupported error, got: {other:?}"),
+    }
+}
+
+/// RPC: Insert synthetic ReceiptToTx entries forming a chain of depth 4
+/// (receipt_0 → receipt_1 → receipt_2 → receipt_3 → tx) into the RPC node's
+/// store, then query receipt_0 through the RPC endpoint. This validates
+/// the recursive loop beyond just the first parent hop.
+///
+/// Natural receipt chains deeper than 2 are hard to capture in
+/// FinalExecutionOutcomeView (promise callbacks not returned via
+/// promise_return aren't tracked). Synthetic entries let us test the loop
+/// cleanly.
+#[test]
+fn test_receipt_to_tx_rpc_deep_chain_walk() {
+    init_test_logger();
+
+    let mut env = TestLoopBuilder::new().enable_rpc().epoch_length(EPOCH_LENGTH).build();
+
+    let tx_hash = CryptoHash::hash_bytes(b"deep_tx");
+    let sender: AccountId = "sender.near".parse().unwrap();
+
+    // Build a chain of 4 receipts: receipt_0 → receipt_1 → receipt_2 → receipt_3 → tx.
+    let receipt_ids: Vec<CryptoHash> =
+        (0..4).map(|i| CryptoHash::hash_bytes(&(i as u32).to_le_bytes())).collect();
+
+    let store = env.rpc_node().store();
+    let mut store_update = store.store_update();
+
+    // Terminal node: receipt_3 → FromTransaction.
+    store_update.insert_ser(
+        DBCol::ReceiptToTx,
+        receipt_ids[3].as_ref(),
+        &ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+            origin: ReceiptOrigin::FromTransaction(ReceiptOriginTransaction {
+                tx_hash,
+                sender_account_id: sender.clone(),
+            }),
+            receiver_account_id: sender.clone(),
+            shard_id: ShardId::new(0),
+        }),
+    );
+
+    // Intermediate nodes: receipt_i → FromReceipt(receipt_{i+1}).
+    for i in 0..3 {
+        store_update.insert_ser(
+            DBCol::ReceiptToTx,
+            receipt_ids[i].as_ref(),
+            &ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+                origin: ReceiptOrigin::FromReceipt(ReceiptOriginReceipt {
+                    parent_receipt_id: receipt_ids[i + 1],
+                    parent_predecessor_id: sender.clone(),
+                }),
+                receiver_account_id: sender.clone(),
+                shard_id: ShardId::new(0),
+            }),
+        );
+    }
+
+    store_update.commit();
+
+    // Query receipt_0 via RPC — should walk 4 hops to resolve back to tx_hash.
+    let response = env
+        .rpc_runner()
+        .run_jsonrpc_query(
+            |client| {
+                client.EXPERIMENTAL_receipt_to_tx(RpcReceiptToTxRequest {
+                    receipt_reference: ReceiptReference { receipt_id: receipt_ids[0] },
+                })
+            },
+            Duration::seconds(5),
+        )
+        .unwrap();
+
+    assert_eq!(response.transaction_hash, tx_hash);
+    assert_eq!(response.sender_account_id, sender);
+}
+
+/// Handler-level test: construct a receipt chain in the store where a parent
+/// is missing mid-walk. Verify that UnknownReceipt is returned with the
+/// missing parent's receipt_id (not the originally queried receipt).
+/// This locks in the semantics: both start-missing and parent-missing
+/// map to UnknownReceipt with the specific receipt_id that was not found.
+#[test]
+fn test_receipt_to_tx_unknown_parent_mid_walk() {
+    init_test_logger();
+
+    let mut env = TestLoopBuilder::new().epoch_length(EPOCH_LENGTH).track_all_shards().build();
+
+    let child_receipt_id = CryptoHash::hash_bytes(b"child");
+    let missing_parent_id = CryptoHash::hash_bytes(b"missing_parent");
+
+    // Write a single ReceiptToTx entry that points to a parent that doesn't exist.
+    let store = env.validator().store();
+    let mut store_update = store.store_update();
+    store_update.insert_ser(
+        DBCol::ReceiptToTx,
+        child_receipt_id.as_ref(),
+        &ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+            origin: ReceiptOrigin::FromReceipt(ReceiptOriginReceipt {
+                parent_receipt_id: missing_parent_id,
+                parent_predecessor_id: "system".parse().unwrap(),
+            }),
+            receiver_account_id: "test".parse().unwrap(),
+            shard_id: ShardId::new(0),
+        }),
+    );
+    store_update.commit();
+
+    // Query the child receipt — the handler should walk to missing_parent and fail.
+    let handle = env.node_datas[0].view_client_sender.actor_handle();
+    let view_client: &mut near_client::ViewClientActor = env.test_loop.data.get_mut(&handle);
+    let result = view_client.handle(GetReceiptToTx { receipt_id: child_receipt_id });
+
+    match result {
+        Err(GetReceiptToTxError::UnknownReceipt(id)) => {
+            assert_eq!(
+                id, missing_parent_id,
+                "error should report the missing parent, not the originally queried receipt"
+            );
+        }
+        other => panic!("expected UnknownReceipt for missing parent, got: {other:?}"),
+    }
+}
+
+/// RPC cross-shard chain-walk: 2-shard setup, send a cross-shard transfer,
+/// query the child receipt on the receiving shard, verify it resolves
+/// back to the original transaction.
+#[test]
+fn test_receipt_to_tx_rpc_cross_shard() {
+    init_test_logger();
+
+    // Two accounts that will land on different shards with multi_shard(2).
+    // multi_shard(2) creates boundary at "test1", so:
+    //   shard 0: accounts < "test1" (e.g. "account0")
+    //   shard 1: accounts >= "test1" (e.g. "test1", "validator0")
+    // We use create_account_id which creates "accountN" names.
+    let sender_account = create_account_id("account0");
+    let receiver_account: AccountId = "test1".parse().unwrap();
+
+    let min_gas_price = Balance::from_yoctonear(100_000_000);
+    let mut env = TestLoopBuilder::new()
+        .enable_rpc()
+        .num_shards(2)
+        .add_user_account(&sender_account, Balance::from_near(1_000_000))
+        .add_user_account(&receiver_account, Balance::from_near(1_000_000))
+        .epoch_length(EPOCH_LENGTH)
+        .gas_prices(min_gas_price, min_gas_price)
+        .build();
+
+    let signer = create_user_test_signer(&sender_account);
+
+    // Send money cross-shard: sender_account (shard 0) → receiver_account (shard 1).
+    let tx = SignedTransaction::send_money(
+        1,
+        sender_account.clone(),
+        receiver_account,
+        &signer,
+        Balance::from_yoctonear(100),
+        env.rpc_node().head().last_block_hash,
+    );
+    let tx_hash = tx.get_hash();
+    let outcome = env.rpc_runner().execute_tx(tx, Duration::seconds(10)).unwrap();
+
+    // The tx creates an action receipt that crosses shards.
+    let receipt_id = outcome.transaction_outcome.outcome.receipt_ids[0];
+
+    // Query via RPC — should resolve the cross-shard receipt back to the original tx.
+    let response = env
+        .rpc_runner()
+        .run_jsonrpc_query(
+            |client| {
+                client.EXPERIMENTAL_receipt_to_tx(RpcReceiptToTxRequest {
+                    receipt_reference: ReceiptReference { receipt_id },
+                })
+            },
+            Duration::seconds(5),
+        )
+        .unwrap();
+
+    assert_eq!(response.transaction_hash, tx_hash);
+    assert_eq!(response.sender_account_id, sender_account);
+
+    // Also verify a refund receipt (depth 2 cross-shard) resolves correctly.
+    let action_outcome = outcome
+        .receipts_outcome
+        .iter()
+        .find(|r| r.id == receipt_id)
+        .expect("action receipt outcome should exist");
+    if !action_outcome.outcome.receipt_ids.is_empty() {
+        let refund_receipt_id = action_outcome.outcome.receipt_ids[0];
+        let refund_response = env
+            .rpc_runner()
+            .run_jsonrpc_query(
+                |client| {
+                    client.EXPERIMENTAL_receipt_to_tx(RpcReceiptToTxRequest {
+                        receipt_reference: ReceiptReference { receipt_id: refund_receipt_id },
+                    })
+                },
+                Duration::seconds(5),
+            )
+            .unwrap();
+        assert_eq!(refund_response.transaction_hash, tx_hash);
+        assert_eq!(refund_response.sender_account_id, sender_account);
+    }
+}
+
+/// Handler-level test: write synthetic ReceiptToTx rows forming a chain of
+/// 101 FromReceipt entries (exceeding the MAX_DEPTH=100 limit). Verify
+/// that DepthExceeded is returned with the originally queried receipt_id.
+#[test]
+fn test_receipt_to_tx_depth_exceeded() {
+    init_test_logger();
+
+    let mut env = TestLoopBuilder::new().epoch_length(EPOCH_LENGTH).track_all_shards().build();
+
+    let store = env.validator().store();
+    let mut store_update = store.store_update();
+
+    // Build a chain of 102 receipt IDs: receipt_0 → receipt_1 → ... → receipt_101.
+    // receipt_0 through receipt_100 are FromReceipt pointing to the next.
+    // receipt_101 is FromTransaction (the terminal node — but we'll never reach it).
+    let chain_len = 102usize;
+    let receipt_ids: Vec<CryptoHash> =
+        (0..chain_len).map(|i| CryptoHash::hash_bytes(&(i as u32).to_le_bytes())).collect();
+
+    // Write the terminal node (receipt_101 → tx).
+    store_update.insert_ser(
+        DBCol::ReceiptToTx,
+        receipt_ids[chain_len - 1].as_ref(),
+        &ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+            origin: ReceiptOrigin::FromTransaction(ReceiptOriginTransaction {
+                tx_hash: CryptoHash::hash_bytes(b"tx"),
+                sender_account_id: "sender".parse().unwrap(),
+            }),
+            receiver_account_id: "receiver".parse().unwrap(),
+            shard_id: ShardId::new(0),
+        }),
+    );
+
+    // Write each intermediate node (receipt_i → receipt_{i+1}).
+    for i in 0..chain_len - 1 {
+        store_update.insert_ser(
+            DBCol::ReceiptToTx,
+            receipt_ids[i].as_ref(),
+            &ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+                origin: ReceiptOrigin::FromReceipt(ReceiptOriginReceipt {
+                    parent_receipt_id: receipt_ids[i + 1],
+                    parent_predecessor_id: "system".parse().unwrap(),
+                }),
+                receiver_account_id: "receiver".parse().unwrap(),
+                shard_id: ShardId::new(0),
+            }),
+        );
+    }
+
+    store_update.commit();
+
+    // Query receipt_0 — needs 101 hops to reach the tx, exceeding MAX_DEPTH=100.
+    let handle = env.node_datas[0].view_client_sender.actor_handle();
+    let view_client: &mut near_client::ViewClientActor = env.test_loop.data.get_mut(&handle);
+    let result = view_client.handle(GetReceiptToTx { receipt_id: receipt_ids[0] });
+
+    match result {
+        Err(GetReceiptToTxError::DepthExceeded { receipt_id, limit }) => {
+            assert_eq!(
+                receipt_id, receipt_ids[0],
+                "error should report the originally queried receipt"
+            );
+            assert_eq!(limit, 100, "limit should be MAX_DEPTH=100");
+        }
+        other => panic!("expected DepthExceeded error, got: {other:?}"),
+    }
+
+    // Sanity check: querying receipt_2 (99 FromReceipt hops + 1 terminal lookup
+    // = 100 iterations) should succeed since it's exactly at the limit.
+    let result = view_client.handle(GetReceiptToTx { receipt_id: receipt_ids[2] });
+    assert!(result.is_ok(), "100 hops should succeed, got: {result:?}");
+    let (tx_hash, sender) = result.unwrap();
+    assert_eq!(tx_hash, CryptoHash::hash_bytes(b"tx"));
+    assert_eq!(sender.as_str(), "sender");
 }

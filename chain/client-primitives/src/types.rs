@@ -888,6 +888,29 @@ impl From<near_chain_primitives::Error> for GetReceiptError {
 }
 
 #[derive(Debug)]
+pub struct GetReceiptToTx {
+    pub receipt_id: CryptoHash,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetReceiptToTxError {
+    #[error("Receipt with id {0} has never been observed on this node")]
+    UnknownReceipt(CryptoHash),
+    #[error("depth limit {limit} exceeded when resolving receipt {receipt_id}")]
+    DepthExceeded { receipt_id: CryptoHash, limit: u32 },
+    #[error("this node does not support receipt-to-tx lookup: {0}")]
+    Unsupported(String),
+    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
+    // expected cases, we cannot statically guarantee that no other errors will be returned
+    // in the future.
+    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
+    #[error(
+        "It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {0}"
+    )]
+    Unreachable(String),
+}
+
+#[derive(Debug)]
 pub struct GetProtocolConfig(pub BlockReference);
 
 #[derive(thiserror::Error, Debug)]

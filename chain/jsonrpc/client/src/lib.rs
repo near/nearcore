@@ -328,6 +328,14 @@ impl JsonRpcClient {
     }
 
     #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_receipt_to_tx(
+        &self,
+        request: near_jsonrpc_primitives::types::receipts::RpcReceiptToTxRequest,
+    ) -> RpcRequest<near_jsonrpc_primitives::types::receipts::RpcReceiptToTxResponse> {
+        call_method(&self.transport, "EXPERIMENTAL_receipt_to_tx", request)
+    }
+
+    #[allow(non_snake_case)]
     pub fn EXPERIMENTAL_protocol_config(
         &self,
         request: near_jsonrpc_primitives::types::config::RpcProtocolConfigRequest,

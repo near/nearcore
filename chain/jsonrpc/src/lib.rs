@@ -16,10 +16,10 @@ use near_chain_configs::{ClientConfig, GenesisConfig, ProtocolConfigView};
 use near_client::{
     DebugStatus, GetBlock, GetBlockProof, GetBlockProofResponse, GetChunk, GetClientConfig,
     GetExecutionOutcome, GetExecutionOutcomeResponse, GetGasPrice, GetMaintenanceWindows,
-    GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetStateChanges,
-    GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, ProcessTxRequest,
-    ProcessTxResponse, Query as ClientQuery, QueryError, Status, StatusResponse, TxStatus,
-    TxStatusError,
+    GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetReceiptToTx,
+    GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
+    ProcessTxRequest, ProcessTxResponse, Query as ClientQuery, QueryError, Status, StatusResponse,
+    TxStatus, TxStatusError,
 };
 use near_client_primitives::debug::{
     DebugBlockStatusQuery, DebugBlocksStartingMode, DebugStatusResponse,
@@ -27,9 +27,9 @@ use near_client_primitives::debug::{
 use near_client_primitives::types::{
     BlockNotificationMessage, GetBlockError, GetBlockProofError, GetChunkError,
     GetClientConfigError, GetExecutionOutcomeError, GetGasPriceError, GetMaintenanceWindowsError,
-    GetNextLightClientBlockError, GetProtocolConfigError, GetReceiptError, GetSplitStorageInfo,
-    GetSplitStorageInfoError, GetStateChangesError, GetValidatorInfoError, NetworkInfoResponse,
-    StatusError,
+    GetNextLightClientBlockError, GetProtocolConfigError, GetReceiptError, GetReceiptToTxError,
+    GetSplitStorageInfo, GetSplitStorageInfoError, GetStateChangesError, GetValidatorInfoError,
+    NetworkInfoResponse, StatusError,
 };
 pub use near_jsonrpc_client_internal as client;
 use near_jsonrpc_client_internal::SHARDED_RPC_COORDINATOR_HEADER;
@@ -348,6 +348,7 @@ pub struct ViewClientSenderForRpc(
     >,
     AsyncSender<GetProtocolConfig, Result<ProtocolConfigView, GetProtocolConfigError>>,
     AsyncSender<GetReceipt, Result<Option<ReceiptView>, GetReceiptError>>,
+    AsyncSender<GetReceiptToTx, Result<(CryptoHash, AccountId), GetReceiptToTxError>>,
     AsyncSender<GetSplitStorageInfo, Result<SplitStorageInfoView, GetSplitStorageInfoError>>,
     AsyncSender<GetStateChanges, Result<StateChangesView, GetStateChangesError>>,
     AsyncSender<GetStateChangesInBlock, Result<StateChangesKindsView, GetStateChangesError>>,
@@ -577,6 +578,9 @@ impl JsonRpcHandler {
             }
             "EXPERIMENTAL_receipt" => {
                 process_method_call(request, |params| self.receipt(params)).await
+            }
+            "EXPERIMENTAL_receipt_to_tx" => {
+                process_method_call(request, |params| self.receipt_to_tx(params)).await
             }
             "EXPERIMENTAL_tx_status" => {
                 process_method_call(request, |params| self.tx_status_common(params, true)).await
@@ -1502,6 +1506,22 @@ impl JsonRpcHandler {
                 })
             }
         }
+    }
+
+    async fn receipt_to_tx(
+        &self,
+        request: near_jsonrpc_primitives::types::receipts::RpcReceiptToTxRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::receipts::RpcReceiptToTxResponse,
+        near_jsonrpc_primitives::types::receipts::RpcReceiptToTxError,
+    > {
+        let (transaction_hash, sender_account_id) = self
+            .view_client_send(GetReceiptToTx { receipt_id: request.receipt_reference.receipt_id })
+            .await?;
+        Ok(near_jsonrpc_primitives::types::receipts::RpcReceiptToTxResponse {
+            transaction_hash,
+            sender_account_id,
+        })
     }
 
     async fn changes_in_block(
