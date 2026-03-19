@@ -18,6 +18,10 @@ impl Client {
         let prev_block = self.chain.get_block(block.header().prev_hash())?;
         let prev_block_chunks = prev_block.chunks();
         for (shard_index, chunk) in block.chunks().iter_new().enumerate() {
+            if !self.shard_tracker.cares_about_shard(block.header().prev_hash(), chunk.shard_id()) {
+                continue;
+            }
+
             let chunk = get_chunk_clone_from_header(&self.chain.chain_store.chunk_store(), chunk)?;
             // TODO(resharding) This doesn't work if shard layout changes.
             let prev_chunk_header = prev_block_chunks.get(shard_index).unwrap();
