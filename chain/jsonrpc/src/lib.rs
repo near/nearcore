@@ -43,6 +43,10 @@ use near_jsonrpc_primitives::types::call_function::{
 use near_jsonrpc_primitives::types::config::{RpcProtocolConfigError, RpcProtocolConfigResponse};
 use near_jsonrpc_primitives::types::entity_debug::{EntityDebugHandler, EntityQueryWithParams};
 use near_jsonrpc_primitives::types::query::{RpcQueryError, RpcQueryRequest};
+use near_jsonrpc_primitives::types::receipts::{
+    RpcReceiptError, RpcReceiptRequest, RpcReceiptResponse, RpcReceiptToTxError,
+    RpcReceiptToTxRequest, RpcReceiptToTxResponse,
+};
 use near_jsonrpc_primitives::types::split_storage::{
     RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse,
 };
@@ -1488,37 +1492,27 @@ impl JsonRpcHandler {
 
     async fn receipt(
         &self,
-        request_data: near_jsonrpc_primitives::types::receipts::RpcReceiptRequest,
-    ) -> Result<
-        near_jsonrpc_primitives::types::receipts::RpcReceiptResponse,
-        near_jsonrpc_primitives::types::receipts::RpcReceiptError,
-    > {
+        request_data: RpcReceiptRequest,
+    ) -> Result<RpcReceiptResponse, RpcReceiptError> {
         match self
             .view_client_send(GetReceipt { receipt_id: request_data.receipt_reference.receipt_id })
             .await?
         {
-            Some(receipt_view) => {
-                Ok(near_jsonrpc_primitives::types::receipts::RpcReceiptResponse { receipt_view })
-            }
-            None => {
-                Err(near_jsonrpc_primitives::types::receipts::RpcReceiptError::UnknownReceipt {
-                    receipt_id: request_data.receipt_reference.receipt_id,
-                })
-            }
+            Some(receipt_view) => Ok(RpcReceiptResponse { receipt_view }),
+            None => Err(RpcReceiptError::UnknownReceipt {
+                receipt_id: request_data.receipt_reference.receipt_id,
+            }),
         }
     }
 
     async fn receipt_to_tx(
         &self,
-        request: near_jsonrpc_primitives::types::receipts::RpcReceiptToTxRequest,
-    ) -> Result<
-        near_jsonrpc_primitives::types::receipts::RpcReceiptToTxResponse,
-        near_jsonrpc_primitives::types::receipts::RpcReceiptToTxError,
-    > {
+        request: RpcReceiptToTxRequest,
+    ) -> Result<RpcReceiptToTxResponse, RpcReceiptToTxError> {
         let response = self
             .view_client_send(GetReceiptToTx { receipt_id: request.receipt_reference.receipt_id })
             .await?;
-        Ok(near_jsonrpc_primitives::types::receipts::RpcReceiptToTxResponse {
+        Ok(RpcReceiptToTxResponse {
             transaction_hash: response.transaction_hash,
             sender_account_id: response.sender_account_id,
         })
