@@ -37,6 +37,7 @@ mod prepare_error {
                 From::TooManyTables => Self::TooManyTables,
                 From::TooManyTableElements => Self::TooManyTableElements,
                 From::FunctionBodyTooLarge => Self::FunctionBodyTooLarge,
+                From::InstrumentedCodeTooLarge => Self::InstrumentedCodeTooLarge,
             }
         }
     }

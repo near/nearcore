@@ -129,6 +129,11 @@ pub struct LimitConfig {
     /// If present, stores max byte size of a single function body in a contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_function_body_size: Option<u64>,
+    /// If present, stores max byte size of the wasm code after gas instrumentation.
+    /// This prevents Cranelift's 24-bit SSA counter from overflowing on
+    /// pathologically large contracts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_instrumented_code_size: Option<u64>,
     /// Whether to enforce account_id well-formed-ness where it wasn't enforced
     /// historically.
     #[serde(default = "AccountIdValidityRulesVersion::v0")]

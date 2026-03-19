@@ -158,4 +158,96 @@ mod tests {
             */
         })
     }
+
+    #[test]
+    fn function_body_too_large() {
+        with_vm_variants(|kind| {
+            let limit: u64 = 1000;
+            let mut config = test_vm_config(Some(kind));
+            config.limit_config.max_function_body_size = Some(limit);
+
+            // A function body with nops just over the limit should be rejected.
+            let wasm = near_test_contracts::function_with_a_lot_of_nop(limit);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Err(PrepareError::FunctionBodyTooLarge));
+
+            // A function body with nops just under the limit should be accepted.
+            let wasm = near_test_contracts::function_with_a_lot_of_nop(limit / 2);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Ok(_));
+        });
+    }
+
+    /// Build a wasm module with many small functions, each containing a single
+    /// `if` block. The gas instrumentation inserts metering at every block
+    /// boundary, so the instrumented output is much larger than the input.
+    fn contract_with_many_blocks(num_functions: u32) -> Vec<u8> {
+        use wasm_encoder::{
+            CodeSection, ExportKind, ExportSection, Function, FunctionSection, Instruction,
+            Module, TypeSection, ValType,
+        };
+        let mut module = Module::new();
+        let mut types = TypeSection::new();
+        types.ty().function([], []);
+        types.ty().function([ValType::I32], []);
+        module.section(&types);
+
+        let mut functions = FunctionSection::new();
+        // function 0 is "main" with type 0
+        functions.function(0);
+        // remaining functions have type 1 (take an i32 param)
+        for _ in 0..num_functions {
+            functions.function(1);
+        }
+        module.section(&functions);
+
+        let mut exports = ExportSection::new();
+        exports.export("main", ExportKind::Func, 0);
+        module.section(&exports);
+
+        let mut code = CodeSection::new();
+        // main: empty
+        let mut main_fn = Function::new([]);
+        main_fn.instruction(&Instruction::End);
+        code.function(&main_fn);
+        // each helper function: if (param) { nop } end
+        for _ in 0..num_functions {
+            let mut f = Function::new([]);
+            f.instruction(&Instruction::LocalGet(0));
+            f.instruction(&Instruction::If(wasm_encoder::BlockType::Empty));
+            f.instruction(&Instruction::Nop);
+            f.instruction(&Instruction::End); // end if
+            f.instruction(&Instruction::End); // end function
+            code.function(&f);
+        }
+        module.section(&code);
+        module.finish()
+    }
+
+    #[test]
+    fn instrumented_code_too_large() {
+        with_vm_variants(|kind| {
+            let mut config = test_vm_config(Some(kind));
+            // Raise the function body size limit so it doesn't interfere.
+            config.limit_config.max_function_body_size = None;
+
+            // First, figure out the instrumented size without a limit so we can
+            // set a meaningful threshold.
+            config.limit_config.max_instrumented_code_size = None;
+            let wasm = contract_with_many_blocks(200);
+            let instrumented = prepare_contract(&wasm, &config, kind).unwrap();
+            let threshold = instrumented.len() as u64;
+
+            // With a limit just below the instrumented size, preparation should
+            // fail.
+            config.limit_config.max_instrumented_code_size = Some(threshold - 1);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Err(PrepareError::InstrumentedCodeTooLarge));
+
+            // With a limit at exactly the instrumented size, it should pass.
+            config.limit_config.max_instrumented_code_size = Some(threshold);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Ok(_));
+        });
+    }
 }

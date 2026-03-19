@@ -23,6 +23,9 @@ use near_primitives_core::gas::Gas;
 use near_primitives_core::types::Balance;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::mpsc;
+use std::thread;
 use std::sync::{Arc, LazyLock};
 use wasmtime::{
     CallHook, Engine, Extern, ExternType, Instance, InstanceAllocationStrategy, InstancePre,
@@ -486,9 +489,9 @@ impl WasmtimeVM {
     fn precompile_catching_panics(&self, prepared_code: &[u8]) -> Result<Vec<u8>, CompilationError> {
         let engine = self.engine.clone();
         let code = prepared_code.to_vec();
-        let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let result = catch_unwind(AssertUnwindSafe(|| {
                 engine.precompile_module(&code)
             }));
             let _ = tx.send(result);

@@ -420,6 +420,16 @@ pub(crate) fn prepare_contract(
         tracing::error!(?err, ?kind, "instrumentation failed");
         PrepareError::Serialization
     })?;
+    // Guard against overflowing Cranelift’s 24-bit SSA value counter. Each wasm
+    // byte produces at least one SSA value, so capping the instrumented size is a
+    // conservative proxy.
+    // TODO: if we ever need to relax this limit, count actual wasm instructions
+    // during the instrumentation pass instead of using byte size as a proxy.
+    if let Some(max_size) = config.limit_config.max_instrumented_code_size {
+        if res.len() as u64 > max_size {
+            return Err(PrepareError::InstrumentedCodeTooLarge);
+        }
+    }
     Ok(res)
 }
 
