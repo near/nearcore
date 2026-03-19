@@ -6,11 +6,16 @@ use near_chain::near_chain_primitives::Error;
 use near_chain_configs::TrackedShardsConfig;
 use near_client::NetworkAdversarialMessage;
 use near_client::client_actor::AdvProduceChunksMode;
+use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::EncodedShardChunk;
 use near_primitives::types::Gas;
 use near_store::DBCol;
+use parking_lot::Mutex;
+use std::collections::HashSet;
+use std::sync::Arc;
 
 /// Test that a malicious chunk producer sending chunks with corrupted tx_root
 /// triggers the invalid chunk path, and under SPICE the chain still progresses
@@ -133,4 +138,64 @@ fn test_spice_block_sync_with_malicious_chunks() {
             "syncing node missing invalid chunk that the honest node detected",
         );
     }
+}
+
+/// Test that validators endorse chunks containing an `invalid_chunk_proof`
+/// (witness produced when a malicious chunk producer sends a corrupted chunk
+/// body). Verifies the full end-to-end flow: witnesses are self-contained,
+/// validators can pre-validate and execute them, and endorsements are produced.
+#[cfg(feature = "test_features")]
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_witness_validation_with_invalid_chunk() {
+    init_test_logger();
+
+    let num_producers = 4;
+    let num_validators = 2;
+    let mut env = TestLoopBuilder::new().validators(num_producers, num_validators).build();
+
+    // Collect handles before mutably borrowing env.test_loop.
+    let handles: Vec<_> =
+        env.node_datas.iter().map(|nd| nd.peer_manager_sender.actor_handle()).collect();
+
+    // Track block hashes that receive at least one endorsement.
+    let endorsed_block_hashes: Arc<Mutex<HashSet<CryptoHash>>> =
+        Arc::new(Mutex::new(HashSet::new()));
+    for handle in handles {
+        let hashes = endorsed_block_hashes.clone();
+        let peer_actor = env.test_loop.data.get_mut(&handle);
+        peer_actor.register_override_handler(Box::new(move |request| {
+            if let NetworkRequests::SpiceChunkEndorsement(_, endorsement) = &request {
+                hashes.lock().insert(*endorsement.block_hash());
+            }
+            Some(request)
+        }));
+    }
+
+    let (malicious_node, honest_node) = (0, 1);
+    env.node_runner(malicious_node).send_adversarial_message(
+        NetworkAdversarialMessage::AdvProduceChunks(
+            AdvProduceChunksMode::ProduceWithCorruptedTxRoot,
+        ),
+    );
+
+    // Run long enough for the malicious node to be scheduled as chunk producer.
+    env.node_runner(honest_node).run_for_number_of_blocks(10);
+
+    // Verify that each block containing an invalid chunk was endorsed.
+    let node = env.node(honest_node);
+    let chain_store = node.client().chain.chain_store();
+    let endorsed = endorsed_block_hashes.lock();
+    let mut invalid_chunk_count = 0;
+    for (_, value) in node.store().iter(DBCol::InvalidChunks) {
+        let chunk: EncodedShardChunk = borsh::from_slice(&value).unwrap();
+        let height = chunk.cloned_header().height_created();
+        let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
+        assert!(
+            endorsed.contains(&block_hash),
+            "block at height {height} with invalid chunk should have received an endorsement",
+        );
+        invalid_chunk_count += 1;
+    }
+    assert!(invalid_chunk_count > 0, "expected at least one invalid chunk stored as evidence");
 }
