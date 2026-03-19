@@ -3,6 +3,10 @@ name: Publish sandbox Docker image
 # cspell:ignore dockerhub buildx
 
 on:
+  # TODO: remove push trigger and switch to workflow_dispatch once merged to master
+  push:
+    branches: [sandbox-docker-standalone-publish]
+
   workflow_dispatch:
     inputs:
       version:
@@ -13,6 +17,10 @@ on:
         description: "Also tag as 'latest'"
         type: boolean
         default: false
+
+env:
+  # Hardcoded for testing on this branch. Once merged, this job uses inputs.version instead.
+  SANDBOX_VERSION: "2.10.7"
 
 jobs:
   publish:
@@ -25,10 +33,15 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Set version
+        run: |
+          VERSION="${{ inputs.version || env.SANDBOX_VERSION }}"
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
       - name: Verify S3 binaries exist
         run: |
           for arch in Linux-x86_64 Linux-aarch64; do
-            url="https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/${arch}/${{ inputs.version }}/near-sandbox.tar.gz"
+            url="https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/${arch}/${VERSION}/near-sandbox.tar.gz"
             status=$(curl -o /dev/null -s -w "%{http_code}" --head "$url")
             if [ "$status" != "200" ]; then
               echo "ERROR: binary not found at $url (HTTP $status)"
@@ -53,7 +66,7 @@ jobs:
 
       - name: Prepare tags
         run: |
-          TAGS="nearprotocol/sandbox:${{ inputs.version }}"
+          TAGS="nearprotocol/sandbox:${VERSION}"
           if [ "${{ inputs.tag_latest }}" = "true" ]; then
             TAGS="${TAGS},nearprotocol/sandbox:latest"
           fi
@@ -64,6 +77,6 @@ jobs:
         with:
           context: docker/sandbox
           platforms: linux/amd64,linux/arm64
-          build-args: VERSION=${{ inputs.version }}
+          build-args: VERSION=${{ env.VERSION }}
           push: true
           tags: ${{ env.DOCKER_TAGS }}
