@@ -436,6 +436,8 @@ impl ClientActor {
         if let Some(vs) = &client.validator_signer.get() {
             tracing::info!(target: "client", validator_id = %vs.validator_id(), "starting validator node");
             check_validator_tracked_shards(&client, vs.validator_id())?;
+            let epoch_id = client.chain.head()?.epoch_id;
+            client.check_validator_key_for_epoch(&epoch_id);
         }
         let info_helper = InfoHelper::new(clock.clone(), telemetry_sender, &client.config);
         let spice_chain_reader = SpiceChainReader::new(

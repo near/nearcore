@@ -210,6 +210,32 @@ impl Client {
         self.validator_signer.update(signer)
     }
 
+    /// Panics if this node's validator key does not match the key registered in the given epoch.
+    /// No-op if the node is not a validator in the epoch.
+    pub fn check_validator_key_for_epoch(&self, epoch_id: &EpochId) {
+        let Some(signer) = self.validator_signer.get() else { return };
+        let validator_id = signer.validator_id();
+        let epoch_info = match self.epoch_manager.get_epoch_info(epoch_id) {
+            Ok(info) => info,
+            Err(err) => {
+                tracing::error!(target: "client", ?epoch_id, ?err, "failed to get epoch info for validator key check");
+                return;
+            }
+        };
+        let Some(validator_stake) = epoch_info.get_validator_by_account(validator_id) else {
+            return;
+        };
+        let local_key = signer.public_key();
+        let epoch_key = validator_stake.public_key();
+        if &local_key != epoch_key {
+            panic!(
+                "validator key mismatch for {}: local key {} does not match \
+                 epoch key {}. Update validator_key.json or rotate the key on-chain.",
+                validator_id, local_key, epoch_key,
+            );
+        }
+    }
+
     /// Returns the Reed-Solomon encoder for shadow validation, initializing it lazily if needed.
     pub(crate) fn shadow_validation_reed_solomon_encoder(&self) -> &Arc<ReedSolomon> {
         self.shadow_validation_reed_solomon.get_or_init(|| {
@@ -1654,6 +1680,12 @@ impl Client {
             // TODO make sure transactions don't get added for the old shard
             // layout after the pool resharding
             if self.epoch_manager.is_next_block_epoch_start(&block_hash).unwrap_or(false) {
+                if let Ok(next_epoch_id) =
+                    self.epoch_manager.get_epoch_id_from_prev_block(&block_hash)
+                {
+                    self.check_validator_key_for_epoch(&next_epoch_id);
+                }
+
                 let new_shard_layout =
                     self.epoch_manager.get_shard_layout_from_prev_block(&block_hash);
                 let old_shard_layout =
