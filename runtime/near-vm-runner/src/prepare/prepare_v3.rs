@@ -62,7 +62,7 @@ impl<'a> PrepareContext<'a> {
         let parser = wp::Parser::new(0);
         for payload in parser.parse_all(self.code) {
             let payload = payload.map_err(|err| {
-                tracing::trace!(?err, "was not able to early prepare the input module");
+                tracing::trace!(target: "vm", ?err, "was not able to early prepare the input module");
                 PrepareError::Deserialization
             })?;
             match payload {
@@ -230,6 +230,12 @@ impl<'a> PrepareContext<'a> {
                 wp::Payload::CodeSectionEntry(func) => {
                     let body_size = func.range().len() as u64;
                     if body_size > self.function_body_size_limit {
+                        tracing::debug!(
+                            target: "vm",
+                            body_size,
+                            limit = self.function_body_size_limit,
+                            "function body size exceeds the limit"
+                        );
                         return Err(PrepareError::FunctionBodyTooLarge);
                     }
                     let local_reader =
@@ -279,7 +285,7 @@ impl<'a> PrepareContext<'a> {
                 | wp::Payload::ComponentImportSection(_)
                 | wp::Payload::ComponentExportSection(_)
                 | _ => {
-                    tracing::trace!("input module contains unsupported section");
+                    tracing::trace!(target: "vm", "input module contains unsupported section");
                     return Err(PrepareError::Deserialization);
                 }
             }
@@ -404,7 +410,7 @@ pub(crate) fn prepare_contract(
         })
         .analyze(&lightly_steamed)
         .map_err(|err| {
-            tracing::error!(?err, ?kind, "analysis failed");
+            tracing::error!(target: "vm", ?err, ?kind, "analysis failed");
             PrepareError::Deserialization
         })?;
     // Make sure contracts can’t call the instrumentation functions via `env`.
@@ -417,7 +423,7 @@ pub(crate) fn prepare_contract(
     )
     .run()
     .map_err(|err| {
-        tracing::error!(?err, ?kind, "instrumentation failed");
+        tracing::error!(target: "vm", ?err, ?kind, "instrumentation failed");
         PrepareError::Serialization
     })?;
     // Guard against overflowing Cranelift’s 24-bit SSA value counter. Each wasm
@@ -568,7 +574,7 @@ mod test {
     ) -> Result<(), PrepareError> {
         let (function_count, local_count, table_count, element_count) =
             wasmparser_decode(code, features).map_err(|e| {
-                tracing::debug!(err=?e, "wasmparser failed decoding a contract");
+                tracing::debug!(target: "vm", err=?e, "wasmparser failed decoding a contract");
                 PrepareError::Deserialization
             })?;
         // Verify the number of functions does not exceed the limit we imposed. Note that the ordering
