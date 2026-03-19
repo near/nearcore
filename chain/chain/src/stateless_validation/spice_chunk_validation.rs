@@ -14,7 +14,9 @@ use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::sharding::ReceiptProof;
+use near_primitives::sharding::{
+    EncodedShardChunk, EncodedShardChunkBody, EncodedShardChunkV2, ReceiptProof, ShardChunkHeader,
+};
 use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStake;
@@ -85,19 +87,28 @@ pub fn spice_pre_validate_chunk_state_witness(
             state_witness.applied_receipts_hash()
         )));
     }
-    let (tx_root_from_state_witness, _) = merklize(&state_witness.transactions());
-    let chunk_tx_root = if chunk_header.is_new_chunk(block.header().height()) {
-        *chunk_header.tx_root()
+    if let Some(proof) = state_witness.invalid_chunk_proof() {
+        if !chunk_header.is_new_chunk(block.header().height()) {
+            return Err(Error::InvalidChunkStateWitness(
+                "invalid_chunk_proof provided for non-new chunk".to_string(),
+            ));
+        }
+        verify_invalid_chunk_proof(proof, chunk_header, epoch_manager)?;
     } else {
-        // Missing chunks are treated as empty chunks.
-        let (empty_txs_root, _) = merklize::<SignedTransaction>(&[]);
-        empty_txs_root
-    };
-    if chunk_tx_root != tx_root_from_state_witness {
-        return Err(Error::InvalidChunkStateWitness(format!(
-            "Transaction root {:?} does not match expected transaction root {:?}",
-            tx_root_from_state_witness, chunk_tx_root
-        )));
+        let (tx_root_from_state_witness, _) = merklize(&state_witness.transactions());
+        let chunk_tx_root = if chunk_header.is_new_chunk(block.header().height()) {
+            *chunk_header.tx_root()
+        } else {
+            // Missing chunks are treated as empty chunks.
+            let (empty_txs_root, _) = merklize::<SignedTransaction>(&[]);
+            empty_txs_root
+        };
+        if chunk_tx_root != tx_root_from_state_witness {
+            return Err(Error::InvalidChunkStateWitness(format!(
+                "Transaction root {:?} does not match expected transaction root {:?}",
+                tx_root_from_state_witness, chunk_tx_root
+            )));
+        }
     }
 
     let transaction_validity_check_results = state_witness
@@ -229,6 +240,47 @@ pub fn spice_validate_chunk_state_witness(
     }
 
     Ok(execution_result)
+}
+
+/// Verifies that the given `body` proves the chunk (identified by `chunk_header`)
+/// is invalid. Accepts the proof if the body decodes to an invalid chunk;
+/// rejects it if the chunk is actually valid (fraudulent proof).
+fn verify_invalid_chunk_proof(
+    body: &EncodedShardChunkBody,
+    chunk_header: &ShardChunkHeader,
+    epoch_manager: &dyn EpochManagerAdapter,
+) -> Result<(), Error> {
+    // Verify the body is consistent with the chunk header's encoded_merkle_root.
+    let (body_merkle_root, _) = body.get_merkle_hash_and_paths();
+    if &body_merkle_root != chunk_header.encoded_merkle_root() {
+        return Err(Error::InvalidChunkStateWitness(format!(
+            "invalid_chunk_proof body encoded_merkle_root {:?} does not match \
+             chunk header encoded_merkle_root {:?}",
+            body_merkle_root,
+            chunk_header.encoded_merkle_root()
+        )));
+    }
+
+    // Attempt to decode the body.
+    let encoded_chunk = EncodedShardChunk::V2(EncodedShardChunkV2 {
+        header: chunk_header.clone(),
+        content: body.clone(),
+    });
+    let shard_chunk = match encoded_chunk.decode_chunk() {
+        Ok(chunk) => chunk,
+        // Decode failure is sufficient proof of invalidity.
+        Err(_) => return Ok(()),
+    };
+
+    // Attempt to validate the decoded chunk's proofs.
+    let is_valid = crate::validate::validate_chunk_proofs(&shard_chunk, epoch_manager)?;
+    if is_valid {
+        return Err(Error::InvalidChunkStateWitness(
+            "invalid_chunk_proof is fraudulent: chunk body is actually valid".to_string(),
+        ));
+    }
+
+    Ok(())
 }
 
 fn validate_source_receipts_proofs(
