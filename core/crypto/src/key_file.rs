@@ -55,6 +55,7 @@ impl KeyFile {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::KeyType;
 
     const ACCOUNT_ID: &str = "example";
     const SECRET_KEY: &str = "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr";
@@ -121,8 +122,6 @@ mod test {
 
     #[test]
     fn test_from_file_mismatched_keys() {
-        use crate::KeyType;
-
         let tmp = tempfile::TempDir::new().unwrap();
         let path = tmp.path().join("key-file");
 
