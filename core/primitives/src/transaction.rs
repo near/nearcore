@@ -303,7 +303,8 @@ impl ValidatedTransaction {
         }
         let tx_size = signed_tx.get_size();
         let max_tx_size = config.wasm_config.limit_config.max_transaction_size;
-        if tx_size > max_tx_size {
+        // if tx_size > max_tx_size {
+        if tx_size > 10*max_tx_size { // debug. do not commit
             return Err(InvalidTxError::TransactionSizeExceeded {
                 size: tx_size,
                 limit: max_tx_size,

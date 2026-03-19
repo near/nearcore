@@ -89,6 +89,7 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
+use axum::extract::DefaultBodyLimit;
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 
@@ -2236,6 +2237,7 @@ pub fn create_jsonrpc_app(
     }
 
     app.layer(get_cors(&cors_allowed_origins))
+        .layer(DefaultBodyLimit::max(limits_config.json_payload_max_size))
         .layer(RequestBodyLimitLayer::new(limits_config.json_payload_max_size))
         .with_state(handler)
 }
