@@ -59,7 +59,8 @@ fn test_eth_implicit_global_contract_mainnet_upgrade() {
     assert!(ProtocolFeature::EthImplicitGlobalContract.enabled(new_pv));
 
     let epoch_length = 5;
-    let validators_spec = create_validators_spec(1, 0);
+    let chunk_validator_idx = 1;
+    let validators_spec = create_validators_spec(1, 1);
     let clients = validators_spec_clients(&validators_spec);
     let relayer = create_account_id("relayer");
     let receiver = create_account_id("receiver");
@@ -114,6 +115,10 @@ fn test_eth_implicit_global_contract_mainnet_upgrade() {
     env.validator_runner().run_tx(deploy_tx, Duration::seconds(5));
     // Make sure that global contract propagation finishes
     env.validator_runner().run_for_number_of_blocks(2);
+
+    // Clear the cache here to ensure that eth global contract is properly
+    // propagated as part the witness distribution.
+    env.node(chunk_validator_idx).clear_compiled_contract_cache();
 
     // Phase 4: Old account still works after upgrade (rlp_execute transfer).
     let before = env.validator().view_account_query(&receiver).unwrap().amount;
