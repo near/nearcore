@@ -250,6 +250,12 @@ fn verify_invalid_chunk_proof(
     chunk_header: &ShardChunkHeader,
     epoch_manager: &dyn EpochManagerAdapter,
 ) -> Result<(), Error> {
+    // Reject bodies with missing parts to avoid panicking in get_merkle_hash_and_paths.
+    if body.parts.iter().any(|p| p.is_none()) {
+        return Err(Error::InvalidChunkStateWitness(
+            "invalid_chunk_proof body contains missing parts".to_string(),
+        ));
+    }
     // Verify the body is consistent with the chunk header's encoded_merkle_root.
     let (body_merkle_root, _) = body.get_merkle_hash_and_paths();
     if &body_merkle_root != chunk_header.encoded_merkle_root() {
