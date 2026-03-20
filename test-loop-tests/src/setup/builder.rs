@@ -408,11 +408,13 @@ impl TestLoopBuilder {
         TestLoopEnv { test_loop, node_datas: datas, shared_state }
     }
 
-    /// Wire each node's sharded RPC pool with clients pointing to all nodes.
+    /// Wire each node's sharded RPC pool with clients pointing to nodes that
+    /// explicitly track specific shards. Nodes without explicit shard tracking
+    /// (e.g. validators) are excluded from the pool.
     fn setup_sharded_rpc_pools(datas: &[NodeExecutionData]) {
         let all_nodes: Vec<ShardedRpcNode> = datas
             .iter()
-            .map(|data| {
+            .filter_map(|data| {
                 let client =
                     Arc::new(JsonRpcClient::new_with_transport(data.jsonrpc_transport.clone()));
                 let pool = data.sharded_rpc_pool.read();
@@ -421,9 +423,9 @@ impl TestLoopBuilder {
                     TrackedShardsConfig::Shards(uids) => {
                         uids.iter().map(|uid| uid.shard_id()).collect()
                     }
-                    _ => vec![],
+                    _ => return None,
                 };
-                ShardedRpcNode { client, tracked_shards }
+                Some(ShardedRpcNode { client, tracked_shards })
             })
             .collect();
         for data in datas {
