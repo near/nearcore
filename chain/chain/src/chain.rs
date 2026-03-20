@@ -1446,6 +1446,56 @@ impl Chain {
         )
     }
 
+    /// Pre-computes and persists chunk producer assignments for the block following `header`.
+    ///
+    /// For each shard in the epoch after `header`, samples the chunk producer at
+    /// height `header.height() + 1` and writes it to `DBCol::ChunkProducers` keyed by
+    /// `(header.hash(), shard_id)`. This makes historical chunk producer lookups
+    /// available from the DB without recomputation.
+    ///
+    /// Only populated on nightly builds. On stable builds this is a no-op.
+    #[cfg(feature = "nightly")]
+    pub(crate) fn save_chunk_producers_for_header(
+        epoch_manager: &dyn EpochManagerAdapter,
+        header: &BlockHeader,
+        chain_store_update: &mut ChainStoreUpdate,
+    ) -> Result<(), Error> {
+        let prev_block_hash = header.hash();
+
+        // Get the epoch for the next block (height + 1). At epoch boundaries
+        // the epoch may not be finalized yet — skip gracefully.
+        let epoch_id = match epoch_manager.get_epoch_id_from_prev_block(prev_block_hash) {
+            Ok(id) => id,
+            Err(e) => {
+                tracing::debug!(
+                    target: "chain",
+                    height = header.height(),
+                    ?prev_block_hash,
+                    ?e,
+                    "skipping chunk producer save: epoch not available"
+                );
+                return Ok(());
+            }
+        };
+
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+        let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
+        let height = header.height() + 1;
+
+        let mut store_update = chain_store_update.store().store_update();
+        for shard_id in shard_layout.shard_ids() {
+            if let Some(validator_id) =
+                epoch_info.sample_chunk_producer(&shard_layout, shard_id, height)
+            {
+                let validator_stake = epoch_info.get_validator(validator_id);
+                let key = near_primitives::utils::get_block_shard_id(prev_block_hash, shard_id);
+                store_update.insert_ser(DBCol::ChunkProducers, &key, &validator_stake);
+            }
+        }
+        chain_store_update.merge(store_update);
+        Ok(())
+    }
+
     /// Processes headers and adds them to store for syncing.
     pub fn sync_block_headers(&mut self, mut headers: Vec<Arc<BlockHeader>>) -> Result<(), Error> {
         // Sort headers by heights.
@@ -1499,6 +1549,12 @@ impl Chain {
                 *header.random_value(),
             )?;
             chain_store_update.merge(epoch_manager_update.into());
+            #[cfg(feature = "nightly")]
+            Self::save_chunk_producers_for_header(
+                self.epoch_manager.as_ref(),
+                header,
+                &mut chain_store_update,
+            )?;
             chain_store_update.commit()?;
         }
 

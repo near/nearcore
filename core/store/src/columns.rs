@@ -388,6 +388,13 @@ pub enum DBCol {
     /// - *Content type*: `Vec<CodeHash>`
     #[cfg(feature = "protocol_feature_spice")]
     ContractAccesses,
+    /// Pre-computed chunk producer for the chunk at height `prev_block.height+1` on the given shard.
+    /// Populated during header sync and block processing (nightly builds only).
+    /// Authoritative source for historical chunk producer lookups.
+    /// - *Rows*: BlockHash || ShardId (prev_block_hash, shard_id) — 40 bytes
+    /// - *Content type*: [near_primitives::types::validator_stake::ValidatorStake]
+    #[cfg(feature = "nightly")]
+    ChunkProducers,
 }
 
 /// Defines different logical parts of a db key.
@@ -458,6 +465,8 @@ impl DBCol {
             DBCol::UncertifiedChunks
             | DBCol::ExecutionResults
             | DBCol::UncertifiedExecutionResults => true,
+            #[cfg(feature = "nightly")]
+            DBCol::ChunkProducers => true,
             _ => false,
         }
     }
@@ -624,6 +633,8 @@ impl DBCol {
             | DBCol::EpochSyncProof
             | DBCol::StateSyncHashes
             | DBCol::StateSyncNewChunks => false,
+            #[cfg(feature = "nightly")]
+            DBCol::ChunkProducers => false,
         }
     }
 
@@ -722,6 +733,8 @@ impl DBCol {
             DBCol::UncertifiedChunks => &[DBKeyType::BlockHash],
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::ContractAccesses => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            #[cfg(feature = "nightly")]
+            DBCol::ChunkProducers => &[DBKeyType::BlockHash, DBKeyType::ShardId],
         }
     }
 
