@@ -764,7 +764,7 @@ impl TestEnv {
         let height = head.height + height_offset;
 
         epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
+            .get_chunk_producer_by_cpk(&ChunkProductionKey {
                 epoch_id,
                 height_created: height,
                 shard_id,

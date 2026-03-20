@@ -157,7 +157,7 @@ impl ChunkProducer {
     ) -> Result<Option<ProduceChunkResult>, Error> {
         let chunk_proposer = self
             .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
+            .get_chunk_producer_by_cpk(&ChunkProductionKey {
                 epoch_id: *epoch_id,
                 height_created: next_height,
                 shard_id,

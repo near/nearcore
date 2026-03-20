@@ -16,9 +16,15 @@ use near_primitives::types::{
     AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, ShardId, ShardIndex,
     ValidatorInfoIdentifier,
 };
+#[cfg(feature = "nightly")]
+use near_primitives::utils::get_block_shard_id;
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::EpochValidatorInfo;
+#[cfg(feature = "nightly")]
+use near_store::DBCol;
 use near_store::ShardUId;
+#[cfg(feature = "nightly")]
+use near_store::adapter::StoreAdapter;
 use near_store::adapter::epoch_store::EpochStoreUpdateAdapter;
 use std::cmp::Ordering;
 use std::collections::HashSet;
@@ -472,7 +478,8 @@ pub trait EpochManagerAdapter: Send + Sync {
     }
 
     /// Chunk producer info for given height for given shard. Return EpochError if outside of known boundaries.
-    fn get_chunk_producer_info(
+    /// Deprecated: prefer `get_chunk_producer_for_height` or `get_chunk_producer_info` instead.
+    fn get_chunk_producer_by_cpk(
         &self,
         key: &ChunkProductionKey,
     ) -> Result<ValidatorStake, EpochError> {
@@ -484,6 +491,48 @@ pub trait EpochManagerAdapter: Send + Sync {
             return Err(EpochError::ChunkProducerSelectionError(format!(
                 "Invalid shard {} for height {}",
                 key.shard_id, key.height_created,
+            )));
+        };
+        Ok(epoch_info.get_validator(validator_id))
+    }
+
+    /// Chunk producer for a given prev_block_hash and shard. Reads from the
+    /// ChunkProducers DB column first, falls back to computation on miss.
+    /// Use for non-consensus paths where a best-effort answer is acceptable.
+    ///
+    /// NOTE: returns the producer for height `prev_block.height + 1`. If the
+    /// chunk's `height_created` differs (skipped blocks), use
+    /// `get_chunk_producer_for_height` with the actual height instead.
+    fn get_chunk_producer_info(
+        &self,
+        prev_block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<ValidatorStake, EpochError>;
+
+    /// Strict chunk producer lookup from DB. Returns error if no DB entry
+    /// exists. Use for consensus-critical paths where the DB must be populated.
+    fn require_chunk_producer_info(
+        &self,
+        prev_block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<ValidatorStake, EpochError>;
+
+    /// Chunk producer for a given epoch, height, and shard via deterministic
+    /// sampling. Does not require a block hash — use for speculative lookups
+    /// (e.g. tx routing to future heights).
+    fn get_chunk_producer_for_height(
+        &self,
+        epoch_id: &EpochId,
+        height: BlockHeight,
+        shard_id: ShardId,
+    ) -> Result<ValidatorStake, EpochError> {
+        let epoch_info = self.get_epoch_info(epoch_id)?;
+        let shard_layout = self.get_shard_layout(epoch_id)?;
+        let Some(validator_id) = epoch_info.sample_chunk_producer(&shard_layout, shard_id, height)
+        else {
+            return Err(EpochError::ChunkProducerSelectionError(format!(
+                "invalid shard {} for height {}",
+                shard_id, height,
             )));
         };
         Ok(epoch_info.get_validator(validator_id))
@@ -961,6 +1010,68 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<Vec<ValidatorStake>, EpochError> {
         let epoch_manager = self.read();
         Ok(epoch_manager.get_all_chunk_producers(epoch_id)?.to_vec())
+    }
+
+    fn get_chunk_producer_info(
+        &self,
+        prev_block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<ValidatorStake, EpochError> {
+        // Try DB first (column only exists on nightly builds).
+        #[cfg(feature = "nightly")]
+        {
+            let epoch_manager = self.read();
+            let key = get_block_shard_id(prev_block_hash, shard_id);
+            if let Some(validator) = epoch_manager
+                .store
+                .store_ref()
+                .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
+            {
+                return Ok(validator);
+            }
+        }
+        // Fall back to computation.
+        tracing::debug!(
+            target: "epoch_manager",
+            %prev_block_hash,
+            %shard_id,
+            "chunk producer not in DB, falling back to computation",
+        );
+        let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
+        let block_info = self.get_block_info(prev_block_hash)?;
+        let height = block_info.height() + 1;
+        self.get_chunk_producer_for_height(&epoch_id, height, shard_id)
+    }
+
+    fn require_chunk_producer_info(
+        &self,
+        prev_block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<ValidatorStake, EpochError> {
+        #[cfg(feature = "nightly")]
+        {
+            let epoch_manager = self.read();
+            let key = get_block_shard_id(prev_block_hash, shard_id);
+            return match epoch_manager
+                .store
+                .store_ref()
+                .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
+            {
+                Some(validator) => Ok(validator),
+                None => Err(EpochError::ChunkProducerSelectionError(format!(
+                    "chunk producer unknown for prev_block_hash={}, shard_id={}",
+                    prev_block_hash, shard_id,
+                ))),
+            };
+        }
+        // On stable, fall back to computation (DB column not populated).
+        #[cfg(not(feature = "nightly"))]
+        {
+            let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
+            let block_info = self.get_block_info(prev_block_hash)?;
+            let height = block_info.height() + 1;
+            self.get_chunk_producer_for_height(&epoch_id, height, shard_id)
+        }
     }
 
     fn get_chunk_validator_assignments(

@@ -110,7 +110,7 @@ impl ChunkTestFixture {
         let mock_epoch_id =
             epoch_manager.get_epoch_id_from_prev_block(&mock_ancestor_hash).unwrap();
         let mock_chunk_producer = epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
+            .get_chunk_producer_by_cpk(&ChunkProductionKey {
                 epoch_id: mock_epoch_id,
                 height_created: mock_height,
                 shard_id: mock_shard_id,

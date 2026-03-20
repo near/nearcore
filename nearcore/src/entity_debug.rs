@@ -23,7 +23,6 @@ use near_primitives::sharding::ShardChunk;
 use near_primitives::state::FlatStateValue;
 use near_primitives::state::{PartialState, TrieValue};
 use near_primitives::state_sync::StateSyncDumpProgress;
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
 };
@@ -129,11 +128,11 @@ impl EntityDebugHandlerImpl {
                     self.epoch_manager.get_epoch_id_from_prev_block(chunk.prev_block())?;
                 let author = self
                     .epoch_manager
-                    .get_chunk_producer_info(&ChunkProductionKey {
-                        epoch_id,
-                        height_created: chunk.height_created(),
-                        shard_id: chunk.shard_id(),
-                    })?
+                    .get_chunk_producer_for_height(
+                        &epoch_id,
+                        chunk.height_created(),
+                        chunk.shard_id(),
+                    )?
                     .take_account_id();
                 Ok(serialize_entity(&ChunkView::from_author_chunk(author, chunk)))
             }
@@ -466,11 +465,7 @@ impl EntityDebugHandlerImpl {
                     .shard_ids()
                     .map(|shard_id| {
                         self.epoch_manager
-                            .get_chunk_producer_info(&ChunkProductionKey {
-                                epoch_id,
-                                height_created: block_height,
-                                shard_id,
-                            })
+                            .get_chunk_producer_for_height(&epoch_id, block_height, shard_id)
                             .map(|info| info.take_account_id())
                             .context("Getting chunk producer")
                     })

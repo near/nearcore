@@ -168,7 +168,7 @@ fn test_producer_sending_large_encoded_length_chunks() {
                         .get_epoch_id_from_prev_block(header.prev_block_hash())
                         .unwrap();
                     let chunk_producer_info = epoch_manager
-                        .get_chunk_producer_info(&ChunkProductionKey {
+                        .get_chunk_producer_by_cpk(&ChunkProductionKey {
                             shard_id: header.shard_id(),
                             epoch_id,
                             height_created: header.height_created(),
