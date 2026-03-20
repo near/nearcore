@@ -1144,7 +1144,6 @@ impl JsonRpcHandler {
     /// The `strategy` parameter controls how nodes are queried:
     /// - `Sequential`: try nodes one by one (default for targeted shard queries).
     /// - `ParallelTakeFirst`: fan out to all nodes, return the first success.
-    /// - `ParallelTakeAll`: fan out to all nodes, collect all successes into a JSON array.
     async fn run_coordinator_request(
         &self,
         method: &str,
@@ -1181,9 +1180,6 @@ impl JsonRpcHandler {
             CoordinatorRequestStrategy::ParallelTakeFirst => {
                 self.run_coordinator_request_parallel_take_first(request, rpc_nodes).await
             }
-            CoordinatorRequestStrategy::ParallelTakeAll => {
-                self.run_coordinator_request_parallel_take_all(request, rpc_nodes).await
-            }
         }
     }
 
@@ -1199,10 +1195,10 @@ impl JsonRpcHandler {
                 Ok(val) => return Ok(val),
                 Err(e) => {
                     match e.error_struct.as_ref() {
-                        Some(RpcErrorKind::RequestValidationError(_)) => return Err(e),
+                        Some(RpcErrorKind::RequestValidationError(_)) => return Err(e), // request invalid, don't retry
                         Some(RpcErrorKind::HandlerError(_))
                         | Some(RpcErrorKind::InternalError(_))
-                        | None => last_error = Some(e),
+                        | None => last_error = Some(e), // Save the error and try another node
                     };
                 }
             }
@@ -1239,42 +1235,6 @@ impl JsonRpcHandler {
         Err(last_error.unwrap_or_else(|| {
             RpcError::new_internal_error(None, "no nodes available to handle the query".to_string())
         }))
-    }
-
-    /// Fan out to all nodes concurrently. Collect all successful results into a JSON array.
-    async fn run_coordinator_request_parallel_take_all(
-        &self,
-        request: Request,
-        rpc_nodes: Vec<RpcNodeHandle>,
-    ) -> Result<Value, RpcError> {
-        let results = futures::future::join_all(
-            rpc_nodes
-                .into_iter()
-                .map(|node| self.run_coordinator_request_on_node(request.clone(), node)),
-        )
-        .await;
-
-        let mut successes = Vec::new();
-        let mut last_error = None;
-        for result in results {
-            match result {
-                Ok(val) => successes.push(val),
-                Err(e) => match e.error_struct.as_ref() {
-                    Some(RpcErrorKind::RequestValidationError(_)) => return Err(e),
-                    _ => last_error = Some(e),
-                },
-            }
-        }
-        if successes.is_empty() {
-            Err(last_error.unwrap_or_else(|| {
-                RpcError::new_internal_error(
-                    None,
-                    "no nodes available to handle the query".to_string(),
-                )
-            }))
-        } else {
-            Ok(Value::Array(successes))
-        }
     }
 
     async fn run_coordinator_request_on_node(

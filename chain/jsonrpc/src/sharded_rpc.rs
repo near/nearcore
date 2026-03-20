@@ -66,9 +66,6 @@ pub enum CoordinatorRequestStrategy {
     /// Fan out to all candidate nodes concurrently.
     /// Return the first success; cancel remaining requests.
     ParallelTakeFirst,
-    /// Fan out to all candidate nodes concurrently.
-    /// Collect all successful results into a JSON array.
-    ParallelTakeAll,
 }
 
 /// Handle to a node that can serve a query.

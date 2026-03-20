@@ -4,10 +4,12 @@ use crate::utils::account::create_account_id;
 use near_async::time::Duration;
 use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::ValidatorsSpec;
-use near_jsonrpc_primitives::errors::RpcError;
+use near_jsonrpc_primitives::errors::{RpcError, RpcErrorKind};
 use near_jsonrpc_primitives::message::Message;
 use near_jsonrpc_primitives::types::query::{QueryResponseKind, RpcQueryRequest};
-use near_jsonrpc_primitives::types::receipts::{RpcReceiptRequest, RpcReceiptResponse};
+use near_jsonrpc_primitives::types::receipts::{
+    ReceiptReference, RpcReceiptRequest, RpcReceiptResponse,
+};
 use near_jsonrpc_primitives::types::view_account::RpcViewAccountRequest;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
@@ -66,6 +68,7 @@ impl TwoShardHarness {
                 1 => config.tracked_shards_config = TrackedShardsConfig::Shards(vec![rpc1_shard]),
                 _ => {}
             })
+            .add_rpc_pool([rpc0.clone(), rpc1.clone()])
             .build();
 
         let (alice_node, zoe_node) =
@@ -262,9 +265,7 @@ fn test_rpc_receipt_forwarding() {
         h.env.runner_for_account(node_id).run_jsonrpc_query(
             |client| {
                 client.EXPERIMENTAL_receipt(RpcReceiptRequest {
-                    receipt_reference: near_jsonrpc_primitives::types::receipts::ReceiptReference {
-                        receipt_id,
-                    },
+                    receipt_reference: ReceiptReference { receipt_id },
                 })
             },
             Duration::seconds(5),
@@ -297,7 +298,7 @@ fn test_rpc_receipt_forwarding() {
 /// Assert that an RpcError is a HandlerError with the expected error name.
 fn assert_rpc_error(err: &RpcError, expected_name: &str) {
     match err.error_struct.as_ref().expect("expected error_struct") {
-        near_jsonrpc_primitives::errors::RpcErrorKind::HandlerError(val) => {
+        RpcErrorKind::HandlerError(val) => {
             assert_eq!(val["name"].as_str(), Some(expected_name), "unexpected error: {val}");
         }
         other => panic!("expected HandlerError({expected_name}), got: {other:?}"),
