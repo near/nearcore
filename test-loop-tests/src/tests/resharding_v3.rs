@@ -910,14 +910,10 @@ fn slow_test_resharding_v3_two_splits_one_after_another_at_single_node() {
         TestReshardingParametersBuilder::default()
             .num_clients(num_clients)
             .num_epochs_to_wait(num_epochs_to_wait)
-            // Shard shuffling is disabled because it can reassign validators to
-            // newly-resharded shards, triggering state sync that doesn't complete
-            // in the test loop. Shuffling is covered by dedicated tests.
-            // TODO(resharding): re-enable once state sync for resharded shards works.
-            .shuffle_shard_assignment_for_chunk_producers(false)
+            .shuffle_shard_assignment_for_chunk_producers(true)
             .second_resharding_boundary_account(Some(second_resharding_boundary_account))
             .tracked_shard_schedule(Some(tracked_shard_schedule))
-            .epoch_length(TWO_RESHARDINGS_EPOCH_LENGTH)
+            .epoch_length(INCREASED_EPOCH_LENGTH)
             // TODO(resharding) Adjust temporary account test to work with two reshardings.
             .disable_temporary_account_test(true)
             .build(),
