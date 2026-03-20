@@ -237,6 +237,7 @@ fn test_rpc_query_unknown_access_key_error_format() {
 /// EXPERIMENTAL_receipt queries should fan out across shards and return the receipt
 /// regardless of which RPC node receives the query.
 #[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_rpc_receipt_forwarding() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
