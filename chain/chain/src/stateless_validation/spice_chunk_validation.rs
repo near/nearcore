@@ -920,7 +920,7 @@ mod tests {
                 let chunk_producer = self
                     .chain
                     .epoch_manager
-                    .get_chunk_producer_info(&ChunkProductionKey {
+                    .get_chunk_producer_by_cpk(&ChunkProductionKey {
                         shard_id,
                         epoch_id: *prev_block.header().epoch_id(),
                         height_created: height,

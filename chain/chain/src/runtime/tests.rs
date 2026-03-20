@@ -987,7 +987,7 @@ fn test_get_validator_info() {
             let em = env.runtime.epoch_manager.clone();
             let bp = em.get_block_producer_info(&epoch_id, height).unwrap();
             let cp_key = ChunkProductionKey { epoch_id, height_created: height, shard_id };
-            let cp = em.get_chunk_producer_info(&cp_key).unwrap();
+            let cp = em.get_chunk_producer_by_cpk(&cp_key).unwrap();
             let stateless_validators =
                 em.get_chunk_validator_assignments(&epoch_id, shard_id, height).ok();
 

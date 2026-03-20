@@ -483,7 +483,7 @@ impl ShardsManagerActor {
 
         let chunk_producer_account_id = self
             .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
+            .get_chunk_producer_by_cpk(&ChunkProductionKey {
                 epoch_id: self.epoch_manager.get_epoch_id_from_prev_block(ancestor_hash)?,
                 height_created: height,
                 shard_id,
@@ -675,7 +675,7 @@ impl ShardsManagerActor {
         }
         let chunk_producer = self
             .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
+            .get_chunk_producer_by_cpk(&ChunkProductionKey {
                 epoch_id,
                 height_created: next_chunk_height,
                 shard_id,
@@ -1838,7 +1838,7 @@ impl ShardsManagerActor {
 
         let chunk_producer = self
             .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
+            .get_chunk_producer_by_cpk(&ChunkProductionKey {
                 epoch_id,
                 height_created: header.height_created(),
                 shard_id: header.shard_id(),
@@ -2007,7 +2007,7 @@ impl ShardsManagerActor {
         accounts_forwarded_to.insert(me.clone());
         let next_chunk_producer = self
             .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
+            .get_chunk_producer_by_cpk(&ChunkProductionKey {
                 epoch_id: *epoch_id,
                 height_created: current_chunk_height + 1,
                 shard_id,

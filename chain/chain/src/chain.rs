@@ -3495,7 +3495,7 @@ impl Chain {
         let Some(signer) = self.validator_signer.get() else {
             return None;
         };
-        let Ok(producer) = self.epoch_manager.get_chunk_producer_info(&cpk) else {
+        let Ok(producer) = self.epoch_manager.get_chunk_producer_by_cpk(&cpk) else {
             return None;
         };
         if signer.validator_id() != producer.account_id() {

@@ -7,6 +7,7 @@ mod tests {
     use near_epoch_manager::EpochManagerAdapter;
     use near_o11y::testonly::init_test_logger;
     use near_primitives::merkle::PartialMerkleTree;
+    use near_primitives::stateless_validation::ChunkProductionKey;
     use near_primitives::test_utils::TestBlockBuilder;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::utils::get_block_shard_id;
@@ -154,6 +155,174 @@ mod tests {
                     block.header().height()
                 );
             }
+        }
+    }
+
+    /// Verify that get_chunk_producer_info(prev_block_hash, shard_id) reads from DB
+    /// and matches the result of get_chunk_producer_for_height.
+    #[test]
+    fn test_get_chunk_producer_info_reads_from_db() {
+        init_test_logger();
+        let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap());
+        clock.advance(Duration::milliseconds(3444));
+        let (mut chain, epoch_manager, _, signer) = setup(clock.clock());
+
+        // Process a block so the DB is populated.
+        let prev = chain.get_block(&chain.genesis().hash().clone()).unwrap();
+        clock.advance(Duration::milliseconds(1));
+        let block = TestBlockBuilder::from_prev_block(clock.clock(), &prev, signer).build();
+        let block_hash = *block.hash();
+        chain.process_block_test(block).unwrap();
+
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&block_hash).unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let block_info = epoch_manager.get_block_info(&block_hash).unwrap();
+        let height = block_info.height() + 1;
+
+        for shard_id in shard_layout.shard_ids() {
+            // get_chunk_producer_info reads from DB with fallback.
+            let from_db = epoch_manager.get_chunk_producer_info(&block_hash, shard_id).unwrap();
+            // get_chunk_producer_for_height uses computation only.
+            let from_computation =
+                epoch_manager.get_chunk_producer_for_height(&epoch_id, height, shard_id).unwrap();
+            assert_eq!(
+                from_db.account_id(),
+                from_computation.account_id(),
+                "DB-backed and computation-based lookups should agree, shard {shard_id}"
+            );
+        }
+    }
+
+    /// Verify that get_chunk_producer_info falls back to computation when DB is empty.
+    #[test]
+    fn test_get_chunk_producer_info_falls_back_on_db_miss() {
+        init_test_logger();
+        let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap());
+        clock.advance(Duration::milliseconds(3444));
+        let (mut chain, epoch_manager, _, signer) = setup(clock.clock());
+
+        // Process a block so the epoch manager knows about it.
+        let prev = chain.get_block(&chain.genesis().hash().clone()).unwrap();
+        clock.advance(Duration::milliseconds(1));
+        let block = TestBlockBuilder::from_prev_block(clock.clock(), &prev, signer).build();
+        let block_hash = *block.hash();
+        chain.process_block_test(block).unwrap();
+
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&block_hash).unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let block_info = epoch_manager.get_block_info(&block_hash).unwrap();
+        let height = block_info.height() + 1;
+
+        // Delete chunk producers from DB to simulate a miss.
+        {
+            let mut store_update = chain.chain_store().store().store_update();
+            for shard_id in shard_layout.shard_ids() {
+                let key = get_block_shard_id(&block_hash, shard_id);
+                store_update.delete(DBCol::ChunkProducers, &key);
+            }
+            store_update.commit();
+        }
+
+        // get_chunk_producer_info should still succeed via computation fallback.
+        for shard_id in shard_layout.shard_ids() {
+            let result = epoch_manager.get_chunk_producer_info(&block_hash, shard_id);
+            assert!(result.is_ok(), "should fall back to computation on DB miss, shard {shard_id}");
+
+            let from_fallback = result.unwrap();
+            let from_computation =
+                epoch_manager.get_chunk_producer_for_height(&epoch_id, height, shard_id).unwrap();
+            assert_eq!(
+                from_fallback.account_id(),
+                from_computation.account_id(),
+                "fallback should match computation, shard {shard_id}"
+            );
+        }
+    }
+
+    /// Verify that require_chunk_producer_info returns error on DB miss.
+    #[test]
+    fn test_require_chunk_producer_info_errors_on_miss() {
+        init_test_logger();
+        let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap());
+        clock.advance(Duration::milliseconds(3444));
+        let (mut chain, epoch_manager, _, signer) = setup(clock.clock());
+
+        // Process a block.
+        let prev = chain.get_block(&chain.genesis().hash().clone()).unwrap();
+        clock.advance(Duration::milliseconds(1));
+        let block = TestBlockBuilder::from_prev_block(clock.clock(), &prev, signer).build();
+        let block_hash = *block.hash();
+        chain.process_block_test(block).unwrap();
+
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&block_hash).unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+
+        // require should succeed when DB is populated.
+        for shard_id in shard_layout.shard_ids() {
+            assert!(
+                epoch_manager.require_chunk_producer_info(&block_hash, shard_id).is_ok(),
+                "require should succeed when DB is populated, shard {shard_id}"
+            );
+        }
+
+        // Delete chunk producers from DB.
+        {
+            let mut store_update = chain.chain_store().store().store_update();
+            for shard_id in shard_layout.shard_ids() {
+                let key = get_block_shard_id(&block_hash, shard_id);
+                store_update.delete(DBCol::ChunkProducers, &key);
+            }
+            store_update.commit();
+        }
+
+        // require should error on miss.
+        for shard_id in shard_layout.shard_ids() {
+            assert!(
+                epoch_manager.require_chunk_producer_info(&block_hash, shard_id).is_err(),
+                "require should error when DB is empty, shard {shard_id}"
+            );
+        }
+    }
+
+    /// Verify that get_chunk_producer_for_height matches the old get_chunk_producer_by_cpk.
+    #[test]
+    fn test_get_chunk_producer_for_height_matches_old_api() {
+        init_test_logger();
+        let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap());
+        clock.advance(Duration::milliseconds(3444));
+        let (mut chain, epoch_manager, _, signer) = setup(clock.clock());
+
+        // Build a few blocks.
+        for _ in 0..3 {
+            let prev_hash = *chain.head_header().unwrap().hash();
+            let prev = chain.get_block(&prev_hash).unwrap();
+            clock.advance(Duration::milliseconds(1));
+            let block =
+                TestBlockBuilder::from_prev_block(clock.clock(), &prev, signer.clone()).build();
+            chain.process_block_test(block).unwrap();
+        }
+
+        let head = chain.head().unwrap();
+        let block_info = epoch_manager.get_block_info(&head.last_block_hash).unwrap();
+        let epoch_id = epoch_manager.get_epoch_id(&head.last_block_hash).unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let height = block_info.height();
+
+        for shard_id in shard_layout.shard_ids() {
+            let from_new =
+                epoch_manager.get_chunk_producer_for_height(&epoch_id, height, shard_id).unwrap();
+            let from_old = epoch_manager
+                .get_chunk_producer_by_cpk(&ChunkProductionKey {
+                    epoch_id,
+                    height_created: height,
+                    shard_id,
+                })
+                .unwrap();
+            assert_eq!(
+                from_new.account_id(),
+                from_old.account_id(),
+                "new and old API should agree, shard {shard_id}"
+            );
         }
     }
 

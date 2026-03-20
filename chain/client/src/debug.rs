@@ -25,7 +25,6 @@ use near_primitives::congestion_info::CongestionControl;
 use near_primitives::errors::EpochError;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state_sync::get_num_state_parts;
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::types::{
     AccountId, BlockHeight, NumShards, ShardId, ShardIndex, ValidatorInfoIdentifier,
@@ -152,11 +151,7 @@ impl BlockProductionTracker {
                 });
             } else {
                 let chunk_producer = epoch_manager
-                    .get_chunk_producer_info(&ChunkProductionKey {
-                        epoch_id: *epoch_id,
-                        height_created: block_height,
-                        shard_id,
-                    })?
+                    .get_chunk_producer_for_height(epoch_id, block_height, shard_id)?
                     .take_account_id();
                 chunk_collection_info.push(ChunkCollection {
                     chunk_producer,
@@ -634,11 +629,11 @@ impl ClientActor {
                                 chunk_producer: self
                                     .client
                                     .epoch_manager
-                                    .get_chunk_producer_info(&ChunkProductionKey {
-                                        epoch_id: *block_header.epoch_id(),
-                                        height_created: block_header.height(),
-                                        shard_id: chunk.shard_id(),
-                                    })
+                                    .get_chunk_producer_for_height(
+                                        block_header.epoch_id(),
+                                        block_header.height(),
+                                        chunk.shard_id(),
+                                    )
                                     .map(|info| info.take_account_id())
                                     .ok(),
                                 gas_used: chunk.prev_gas_used().as_gas(),
@@ -758,11 +753,7 @@ impl ClientActor {
                     let chunk_producer = self
                         .client
                         .epoch_manager
-                        .get_chunk_producer_info(&ChunkProductionKey {
-                            epoch_id,
-                            height_created: height,
-                            shard_id,
-                        })
+                        .get_chunk_producer_for_height(&epoch_id, height, shard_id)
                         .map(|info| info.take_account_id().to_string())
                         .unwrap_or_default();
                     if chunk_producer == validator_id {
