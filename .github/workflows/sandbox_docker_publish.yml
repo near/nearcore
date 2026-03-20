@@ -20,7 +20,7 @@ on:
 
 env:
   # Hardcoded for testing on this branch. Once merged, this job uses inputs.version instead.
-  SANDBOX_VERSION: "2.10.7"
+  SANDBOX_VERSION: "2.11.0-rc.3"
 
 jobs:
   publish:
