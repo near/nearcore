@@ -393,6 +393,9 @@ pub enum DBCol {
     /// Authoritative source for historical chunk producer lookups.
     /// - *Rows*: BlockHash || ShardId (prev_block_hash, shard_id) — 40 bytes
     /// - *Content type*: [near_primitives::types::validator_stake::ValidatorStake]
+    // TODO(#chunk-producer-column): bump DB_VERSION before moving to stable so that
+    // older databases get a proper migration and read-only opens don't fail on the
+    // missing column family.
     ChunkProducers,
 }
 
