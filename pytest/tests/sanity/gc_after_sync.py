@@ -36,7 +36,6 @@ node_config["gc_step_period"] = {"secs": 0, "nanos": 100000000}
 nodes = start_cluster(
     4, 0, 1,
     None, [["epoch_length", EPOCH_LENGTH],
-           ["num_block_producer_seats_per_shard", [5]],
            ["validators", 0, "amount", "60000000000000000000000000000000"],
            ["block_producer_kickout_threshold", 50],
            ["chunk_producer_kickout_threshold", 50],

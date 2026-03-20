@@ -20,7 +20,7 @@ pub fn get_runtime_and_trie() -> (Runtime, ShardTries, StateRoot) {
     let mut genesis = Genesis::test_sharded_new_version(
         vec![alice_account(), bob_account(), "carol.near".parse().unwrap()],
         3,
-        vec![3],
+        1,
     );
     add_test_contract(&mut genesis, &"test.contract".parse().unwrap());
     get_runtime_and_trie_from_genesis(&genesis)

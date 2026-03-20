@@ -82,7 +82,6 @@ def get_epoch_info(node, block_hash):
 nodes = start_cluster(
     8, 0, 1,
     None, [["epoch_length", EPOCH_LENGTH], ["num_block_producer_seats", 4],
-           ["num_block_producer_seats_per_shard", [4]],
            ["num_chunk_producer_seats", 4], ["num_chunk_validator_seats", 8],
            ["block_producer_kickout_threshold", KICKOUT_THRESHOLD],
            ["chunk_producer_kickout_threshold", KICKOUT_THRESHOLD],

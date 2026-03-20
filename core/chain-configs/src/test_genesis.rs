@@ -26,7 +26,6 @@ pub struct TestEpochConfigBuilder {
     num_chunk_producer_seats: NumSeats,
     num_chunk_validator_seats: NumSeats,
     target_validator_mandates_per_shard: NumSeats,
-    avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
     minimum_validators_per_shard: NumSeats,
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
@@ -42,8 +41,6 @@ pub struct TestEpochConfigBuilder {
     shuffle_shard_assignment_for_chunk_producers: bool,
     max_inflation_rate: Rational32,
 
-    // not used anymore
-    num_block_producer_seats_per_shard: Vec<NumSeats>,
     genesis_protocol_version: Option<ProtocolVersion>,
 }
 
@@ -123,7 +120,6 @@ impl Default for TestEpochConfigBuilder {
             num_chunk_producer_seats: 1,
             num_chunk_validator_seats: 1,
             target_validator_mandates_per_shard: 68,
-            avg_hidden_validator_seats_per_shard: vec![],
             minimum_validators_per_shard: 1,
             block_producer_kickout_threshold: 0,
             chunk_producer_kickout_threshold: 0,
@@ -138,8 +134,6 @@ impl Default for TestEpochConfigBuilder {
             chunk_producer_assignment_changes_limit: 5,
             shuffle_shard_assignment_for_chunk_producers: false,
             max_inflation_rate: Rational32::new(1, 40),
-            // consider them ineffective
-            num_block_producer_seats_per_shard: vec![1],
             genesis_protocol_version: None,
         }
     }
@@ -237,9 +231,7 @@ impl TestEpochConfigBuilder {
             .num_block_producer_seats(self.num_block_producer_seats)
             .num_chunk_producer_seats(self.num_chunk_producer_seats)
             .num_chunk_validator_seats(self.num_chunk_validator_seats)
-            .num_chunk_only_producer_seats(300)
             .target_validator_mandates_per_shard(self.target_validator_mandates_per_shard)
-            .avg_hidden_validator_seats_per_shard(self.avg_hidden_validator_seats_per_shard)
             .minimum_validators_per_shard(self.minimum_validators_per_shard)
             .block_producer_kickout_threshold(self.block_producer_kickout_threshold)
             .chunk_producer_kickout_threshold(self.chunk_producer_kickout_threshold)
@@ -255,7 +247,6 @@ impl TestEpochConfigBuilder {
             .shuffle_shard_assignment_for_chunk_producers(
                 self.shuffle_shard_assignment_for_chunk_producers,
             )
-            .num_block_producer_seats_per_shard(self.num_block_producer_seats_per_shard)
             .max_inflation_rate(self.max_inflation_rate)
             .build()
             .expect("field init missing");
@@ -538,11 +529,6 @@ impl TestGenesisBuilder {
             validators,
             shard_layout: self.shard_layout.clone(),
             num_block_producer_seats,
-            num_block_producer_seats_per_shard: self
-                .shard_layout
-                .shard_ids()
-                .map(|_| num_block_producer_seats)
-                .collect(),
             minimum_stake_divisor: self.minimum_stake_divisor,
             minimum_stake_ratio: self.minimum_stake_ratio,
             max_inflation_rate: self.max_inflation_rate,

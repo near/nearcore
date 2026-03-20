@@ -43,7 +43,6 @@ cleanup_remote_nodes_atexit_registered = False
 Config = typing.Dict[str, typing.Any]
 
 # Example value: [
-#   ("num_block_producer_seats_per_shard", [100]),
 #   ("epoch_length", 100)
 # ]
 # Note that we also support using list instead of a tuple here, but that

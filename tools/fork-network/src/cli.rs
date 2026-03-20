@@ -936,12 +936,8 @@ impl ForkNetworkCommand {
                 config.num_chunk_validator_seats = *num_seats;
             }
             if let Some(shard_layout) = shard_layout_override {
-                let num_shards = shard_layout.num_shards() as usize;
                 config.shard_layout_config =
                     ShardLayoutConfig::Static { shard_layout: shard_layout.clone() };
-                config.num_block_producer_seats_per_shard =
-                    vec![config.num_block_producer_seats; num_shards];
-                config.avg_hidden_validator_seats_per_shard = vec![0; num_shards];
             }
             new_epoch_configs.insert(version, Arc::new(config));
         }
@@ -1568,29 +1564,12 @@ impl ForkNetworkCommand {
         let shard_layout = epoch_config
             .static_shard_layout()
             .context("dynamic resharding epoch config is not supported")?;
-        // TODO: deprecate these fields as unused.
-        let num_block_producer_seats_per_shard = vec![
-            original_config
-                .num_block_producer_seats_per_shard[0];
-            shard_layout.num_shards() as usize
-        ];
-        let avg_hidden_validator_seats_per_shard =
-            if original_config.avg_hidden_validator_seats_per_shard.is_empty() {
-                Vec::new()
-            } else {
-                vec![
-                    original_config.avg_hidden_validator_seats_per_shard[0];
-                    shard_layout.num_shards() as usize
-                ]
-            };
         let new_config = GenesisConfig {
             chain_id: original_config.chain_id,
             genesis_height: original_config.genesis_height,
             genesis_time: original_config.genesis_time,
             epoch_length: original_config.epoch_length,
             num_block_producer_seats: epoch_config.num_block_producer_seats,
-            num_block_producer_seats_per_shard,
-            avg_hidden_validator_seats_per_shard,
             block_producer_kickout_threshold: 0,
             chunk_producer_kickout_threshold: 0,
             chunk_validator_only_kickout_threshold: 0,
@@ -1602,7 +1581,6 @@ impl ForkNetworkCommand {
             minimum_stake_divisor: epoch_config.minimum_stake_divisor,
             protocol_upgrade_stake_threshold: epoch_config.protocol_upgrade_stake_threshold,
             shard_layout,
-            num_chunk_only_producer_seats: epoch_config.num_chunk_only_producer_seats,
             minimum_validators_per_shard: epoch_config.minimum_validators_per_shard,
             minimum_stake_ratio: epoch_config.minimum_stake_ratio,
             shuffle_shard_assignment_for_chunk_producers: epoch_config
