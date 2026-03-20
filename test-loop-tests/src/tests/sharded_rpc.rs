@@ -283,7 +283,7 @@ fn test_rpc_receipt_forwarding() {
 
     // Query a nonexistent receipt — both nodes should return UnknownReceipt.
     let bogus_receipt_id = CryptoHash::hash_bytes(b"bogus");
-    
+
     let err = run_receipt_query(&mut h, &alice_node, bogus_receipt_id).unwrap_err();
     assert_rpc_error(&err, "UNKNOWN_RECEIPT");
 

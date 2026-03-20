@@ -582,7 +582,7 @@ impl JsonRpcHandler {
                     request,
                     source,
                     |params| self.receipt_sharded(params),
-                    |params| self.receipt(params),
+                    |params| self.receipt_local(params),
                 )
                 .await
             }
@@ -1596,7 +1596,7 @@ impl JsonRpcHandler {
         })
     }
 
-    async fn receipt(
+    async fn receipt_local(
         &self,
         request_data: near_jsonrpc_primitives::types::receipts::RpcReceiptRequest,
     ) -> Result<
