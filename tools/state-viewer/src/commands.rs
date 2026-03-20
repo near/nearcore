@@ -1088,7 +1088,6 @@ pub(crate) fn print_epoch_analysis(
             .next_next_shard_layout(
                 &epoch_config,
                 epoch_protocol_version,
-                &next_next_epoch_config,
                 &next_shard_layout,
                 &block_info,
             )

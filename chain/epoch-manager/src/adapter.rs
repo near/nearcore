@@ -530,6 +530,12 @@ pub trait EpochManagerAdapter: Send + Sync {
         self.get_epoch_info(epoch_id).map(|info| info.protocol_version())
     }
 
+    /// Get the protocol version that determines the shard layout for the given epoch.
+    fn get_protocol_version_defining_shard_layout(
+        &self,
+        epoch_id: &EpochId,
+    ) -> Result<ProtocolVersion, EpochError>;
+
     /// Get protocol version of next epoch.
     fn get_next_epoch_protocol_version(
         &self,
@@ -538,7 +544,7 @@ pub trait EpochManagerAdapter: Send + Sync {
         self.get_epoch_protocol_version(&self.get_next_epoch_id(block_hash)?)
     }
 
-    /// Get protocol version of next epoch with hash of previous block.network
+    /// Get protocol version of next epoch with hash of previous block.
     fn get_next_epoch_protocol_version_from_prev_block(
         &self,
         parent_hash: &CryptoHash,
@@ -838,6 +844,19 @@ impl EpochManagerAdapter for EpochManagerHandle {
 
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
         self.read().get_shard_layout(epoch_id)
+    }
+
+    fn get_protocol_version_defining_shard_layout(
+        &self,
+        epoch_id: &EpochId,
+    ) -> Result<ProtocolVersion, EpochError> {
+        let epoch_manager = self.read();
+        let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
+        // Epoch config for epoch N defines shard layout for epoch N+2.
+        // For early epochs (genesis), fall back to the epoch's own protocol version.
+        epoch_manager
+            .get_protocol_version_two_epochs_ago(epoch_id)
+            .or_else(|_| Ok(epoch_info.protocol_version()))
     }
 
     fn is_next_block_epoch_start(&self, block_hash: &CryptoHash) -> Result<bool, EpochError> {

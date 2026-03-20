@@ -522,7 +522,7 @@ fn check_if_descendant_of_tracked_shard_impl(
     epoch_manager: &Arc<dyn EpochManagerAdapter>,
 ) -> Result<bool, EpochError> {
     let tracked_shards: HashSet<ShardUId> = tracked_shards.into_iter().cloned().collect();
-    let protocol_version = epoch_manager.get_epoch_protocol_version(epoch_id)?;
+    let protocol_version = epoch_manager.get_protocol_version_defining_shard_layout(epoch_id)?;
     let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
 
     // `ShardLayoutV3` stores all ancestor shards, no need to iterate through protocol versions
@@ -728,27 +728,31 @@ mod tests {
         let epoch_manager = get_epoch_manager(genesis_pv, num_shards, true);
 
         // Simulate two reshardings by producing fake blocks.
-        let block_hashes = hash_range(EPOCH_LENGTH * 4);
-        for i in 0..4 {
+        let block_hashes = hash_range(EPOCH_LENGTH * 5);
+        for i in 0..5 {
+            let protocol_version = std::cmp::min(genesis_pv + i, PROTOCOL_VERSION);
             record_blocks(
                 &mut epoch_manager.write(),
                 &block_hashes,
-                genesis_pv + i,
+                protocol_version,
                 EPOCH_LENGTH * i as usize..EPOCH_LENGTH * (i + 1) as usize,
             );
         }
 
         let genesis_epoch_id = EpochId::default();
         let base_shard_layout = epoch_manager.get_shard_layout(&genesis_epoch_id).unwrap();
+
+        // With the 2-epoch delay, resharding layouts activate 2 epochs after the protocol
+        // upgrade that defines them (epochs 3 and 4 instead of 1 and 2).
         let epoch_id_after_first_resharding = epoch_manager
-            .get_epoch_id_from_prev_block(&block_hashes[EPOCH_LENGTH * 2 + 1])
+            .get_epoch_id_from_prev_block(&block_hashes[EPOCH_LENGTH * 3 + 1])
             .unwrap();
         let first_split_shard_layout =
             epoch_manager.get_shard_layout(&epoch_id_after_first_resharding).unwrap();
         // Ensure that the first resharding occurred.
         assert_ne!(base_shard_layout, first_split_shard_layout);
         let epoch_id_after_second_resharding = epoch_manager
-            .get_epoch_id_from_prev_block(&block_hashes[EPOCH_LENGTH * 3 + 1])
+            .get_epoch_id_from_prev_block(&block_hashes[EPOCH_LENGTH * 4 + 1])
             .unwrap();
         let second_split_shard_layout =
             epoch_manager.get_shard_layout(&epoch_id_after_second_resharding).unwrap();
