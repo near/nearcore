@@ -275,11 +275,14 @@ fn test_rpc_receipt_forwarding() {
     let alice_node = h.alice_node.clone();
     let zoe_node = h.zoe_node.clone();
 
-    let result = run_receipt_query(&mut h, &alice_node, receipt_id);
-    assert!(result.is_ok(), "receipt query from alice_node failed: {result:?}");
-
-    let result = run_receipt_query(&mut h, &zoe_node, receipt_id);
-    assert!(result.is_ok(), "receipt query from zoe_node failed: {result:?}");
+    for node_id in [&alice_node, &zoe_node] {
+        let receipt = run_receipt_query(&mut h, node_id, receipt_id)
+            .unwrap_or_else(|e| panic!("receipt query from {node_id} failed: {e:?}"));
+        let view = &receipt.receipt_view;
+        assert_eq!(view.receipt_id, receipt_id);
+        assert_eq!(view.predecessor_id, alice);
+        assert_eq!(view.receiver_id, zoe);
+    }
 
     // Query a nonexistent receipt — both nodes should return UnknownReceipt.
     let bogus_receipt_id = CryptoHash::hash_bytes(b"bogus");
