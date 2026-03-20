@@ -29,8 +29,8 @@ enum InitializationAttempt {
     Initialized,
     /// Node hasn't synced past genesis yet, retry later.
     WaitingForGenesis,
-    /// Fatal error, stop the writer.
-    Fatal,
+    /// Initialization failed.
+    Error(CloudArchivalInitializationError),
 }
 
 /// Result of a single archiving attempt.
@@ -185,7 +185,9 @@ impl CloudArchivalWriter {
                         Duration::ZERO
                     }
                     InitializationAttempt::WaitingForGenesis => self.config.polling_interval,
-                    InitializationAttempt::Fatal => return,
+                    InitializationAttempt::Error(error) => {
+                        panic!("cloud archival initialization failed: {error}");
+                    }
                 }
             } else {
                 match self.try_archive_data().await {
@@ -206,8 +208,7 @@ impl CloudArchivalWriter {
         let hot_final_height = match self.get_hot_final_head_height() {
             Ok(h) => h,
             Err(error) => {
-                tracing::error!(target: "cloud_archival", ?error, "failed to get hot final head height");
-                return InitializationAttempt::Fatal;
+                return InitializationAttempt::Error(error.into());
             }
         };
         if hot_final_height <= self.genesis_height {
@@ -224,10 +225,7 @@ impl CloudArchivalWriter {
                 tracing::info!(target: "cloud_archival", "cloud archival initialized");
                 InitializationAttempt::Initialized
             }
-            Err(error) => {
-                tracing::error!(target: "cloud_archival", ?error, "cloud archival initialization failed");
-                InitializationAttempt::Fatal
-            }
+            Err(error) => InitializationAttempt::Error(error),
         }
     }
 

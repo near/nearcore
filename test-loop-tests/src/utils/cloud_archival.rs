@@ -3,6 +3,7 @@ use borsh::BorshDeserialize;
 use itertools::Itertools;
 use near_chain::types::Tip;
 use near_chain::{Chain, ChainStoreAccess, ChainStoreUpdate};
+use near_chain_configs::{ClientConfig, CloudArchivalWriterConfig, TrackedShardsConfig};
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
 use near_client::sync::external::{
     StateSyncConnection, download_and_apply_state_parts_sequentially, list_state_parts,
@@ -26,6 +27,13 @@ use std::collections::HashSet;
 use std::future::Future;
 use std::sync::Arc;
 
+#[derive(Clone)]
+pub(crate) struct WriterConfig {
+    pub id: AccountId,
+    pub archive_block_data: bool,
+    pub tracked_shards: Vec<ShardUId>,
+}
+
 pub fn run_node_until(env: &mut TestLoopEnv, account_id: &AccountId, target_height: BlockHeight) {
     env.runner_for_account(account_id).run_until_head_height(target_height);
 }
@@ -36,7 +44,8 @@ fn execute_future<F: Future>(fut: F) -> F::Output {
     futures::executor::block_on(fut)
 }
 
-/// Sanity checks: heads alignment, GC tail bounds, and (optional) lower bound for expected GC tail.
+/// Sanity checks: heads alignment, GC tail bounds, external per-shard heads,
+/// and (optional) lower bound for expected GC tail.
 pub fn gc_and_heads_sanity_checks(
     env: &TestLoopEnv,
     writer_id: &AccountId,
@@ -66,6 +75,24 @@ pub fn gc_and_heads_sanity_checks(
     } else {
         assert_eq!(gc_tail, 1);
     }
+
+    // Check that all external per-shard heads are above gc_tail.
+    let cloud_storage = get_cloud_storage(env, writer_id);
+    let head_hash = chain_store.head().unwrap().last_block_hash;
+    let shard_layout = client.epoch_manager.get_shard_layout_from_prev_block(&head_hash).unwrap();
+    for shard_id in shard_layout.shard_ids() {
+        let ext_shard_head =
+            execute_future(cloud_storage.retrieve_cloud_shard_head_if_exists(shard_id));
+        if let Ok(Some(shard_head)) = ext_shard_head {
+            assert!(
+                shard_head >= gc_tail,
+                "external shard head {} for shard {} is below min_expected_cloud_head {}",
+                shard_head,
+                shard_id,
+                gc_tail,
+            );
+        }
+    }
 }
 
 /// Stops a node and restarts it with a new identifier `<old>-restart`.
@@ -91,7 +118,7 @@ fn get_hot_store(env: &TestLoopEnv, account_id: &AccountId) -> Store {
     client.chain.chain_store().store()
 }
 
-fn get_cloud_storage(env: &TestLoopEnv, archival_id: &AccountId) -> Arc<CloudStorage> {
+pub(crate) fn get_cloud_storage(env: &TestLoopEnv, archival_id: &AccountId) -> Arc<CloudStorage> {
     let node_data = env.get_node_data_by_account_id(archival_id);
     let cloud_storage = env.test_loop.data.get(&node_data.cloud_storage_sender);
     cloud_storage.clone().unwrap()
@@ -102,13 +129,79 @@ pub(crate) fn get_cloud_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockH
     hot_store.get_ser::<Tip>(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY).unwrap().height
 }
 
-/// Runs tests to verify that data for the block height exists in the archive.
-pub fn check_data_at_height(env: &TestLoopEnv, archival_id: &AccountId, height: BlockHeight) {
+/// Configures a client as a cloud archival writer with specific tracked shards.
+pub(crate) fn apply_writer_settings(
+    config: &mut ClientConfig,
+    archive_block_data: bool,
+    tracked_shards: &[ShardUId],
+) {
+    config.cloud_archival_writer =
+        Some(CloudArchivalWriterConfig { archive_block_data, ..Default::default() });
+    config.tracked_shards_config = if tracked_shards.is_empty() {
+        TrackedShardsConfig::NoShards
+    } else {
+        TrackedShardsConfig::Shards(tracked_shards.to_vec())
+    };
+}
+
+/// Kills the writer, sets one shard's external head to a specific height, restarts.
+pub(crate) fn simulate_lagging_shard(
+    env: &mut TestLoopEnv,
+    writer_id: &AccountId,
+    shard_id: ShardId,
+    target_height: BlockHeight,
+) {
+    let cloud_storage = get_cloud_storage(env, writer_id);
+    let node_data = env.get_node_data_by_account_id(writer_id);
+    let identifier = node_data.identifier.clone();
+    let node_state = env.kill_node(&identifier);
+    execute_future(cloud_storage.update_cloud_shard_head(shard_id, target_height)).unwrap();
+    let new_identifier = format!("{}-restart", identifier);
+    env.restart_node(&new_identifier, node_state);
+}
+
+/// Adds a new writer node mid-test.
+pub(crate) fn add_writer_node(env: &mut TestLoopEnv, config: &WriterConfig) {
+    let archive_block_data = config.archive_block_data;
+    let tracked_shards = config.tracked_shards.clone();
+    let node_state = env
+        .node_state_builder()
+        .account_id(&config.id)
+        .cloud_storage(true)
+        .config_modifier(move |cfg| {
+            apply_writer_settings(cfg, archive_block_data, &tracked_shards);
+        })
+        .build();
+    env.add_node(config.id.as_ref(), node_state);
+}
+
+/// Verifies that block data exists and that exactly the listed shards have shard data.
+pub(crate) fn check_data_at_height_for_shards(
+    env: &TestLoopEnv,
+    archival_id: &AccountId,
+    height: BlockHeight,
+    expected_shards: &[ShardId],
+    all_shard_ids: &[ShardId],
+) {
     let cloud_storage = get_cloud_storage(env, archival_id);
-    let block_data = cloud_storage.get_block_data(height).unwrap();
-    for chunk_header in block_data.block().chunks().iter() {
-        let shard_id = chunk_header.shard_id();
-        let _shard_data = cloud_storage.get_shard_data(height, shard_id).unwrap();
+    if !expected_shards.is_empty() {
+        assert!(
+            cloud_storage.get_block_data(height).is_ok(),
+            "block data should exist at height {height}"
+        );
+    }
+    for shard_id in all_shard_ids {
+        if expected_shards.contains(shard_id) {
+            assert!(
+                cloud_storage.get_shard_data(height, *shard_id).is_ok(),
+                "shard data for shard {shard_id} should exist at height {height}"
+            );
+        } else {
+            assert!(
+                cloud_storage.get_shard_data(height, *shard_id).is_err(),
+                "shard data for shard {shard_id} should NOT exist at height {height}"
+            );
+        }
     }
 }
 

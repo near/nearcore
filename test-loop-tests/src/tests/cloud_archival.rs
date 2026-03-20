@@ -2,21 +2,23 @@ use crate::setup::builder::{ArchivalKind, TestLoopBuilder};
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::archival_account_id;
 use crate::utils::cloud_archival::{
-    bootstrap_reader_at_height, check_account_balance, check_data_at_height,
-    gc_and_heads_sanity_checks, get_cloud_head, get_writer_handle, run_node_until,
+    WriterConfig, add_writer_node, apply_writer_settings, bootstrap_reader_at_height,
+    check_account_balance, check_data_at_height_for_shards, gc_and_heads_sanity_checks,
+    get_cloud_head, get_writer_handle, run_node_until, simulate_lagging_shard,
     snapshots_sanity_check, stop_and_restart_node,
 };
 use near_async::time::Duration;
-use near_chain_configs::{CloudArchivalWriterConfig, MIN_GC_NUM_EPOCHS_TO_KEEP};
+use near_chain_configs::MIN_GC_NUM_EPOCHS_TO_KEEP;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta};
+use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ShardId};
+use near_store::ShardUId;
 
 /// Test harness for cloud archival tests. Owns the `TestLoopEnv` and exposes
 /// composable action and assertion methods so each test reads as an explicit
 /// Arrange-Act-Assert sequence.
 struct CloudArchiveHarness {
     env: TestLoopEnv,
-    /// Account ID of the cloud archival node that writes to cloud storage.
+    /// Account ID of the primary cloud archival node that writes to cloud storage.
     archival_id: AccountId,
     /// Epoch length in blocks.
     epoch_length: BlockHeightDelta,
@@ -28,6 +30,7 @@ struct CloudArchiveHarness {
 
 struct CloudArchiveHarnessBuilder {
     cold_storage: bool,
+    writer: WriterConfig,
 }
 
 impl CloudArchiveHarnessBuilder {
@@ -36,14 +39,23 @@ impl CloudArchiveHarnessBuilder {
         self
     }
 
+    fn archive_block_data(mut self, enabled: bool) -> Self {
+        self.writer.archive_block_data = enabled;
+        self
+    }
+
+    fn tracked_shards(mut self, shards: Vec<ShardUId>) -> Self {
+        self.writer.tracked_shards = shards;
+        self
+    }
+
     fn build(self) -> CloudArchiveHarness {
+        let user_account: AccountId = CloudArchiveHarness::USER_ACCOUNT.parse().unwrap();
         let archival_kind =
             if self.cold_storage { ArchivalKind::ColdAndCloud } else { ArchivalKind::Cloud };
-        let user_account: AccountId = CloudArchiveHarness::USER_ACCOUNT.parse().unwrap();
-        let archival_id = archival_account_id();
-
+        let archival_id = self.writer.id.clone();
         let env = TestLoopBuilder::new()
-            .shard_layout(ShardLayout::multi_shard(3, 3))
+            .shard_layout(CloudArchiveHarness::default_shard_layout())
             .epoch_length(CloudArchiveHarness::DEFAULT_EPOCH_LENGTH)
             .add_user_account(&user_account, CloudArchiveHarness::USER_BALANCE)
             .enable_archival_node(archival_kind)
@@ -52,13 +64,13 @@ impl CloudArchiveHarnessBuilder {
                 if !config.archive {
                     return;
                 }
-                config.cloud_archival_writer = Some(CloudArchivalWriterConfig {
-                    archive_block_data: true,
-                    ..Default::default()
-                });
+                apply_writer_settings(
+                    config,
+                    self.writer.archive_block_data,
+                    &self.writer.tracked_shards,
+                );
             })
             .build();
-
         CloudArchiveHarness {
             env,
             archival_id,
@@ -75,7 +87,14 @@ impl CloudArchiveHarness {
     const USER_BALANCE: Balance = Balance::from_near(42);
 
     fn builder() -> CloudArchiveHarnessBuilder {
-        CloudArchiveHarnessBuilder { cold_storage: false }
+        CloudArchiveHarnessBuilder {
+            cold_storage: false,
+            writer: WriterConfig {
+                id: archival_account_id(),
+                archive_block_data: true,
+                tracked_shards: Self::all_shard_uids(),
+            },
+        }
     }
 
     fn run_until(&mut self, height: BlockHeight) {
@@ -125,10 +144,6 @@ impl CloudArchiveHarness {
         gc_and_heads_sanity_checks(&self.env, &self.archival_id, self.cold_storage_enabled, None);
     }
 
-    fn assert_external_data_at_height(&self, height: BlockHeight) {
-        check_data_at_height(&self.env, &self.archival_id, height);
-    }
-
     /// Checks that each epoch (except the final one) has complete snapshots
     /// and epoch data uploaded. Derives `final_epoch_height` from the current
     /// chain head.
@@ -149,6 +164,41 @@ impl CloudArchiveHarness {
 
     fn gc_tail(&self) -> BlockHeight {
         self.env.archival_node().client().chain.chain_store().tail()
+    }
+
+    fn simulate_lagging_shard(&mut self, shard_id: ShardId, target_height: BlockHeight) {
+        simulate_lagging_shard(&mut self.env, &self.archival_id, shard_id, target_height);
+    }
+
+    fn add_writer_node(&mut self, config: &WriterConfig) {
+        add_writer_node(&mut self.env, config);
+    }
+
+    /// For each (height, expected_shards) pair, asserts that exactly those
+    /// shards have data at that height (and non-listed shards do NOT).
+    fn check_data(&self, checks: &[(BlockHeight, &[ShardId])]) {
+        for (height, expected_shards) in checks {
+            check_data_at_height_for_shards(
+                &self.env,
+                &self.archival_id,
+                *height,
+                expected_shards,
+                &Self::all_shard_ids(),
+            );
+        }
+    }
+
+    fn default_shard_layout() -> ShardLayout {
+        ShardLayout::multi_shard(3, 3)
+    }
+
+    fn all_shard_ids() -> Vec<ShardId> {
+        Self::default_shard_layout().shard_ids().collect()
+    }
+
+    fn all_shard_uids() -> Vec<ShardUId> {
+        let layout = Self::default_shard_layout();
+        layout.shard_ids().map(|id| ShardUId::from_shard_id_and_layout(id, &layout)).collect()
     }
 
     fn shutdown(mut self) {
@@ -209,15 +259,19 @@ fn test_cloud_archival_resume() {
     h.shutdown();
 }
 
-/// Verifies that block data can be read from the cloud.
+/// Verifies that block data can be read from the cloud at multiple heights.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_read_data_at_height() {
+    let all_shards = CloudArchiveHarness::all_shard_ids();
     let mut h = CloudArchiveHarness::builder().build();
-    // 2 epochs is enough for the writer to upload data for height 5.
-    h.run_until_epoch(2);
-    h.assert_external_data_at_height(h.epoch_length / 2);
+    h.run_until_epoch(MIN_GC_NUM_EPOCHS_TO_KEEP + 2);
+    h.check_data(&[
+        (2, &all_shards),
+        (h.epoch_length / 2, &all_shards),
+        (h.epoch_length + 1, &all_shards),
+    ]);
     h.shutdown();
 }
 
@@ -247,4 +301,145 @@ fn test_cloud_archival_use_snapshot() {
     h.kill_reader();
 
     h.shutdown();
+}
+
+/// A writer with `archive_block_data: false` and no tracked shards is misconfigured
+/// and must panic during initialization.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+#[should_panic(expected = "cloud archival writer must track at least one component")]
+fn test_cloud_archival_misconfigured_writer_panics() {
+    let mut h =
+        CloudArchiveHarness::builder().archive_block_data(false).tracked_shards(vec![]).build();
+    // One epoch is sufficient — the writer panics during initialization.
+    h.run_until_epoch(1);
+}
+
+/// Verifies that a writer recovers when one shard's external head lags behind.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_lagging_shard_catchup() {
+    let all_shards = CloudArchiveHarness::all_shard_ids();
+    let mut h = CloudArchiveHarness::builder().build();
+    let lag_at_height = (MIN_GC_NUM_EPOCHS_TO_KEEP + 1) * h.epoch_length;
+    let lag_blocks = 5;
+    h.run_until(lag_at_height);
+    h.simulate_lagging_shard(all_shards[0], lag_at_height - lag_blocks);
+    // Run enough for GC to advance past the lagging height.
+    h.run_until_epoch(lag_at_height / h.epoch_length + MIN_GC_NUM_EPOCHS_TO_KEEP + 1);
+    h.check_data(&[
+        (lag_at_height - lag_blocks, &all_shards),
+        (lag_at_height - 1, &all_shards),
+        (lag_at_height + h.epoch_length, &all_shards),
+    ]);
+    h.assert_heads_and_gc_ok();
+}
+
+/// Verifies that the writer panics when a shard's external head is set back
+/// far enough that the data has already been garbage collected.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+#[should_panic(expected = "GC tail")]
+fn test_cloud_archival_lagging_shard_beyond_gc() {
+    let mut h = CloudArchiveHarness::builder().build();
+    let lag_at_height = (MIN_GC_NUM_EPOCHS_TO_KEEP + 1) * h.epoch_length;
+    h.run_until(lag_at_height);
+    // Lag to a height below gc_tail so the writer can't recover.
+    let lagged_to = h.epoch_length / 2;
+    assert!(lagged_to < h.gc_tail(), "lagged height should be below gc_tail");
+    h.simulate_lagging_shard(CloudArchiveHarness::all_shard_ids()[0], lagged_to);
+    // Advance testloop so the cloud archival writer runs and hits the assert.
+    h.run_until(lag_at_height + h.epoch_length);
+}
+
+/// Verifies that a second writer joining mid-test catches up and covers
+/// additional shards. Writer_b only archives from its join height onward.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_writer_joins_later() {
+    let all_shard_uids = CloudArchiveHarness::all_shard_uids();
+    let all_shard_ids = CloudArchiveHarness::all_shard_ids();
+    let writer_a_shards = vec![all_shard_ids[0], all_shard_ids[1]];
+    let mut h = CloudArchiveHarness::builder()
+        .tracked_shards(vec![all_shard_uids[0], all_shard_uids[1]])
+        .build();
+    let join_height = h.epoch_length * 2;
+    h.run_until(join_height);
+    // Add writer_b but immediately stop its cloud archival writer so it
+    // doesn't archive anything while catching up. This makes the negative
+    // check deterministic — writer_b will NOT archive pre-join heights.
+    let writer_b_id: AccountId = "writer_b".parse().unwrap();
+    h.add_writer_node(&WriterConfig {
+        id: writer_b_id.clone(),
+        archive_block_data: false,
+        tracked_shards: vec![all_shard_uids[1], all_shard_uids[2]],
+    });
+    get_writer_handle(&h.env, &writer_b_id).0.stop();
+    // Let writer_b catch up to join_height (hot store advances) while its
+    // cloud archival writer is stopped.
+    run_node_until(&mut h.env, &writer_b_id, join_height);
+    // Restart writer_b: the hot store is preserved across restart, so the new
+    // cloud archival writer initializes at hot_final_height ≈ join_height and
+    // archives from there.
+    {
+        let node_data = h.env.get_node_data_by_account_id(&writer_b_id);
+        let node_identifier = node_data.identifier.clone();
+        stop_and_restart_node(&mut h.env, &node_identifier);
+    }
+    // Run enough epochs past join for writer_b to catch up and GC to trigger.
+    let target_epochs = join_height / h.epoch_length + MIN_GC_NUM_EPOCHS_TO_KEEP + 2;
+    h.run_until_epoch(target_epochs);
+    h.check_data(&[
+        // Before writer_b joins: only writer_a's shards are archived.
+        (h.epoch_length / 2, &writer_a_shards),
+        (h.epoch_length, &writer_a_shards),
+        // After writer_b catches up: all shards are archived.
+        (join_height + 1, &all_shard_ids),
+    ]);
+    h.assert_heads_and_gc_ok();
+}
+
+/// Verifies that two writers tracking all shards both produce valid data.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_multi_writer_same_shards() {
+    let all_shard_uids = CloudArchiveHarness::all_shard_uids();
+    let all_shard_ids = CloudArchiveHarness::all_shard_ids();
+    let mut h = CloudArchiveHarness::builder().build();
+    h.add_writer_node(&WriterConfig {
+        id: "writer_b".parse().unwrap(),
+        archive_block_data: true,
+        tracked_shards: all_shard_uids,
+    });
+    h.run_until_epoch(MIN_GC_NUM_EPOCHS_TO_KEEP + 2);
+    h.check_data(&[(2, &all_shard_ids), (h.epoch_length + 1, &all_shard_ids)]);
+    h.assert_heads_and_gc_ok();
+}
+
+/// Verifies that two writers with disjoint shard assignments together cover
+/// all shards.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_multi_writer_disjoint_shards() {
+    let all_shard_uids = CloudArchiveHarness::all_shard_uids();
+    let all_shard_ids = CloudArchiveHarness::all_shard_ids();
+    // Primary writer only tracks shards 0,1.
+    let mut h = CloudArchiveHarness::builder()
+        .tracked_shards(vec![all_shard_uids[0], all_shard_uids[1]])
+        .build();
+    h.add_writer_node(&WriterConfig {
+        id: "writer_b".parse().unwrap(),
+        archive_block_data: false,
+        tracked_shards: vec![all_shard_uids[2]],
+    });
+    h.run_until_epoch(MIN_GC_NUM_EPOCHS_TO_KEEP + 2);
+    // Both writers start together: all shards are archived.
+    h.check_data(&[(h.epoch_length / 2, &all_shard_ids), (h.epoch_length + 1, &all_shard_ids)]);
+    h.assert_heads_and_gc_ok();
 }
