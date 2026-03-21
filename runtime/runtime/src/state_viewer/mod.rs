@@ -1,7 +1,9 @@
 use crate::ApplyState;
+use crate::contract_code::{
+    AccountContractAccessExt, GlobalContractAccessExt, RuntimeContractIdentifier,
+};
 use crate::ext::RuntimeExt;
 use crate::function_call::execute_function_call;
-use crate::global_contracts::{AccountContractAccessExt, GlobalContractAccessExt};
 use crate::pipelining::ReceiptPreparationPipeline;
 use crate::receipt_manager::ReceiptManager;
 use itertools::Itertools;
@@ -25,6 +27,7 @@ use near_primitives::types::{
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{StateItem, ViewStateResult};
 use near_primitives_core::config::ViewConfig;
+use near_store::trie::AccessOptions;
 use near_store::{TrieUpdate, get_access_key, get_account, get_gas_key_nonce};
 use near_vm_runner::logic::{ProtocolVersion, ReturnData};
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
@@ -308,8 +311,16 @@ impl TrieViewer {
             epoch_info_provider.chain_id(),
         );
         let view_config = Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view });
-        let code_hash = account.contract().into_owned().hash(&state_update)?;
-        let contract = pipeline.get_contract(&receipt, code_hash, 0, view_config.clone());
+        let contract_id_resolved = RuntimeContractIdentifier::resolve(
+            contract_id,
+            account.contract().into_owned(),
+            &state_update,
+            &config.wasm_config,
+            &epoch_info_provider.chain_id(),
+            AccessOptions::DEFAULT,
+        )?;
+        let contract =
+            pipeline.get_contract(&receipt, contract_id_resolved, 0, view_config.clone());
 
         let mut runtime_ext = RuntimeExt::new(
             &mut state_update,

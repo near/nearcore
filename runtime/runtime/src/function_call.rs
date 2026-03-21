@@ -1,4 +1,5 @@
 use crate::config::safe_add_compute;
+use crate::contract_code::RuntimeContractIdentifier;
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::receipt_manager::ReceiptManager;
 use crate::{ActionResult, ApplyState, metrics};
@@ -37,7 +38,7 @@ pub(crate) fn action_function_call(
     account_id: &AccountId,
     function_call: &FunctionCallAction,
     action_hash: &CryptoHash,
-    code_hash: CryptoHash,
+    contract_id: &RuntimeContractIdentifier,
     config: &RuntimeConfig,
     is_last_action: bool,
     epoch_info_provider: &dyn EpochInfoProvider,
@@ -50,11 +51,11 @@ pub(crate) fn action_function_call(
         .into());
     }
 
-    let account_contract = account.contract();
+    let code_hash = contract_id.old_hash();
     state_update.record_contract_call(
         account_id.clone(),
         code_hash,
-        account_contract.as_ref(),
+        account.contract().as_ref(),
         apply_state.apply_reason.clone(),
     )?;
 
