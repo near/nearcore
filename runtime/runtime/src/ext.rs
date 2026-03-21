@@ -593,10 +593,9 @@ impl Contract for RuntimeContractExt {
     fn get_code(&self) -> Option<Arc<ContractCode>> {
         match &self.identifier {
             RuntimeContractIdentifier::None => Option::None,
-            RuntimeContractIdentifier::AccountLocal(h)
-            | RuntimeContractIdentifier::Global(h)
-            | RuntimeContractIdentifier::GlobalEthWallet { global_contract_hash: h, .. } => {
-                self.storage.get(*h).map(Arc::new)
+            RuntimeContractIdentifier::AccountLocal { code_hash, .. }
+            | RuntimeContractIdentifier::Global { code_hash, .. } => {
+                self.storage.get(*code_hash).map(Arc::new)
             }
             RuntimeContractIdentifier::LegacyEthWallet(legacy) => Some(legacy.contract()),
         }
