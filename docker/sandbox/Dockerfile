@@ -1,12 +1,12 @@
 ARG VERSION=2.10.7
 
-FROM debian:bookworm-slim AS download-amd64
+FROM ubuntu:24.04 AS download-amd64
 ARG VERSION
 ADD https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux-x86_64/${VERSION}/near-sandbox.tar.gz /tmp/near-sandbox.tar.gz
 RUN tar -xzf /tmp/near-sandbox.tar.gz --strip-components=1 -C /usr/local/bin && \
     chmod +x /usr/local/bin/near-sandbox
 
-FROM debian:bookworm-slim AS download-arm64
+FROM ubuntu:24.04 AS download-arm64
 ARG VERSION
 ADD https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux-aarch64/${VERSION}/near-sandbox.tar.gz /tmp/near-sandbox.tar.gz
 RUN tar -xzf /tmp/near-sandbox.tar.gz --strip-components=1 -C /usr/local/bin && \
