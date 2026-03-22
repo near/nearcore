@@ -18,15 +18,14 @@ on:
         type: boolean
         default: false
 
-env:
-  # Hardcoded for testing on this branch. Once merged, this job uses inputs.version instead.
-  SANDBOX_VERSION: "2.11.0-rc.3"
-
 jobs:
   publish:
-    name: "Build and push sandbox Docker image"
+    name: "Build and push sandbox Docker image (${{ matrix.version }})"
     runs-on: ubuntu-latest
     environment: deploy
+    strategy:
+      matrix:
+        version: ["2.10.7", "2.11.0-rc.3"]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -35,7 +34,7 @@ jobs:
 
       - name: Set version
         run: |
-          VERSION="${{ inputs.version || env.SANDBOX_VERSION }}"
+          VERSION="${{ inputs.version || matrix.version }}"
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
 
       - name: Verify S3 binaries exist
