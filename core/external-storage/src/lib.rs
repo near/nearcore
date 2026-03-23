@@ -62,9 +62,9 @@ impl ExternalConnection {
                 let S3AccessConfig { is_readonly, timeout } = s3_access_config
                     .expect("S3 access config not provided with S3 external storage location");
                 let s3_client = if is_readonly {
-                    create_s3_bucket_readonly(bucket, region, timeout)
+                    create_s3_client_readonly(bucket, region, timeout)
                 } else {
-                    create_s3_bucket_read_write(bucket, region, timeout, credentials_file)
+                    create_s3_client_read_write(bucket, region, timeout, credentials_file)
                 };
                 if let Err(err) = s3_client {
                     if is_readonly {
@@ -231,7 +231,7 @@ fn extract_file_name_from_path_buf(path_buf: PathBuf) -> String {
 }
 
 /// Create an anonymous, read-only S3 client.
-fn create_s3_bucket_readonly(
+fn create_s3_client_readonly(
     bucket: &str,
     region: &str,
     timeout: Duration,
@@ -253,7 +253,7 @@ struct S3CredentialsConfig {
 }
 
 /// Create a read/write S3 client, optionally using a JSON credentials file.
-fn create_s3_bucket_read_write(
+fn create_s3_client_read_write(
     bucket: &str,
     region: &str,
     timeout: Duration,
