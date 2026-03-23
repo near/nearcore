@@ -14,7 +14,7 @@ use near_primitives::receipt::{
     VersionedActionReceipt,
 };
 use near_primitives::transaction::FunctionCallAction;
-use near_primitives::trie_key::TrieKey;
+use near_primitives::trie_key::{SmallKeyVec, TrieKey};
 use near_primitives::types::{AccountId, EpochInfoProvider};
 use near_primitives_core::version::ProtocolFeature;
 use near_store::trie::AccessOptions;
@@ -373,7 +373,8 @@ fn record_contract_call(
     // Only record the call if the trie contains the contract (with the given hash).
     // This avoids recording contracts that do not exist or are newly-deployed.
     // The lookup has no side effects (not charging gas or recording trie nodes).
-    let key = trie_key.to_vec();
+    let mut key = SmallKeyVec::new_const();
+    trie_key.append_into(&mut key);
     let contract_ref = state_update
         .trie
         .get_optimized_ref(&key, KeyLookupMode::MemOrFlatOrTrie, AccessOptions::NO_SIDE_EFFECTS)
