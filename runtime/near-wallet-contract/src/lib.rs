@@ -20,7 +20,7 @@ static LOCALNET: WalletContract =
     WalletContract::new(include_bytes!("../res/wallet_contract_localnet.wasm"));
 
 /// Identifies a legacy ETH wallet contract variant by chain.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub enum LegacyEthWallet {
     Mainnet,
     /// Current testnet wallet contract (from protocol version 71+).

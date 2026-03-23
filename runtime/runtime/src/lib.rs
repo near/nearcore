@@ -558,8 +558,12 @@ impl Runtime {
                     &epoch_info_provider.chain_id(),
                     AccessOptions::DEFAULT,
                 )?;
-                let contract =
-                    preparation_pipeline.get_contract(receipt, contract_id, action_index, None);
+                let contract = preparation_pipeline.get_contract(
+                    receipt,
+                    contract_id.clone(),
+                    action_index,
+                    None,
+                );
                 let is_last_action = action_index + 1 == actions.len();
                 action_function_call(
                     state_update,

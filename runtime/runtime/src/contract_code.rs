@@ -17,7 +17,7 @@ use near_wallet_contract::{LegacyEthWallet, eth_wallet_global_contract_hash};
 /// All special-case resolution (ETH implicit accounts, global contracts) is
 /// performed at construction time so that `RuntimeContractExt` only needs
 /// storage and identifier to implement `Contract`.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) enum RuntimeContractIdentifier {
     /// No contract deployed on the account.
     None,
