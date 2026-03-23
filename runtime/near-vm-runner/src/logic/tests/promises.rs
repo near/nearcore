@@ -697,3 +697,43 @@ fn test_promise_batch_action_add_gas_key_with_function_call() {
         }]
     );
 }
+
+#[test]
+fn test_one_yocto_near_on_promise_enabled() {
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.one_yocto_near_on_promise = true;
+    logic_builder.context.account_balance = Balance::ZERO;
+    logic_builder.context.attached_deposit = Balance::ZERO;
+    let mut logic = logic_builder.build();
+
+    let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
+
+    // 1 yoctoNEAR should succeed even with zero balance
+    promise_batch_action_function_call_weight(&mut logic, index, 1, Gas::ZERO, 0)
+        .expect("1 yoctoNEAR should succeed with feature enabled");
+
+    // 2 yoctoNEAR should still fail
+    promise_batch_action_function_call_weight(&mut logic, index, 2, Gas::ZERO, 0)
+        .expect_err("2 yoctoNEAR should fail with zero balance");
+
+    // Transfer with 1 yoctoNEAR should still fail (feature only applies to function calls)
+    let num_1u128 = logic.internal_mem_write(&1u128.to_le_bytes());
+    logic
+        .promise_batch_action_transfer(index, num_1u128.ptr)
+        .expect_err("transfer should still fail with zero balance");
+}
+
+#[test]
+fn test_one_yocto_near_on_promise_disabled() {
+    let mut logic_builder = VMLogicBuilder::default();
+    // Feature disabled by default
+    logic_builder.context.account_balance = Balance::ZERO;
+    logic_builder.context.attached_deposit = Balance::ZERO;
+    let mut logic = logic_builder.build();
+
+    let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
+
+    // 1 yoctoNEAR should fail when feature is disabled and balance is zero
+    promise_batch_action_function_call_weight(&mut logic, index, 1, Gas::ZERO, 0)
+        .expect_err("1 yoctoNEAR should fail with feature disabled and zero balance");
+}
