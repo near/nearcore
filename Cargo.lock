@@ -5221,6 +5221,7 @@ dependencies = [
  "thiserror 2.0.16",
  "tokio",
  "tracing",
+ "zstd",
 ]
 
 [[package]]
