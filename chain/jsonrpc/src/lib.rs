@@ -1096,8 +1096,7 @@ impl JsonRpcHandler {
             | QueryRequest::ViewAccessKey { account_id, .. }
             | QueryRequest::ViewAccessKeyList { account_id, .. }
             | QueryRequest::ViewGasKeyNonces { account_id, .. }
-            | QueryRequest::CallFunction { account_id, .. }
-            | QueryRequest::ViewGlobalContractCodeByAccountId { account_id, .. } => {
+            | QueryRequest::CallFunction { account_id, .. } => {
                 let block_hint = request_data.block_reference.clone().into();
                 let shard_hint = ShardHint::Account(account_id.clone());
                 self.run_coordinator_request(
@@ -1109,9 +1108,12 @@ impl JsonRpcHandler {
                 )
                 .await
             }
-            // Global contract code is replicated to all shards, any node can serve it locally.
-            QueryRequest::ViewGlobalContractCode { .. } => {
-                process_query_response(self.query(request_data).await)
+            // Global contract code is replicated to all shards, no shard routing needed.
+            QueryRequest::ViewGlobalContractCode { .. }
+            | QueryRequest::ViewGlobalContractCodeByAccountId { .. } => {
+                let block_hint = request_data.block_reference.clone().into();
+                self.run_coordinator_request("query", request_data, block_hint, ShardHint::None)
+                    .await
             }
         }
     }
