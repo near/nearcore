@@ -51,7 +51,10 @@ pub(crate) fn action_function_call(
         .into());
     }
 
-    let code_hash = contract_id.old_hash();
+    // Use the hash as stored in the account's code_hash field. For legacy ETH
+    // wallet contracts this is the magic bytes hash, not the actual contract
+    // code hash.
+    let code_hash = contract_id.stored_hash();
     state_update.record_contract_call(
         account_id.clone(),
         code_hash,

@@ -95,12 +95,7 @@ impl RuntimeContractIdentifier {
         }
     }
 
-    /// Returns the hash as it was stored in the account's code_hash field.
-    ///
-    /// For legacy ETH wallet contracts this is the magic bytes hash, not the
-    /// actual contract code hash. Used by `record_contract_call` to preserve
-    /// the original recording behavior.
-    pub(crate) fn old_hash(&self) -> CryptoHash {
+    pub(crate) fn stored_hash(&self) -> CryptoHash {
         match self {
             Self::None => CryptoHash::default(),
             Self::AccountLocal(h) | Self::Global(h) => *h,
