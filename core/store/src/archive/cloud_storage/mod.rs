@@ -83,9 +83,7 @@ mod tests {
 
     pub fn test_cloud_storage(tmp_dir: &tempfile::TempDir) -> CloudStorage {
         CloudStorage {
-            external: ExternalConnection::Filesystem {
-                root_dir: tmp_dir.path().to_path_buf(),
-            },
+            external: ExternalConnection::Filesystem { root_dir: tmp_dir.path().to_path_buf() },
             chain_id: "test".to_string(),
         }
     }
@@ -97,10 +95,7 @@ mod tests {
         let payload: u64 = 42;
         let original = borsh::to_vec(&payload).unwrap();
         let file_id = CloudStorageFileID::Block(1);
-        cloud_storage
-            .upload_compressed(file_id.clone(), original.clone())
-            .await
-            .unwrap();
+        cloud_storage.upload_compressed(file_id.clone(), original.clone()).await.unwrap();
 
         // Read raw bytes from the filesystem to verify they are compressed.
         let raw_path = tmp_dir.path().join(cloud_storage.file_path(&file_id));
