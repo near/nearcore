@@ -77,7 +77,6 @@ fn block_on_future<F: Future>(fut: F) -> F::Output {
 #[cfg(test)]
 mod tests {
     use near_external_storage::ExternalConnection;
-
     use super::CloudStorage;
     use super::file_id::CloudStorageFileID;
 
