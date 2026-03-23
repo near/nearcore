@@ -563,14 +563,23 @@ impl ShardTries {
         let store = self.0.store.store();
         let (tx, rx) = crossbeam::channel::bounded(1);
         spawner.spawn("memtrie_bg_load", move || {
-            for _ in 0..MEMTRIE_LOAD_MAX_RETRIES {
+            for attempt in 0..MEMTRIE_LOAD_MAX_RETRIES {
+                tracing::info!(
+                    target: "memtrie", ?shard_uid, attempt,
+                    "starting background memtrie loading attempt"
+                );
                 match load_trie_from_flat_state_and_delta(&store, shard_uid, None, false) {
                     Ok(result) => {
+                        tracing::info!(
+                            target: "memtrie", ?shard_uid, attempt,
+                            max_height = result.1,
+                            "background memtrie loading succeeded"
+                        );
                         _ = tx.send(result);
                         return;
                     }
                     Err(e) => {
-                        tracing::error!(target: "memtrie", ?shard_uid, ?e, "failed to load memtrie")
+                        tracing::error!(target: "memtrie", ?shard_uid, ?e, attempt, "failed to load memtrie")
                     }
                 }
             }
@@ -617,6 +626,10 @@ impl ShardTries {
         shard_uid: ShardUId,
         (mut memtries, base_height): MemtrieLoadingResult,
     ) {
+        tracing::info!(
+            target: "memtrie", %shard_uid, %base_height,
+            "finalizing background memtrie loading, applying catch-up deltas"
+        );
         apply_deltas_to_memtries(&self.0.store.store(), shard_uid, &mut memtries, base_height)
             .expect("failed to apply deltas to memtries during catch-up");
         // Insert memtries only if it has not been already loaded.

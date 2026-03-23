@@ -115,9 +115,11 @@ pub fn load_trie_from_flat_state_and_delta(
     state_root: Option<StateRoot>,
     parallelize: bool,
 ) -> Result<(MemTries, BlockHeight), StorageError> {
-    tracing::debug!(target: "memtrie", %shard_uid, "loading base trie from flat state");
+    tracing::info!(target: "memtrie", %shard_uid, "loading base trie from flat state");
     let flat_store = store.flat_store();
-    let flat_head = match flat_store.get_flat_storage_status(shard_uid) {
+    let flat_storage_status = flat_store.get_flat_storage_status(shard_uid);
+    tracing::info!(target: "memtrie", %shard_uid, ?flat_storage_status, "flat storage status");
+    let flat_head = match flat_storage_status {
         FlatStorageStatus::Ready(status) => status.flat_head,
         FlatStorageStatus::Resharding(FlatStorageReshardingStatus::SplittingParent(status)) => {
             tracing::warn!(
@@ -137,13 +139,20 @@ pub fn load_trie_from_flat_state_and_delta(
         Some(state_root) => state_root,
         None => get_state_root(store, flat_head.hash, shard_uid)?,
     };
+    tracing::info!(
+        target: "memtrie", %shard_uid,
+        flat_head_height = flat_head.height,
+        flat_head_hash = %flat_head.hash,
+        %state_root,
+        "loading memtrie from flat state"
+    );
 
     let mut memtries =
         load_trie_from_flat_state(&store, shard_uid, state_root, flat_head.height, parallelize)?;
 
     let max_height = apply_deltas_to_memtries(store, shard_uid, &mut memtries, flat_head.height)?;
 
-    tracing::debug!(target: "memtrie", %shard_uid, "done loading memtries for shard");
+    tracing::info!(target: "memtrie", %shard_uid, %max_height, "done loading memtries for shard");
     Ok((memtries, max_height))
 }
 
@@ -162,26 +171,101 @@ pub fn apply_deltas_to_memtries(
 ) -> Result<BlockHeight, StorageError> {
     let flat_store = store.flat_store();
 
-    tracing::debug!(target: "memtrie", %shard_uid, %base_height, "loading flat state deltas");
+    tracing::info!(target: "memtrie", %shard_uid, %base_height, "loading flat state deltas");
     // We load the deltas in order of height, so that we always have the previous state root
     // already loaded. Deltas without changes are skipped, as are deltas at or below the base
     // height (already incorporated into the base state).
-    let sorted_deltas: BTreeSet<_> = flat_store
-        .get_all_deltas_metadata(shard_uid)
+    let all_deltas = flat_store.get_all_deltas_metadata(shard_uid);
+    let num_all_deltas = all_deltas.len();
+    let mut num_skipped_no_changes = 0;
+    let mut num_skipped_below_base = 0;
+    let sorted_deltas: BTreeSet<_> = all_deltas
         .into_iter()
-        .filter(|delta| delta.has_changes() && delta.block.height > base_height)
+        .filter(|delta| {
+            if delta.block.height <= base_height {
+                num_skipped_below_base += 1;
+                return false;
+            }
+            if !delta.has_changes() {
+                num_skipped_no_changes += 1;
+                return false;
+            }
+            true
+        })
         .map(|delta| (delta.block.height, delta.block.hash, delta.block.prev_hash))
         .collect();
 
-    tracing::debug!(target: "memtrie", %shard_uid, num_deltas = sorted_deltas.len(), "deltas to apply");
+    tracing::info!(
+        target: "memtrie", %shard_uid,
+        num_all_deltas,
+        num_deltas_to_apply = sorted_deltas.len(),
+        num_skipped_no_changes,
+        num_skipped_below_base,
+        "deltas to apply"
+    );
+    if !sorted_deltas.is_empty() {
+        let min_height = sorted_deltas.first().unwrap().0;
+        let max_height_val = sorted_deltas.last().unwrap().0;
+        tracing::info!(
+            target: "memtrie", %shard_uid,
+            %min_height, max_height = %max_height_val,
+            "delta height range"
+        );
+    }
+
+    // Log all deltas we're about to apply for debugging
+    for (height, hash, prev_hash) in &sorted_deltas {
+        tracing::info!(
+            target: "memtrie", %shard_uid,
+            %height, %hash, %prev_hash,
+            "delta to apply"
+        );
+    }
+
     let max_height = sorted_deltas.last().map(|(height, _, _)| *height).unwrap_or(base_height);
+    let known_roots: Vec<_> = memtries.num_roots_per_height();
+    tracing::info!(
+        target: "memtrie", %shard_uid,
+        ?known_roots,
+        "memtrie roots before applying deltas"
+    );
+
     for (height, hash, prev_hash) in sorted_deltas {
-        let Some(changes) = flat_store.get_delta(shard_uid, hash) else { continue };
+        let Some(changes) = flat_store.get_delta(shard_uid, hash) else {
+            tracing::info!(
+                target: "memtrie", %shard_uid,
+                %height, %hash,
+                "skipping delta: no changes found in flat store"
+            );
+            continue;
+        };
 
         let new_state_root = get_state_root(store, hash, shard_uid)?;
         let old_state_root = get_state_root(store, prev_hash, shard_uid)?;
 
-        let mut trie_update = memtries.update(old_state_root, TrackingMode::None)?;
+        tracing::info!(
+            target: "memtrie", %shard_uid,
+            %height, %hash, %prev_hash,
+            %old_state_root, %new_state_root,
+            num_changes = changes.0.len(),
+            "applying delta"
+        );
+
+        let mut trie_update = match memtries.update(old_state_root, TrackingMode::None) {
+            Ok(update) => update,
+            Err(e) => {
+                let known_roots: Vec<_> = memtries.num_roots_per_height();
+                tracing::error!(
+                    target: "memtrie", %shard_uid,
+                    %height, %hash, %prev_hash,
+                    %old_state_root, %new_state_root,
+                    ?known_roots,
+                    ?e,
+                    "failed to update memtrie: old_state_root not found in memtrie roots"
+                );
+                return Err(e);
+            }
+        };
         for (key, value) in changes.0 {
             match value {
                 Some(value) => {
@@ -194,7 +278,7 @@ pub fn apply_deltas_to_memtries(
         let memtrie_changes = trie_update.to_memtrie_changes_only();
         let new_root_after_apply = memtries.apply_memtrie_changes(height, &memtrie_changes);
         assert_eq!(new_root_after_apply, new_state_root);
-        tracing::debug!(target: "memtrie", %shard_uid, %height, "applied memtrie changes for height");
+        tracing::info!(target: "memtrie", %shard_uid, %height, %new_root_after_apply, "applied memtrie changes for height");
     }
 
     Ok(max_height)

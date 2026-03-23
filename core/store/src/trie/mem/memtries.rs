@@ -149,6 +149,16 @@ impl MemTries {
             .set(self.roots.len() as i64);
     }
 
+    /// Returns a summary of roots per height, for debugging.
+    pub fn num_roots_per_height(&self) -> Vec<(BlockHeight, usize)> {
+        self.heights.iter().map(|(h, roots)| (*h, roots.len())).collect()
+    }
+
+    /// Returns all known state roots, for debugging.
+    pub fn known_roots(&self) -> Vec<StateRoot> {
+        self.roots.keys().copied().collect()
+    }
+
     /// Returns the root node corresponding to the given state root.
     pub fn get_root(
         &self,
@@ -156,9 +166,11 @@ impl MemTries {
     ) -> Result<MemTrieNodePtr<HybridArenaMemory>, StorageError> {
         assert_ne!(state_root, &CryptoHash::default());
         self.roots.get(state_root).map(|ids| ids[0].as_ptr(self.arena.memory())).ok_or_else(|| {
+            let known_roots: Vec<_> = self.roots.keys().collect();
+            let heights: Vec<_> = self.heights.iter().map(|(h, roots)| (*h, roots.len())).collect();
             StorageError::StorageInconsistentState(format!(
-                "Failed to find root node {:?} in memtrie",
-                state_root
+                "Failed to find root node {:?} in memtrie (shard_uid={}, num_known_roots={}, heights={:?}, known_roots={:?})",
+                state_root, self.shard_uid, self.roots.len(), heights, known_roots,
             ))
         })
     }
