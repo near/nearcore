@@ -326,6 +326,11 @@ impl<'a> TestLoopNode<'a> {
         )
     }
 
+    #[cfg(feature = "test_features")]
+    pub fn clear_compiled_contract_cache(&self) {
+        self.client().runtime_adapter.compiled_contract_cache().test_only_clear().unwrap();
+    }
+
     /// Returns the next nonce for `account_id`, suitable for submitting
     /// multiple transactions in the same block before on-chain nonces update.
     ///
