@@ -23,8 +23,11 @@ static LOCALNET: WalletContract =
 #[derive(Clone, Copy, Debug)]
 pub enum LegacyEthWallet {
     Mainnet,
+    /// Current testnet wallet contract (from protocol version 71+).
     Testnet,
-    OldTest,
+    /// Initial wallet contract released to testnet at protocol version 70,
+    /// before it was updated. Never deployed to mainnet.
+    OldTestnet,
     Localnet,
 }
 
@@ -39,7 +42,7 @@ impl LegacyEthWallet {
             return Some(LegacyEthWallet::Testnet);
         }
         if OLD_TESTNET.check_magic_bytes(&code_hash) {
-            return Some(LegacyEthWallet::OldTest);
+            return Some(LegacyEthWallet::OldTestnet);
         }
         if LOCALNET.check_magic_bytes(&code_hash) {
             return Some(LegacyEthWallet::Localnet);
@@ -51,7 +54,7 @@ impl LegacyEthWallet {
         match self {
             LegacyEthWallet::Mainnet => &MAINNET,
             LegacyEthWallet::Testnet => &TESTNET,
-            LegacyEthWallet::OldTest => &OLD_TESTNET,
+            LegacyEthWallet::OldTestnet => &OLD_TESTNET,
             LegacyEthWallet::Localnet => &LOCALNET,
         }
     }
