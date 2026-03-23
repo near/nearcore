@@ -73,6 +73,8 @@ impl CloudStorage {
     }
 
     /// Downloads, decompresses, and deserializes a file from the cloud archive.
+    // TODO(cloud_archival): Benchmark decompression: spawn_blocking,
+    // multithreaded decompression for large shard blobs.
     pub(super) async fn retrieve_compressed<T: BorshDeserialize>(
         &self,
         file_id: &CloudStorageFileID,

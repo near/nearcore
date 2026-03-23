@@ -64,7 +64,7 @@ impl CloudStorage {
         let local_config = BucketConfig::local();
         match existing {
             None => {
-                tracing::info!(target: "cloud_archive", ?local_config, "Writing bucket config");
+                tracing::info!(target: "cloud_archival", ?local_config, "Writing bucket config");
                 let blob = borsh::to_vec(&local_config).unwrap();
                 self.upload(file_id, blob).await
             }
@@ -75,7 +75,7 @@ impl CloudStorage {
                         remote: remote_config,
                     });
                 }
-                tracing::info!(target: "cloud_archive", ?local_config, "Bucket config validated");
+                tracing::info!(target: "cloud_archival", ?local_config, "Bucket config validated");
                 Ok(())
             }
         }
@@ -124,6 +124,8 @@ impl CloudStorage {
 
     /// Compresses and uploads data to cloud storage.
     /// Used for block, shard, and epoch data blobs — NOT for metadata.
+    // TODO(cloud_archival): Benchmark compression: optimal level, spawn_blocking,
+    // multithreaded compression for large shard blobs.
     pub(super) async fn upload_compressed(
         &self,
         file_id: CloudStorageFileID,
