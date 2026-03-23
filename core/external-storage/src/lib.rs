@@ -2,6 +2,7 @@ use anyhow::Context;
 use futures::TryStreamExt;
 use near_chain_configs::ExternalStorageLocation;
 use object_store::aws::AmazonS3Builder;
+use object_store::path::Path as StorePath;
 use object_store::{ClientOptions, ObjectStore, ObjectStoreExt, PutPayload};
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -110,7 +111,7 @@ impl ExternalConnection {
         match self {
             ExternalConnection::S3 { s3_client } => {
                 tracing::debug!(target: "external", path, "reading from S3");
-                let obj_path = object_store::path::Path::parse(path)
+                let obj_path = StorePath::parse(path)
                     .with_context(|| format!("{path} isn't a valid S3 path"))?;
                 let result = s3_client.get(&obj_path).await?;
                 Ok(result.bytes().await?.to_vec())
@@ -147,7 +148,7 @@ impl ExternalConnection {
         match self {
             ExternalConnection::S3 { s3_client } => {
                 tracing::debug!(target: "external", path, "writing to S3");
-                let obj_path = object_store::path::Path::parse(path)
+                let obj_path = StorePath::parse(path)
                     .with_context(|| format!("{path} isn't a valid S3 path"))?;
                 s3_client.put(&obj_path, PutPayload::from_bytes(value.to_vec().into())).await?;
                 Ok(())
@@ -167,7 +168,7 @@ impl ExternalConnection {
                 Ok(())
             }
             ExternalConnection::GCS { gcs_client, .. } => {
-                let path = object_store::path::Path::parse(path)
+                let path = StorePath::parse(path)
                     .with_context(|| format!("{path} isn't a valid path for GCP"))?;
                 tracing::debug!(target: "external", ?path, "writing to GCS");
                 gcs_client.put(&path, PutPayload::from_bytes(value.to_vec().into())).await?;
@@ -185,7 +186,7 @@ impl ExternalConnection {
             ExternalConnection::S3 { s3_client } => {
                 let prefix = format!("{}/", directory_path);
                 tracing::debug!(target: "external", directory_path, "list directory in S3");
-                let obj_prefix = object_store::path::Path::parse(&prefix)
+                let obj_prefix = StorePath::parse(&prefix)
                     .with_context(|| format!("can't parse {prefix} as path"))?;
                 let result = s3_client.list_with_delimiter(Some(&obj_prefix)).await?;
                 Ok(result
@@ -211,7 +212,7 @@ impl ExternalConnection {
                 tracing::debug!(target: "external", directory_path, "list directory in GCS");
                 Ok(gcs_client
                     .list(Some(
-                        &object_store::path::Path::parse(&prefix)
+                        &StorePath::parse(&prefix)
                             .with_context(|| format!("can't parse {prefix} as path"))?,
                     ))
                     .try_collect::<Vec<_>>()
