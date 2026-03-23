@@ -7,6 +7,7 @@
 * The contract runtime now allows for bulk memory instructions in Wasm code.
 
 ### Non-protocol Changes
+* Removed deprecated fields from `EpochConfig`, `GenesisConfig`, and `ProtocolConfigView`: `num_block_producer_seats_per_shard`, `avg_hidden_validator_seats_per_shard`, `num_chunk_only_producer_seats`.
 
 ## [2.11.0]
 
