@@ -4,11 +4,15 @@ use crate::utils::account::create_account_id;
 use near_async::time::Duration;
 use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::ValidatorsSpec;
-use near_jsonrpc_primitives::errors::RpcError;
+use near_jsonrpc_primitives::errors::{RpcError, RpcErrorKind};
 use near_jsonrpc_primitives::message::Message;
 use near_jsonrpc_primitives::types::query::{QueryResponseKind, RpcQueryRequest};
+use near_jsonrpc_primitives::types::receipts::{
+    ReceiptReference, RpcReceiptRequest, RpcReceiptResponse,
+};
 use near_jsonrpc_primitives::types::view_account::RpcViewAccountRequest;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockReference, Finality};
 use near_primitives::views::QueryRequest;
@@ -26,6 +30,8 @@ struct TwoShardHarness {
     alice_node: AccountId,
     /// RPC node that tracks zoe's shard.
     zoe_node: AccountId,
+    /// Validator node (tracks all shards by default).
+    validator: AccountId,
 }
 
 impl TwoShardHarness {
@@ -53,7 +59,7 @@ impl TwoShardHarness {
         let rpc0_shard = shard_uids[0];
         let rpc1: AccountId = create_account_id("rpc1");
         let rpc1_shard = shard_uids[1];
-        let clients = vec![rpc0.clone(), rpc1.clone(), validator0];
+        let clients = vec![rpc0.clone(), rpc1.clone(), validator0.clone()];
         let env = TestLoopBuilder::new()
             .genesis(genesis)
             .clients(clients)
@@ -62,12 +68,13 @@ impl TwoShardHarness {
                 1 => config.tracked_shards_config = TrackedShardsConfig::Shards(vec![rpc1_shard]),
                 _ => {}
             })
+            .add_rpc_pool([rpc0.clone(), rpc1.clone()])
             .build();
 
         let (alice_node, zoe_node) =
             if alice_shard == rpc0_shard.shard_id() { (rpc0, rpc1) } else { (rpc1, rpc0) };
 
-        Self { env, alice, zoe, alice_node, zoe_node }
+        Self { env, alice, zoe, alice_node, zoe_node, validator: validator0 }
     }
 }
 
@@ -224,5 +231,77 @@ fn test_rpc_query_unknown_access_key_error_format() {
             );
         }
         other => panic!("expected Response, got: {other:?}"),
+    }
+}
+
+/// EXPERIMENTAL_receipt queries should fan out across shards and return the receipt
+/// regardless of which RPC node receives the query.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_rpc_receipt_forwarding() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+
+    // Submit a cross-shard transfer to generate a receipt.
+    let alice = h.alice.clone();
+    let zoe = h.zoe.clone();
+    let validator = h.validator.clone();
+    let tx = h.env.node_for_account(&validator).tx_send_money(&alice, &zoe, Balance::from_near(1));
+    let tx_hash = tx.get_hash();
+    h.env.node_for_account(&validator).submit_tx(tx);
+
+    // Wait for execution to complete.
+    let target_height = h.env.node_for_account(&validator).head().height + 10;
+    h.env.runner_for_account(&validator).run_until_executed_height(target_height);
+
+    // Get receipt ID from the transaction outcome.
+    let outcome =
+        h.env.node_for_account(&validator).client().chain.get_execution_outcome(&tx_hash).unwrap();
+    let receipt_id = outcome.outcome_with_id.outcome.receipt_ids[0];
+
+    let run_receipt_query = |h: &mut TwoShardHarness,
+                             node_id: &AccountId,
+                             receipt_id: CryptoHash|
+     -> Result<RpcReceiptResponse, RpcError> {
+        h.env.runner_for_account(node_id).run_jsonrpc_query(
+            |client| {
+                client.EXPERIMENTAL_receipt(RpcReceiptRequest {
+                    receipt_reference: ReceiptReference { receipt_id },
+                })
+            },
+            Duration::seconds(5),
+        )
+    };
+
+    // Both RPC nodes should be able to return the receipt, even though only one shard has it.
+    let alice_node = h.alice_node.clone();
+    let zoe_node = h.zoe_node.clone();
+
+    for node_id in [&alice_node, &zoe_node] {
+        let receipt = run_receipt_query(&mut h, node_id, receipt_id)
+            .unwrap_or_else(|e| panic!("receipt query from {node_id} failed: {e:?}"));
+        let view = &receipt.receipt_view;
+        assert_eq!(view.receipt_id, receipt_id);
+        assert_eq!(view.predecessor_id, alice);
+        assert_eq!(view.receiver_id, zoe);
+    }
+
+    // Query a nonexistent receipt — both nodes should return UnknownReceipt.
+    let bogus_receipt_id = CryptoHash::hash_bytes(b"bogus");
+
+    let err = run_receipt_query(&mut h, &alice_node, bogus_receipt_id).unwrap_err();
+    assert_rpc_error(&err, "UNKNOWN_RECEIPT");
+
+    let err = run_receipt_query(&mut h, &zoe_node, bogus_receipt_id).unwrap_err();
+    assert_rpc_error(&err, "UNKNOWN_RECEIPT");
+}
+
+/// Assert that an RpcError is a HandlerError with the expected error name.
+fn assert_rpc_error(err: &RpcError, expected_name: &str) {
+    match err.error_struct.as_ref().expect("expected error_struct") {
+        RpcErrorKind::HandlerError(val) => {
+            assert_eq!(val["name"].as_str(), Some(expected_name), "unexpected error: {val}");
+        }
+        other => panic!("expected HandlerError({expected_name}), got: {other:?}"),
     }
 }
