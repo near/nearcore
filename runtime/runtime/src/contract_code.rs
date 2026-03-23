@@ -65,6 +65,9 @@ impl RuntimeContractIdentifier {
             // something here if the accounts have a wallet contract hash. Otherwise use the
             // regular path to grab the deployed contract.
             if let Some(legacy) = LegacyEthWallet::resolve(local_hash) {
+                // With EthImplicitGlobalContract, ETH implicit wallet accounts
+                // switched to global contracts, including those created in old
+                // protocol versions.
                 let identifier = if config.eth_implicit_global_contract {
                     RuntimeContractIdentifier::GlobalEthWallet {
                         account_stored_hash: local_hash,
