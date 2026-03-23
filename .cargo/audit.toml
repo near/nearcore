@@ -56,8 +56,8 @@ ignore = [
 
     # RUSTSEC-2026-0049 describes a problem in tls certificate validation. It doesn't really affect
     # nearcore, so it's okay to ignore it. Currently we can't fully fix it because the
-    # `object_storage` package depends on a vulnerable version of `reqwest`.
+    # `object_store` package depends on a vulnerable version of `reqwest`.
     # object_store 0.13.1 -> reqwest 0.12.4 -> tokio-rustls 0.25.0 -> rustls 0.22.4 -> rustls-webpki 0.102.8
-    # TODO(#15435): Update object_storage once the maintainers release a version with reqwest 0.13+
+    # TODO(#15435): Update object_store once the maintainers release a version with reqwest 0.13+
     "RUSTSEC-2026-0049",
 ]
