@@ -1,7 +1,8 @@
 use anyhow::Context;
 use futures::TryStreamExt;
 use near_chain_configs::ExternalStorageLocation;
-use object_store::{ObjectStore, ObjectStoreExt, PutPayload};
+use object_store::aws::AmazonS3Builder;
+use object_store::{ClientOptions, ObjectStore, ObjectStoreExt, PutPayload};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -13,7 +14,7 @@ use std::time::Duration;
 #[derive(Clone)]
 pub enum ExternalConnection {
     /// Authenticated S3 client (read-only or read/write).
-    S3 { bucket: Arc<s3::Bucket> },
+    S3 { s3_client: Arc<object_store::aws::AmazonS3> },
     /// Local filesystem root directory.
     Filesystem { root_dir: PathBuf },
     /// GCS client (upload/list via SDK, anonymous downloads via HTTP).
@@ -59,21 +60,21 @@ impl ExternalConnection {
             ExternalStorageLocation::S3 { bucket, region, .. } => {
                 let S3AccessConfig { is_readonly, timeout } = s3_access_config
                     .expect("S3 access config not provided with S3 external storage location");
-                let bucket = if is_readonly {
-                    create_s3_bucket_readonly(&bucket, &region, timeout)
+                let s3_client = if is_readonly {
+                    create_s3_bucket_readonly(bucket, region, timeout)
                 } else {
-                    create_s3_bucket_read_write(&bucket, &region, timeout, credentials_file)
+                    create_s3_bucket_read_write(bucket, region, timeout, credentials_file)
                 };
-                if let Err(err) = bucket {
+                if let Err(err) = s3_client {
                     if is_readonly {
-                        panic!("Failed to create an S3 bucket: {err}");
+                        panic!("failed to create an S3 client: {err}");
                     } else {
                         panic!(
-                            "Failed to authenticate connection to S3. Please either provide AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in the environment, or create a credentials file and link it in config.json as 's3_credentials_file'. Error: {err}"
+                            "failed to authenticate connection to S3. Please either provide AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in the environment, or create a credentials file and link it in config.json as 's3_credentials_file'. Error: {err}"
                         );
                     }
                 }
-                ExternalConnection::S3 { bucket: Arc::new(bucket.unwrap()) }
+                ExternalConnection::S3 { s3_client: Arc::new(s3_client.unwrap()) }
             }
             ExternalStorageLocation::Filesystem { root_dir } => {
                 ExternalConnection::Filesystem { root_dir: root_dir.clone() }
@@ -107,14 +108,12 @@ impl ExternalConnection {
     /// Download an object at `path` as bytes.
     pub async fn get(&self, path: &str) -> Result<Vec<u8>, anyhow::Error> {
         match self {
-            ExternalConnection::S3 { bucket } => {
+            ExternalConnection::S3 { s3_client } => {
                 tracing::debug!(target: "external", path, "reading from S3");
-                let response = bucket.get_object(path).await?;
-                if response.status_code() == 200 {
-                    Ok(response.bytes().to_vec())
-                } else {
-                    Err(anyhow::anyhow!("Bad response status code: {}", response.status_code()))
-                }
+                let obj_path = object_store::path::Path::parse(path)
+                    .with_context(|| format!("{path} isn't a valid S3 path"))?;
+                let result = s3_client.get(&obj_path).await?;
+                Ok(result.bytes().await?.to_vec())
             }
             ExternalConnection::Filesystem { root_dir } => {
                 let path = root_dir.join(path);
@@ -146,9 +145,11 @@ impl ExternalConnection {
     /// Upload/overwrite an object at `path` with `value`.
     pub async fn put(&self, path: &str, value: &[u8]) -> Result<(), anyhow::Error> {
         match self {
-            ExternalConnection::S3 { bucket } => {
+            ExternalConnection::S3 { s3_client } => {
                 tracing::debug!(target: "external", path, "writing to S3");
-                bucket.put_object(path, value).await?;
+                let obj_path = object_store::path::Path::parse(path)
+                    .with_context(|| format!("{path} isn't a valid S3 path"))?;
+                s3_client.put(&obj_path, PutPayload::from_bytes(value.to_vec().into())).await?;
                 Ok(())
             }
             ExternalConnection::Filesystem { root_dir } => {
@@ -181,17 +182,17 @@ impl ExternalConnection {
     /// Recursive for GCS (lists all objects within the given directory).
     pub async fn list(&self, directory_path: &str) -> Result<Vec<String>, anyhow::Error> {
         match self {
-            ExternalConnection::S3 { bucket } => {
+            ExternalConnection::S3 { s3_client } => {
                 let prefix = format!("{}/", directory_path);
-                let list_results = bucket.list(prefix.clone(), Some("/".to_string())).await?;
                 tracing::debug!(target: "external", directory_path, "list directory in S3");
-                let mut file_names = vec![];
-                for res in list_results {
-                    for obj in res.contents {
-                        file_names.push(extract_file_name_from_full_path(obj.key))
-                    }
-                }
-                Ok(file_names)
+                let obj_prefix = object_store::path::Path::parse(&prefix)
+                    .with_context(|| format!("can't parse {prefix} as path"))?;
+                let result = s3_client.list_with_delimiter(Some(&obj_prefix)).await?;
+                Ok(result
+                    .objects
+                    .into_iter()
+                    .map(|obj| obj.location.filename().unwrap_or_default().to_string())
+                    .collect())
             }
             ExternalConnection::Filesystem { root_dir } => {
                 let path = root_dir.join(directory_path);
@@ -223,24 +224,24 @@ impl ExternalConnection {
     }
 }
 
-/// Extract file name from a full (string) path.
-fn extract_file_name_from_full_path(full_path: String) -> String {
-    return extract_file_name_from_path_buf(PathBuf::from(full_path));
-}
-
 /// Extract file name from a PathBuf.
 fn extract_file_name_from_path_buf(path_buf: PathBuf) -> String {
     return path_buf.file_name().unwrap().to_str().unwrap().to_string();
 }
 
-/// Create an anonymous, read-only S3 bucket handle.
-pub fn create_s3_bucket_readonly(
+/// Create an anonymous, read-only S3 client.
+fn create_s3_bucket_readonly(
     bucket: &str,
     region: &str,
     timeout: Duration,
-) -> Result<s3::Bucket, anyhow::Error> {
-    let creds = s3::creds::Credentials::anonymous()?;
-    create_s3_bucket(bucket, region, timeout, creds)
+) -> Result<object_store::aws::AmazonS3, anyhow::Error> {
+    AmazonS3Builder::new()
+        .with_bucket_name(bucket)
+        .with_region(region)
+        .with_skip_signature(true)
+        .with_client_options(ClientOptions::new().with_timeout(timeout))
+        .build()
+        .map_err(Into::into)
 }
 
 /// Credentials for S3 read/write access (from JSON file).
@@ -250,41 +251,33 @@ struct S3CredentialsConfig {
     secret_key: String,
 }
 
-/// Create a read/write S3 bucket handle, optionally using a JSON credentials file.
-pub fn create_s3_bucket_read_write(
+/// Create a read/write S3 client, optionally using a JSON credentials file.
+fn create_s3_bucket_read_write(
     bucket: &str,
     region: &str,
     timeout: Duration,
     credentials_file: Option<PathBuf>,
-) -> Result<s3::Bucket, anyhow::Error> {
-    let creds = match credentials_file {
+) -> Result<object_store::aws::AmazonS3, anyhow::Error> {
+    let client_options = ClientOptions::new().with_timeout(timeout);
+    let s3 = match credentials_file {
         Some(credentials_file) => {
             let mut file = std::fs::File::open(credentials_file)?;
             let mut json_config_str = String::new();
             file.read_to_string(&mut json_config_str)?;
             let credentials_config: S3CredentialsConfig = serde_json::from_str(&json_config_str)?;
-            s3::creds::Credentials::new(
-                Some(&credentials_config.access_key),
-                Some(&credentials_config.secret_key),
-                None,
-                None,
-                None,
-            )
+            AmazonS3Builder::new()
+                .with_bucket_name(bucket)
+                .with_region(region)
+                .with_access_key_id(&credentials_config.access_key)
+                .with_secret_access_key(&credentials_config.secret_key)
+                .with_client_options(client_options)
+                .build()?
         }
-        None => s3::creds::Credentials::default(),
-    }?;
-    create_s3_bucket(bucket, region, timeout, creds)
-}
-
-/// Build an S3 bucket client and set request timeout.
-fn create_s3_bucket(
-    bucket: &str,
-    region: &str,
-    timeout: Duration,
-    creds: s3::creds::Credentials,
-) -> Result<s3::Bucket, anyhow::Error> {
-    let mut bucket = s3::Bucket::new(bucket, region.parse::<s3::Region>()?, creds)?;
-    // Ensure requests finish in finite amount of time.
-    bucket.set_request_timeout(Some(timeout));
-    Ok(bucket)
+        None => AmazonS3Builder::from_env()
+            .with_bucket_name(bucket)
+            .with_region(region)
+            .with_client_options(client_options)
+            .build()?,
+    };
+    Ok(s3)
 }
