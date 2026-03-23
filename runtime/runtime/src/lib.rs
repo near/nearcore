@@ -9,6 +9,7 @@ use crate::config::{
     total_prepaid_exec_fees, total_prepaid_gas,
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
+use crate::contract_code::RuntimeContractIdentifier;
 use crate::function_call::action_function_call;
 use crate::metrics::{
     TRANSACTION_BATCH_SIGNATURE_VERIFY_FAILURE_TOTAL,
@@ -29,7 +30,7 @@ use config::{total_prepaid_send_fees, tx_cost};
 use congestion_control::ReceiptSink;
 pub use congestion_control::bootstrap_congestion_info;
 use global_contracts::{
-    AccountContractAccessExt, action_deploy_global_contract, action_use_global_contract,
+    action_deploy_global_contract, action_use_global_contract,
     apply_global_contract_distribution_receipt,
 };
 use itertools::Itertools;
@@ -111,6 +112,7 @@ pub mod adapter;
 mod bandwidth_scheduler;
 pub mod config;
 mod congestion_control;
+mod contract_code;
 mod conversions;
 mod deterministic_account_id;
 pub mod ext;
@@ -548,9 +550,20 @@ impl Runtime {
                 metrics::ACTION_CALLED_COUNT.function_call.inc();
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
                 let account_contract = account.contract();
-                let code_hash = account_contract.into_owned().hash(&state_update)?;
-                let contract =
-                    preparation_pipeline.get_contract(receipt, code_hash, action_index, None);
+                let contract_id = RuntimeContractIdentifier::resolve(
+                    account_id,
+                    account_contract.into_owned(),
+                    &state_update,
+                    &apply_state.config.wasm_config,
+                    &epoch_info_provider.chain_id(),
+                    AccessOptions::DEFAULT,
+                )?;
+                let contract = preparation_pipeline.get_contract(
+                    receipt,
+                    contract_id.clone(),
+                    action_index,
+                    None,
+                );
                 let is_last_action = action_index + 1 == actions.len();
                 action_function_call(
                     state_update,
@@ -563,7 +576,7 @@ impl Runtime {
                     account_id,
                     function_call,
                     action_hash,
-                    code_hash,
+                    &contract_id,
                     &apply_state.config,
                     is_last_action,
                     epoch_info_provider,
