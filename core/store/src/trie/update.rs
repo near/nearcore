@@ -111,9 +111,8 @@ impl TrieUpdate {
         &self.trie
     }
 
-    /// Gets a clone of the `ContractStorage`` (which internally points to the same storage).
-    pub fn contract_storage(&self) -> ContractStorage {
-        self.contract_storage.clone()
+    pub fn contract_storage(&self) -> &ContractStorage {
+        &self.contract_storage
     }
 
     pub fn get_ref(

@@ -117,7 +117,7 @@ fn test_eth_implicit_global_contract_mainnet_upgrade() {
     env.validator_runner().run_for_number_of_blocks(2);
 
     // Clear the cache here to ensure that eth global contract is properly
-    // propagated as part the witness distribution.
+    // propagated as part of the witness distribution.
     env.node(chunk_validator_idx).clear_compiled_contract_cache();
 
     // Phase 4: Old account still works after upgrade (rlp_execute transfer).

@@ -3049,7 +3049,7 @@ impl<'a> ApplyProcessingState<'a> {
         let pipeline_manager = pipelining::ReceiptPreparationPipeline::new(
             Arc::clone(&self.apply_state.config),
             self.apply_state.cache.as_ref().map(|v| v.handle()),
-            self.state_update.contract_storage(),
+            self.state_update.contract_storage().clone(),
             self.epoch_info_provider.chain_id(),
         );
         ApplyProcessingReceiptState {
@@ -3267,7 +3267,7 @@ pub mod estimator {
         let empty_pipeline = ReceiptPreparationPipeline::new(
             std::sync::Arc::clone(&apply_state.config),
             apply_state.cache.as_ref().map(|c| c.handle()),
-            state_update.contract_storage(),
+            state_update.contract_storage().clone(),
             epoch_info_provider.chain_id(),
         );
         let mut receipt_to_tx = Vec::new();
