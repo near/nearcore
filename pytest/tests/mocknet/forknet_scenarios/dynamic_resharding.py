@@ -18,4 +18,4 @@ class DynamicResharding(TestSetup):
         self.genesis_protocol_version = 84
         self.has_archival = False
         self.regions = "us-east1,europe-west4,asia-east1,us-west1"
-        self.neard_binary_url = "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux-x86_64/wiezzel/dynamic-resharding-test/1923c7fc2094036dcb576e02e2af1f300e8006dd/release/neard"
+        self.neard_binary_url = "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux-x86_64/wiezzel/dynamic-resharding-test/2b668c566458d9f54d8beb74a73dad8f7438fb67/release/neard"
