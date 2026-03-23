@@ -1,7 +1,7 @@
 use anyhow::Context;
 use futures::TryStreamExt;
 use near_chain_configs::ExternalStorageLocation;
-use object_store::aws::AmazonS3Builder;
+use object_store::aws::{AmazonS3, AmazonS3Builder};
 use object_store::path::Path as StorePath;
 use object_store::{ClientOptions, ObjectStore, ObjectStoreExt, PutPayload};
 use std::io::{Read, Write};
@@ -15,7 +15,7 @@ use std::time::Duration;
 #[derive(Clone)]
 pub enum ExternalConnection {
     /// Authenticated S3 client (read-only or read/write).
-    S3 { s3_client: Arc<object_store::aws::AmazonS3> },
+    S3 { s3_client: Arc<AmazonS3> },
     /// Local filesystem root directory.
     Filesystem { root_dir: PathBuf },
     /// GCS client (upload/list via SDK, anonymous downloads via HTTP).
@@ -235,7 +235,7 @@ fn create_s3_bucket_readonly(
     bucket: &str,
     region: &str,
     timeout: Duration,
-) -> Result<object_store::aws::AmazonS3, anyhow::Error> {
+) -> Result<AmazonS3, anyhow::Error> {
     AmazonS3Builder::new()
         .with_bucket_name(bucket)
         .with_region(region)
@@ -258,7 +258,7 @@ fn create_s3_bucket_read_write(
     region: &str,
     timeout: Duration,
     credentials_file: Option<PathBuf>,
-) -> Result<object_store::aws::AmazonS3, anyhow::Error> {
+) -> Result<AmazonS3, anyhow::Error> {
     let client_options = ClientOptions::new().with_timeout(timeout);
     let s3 = match credentials_file {
         Some(credentials_file) => {
