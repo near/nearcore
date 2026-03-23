@@ -33,7 +33,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
     Nonce, NonceIndex, NumShards, ShardId, StateRoot, StateRootNode,
 };
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, ContractCodeView, GasKeyNoncesView, QueryRequest, QueryResponse,
     QueryResponseKind, ViewStateResult,
@@ -111,7 +111,11 @@ impl NightshadeRuntime {
         };
 
         let runtime = Runtime::new();
-        let trie_viewer = TrieViewer::new(trie_viewer_state_size_limit, max_gas_burnt_view);
+        let trie_viewer = TrieViewer::new(
+            runtime_config_store.clone(),
+            trie_viewer_state_size_limit,
+            max_gas_burnt_view,
+        );
         let flat_storage_manager = FlatStorageManager::new(store.flat_store());
         let tries = ShardTries::new(
             store.trie_store(),
@@ -1685,7 +1689,12 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         account_id: &AccountId,
     ) -> Result<ContractCode, node_runtime::state_viewer::errors::ViewContractCodeError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
-        self.trie_viewer.view_account_contract_code(&state_update, account_id)
+        self.trie_viewer.view_account_contract_code(
+            &state_update,
+            account_id,
+            PROTOCOL_VERSION,
+            &self.genesis_config.chain_id,
+        )
     }
 
     fn call_function(
