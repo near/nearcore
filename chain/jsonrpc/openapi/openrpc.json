@@ -9229,6 +9229,34 @@
         "title": "RpcReceiptResponse",
         "type": "object"
       },
+      "RpcReceiptToTxRequest": {
+        "properties": {
+          "receipt_id": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        "required": [
+          "receipt_id"
+        ],
+        "title": "RpcReceiptToTxRequest",
+        "type": "object"
+      },
+      "RpcReceiptToTxResponse": {
+        "properties": {
+          "sender_account_id": {
+            "$ref": "#/components/schemas/AccountId"
+          },
+          "transaction_hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        "required": [
+          "transaction_hash",
+          "sender_account_id"
+        ],
+        "title": "RpcReceiptToTxResponse",
+        "type": "object"
+      },
       "RpcSendTransactionRequest": {
         "properties": {
           "signed_tx_base64": {
@@ -13194,6 +13222,34 @@
         }
       },
       "summary": "Returns receipt by receipt_id",
+      "tags": [
+        {
+          "name": "receipt"
+        },
+        {
+          "name": "experimental"
+        }
+      ]
+    },
+    {
+      "name": "EXPERIMENTAL_receipt_to_tx",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "receipt_id",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/RpcReceiptToTxResponse"
+        }
+      },
+      "summary": "Resolves a receipt ID back to the originating transaction hash and sender account",
       "tags": [
         {
           "name": "receipt"

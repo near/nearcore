@@ -1239,7 +1239,7 @@ impl Handler<GetReceiptToTx, Result<GetReceiptToTxResponse, GetReceiptToTxError>
             ));
         }
 
-        const MAX_DEPTH: u32 = 100;
+        const MAX_DEPTH: u32 = 1000;
         let mut current_receipt_id = msg.receipt_id;
         for _ in 0..MAX_DEPTH {
             let info = self

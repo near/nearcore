@@ -70,13 +70,6 @@ impl RpcFrom<GetReceiptToTxError> for RpcReceiptToTxError {
                 Self::DepthExceeded { receipt_id, limit }
             }
             GetReceiptToTxError::Unsupported(error_message) => Self::Unsupported { error_message },
-            GetReceiptToTxError::Unreachable(ref error_message) => {
-                tracing::warn!(target: "jsonrpc", %error_message, "unreachable error occurred");
-                crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
-                    .with_label_values(&["RpcReceiptToTxError"])
-                    .inc();
-                Self::InternalError { error_message: error.to_string() }
-            }
         }
     }
 }

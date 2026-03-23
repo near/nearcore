@@ -836,7 +836,7 @@ fn test_receipt_to_tx_rpc_cross_shard() {
 }
 
 /// Handler-level test: write synthetic ReceiptToTx rows forming a chain of
-/// 101 FromReceipt entries (exceeding the MAX_DEPTH=100 limit). Verify
+/// 1001 FromReceipt entries (exceeding the MAX_DEPTH=1000 limit). Verify
 /// that DepthExceeded is returned with the originally queried receipt_id.
 #[test]
 fn test_receipt_to_tx_depth_exceeded() {
@@ -847,10 +847,10 @@ fn test_receipt_to_tx_depth_exceeded() {
     let store = env.validator().store();
     let mut store_update = store.store_update();
 
-    // Build a chain of 102 receipt IDs: receipt_0 → receipt_1 → ... → receipt_101.
-    // receipt_0 through receipt_100 are FromReceipt pointing to the next.
-    // receipt_101 is FromTransaction (the terminal node — but we'll never reach it).
-    let chain_len = 102usize;
+    // Build a chain of 1002 receipt IDs: receipt_0 → receipt_1 → ... → receipt_1001.
+    // receipt_0 through receipt_1000 are FromReceipt pointing to the next.
+    // receipt_1001 is FromTransaction (the terminal node — but we'll never reach it).
+    let chain_len = 1002usize;
     let receipt_ids: Vec<CryptoHash> =
         (0..chain_len).map(|i| CryptoHash::hash_bytes(&(i as u32).to_le_bytes())).collect();
 
@@ -886,7 +886,7 @@ fn test_receipt_to_tx_depth_exceeded() {
 
     store_update.commit();
 
-    // Query receipt_0 — needs 101 hops to reach the tx, exceeding MAX_DEPTH=100.
+    // Query receipt_0 — needs 1001 hops to reach the tx, exceeding MAX_DEPTH=1000.
     let handle = env.node_datas[0].view_client_sender.actor_handle();
     let view_client: &mut near_client::ViewClientActor = env.test_loop.data.get_mut(&handle);
     let result = view_client.handle(GetReceiptToTx { receipt_id: receipt_ids[0] });
@@ -897,13 +897,13 @@ fn test_receipt_to_tx_depth_exceeded() {
                 receipt_id, receipt_ids[0],
                 "error should report the originally queried receipt"
             );
-            assert_eq!(limit, 100, "limit should be MAX_DEPTH=100");
+            assert_eq!(limit, 1000, "limit should be MAX_DEPTH=1000");
         }
         other => panic!("expected DepthExceeded error, got: {other:?}"),
     }
 
-    // Sanity check: querying receipt_2 (99 FromReceipt hops + 1 terminal lookup
-    // = 100 iterations) should succeed since it's exactly at the limit.
+    // Sanity check: querying receipt_2 (999 FromReceipt hops + 1 terminal lookup
+    // = 1000 iterations) should succeed since it's exactly at the limit.
     let result = view_client.handle(GetReceiptToTx { receipt_id: receipt_ids[2] });
     assert!(result.is_ok(), "100 hops should succeed, got: {result:?}");
     let response = result.unwrap();
