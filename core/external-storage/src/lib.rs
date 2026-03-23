@@ -192,7 +192,7 @@ impl ExternalConnection {
                 Ok(result
                     .objects
                     .into_iter()
-                    .map(|obj| obj.location.filename().unwrap_or_default().to_string())
+                    .filter_map(|obj| obj.location.filename().map(|f| f.to_string()))
                     .collect())
             }
             ExternalConnection::Filesystem { root_dir } => {
