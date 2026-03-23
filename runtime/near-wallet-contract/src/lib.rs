@@ -59,14 +59,6 @@ impl LegacyEthWallet {
         }
     }
 
-    /// Return the magic bytes hash for this variant.
-    ///
-    /// This is the hash stored in the account's code_hash field that signals
-    /// the runtime to use the built-in wallet contract.
-    pub fn magic_bytes_hash(&self) -> CryptoHash {
-        *self.wallet_contract().magic_bytes().hash()
-    }
-
     /// Return the contract code for this legacy ETH wallet variant.
     pub fn contract(&self) -> Arc<ContractCode> {
         self.wallet_contract().read_contract()
