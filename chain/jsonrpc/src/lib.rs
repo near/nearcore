@@ -1112,8 +1112,14 @@ impl JsonRpcHandler {
             QueryRequest::ViewGlobalContractCode { .. }
             | QueryRequest::ViewGlobalContractCodeByAccountId { .. } => {
                 let block_hint = request_data.block_reference.clone().into();
-                self.run_coordinator_request("query", request_data, block_hint, ShardHint::None)
-                    .await
+                self.run_coordinator_request(
+                    "query",
+                    request_data,
+                    block_hint,
+                    ShardHint::None,
+                    CoordinatorRequestStrategy::Sequential,
+                )
+                .await
             }
         }
     }
