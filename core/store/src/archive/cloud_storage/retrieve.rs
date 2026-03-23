@@ -12,6 +12,8 @@ use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
 pub enum CloudRetrievalError {
     #[error("Failed to retrieve {file_id:?} from the cloud archive: {error}")]
     GetError { file_id: CloudStorageFileID, error: anyhow::Error },
+    #[error("Failed to decompress {file_id:?} from the cloud archive: {error}")]
+    DecompressionError { file_id: CloudStorageFileID, error: std::io::Error },
     #[error("Failed to deserialize {file_id:?} from the cloud archive: {error}")]
     DeserializeError { file_id: CloudStorageFileID, error: borsh::io::Error },
     #[error("Failed to list directory in the cloud archive: {dir}; error: {error}")]
@@ -50,7 +52,7 @@ impl CloudStorage {
         epoch_id: EpochId,
     ) -> Result<EpochData, CloudRetrievalError> {
         let file_id = CloudStorageFileID::Epoch(epoch_id);
-        self.retrieve(&file_id).await
+        self.retrieve_compressed(&file_id).await
     }
 
     pub(super) async fn retrieve_block_data(
@@ -58,7 +60,7 @@ impl CloudStorage {
         block_height: BlockHeight,
     ) -> Result<BlockData, CloudRetrievalError> {
         let file_id = CloudStorageFileID::Block(block_height);
-        self.retrieve(&file_id).await
+        self.retrieve_compressed(&file_id).await
     }
 
     pub(super) async fn retrieve_shard_data(
@@ -67,12 +69,27 @@ impl CloudStorage {
         shard_id: ShardId,
     ) -> Result<ShardData, CloudRetrievalError> {
         let file_id = CloudStorageFileID::Shard(block_height, shard_id);
-        self.retrieve(&file_id).await
+        self.retrieve_compressed(&file_id).await
+    }
+
+    /// Downloads, decompresses, and deserializes a file from the cloud archive.
+    pub(super) async fn retrieve_compressed<T: BorshDeserialize>(
+        &self,
+        file_id: &CloudStorageFileID,
+    ) -> Result<T, CloudRetrievalError> {
+        let compressed = self.download(file_id).await?;
+        let bytes = zstd::decode_all(compressed.as_slice()).map_err(|error| {
+            CloudRetrievalError::DecompressionError { file_id: file_id.clone(), error }
+        })?;
+        T::try_from_slice(&bytes).map_err(|error| CloudRetrievalError::DeserializeError {
+            file_id: file_id.clone(),
+            error,
+        })
     }
 
     /// Downloads and deserializes a file from the cloud archive, returning
     /// `None` if the file does not exist.
-    async fn retrieve_if_exists<T: BorshDeserialize>(
+    pub(super) async fn retrieve_if_exists<T: BorshDeserialize>(
         &self,
         file_id: &CloudStorageFileID,
     ) -> Result<Option<T>, CloudRetrievalError> {
