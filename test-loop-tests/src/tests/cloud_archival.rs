@@ -18,7 +18,7 @@ use near_store::ShardUId;
 /// Arrange-Act-Assert sequence.
 struct CloudArchiveHarness {
     env: TestLoopEnv,
-    /// Account ID of the primary cloud archival node that writes to cloud storage.
+    /// Account ID of the first cloud archival writer node.
     archival_id: AccountId,
     /// Epoch length in blocks.
     epoch_length: BlockHeightDelta,
@@ -337,22 +337,28 @@ fn test_cloud_archival_lagging_shard_catchup() {
     h.assert_heads_and_gc_ok();
 }
 
-/// Verifies that the writer panics when a shard's external head is set back
+/// Verifies that the writer stops when a shard's external head is set back
 /// far enough that the data has already been garbage collected.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-#[should_panic(expected = "GC tail")]
 fn test_cloud_archival_lagging_shard_beyond_gc() {
     let mut h = CloudArchiveHarness::builder().build();
     let lag_at_height = (MIN_GC_NUM_EPOCHS_TO_KEEP + 1) * h.epoch_length;
     h.run_until(lag_at_height);
+    let cloud_head_before = h.cloud_head();
     // Lag to a height below gc_tail so the writer can't recover.
     let lagged_to = h.epoch_length / 2;
     assert!(lagged_to < h.gc_tail(), "lagged height should be below gc_tail");
     h.simulate_lagging_shard(CloudArchiveHarness::all_shard_ids()[0], lagged_to);
-    // Advance testloop so the cloud archival writer runs and hits the assert.
+    // Advance testloop — the writer should stop (initialization fails),
+    // so the cloud head should not advance.
     h.run_until(lag_at_height + h.epoch_length);
+    assert_eq!(
+        h.cloud_head(),
+        cloud_head_before,
+        "cloud head should not advance when writer stops due to lagging shard beyond GC"
+    );
 }
 
 /// Verifies that a second writer joining mid-test catches up and covers

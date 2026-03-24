@@ -186,7 +186,12 @@ impl CloudArchivalWriter {
                     }
                     InitializationAttempt::WaitingForGenesis => self.config.polling_interval,
                     InitializationAttempt::Error(error) => {
-                        panic!("cloud archival initialization failed: {error}");
+                        tracing::error!(
+                            target: "cloud_archival",
+                            error = ?error,
+                            "cloud archival initialization failed; stopping cloud archival loop",
+                        );
+                        return;
                     }
                 }
             } else {

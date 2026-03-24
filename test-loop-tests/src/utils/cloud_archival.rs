@@ -78,19 +78,25 @@ pub fn gc_and_heads_sanity_checks(
 
     // Check that all external per-shard heads are above gc_tail.
     let cloud_storage = get_cloud_storage(env, writer_id);
-    let head_hash = chain_store.head().unwrap().last_block_hash;
-    let shard_layout = client.epoch_manager.get_shard_layout_from_prev_block(&head_hash).unwrap();
+    let head = chain_store.head().unwrap();
+    let shard_layout = client.epoch_manager.get_shard_layout(&head.epoch_id).unwrap();
     for shard_id in shard_layout.shard_ids() {
         let ext_shard_head =
             execute_future(cloud_storage.retrieve_cloud_shard_head_if_exists(shard_id));
-        if let Ok(Some(shard_head)) = ext_shard_head {
-            assert!(
-                shard_head >= gc_tail,
-                "external shard head {} for shard {} is below min_expected_cloud_head {}",
-                shard_head,
-                shard_id,
-                gc_tail,
-            );
+        match ext_shard_head {
+            Ok(Some(shard_head)) => {
+                assert!(
+                    shard_head >= gc_tail,
+                    "external shard head {} for shard {} is below gc_tail {}",
+                    shard_head,
+                    shard_id,
+                    gc_tail,
+                );
+            }
+            Ok(None) => {}
+            Err(err) => {
+                panic!("failed to retrieve cloud shard head for shard {}: {:?}", shard_id, err);
+            }
         }
     }
 }
@@ -175,7 +181,8 @@ pub(crate) fn add_writer_node(env: &mut TestLoopEnv, config: &WriterConfig) {
     env.add_node(config.id.as_ref(), node_state);
 }
 
-/// Verifies that block data exists and that exactly the listed shards have shard data.
+/// Verifies that exactly the listed shards have shard data at the given height.
+/// Also checks that block data exists if any shards are expected.
 pub(crate) fn check_data_at_height_for_shards(
     env: &TestLoopEnv,
     archival_id: &AccountId,
