@@ -1,7 +1,5 @@
 use crate::ApplyState;
-use crate::contract_code::{
-    AccountContractAccessExt, GlobalContractAccessExt, RuntimeContractIdentifier,
-};
+use crate::contract_code::{GlobalContractAccessExt, RuntimeContractIdentifier};
 use crate::ext::RuntimeExt;
 use crate::function_call::execute_function_call;
 use crate::pipelining::ReceiptPreparationPipeline;
@@ -24,11 +22,10 @@ use near_primitives::trie_key::trie_key_parsers::{
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, Nonce, ShardId,
 };
-use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{StateItem, ViewStateResult};
 use near_primitives_core::config::ViewConfig;
 use near_store::trie::AccessOptions;
-use near_store::{TrieUpdate, get_access_key, get_account, get_gas_key_nonce};
+use near_store::{TrieAccess as _, TrieUpdate, get_access_key, get_account, get_gas_key_nonce};
 use near_vm_runner::logic::{ProtocolVersion, ReturnData};
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use std::{str, sync::Arc, time::Instant};
@@ -57,26 +54,28 @@ pub struct ViewApplyState {
 }
 
 pub struct TrieViewer {
+    runtime_config_store: RuntimeConfigStore,
     /// Upper bound of the byte size of contract state that is still viewable. None is no limit
     state_size_limit: Option<u64>,
-    /// Gas limit used when handling call_function queries.
-    max_gas_burnt_view: Gas,
+    /// Gas limit used when handling call_function queries. If None, resolved
+    /// from the runtime config for the current protocol version.
+    max_gas_burnt_view: Option<Gas>,
 }
 
 impl Default for TrieViewer {
     fn default() -> Self {
-        let config_store = RuntimeConfigStore::new(None);
-        let latest_runtime_config = config_store.get_config(PROTOCOL_VERSION);
-        let max_gas_burnt = latest_runtime_config.wasm_config.limit_config.max_gas_burnt;
-        Self { state_size_limit: None, max_gas_burnt_view: max_gas_burnt }
+        let runtime_config_store = RuntimeConfigStore::new(None);
+        Self { runtime_config_store, state_size_limit: None, max_gas_burnt_view: None }
     }
 }
 
 impl TrieViewer {
-    pub fn new(state_size_limit: Option<u64>, max_gas_burnt_view: Option<Gas>) -> Self {
-        let max_gas_burnt_view =
-            max_gas_burnt_view.unwrap_or_else(|| TrieViewer::default().max_gas_burnt_view);
-        Self { state_size_limit, max_gas_burnt_view }
+    pub fn new(
+        runtime_config_store: RuntimeConfigStore,
+        state_size_limit: Option<u64>,
+        max_gas_burnt_view: Option<Gas>,
+    ) -> Self {
+        Self { runtime_config_store, state_size_limit, max_gas_burnt_view }
     }
 
     pub fn view_account(
@@ -95,12 +94,36 @@ impl TrieViewer {
         &self,
         state_update: &TrieUpdate,
         account_id: &AccountId,
+        current_protocol_version: ProtocolVersion,
+        chain_id: &str,
     ) -> Result<ContractCode, errors::ViewContractCodeError> {
         let account = self.view_account(state_update, account_id)?;
-        account.contract().into_owned().code(account_id, &state_update)?.ok_or_else(|| {
-            errors::ViewContractCodeError::NoContractCode {
-                contract_account_id: account_id.clone(),
+        let wasm_config =
+            &self.runtime_config_store.get_config(current_protocol_version).wasm_config;
+        let contract_id = RuntimeContractIdentifier::resolve(
+            account_id,
+            account.contract().into_owned(),
+            state_update,
+            wasm_config,
+            chain_id,
+            AccessOptions::DEFAULT,
+        )?;
+        let maybe_code = match contract_id {
+            RuntimeContractIdentifier::None => None,
+            RuntimeContractIdentifier::AccountLocal { code_hash, account_id } => {
+                let key = near_primitives::trie_key::TrieKey::ContractCode { account_id };
+                let code = state_update.get(&key, AccessOptions::DEFAULT)?;
+                code.map(|c| ContractCode::new(c, Some(code_hash)))
             }
+            RuntimeContractIdentifier::Global { identifier, .. } => {
+                identifier.code(state_update)?
+            }
+            RuntimeContractIdentifier::LegacyEthWallet(legacy) => {
+                Some((*legacy.contract()).clone())
+            }
+        };
+        maybe_code.ok_or_else(|| errors::ViewContractCodeError::NoContractCode {
+            contract_account_id: account_id.clone(),
         })
     }
 
@@ -260,8 +283,7 @@ impl TrieViewer {
         let public_key = PublicKey::empty(KeyType::ED25519);
         let empty_hash = CryptoHash::default();
         let mut receipt_manager = ReceiptManager::default();
-        let config_store = RuntimeConfigStore::new(None);
-        let config = config_store.get_config(PROTOCOL_VERSION);
+        let config = self.runtime_config_store.get_config(view_state.current_protocol_version);
         let apply_state = ApplyState {
             apply_reason: ApplyChunkReason::ViewTrackedShard,
             block_height: view_state.block_height,
@@ -286,7 +308,7 @@ impl TrieViewer {
         let function_call = FunctionCallAction {
             method_name: method_name.to_string(),
             args: args.to_vec(),
-            gas: self.max_gas_burnt_view,
+            gas: self.max_gas_burnt_view(view_state.current_protocol_version),
             deposit: Balance::ZERO,
         };
         let action_receipt = ActionReceipt {
@@ -309,7 +331,8 @@ impl TrieViewer {
             state_update.contract_storage().clone(),
             epoch_info_provider.chain_id(),
         );
-        let view_config = Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view });
+        let max_gas_burnt_view = self.max_gas_burnt_view(view_state.current_protocol_version);
+        let view_config = Some(ViewConfig { max_gas_burnt: max_gas_burnt_view });
         let contract_id_resolved = RuntimeContractIdentifier::resolve(
             contract_id,
             account.contract().into_owned(),
@@ -369,5 +392,15 @@ impl TrieViewer {
             };
             Ok(result)
         }
+    }
+
+    fn max_gas_burnt_view(&self, protocol_version: ProtocolVersion) -> Gas {
+        self.max_gas_burnt_view.unwrap_or_else(|| {
+            self.runtime_config_store
+                .get_config(protocol_version)
+                .wasm_config
+                .limit_config
+                .max_gas_burnt
+        })
     }
 }

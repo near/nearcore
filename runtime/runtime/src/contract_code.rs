@@ -94,31 +94,6 @@ impl RuntimeContractIdentifier {
     }
 }
 
-pub(crate) trait AccountContractAccessExt {
-    fn code(
-        self,
-        local_account_id: &AccountId,
-        store: &TrieUpdate,
-    ) -> Result<Option<ContractCode>, StorageError>;
-}
-
-impl AccountContractAccessExt for AccountContract {
-    fn code(
-        self,
-        local_account_id: &AccountId,
-        store: &TrieUpdate,
-    ) -> Result<Option<ContractCode>, StorageError> {
-        let local_hash = match GlobalContractIdentifier::try_from(self) {
-            Ok(identifier) => return identifier.code(store),
-            Err(ContractIsLocalError::NotDeployed) => return Ok(None),
-            Err(ContractIsLocalError::Deployed(local_hash)) => local_hash,
-        };
-        let key = TrieKey::ContractCode { account_id: local_account_id.clone() };
-        let code = store.get(&key, AccessOptions::DEFAULT)?;
-        Ok(code.map(|code| ContractCode::new(code, Some(local_hash))))
-    }
-}
-
 pub(crate) trait GlobalContractAccessExt {
     fn hash(self, store: &TrieUpdate, access: AccessOptions) -> Result<CryptoHash, StorageError>;
     fn code(self, store: &TrieUpdate) -> Result<Option<ContractCode>, StorageError>;
