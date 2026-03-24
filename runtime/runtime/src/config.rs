@@ -33,6 +33,8 @@ pub struct TransactionCost {
     pub deposit_cost: Balance,
     /// Total costs in tokens for this transaction (including all deposits).
     pub total_cost: Balance,
+    /// Prepaid storage gas (for StoragePayment::StorageGas accounts).
+    pub storage_gas_remaining: Gas,
 }
 
 pub fn safe_gas_to_balance(gas_price: Balance, gas: Gas) -> Result<Balance, IntegerOverflowError> {
@@ -424,9 +426,12 @@ pub fn calculate_tx_cost(
         prepaid_gas.checked_add_result(fees.fee(ActionCosts::new_action_receipt).exec_fee())?;
     gas_remaining =
         gas_remaining.checked_add_result(total_prepaid_exec_fees(config, actions, receiver_id)?)?;
+    let storage_gas_remaining = total_prepaid_storage_gas(actions)?;
     let burnt_amount = safe_gas_to_balance(receipt_gas_price, gas_burnt)?;
     let remaining_gas_amount = safe_gas_to_balance(receipt_gas_price, gas_remaining)?;
+    let storage_gas_amount = safe_gas_to_balance(receipt_gas_price, storage_gas_remaining)?;
     let gas_cost = safe_add_balance(burnt_amount, remaining_gas_amount)?;
+    let gas_cost = safe_add_balance(gas_cost, storage_gas_amount)?;
     let deposit_cost = total_deposit(actions)?;
     let total_cost = safe_add_balance(gas_cost, deposit_cost)?;
     Ok(TransactionCost {
@@ -437,6 +442,7 @@ pub fn calculate_tx_cost(
         gas_cost,
         deposit_cost,
         total_cost,
+        storage_gas_remaining,
     })
 }
 

@@ -6,7 +6,7 @@ use crate::access_keys::{
 use crate::actions::*;
 use crate::config::{
     exec_fee, safe_add_balance, safe_add_compute, safe_gas_to_balance, total_deposit,
-    total_prepaid_exec_fees, total_prepaid_gas,
+    total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_storage_gas,
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
 use crate::function_call::action_function_call;
@@ -39,7 +39,7 @@ use near_crypto::{PublicKey, Signature};
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::id::AccountType;
-use near_primitives::account::{AccessKey, Account};
+use near_primitives::account::{AccessKey, Account, StoragePayment};
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
@@ -344,6 +344,8 @@ pub struct ActionResult {
     pub validator_proposals: Vec<ValidatorStake>,
     pub profile: Box<ProfileDataV3>,
     pub tokens_burnt: Balance,
+    /// Storage gas consumed for StoragePayment::StorageGas accounts.
+    pub storage_gas_burnt: Gas,
 }
 
 impl ActionResult {
@@ -398,6 +400,7 @@ impl Default for ActionResult {
             validator_proposals: vec![],
             profile: Default::default(),
             tokens_burnt: Balance::ZERO,
+            storage_gas_burnt: Gas::ZERO,
         }
     }
 }
@@ -696,15 +699,17 @@ impl Runtime {
             Action::DeployContractV2(deploy_contract) => {
                 metrics::ACTION_CALLED_COUNT.deploy_contract.inc();
                 let v1 = DeployContractAction { code: deploy_contract.code.clone() };
+                let acc = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
                 action_deploy_contract(
                     state_update,
-                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
+                    acc,
                     account_id,
                     &v1,
                     Arc::clone(&apply_state.config.wasm_config),
                     apply_state.cache.as_deref(),
                     apply_state.current_protocol_version,
                 )?;
+                acc.set_storage_payment(deploy_contract.storage_payment);
             }
         };
         Ok(result)
@@ -765,6 +770,7 @@ impl Runtime {
         });
 
         let mut account = get_account(state_update, account_id)?;
+        let old_storage_usage = account.as_ref().map(|a| a.storage_usage()).unwrap_or(0);
         let mut actor_id = receipt.predecessor_id().clone();
         let mut result = ActionResult::default();
         let exec_fees = apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee();
@@ -818,26 +824,64 @@ impl Runtime {
         // Going to check balance covers account's storage.
         if result.result.is_ok() {
             if let Some(ref account) = account {
-                match check_storage_stake(account, account.amount(), &apply_state.config) {
-                    Ok(()) => {
+                if matches!(account.storage_payment(), StoragePayment::StorageGas) {
+                    // Storage-gas account: charge storage gas for storage growth.
+                    let new_storage_usage = account.storage_usage();
+                    let storage_delta = new_storage_usage.saturating_sub(old_storage_usage);
+                    if storage_delta > 0 {
+                        let storage_gas_cost = apply_state
+                            .config
+                            .fees
+                            .storage_usage_config
+                            .storage_gas_per_byte
+                            .checked_mul(storage_delta)
+                            .ok_or_else(|| {
+                                RuntimeError::StorageError(StorageError::StorageInconsistentState(
+                                    "storage gas cost overflow".to_string(),
+                                ))
+                            })?;
+                        let prepaid_storage_gas =
+                            total_prepaid_storage_gas(&action_receipt.actions())?;
+                        if prepaid_storage_gas >= storage_gas_cost {
+                            result.storage_gas_burnt = storage_gas_cost;
+                            set_account(state_update, account_id.clone(), account);
+                        } else {
+                            result.merge(ActionResult {
+                                result: Err(ActionError {
+                                    index: None,
+                                    kind: ActionErrorKind::LackBalanceForState {
+                                        account_id: account_id.clone(),
+                                        amount: Balance::ZERO,
+                                    },
+                                }),
+                                ..Default::default()
+                            })?;
+                        }
+                    } else {
                         set_account(state_update, account_id.clone(), account);
                     }
-                    Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
-                        result.merge(ActionResult {
-                            result: Err(ActionError {
-                                index: None,
-                                kind: ActionErrorKind::LackBalanceForState {
-                                    account_id: account_id.clone(),
-                                    amount,
-                                },
-                            }),
-                            ..Default::default()
-                        })?;
-                    }
-                    Err(StorageStakingError::StorageError(err)) => {
-                        return Err(RuntimeError::StorageError(
-                            StorageError::StorageInconsistentState(err),
-                        ));
+                } else {
+                    match check_storage_stake(account, account.amount(), &apply_state.config) {
+                        Ok(()) => {
+                            set_account(state_update, account_id.clone(), account);
+                        }
+                        Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
+                            result.merge(ActionResult {
+                                result: Err(ActionError {
+                                    index: None,
+                                    kind: ActionErrorKind::LackBalanceForState {
+                                        account_id: account_id.clone(),
+                                        amount,
+                                    },
+                                }),
+                                ..Default::default()
+                            })?;
+                        }
+                        Err(StorageStakingError::StorageError(err)) => {
+                            return Err(RuntimeError::StorageError(
+                                StorageError::StorageInconsistentState(err),
+                            ));
+                        }
                     }
                 }
             }
@@ -889,6 +933,10 @@ impl Runtime {
         tx_burnt_amount = safe_add_balance(tx_burnt_amount, gas_refund_result.price_surplus)?;
         tx_burnt_amount = safe_add_balance(tx_burnt_amount, gas_refund_result.refund_penalty)?;
         tx_burnt_amount = safe_add_balance(tx_burnt_amount, result.tokens_burnt)?;
+        // Add storage gas burn to tokens_burnt.
+        let storage_tokens_burnt =
+            safe_gas_to_balance(action_receipt.gas_price(), result.storage_gas_burnt)?;
+        tx_burnt_amount = safe_add_balance(tx_burnt_amount, storage_tokens_burnt)?;
         // The amount of tokens burnt for the execution of this receipt. It's used in the execution
         // outcome.
         let tokens_burnt = tx_burnt_amount;
@@ -1129,6 +1177,25 @@ impl Runtime {
                 gas_balance_refund,
                 action_receipt.signer_public_key().clone(),
             ));
+        }
+
+        // Refund unused storage gas (bought at gas_price, separate from compute gas).
+        let prepaid_storage_gas = total_prepaid_storage_gas(&action_receipt.actions())?;
+        let unused_storage_gas = if result.result.is_err() {
+            prepaid_storage_gas
+        } else {
+            prepaid_storage_gas.saturating_sub(result.storage_gas_burnt)
+        };
+        if unused_storage_gas > Gas::ZERO {
+            let storage_gas_refund =
+                safe_gas_to_balance(action_receipt.gas_price(), unused_storage_gas)?;
+            if storage_gas_refund > Balance::ZERO {
+                result.new_receipts.push(Receipt::new_gas_refund(
+                    &action_receipt.signer_id(),
+                    storage_gas_refund,
+                    action_receipt.signer_public_key().clone(),
+                ));
+            }
         }
 
         Ok(gas_refund_result)

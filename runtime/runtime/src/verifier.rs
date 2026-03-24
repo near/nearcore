@@ -1,5 +1,5 @@
 use crate::config::{TransactionCost, total_prepaid_gas};
-use crate::near_primitives::account::Account;
+use crate::near_primitives::account::{Account, StoragePayment};
 use crate::{AccessKeyUpdate, TxVerdict, VerificationResult};
 use near_crypto::PublicKey;
 use near_crypto::key_conversion::is_valid_staking_key;
@@ -59,6 +59,9 @@ pub fn check_storage_stake(
     account_balance: Balance,
     runtime_config: &RuntimeConfig,
 ) -> Result<(), StorageStakingError> {
+    if matches!(account.storage_payment(), StoragePayment::StorageGas) {
+        return Ok(());
+    }
     let billable_storage_bytes = account.storage_usage();
     let required_amount = runtime_config
         .storage_amount_per_byte()
