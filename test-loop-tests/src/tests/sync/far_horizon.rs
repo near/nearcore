@@ -864,7 +864,7 @@ fn test_far_horizon_stale_sync_hash_detection() {
 
     // validator sync hash should have changed to a new epoch
     let validator_sync_hash = env.node(0).client().chain.find_sync_hash().unwrap().unwrap();
-    assert_ne!(node_sync_hash, validator_sync_hash,);
+    assert_ne!(node_sync_hash, validator_sync_hash);
 
     // Advance the chain past the detection threshold. The stale sync hash
     // check fires on each run_sync_step when in StateSync, and once
