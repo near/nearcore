@@ -6,7 +6,7 @@ use near_primitives::action::{
     UseGlobalContractAction,
 };
 use near_primitives::errors::{ActionErrorKind, IntegerOverflowError, RuntimeError};
-use near_primitives::hash::{CryptoHash, hash};
+use near_primitives::hash::hash;
 use near_primitives::receipt::{GlobalContractDistributionReceipt, Receipt, ReceiptEnum};
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{AccountId, EpochInfoProvider, ShardId, StateChangeCause};
