@@ -170,8 +170,9 @@ fn test_near_vm_artifact_output_stability() {
 
         let mut config = test_vm_config(Some(VMKind::NearVm));
         config.reftypes_bulk_memory = false; // NearVM cannot support this feature.
-        let prepared_code =
+        let (prepared_code, instantiation_bytes) =
             prepare::prepare_contract(contract.code(), &config, VMKind::NearVm).unwrap();
+        assert_eq!(instantiation_bytes, 0);
         let this_hash = crate::utils::stable_hash((&contract.code(), &prepared_code));
         got_prepared_hashes.push(this_hash);
         if std::env::var_os("NEAR_STABILITY_TEST_WRITE").is_some() {
@@ -231,30 +232,31 @@ fn test_wasmtime_artifact_output_stability() {
     let prepared_hashes = [
         // See the above comment if you want to change this
         12449640751251113238,
-        6667984442121282965,
-        5326763896713807329,
+        6706120227305368940,
+        8744699610717562468,
         7732431717957140339,
         3109521814084239259,
         10353595027846323532,
-        10277454382572670711,
+        3141208373050189591,
     ];
     let compiled_hashes = [
         // See the above comment if you want to change this
-        9950924174948878954,
-        8803697765082602215,
-        4017484580479522250,
-        3364258580096170639,
-        10567990929592989318,
-        7579701708129024444,
-        187752494411248376,
+        15166103094801296115,
+        14977145414832159189,
+        6787530509236065404,
+        6683993725846011626,
+        18417284966121625203,
+        9357879309473592856,
+        7017228178243878080,
     ];
     let mut got_prepared_hashes = Vec::with_capacity(seeds.len());
     let mut got_compiled_hashes = Vec::with_capacity(seeds.len());
     for seed in seeds {
         let contract = ContractCode::new(near_test_contracts::arbitrary_contract(seed), None);
         let config = test_vm_config(Some(VMKind::Wasmtime));
-        let prepared_code =
+        let (prepared_code, instantiation_bytes) =
             prepare::prepare_contract(contract.code(), &config, VMKind::Wasmtime).unwrap();
+        assert_eq!(instantiation_bytes, 0);
         let this_hash = crate::utils::stable_hash((&contract.code(), &prepared_code));
         got_prepared_hashes.push(this_hash);
         if std::env::var_os("NEAR_STABILITY_TEST_WRITE").is_some() {
@@ -262,7 +264,10 @@ fn test_wasmtime_artifact_output_stability() {
         }
         let vm = WasmtimeVM::new_for_target(Arc::new(config), Some("x86_64-unknown-none".into()))
             .unwrap();
-        let serialized = vm.compile_uncached(&contract).unwrap();
+        let (serialized, instantiation_bytes, is_component) =
+            vm.compile_uncached(&contract).unwrap();
+        assert_eq!(is_component, false);
+        assert_eq!(instantiation_bytes, 0);
         let this_hash = crate::utils::stable_hash(&serialized);
         got_compiled_hashes.push(this_hash);
 

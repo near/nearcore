@@ -157,10 +157,12 @@ fn slow_test_wasmtime_vm_is_reproducible_fuzzer() {
         let mut first_hash = None;
         for _ in 0..3 {
             let vm = WasmtimeVM::new(config.clone());
-            let exec = match vm.compile_uncached(&code) {
+            let (exec, instantiation_bytes, is_component) = match vm.compile_uncached(&code) {
                 Ok(e) => e,
                 Err(_) => return,
             };
+            assert!(!is_component);
+            assert_eq!(instantiation_bytes, 0);
             let hash = CryptoHash::hash_bytes(&exec);
             match first_hash {
                 None => first_hash = Some(hash),

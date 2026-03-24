@@ -23,12 +23,12 @@ pub fn prepare_contract(
     original_code: &[u8],
     config: &Config,
     kind: VMKind,
-) -> Result<Vec<u8>, PrepareError> {
+) -> Result<(Vec<u8>, u64), PrepareError> {
     let features = crate::features::WasmFeatures::new(config);
     if config.reftypes_bulk_memory || config.vm_kind == VMKind::Wasmtime {
         prepare_v3::prepare_contract(original_code, features, config, kind)
     } else {
-        prepare_v2::prepare_contract(original_code, features, config, kind)
+        prepare_v2::prepare_contract(original_code, features, config, kind).map(|wasm| (wasm, 0))
     }
 }
 
@@ -42,7 +42,7 @@ mod tests {
         config: &Config,
         vm_kind: VMKind,
         wat: &str,
-    ) -> Result<Vec<u8>, PrepareError> {
+    ) -> Result<(Vec<u8>, u64), PrepareError> {
         let wasm = wat::parse_str(wat).unwrap();
         prepare_contract(wasm.as_ref(), &config, vm_kind)
     }
@@ -52,7 +52,7 @@ mod tests {
         with_vm_variants(|kind| {
             let config = test_vm_config(Some(kind));
             let r = parse_and_prepare_wat(&config, kind, r#"(module (memory 1 1))"#);
-            assert_matches!(r, Ok(_));
+            assert_matches!(r, Ok((_, 0)));
         })
     }
 
@@ -72,7 +72,7 @@ mod tests {
 
             // No memory import
             let r = parse_and_prepare_wat(&config, kind, r#"(module)"#);
-            assert_matches!(r, Ok(_));
+            assert_matches!(r, Ok((_, 0)));
 
             // initial exceed maximum
             let r = parse_and_prepare_wat(
@@ -144,7 +144,7 @@ mod tests {
                 kind,
                 r#"(module (import "env" "gas" (func (param i32))))"#,
             );
-            assert_matches!(r, Ok(_));
+            assert_matches!(r, Ok((_, 0)));
 
             // TODO: Address tests once we check proper function signatures.
             /*

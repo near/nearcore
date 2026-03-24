@@ -49,7 +49,7 @@ static MULTI_VALUE: &str = r#"
 (module
   (func $entry (result i32) i32.const 0)
   (func $pick0 (param i64) (result i64 i64)
-    (get_local 0) (get_local 0))
+    (local.get 0) (local.get 0))
 )
 "#;
 
@@ -72,12 +72,14 @@ static MULTI_MEMORY: &str = r#"
 (module
   (memory 0)
   (memory 1)
-  (func $entry (result i32) i32.const 0))
+  (func $entry (result i32) i32.const 0)
+)
 "#;
 
 static MEMORY64: &str = r#"
 (module (memory i64 0 0)
-  (func $entry (result i32) i32.const 0))
+  (func $entry (result i32) i32.const 0)
+)
 "#;
 
 static EXCEPTIONS: &str = r#"
@@ -85,6 +87,15 @@ static EXCEPTIONS: &str = r#"
   (func $entry (result i32) i32.const 0)
   (tag $e0 (export "e0"))
   (func (export "throw") (throw $e0))
+)
+"#;
+
+static COMPONENT_MODEL: &str = r#"
+(component
+  (core module
+    (func $entry (result i32) i32.const 0)
+  )
+  (core instance (instantiate 0))
 )
 "#;
 
@@ -99,17 +110,44 @@ static EXPECTED_UNSUPPORTED: &[(&str, &str)] = &[
     ("reference_types", REFERENCE_TYPES),
     ("threads", THREADS),
     ("simd", SIMD),
+    ("component_model", COMPONENT_MODEL),
 ];
+
+fn componentize(wat: &str) -> String {
+    format!(
+        r#"
+(component
+  (core {}
+  (core instance (instantiate 0))
+)"#,
+        wat.trim().strip_prefix("(").unwrap()
+    )
+}
 
 #[test]
 #[cfg(feature = "prepare")]
 fn ensure_fails_verification() {
     crate::tests::with_vm_variants(|kind| {
-        let config = test_vm_config(Some(kind));
+        let mut config = test_vm_config(Some(kind));
         for (feature_name, wat) in EXPECTED_UNSUPPORTED {
+            use near_parameters::vm::VMKind;
+
             let wasm = wat::parse_str(wat).expect("parsing test wat should succeed");
             if let Ok(_) = crate::prepare::prepare_contract(&wasm, &config, kind) {
                 panic!("wasm containing use of {} feature did not fail to prepare", feature_name);
+            }
+
+            if *feature_name != "component_model" && kind == VMKind::Wasmtime {
+                let wasm = wat::parse_str(componentize(wat))
+                    .expect("parsing test component wat should succeed");
+                config.component_model = true;
+                if let Ok(_) = crate::prepare::prepare_contract(&wasm, &config, kind) {
+                    panic!(
+                        "component wasm containing use of {} feature did not fail to prepare",
+                        feature_name
+                    );
+                }
+                config.component_model = false;
             }
         }
     });
@@ -117,10 +155,15 @@ fn ensure_fails_verification() {
 
 #[test]
 fn ensure_fails_execution() {
-    for (_feature_name, wat) in EXPECTED_UNSUPPORTED {
-        test_builder().wat(wat).opaque_error().opaque_outcome().expect(&expect![[r#"
+    for (feature_name, wat) in EXPECTED_UNSUPPORTED {
+        let test = test_builder().wat(wat).opaque_error().opaque_outcome().expect(&expect![[r#"
             Err: ...
         "#]]);
+        if *feature_name != "component_model" {
+            test.component_wat(&componentize(wat)).component_expect(&expect![[r#"
+            Err: ...
+        "#]]);
+        }
     }
 }
 
@@ -155,21 +198,40 @@ fn extension_saturating_float_to_int() {
         ]);
 }
 
+#[cfg(feature = "prepare")]
 #[test]
 fn memory_export_method() {
     test_builder()
-        .wat(
+        .wat(&format!(
             r#"
             (module
-              (func (export "memory"))
+              (func (export "{MEMORY_EXPORT}"))
             )"#,
-        )
-        .method("memory")
+        ))
+            .component_wat(&format!(
+            r#"
+            (component
+              (core module
+                (func (export "{MEMORY_EXPORT}"))
+              )
+              (core instance (instantiate 0))
+              (func (export "{MEMORY_EXPORT}") (canon lift
+                (core func 0 "{MEMORY_EXPORT}"))
+              )
+            )"#,
+        ))
+        .method(MEMORY_EXPORT)
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 81242631 used gas 81242631
             "#]],
-        ]);
+        ])
+        .component_expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 184725656 used gas 184725656
+            "#]],
+        ])
+    ;
 }
 
 #[cfg(feature = "prepare")]
@@ -183,9 +245,30 @@ fn memory_export_clash() {
               (func (export "main"))
             )"#,
         ))
+        .component_wat(&format!(
+            r#"
+            (component
+              (core module
+                (func (export "{MEMORY_EXPORT}"))
+                (func (export "main"))
+              )
+              (core instance (instantiate 0))
+              (func (export "{MEMORY_EXPORT}") (canon lift
+                (core func 0 "{MEMORY_EXPORT}"))
+              )
+              (func (export "main") (canon lift
+                (core func 0 "main"))
+              )
+            )"#,
+        ))
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 93224876 used gas 93224876
+            "#]],
+        ])
+        .component_expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 247904766 used gas 247904766
             "#]],
         ]);
 }
@@ -219,9 +302,30 @@ fn start_export_clash() {
               (func (export "main"))
             )"#,
         ))
+        .component_wat(&format!(
+            r#"
+            (component
+              (core module
+                (func (export "{START_EXPORT}"))
+                (func (export "main"))
+              )
+              (core instance (instantiate 0))
+              (func (export "{START_EXPORT}") (canon lift
+                (core func 0 "{START_EXPORT}"))
+              )
+              (func (export "main") (canon lift
+                (core func 0 "main"))
+              )
+            )"#,
+        ))
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 92135581 used gas 92135581
+            "#]],
+        ])
+        .component_expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 243547586 used gas 243547586
             "#]],
         ]);
 }
@@ -233,14 +337,36 @@ fn start_export_clash_duplicate() {
         .wat(&format!(
             r#"
             (module
-              (func (export "{START_EXPORT}") call 1)
               (func (export "main"))
-              (start 1)
+              (func (export "{START_EXPORT}") call 0)
+              (start 0)
+            )"#,
+        ))
+        .component_wat(&format!(
+            r#"
+            (component
+              (core module
+                (func (export "main"))
+                (func (export "{START_EXPORT}") call 0)
+                (start 0)
+              )
+              (core instance (instantiate 0))
+              (func (export "main") (canon lift
+                (core func 0 "main"))
+              )
+              (func (export "{START_EXPORT}") (canon lift
+                (core func 0 "{START_EXPORT}"))
+              )
             )"#,
         ))
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 104164104 used gas 104164104
+            "#]],
+        ])
+        .component_expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 261022584 used gas 261022584
             "#]],
         ]);
 }
@@ -256,9 +382,27 @@ fn memory_export_internal() {
               (func (export "main"))
             )"#,
         ))
+        .component_wat(&format!(
+            r#"
+            (component
+              (core module
+                (memory (export "{MEMORY_EXPORT}") 0 0)
+                (func (export "main"))
+              )
+              (core instance (instantiate 0))
+              (func (export "main") (canon lift
+                (core func 0 "main"))
+              )
+            )"#,
+        ))
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 95403466 used gas 95403466
+            "#]],
+        ])
+        .component_expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 208690146 used gas 208690146
             "#]],
         ]);
 }
@@ -273,9 +417,27 @@ fn memory_custom() {
               (func (export "main"))
             )"#,
         )
+        .component_wat(
+            r#"
+            (component
+              (core module
+                (memory (export "foo") 42 42)
+                (func (export "main"))
+              )
+              (core instance (instantiate 0))
+              (func (export "main") (canon lift
+                (core func 0 "main"))
+              )
+            )"#,
+        )
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 92135581 used gas 92135581
+            "#]],
+        ])
+        .component_expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 202154376 used gas 202154376
             "#]],
         ]);
 }
@@ -290,9 +452,28 @@ fn too_many_table_elements() {
               (table 1000001 funcref)
             )"#,
         )
+        .component_wat(
+            r#"
+            (component
+              (core module
+                (func (export "main"))
+                (table 1000001 funcref)
+              )
+              (core instance (instantiate 0))
+              (func (export "main") (canon lift
+                (core func 0 "main"))
+              )
+            )"#,
+        )
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 81196353 used gas 81196353
+                Err: PrepareError: Too many table elements declared in the contract.
+            "#]],
+        ])
+        .component_expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 141107578 used gas 141107578
                 Err: PrepareError: Too many table elements declared in the contract.
             "#]],
         ]);
@@ -313,9 +494,33 @@ fn too_many_tables() {
               (table 0 funcref)
             )"#,
         )
+        .component_wat(
+            r#"
+            (component
+              (core module
+                (func (export "main"))
+                (table 0 funcref)
+                (table 0 funcref)
+                (table 0 funcref)
+                (table 0 funcref)
+                (table 0 funcref)
+                (table 0 funcref)
+              )
+              (core instance (instantiate 0))
+              (func (export "main") (canon lift
+                (core func 0 "main"))
+              )
+            )"#,
+        )
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 95357188 used gas 95357188
+                Err: PrepareError: Too many tables declared in the contract.
+            "#]],
+        ])
+        .component_expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 155268413 used gas 155268413
                 Err: PrepareError: Too many tables declared in the contract.
             "#]],
         ]);
@@ -385,6 +590,99 @@ fn use_imports() {
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 12637863260998 used gas 12637863260998
+            "#]],
+        ]);
+}
+
+#[test]
+fn use_component_imports() {
+    test_builder()
+        .component_wat(
+            r#"
+            (component
+              (core module
+                (memory (export "memory") 17)
+              )
+              (core instance (instantiate 0))
+              (alias core export 0 "memory" (core memory))
+
+              (type
+                (instance
+                  (type (func (result u64)))
+                  (export "block-height" (func (type 0)))
+
+                  (type (option u64))
+                  (type (func (param "register-id" u64) (result 1)))
+                  (export "register-len" (func (type 2)))
+                )
+              )
+              (core module
+                (import "near:nearcore/runtime@0.1.0" "block-height" (func (result i64)))
+                (import "near:nearcore/runtime@0.1.0" "register-len" (func (param i64 i32)))
+                (func (export "main")
+                  call 0
+                  drop
+
+                  i64.const 0
+                  i32.const 24
+                  call 1
+                )
+              )
+
+              (import "near:nearcore/runtime@0.1.0" (instance (type 0)))
+              (core func (canon lower (func 0 "block-height")))
+              (core func (canon lower (func 0 "register-len") (memory 0)))
+              (core instance
+                (export "block-height" (func 0))
+                (export "register-len" (func 1))
+              )
+
+              (core instance (instantiate 1
+                (with "near:nearcore/runtime@0.1.0" (instance 1))
+              ))
+              (func (export "main") (canon lift
+                (core func 2 "main"))
+              )
+            )"#,
+        )
+        .component_expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 1256487388 used gas 1256487388
+            "#]],
+        ]);
+}
+
+#[cfg(feature = "prepare")]
+#[test]
+fn import_unsafe_intrinsics() {
+    test_builder()
+        .component_wat(&format!(
+            r#"
+            (component
+              (type
+                (instance
+                  (type (func (result u64)))
+                  (type (func (param "ptr" u64) (result u64)))
+                  (type (func (param "ptr" u64) (param "val" u64)))
+                  (export "store-data-address" (func (type 0)))
+                  (export "u64-native-load" (func (type 1)))
+                  (export "u64-native-store" (func (type 2)))
+                )
+              )
+              (import "unsafe-intrinsics" (instance (type 0)))
+              (core module
+                (func (export "main"))
+              )
+              (core instance (instantiate 0))
+              (func (export "main") (canon lift
+                (core func 0 "main"))
+              )
+            )"#,
+        ))
+        .component_expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 266376503 used gas 266376503
+                Err: PrepareError: Error happened during instantiation.
             "#]],
         ]);
 }

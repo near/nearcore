@@ -203,7 +203,7 @@ enumset = "1.0"
 ethabi = "18"
 expect-test = "1.3.0"
 finite-wasm = "0.5.0"
-finite-wasm-6 = { package = "finite-wasm", version = "0.6.0" }
+finite-wasm-6 = { git = "https://github.com/near/finite-wasm", rev = "a93bdb13560a6b86c89841d71018ec7e5e88f565", package = "finite-wasm", version = "0.6.0" }
 futures = "0.3.5"
 futures-util = "0.3"
 genesis-populate = { path = "genesis-tools/genesis-populate" }
@@ -404,11 +404,11 @@ wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in
 wasmparser-236 = { package = "wasmparser", version = "0.236" }
 wasmprinter = "0.236"
 wasm-smith = "0.236"
-wasmtime = { version = "36", default-features = false, features = [
+wasmtime = { git = "https://github.com/bytecodealliance/wasmtime", rev = "ad56ff980ae5f522d42ba9fa49448f3a8c7320b4", default-features = false, features = [
     "cranelift",
 ] }
 wast = "40.0"
-wat = "1.0.40"
+wat = "1.236"
 webrtc-util = "0.10"
 winapi = { version = "0.3", features = [
     "winbase",
@@ -418,6 +418,7 @@ winapi = { version = "0.3", features = [
     "impl-default",
 ] }
 wiremock = "0.5.19"
+wit-component = "0.236"
 xshell = "0.2.1"
 xz2 = "0.1.6"
 yansi = "0.5.1"

@@ -1,9 +1,11 @@
+use core::mem;
+
 use super::instrument_v3::InstrumentContext;
 use crate::logic::errors::PrepareError;
 use crate::{EXPORT_PREFIX, MEMORY_EXPORT};
 use finite_wasm_6::{Fee, wasmparser as wp};
 use near_parameters::vm::{Config, VMKind};
-use wasm_encoder::{Encode, Section, SectionId};
+use wasm_encoder::{ComponentSectionId, Encode, Section, SectionId};
 
 struct PrepareContext<'a> {
     code: &'a [u8],
@@ -18,6 +20,7 @@ struct PrepareContext<'a> {
     before_import_section: bool,
     before_memory_section: bool,
     before_export_section: bool,
+    parents: Vec<Vec<u8>>,
 }
 
 impl<'a> PrepareContext<'a> {
@@ -45,6 +48,7 @@ impl<'a> PrepareContext<'a> {
             before_import_section: true,
             before_memory_section: true,
             before_export_section: true,
+            parents: Vec::default(),
         }
     }
 
@@ -54,9 +58,10 @@ impl<'a> PrepareContext<'a> {
     /// applicable to other runtimes.
     ///
     /// This will validate the module, normalize the memories within, apply limits.
-    fn run(&mut self) -> Result<Vec<u8>, PrepareError> {
-        self.before_import_section = true;
-        self.before_memory_section = true;
+    fn run(mut self) -> Result<Vec<u8>, PrepareError> {
+        if !self.config.component_model && wp::Parser::is_component(self.code) {
+            return Err(PrepareError::Deserialization);
+        }
         let parser = wp::Parser::new(0);
         for payload in parser.parse_all(self.code) {
             let payload = payload.map_err(|err| {
@@ -72,6 +77,17 @@ impl<'a> PrepareContext<'a> {
                 }
                 wp::Payload::End(offset) => {
                     self.validator.end(offset).map_err(|_| PrepareError::Deserialization)?;
+                    if let Some(mut parent) = self.parents.pop() {
+                        // TODO: Optimize if necessary
+                        self.output_code.len().encode(&mut parent);
+                        parent.extend_from_slice(&self.output_code);
+                        self.output_code = parent;
+                        // A module cannot contain either module or component sections, so if we're at
+                        // an end of a section, we're certainly out of a module
+                        self.before_import_section = true;
+                        self.before_memory_section = true;
+                        self.before_export_section = true;
+                    }
                 }
 
                 wp::Payload::TypeSection(reader) => {
@@ -86,7 +102,11 @@ impl<'a> PrepareContext<'a> {
                     self.validator
                         .import_section(&reader)
                         .map_err(|_| PrepareError::Deserialization)?;
-                    self.transform_import_section(&reader)?;
+                    if wp::Parser::is_core_wasm(self.code) {
+                        self.transform_import_section(&reader)?;
+                    } else {
+                        self.copy_section(SectionId::Import, reader.range())?;
+                    }
                 }
 
                 wp::Payload::FunctionSection(reader) => {
@@ -124,9 +144,13 @@ impl<'a> PrepareContext<'a> {
                         .memory_section(&reader)
                         .map_err(|_| PrepareError::Deserialization)?;
                     if self.config.vm_kind == VMKind::Wasmtime {
-                        wasm_encoder::MemorySection::new()
-                            .memory(self.memory_type())
-                            .append_to(&mut self.output_code);
+                        if wasmparser_236::Parser::is_core_wasm(self.code) {
+                            wasm_encoder::MemorySection::new()
+                                .memory(self.memory_type())
+                                .append_to(&mut self.output_code);
+                        } else {
+                            self.copy_section(SectionId::Memory, reader.range())?;
+                        }
                     }
                 }
                 wp::Payload::GlobalSection(reader) => {
@@ -146,9 +170,10 @@ impl<'a> PrepareContext<'a> {
                     for res in reader {
                         let wp::Export { name, kind, index } =
                             res.map_err(|_| PrepareError::Deserialization)?;
-                        let prefix = (self.config.vm_kind == VMKind::Wasmtime)
-                            .then_some(EXPORT_PREFIX)
-                            .unwrap_or_default();
+                        let prefix = (self.config.vm_kind == VMKind::Wasmtime
+                            && wasmparser_236::Parser::is_core_wasm(self.code))
+                        .then_some(EXPORT_PREFIX)
+                        .unwrap_or_default();
                         match kind {
                             wp::ExternalKind::Func => {
                                 new_section.export(
@@ -164,7 +189,18 @@ impl<'a> PrepareContext<'a> {
                                     index,
                                 );
                             }
-                            wp::ExternalKind::Memory => continue,
+                            wp::ExternalKind::Memory
+                                if wasmparser_236::Parser::is_core_wasm(self.code) =>
+                            {
+                                continue;
+                            }
+                            wp::ExternalKind::Memory => {
+                                new_section.export(
+                                    &format!("{prefix}{name}"),
+                                    wasm_encoder::ExportKind::Memory,
+                                    index,
+                                );
+                            }
                             wp::ExternalKind::Global => {
                                 new_section.export(
                                     &format!("{prefix}{name}"),
@@ -181,7 +217,9 @@ impl<'a> PrepareContext<'a> {
                             }
                         }
                     }
-                    if self.config.vm_kind == VMKind::Wasmtime {
+                    if self.config.vm_kind == VMKind::Wasmtime
+                        && wasmparser_236::Parser::is_core_wasm(self.code)
+                    {
                         new_section.export(MEMORY_EXPORT, wasm_encoder::ExportKind::Memory, 0);
                     }
                     new_section.append_to(&mut self.output_code)
@@ -257,21 +295,87 @@ impl<'a> PrepareContext<'a> {
                         self.copy_section(SectionId::Custom, reader.range())?;
                     }
                 }
+                wp::Payload::ModuleSection { unchecked_range, .. } => {
+                    self.validator
+                        .module_section(&unchecked_range)
+                        .map_err(|_err| PrepareError::Deserialization)?;
+                    ComponentSectionId::CoreModule.encode(&mut self.output_code);
+                    self.parents.push(mem::replace(
+                        &mut self.output_code,
+                        Vec::with_capacity(unchecked_range.len()),
+                    ));
+                    continue;
+                }
+                wp::Payload::InstanceSection(reader) => {
+                    self.validator
+                        .instance_section(&reader)
+                        .map_err(|_err| PrepareError::Deserialization)?;
+                    self.copy_component_section(ComponentSectionId::CoreInstance, reader.range())?;
+                }
+
+                wp::Payload::CoreTypeSection(reader) => {
+                    self.validator
+                        .core_type_section(&reader)
+                        .map_err(|_err| PrepareError::Deserialization)?;
+                    self.copy_component_section(ComponentSectionId::CoreType, reader.range())?;
+                }
+
+                wp::Payload::ComponentAliasSection(reader) => {
+                    self.validator
+                        .component_alias_section(&reader)
+                        .map_err(|_err| PrepareError::Deserialization)?;
+                    self.copy_component_section(ComponentSectionId::Alias, reader.range())?;
+                }
+
+                wp::Payload::ComponentTypeSection(reader) => {
+                    self.validator
+                        .component_type_section(&reader)
+                        .map_err(|_err| PrepareError::Deserialization)?;
+                    self.copy_component_section(ComponentSectionId::Type, reader.range())?;
+                }
+
+                wp::Payload::ComponentCanonicalSection(reader) => {
+                    self.validator
+                        .component_canonical_section(&reader)
+                        .map_err(|_err| PrepareError::Deserialization)?;
+                    self.copy_component_section(
+                        ComponentSectionId::CanonicalFunction,
+                        reader.range(),
+                    )?;
+                }
+
+                wp::Payload::ComponentImportSection(reader) => {
+                    self.validator
+                        .component_import_section(&reader)
+                        .map_err(|_err| PrepareError::Deserialization)?;
+                    let range = reader.range();
+                    for import in reader {
+                        let wp::ComponentImport { name, ty } =
+                            import.map_err(|_err| PrepareError::Deserialization)?;
+                        match (ty.kind(), name.0) {
+                            (
+                                wp::ComponentExternalKind::Instance,
+                                "near:nearcore/runtime@0.1.0",
+                            ) => {}
+                            _ => return Err(PrepareError::Instantiate),
+                        }
+                    }
+                    self.copy_component_section(ComponentSectionId::Import, range)?;
+                }
+
+                wp::Payload::ComponentExportSection(reader) => {
+                    self.validator
+                        .component_export_section(&reader)
+                        .map_err(|_err| PrepareError::Deserialization)?;
+                    self.copy_component_section(ComponentSectionId::Export, reader.range())?;
+                }
 
                 // Extensions not supported.
                 wp::Payload::UnknownSection { .. }
                 | wp::Payload::TagSection(_)
-                | wp::Payload::ModuleSection { .. }
-                | wp::Payload::InstanceSection(_)
-                | wp::Payload::CoreTypeSection(_)
                 | wp::Payload::ComponentSection { .. }
-                | wp::Payload::ComponentInstanceSection(_)
-                | wp::Payload::ComponentAliasSection(_)
-                | wp::Payload::ComponentTypeSection(_)
-                | wp::Payload::ComponentCanonicalSection(_)
                 | wp::Payload::ComponentStartSection { .. }
-                | wp::Payload::ComponentImportSection(_)
-                | wp::Payload::ComponentExportSection(_)
+                | wp::Payload::ComponentInstanceSection(_)
                 | _ => {
                     tracing::trace!("input module contains unsupported section");
                     return Err(PrepareError::Deserialization);
@@ -330,7 +434,9 @@ impl<'a> PrepareContext<'a> {
         self.ensure_import_section();
         if self.before_memory_section {
             self.before_memory_section = false;
-            if self.config.vm_kind == VMKind::Wasmtime {
+            if self.config.vm_kind == VMKind::Wasmtime
+                && wasmparser_236::Parser::is_core_wasm(self.code)
+            {
                 wasm_encoder::MemorySection::new()
                     .memory(self.memory_type())
                     .append_to(&mut self.output_code);
@@ -342,7 +448,9 @@ impl<'a> PrepareContext<'a> {
         self.ensure_memory_section();
         if self.before_export_section {
             self.before_export_section = false;
-            if self.config.vm_kind == VMKind::Wasmtime {
+            if self.config.vm_kind == VMKind::Wasmtime
+                && wasmparser_236::Parser::is_core_wasm(self.code)
+            {
                 wasm_encoder::ExportSection::new()
                     .export(MEMORY_EXPORT, wasm_encoder::ExportKind::Memory, 0)
                     .append_to(&mut self.output_code);
@@ -370,6 +478,16 @@ impl<'a> PrepareContext<'a> {
         self.copy(range)
     }
 
+    fn copy_component_section(
+        &mut self,
+        id: ComponentSectionId,
+        range: std::ops::Range<usize>,
+    ) -> Result<(), PrepareError> {
+        id.encode(&mut self.output_code);
+        range.len().encode(&mut self.output_code);
+        self.copy(range)
+    }
+
     /// Copy over the payload to the output binary without significant processing.
     fn copy(&mut self, range: std::ops::Range<usize>) -> Result<(), PrepareError> {
         Ok(self.output_code.extend(self.code.get(range).ok_or(PrepareError::Deserialization)?))
@@ -381,11 +499,11 @@ pub(crate) fn prepare_contract(
     features: crate::features::WasmFeatures,
     config: &Config,
     kind: VMKind,
-) -> Result<Vec<u8>, PrepareError> {
+) -> Result<(Vec<u8>, u64), PrepareError> {
     let lightly_steamed = PrepareContext::new(original_code, features, config).run()?;
 
     match kind {
-        VMKind::NearVm => return Ok(lightly_steamed),
+        VMKind::NearVm => return Ok((lightly_steamed, 0)),
         VMKind::Wasmer0 | VMKind::Wasmtime | VMKind::Wasmer2 => {}
     }
 
@@ -402,7 +520,7 @@ pub(crate) fn prepare_contract(
             PrepareError::Deserialization
         })?;
     // Make sure contracts can’t call the instrumentation functions via `env`.
-    let res = InstrumentContext::new(
+    let (wasm, instantiation_bytes) = InstrumentContext::new(
         &lightly_steamed,
         "internal",
         &analysis,
@@ -414,7 +532,7 @@ pub(crate) fn prepare_contract(
         tracing::error!(?err, ?kind, "Instrumentation failed");
         PrepareError::Serialization
     })?;
-    Ok(res)
+    Ok((wasm, instantiation_bytes))
 }
 
 // TODO: refactor to avoid copy-paste with the ones currently defined in near_vm_runner
@@ -598,7 +716,8 @@ mod test {
             if let Ok(_) = validate_contract(input, features, &config) {
                 match super::prepare_contract(input, features, &config, VMKind::Wasmtime) {
                     Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
-                    Ok(code) => {
+                    Ok((code, instantiation_bytes)) => {
+                        assert_eq!(instantiation_bytes, 0);
                         let mut validator = wp::Validator::new_with_features(features.into());
                         match validator.validate_all(&code) {
                             Ok(_) => (),
