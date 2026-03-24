@@ -8,18 +8,20 @@ use ethabi::ethereum_types::U256;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_crypto::{KeyType, SecretKey};
+use near_jsonrpc_primitives::types::query::{QueryResponseKind, RpcQueryRequest};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::action::{Action, FunctionCallAction, GlobalContractDeployMode};
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance, Gas};
+use near_primitives::types::{AccountId, Balance, BlockReference, Finality, FunctionArgs, Gas};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::utils::derive_eth_implicit_account_id;
 use near_primitives::version::ProtocolFeature;
+use near_primitives::views::QueryRequest;
 use near_vm_runner::ContractCode;
-use near_wallet_contract::eth_wallet_global_contract_hash;
+use near_wallet_contract::{LegacyEthWallet, eth_wallet_global_contract_hash};
 use sha3::{Digest, Keccak256};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -96,6 +98,17 @@ fn test_eth_implicit_global_contract_mainnet_upgrade() {
     env.validator_runner().run_tx(create_eth_account_tx, Duration::seconds(5));
     assert_eq!(env.validator().view_account_query(&eth_old).unwrap().global_contract_hash, None);
 
+    // Verify view calls work at PV 82 (legacy wallet contract path).
+    // chain_id "mocknet" resolves to the localnet legacy wallet contract.
+    let code = rpc_view_code(&mut env, &eth_old);
+    let legacy_wasm = LegacyEthWallet::Localnet.contract();
+    assert_eq!(
+        code,
+        legacy_wasm.code(),
+        "ViewCode should return legacy localnet wallet contract at PV 82"
+    );
+    assert_eq!(rpc_get_nonce(&mut env, &eth_old), 0, "get_nonce should return 0 at PV 82");
+
     // Phase 2: Wait for protocol upgrade to PV 83.
     env.validator_runner().run_until(
         |node| {
@@ -120,6 +133,15 @@ fn test_eth_implicit_global_contract_mainnet_upgrade() {
     // propagated as part of the witness distribution.
     env.node(chunk_validator_idx).clear_compiled_contract_cache();
 
+    // Verify view calls on old account at PV 83 (global contract path).
+    let code = rpc_view_code(&mut env, &eth_old);
+    assert_eq!(code, GLOBAL_CONTRACT_MAINNET_WASM, "ViewCode should return global contract WASM");
+    assert_eq!(
+        rpc_get_nonce(&mut env, &eth_old),
+        0,
+        "get_nonce should return 0 before any rlp_execute"
+    );
+
     // Phase 4: Old account still works after upgrade (rlp_execute transfer).
     let before = env.validator().view_account_query(&receiver).unwrap().amount;
     let tx = build_rlp_execute_tx(
@@ -134,6 +156,7 @@ fn test_eth_implicit_global_contract_mainnet_upgrade() {
     env.validator_runner().run_tx(tx, Duration::seconds(5));
     let after = env.validator().view_account_query(&receiver).unwrap().amount;
     assert_eq!(after.checked_sub(before).unwrap(), transfer_amount, "old account transfer failed");
+    assert_eq!(rpc_get_nonce(&mut env, &eth_old), 1, "get_nonce should return 1 after rlp_execute");
 
     // Phase 5: Create new ETH implicit account at PV 83 (global contract path).
     let secret_key_new = SecretKey::from_seed(KeyType::SECP256K1, "test_new");
@@ -146,6 +169,11 @@ fn test_eth_implicit_global_contract_mainnet_upgrade() {
         env.validator().view_account_query(&eth_new).unwrap().global_contract_hash,
         Some(expected_hash)
     );
+
+    // Verify view calls on new account at PV 83.
+    let code = rpc_view_code(&mut env, &eth_new);
+    assert_eq!(code, GLOBAL_CONTRACT_MAINNET_WASM, "ViewCode should return global contract WASM");
+    assert_eq!(rpc_get_nonce(&mut env, &eth_new), 0, "get_nonce should return 0 for new account");
 
     // Phase 6: New account works via rlp_execute transfer.
     let before = env.validator().view_account_query(&receiver).unwrap().amount;
@@ -161,6 +189,7 @@ fn test_eth_implicit_global_contract_mainnet_upgrade() {
     env.validator_runner().run_tx(tx, Duration::seconds(5));
     let after = env.validator().view_account_query(&receiver).unwrap().amount;
     assert_eq!(after.checked_sub(before).unwrap(), transfer_amount, "new account transfer failed");
+    assert_eq!(rpc_get_nonce(&mut env, &eth_new), 1, "get_nonce should return 1 after rlp_execute");
 }
 
 fn build_rlp_execute_tx_args(
@@ -249,4 +278,46 @@ fn derive_address(account_id: &AccountIdRef) -> aurora_engine_types::types::Addr
     }
     let hash: [u8; 32] = Keccak256::digest(account_id.as_bytes()).into();
     aurora_engine_types::types::Address::try_from_slice(&hash[12..32]).unwrap()
+}
+
+/// Query ViewCode via JSON-RPC and return the contract code bytes.
+fn rpc_view_code(env: &mut TestLoopEnv, account_id: &AccountId) -> Vec<u8> {
+    let result = env
+        .validator_runner()
+        .run_jsonrpc_query(
+            RpcQueryRequest {
+                block_reference: BlockReference::Finality(Finality::None),
+                request: QueryRequest::ViewCode { account_id: account_id.clone() },
+            },
+            Duration::seconds(5),
+        )
+        .unwrap();
+    match result.kind {
+        QueryResponseKind::ViewCode(view) => view.code,
+        other => panic!("expected ViewCode, got: {other:?}"),
+    }
+}
+
+/// Call `get_nonce` view function via JSON-RPC and return the decoded nonce.
+fn rpc_get_nonce(env: &mut TestLoopEnv, account_id: &AccountId) -> u64 {
+    let result = env
+        .validator_runner()
+        .run_jsonrpc_query(
+            RpcQueryRequest {
+                block_reference: BlockReference::Finality(Finality::None),
+                request: QueryRequest::CallFunction {
+                    account_id: account_id.clone(),
+                    method_name: "get_nonce".to_string(),
+                    args: FunctionArgs::from(vec![]),
+                },
+            },
+            Duration::seconds(5),
+        )
+        .unwrap();
+    let bytes = match result.kind {
+        QueryResponseKind::CallResult(call_result) => call_result.result,
+        other => panic!("expected CallResult, got: {other:?}"),
+    };
+    let nonce: String = serde_json::from_slice(&bytes).expect("get_nonce should return valid JSON");
+    nonce.parse().expect("get_nonce should return a numeric string")
 }

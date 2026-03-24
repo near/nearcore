@@ -465,7 +465,7 @@ fn test_receipt_to_tx_rpc_direct() {
 
     let response = env
         .rpc_runner()
-        .run_jsonrpc_query(
+        .run_with_jsonrpc_client(
             |client| {
                 client.EXPERIMENTAL_receipt_to_tx(RpcReceiptToTxRequest {
                     receipt_reference: ReceiptReference { receipt_id },
@@ -539,7 +539,7 @@ fn test_receipt_to_tx_rpc_chain_walk() {
     // Query the refund receipt — should resolve through the chain back to the tx.
     let response = env
         .rpc_runner()
-        .run_jsonrpc_query(
+        .run_with_jsonrpc_client(
             |client| {
                 client.EXPERIMENTAL_receipt_to_tx(RpcReceiptToTxRequest {
                     receipt_reference: ReceiptReference { receipt_id: refund_receipt_id },
@@ -561,7 +561,7 @@ fn test_receipt_to_tx_rpc_unknown_receipt() {
     let mut env = TestLoopBuilder::new().enable_rpc().epoch_length(EPOCH_LENGTH).build();
 
     let fake_receipt_id = CryptoHash::hash_bytes(b"nonexistent");
-    let result = env.rpc_runner().run_jsonrpc_query(
+    let result = env.rpc_runner().run_with_jsonrpc_client(
         |client| {
             client.EXPERIMENTAL_receipt_to_tx(RpcReceiptToTxRequest {
                 receipt_reference: ReceiptReference { receipt_id: fake_receipt_id },
@@ -590,7 +590,7 @@ fn test_receipt_to_tx_rpc_unsupported_disabled() {
         .build();
 
     let fake_receipt_id = CryptoHash::hash_bytes(b"any");
-    let result = env.rpc_runner().run_jsonrpc_query(
+    let result = env.rpc_runner().run_with_jsonrpc_client(
         |client| {
             client.EXPERIMENTAL_receipt_to_tx(RpcReceiptToTxRequest {
                 receipt_reference: ReceiptReference { receipt_id: fake_receipt_id },
@@ -692,7 +692,7 @@ fn test_receipt_to_tx_rpc_deep_chain_walk() {
     // Query receipt_0 via RPC — should walk 4 hops to resolve back to tx_hash.
     let response = env
         .rpc_runner()
-        .run_jsonrpc_query(
+        .run_with_jsonrpc_client(
             |client| {
                 client.EXPERIMENTAL_receipt_to_tx(RpcReceiptToTxRequest {
                     receipt_reference: ReceiptReference { receipt_id: receipt_ids[0] },
@@ -798,7 +798,7 @@ fn test_receipt_to_tx_rpc_cross_shard() {
     // Query via RPC — should resolve the cross-shard receipt back to the original tx.
     let response = env
         .rpc_runner()
-        .run_jsonrpc_query(
+        .run_with_jsonrpc_client(
             |client| {
                 client.EXPERIMENTAL_receipt_to_tx(RpcReceiptToTxRequest {
                     receipt_reference: ReceiptReference { receipt_id },
@@ -821,7 +821,7 @@ fn test_receipt_to_tx_rpc_cross_shard() {
         let refund_receipt_id = action_outcome.outcome.receipt_ids[0];
         let refund_response = env
             .rpc_runner()
-            .run_jsonrpc_query(
+            .run_with_jsonrpc_client(
                 |client| {
                     client.EXPERIMENTAL_receipt_to_tx(RpcReceiptToTxRequest {
                         receipt_reference: ReceiptReference { receipt_id: refund_receipt_id },

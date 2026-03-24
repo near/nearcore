@@ -96,7 +96,7 @@ fn test_rpc_view_account_forwarding() {
                                 account: &AccountId,
                                 expected_balance: Balance|
      -> Result<(), RpcError> {
-        let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
+        let result = h.env.runner_for_account(node_id).run_with_jsonrpc_client(
             |client| {
                 client.EXPERIMENTAL_view_account(RpcViewAccountRequest {
                     block_reference: BlockReference::Finality(Finality::None),
@@ -128,11 +128,9 @@ fn test_rpc_query_view_account_forwarding() {
                                       expected_balance: Balance|
      -> Result<(), RpcError> {
         let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
-            |client| {
-                client.query(RpcQueryRequest {
-                    block_reference: BlockReference::Finality(Finality::None),
-                    request: QueryRequest::ViewAccount { account_id: account.clone() },
-                })
+            RpcQueryRequest {
+                block_reference: BlockReference::Finality(Finality::None),
+                request: QueryRequest::ViewAccount { account_id: account.clone() },
             },
             Duration::seconds(5),
         )?;
@@ -159,28 +157,24 @@ fn test_rpc_query_view_access_key_forwarding() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
 
-    let mut run_query_view_access_key =
-        |node_id: &AccountId, account: &AccountId| -> Result<(), RpcError> {
-            let public_key =
-                near_primitives::test_utils::create_user_test_signer(account.as_ref()).public_key();
-            let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
-                |client| {
-                    client.query(RpcQueryRequest {
-                        block_reference: BlockReference::Finality(Finality::None),
-                        request: QueryRequest::ViewAccessKey {
-                            account_id: account.clone(),
-                            public_key,
-                        },
-                    })
-                },
-                Duration::seconds(5),
-            )?;
-            match result.kind {
-                QueryResponseKind::AccessKey(_) => {}
-                other => panic!("expected AccessKey, got: {other:?}"),
-            }
-            Ok(())
-        };
+    let mut run_query_view_access_key = |node_id: &AccountId,
+                                         account: &AccountId|
+     -> Result<(), RpcError> {
+        let public_key =
+            near_primitives::test_utils::create_user_test_signer(account.as_ref()).public_key();
+        let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
+            RpcQueryRequest {
+                block_reference: BlockReference::Finality(Finality::None),
+                request: QueryRequest::ViewAccessKey { account_id: account.clone(), public_key },
+            },
+            Duration::seconds(5),
+        )?;
+        match result.kind {
+            QueryResponseKind::AccessKey(_) => {}
+            other => panic!("expected AccessKey, got: {other:?}"),
+        }
+        Ok(())
+    };
 
     // Cross-shard forwarding.
     run_query_view_access_key(&h.zoe_node, &h.alice).unwrap();
@@ -205,7 +199,7 @@ fn test_rpc_query_unknown_access_key_error_format() {
     let response = h
         .env
         .runner_for_account(&h.zoe_node)
-        .run_jsonrpc_query(
+        .run_with_jsonrpc_client(
             |client| {
                 let request = Message::request(
                     "query".to_string(),
@@ -252,11 +246,9 @@ fn test_rpc_query_view_code_forwarding() {
     let mut run_query_view_code =
         |node_id: &AccountId, account: &AccountId| -> Result<(), RpcError> {
             let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
-                |client| {
-                    client.query(RpcQueryRequest {
-                        block_reference: BlockReference::Finality(Finality::None),
-                        request: QueryRequest::ViewCode { account_id: account.clone() },
-                    })
+                RpcQueryRequest {
+                    block_reference: BlockReference::Finality(Finality::None),
+                    request: QueryRequest::ViewCode { account_id: account.clone() },
                 },
                 Duration::seconds(5),
             )?;
@@ -300,15 +292,13 @@ fn test_rpc_query_view_state_forwarding() {
     let mut run_query_view_state =
         |node_id: &AccountId, account: &AccountId| -> Result<(), RpcError> {
             let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
-                |client| {
-                    client.query(RpcQueryRequest {
-                        block_reference: BlockReference::Finality(Finality::None),
-                        request: QueryRequest::ViewState {
-                            account_id: account.clone(),
-                            prefix: StoreKey::from(vec![]),
-                            include_proof: false,
-                        },
-                    })
+                RpcQueryRequest {
+                    block_reference: BlockReference::Finality(Finality::None),
+                    request: QueryRequest::ViewState {
+                        account_id: account.clone(),
+                        prefix: StoreKey::from(vec![]),
+                        include_proof: false,
+                    },
                 },
                 Duration::seconds(5),
             )?;
@@ -336,11 +326,9 @@ fn test_rpc_query_view_access_key_list_forwarding() {
     let mut run_query_view_access_key_list =
         |node_id: &AccountId, account: &AccountId| -> Result<(), RpcError> {
             let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
-                |client| {
-                    client.query(RpcQueryRequest {
-                        block_reference: BlockReference::Finality(Finality::None),
-                        request: QueryRequest::ViewAccessKeyList { account_id: account.clone() },
-                    })
+                RpcQueryRequest {
+                    block_reference: BlockReference::Finality(Finality::None),
+                    request: QueryRequest::ViewAccessKeyList { account_id: account.clone() },
                 },
                 Duration::seconds(5),
             )?;
@@ -371,15 +359,13 @@ fn test_rpc_query_call_function_forwarding() {
     let mut run_query_call_function =
         |node_id: &AccountId, account: &AccountId| -> Result<(), RpcError> {
             let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
-                |client| {
-                    client.query(RpcQueryRequest {
-                        block_reference: BlockReference::Finality(Finality::None),
-                        request: QueryRequest::CallFunction {
-                            account_id: account.clone(),
-                            method_name: "log_something".to_string(),
-                            args: FunctionArgs::from(vec![]),
-                        },
-                    })
+                RpcQueryRequest {
+                    block_reference: BlockReference::Finality(Finality::None),
+                    request: QueryRequest::CallFunction {
+                        account_id: account.clone(),
+                        method_name: "log_something".to_string(),
+                        args: FunctionArgs::from(vec![]),
+                    },
                 },
                 Duration::seconds(5),
             )?;
@@ -411,14 +397,12 @@ fn test_rpc_query_view_gas_key_nonces_forwarding() {
             .env
             .runner_for_account(node_id)
             .run_jsonrpc_query(
-                |client| {
-                    client.query(RpcQueryRequest {
-                        block_reference: BlockReference::Finality(Finality::None),
-                        request: QueryRequest::ViewGasKeyNonces {
-                            account_id: account.clone(),
-                            public_key: public_key.clone(),
-                        },
-                    })
+                RpcQueryRequest {
+                    block_reference: BlockReference::Finality(Finality::None),
+                    request: QueryRequest::ViewGasKeyNonces {
+                        account_id: account.clone(),
+                        public_key,
+                    },
                 },
                 Duration::seconds(5),
             )
@@ -471,13 +455,11 @@ fn test_rpc_query_view_global_contract_code_by_account_id_forwarding() {
     let mut run_query_view_global_contract =
         |node_id: &AccountId, account: &AccountId| -> Result<(), RpcError> {
             let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
-                |client| {
-                    client.query(RpcQueryRequest {
-                        block_reference: BlockReference::Finality(Finality::None),
-                        request: QueryRequest::ViewGlobalContractCodeByAccountId {
-                            account_id: account.clone(),
-                        },
-                    })
+                RpcQueryRequest {
+                    block_reference: BlockReference::Finality(Finality::None),
+                    request: QueryRequest::ViewGlobalContractCodeByAccountId {
+                        account_id: account.clone(),
+                    },
                 },
                 Duration::seconds(5),
             )?;
@@ -509,7 +491,7 @@ fn test_rpc_query_call_function_error_format() {
     let response = h
         .env
         .runner_for_account(&h.zoe_node)
-        .run_jsonrpc_query(
+        .run_with_jsonrpc_client(
             |client| {
                 let request = Message::request(
                     "query".to_string(),
@@ -573,7 +555,7 @@ fn test_rpc_receipt_forwarding() {
                              node_id: &AccountId,
                              receipt_id: CryptoHash|
      -> Result<RpcReceiptResponse, RpcError> {
-        h.env.runner_for_account(node_id).run_jsonrpc_query(
+        h.env.runner_for_account(node_id).run_with_jsonrpc_client(
             |client| {
                 client.EXPERIMENTAL_receipt(RpcReceiptRequest {
                     receipt_reference: ReceiptReference { receipt_id },
