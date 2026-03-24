@@ -33,7 +33,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
     Nonce, NonceIndex, NumShards, ShardId, StateRoot, StateRootNode,
 };
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, ContractCodeView, GasKeyNoncesView, QueryRequest, QueryResponse,
     QueryResponseKind, ViewStateResult,
@@ -569,6 +569,24 @@ impl NightshadeRuntime {
             }
             Ok(split) => Ok(split),
         }
+    }
+
+    fn query_epoch_info(
+        &self,
+        epoch_id: &EpochId,
+        block_height: BlockHeight,
+        block_hash: CryptoHash,
+    ) -> Result<(EpochHeight, ProtocolVersion), crate::near_chain_primitives::error::QueryError>
+    {
+        let epoch_manager = self.epoch_manager.read();
+        let epoch_info = epoch_manager.get_epoch_info(epoch_id).map_err(|err| {
+            crate::near_chain_primitives::error::QueryError::from_epoch_error(
+                err,
+                block_height,
+                block_hash,
+            )
+        })?;
+        Ok((epoch_info.epoch_height(), epoch_info.protocol_version()))
     }
 }
 
@@ -1198,8 +1216,10 @@ impl RuntimeAdapter for NightshadeRuntime {
                 })
             }
             QueryRequest::ViewCode { account_id } => {
+                let (_, current_protocol_version) =
+                    self.query_epoch_info(epoch_id, block_height, *block_hash)?;
                 let contract_code = self
-                    .view_contract_code(&shard_uid,  *state_root, account_id)
+                    .view_contract_code(&shard_uid, *state_root, account_id, current_protocol_version)
                     .map_err(|err| crate::near_chain_primitives::error::QueryError::from_view_contract_code_error(err, block_height, *block_hash))?;
                 let hash = *contract_code.hash();
                 let contract_code_view = ContractCodeView { hash, code: contract_code.into_code() };
@@ -1211,17 +1231,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
             QueryRequest::CallFunction { account_id, method_name, args } => {
                 let mut logs = vec![];
-                let (epoch_height, current_protocol_version) = {
-                    let epoch_manager = self.epoch_manager.read();
-                    let epoch_info = epoch_manager.get_epoch_info(epoch_id).map_err(|err| {
-                        crate::near_chain_primitives::error::QueryError::from_epoch_error(
-                            err,
-                            block_height,
-                            *block_hash,
-                        )
-                    })?;
-                    (epoch_info.epoch_height(), epoch_info.protocol_version())
-                };
+                let (epoch_height, current_protocol_version) =
+                    self.query_epoch_info(epoch_id, block_height, *block_hash)?;
 
                 let call_function_result = self
                     .call_function(
@@ -1687,12 +1698,13 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         shard_uid: &ShardUId,
         state_root: MerkleHash,
         account_id: &AccountId,
+        current_protocol_version: ProtocolVersion,
     ) -> Result<ContractCode, node_runtime::state_viewer::errors::ViewContractCodeError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_account_contract_code(
             &state_update,
             account_id,
-            PROTOCOL_VERSION,
+            current_protocol_version,
             &self.genesis_config.chain_id,
         )
     }
