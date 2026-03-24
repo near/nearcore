@@ -88,7 +88,9 @@ pub enum ReasonForBan {
     InvalidPeerId = 8,
     InvalidHash = 9,
     InvalidEdge = 10,
-    InvalidDistanceVector = 11,
+    /// Reserved: was InvalidDistanceVector (removed distance vector routing feature).
+    /// Do not reuse discriminant 11 — borsh serialization uses sequential ordering.
+    _ReservedInvalidDistanceVector = 11,
     Blacklisted = 14,
     ProvidedNotEnoughHeaders = 15,
     BadChunkStateWitness = 16,

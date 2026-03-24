@@ -150,7 +150,6 @@ impl Config {
 #[allow(clippy::large_enum_variant)]
 pub enum RateLimitedPeerMessageKey {
     SyncRoutingTable,
-    DistanceVector,
     RequestUpdateNonce,
     SyncAccountsData,
     PeersRequest,
@@ -202,7 +201,6 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
     use RateLimitedPeerMessageKey::*;
     match message {
         PeerMessage::SyncRoutingTable(_) => Some((SyncRoutingTable, 1)),
-        PeerMessage::DistanceVector(_) => Some((DistanceVector, 1)),
         PeerMessage::RequestUpdateNonce(_) => Some((RequestUpdateNonce, 1)),
         PeerMessage::SyncAccountsData(_) => Some((SyncAccountsData, 1)),
         PeerMessage::PeersRequest(_) => Some((PeersRequest, 1)),
