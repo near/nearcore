@@ -20,10 +20,10 @@ use near_client_primitives::types::{
     GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
     GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetMaintenanceWindows,
     GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProtocolConfig,
-    GetProtocolConfigError, GetReceipt, GetReceiptError, GetSplitStorageInfo,
-    GetSplitStorageInfoError, GetStateChangesError, GetStateChangesWithCauseInBlock,
-    GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfoError, Query, QueryError,
-    TxStatus, TxStatusError,
+    GetProtocolConfigError, GetReceipt, GetReceiptError, GetReceiptToTx, GetReceiptToTxError,
+    GetReceiptToTxResponse, GetSplitStorageInfo, GetSplitStorageInfoError, GetStateChangesError,
+    GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
+    GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError,
 };
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
@@ -41,7 +41,7 @@ use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{PartialMerkleTree, merklize};
 use near_primitives::network::AnnounceAccount;
-use near_primitives::receipt::Receipt;
+use near_primitives::receipt::{Receipt, ReceiptOrigin, ReceiptToTxInfo};
 use near_primitives::sharding::ShardChunk;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{
@@ -1214,6 +1214,55 @@ impl Handler<GetReceipt, Result<Option<ReceiptView>, GetReceiptError>> for ViewC
             .chain_store()
             .get_receipt(&msg.receipt_id)
             .map(|receipt| Receipt::clone(&receipt).into()))
+    }
+}
+
+impl Handler<GetReceiptToTx, Result<GetReceiptToTxResponse, GetReceiptToTxError>>
+    for ViewClientActor
+{
+    fn handle(
+        &mut self,
+        msg: GetReceiptToTx,
+    ) -> Result<GetReceiptToTxResponse, GetReceiptToTxError> {
+        tracing::debug!(target: "client", ?msg);
+        let _timer =
+            metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetReceiptToTx"]).start_timer();
+
+        if !self.config.save_receipt_to_tx {
+            return Err(GetReceiptToTxError::Unsupported(
+                "receipt-to-tx mapping is disabled (save_receipt_to_tx=false)".to_string(),
+            ));
+        }
+        if !self.config.tracked_shards_config.tracks_all_shards() {
+            return Err(GetReceiptToTxError::Unsupported(
+                "node does not track all shards".to_string(),
+            ));
+        }
+
+        const MAX_DEPTH: u32 = 1000;
+        let mut current_receipt_id = msg.receipt_id;
+        for _ in 0..MAX_DEPTH {
+            let info = self
+                .chain
+                .chain_store()
+                .get_receipt_to_tx(&current_receipt_id)
+                .ok_or(GetReceiptToTxError::UnknownReceipt(current_receipt_id))?;
+
+            let ReceiptToTxInfo::V1(v1) = info;
+            match v1.origin {
+                ReceiptOrigin::FromTransaction(origin) => {
+                    return Ok(GetReceiptToTxResponse {
+                        transaction_hash: origin.tx_hash,
+                        sender_account_id: origin.sender_account_id,
+                    });
+                }
+                ReceiptOrigin::FromReceipt(origin) => {
+                    current_receipt_id = origin.parent_receipt_id;
+                }
+            }
+        }
+
+        Err(GetReceiptToTxError::DepthExceeded { receipt_id: msg.receipt_id, limit: MAX_DEPTH })
     }
 }
 
