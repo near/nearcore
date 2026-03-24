@@ -776,12 +776,7 @@ fn test_rpc_experimental_view_gas_key_nonces_forwarding() {
             err.message.contains("Server error"),
             "node: {node_id}, account: {account}, error: {err:?}"
         );
-        match err.error_struct.unwrap() {
-            RpcErrorKind::HandlerError(value) => {
-                assert_eq!(value["name"], "UNKNOWN_GAS_KEY");
-            }
-            other => panic!("expected HandlerError, got: {other:?}"),
-        }
+        assert_rpc_error(&err, "UNKNOWN_GAS_KEY");
     };
 
     // Cross-shard forwarding.
