@@ -544,7 +544,6 @@ impl NightshadeRuntime {
         }
 
         let Some(config) = epoch_config.dynamic_resharding_config() else {
-            tracing::error!(target: "runtime", "dynamic resharding config missing");
             return Ok(None);
         };
 
