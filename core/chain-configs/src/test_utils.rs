@@ -128,8 +128,6 @@ impl Genesis {
 
             // epoch config parameters
             num_block_producer_seats: epoch_config.num_block_producer_seats,
-            num_block_producer_seats_per_shard: epoch_config.num_block_producer_seats_per_shard,
-            avg_hidden_validator_seats_per_shard: epoch_config.avg_hidden_validator_seats_per_shard,
             protocol_upgrade_stake_threshold: epoch_config.protocol_upgrade_stake_threshold,
             epoch_length: epoch_config.epoch_length,
             block_producer_kickout_threshold: epoch_config.block_producer_kickout_threshold,
@@ -170,9 +168,8 @@ impl Genesis {
         clock: Clock,
         accounts: Vec<AccountId>,
         num_validator_seats: NumSeats,
-        num_validator_seats_per_shard: Vec<NumSeats>,
+        num_shards: NumShards,
     ) -> Self {
-        let num_shards = num_validator_seats_per_shard.len() as NumShards;
         Self::from_accounts(
             clock,
             accounts,
@@ -184,9 +181,8 @@ impl Genesis {
     pub fn test_sharded_new_version(
         accounts: Vec<AccountId>,
         num_validator_seats: NumSeats,
-        num_validator_seats_per_shard: Vec<NumSeats>,
+        num_shards: NumShards,
     ) -> Self {
-        let num_shards = num_validator_seats_per_shard.len() as NumShards;
         Self::from_accounts(
             Clock::real(),
             accounts,

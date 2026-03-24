@@ -10,7 +10,6 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::Balance;
-use near_primitives::utils::get_num_seats_per_shard;
 use near_state_viewer::cli::StorageSource;
 use near_state_viewer::{apply_chunk_fn, apply_receipt, apply_tx};
 use near_store::adapter::StoreAdapter;
@@ -50,7 +49,7 @@ fn test_apply_chunk() {
             "test3".parse().unwrap(),
         ],
         1,
-        get_num_seats_per_shard(4, 1),
+        4,
     );
 
     let store = create_test_store();
@@ -142,7 +141,7 @@ fn test_apply_tx_apply_receipt() {
             "test3".parse().unwrap(),
         ],
         1,
-        get_num_seats_per_shard(4, 1),
+        4,
     );
 
     let store = create_test_store();

@@ -40,7 +40,6 @@ consensus_config1 = {
 nodes = start_cluster(
     2, 0, 4, None,
     [["epoch_length", 100], ["num_block_producer_seats", 100],
-     ["num_block_producer_seats_per_shard", [25, 25, 25, 25]],
      ["validators", 0, "amount", "110000000000000000000000000000000"],
      [
          "records", 0, "Account", "account", "locked",

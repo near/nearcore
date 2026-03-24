@@ -33,7 +33,7 @@ async fn start_nodes(
     let mut genesis = Genesis::test_sharded_new_version(
         seeds.iter().map(|s| s.parse().unwrap()).collect(),
         num_validator_seats,
-        (0..num_shards).map(|_| num_validator_seats).collect(),
+        num_shards,
     );
     genesis.config.epoch_length = epoch_length;
     genesis.config.transaction_validity_period = epoch_length * 2;

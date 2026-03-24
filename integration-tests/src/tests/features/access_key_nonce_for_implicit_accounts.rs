@@ -329,8 +329,6 @@ fn test_request_chunks_for_orphan() {
     genesis.config.transaction_validity_period = epoch_length * 2;
     // make the blockchain to 4 shards
     genesis.config.shard_layout = ShardLayout::multi_shard(4, 3);
-    genesis.config.num_block_producer_seats_per_shard =
-        vec![num_validators, num_validators, num_validators, num_validators];
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(num_clients)
         .validator_seats(num_validators as usize)
@@ -469,8 +467,6 @@ fn test_processing_chunks_sanity() {
     genesis.config.transaction_validity_period = epoch_length * 2;
     // make the blockchain to 4 shards
     genesis.config.shard_layout = ShardLayout::multi_shard(4, 3);
-    genesis.config.num_block_producer_seats_per_shard =
-        vec![num_validators, num_validators, num_validators, num_validators];
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(num_clients)
         .validator_seats(num_validators as usize)
@@ -562,12 +558,6 @@ impl ChunkForwardingOptimizationTestData {
             config.epoch_length = epoch_length;
             config.transaction_validity_period = epoch_length * 2;
             config.shard_layout = ShardLayout::multi_shard(4, 3);
-            config.num_block_producer_seats_per_shard = vec![
-                num_block_producers as u64,
-                num_block_producers as u64,
-                num_block_producers as u64,
-                num_block_producers as u64,
-            ];
             config.num_block_producer_seats = num_block_producers as u64;
         }
         let env = TestEnv::builder(&genesis.config)
@@ -784,8 +774,6 @@ fn test_processing_blocks_async() {
     genesis.config.transaction_validity_period = epoch_length * 2;
     // make the blockchain to 4 shards
     genesis.config.shard_layout = ShardLayout::multi_shard(4, 3);
-    genesis.config.num_block_producer_seats_per_shard =
-        vec![num_validators, num_validators, num_validators, num_validators];
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(num_clients)
         .validator_seats(num_validators as usize)

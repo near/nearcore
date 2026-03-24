@@ -4,7 +4,7 @@ use near_crypto::Signature;
 use near_primitives::block::{Block, Tip};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
+use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardInfo, ShardLayout};
@@ -180,12 +180,6 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Get the list of shard ids
     fn shard_ids(&self, epoch_id: &EpochId) -> Result<Vec<ShardId>, EpochError> {
         Ok(self.get_shard_layout(epoch_id)?.shard_ids().collect())
-    }
-
-    fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, EpochError> {
-        let epoch_config = self.get_epoch_config(epoch_id)?;
-        let shard_layout = self.get_shard_layout(epoch_id)?;
-        Ok(ShardConfig::new(epoch_config, shard_layout))
     }
 
     /// For each `ShardId` in the current block, returns its parent `ShardInfo`

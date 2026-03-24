@@ -73,12 +73,6 @@ pub fn initialize_sharded_genesis_state(
     if &genesis.config.chain_id == TESTNET {
         assert_eq!(format!("{state_roots:?}"), "[7EAgMRCrBWcb3ZS6SZJ7Dm71VZ1jaBpgGiewAEvFqPT1]");
     }
-
-    assert_eq!(
-        shard_layout.shard_ids().count(),
-        genesis_epoch_config.num_block_producer_seats_per_shard.len(),
-        "genesis config shard_layout and num_block_producer_seats_per_shard indicate inconsistent number of shards",
-    );
 }
 
 pub fn initialize_genesis_state(store: Store, genesis: &Genesis, home_dir: Option<&Path>) {
