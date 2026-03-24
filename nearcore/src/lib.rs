@@ -417,15 +417,6 @@ pub async fn start_with_config_and_synchronization_impl(
         Some(home_dir),
     );
 
-    // Spawn this after initializing genesis, or else the metrics may fail to be exported.
-    spawn_trie_metrics_loop(
-        actor_system.clone(),
-        config.clone(),
-        storage.get_hot_store(),
-        config.client_config.log_summary_period,
-        epoch_manager.clone(),
-    );
-
     let shard_tracker = ShardTracker::new(
         config.client_config.tracked_shards_config.clone(),
         epoch_manager.clone(),
@@ -646,6 +637,14 @@ pub async fn start_with_config_and_synchronization_impl(
         block_notification_watch_sender,
         spice_client_config,
     );
+    // Spawn after start_client so that Chain::new has initialized FINAL_HEAD_KEY in the store.
+    spawn_trie_metrics_loop(
+        actor_system.clone(),
+        storage.get_hot_store(),
+        config.client_config.log_summary_period,
+        epoch_manager.clone(),
+    );
+
     client_adapter_for_shards_manager.bind(client_actor.clone());
     client_adapter_for_partial_witness_actor.bind(ChunkValidationSenderForPartialWitness {
         chunk_state_witness: chunk_validation_actor.into_sender(),
@@ -663,6 +662,7 @@ pub async fn start_with_config_and_synchronization_impl(
             ChunkExecutorConfig {
                 save_trie_changes: config.client_config.save_trie_changes,
                 save_tx_outcomes: config.client_config.save_tx_outcomes,
+                save_receipt_to_tx: config.client_config.save_receipt_to_tx,
                 save_state_changes: config.client_config.save_state_changes,
             },
             &chunk_executor_adapter,

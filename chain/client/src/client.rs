@@ -293,6 +293,7 @@ impl Client {
         let chain_config = ChainConfig {
             save_trie_changes: config.save_trie_changes,
             save_tx_outcomes: config.save_tx_outcomes,
+            save_receipt_to_tx: config.save_receipt_to_tx,
             save_state_changes: config.save_state_changes,
             background_migration_threads: config.client_background_migration_threads,
             resharding_config: config.resharding_config.clone(),
@@ -1836,6 +1837,11 @@ impl Client {
                     }
                 };
 
+                let validate_tx_ttl = self.chain.strict_nonce_ttl_check(
+                    block.header().height(),
+                    self.config.transaction_pool_strict_nonce_ttl_blocks,
+                );
+
                 self.chunk_producer.produce_chunk(
                     block,
                     &epoch_id,
@@ -1844,6 +1850,7 @@ impl Client {
                     shard_id,
                     signer,
                     chain_validate,
+                    &validate_tx_ttl,
                 )
             };
 

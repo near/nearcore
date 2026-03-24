@@ -14,8 +14,8 @@
 
 use super::util::{
     TEST_EPOCH_SYNC_HORIZON, assert_far_horizon_sync_sequence, assert_near_horizon_sync_sequence,
-    restrict_to_single_peer, run_until_synced, throttle_header_sync, track_sync_status,
-    verify_balances_on_synced_node,
+    far_horizon_height, restrict_to_single_peer, run_until_synced, throttle_header_sync,
+    track_sync_status, verify_balances_on_synced_node,
 };
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_account_id;
@@ -29,11 +29,6 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, BlockId, BlockReference};
-
-/// Height past the epoch sync horizon for far-horizon tests.
-fn far_horizon_height(epoch_length: u64) -> u64 {
-    (TEST_EPOCH_SYNC_HORIZON + 3) * epoch_length
-}
 
 // Scenario: A fresh node starts with only genesis data while the network is
 // 5+ epochs ahead. The node must go through the complete far-horizon sync

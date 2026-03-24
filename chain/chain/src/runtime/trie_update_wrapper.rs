@@ -115,8 +115,8 @@ impl TrieAccess for TrieUpdateWitnessSizeWrapper {
 
                     recorded.additional_storage_proof_size = recorded
                         .additional_storage_proof_size
-                        .saturating_add(trie_val_len)
-                        .saturating_sub(update_val_len);
+                        .saturating_sub(trie_val_len)
+                        .saturating_add(update_val_len);
                 }
 
                 Some(update_val)
@@ -366,6 +366,22 @@ mod tests {
 
         // The difference should be less than 10%
         assert!(trie_recorded_size.abs_diff(wrapper_recorded_size) < trie_recorded_size / 10);
+    }
+
+    #[test]
+    fn test_wrapper_different_value_sizes() {
+        let key = int_key(0);
+        let small_value = vec![0xAA; 8];
+        let large_value = vec![0xBB; 1024];
+        let wrapper = make_wrapper_for_test(
+            vec![(key.clone(), small_value.clone())],
+            vec![(key.clone(), Some(large_value.clone()))],
+        );
+        let result = wrapper.get(&key, AccessOptions::DEFAULT).unwrap();
+        assert_eq!(result.unwrap(), large_value);
+
+        let additional = wrapper.recorded.borrow().additional_storage_proof_size;
+        assert_eq!(additional, (large_value.len() - small_value.len()) as i64);
     }
 
     /// Test the worst-case scenario that `TrieUpdateWitnessSizeWrapper` protects from.

@@ -446,47 +446,48 @@ impl NetworkState {
                 tcp::Tier::T3 => this.tier3.remove(&conn),
             }
 
-            // The rest of this function has to do with banning or routing,
-            // which are applicable only for TIER2.
-            if conn.tier != tcp::Tier::T2 {
-                return;
-            }
+            // Handle banning and routing, which are applicable only for TIER2.
+            if conn.tier == tcp::Tier::T2 {
+                let peer_id = conn.peer_info.id.clone();
 
-            let peer_id = conn.peer_info.id.clone();
-
-            // If the last edge we have with this peer represent a connection addition, create the edge
-            // update that represents the connection removal.
-            if let Some(edge) = this.graph.load().local_edges.get(&peer_id) {
-                if edge.edge_type() == EdgeState::Active {
-                    let edge_update =
-                        edge.remove_edge(this.config.node_id(), &this.config.node_key);
-                    this.add_edges(&clock, EdgesWithSource::Local(vec![edge_update.clone()]))
-                        .await
-                        .unwrap();
+                // If the last edge we have with this peer represent a connection addition, create the edge
+                // update that represents the connection removal.
+                if let Some(edge) = this.graph.load().local_edges.get(&peer_id) {
+                    if edge.edge_type() == EdgeState::Active {
+                        let edge_update =
+                            edge.remove_edge(this.config.node_id(), &this.config.node_key);
+                        this.add_edges(&clock, EdgesWithSource::Local(vec![edge_update.clone()]))
+                            .await
+                            .unwrap();
+                    }
                 }
-            }
 
-            // Update the V2 routing table
-            #[cfg(feature = "distance_vector_routing")]
-            this.update_routes(NetworkTopologyChange::PeerDisconnected(peer_id.clone()))
-                .await
-                .unwrap();
+                // Update the V2 routing table
+                #[cfg(feature = "distance_vector_routing")]
+                this.update_routes(NetworkTopologyChange::PeerDisconnected(peer_id.clone()))
+                    .await
+                    .unwrap();
 
-            // Save the fact that we are disconnecting to the PeerStore.
-            let res = match reason {
-                ClosingReason::Ban(ban_reason) => {
-                    this.peer_store.peer_ban(&clock, &conn.peer_info.id, ban_reason)
+                // Save the fact that we are disconnecting to the PeerStore.
+                let res = match &reason {
+                    ClosingReason::Ban(ban_reason) => {
+                        this.peer_store.peer_ban(&clock, &conn.peer_info.id, *ban_reason)
+                    }
+                    _ => this.peer_store.peer_disconnected(&clock, &conn.peer_info.id),
+                };
+                if let Err(err) = res {
+                    tracing::debug!(target: "network", ?err, "failed to save peer data");
                 }
-                _ => this.peer_store.peer_disconnected(&clock, &conn.peer_info.id),
-            };
-            if let Err(err) = res {
-                tracing::debug!(target: "network", ?err, "failed to save peer data");
-            }
 
-            // Save the fact that we are disconnecting to the ConnectionStore,
-            // and push a reconnect attempt, if applicable
-            if this.connection_store.connection_closed(&conn.peer_info, &conn.peer_type, &reason) {
-                this.pending_reconnect.lock().push(conn.peer_info.clone());
+                // Save the fact that we are disconnecting to the ConnectionStore,
+                // and push a reconnect attempt, if applicable
+                if this.connection_store.connection_closed(
+                    &conn.peer_info,
+                    &conn.peer_type,
+                    &reason,
+                ) {
+                    this.pending_reconnect.lock().push(conn.peer_info.clone());
+                }
             }
 
             #[cfg(test)]

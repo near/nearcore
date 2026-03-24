@@ -60,6 +60,16 @@ pub enum ShardHint {
     Account(AccountId),
 }
 
+/// Strategy for how the coordinator routes a request across candidate nodes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CoordinatorRequestStrategy {
+    /// Try nodes one by one in order. Return the first success.
+    Sequential,
+    /// Fan out to all candidate nodes concurrently.
+    /// Return the first success; cancel remaining requests.
+    ParallelTakeFirst,
+}
+
 /// Handle to a node that can serve a query.
 #[derive(Clone)]
 pub enum RpcNodeHandle {

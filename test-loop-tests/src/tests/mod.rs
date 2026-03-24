@@ -16,6 +16,7 @@ mod create_delete_account;
 mod cross_shard_tx;
 mod deterministic_account_id;
 mod early_prepare_transactions;
+#[cfg(feature = "test_features")]
 mod eth_implicit_global_contract;
 mod fix_chunk_producer_stake_threshold;
 mod fix_stake_threshold;
@@ -37,6 +38,7 @@ mod optimistic_block;
 mod process_blocks;
 mod processed_receipts_gc;
 mod protocol_upgrade;
+mod receipt_to_tx;
 mod reject_outdated_blocks;
 mod resharding_v3;
 mod sharded_rpc;

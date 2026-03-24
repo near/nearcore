@@ -89,6 +89,7 @@ pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateW
         config: Arc::new(RuntimeConfig::test()),
         cache: Some(Box::new(FilesystemContractRuntimeCache::test().unwrap())),
         is_new_chunk: true,
+        save_receipt_to_tx: false,
         congestion_info,
         bandwidth_requests: BlockBandwidthRequests::empty(),
         trie_access_tracker_state: Default::default(),

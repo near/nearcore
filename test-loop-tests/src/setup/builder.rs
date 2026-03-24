@@ -1,11 +1,11 @@
 use super::env::TestLoopEnv;
+use super::peer_manager_actor::{TestLoopNetworkSharedState, UnreachableActor};
 use super::setup::setup_client;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 use crate::utils::account::{
     archival_account_id, create_validators_spec, validators_spec_clients,
     validators_spec_clients_with_rpc,
 };
-use crate::utils::peer_manager_actor::{TestLoopNetworkSharedState, UnreachableActor};
 use itertools::Itertools;
 use near_async::test_loop::TestLoopV2;
 use near_async::time::{Clock, Duration};
@@ -60,6 +60,8 @@ pub(crate) struct TestLoopBuilder {
     /// Upgrade schedule which determines when the clients start voting for new protocol versions.
     /// If not explicitly set, the chain_id from genesis determines the schedule.
     upgrade_schedule: Option<ProtocolUpgradeVotingSchedule>,
+    /// Accounts whose clients should be configured in an RPC pool.
+    rpc_pool: Option<Vec<AccountId>>,
 }
 
 impl TestLoopBuilder {
@@ -76,6 +78,7 @@ impl TestLoopBuilder {
             track_all_shards: false,
             load_memtries_for_tracked_shards: true,
             upgrade_schedule: None,
+            rpc_pool: None,
         }
     }
 
@@ -308,6 +311,14 @@ impl TestLoopBuilder {
         self
     }
 
+    /// Specify which client accounts should be included in the sharded RPC pool.
+    /// Only these nodes will be wired as remote nodes in each pool.
+    pub(crate) fn add_rpc_pool(mut self, accounts: impl IntoIterator<Item = AccountId>) -> Self {
+        assert!(self.rpc_pool.is_none(), "rpc_pool is already set");
+        self.rpc_pool = Some(accounts.into_iter().collect());
+        self
+    }
+
     /// Custom function to change the configs before constructing each client.
     pub fn config_modifier(
         mut self,
@@ -391,6 +402,7 @@ impl TestLoopBuilder {
             });
         }
 
+        let rpc_pool = self.rpc_pool.take();
         let node_states = (0..clients.len())
             .map(|idx| self.setup_node_state(idx, &genesis, &clients))
             .collect_vec();
@@ -403,15 +415,23 @@ impl TestLoopBuilder {
             })
             .collect_vec();
 
-        Self::setup_sharded_rpc_pools(&datas);
+        Self::setup_sharded_rpc_pools(&datas, rpc_pool.as_deref());
 
         TestLoopEnv { test_loop, node_datas: datas, shared_state }
     }
 
-    /// Wire each node's sharded RPC pool with clients pointing to all nodes.
-    fn setup_sharded_rpc_pools(datas: &[NodeExecutionData]) {
-        let all_nodes: Vec<ShardedRpcNode> = datas
+    /// Wire each node's sharded RPC pool with clients pointing to other nodes.
+    /// When `rpc_pool_accounts` is provided, only those accounts are included
+    /// as remote nodes in the pool. Otherwise all nodes are included.
+    fn setup_sharded_rpc_pools(
+        datas: &[NodeExecutionData],
+        rpc_pool_accounts: Option<&[AccountId]>,
+    ) {
+        let pool_nodes: Vec<ShardedRpcNode> = datas
             .iter()
+            .filter(|data| {
+                rpc_pool_accounts.map_or(true, |accounts| accounts.contains(&data.account_id))
+            })
             .map(|data| {
                 let client =
                     Arc::new(JsonRpcClient::new_with_transport(data.jsonrpc_transport.clone()));
@@ -427,7 +447,7 @@ impl TestLoopBuilder {
             })
             .collect();
         for data in datas {
-            data.sharded_rpc_pool.write().nodes = all_nodes.clone();
+            data.sharded_rpc_pool.write().nodes = pool_nodes.clone();
         }
     }
 

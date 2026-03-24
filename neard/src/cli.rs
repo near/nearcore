@@ -362,15 +362,11 @@ pub(super) struct InitCmd {
 
 /// Warns if unsupported build of the executable is used on mainnet or testnet.
 ///
-/// Verifies that when running on mainnet or testnet chain a neard binary built
-/// with `make release` command is used.  That Makefile targets enable
-/// optimization options which aren’t enabled when building with different
-/// methods and is the only officially supported method of building the binary
-/// to run in production.
+/// Warns when running a debug or nightly build on mainnet or testnet.
 ///
 /// The detection is done by checking that `NEAR_RELEASE_BUILD` environment
-/// variable was set to `release` during compilation (which is what Makefile
-/// sets) and that the `nightly` feature is not enabled.
+/// variable was set to `release` during compilation (set by build.rs for
+/// release profile builds) and that the `nightly` feature is not enabled.
 fn check_release_build(chain: &str) {
     let is_release_build =
         option_env!("NEAR_RELEASE_BUILD") == Some("release") && !cfg!(feature = "nightly");
@@ -380,16 +376,11 @@ fn check_release_build(chain: &str) {
         tracing::warn!(
             target: "neard",
             %chain,
-            "running a neard executable which wasn't built with `make release` command isn't supported"
+            concat!(
+                "running a debug or nightly neard build on this chain is not recommended, ",
+                "consider recompiling with `cargo build -p neard --release`",
+            ),
         );
-        tracing::warn!(
-            target: "neard",
-            %chain,
-            "note that `cargo build --release` builds lack optimizations which may be needed to run properly"
-        );
-        tracing::warn!(
-            target: "neard",
-            "consider recompiling the binary using `make release` command");
     }
 }
 
@@ -947,8 +938,8 @@ fn normalize_whitespace(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Checks the provided kernel parameter  from /proc/sys
-/// and prints an error if it is not set to the expected value.
+/// Checks the provided kernel parameter from /proc/sys
+/// and prints a warning if it is not set to the expected value.
 #[cfg(target_os = "linux")]
 fn check_kernel_param(param_name: &str, expected_value: &str) {
     // Convert the dotted param_name into a path under /proc/sys
@@ -965,14 +956,12 @@ fn check_kernel_param(param_name: &str, expected_value: &str) {
             let expected_normalized = normalize_whitespace(expected_value);
 
             if actual_normalized != expected_normalized {
-                tracing::error!(
+                tracing::warn!(
                     %param_name,
                     %actual_normalized,
                     %expected_normalized,
                     "parameter is set to incorrect value, please run `scripts/set_kernel_params.sh`"
                 );
-            } else {
-                tracing::info!(%param_name, %expected_normalized, "parameter is set to expected value");
             }
         }
         Err(e) => {

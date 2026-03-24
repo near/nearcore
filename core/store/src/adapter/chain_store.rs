@@ -8,7 +8,7 @@ use near_chain_primitives::Error;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
-use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt};
+use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptToTxInfo};
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey};
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
@@ -308,6 +308,11 @@ impl ChainStoreAdapter {
     ) -> Option<ExecutionOutcomeWithProof> {
         self.store
             .get_ser(DBCol::TransactionResultForBlock, &get_outcome_id_block_hash(id, block_hash))
+    }
+
+    /// Returns the receipt-to-tx origin info for a given receipt_id, if stored.
+    pub fn get_receipt_to_tx(&self, receipt_id: &CryptoHash) -> Option<ReceiptToTxInfo> {
+        self.store.get_ser(DBCol::ReceiptToTx, receipt_id.as_ref())
     }
 
     /// Returns a vector of Outcome ids for given block and shard id
