@@ -11,6 +11,9 @@ const DEFAULT_RUST_LOG: &str = "tokio_reactor=info,\
      db=info,\
      delay_detector=info,\
      state_viewer=info,\
+     memtrie=info,\
+     chain=debug,\
+     store=debug,\
      warn";
 
 #[non_exhaustive]
