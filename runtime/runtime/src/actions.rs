@@ -627,6 +627,14 @@ fn validate_delegate_action_key(
                     InvalidAccessKeyError::DepositWithFunctionCall,
                 )
                 .into());
+                // Before this fix, the missing early return allowed execution
+                // to fall through to set_access_key(), silently persisting the
+                // advanced nonce despite the rejected action.
+                if ProtocolFeature::FixDelegateActionNonceOnDepositWithFunctionCall
+                    .enabled(apply_state.current_protocol_version)
+                {
+                    return Ok(());
+                }
             }
             if delegate_action.receiver_id != function_call_permission.receiver_id {
                 result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
@@ -1507,6 +1515,88 @@ mod tests {
             )
             .into())
         );
+    }
+
+    fn deposit_with_function_call_nonce_scenario(
+        protocol_version: ProtocolVersion,
+    ) -> (TrieUpdate, u64, AccountId, PublicKey) {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let sender_id = signed_delegate_action.delegate_action.sender_id.clone();
+        let sender_pub_key = signed_delegate_action.delegate_action.public_key.clone();
+
+        let initial_nonce: u64 = 19_000_000;
+        let access_key = AccessKey {
+            nonce: initial_nonce,
+            permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                allowance: None,
+                receiver_id: signed_delegate_action.delegate_action.receiver_id.to_string(),
+                method_names: Vec::new(),
+            }),
+        };
+
+        let mut apply_state =
+            create_apply_state(signed_delegate_action.delegate_action.max_block_height);
+        apply_state.current_protocol_version = protocol_version;
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+
+        let mut delegate_action = signed_delegate_action.delegate_action;
+        delegate_action.nonce = initial_nonce + 1;
+        delegate_action.actions =
+            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
+                args: Vec::new(),
+                deposit: Balance::from_yoctonear(1),
+                gas: Gas::from_gas(300),
+                method_name: "any_method".parse().unwrap(),
+            })))];
+
+        let mut result = ActionResult::default();
+        validate_delegate_action_key(
+            &mut state_update,
+            &apply_state,
+            &delegate_action,
+            &mut result,
+        )
+        .expect("validate_delegate_action_key must not return a RuntimeError");
+
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::DepositWithFunctionCall,
+            )
+            .into()),
+        );
+
+        (state_update, initial_nonce, sender_id, sender_pub_key)
+    }
+
+    #[test]
+    fn test_deposit_with_function_call_nonce_consumed_before_fix() {
+        let version =
+            ProtocolFeature::FixDelegateActionNonceOnDepositWithFunctionCall.protocol_version() - 1;
+        let (state_update, initial_nonce, sender_id, sender_pub_key) =
+            deposit_with_function_call_nonce_scenario(version);
+
+        let stored_key = get_access_key(&state_update, &sender_id, &sender_pub_key)
+            .expect("trie read must not fail")
+            .expect("access key must still exist");
+
+        // Pre-fix: nonce is silently advanced despite the rejection.
+        assert_eq!(stored_key.nonce, initial_nonce + 1);
+    }
+
+    #[test]
+    fn test_deposit_with_function_call_nonce_not_consumed_after_fix() {
+        let version =
+            ProtocolFeature::FixDelegateActionNonceOnDepositWithFunctionCall.protocol_version();
+        let (state_update, initial_nonce, sender_id, sender_pub_key) =
+            deposit_with_function_call_nonce_scenario(version);
+
+        let stored_key = get_access_key(&state_update, &sender_id, &sender_pub_key)
+            .expect("trie read must not fail")
+            .expect("access key must still exist");
+
+        // Post-fix: nonce must not advance on a rejected action.
+        assert_eq!(stored_key.nonce, initial_nonce);
     }
 
     #[test]

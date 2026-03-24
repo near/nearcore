@@ -343,6 +343,10 @@ pub enum ProtocolFeature {
     /// (storage stake, function call permission) that could return an error,
     /// violating the documented contract of no mutation on error.
     FixAccessKeyAllowanceCharging,
+    /// Fix missing early return on DepositWithFunctionCall error path in
+    /// validate_delegate_action_key. Previously the nonce was silently
+    /// persisted to the trie even when the action was rejected.
+    FixDelegateActionNonceOnDepositWithFunctionCall,
     Spice,
     ContinuousEpochSync,
     /// Apply PromiseYield receipts immediately after emitting them. Allows to perform the resume
@@ -486,6 +490,7 @@ impl ProtocolFeature {
             | ProtocolFeature::EthImplicitGlobalContract
             | ProtocolFeature::InstantDeleteAccount => 83,
             ProtocolFeature::Wasmtime => 84,
+            ProtocolFeature::FixDelegateActionNonceOnDepositWithFunctionCall => 85,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
