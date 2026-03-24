@@ -17,6 +17,7 @@ mod cross_shard_tx;
 mod deterministic_account_id;
 mod early_prepare_transactions;
 mod epoch_sync;
+#[cfg(feature = "test_features")]
 mod eth_implicit_global_contract;
 mod fix_chunk_producer_stake_threshold;
 mod fix_stake_threshold;

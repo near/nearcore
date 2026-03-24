@@ -5049,7 +5049,6 @@ dependencies = [
  "near-stdx",
  "near-time",
  "near-vm-runner",
- "near-wallet-contract",
  "num_cpus",
  "parking_lot 0.12.1",
  "rand 0.8.5",

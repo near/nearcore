@@ -4,20 +4,14 @@ use crate::StorageError;
 use crate::contract::ContractStorage;
 use crate::trie::TrieAccess;
 use crate::trie::{KeyLookupMode, TrieChanges};
-use near_primitives::account::AccountContract;
-use near_primitives::account::id::AccountType;
-use near_primitives::action::GlobalContractIdentifier;
-use near_primitives::apply::ApplyChunkReason;
-use near_primitives::global_contract::ContractIsLocalError;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
-use near_primitives::trie_key::{GlobalContractCodeIdentifier, SmallKeyVec, TrieKey};
+use near_primitives::trie_key::{SmallKeyVec, TrieKey};
 use near_primitives::types::{
     AccountId, RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause,
     StateRoot,
 };
 use near_vm_runner::ContractCode;
-use near_wallet_contract::{eth_wallet_global_contract_hash, wallet_contract};
 use std::collections::BTreeMap;
 
 mod iterator;
@@ -117,9 +111,8 @@ impl TrieUpdate {
         &self.trie
     }
 
-    /// Gets a clone of the `ContractStorage`` (which internally points to the same storage).
-    pub fn contract_storage(&self) -> ContractStorage {
-        self.contract_storage.clone()
+    pub fn contract_storage(&self) -> &ContractStorage {
+        &self.contract_storage
     }
 
     pub fn get_ref(
@@ -304,80 +297,6 @@ impl TrieUpdate {
     /// Records deployment of a contract due to a deploy-contract action.
     pub fn record_contract_deploy(&self, code: ContractCode) {
         self.contract_storage.record_deploy(code);
-    }
-
-    /// Records an access to the contract code due to a function call.
-    ///
-    /// The contract code is either included in the state witness or distributed
-    /// separately from the witness (see `ExcludeContractCodeFromStateWitness` feature).
-    /// In the former case, we record a Trie read from the `TrieKey::ContractCode` for each contract.
-    /// In the latter case, the Trie read does not happen and the code-size does not contribute to
-    /// the storage-proof limit. Instead we just record that the code with the given hash was called,
-    /// so that we can identify which contract-code to distribute to the validators.
-    pub fn record_contract_call(
-        &self,
-        account_id: AccountId,
-        code_hash: CryptoHash,
-        account_contract: &AccountContract,
-        apply_reason: ApplyChunkReason,
-        eth_implicit_global_contract: bool,
-        chain_id: &str,
-    ) -> Result<(), StorageError> {
-        // The recording of contracts when they are excluded from the witness are only for
-        // distributing them to the validators, and not needed for validating the chunks, thus we
-        // skip the recording if we are not applying the chunk for updating the shard.
-        if apply_reason != ApplyChunkReason::UpdateTrackedShard {
-            return Ok(());
-        }
-
-        // Only record the call if trie contains the contract (with the given hash) being called
-        // deployed to the given account. This avoids recording contracts that do not exist or are
-        // newly-deployed to the account. Note that the check below to see if the contract exists
-        // has no side effects (not charging gas or recording trie nodes)
-        //
-        // For old ETH implicit accounts with wallet contract magic bytes as their code_hash,
-        // the VM uses the global wallet contract hash (not the magic bytes hash). We look up the
-        // global contract in the trie instead of the local one, so that we record the correct
-        // hash for distribution to validators.
-        let (trie_key, expected_hash) =
-            match GlobalContractIdentifier::try_from(account_contract.clone()) {
-                Err(ContractIsLocalError::NotDeployed) => return Ok(()),
-                Err(ContractIsLocalError::Deployed(_)) => {
-                    if eth_implicit_global_contract
-                        && account_id.get_account_type() == AccountType::EthImplicitAccount
-                        && wallet_contract(code_hash).is_some()
-                    {
-                        let global_hash = eth_wallet_global_contract_hash(chain_id);
-                        (
-                            TrieKey::GlobalContractCode {
-                                identifier: GlobalContractCodeIdentifier::CodeHash(global_hash),
-                            },
-                            global_hash,
-                        )
-                    } else {
-                        (TrieKey::ContractCode { account_id }, code_hash)
-                    }
-                }
-                Ok(identifier) => {
-                    (TrieKey::GlobalContractCode { identifier: identifier.into() }, code_hash)
-                }
-            };
-        let mut key = SmallKeyVec::new_const();
-        trie_key.append_into(&mut key);
-        let contract_ref = self
-            .trie
-            .get_optimized_ref(&key, KeyLookupMode::MemOrFlatOrTrie, AccessOptions::NO_SIDE_EFFECTS)
-            .or_else(|err| {
-                // If the value for the trie key is not found, we treat it as if the contract does not exist.
-                // In this case, we ignore the error and skip recording the contract call below.
-                if matches!(err, StorageError::MissingTrieValue(_)) { Ok(None) } else { Err(err) }
-            })?;
-        let contract_exists =
-            contract_ref.is_some_and(|value_ref| value_ref.value_hash() == expected_hash);
-        if contract_exists {
-            self.contract_storage.record_call(expected_hash);
-        }
-        Ok(())
     }
 }
 

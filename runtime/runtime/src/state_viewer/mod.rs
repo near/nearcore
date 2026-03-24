@@ -306,7 +306,7 @@ impl TrieViewer {
         let pipeline = ReceiptPreparationPipeline::new(
             Arc::clone(config),
             apply_state.cache.as_ref().map(|v| v.handle()),
-            state_update.contract_storage(),
+            state_update.contract_storage().clone(),
             epoch_info_provider.chain_id(),
         );
         let view_config = Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view });
