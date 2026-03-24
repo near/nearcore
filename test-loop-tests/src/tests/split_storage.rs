@@ -102,14 +102,7 @@ fn test_split_storage_archival_node_sync() {
     env.restart_node(&archival2_restart_identifier, killed_state);
 
     // Give the restarted node time to catch up.
-    env.validator_runner().run_for_number_of_blocks(15);
-
-    let archival2_height = env.node_for_account(&archival2).head().height;
-    assert!(
-        archival2_height > target_height,
-        "restarted archival node should advance past target height \
-         ({archival2_height} vs {target_height})"
-    );
+    env.runner_for_account(&archival2).run_until_head_height(target_height + 1);
 
     // Confirm the restarted archival has the early block the validator GC'd.
     let archival2_result =
