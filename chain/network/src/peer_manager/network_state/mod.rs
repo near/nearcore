@@ -18,8 +18,6 @@ use crate::peer_manager::connection;
 use crate::peer_manager::connection_store;
 use crate::peer_manager::peer_store;
 use crate::private_messages::RegisterPeerError;
-#[cfg(feature = "distance_vector_routing")]
-use crate::routing::NetworkTopologyChange;
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::{SnapshotHostInfoError, SnapshotHostsCache};
@@ -139,11 +137,6 @@ pub(crate) struct NetworkState {
     pub pending_reconnect: Mutex<Vec<PeerInfo>>,
     /// A graph of the whole NEAR network.
     pub graph: Arc<crate::routing::Graph>,
-    /// A sparse graph of the whole NEAR network.
-    /// TODO(saketh): deprecate graph above, rename this to RoutingTable
-    #[cfg(feature = "distance_vector_routing")]
-    pub graph_v2: Arc<crate::routing::GraphV2>,
-
     /// Hashes of the body of recently received routed messages.
     /// It allows us to determine whether messages arrived faster over TIER1 or TIER2 network.
     pub recent_routed_messages: Mutex<lru::LruCache<CryptoHash, ()>>,
@@ -168,11 +161,6 @@ pub(crate) struct NetworkState {
     tier1_advertise_proxies_mutex: tokio::sync::Mutex<()>,
     /// Demultiplexer aggregating calls to add_edges(), for V1 routing protocol
     add_edges_demux: demux::Demux<EdgesWithSource, Result<(), ReasonForBan>>,
-    /// Demultiplexer aggregating calls to update_routes(), for V2 routing protocol
-    #[cfg(feature = "distance_vector_routing")]
-    update_routes_demux:
-        demux::Demux<crate::routing::NetworkTopologyChange, Result<(), ReasonForBan>>,
-
     /// Mutex serializing calls to set_chain_info(), which mutates a bunch of stuff non-atomically.
     /// TODO(gprusak): make it use synchronization primitives in some more canonical way.
     set_chain_info_mutex: Mutex<()>,
@@ -221,14 +209,6 @@ impl NetworkState {
                     prune_edges_after: Some(PRUNE_EDGES_AFTER),
                 },
             ),
-            #[cfg(feature = "distance_vector_routing")]
-            graph_v2: crate::routing::GraphV2::new(
-                clock.clone(),
-                crate::routing::GraphConfigV2 {
-                    node_id: config.node_id(),
-                    prune_edges_after: Some(PRUNE_EDGES_AFTER),
-                },
-            ),
             genesis_id,
             client,
             state_request_adapter,
@@ -258,8 +238,6 @@ impl NetworkState {
                 config.routing_table_update_rate_limit,
                 future_spawner,
             ),
-            #[cfg(feature = "distance_vector_routing")]
-            update_routes_demux: demux::Demux::new(config.routing_table_update_rate_limit),
             set_chain_info_mutex: Mutex::new(()),
             config,
             created_at: clock.now(),
@@ -401,10 +379,6 @@ impl NetworkState {
                         .map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
                     // Insert to the local connection pool
                     this.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
-                    // Update the V2 routing table
-                    #[cfg(feature = "distance_vector_routing")]
-                    this.update_routes(NetworkTopologyChange::PeerConnected(peer_info.id.clone(), edge.clone()))
-                        .await.map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
                     // Write to the peer store
                     this.peer_store.peer_connected(&clock, peer_info);
                 }
@@ -461,12 +435,6 @@ impl NetworkState {
                             .unwrap();
                     }
                 }
-
-                // Update the V2 routing table
-                #[cfg(feature = "distance_vector_routing")]
-                this.update_routes(NetworkTopologyChange::PeerDisconnected(peer_id.clone()))
-                    .await
-                    .unwrap();
 
                 // Save the fact that we are disconnecting to the PeerStore.
                 let res = match &reason {
@@ -1077,28 +1045,6 @@ impl NetworkState {
             }
             for t in tasks {
                 let _ = t.await;
-            }
-
-            // Now that `graph` has been synchronized with the state of the local connections,
-            // use it as the source of truth to fix the local state in `graph_v2`
-            #[cfg(feature = "distance_vector_routing")]
-            {
-                let mut tasks = vec![];
-                let node_id = this.config.node_id();
-                for edge in graph.local_edges.values() {
-                    let other_peer = edge.other(&node_id).unwrap();
-                    tasks.push(match edge.edge_type() {
-                        EdgeState::Active => this.update_routes(
-                            NetworkTopologyChange::PeerConnected(other_peer.clone(), edge.clone()),
-                        ),
-                        EdgeState::Removed => this.update_routes(
-                            NetworkTopologyChange::PeerDisconnected(other_peer.clone()),
-                        ),
-                    });
-                }
-                for t in tasks {
-                    let _ = t.await;
-                }
             }
         })
         .await
