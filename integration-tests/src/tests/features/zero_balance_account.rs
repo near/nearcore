@@ -11,7 +11,7 @@ use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError, TxEx
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::Action::AddKey;
 use near_primitives::transaction::{Action, AddKeyAction, DeleteKeyAction, SignedTransaction};
-use near_primitives::types::Balance;
+use near_primitives::types::{Balance, Gas};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
 use node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
@@ -134,6 +134,7 @@ fn test_zero_balance_account_add_key() {
         num_bytes_account: 100,
         num_extra_bytes_record: 40,
         global_contract_storage_amount_per_byte: Balance::from_yoctonear(10u128.pow(20)),
+        storage_gas_per_byte: Gas::from_gas(10_000_000_000),
     };
     let wasm_config = Arc::make_mut(&mut runtime_config.wasm_config);
     wasm_config.ext_costs = ExtCostsConfig::test();

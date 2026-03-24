@@ -480,6 +480,8 @@ pub struct StorageUsageConfig {
     pub num_extra_bytes_record: u64,
     /// Amount of yN burned per byte of deployed Global Contract code.
     pub global_contract_storage_amount_per_byte: Balance,
+    /// Gas burned per byte of storage growth for accounts that opted into storage-gas mode.
+    pub storage_gas_per_byte: Gas,
 }
 
 impl RuntimeFeesConfig {
@@ -576,6 +578,7 @@ impl StorageUsageConfig {
             global_contract_storage_amount_per_byte: Balance::from_yoctonear(
                 100_000_000_000_000_000_000,
             ),
+            storage_gas_per_byte: Gas::from_gas(10_000_000_000), // 10 Tgas per byte
         }
     }
 
@@ -585,6 +588,7 @@ impl StorageUsageConfig {
             num_extra_bytes_record: 0,
             storage_amount_per_byte: Balance::ZERO,
             global_contract_storage_amount_per_byte: Balance::ZERO,
+            storage_gas_per_byte: Gas::ZERO,
         }
     }
 }
