@@ -469,7 +469,16 @@ impl WasmtimeVM {
         let start = std::time::Instant::now();
         let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::Wasmtime)
             .map_err(CompilationError::PrepareError)?;
-        let serialized = self.precompile_catching_panics(&prepared_code)?;
+        let serialized = self.precompile_catching_panics(&prepared_code).map_err(|err| {
+            tracing::debug!(
+                target: "vm",
+                ?err,
+                code_hash = %code.hash(),
+                code_size = code.code().len(),
+                "wasmtime contract compilation failed",
+            );
+            err
+        })?;
 
         tracing::debug!(
             target: "vm",
@@ -501,9 +510,9 @@ impl WasmtimeVM {
         match rx.recv() {
             Ok(Ok(Ok(serialized))) => Ok(serialized),
             Ok(Ok(Err(err))) => {
-                tracing::error!(
+                tracing::debug!(
                     ?err,
-                    "wasmtime failed to compile the prepared code (this is defense-in-depth, the error was recovered from but should be reported to the developers)"
+                    "wasmtime failed to compile the prepared code"
                 );
                 Err(CompilationError::WasmtimeCompileError { msg: err.to_string() })
             }
@@ -515,7 +524,7 @@ impl WasmtimeVM {
                         None => "unknown panic".to_string(),
                     },
                 };
-                tracing::error!(%msg, "cranelift panicked during compilation");
+                tracing::debug!(%msg, "cranelift panicked during compilation");
                 Err(CompilationError::WasmtimeCompileError {
                     msg: format!("compilation panic: {msg}"),
                 })
@@ -524,7 +533,7 @@ impl WasmtimeVM {
                 // The sender was dropped without sending — this can only
                 // happen if the compilation thread was killed (e.g. OOM or
                 // double-panic). Treat it like a panic.
-                tracing::error!("compilation thread terminated unexpectedly");
+                tracing::debug!("compilation thread terminated unexpectedly");
                 Err(CompilationError::WasmtimeCompileError {
                     msg: "compilation thread terminated unexpectedly".to_string(),
                 })

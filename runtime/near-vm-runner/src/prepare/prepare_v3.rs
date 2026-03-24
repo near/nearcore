@@ -433,6 +433,7 @@ pub(crate) fn prepare_contract(
     // during the instrumentation pass instead of using byte size as a proxy.
     if let Some(max_size) = config.limit_config.max_instrumented_code_size {
         if res.len() as u64 > max_size {
+            tracing::debug!(target: "vm", size=res.len(), ?kind, "instrumented code too large");
             return Err(PrepareError::InstrumentedCodeTooLarge);
         }
     }
