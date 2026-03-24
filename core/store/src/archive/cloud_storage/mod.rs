@@ -10,6 +10,7 @@ pub mod config;
 pub mod opener;
 
 pub mod archive;
+pub mod bucket_config;
 pub mod retrieve;
 
 pub(super) mod block_data;
@@ -71,4 +72,37 @@ impl CloudStorage {
 // Ensure the final implementation does not negatively impact or crash the application.
 fn block_on_future<F: Future>(fut: F) -> F::Output {
     futures::executor::block_on(fut)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CloudStorage;
+    use super::file_id::CloudStorageFileID;
+    use near_external_storage::ExternalConnection;
+
+    pub fn test_cloud_storage(tmp_dir: &tempfile::TempDir) -> CloudStorage {
+        CloudStorage {
+            external: ExternalConnection::Filesystem { root_dir: tmp_dir.path().to_path_buf() },
+            chain_id: "test".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn data_blobs_are_compressed() {
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let cloud_storage = test_cloud_storage(&tmp_dir);
+        let payload: u64 = 42;
+        let original = borsh::to_vec(&payload).unwrap();
+        let file_id = CloudStorageFileID::Block(1);
+        cloud_storage.upload_compressed(file_id.clone(), original.clone()).await.unwrap();
+
+        // Read raw bytes from the filesystem to verify they are compressed.
+        let raw_path = tmp_dir.path().join(cloud_storage.file_path(&file_id));
+        let raw_bytes = std::fs::read(&raw_path).unwrap();
+        assert_ne!(raw_bytes, original, "blob should be compressed, not raw borsh");
+
+        // Verify retrieve_compressed round-trips correctly.
+        let retrieved: u64 = cloud_storage.retrieve_compressed(&file_id).await.unwrap();
+        assert_eq!(retrieved, payload);
+    }
 }
