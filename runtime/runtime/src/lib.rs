@@ -58,8 +58,8 @@ use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::{
-    Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry,
-    SignedTransaction, TransferAction,
+    Action, DeployContractAction, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId,
+    ExecutionStatus, FunctionCallAction, LogEntry, SignedTransaction, TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::PromiseYieldStatus;
@@ -659,6 +659,51 @@ impl Runtime {
                     &mut result,
                     account_id,
                     withdraw_from_gas_key,
+                )?;
+            }
+            Action::FunctionCallV2(function_call) => {
+                metrics::ACTION_CALLED_COUNT.function_call.inc();
+                let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
+                let account_contract = account.contract();
+                let code_hash = account_contract.into_owned().hash(&state_update)?;
+                let contract =
+                    preparation_pipeline.get_contract(receipt, code_hash, action_index, None);
+                let is_last_action = action_index + 1 == actions.len();
+                let v1 = FunctionCallAction {
+                    method_name: function_call.method_name.clone(),
+                    args: function_call.args.clone(),
+                    gas: function_call.gas,
+                    deposit: function_call.deposit,
+                };
+                action_function_call(
+                    state_update,
+                    apply_state,
+                    account,
+                    receipt,
+                    action_receipt,
+                    promise_results,
+                    &mut result,
+                    account_id,
+                    &v1,
+                    action_hash,
+                    code_hash,
+                    &apply_state.config,
+                    is_last_action,
+                    epoch_info_provider,
+                    contract,
+                )?;
+            }
+            Action::DeployContractV2(deploy_contract) => {
+                metrics::ACTION_CALLED_COUNT.deploy_contract.inc();
+                let v1 = DeployContractAction { code: deploy_contract.code.clone() };
+                action_deploy_contract(
+                    state_update,
+                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
+                    account_id,
+                    &v1,
+                    Arc::clone(&apply_state.config.wasm_config),
+                    apply_state.cache.as_deref(),
+                    apply_state.current_protocol_version,
                 )?;
             }
         };

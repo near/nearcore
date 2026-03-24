@@ -367,6 +367,8 @@ fn map_action(action: &Action) -> ActionType {
         Action::DeterministicStateInit(_) => ActionType::DeterministicStateInit,
         Action::TransferToGasKey(_) => ActionType::TransferToGasKey,
         Action::WithdrawFromGasKey(_) => ActionType::WithdrawFromGasKey,
+        Action::FunctionCallV2(_) => ActionType::FunctionCall,
+        Action::DeployContractV2(_) => ActionType::DeployContract,
     }
 }
 

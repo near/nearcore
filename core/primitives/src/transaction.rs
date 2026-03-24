@@ -1,6 +1,7 @@
 pub use crate::action::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
+    DeployContractAction, DeployContractV2Action, FunctionCallAction, FunctionCallV2Action,
+    StakeAction, TransferAction,
 };
 use crate::errors::{InvalidTxError, TxExecutionError};
 use crate::hash::{CryptoHash, hash};

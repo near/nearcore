@@ -141,6 +141,7 @@ impl ReceiptPreparationPipeline {
             let account_id = account_id.clone();
             match action {
                 Action::DeployContract(_)
+                | Action::DeployContractV2(_)
                 | Action::UseGlobalContract(_)
                 | Action::DeterministicStateInit(_) => {
                     // FIXME: instead of blocking these accounts, move the handling of
@@ -149,6 +150,7 @@ impl ReceiptPreparationPipeline {
                     return self.block_accounts.insert(account_id);
                 }
                 Action::FunctionCall(function_call) => {
+                    let (fc_gas, fc_method_name) = (function_call.gas, &function_call.method_name);
                     let account = if let Some(account) = &account {
                         account
                     } else {
@@ -198,7 +200,7 @@ impl ReceiptPreparationPipeline {
                         }
                     };
                     let key = PrepareTaskKey { receipt_id: receipt.get_hash(), action_index };
-                    let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);
+                    let gas_counter = self.gas_counter(view_config.as_ref(), fc_gas);
                     let entry = match self.map.entry(key) {
                         std::collections::btree_map::Entry::Vacant(v) => v,
                         // Already been submitted.
@@ -209,7 +211,97 @@ impl ReceiptPreparationPipeline {
                     let cache = self.contract_cache.as_ref().map(|c| c.handle());
                     let storage = self.storage.clone();
                     let created = Instant::now();
-                    let method_name = function_call.method_name.clone();
+                    let method_name = fc_method_name.clone();
+                    let chain_id = self.chain_id.clone();
+                    let status = Mutex::new(PrepareTaskStatus::Pending);
+                    let task = Arc::new(PrepareTask { status, condvar: Condvar::new() });
+                    entry.insert(Arc::clone(&task));
+                    PIPELINING_ACTIONS_SUBMITTED.inc_by(1);
+                    rayon::spawn_fifo(move || {
+                        let task_status = {
+                            let mut status = task.status.lock();
+                            std::mem::replace(&mut *status, PrepareTaskStatus::Working)
+                        };
+                        let PrepareTaskStatus::Pending = task_status else {
+                            return;
+                        };
+                        PIPELINING_ACTIONS_TASK_DELAY_TIME.inc_by(created.elapsed().as_secs_f64());
+                        let start = Instant::now();
+                        let contract = prepare_function_call(
+                            &storage,
+                            cache.as_deref(),
+                            config,
+                            gas_counter,
+                            code_hash,
+                            &account_id,
+                            &method_name,
+                            chain_id,
+                        );
+
+                        let mut status = task.status.lock();
+                        *status = PrepareTaskStatus::Prepared(contract);
+                        PIPELINING_ACTIONS_TASK_WORKING_TIME.inc_by(start.elapsed().as_secs_f64());
+                        task.condvar.notify_all();
+                    });
+                    any_function_calls = true;
+                }
+                Action::FunctionCallV2(function_call) => {
+                    let (fc_gas, fc_method_name) = (function_call.gas, &function_call.method_name);
+                    let account = if let Some(account) = &account {
+                        account
+                    } else {
+                        let key = TrieKey::Account { account_id: account_id.clone() };
+                        let Ok(Some(receiver)) = get_pure::<Account>(state_update, &key) else {
+                            continue;
+                        };
+                        account.insert(receiver)
+                    };
+                    let code_hash = match account.contract().as_ref() {
+                        AccountContract::None => continue,
+                        AccountContract::Local(code_hash) => *code_hash,
+                        AccountContract::Global(global_code_hash) => {
+                            if self
+                                .block_global_contracts
+                                .contains(&GlobalContractIdentifier::CodeHash(*global_code_hash))
+                            {
+                                continue;
+                            }
+                            *global_code_hash
+                        }
+                        AccountContract::GlobalByAccount(global_contract_account_id) => {
+                            if self.block_global_contracts.contains(
+                                &GlobalContractIdentifier::AccountId(
+                                    global_contract_account_id.clone(),
+                                ),
+                            ) {
+                                continue;
+                            }
+                            let key = TrieKey::GlobalContractCode {
+                                identifier: GlobalContractCodeIdentifier::AccountId(
+                                    global_contract_account_id.clone(),
+                                ),
+                            };
+                            let Ok(Some(value_ref)) = state_update.get_ref(
+                                &key,
+                                KeyLookupMode::MemOrFlatOrTrie,
+                                AccessOptions::NO_SIDE_EFFECTS,
+                            ) else {
+                                continue;
+                            };
+                            value_ref.value_hash()
+                        }
+                    };
+                    let key = PrepareTaskKey { receipt_id: receipt.get_hash(), action_index };
+                    let gas_counter = self.gas_counter(view_config.as_ref(), fc_gas);
+                    let entry = match self.map.entry(key) {
+                        std::collections::btree_map::Entry::Vacant(v) => v,
+                        std::collections::btree_map::Entry::Occupied(_) => continue,
+                    };
+                    let config = Arc::clone(&self.config.wasm_config);
+                    let cache = self.contract_cache.as_ref().map(|c| c.handle());
+                    let storage = self.storage.clone();
+                    let created = Instant::now();
+                    let method_name = fc_method_name.clone();
                     let chain_id = self.chain_id.clone();
                     let status = Mutex::new(PrepareTaskStatus::Pending);
                     let task = Arc::new(PrepareTask { status, condvar: Condvar::new() });
@@ -291,13 +383,15 @@ impl ReceiptPreparationPipeline {
                 panic!("attempting to get_contract with a non-action receipt!?")
             }
         };
-        let Action::FunctionCall(function_call) = action else {
-            panic!("referenced receipt action is not a function call!");
+        let (fc_gas, fc_method_name) = match action {
+            Action::FunctionCall(fc) => (fc.gas, &fc.method_name),
+            Action::FunctionCallV2(fc) => (fc.gas, &fc.method_name),
+            _ => panic!("referenced receipt action is not a function call!"),
         };
         let key = PrepareTaskKey { receipt_id: receipt.get_hash(), action_index };
         let Some(task) = self.map.get(&key) else {
             let start = Instant::now();
-            let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);
+            let gas_counter = self.gas_counter(view_config.as_ref(), fc_gas);
             if !self.block_accounts.contains(account_id) {
                 tracing::debug!(
                     target: "runtime::pipelining",
@@ -313,7 +407,7 @@ impl ReceiptPreparationPipeline {
                 gas_counter,
                 code_hash,
                 &account_id,
-                &function_call.method_name,
+                fc_method_name,
                 self.chain_id.clone(),
             );
             PIPELINING_ACTIONS_NOT_SUBMITTED.inc_by(1);
@@ -334,9 +428,9 @@ impl ReceiptPreparationPipeline {
                         receipt=%receipt.get_hash(),
                         action_index
                     );
-                    let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);
+                    let gas_counter = self.gas_counter(view_config.as_ref(), fc_gas);
                     let cache = self.contract_cache.as_ref().map(|c| c.handle());
-                    let method_name = function_call.method_name.clone();
+                    let method_name = fc_method_name.clone();
                     let contract = prepare_function_call(
                         &self.storage,
                         cache.as_deref(),

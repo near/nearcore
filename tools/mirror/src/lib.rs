@@ -1443,7 +1443,11 @@ impl<T: ChainAccess> TxMirror<T> {
         // is only logically included, and we won't see it in the receipts in any chunk,
         // so handle that case here
         if tx.transaction.signer_id() == tx.transaction.receiver_id()
-            && tx.transaction.actions().iter().any(|a| matches!(a, Action::FunctionCall(_)))
+            && tx
+                .transaction
+                .actions()
+                .iter()
+                .any(|a| matches!(a, Action::FunctionCall(_) | Action::FunctionCallV2(_)))
         {
             let tx_hash = tx.get_hash();
             if let Some(receipt_id) = self
@@ -1484,7 +1488,10 @@ impl<T: ChainAccess> TxMirror<T> {
         txs: &mut Vec<TargetChainTx>,
     ) -> anyhow::Result<()> {
         if let ReceiptEnum::Action(r) | ReceiptEnum::PromiseYield(r) = receipt.receipt() {
-            if r.actions.iter().any(|a| matches!(a, Action::FunctionCall(_))) {
+            if r.actions
+                .iter()
+                .any(|a| matches!(a, Action::FunctionCall(_) | Action::FunctionCallV2(_)))
+            {
                 self.add_function_call_keys(
                     tracker,
                     tx_block_queue,

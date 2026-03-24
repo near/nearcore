@@ -7,7 +7,7 @@ use crate::{
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
-use near_primitives_core::account::AccessKey;
+use near_primitives_core::account::{AccessKey, StoragePayment};
 pub use near_primitives_core::global_contract::GlobalContractIdentifier;
 use near_primitives_core::types::{AccountId, Balance, Gas};
 use near_schema_checker_lib::ProtocolSchema;
@@ -252,6 +252,73 @@ impl fmt::Debug for FunctionCallAction {
     }
 }
 
+/// Function call action with support for storage gas.
+#[serde_as]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct FunctionCallV2Action {
+    pub method_name: String,
+    #[serde_as(as = "Base64")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    pub args: Vec<u8>,
+    pub gas: Gas,
+    /// Prepaid storage gas for storage growth on StoragePayment::StorageGas accounts.
+    pub storage_gas: Gas,
+    pub deposit: Balance,
+}
+
+impl fmt::Debug for FunctionCallV2Action {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FunctionCallV2Action")
+            .field("method_name", &format_args!("{}", &self.method_name))
+            .field("args", &format_args!("{}", base64(&self.args)))
+            .field("gas", &format_args!("{}", &self.gas))
+            .field("storage_gas", &format_args!("{}", &self.storage_gas))
+            .field("deposit", &format_args!("{}", &self.deposit))
+            .finish()
+    }
+}
+
+/// Deploy contract action with storage payment opt-in.
+#[serde_as]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct DeployContractV2Action {
+    /// WebAssembly binary
+    #[serde_as(as = "Base64")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    pub code: Vec<u8>,
+    /// How storage is paid for on this account after deployment.
+    pub storage_payment: StoragePayment,
+}
+
+impl fmt::Debug for DeployContractV2Action {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DeployContractV2Action")
+            .field("code", &format_args!("{}", base64(&self.code)))
+            .field("storage_payment", &self.storage_payment)
+            .finish()
+    }
+}
+
 /// An action which stakes signer_id tokens and setup's validator public key
 #[derive(
     BorshSerialize,
@@ -365,6 +432,8 @@ pub enum Action {
     DeterministicStateInit(Box<DeterministicStateInitAction>) = 11,
     TransferToGasKey(Box<TransferToGasKeyAction>) = 12,
     WithdrawFromGasKey(Box<WithdrawFromGasKeyAction>) = 13,
+    FunctionCallV2(Box<FunctionCallV2Action>) = 14,
+    DeployContractV2(Box<DeployContractV2Action>) = 15,
 }
 
 const _: () = assert!(
@@ -379,12 +448,20 @@ impl Action {
     pub fn get_prepaid_gas(&self) -> Gas {
         match self {
             Action::FunctionCall(a) => a.gas,
+            Action::FunctionCallV2(a) => a.gas,
+            _ => Gas::ZERO,
+        }
+    }
+    pub fn get_prepaid_storage_gas(&self) -> Gas {
+        match self {
+            Action::FunctionCallV2(a) => a.storage_gas,
             _ => Gas::ZERO,
         }
     }
     pub fn get_deposit_balance(&self) -> Balance {
         match self {
             Action::FunctionCall(a) => a.deposit,
+            Action::FunctionCallV2(a) => a.deposit,
             Action::Transfer(a) => a.deposit,
             Action::DeterministicStateInit(a) => a.deposit,
             Action::TransferToGasKey(a) => a.deposit,
