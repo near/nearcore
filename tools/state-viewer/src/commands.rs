@@ -441,12 +441,16 @@ pub(crate) fn dump_code(
     let (epoch_manager, runtime, state_roots, header) = load_trie(store, home_dir, &near_config);
     let epoch_id = &epoch_manager.get_epoch_id(header.hash()).unwrap();
     let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();
+    let protocol_version = epoch_manager.get_epoch_info(epoch_id).unwrap().protocol_version();
 
     for (shard_index, state_root) in state_roots.iter().enumerate() {
         let shard_uid = shard_layout.get_shard_uid(shard_index).unwrap();
-        if let Ok(contract_code) =
-            runtime.view_contract_code(&shard_uid, *state_root, &account_id.parse().unwrap())
-        {
+        if let Ok(contract_code) = runtime.view_contract_code(
+            &shard_uid,
+            *state_root,
+            &account_id.parse().unwrap(),
+            protocol_version,
+        ) {
             let mut file = File::create(output).unwrap();
             file.write_all(contract_code.code()).unwrap();
             println!("Dump contract of account {} into file {}", account_id, output.display());
