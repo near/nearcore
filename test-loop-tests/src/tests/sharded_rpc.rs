@@ -819,6 +819,7 @@ fn test_rpc_experimental_call_function_forwarding() {
 
 /// EXPERIMENTAL_congestion_level with BlockShardId should be forwarded to the right shard.
 #[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_rpc_experimental_congestion_level_block_shard_id_forwarding() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -854,6 +855,7 @@ fn test_rpc_experimental_congestion_level_block_shard_id_forwarding() {
 
 /// EXPERIMENTAL_congestion_level with ChunkHash should be forwarded across shards.
 #[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_rpc_experimental_congestion_level_chunk_hash_forwarding() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
