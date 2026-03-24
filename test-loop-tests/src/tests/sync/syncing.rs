@@ -70,7 +70,6 @@ fn slow_test_sync_from_genesis() {
         |test_loop_data| test_loop_data.get(&new_node).client.chain.head().unwrap().height > 10050,
         Duration::seconds(20),
     );
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Kill all validators simultaneously and restart them, repeating multiple
@@ -176,6 +175,4 @@ fn slow_test_validator_restart_under_cross_shard_load() {
             });
         }
     }
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

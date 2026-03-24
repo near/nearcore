@@ -9,6 +9,7 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::ReceiptSource;
 use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
 use near_primitives::state_sync::{StateHeaderKey, StatePartKey};
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceStoredVerifiedEndorsement;
@@ -1094,7 +1095,14 @@ impl<'a> ChainStoreUpdate<'a> {
     fn gc_processed_receipt_ids(&mut self, block_hash: &CryptoHash, shard_id: ShardId) {
         let Ok(metadata) = self.get_processed_receipt_ids(block_hash, shard_id) else { return };
         for entry in metadata.as_ref() {
-            self.gc_col(DBCol::Receipts, entry.receipt_id().as_bytes());
+            match entry.source() {
+                ReceiptSource::Local | ReceiptSource::Delayed | ReceiptSource::Instant => {
+                    self.gc_col(DBCol::Receipts, entry.receipt_id().as_bytes());
+                }
+                ReceiptSource::ReceiptToTxGc => {
+                    self.gc_col(DBCol::ReceiptToTx, entry.receipt_id().as_bytes());
+                }
+            }
         }
         self.gc_col(DBCol::ProcessedReceiptIds, &get_block_shard_id(block_hash, shard_id));
     }
@@ -1225,6 +1233,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.delete(col, key);
             }
             DBCol::ProcessedReceiptIds => {
+                store_update.delete(col, key);
+            }
+            DBCol::ReceiptToTx => {
                 store_update.delete(col, key);
             }
             #[cfg(feature = "protocol_feature_spice")]

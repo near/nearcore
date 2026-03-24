@@ -7,6 +7,7 @@
 * The contract runtime now allows for bulk memory instructions in Wasm code.
 
 ### Non-protocol Changes
+* New `EXPERIMENTAL_receipt_to_tx` RPC method that resolves a receipt ID back to the originating transaction hash and sender account. Requires `save_receipt_to_tx` config enabled and all-shards tracking. ([#15414](https://github.com/near/nearcore/pull/15414))
 
 ## [2.11.0]
 

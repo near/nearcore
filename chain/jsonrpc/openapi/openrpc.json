@@ -7045,6 +7045,22 @@
         ],
         "title": "NonDelegateAction"
       },
+      "NonceMode": {
+        "description": "Controls how the transaction nonce is validated against the access key nonce.",
+        "oneOf": [
+          {
+            "const": "monotonic",
+            "description": "Any nonce strictly greater than the current access key nonce (default behavior).",
+            "type": "string"
+          },
+          {
+            "const": "strict",
+            "description": "Nonce must be exactly `ak_nonce + 1` (sequential ordering).",
+            "type": "string"
+          }
+        ],
+        "title": "NonceMode"
+      },
       "PeerId": {
         "allOf": [
           {
@@ -8198,6 +8214,10 @@
             "description": "Save observed instances of ChunkStateWitness to the database in DBCol::LatestChunkStateWitnesses.\nSaving the latest witnesses is useful for analysis and debugging.\nThis option can cause extra load on the database and is not recommended for production use.",
             "type": "boolean"
           },
+          "save_receipt_to_tx": {
+            "description": "Whether to persist receipt-to-tx origin mappings to disk or not.",
+            "type": "boolean"
+          },
           "save_state_changes": {
             "description": "Whether to persist state changes on disk or not.",
             "type": "boolean"
@@ -8343,6 +8363,12 @@
               "null"
             ]
           },
+          "transaction_pool_strict_nonce_ttl_blocks": {
+            "description": "TTL in blocks for gapped strict-nonce transactions in the pool. Transactions with a\nnonce gap whose block_hash is older than this many blocks are evicted during\nprepare_transactions.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "transaction_request_handler_threads": {
             "format": "uint",
             "minimum": 0,
@@ -8428,6 +8454,7 @@
           "archive",
           "save_trie_changes",
           "save_tx_outcomes",
+          "save_receipt_to_tx",
           "save_state_changes",
           "save_untracked_partial_chunks_parts",
           "view_client_threads",
@@ -8440,6 +8467,7 @@
           "state_sync_enabled",
           "state_sync",
           "epoch_sync",
+          "transaction_pool_strict_nonce_ttl_blocks",
           "enable_multiline_logging",
           "resharding_config",
           "tx_routing_height_horizon",
@@ -9199,6 +9227,34 @@
           "receipt"
         ],
         "title": "RpcReceiptResponse",
+        "type": "object"
+      },
+      "RpcReceiptToTxRequest": {
+        "properties": {
+          "receipt_id": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        "required": [
+          "receipt_id"
+        ],
+        "title": "RpcReceiptToTxRequest",
+        "type": "object"
+      },
+      "RpcReceiptToTxResponse": {
+        "properties": {
+          "sender_account_id": {
+            "$ref": "#/components/schemas/AccountId"
+          },
+          "transaction_hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        "required": [
+          "transaction_hash",
+          "sender_account_id"
+        ],
+        "title": "RpcReceiptToTxResponse",
         "type": "object"
       },
       "RpcSendTransactionRequest": {
@@ -10669,6 +10725,16 @@
             "type": [
               "integer",
               "null"
+            ]
+          },
+          "nonce_mode": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/NonceMode"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "priority_fee": {
@@ -13156,6 +13222,34 @@
         }
       },
       "summary": "Returns receipt by receipt_id",
+      "tags": [
+        {
+          "name": "receipt"
+        },
+        {
+          "name": "experimental"
+        }
+      ]
+    },
+    {
+      "name": "EXPERIMENTAL_receipt_to_tx",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "receipt_id",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/RpcReceiptToTxResponse"
+        }
+      },
+      "summary": "Resolves a receipt ID back to the originating transaction hash and sender account",
       "tags": [
         {
           "name": "receipt"

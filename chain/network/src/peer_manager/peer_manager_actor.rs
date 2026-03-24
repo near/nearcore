@@ -202,7 +202,7 @@ impl messaging::Actor for PeerManagerActor {
 
     /// Try to gracefully disconnect from connected peers.
     fn stop_actor(&mut self) {
-        tracing::warn!("peer manager stopping");
+        tracing::debug!(target: "network", "peer manager stopping");
         self.state.tier2.broadcast_message(Arc::new(PeerMessage::Disconnect(Disconnect {
             remove_from_connection_store: false,
         })));
@@ -663,9 +663,7 @@ impl PeerManagerActor {
                         if let Err(ref err) = result {
                             tracing::info!(target: "network", ?err, %peer_info, "tier2 failed to connect");
                         }
-                        if state.peer_store.peer_connection_attempt(&clock, &peer_info.id, result).is_err() {
-                            tracing::error!(target: "network", ?peer_info, "failed to store connection attempt");
-                        }
+                        state.peer_store.peer_connection_attempt(&clock, &peer_info.id, result);
                     }.instrument(tracing::trace_span!(target: "network", "monitor_peers_trigger_connect"))
                 });
             }

@@ -264,8 +264,6 @@ impl Test {
         if self.test4_config.assert_missed_chunk && !found_test4_missed_chunk {
             panic!("test4 didn't produce any block");
         };
-
-        env.shutdown_and_drain_remaining_events(Duration::seconds(10));
     }
 }
 

@@ -66,8 +66,6 @@ fn test_contract_distribution_cross_shard() {
 
     let end_height = get_node_head_height(&env, &accounts[0]);
     assert_all_chunk_endorsements_received(&mut env, start_height, end_height);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 fn setup(accounts: &Vec<AccountId>) -> (TestLoopEnv, AccountId) {

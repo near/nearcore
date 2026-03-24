@@ -123,6 +123,21 @@ skip = [
     { name = "h2", version = "^0.3" },
     { name = "base64", version = "^0.21" },
 
+    # object_store still uses reqwest 0.12 internally, which pulls in older
+    # versions of the rustls stack alongside our reqwest 0.13 versions.
+    { name = "reqwest", version = "^0.12" },
+    { name = "hyper-rustls", version = "^0.26" },
+    { name = "rustls", version = "^0.22" },
+    { name = "rustls-native-certs", version = "^0.7" },
+    { name = "rustls-webpki", version = "^0.102" },
+    { name = "tokio-rustls", version = "^0.25" },
+    { name = "core-foundation", version = "^0.9" },
+    { name = "openssl-probe", version = "=0.1.5" },
+    { name = "security-framework", version = "^2" },
+    { name = "system-configuration", version = "^0.5" },
+    { name = "system-configuration-sys", version = "^0.5" },
+    { name = "windows-result", version = "^0.1" },
+
     # okApi uses mostly schemars 0.8 for now, though it's not necessary
     { name = "schemars", version = "^0.8" },
     { name = "schemars_derive", version = "^0.8" },

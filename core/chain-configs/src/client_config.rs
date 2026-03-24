@@ -611,6 +611,10 @@ pub fn default_transaction_pool_size_limit() -> Option<u64> {
     Some(100_000_000) // 100 MB.
 }
 
+pub fn default_transaction_pool_strict_nonce_ttl_blocks() -> BlockHeightDelta {
+    64
+}
+
 pub fn default_tx_routing_height_horizon() -> BlockHeightDelta {
     4
 }
@@ -785,6 +789,8 @@ pub struct ClientConfig {
     pub save_trie_changes: bool,
     /// Whether to persist transaction outcomes to disk or not.
     pub save_tx_outcomes: bool,
+    /// Whether to persist receipt-to-tx origin mappings to disk or not.
+    pub save_receipt_to_tx: bool,
     /// Whether to persist state changes on disk or not.
     pub save_state_changes: bool,
     /// Whether to persist partial chunk parts for untracked shards or not.
@@ -823,6 +829,10 @@ pub struct ClientConfig {
     /// Limit of the size of per-shard transaction pool measured in bytes. If not set, the size
     /// will be unbounded.
     pub transaction_pool_size_limit: Option<u64>,
+    /// TTL in blocks for gapped strict-nonce transactions in the pool. Transactions with a
+    /// nonce gap whose block_hash is older than this many blocks are evicted during
+    /// prepare_transactions.
+    pub transaction_pool_strict_nonce_ttl_blocks: BlockHeightDelta,
     // Allows more detailed logging, for example a list of orphaned blocks.
     pub enable_multiline_logging: bool,
     // Configuration for resharding.

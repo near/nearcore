@@ -107,8 +107,6 @@ fn slow_test_view_requests_to_archival_node() {
 
     let mut view_client_tester = ViewClientTester::new(&mut env.test_loop, &env.node_datas);
     view_client_tester.run_tests(&shard_layout);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 struct ViewClientTester<'a> {

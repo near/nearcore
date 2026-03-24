@@ -1,6 +1,6 @@
 use crate::config::SocketOptions;
-use crate::network_protocol::PeerMessage;
 use crate::network_protocol::testonly as data;
+use crate::network_protocol::{Disconnect, PeerMessage};
 use crate::network_protocol::{Handshake, OwnedAccount, PartialEdgeInfo};
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager;
@@ -16,6 +16,42 @@ use near_async::time;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::version::PROTOCOL_VERSION;
 use std::sync::Arc;
+
+// Verify that a Disconnect message received on a T3 connection is accepted
+// (not rejected as a disallowed message).
+#[tokio::test]
+async fn t3_disconnect() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let pm = peer_manager::testonly::start(
+        clock.clock(),
+        near_store::db::TestDB::new(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
+
+    let cfg = chain.make_config(rng);
+    let conn = pm.start_outbound(chain.clone(), cfg, tcp::Tier::T3).await;
+    let stream_id = conn.stream.id();
+    let mut events = pm.events.from_now();
+    let peer = conn.handshake(&clock.clock()).await;
+
+    // Send a Disconnect message from the peer side over T3.
+    peer.send(PeerMessage::Disconnect(Disconnect { remove_from_connection_store: false })).await;
+
+    let reason = events
+        .recv_until(|ev| match ev {
+            Event::ConnectionClosed(ev) if ev.stream_id == stream_id => Some(ev.reason),
+            _ => None,
+        })
+        .await;
+    assert_eq!(reason, ClosingReason::DisconnectMessage);
+}
 
 #[tokio::test]
 async fn slow_test_connection_spam_security_test() {

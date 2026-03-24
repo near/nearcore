@@ -1,5 +1,4 @@
 use crate::setup::builder::TestLoopBuilder;
-use near_async::time::Duration;
 use near_chain_configs::MutableConfigValue;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::types::BlockHeight;
@@ -45,5 +44,4 @@ fn test_shutdown_signal_in_testloop() {
     tracing::info!(node0_head, node1_head, "shutdown signal test passed");
 
     // Drain remaining events (node 0 events will be ignored since it's denylisted).
-    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }

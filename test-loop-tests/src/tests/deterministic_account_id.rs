@@ -129,8 +129,6 @@ fn check_deterministic_state_init(
     env.run_tx(create_deterministic_account_tx);
 
     env.assert_test_contract_usable_on_account(det_account);
-
-    env.shutdown();
 }
 
 /// Ensure repeating a state initialization does not fail, to allow lazy
@@ -181,8 +179,6 @@ fn test_repeated_deterministic_state_init() {
         deposit_after > deposit_between.checked_sub(required_for_storage).unwrap(),
         "signer should have been refunded the deposit cost and only spend gas cost on the second call"
     );
-
-    env.shutdown();
 }
 
 /// Try using non-existing global contract
@@ -205,8 +201,6 @@ fn test_deterministic_state_init_missing_global_contract() {
             index: _
         }))
     );
-
-    env.shutdown();
 }
 
 /// Try creating an account above ZBA limit without attached balance
@@ -230,8 +224,6 @@ fn test_deterministic_state_init_above_zba() {
             index: _
         }))
     );
-
-    env.shutdown();
 }
 
 /// Try creating adding larger-than-allowed KEY to state
@@ -253,8 +245,6 @@ fn test_deterministic_state_init_key_too_large() {
             ActionsValidationError::DeterministicStateInitKeyLengthExceeded { .. }
         ))
     );
-
-    env.shutdown();
 }
 
 /// Try creating adding larger-than-allowed VALUE to state
@@ -277,8 +267,6 @@ fn test_deterministic_state_init_value_too_large() {
             ActionsValidationError::DeterministicStateInitValueLengthExceeded { .. }
         ))
     );
-
-    env.shutdown();
 }
 
 /// Try sending the action to an invalid receiver: wrong derived id
@@ -308,8 +296,6 @@ fn test_deterministic_state_init_invalid_derived_id() {
             ActionsValidationError::InvalidDeterministicStateInitReceiver { .. }
         ))
     );
-
-    env.shutdown();
 }
 
 /// Try sending the action to an invalid receiver: named account
@@ -339,8 +325,6 @@ fn test_deterministic_state_init_named_receiver() {
             ActionsValidationError::InvalidDeterministicStateInitReceiver { .. }
         ))
     );
-
-    env.shutdown();
 }
 
 /// Ensure we can pre-pay the balance for a deterministic account.
@@ -388,8 +372,6 @@ fn test_deterministic_state_init_prepay_for_storage() {
         .expect("should be able to send transaction")
         .assert_success();
     env.assert_test_contract_usable_on_account(det_account);
-
-    env.shutdown();
 }
 
 /// Test that multi-action receipts fail to create deterministic accounts before
@@ -418,8 +400,6 @@ fn test_deterministic_state_init_multi_action_before_fix() {
             ..
         }))
     );
-
-    env.shutdown();
 }
 
 /// Test that multi-action receipts can create deterministic accounts after
@@ -440,8 +420,6 @@ fn test_deterministic_state_init_multi_action_after_fix() {
 
     assert!(env.get_account_state(det_account.clone()).amount >= balance);
     env.assert_test_contract_usable_on_account(det_account);
-
-    env.shutdown();
 }
 
 /// Deploy a sharded toy-contract and check it can do a "predecessor is owner"
@@ -490,8 +468,6 @@ fn test_sharded_contract_owner_check() {
     let sharded_account = env.setup_sharded_account(user_account.clone());
 
     env.call_sharded_owner_only(&user_account, &sharded_account).assert_success();
-
-    env.shutdown();
 }
 
 /// Deploy a sharded toy-contract and check it can do a "predecessor is owner"
@@ -516,7 +492,6 @@ fn test_sharded_contract_owner_check_fails() {
             index: Some(0)
         }))
     );
-    env.shutdown();
 }
 
 /// Deploy a sharded toy-contract and check it can do a "predecessor has same
@@ -546,8 +521,6 @@ fn test_sharded_contract_peer_check() {
     let ping_call_result = &outcome.receipts_outcome[1];
     assert_eq!(sharded_account2, ping_call_result.outcome.executor_id);
     assert_eq!(vec!["peer ok".to_owned()], ping_call_result.outcome.logs);
-
-    env.shutdown();
 }
 
 /// Deploy a sharded toy-contract and check it can do a "predecessor has same
@@ -578,8 +551,6 @@ fn test_sharded_contract_peer_check_fails() {
             index: Some(0)
         }))
     );
-
-    env.shutdown();
 }
 
 /// Deploy a sharded toy-contract and check it can spread itself to another account.
@@ -621,8 +592,6 @@ fn test_sharded_contract_spread() {
 
     // check the onboarded account can use their new sharded contract instance
     env.call_sharded_owner_only(&user_to_onboard, &target_account_id).assert_success();
-
-    env.shutdown();
 }
 
 /// Deploy a sharded toy-contract and check it can spread itself to another
@@ -667,8 +636,6 @@ fn test_sharded_contract_spread_funded() {
 
     // check the onboarded account can use their new sharded contract instance
     env.call_sharded_owner_only(&user_to_onboard, &target_account_id).assert_success();
-
-    env.shutdown();
 }
 
 struct TestEnv {
@@ -732,10 +699,6 @@ impl TestEnv {
             contract: ContractCode::new(near_test_contracts::rs_contract().to_vec(), None),
             nonce: 1,
         }
-    }
-
-    fn shutdown(self) {
-        self.env.shutdown_and_drain_remaining_events(Duration::seconds(10));
     }
 
     fn global_contract_account(&self) -> AccountId {

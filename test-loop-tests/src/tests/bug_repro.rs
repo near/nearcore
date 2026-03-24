@@ -160,8 +160,6 @@ fn slow_test_repro_1183() {
         },
         Duration::seconds(60),
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
 #[test]
@@ -284,8 +282,6 @@ fn slow_test_sync_from_archival_node() {
     }
 
     env.test_loop.run_until(|_| *largest_height.read() >= 50, Duration::seconds(20));
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
 #[test]
@@ -349,8 +345,6 @@ fn slow_test_long_gap_between_blocks() {
         },
         Duration::seconds(3 * 70),
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
 /// 1 RPC node, 1 validator node, 1 shard
@@ -460,6 +454,4 @@ fn test_rpc_forwards_retried_transaction() {
         forward_tx_requests.borrow_mut().as_slice(),
         &[(validator_acc.clone(), tx2.get_hash()), (validator_acc, tx2.get_hash())]
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

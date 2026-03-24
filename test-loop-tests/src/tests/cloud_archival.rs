@@ -153,7 +153,6 @@ impl CloudArchiveHarness {
 
     fn shutdown(mut self) {
         self.env.test_loop.run_for(Duration::seconds(5));
-        self.env.shutdown_and_drain_remaining_events(Duration::seconds(10));
     }
 }
 

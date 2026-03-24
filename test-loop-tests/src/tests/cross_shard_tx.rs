@@ -205,8 +205,6 @@ fn test_cross_shard_tx_common(Params { num_transfers, rotate_validators, drop_ch
         },
         Duration::seconds(num_transfers as i64 * 4),
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
 enum Runner {

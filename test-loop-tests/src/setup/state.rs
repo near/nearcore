@@ -1,5 +1,5 @@
 use super::drop_condition::{DropCondition, TestLoopChunksStorage};
-use crate::utils::peer_manager_actor::{
+use super::peer_manager_actor::{
     ChunkEndorsementSenderForTestLoopNetwork, ClientSenderForTestLoopNetwork,
     SpiceDataDistributorSenderForTestLoopNetwork, TestLoopNetworkBlockInfo,
     TestLoopNetworkSharedState, TestLoopPeerManagerActor, TxRequestHandleSenderForTestLoopNetwork,

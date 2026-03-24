@@ -4,7 +4,7 @@ use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt};
+use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptSource};
 use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, ShardChunk, StateSyncInfo};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
@@ -307,12 +307,24 @@ pub(crate) fn processed_receipt_ids_exist_in_receipts(
 ) -> Result<(), StoreValidatorError> {
     for entry in metadata {
         let receipt_id = entry.receipt_id();
-        unwrap_or_err_db!(
-            sv.store.get_ser::<Receipt>(DBCol::Receipts, receipt_id.as_bytes()),
-            "ProcessedReceiptIds references {:?} but it doesn't exist in Receipts column",
-            receipt_id
-        );
-        *sv.inner.receipt_refcount.entry(*receipt_id).or_insert(0) += 1;
+        match entry.source() {
+            ReceiptSource::Local | ReceiptSource::Delayed | ReceiptSource::Instant => {
+                unwrap_or_err_db!(
+                    sv.store.get_ser::<Receipt>(DBCol::Receipts, receipt_id.as_bytes()),
+                    "ProcessedReceiptIds references {:?} but it doesn't exist in Receipts column",
+                    receipt_id
+                );
+                *sv.inner.receipt_refcount.entry(*receipt_id).or_insert(0) += 1;
+            }
+            ReceiptSource::ReceiptToTxGc => {
+                if !sv.store.exists(DBCol::ReceiptToTx, receipt_id.as_bytes()) {
+                    err!(
+                        "ProcessedReceiptIds references {:?} with ReceiptToTxGc source but it doesn't exist in ReceiptToTx column",
+                        receipt_id
+                    );
+                }
+            }
+        }
     }
     Ok(())
 }
