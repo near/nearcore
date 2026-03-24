@@ -77,7 +77,6 @@ pub enum ReasonForBan {
     InvalidPeerId,
     InvalidHash,
     InvalidEdge,
-    InvalidDistanceVector,
     Blacklisted,
     ProvidedNotEnoughHeaders,
     BadChunkStateWitness,
