@@ -1,7 +1,7 @@
 use crate::archive::cloud_storage::CloudStorage;
 use crate::archive::cloud_storage::block_data::BlockData;
 use crate::archive::cloud_storage::epoch_data::EpochData;
-use crate::archive::cloud_storage::file_id::CloudStorageFileID;
+use crate::archive::cloud_storage::file_id::{CloudDir, CloudStorageFileID};
 use crate::archive::cloud_storage::shard_data::ShardData;
 use borsh::BorshDeserialize;
 use near_primitives::state_sync::ShardStateSyncResponseHeader;
@@ -21,11 +21,25 @@ pub enum CloudRetrievalError {
 }
 
 impl CloudStorage {
+    /// Lists the entries in a cloud directory.
+    pub async fn list_dir(&self, dir: &CloudDir) -> Result<Vec<String>, CloudRetrievalError> {
+        let full_path = format!("chain_id={}/{}", self.chain_id, dir.path());
+        self.external
+            .list(&full_path)
+            .await
+            .map_err(|error| CloudRetrievalError::ListError { dir: full_path, error })
+    }
+
     /// Returns the block head from external storage, if present.
     pub async fn retrieve_cloud_block_head_if_exists(
         &self,
     ) -> Result<Option<BlockHeight>, CloudRetrievalError> {
-        self.retrieve_if_exists(&CloudStorageFileID::BlockHead).await
+        let file_id = CloudStorageFileID::BlockHead;
+        let (_, filename) = self.location_dir_and_file(&file_id);
+        if !self.dir_contains(&CloudDir::Metadata, &filename).await? {
+            return Ok(None);
+        }
+        self.retrieve(&file_id).await.map(Some)
     }
 
     /// Returns a shard head from external storage, if present.
@@ -33,7 +47,12 @@ impl CloudStorage {
         &self,
         shard_id: ShardId,
     ) -> Result<Option<BlockHeight>, CloudRetrievalError> {
-        self.retrieve_if_exists(&CloudStorageFileID::ShardHead(shard_id)).await
+        let file_id = CloudStorageFileID::ShardHead(shard_id);
+        let (_, filename) = self.location_dir_and_file(&file_id);
+        if !self.dir_contains(&CloudDir::ShardHeads, &filename).await? {
+            return Ok(None);
+        }
+        self.retrieve(&file_id).await.map(Some)
     }
 
     /// Returns the state snapshot header from external storage.
@@ -89,21 +108,8 @@ impl CloudStorage {
         })
     }
 
-    /// Downloads and deserializes a file from the cloud archive, returning
-    /// `None` if the file does not exist.
-    pub(super) async fn retrieve_if_exists<T: BorshDeserialize>(
-        &self,
-        file_id: &CloudStorageFileID,
-    ) -> Result<Option<T>, CloudRetrievalError> {
-        if !self.exists(file_id).await? {
-            return Ok(None);
-        }
-        let value = self.retrieve(file_id).await?;
-        Ok(Some(value))
-    }
-
     /// Downloads and deserializes a file from the cloud archive.
-    async fn retrieve<T: BorshDeserialize>(
+    pub(super) async fn retrieve<T: BorshDeserialize>(
         &self,
         file_id: &CloudStorageFileID,
     ) -> Result<T, CloudRetrievalError> {
@@ -123,17 +129,13 @@ impl CloudStorage {
             .map_err(|error| CloudRetrievalError::GetError { file_id: file_id.clone(), error })
     }
 
-    /// Checks if a given file exists in the cloud archive.
-    ///
-    /// Note: Internally this may trigger a recursive directory listing — avoid calling it
-    /// on directories containing many files.
-    async fn exists(&self, file_id: &CloudStorageFileID) -> Result<bool, CloudRetrievalError> {
-        let (dir, filename) = self.location_dir_and_file(file_id);
-        let files = self
-            .external
-            .list(&dir)
-            .await
-            .map_err(|error| CloudRetrievalError::ListError { dir, error })?;
-        Ok(files.contains(&filename))
+    /// Checks if a directory contains a file with the given name.
+    pub(super) async fn dir_contains(
+        &self,
+        dir: &CloudDir,
+        filename: &str,
+    ) -> Result<bool, CloudRetrievalError> {
+        let files = self.list_dir(dir).await?;
+        Ok(files.iter().any(|f| f == filename))
     }
 }
