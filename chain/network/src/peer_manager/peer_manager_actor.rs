@@ -661,7 +661,7 @@ impl PeerManagerActor {
                         }.await;
 
                         if let Err(ref err) = result {
-                            tracing::info!(target: "network", ?err, %peer_info, "tier2 failed to connect");
+                            tracing::info!(target: "network", %err, %peer_info, "tier2 failed to connect");
                         }
                         state.peer_store.peer_connection_attempt(&clock, &peer_info.id, result);
                     }.instrument(tracing::trace_span!(target: "network", "monitor_peers_trigger_connect"))
