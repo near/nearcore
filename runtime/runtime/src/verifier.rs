@@ -2123,6 +2123,31 @@ mod tests {
             err,
             InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::DepositWithFunctionCall,)
         );
+
+        // The same transaction without any deposit should succeed.
+        let signed_tx = SignedTransaction::from_actions(
+            2,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "hello".to_string(),
+                args: b"abc".to_vec(),
+                gas: Gas::from_gas(100),
+                deposit: Balance::ZERO,
+            }))],
+            CryptoHash::default(),
+        );
+
+        validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            PROTOCOL_VERSION,
+        )
+        .expect("transaction with zero deposit should succeed");
     }
 
     #[test]
