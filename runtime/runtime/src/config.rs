@@ -172,6 +172,27 @@ pub fn total_send_fees(
             WithdrawFromGasKey(action) => {
                 gas_key_transfer_send_fee(fees, sender_is_receiver, action.public_key.len()).total()
             }
+            FunctionCallV2(function_call_action) => {
+                let num_bytes = function_call_action.method_name.as_bytes().len() as u64
+                    + function_call_action.args.len() as u64;
+                let base_fee =
+                    fees.fee(ActionCosts::function_call_base).send_fee(sender_is_receiver);
+                let byte_fee =
+                    fees.fee(ActionCosts::function_call_byte).send_fee(sender_is_receiver);
+                let all_bytes_fee = byte_fee.checked_mul(num_bytes).unwrap();
+
+                base_fee.checked_add(all_bytes_fee).unwrap()
+            }
+            DeployContractV2(deploy_contract) => {
+                let num_bytes = deploy_contract.code.len() as u64;
+                let base_fee =
+                    fees.fee(ActionCosts::deploy_contract_base).send_fee(sender_is_receiver);
+                let byte_fee =
+                    fees.fee(ActionCosts::deploy_contract_byte).send_fee(sender_is_receiver);
+                let all_bytes_fee = byte_fee.checked_mul(num_bytes).unwrap();
+
+                base_fee.checked_add(all_bytes_fee).unwrap()
+            }
         };
         result = result.checked_add_result(delta)?;
     }
@@ -315,6 +336,23 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
         }
         WithdrawFromGasKey(action) => {
             gas_key_transfer_exec_fee(fees, receiver_id.len(), action.public_key.len()).total()
+        }
+        FunctionCallV2(function_call_action) => {
+            let num_bytes = function_call_action.method_name.as_bytes().len() as u64
+                + function_call_action.args.len() as u64;
+            let base_fee = fees.fee(ActionCosts::function_call_base).exec_fee();
+            let byte_fee = fees.fee(ActionCosts::function_call_byte).exec_fee();
+            let all_bytes_fee = byte_fee.checked_mul(num_bytes).unwrap();
+
+            base_fee.checked_add(all_bytes_fee).unwrap()
+        }
+        DeployContractV2(deploy_contract) => {
+            let num_bytes = deploy_contract.code.len() as u64;
+            let base_fee = fees.fee(ActionCosts::deploy_contract_base).exec_fee();
+            let byte_fee = fees.fee(ActionCosts::deploy_contract_byte).exec_fee();
+            let all_bytes_fee = byte_fee.checked_mul(num_bytes).unwrap();
+
+            base_fee.checked_add(all_bytes_fee).unwrap()
         }
     }
 }
@@ -464,6 +502,23 @@ pub fn total_prepaid_gas(actions: &[Action]) -> Result<Gas, IntegerOverflowError
             action_gas = total_prepaid_gas(&actions)?;
         } else {
             action_gas = action.get_prepaid_gas();
+        }
+
+        total_gas = total_gas.checked_add_result(action_gas)?;
+    }
+    Ok(total_gas)
+}
+
+/// Get the total sum of prepaid storage gas for given actions.
+pub fn total_prepaid_storage_gas(actions: &[Action]) -> Result<Gas, IntegerOverflowError> {
+    let mut total_gas = Gas::ZERO;
+    for action in actions {
+        let action_gas;
+        if let Action::Delegate(signed_delegate_action) = action {
+            let actions = signed_delegate_action.delegate_action.get_actions();
+            action_gas = total_prepaid_storage_gas(&actions)?;
+        } else {
+            action_gas = action.get_prepaid_storage_gas();
         }
 
         total_gas = total_gas.checked_add_result(action_gas)?;

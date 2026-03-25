@@ -6,9 +6,9 @@
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::action::delegate::{DelegateAction, SignedDelegateAction};
 use crate::action::{
-    DeployGlobalContractAction, DeterministicStateInitAction, GlobalContractDeployMode,
-    GlobalContractIdentifier, TransferToGasKeyAction, UseGlobalContractAction,
-    WithdrawFromGasKeyAction,
+    DeployContractV2Action, DeployGlobalContractAction, DeterministicStateInitAction,
+    FunctionCallV2Action, GlobalContractDeployMode, GlobalContractIdentifier,
+    TransferToGasKeyAction, UseGlobalContractAction, WithdrawFromGasKeyAction,
 };
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
@@ -1477,6 +1477,22 @@ pub enum ActionView {
         public_key: PublicKey,
         amount: Balance,
     } = 15,
+    FunctionCallV2 {
+        method_name: String,
+        args: FunctionArgs,
+        gas: Gas,
+        storage_gas: Gas,
+        deposit: Balance,
+    } = 16,
+    DeployContractV2 {
+        #[serde_as(as = "Base64")]
+        #[cfg_attr(
+            feature = "schemars",
+            schemars(schema_with = "crate::serialize::base64_schema")
+        )]
+        code: Vec<u8>,
+        storage_payment: near_primitives_core::account::StoragePayment,
+    } = 17,
 }
 
 impl From<Action> for ActionView {
@@ -1543,6 +1559,17 @@ impl From<Action> for ActionView {
                 public_key: action.public_key,
                 amount: action.amount,
             },
+            Action::FunctionCallV2(action) => ActionView::FunctionCallV2 {
+                method_name: action.method_name,
+                args: action.args.into(),
+                gas: action.gas,
+                storage_gas: action.storage_gas,
+                deposit: action.deposit,
+            },
+            Action::DeployContractV2(action) => {
+                let code = hash(&action.code).as_ref().to_vec();
+                ActionView::DeployContractV2 { code, storage_payment: action.storage_payment }
+            }
         }
     }
 }
@@ -1619,6 +1646,18 @@ impl TryFrom<ActionView> for Action {
                     public_key,
                     amount,
                 }))
+            }
+            ActionView::FunctionCallV2 { method_name, args, gas, storage_gas, deposit } => {
+                Action::FunctionCallV2(Box::new(FunctionCallV2Action {
+                    method_name,
+                    args: args.into(),
+                    gas,
+                    storage_gas,
+                    deposit,
+                }))
+            }
+            ActionView::DeployContractV2 { code, storage_payment } => {
+                Action::DeployContractV2(Box::new(DeployContractV2Action { code, storage_payment }))
             }
         })
     }

@@ -7,8 +7,8 @@ use near_parameters::RuntimeConfig;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::action::delegate::SignedDelegateAction;
 use near_primitives::action::{
-    AddKeyAction, DeployGlobalContractAction, DeterministicStateInitAction,
-    GlobalContractIdentifier, UseGlobalContractAction,
+    AddKeyAction, DeployContractV2Action, DeployGlobalContractAction, DeterministicStateInitAction,
+    FunctionCallV2Action, GlobalContractIdentifier, UseGlobalContractAction,
 };
 use near_primitives::errors::{
     ActionsValidationError, DepositCostFailureReason, InvalidAccessKeyError, InvalidTxError,
@@ -194,12 +194,16 @@ fn verify_function_call_permission(
             InvalidAccessKeyError::RequiresFullAccess,
         ));
     }
-    let Some(Action::FunctionCall(function_call)) = tx.actions().get(0) else {
-        return Err(InvalidTxError::InvalidAccessKeyError(
-            InvalidAccessKeyError::RequiresFullAccess,
-        ));
+    let (fc_deposit, fc_method_name) = match tx.actions().get(0) {
+        Some(Action::FunctionCall(fc)) => (fc.deposit, &fc.method_name),
+        Some(Action::FunctionCallV2(fc)) => (fc.deposit, &fc.method_name),
+        _ => {
+            return Err(InvalidTxError::InvalidAccessKeyError(
+                InvalidAccessKeyError::RequiresFullAccess,
+            ));
+        }
     };
-    if function_call.deposit > Balance::ZERO {
+    if fc_deposit > Balance::ZERO {
         return Err(InvalidTxError::InvalidAccessKeyError(
             InvalidAccessKeyError::DepositWithFunctionCall,
         ));
@@ -218,12 +222,10 @@ fn verify_function_call_permission(
         && function_call_permission
             .method_names
             .iter()
-            .all(|method_name| &function_call.method_name != method_name)
+            .all(|method_name| fc_method_name != method_name)
     {
         return Err(InvalidTxError::InvalidAccessKeyError(
-            InvalidAccessKeyError::MethodNameMismatch {
-                method_name: function_call.method_name.clone(),
-            },
+            InvalidAccessKeyError::MethodNameMismatch { method_name: fc_method_name.clone() },
         ));
     }
     Ok(())
@@ -679,6 +681,22 @@ pub fn validate_action(
         Action::WithdrawFromGasKey(_) => {
             validate_withdraw_from_gas_key_action(current_protocol_version)
         }
+        Action::FunctionCallV2(a) => {
+            require_protocol_feature(
+                ProtocolFeature::StorageGas,
+                "StorageGas",
+                current_protocol_version,
+            )?;
+            validate_function_call_action_v2(limit_config, a)
+        }
+        Action::DeployContractV2(a) => {
+            require_protocol_feature(
+                ProtocolFeature::StorageGas,
+                "StorageGas",
+                current_protocol_version,
+            )?;
+            validate_deploy_contract_v2_action(limit_config, a)
+        }
     }
 }
 
@@ -752,6 +770,47 @@ fn validate_function_call_action(
         return Err(ActionsValidationError::FunctionCallArgumentsLengthExceeded {
             length: action.args.len() as u64,
             limit: limit_config.max_arguments_length,
+        });
+    }
+
+    Ok(())
+}
+
+/// Validates `FunctionCallV2Action`. Same checks as V1.
+fn validate_function_call_action_v2(
+    limit_config: &LimitConfig,
+    action: &FunctionCallV2Action,
+) -> Result<(), ActionsValidationError> {
+    if action.gas == Gas::ZERO {
+        return Err(ActionsValidationError::FunctionCallZeroAttachedGas);
+    }
+
+    if action.method_name.len() as u64 > limit_config.max_length_method_name {
+        return Err(ActionsValidationError::FunctionCallMethodNameLengthExceeded {
+            length: action.method_name.len() as u64,
+            limit: limit_config.max_length_method_name,
+        });
+    }
+
+    if action.args.len() as u64 > limit_config.max_arguments_length {
+        return Err(ActionsValidationError::FunctionCallArgumentsLengthExceeded {
+            length: action.args.len() as u64,
+            limit: limit_config.max_arguments_length,
+        });
+    }
+
+    Ok(())
+}
+
+/// Validates `DeployContractV2Action`. Same checks as V1.
+fn validate_deploy_contract_v2_action(
+    limit_config: &LimitConfig,
+    action: &DeployContractV2Action,
+) -> Result<(), ActionsValidationError> {
+    if action.code.len() as u64 > limit_config.max_contract_size {
+        return Err(ActionsValidationError::ContractSizeExceeded {
+            size: action.code.len() as u64,
+            limit: limit_config.max_contract_size,
         });
     }
 

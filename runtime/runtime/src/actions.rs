@@ -621,41 +621,42 @@ fn validate_delegate_action_key(
             .into());
             return Ok(());
         }
-        if let Some(Action::FunctionCall(function_call)) = actions.get(0) {
-            if function_call.deposit > Balance::ZERO {
+        let (fc_deposit, fc_method_name) = match actions.get(0) {
+            Some(Action::FunctionCall(fc)) => (fc.deposit, &fc.method_name),
+            Some(Action::FunctionCallV2(fc)) => (fc.deposit, &fc.method_name),
+            _ => {
+                // There should be Action::FunctionCall when "function call" permission is used
                 result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
-                    InvalidAccessKeyError::DepositWithFunctionCall,
-                )
-                .into());
-            }
-            if delegate_action.receiver_id != function_call_permission.receiver_id {
-                result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
-                    InvalidAccessKeyError::ReceiverMismatch {
-                        tx_receiver: delegate_action.receiver_id.clone(),
-                        ak_receiver: function_call_permission.receiver_id.clone(),
-                    },
+                    InvalidAccessKeyError::RequiresFullAccess,
                 )
                 .into());
                 return Ok(());
             }
-            if !function_call_permission.method_names.is_empty()
-                && function_call_permission
-                    .method_names
-                    .iter()
-                    .all(|method_name| &function_call.method_name != method_name)
-            {
-                result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
-                    InvalidAccessKeyError::MethodNameMismatch {
-                        method_name: function_call.method_name.clone(),
-                    },
-                )
-                .into());
-                return Ok(());
-            }
-        } else {
-            // There should Action::FunctionCall when "function call" permission is used
+        };
+        if fc_deposit > Balance::ZERO {
             result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
-                InvalidAccessKeyError::RequiresFullAccess,
+                InvalidAccessKeyError::DepositWithFunctionCall,
+            )
+            .into());
+        }
+        if delegate_action.receiver_id != function_call_permission.receiver_id {
+            result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::ReceiverMismatch {
+                    tx_receiver: delegate_action.receiver_id.clone(),
+                    ak_receiver: function_call_permission.receiver_id.clone(),
+                },
+            )
+            .into());
+            return Ok(());
+        }
+        if !function_call_permission.method_names.is_empty()
+            && function_call_permission
+                .method_names
+                .iter()
+                .all(|method_name| fc_method_name != method_name)
+        {
+            result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::MethodNameMismatch { method_name: fc_method_name.clone() },
             )
             .into());
             return Ok(());
@@ -680,6 +681,7 @@ pub(crate) fn check_actor_permissions(
 ) -> Result<(), ActionError> {
     match action {
         Action::DeployContract(_)
+        | Action::DeployContractV2(_)
         | Action::Stake(_)
         | Action::AddKey(_)
         | Action::DeleteKey(_)
@@ -712,6 +714,7 @@ pub(crate) fn check_actor_permissions(
         }
         Action::CreateAccount(_)
         | Action::FunctionCall(_)
+        | Action::FunctionCallV2(_)
         | Action::Transfer(_)
         | Action::TransferToGasKey(_) => (),
         Action::Delegate(_) => (),
@@ -772,7 +775,9 @@ pub(crate) fn check_account_existence(
             // allow optional init before other actions.
         }
         Action::DeployContract(_)
+        | Action::DeployContractV2(_)
         | Action::FunctionCall(_)
+        | Action::FunctionCallV2(_)
         | Action::Stake(_)
         | Action::AddKey(_)
         | Action::DeleteKey(_)

@@ -507,6 +507,10 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                 near_primitives::transaction::Action::DeterministicStateInit(_) => {
                     // TODO(#14073): Implement rosetta adapter, probably first requires global contracts, too
                 }
+                near_primitives::transaction::Action::FunctionCallV2(_)
+                | near_primitives::transaction::Action::DeployContractV2(_) => {
+                    // TODO: Implement storage gas support in rosetta adapter
+                }
                 near_primitives::transaction::Action::TransferToGasKey(action) => {
                     let initiate_op_id = crate::models::OperationIdentifier::new(&operations);
                     operations.push(
