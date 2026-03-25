@@ -179,7 +179,7 @@ impl CloudArchivalWriter {
         let mut initialized = false;
         while !self.handle.0.is_cancelled() {
             let sleep_duration = if !initialized {
-                match self.try_initialize_cloud_heads(&runtime_adapter).await {
+                match self.try_initialize(&runtime_adapter).await {
                     InitializationAttempt::Initialized => {
                         initialized = true;
                         Duration::ZERO
@@ -205,8 +205,8 @@ impl CloudArchivalWriter {
         tracing::debug!(target: "cloud_archival", "stopping the cloud archival loop");
     }
 
-    /// Checks if the node is ready, then initializes cloud heads.
-    async fn try_initialize_cloud_heads(
+    /// Checks if the node is ready, then initializes the cloud archive writer.
+    async fn try_initialize(
         &self,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
     ) -> InitializationAttempt {
@@ -225,7 +225,7 @@ impl CloudArchivalWriter {
             );
             return InitializationAttempt::WaitingForGenesis;
         }
-        match self.initialize_cloud_heads(runtime_adapter).await {
+        match self.initialize(runtime_adapter).await {
             Ok(()) => {
                 tracing::info!(target: "cloud_archival", "cloud archival initialized");
                 InitializationAttempt::Initialized
@@ -389,14 +389,15 @@ impl CloudArchivalWriter {
         Ok(advanced_shards)
     }
 
-    /// Initializes cloud heads by reconciling external and local state.
-    /// Missing components start at `hot_final_height - 1`; existing ones are
-    /// clamped to that same ceiling (see `collect_resolved_heads`).
+    /// Initializes the cloud archive writer: validates bucket config and
+    /// reconciles cloud heads with local state. Missing components start at
+    /// `hot_final_height - 1`; existing ones are clamped to that ceiling.
     // TODO(cloud_archival) Cover this logic with tests.
-    async fn initialize_cloud_heads(
+    async fn initialize(
         &self,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
     ) -> Result<(), CloudArchivalInitializationError> {
+        self.cloud_storage.ensure_bucket_config().await?;
         let hot_final_height = self.get_hot_final_head_height()?;
         // TODO(cloud_archival): support resharding
         let tracked_shard_ids = self.get_tracked_shard_ids(hot_final_height)?;

@@ -638,21 +638,28 @@ class LocalNode(BaseNode):
                                              stdin=subprocess.DEVNULL,
                                              stdout=stdout,
                                              stderr=stderr,
-                                             env=env)
+                                             env=env,
+                                             start_new_session=True)
         self._pid = self._process.pid
 
     def kill(self, *, gentle=False):
+        """Kills the process and its entire process group."""
         logger.info(f"Killing node {self.ordinal}.")
-        """Kills the process.  If `gentle` sends SIGINT before killing."""
         if self._process and gentle:
-            self._process.send_signal(signal.SIGINT)
+            try:
+                os.killpg(self._process.pid, signal.SIGINT)
+            except OSError:
+                pass
             try:
                 self._process.wait(5)
                 self._process = None
             except subprocess.TimeoutExpired:
                 pass
         if self._process:
-            self._process.kill()
+            try:
+                os.killpg(self._process.pid, signal.SIGKILL)
+            except OSError:
+                pass
             self._process.wait(5)
             self._process = None
 

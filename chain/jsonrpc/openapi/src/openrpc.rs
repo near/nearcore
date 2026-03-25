@@ -33,7 +33,9 @@ use near_jsonrpc_primitives::types::maintenance::{
     RpcMaintenanceWindowsRequest, RpcMaintenanceWindowsResponse,
 };
 use near_jsonrpc_primitives::types::network_info::RpcNetworkInfoResponse;
-use near_jsonrpc_primitives::types::receipts::{RpcReceiptRequest, RpcReceiptResponse};
+use near_jsonrpc_primitives::types::receipts::{
+    RpcReceiptRequest, RpcReceiptResponse, RpcReceiptToTxRequest, RpcReceiptToTxResponse,
+};
 use near_jsonrpc_primitives::types::split_storage::{
     RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse,
 };
@@ -1135,6 +1137,14 @@ pub fn generate_openrpc() -> serde_json::Value {
         &mut all_schemas,
         "EXPERIMENTAL_receipt",
         "Returns receipt by receipt_id",
+        false,
+        &["receipt", "experimental"],
+    );
+    add_method::<RpcReceiptToTxRequest, RpcReceiptToTxResponse>(
+        &mut methods,
+        &mut all_schemas,
+        "EXPERIMENTAL_receipt_to_tx",
+        "Resolves a receipt ID back to the originating transaction hash and sender account",
         false,
         &["receipt", "experimental"],
     );

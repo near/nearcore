@@ -1843,6 +1843,11 @@ impl ClientActor {
             SyncHandlerRequest::NeedProcessBlockArtifact(block_processing_artifacts) => {
                 self.client.process_block_processing_artifact(block_processing_artifacts);
             }
+            SyncHandlerRequest::EpochSyncDataReset => {
+                if let Some(tx) = self.shutdown_signal.take() {
+                    let _ = tx.send(ShutdownReason::EpochSyncDataReset);
+                }
+            }
         }
     }
 
