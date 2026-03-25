@@ -888,6 +888,27 @@ impl From<near_chain_primitives::Error> for GetReceiptError {
 }
 
 #[derive(Debug)]
+pub struct GetReceiptToTx {
+    pub receipt_id: CryptoHash,
+}
+
+#[derive(Debug)]
+pub struct GetReceiptToTxResponse {
+    pub transaction_hash: CryptoHash,
+    pub sender_account_id: AccountId,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetReceiptToTxError {
+    #[error("Receipt with id {0} has never been observed on this node")]
+    UnknownReceipt(CryptoHash),
+    #[error("depth limit {limit} exceeded when resolving receipt {receipt_id}")]
+    DepthExceeded { receipt_id: CryptoHash, limit: u32 },
+    #[error("this node does not support receipt-to-tx lookup: {0}")]
+    Unsupported(String),
+}
+
+#[derive(Debug)]
 pub struct GetProtocolConfig(pub BlockReference);
 
 #[derive(thiserror::Error, Debug)]
