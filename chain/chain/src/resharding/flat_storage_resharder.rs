@@ -249,7 +249,7 @@ impl FlatStorageResharder {
             .get_flat_storage_manager()
             .get_flat_storage_for_shard(parent_shard)
             .expect("flat storage of the parent shard must exist!")
-            .set_flat_head_update_mode(false);
+            .hold_flat_head();
         store_update.set_flat_storage_status(
             split_params.left_child_shard,
             FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CreatingChild),
@@ -462,7 +462,7 @@ impl FlatStorageResharder {
                 self.runtime
                     .get_flat_storage_manager()
                     .get_flat_storage_for_shard(parent_shard)
-                    .map(|flat_storage| flat_storage.set_flat_head_update_mode(true));
+                    .map(|flat_storage| flat_storage.release_flat_head_hold());
                 // Remove children shards entirely.
                 for child_shard in [left_child_shard, right_child_shard] {
                     store_update.remove_flat_storage(child_shard);

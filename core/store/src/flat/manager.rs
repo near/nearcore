@@ -86,7 +86,7 @@ impl FlatStorageManager {
         let mut flat_storages = self.0.flat_storages.lock();
         let flat_storage = FlatStorage::new(self.0.store.clone(), shard_uid)?;
         if disable_updates {
-            flat_storage.set_flat_head_update_mode(false);
+            flat_storage.hold_flat_head();
         }
         let original_value = flat_storages.insert(shard_uid, flat_storage);
         if original_value.is_some() {
@@ -309,7 +309,7 @@ impl FlatStorageManager {
         }
         let flat_storages = self.0.flat_storages.lock();
         for flat_storage in flat_storages.values() {
-            flat_storage.set_flat_head_update_mode(false);
+            flat_storage.hold_flat_head();
         }
         tracing::debug!(target: "store", "locked flat head updates");
     }
@@ -330,7 +330,7 @@ impl FlatStorageManager {
         }
         let flat_storages = self.0.flat_storages.lock();
         for flat_storage in flat_storages.values() {
-            flat_storage.set_flat_head_update_mode(true);
+            flat_storage.release_flat_head_hold();
         }
         tracing::debug!(target: "store", "unlocked flat head updates");
     }

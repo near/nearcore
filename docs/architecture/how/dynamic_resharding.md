@@ -225,7 +225,7 @@ The parent shard's memtrie must be loaded when resharding executes (checked at `
 ### Key implementation details
 
 - **Background task**: Uses `AsyncComputationSpawner` + `crossbeam::channel::bounded(1)` to run the load as a background task. In production this runs on a separate thread; in test-loop tests it runs deterministically via `TestLoopAsyncComputationSpawner`. The spawner is passed to `spawn_background_memtrie_loading_for_shard()` by the caller (`Chain`).
-- **Flat head pausing**: Before spawning the background task, `spawn_background_memtrie_loading_for_shard()` disables flat head updates on the shard's `FlatStorage` (via `set_flat_head_update_mode(false)`). While disabled, new deltas are still accumulated but the flat head does not advance and deltas are not GC'd. This preserves the deltas needed for catch-up after the background load completes. Flat head updates are re-enabled when loading succeeds, fails, or is cancelled.
+- **Flat head pausing**: Before spawning the background task, `spawn_background_memtrie_loading_for_shard()` places a hold on the shard's `FlatStorage` flat head (via `hold_flat_head()`). While held, new deltas are still accumulated but the flat head does not advance and deltas are not GC'd. This preserves the deltas needed for catch-up after the background load completes. The hold is released when loading succeeds, fails, or is cancelled. Multiple subsystems (state snapshots, background memtrie loading, resharding) can independently hold the flat head; it only advances once all holds are released.
 - **Delta catch-up**: After the background load completes, `apply_deltas_to_memtries()` in `core/store/src/trie/mem/loading.rs` applies any flat state deltas accumulated during the loading period. Deltas at or below the base height (flat_head at load start) are skipped, as are deltas whose state roots are already in the memtrie.
 - **Safe insertion**: The memtrie is inserted into the active map in `postprocess_ready_block()`, before chunk processing for that block begins. This ensures no in-flight chunk applications see an unexpected memtrie appear mid-processing.
 - **Startup fallback**: If the node restarts during epoch N+1 (after the decision but before execution), `Chain::new()` detects the pending resharding via `EpochManagerAdapter::get_resharding_parent_shard_uid()` (which compares current and next epoch shard layouts) and adds the parent shard for synchronous loading.
@@ -233,7 +233,7 @@ The parent shard's memtrie must be loaded when resharding executes (checked at `
 
 ### Key files
 
-- `core/store/src/flat/storage.rs` -- `set_flat_head_update_mode()` used to pause/resume flat head updates during loading
+- `core/store/src/flat/storage.rs` -- `hold_flat_head()` / `release_flat_head_hold()` used to pause/resume flat head updates during loading
 - `core/store/src/trie/mem/loading.rs` -- `apply_deltas_to_memtries()` for reusable delta catch-up (with `base_height` filtering)
 - `core/store/src/trie/shard_tries.rs` -- `spawn_background_memtrie_loading_for_shard()`, `try_finalize_background_memtrie_loading()`, `retain_memtries()` (cancellation)
 - `chain/chain/src/chain.rs` -- `maybe_start_memtrie_preload_for_resharding()` (epoch boundary trigger), `postprocess_ready_block()` (per-block finalization), `Chain::new()` (startup detection)

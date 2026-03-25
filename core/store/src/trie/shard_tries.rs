@@ -559,7 +559,7 @@ impl ShardTries {
 
         // Disable flat head updates while loading, so that deltas accumulated
         // during the loading are preserved for catch-up.
-        flat_storage.set_flat_head_update_mode(false);
+        flat_storage.hold_flat_head();
         let store = self.0.store.store();
         let (tx, rx) = crossbeam::channel::bounded(1);
         spawner.spawn("memtrie_bg_load", move || {
@@ -643,7 +643,7 @@ impl ShardTries {
         if let Some(flat_storage) =
             self.0.flat_storage_manager.get_flat_storage_for_shard(shard_uid)
         {
-            flat_storage.set_flat_head_update_mode(true);
+            flat_storage.release_flat_head_hold();
         }
     }
 
