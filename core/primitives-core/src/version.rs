@@ -344,8 +344,8 @@ pub enum ProtocolFeature {
     /// violating the documented contract of no mutation on error.
     FixAccessKeyAllowanceCharging,
     /// Fix missing early return on DepositWithFunctionCall error path in
-    /// validate_delegate_action_key. Previously the nonce was silently
-    /// persisted to the trie even when the action was rejected.
+    /// validate_delegate_action_key. Previously the error could be
+    /// overwritten by a subsequent receiver_id or method_name check.
     FixDelegateActionNonceOnDepositWithFunctionCall,
     Spice,
     ContinuousEpochSync,

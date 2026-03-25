@@ -628,8 +628,8 @@ fn validate_delegate_action_key(
                 )
                 .into());
                 // Before this fix, the missing early return allowed execution
-                // to fall through to set_access_key(), silently persisting the
-                // advanced nonce despite the rejected action.
+                // to fall through to the receiver_id and method_name checks,
+                // which could overwrite this error with a different one.
                 if ProtocolFeature::FixDelegateActionNonceOnDepositWithFunctionCall
                     .enabled(apply_state.current_protocol_version)
                 {
@@ -1517,9 +1517,13 @@ mod tests {
         );
     }
 
-    fn deposit_with_function_call_nonce_scenario(
+    /// Build a delegate action that triggers both DepositWithFunctionCall
+    /// (deposit > 0) and ReceiverMismatch (receiver differs from the function
+    /// call permission). Before the fix, the missing early return lets
+    /// ReceiverMismatch overwrite DepositWithFunctionCall.
+    fn deposit_with_function_call_and_receiver_mismatch(
         protocol_version: ProtocolVersion,
-    ) -> (TrieUpdate, u64, AccountId, PublicKey) {
+    ) -> ActionResult {
         let (_, signed_delegate_action) = create_delegate_action_receipt();
         let sender_id = signed_delegate_action.delegate_action.sender_id.clone();
         let sender_pub_key = signed_delegate_action.delegate_action.public_key.clone();
@@ -1529,7 +1533,9 @@ mod tests {
             nonce: initial_nonce,
             permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                 allowance: None,
-                receiver_id: signed_delegate_action.delegate_action.receiver_id.to_string(),
+                // Use a different receiver than the delegate action to trigger
+                // ReceiverMismatch after DepositWithFunctionCall.
+                receiver_id: "other.test.near".to_string(),
                 method_names: Vec::new(),
             }),
         };
@@ -1558,6 +1564,35 @@ mod tests {
         )
         .expect("validate_delegate_action_key must not return a RuntimeError");
 
+        result
+    }
+
+    #[test]
+    fn test_delegate_deposit_with_function_call_reports_receiver_mismatch_before_fix() {
+        let version =
+            ProtocolFeature::FixDelegateActionNonceOnDepositWithFunctionCall.protocol_version() - 1;
+        let result = deposit_with_function_call_and_receiver_mismatch(version);
+
+        // Legacy: missing early return lets ReceiverMismatch overwrite
+        // DepositWithFunctionCall.
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::ReceiverMismatch {
+                    tx_receiver: "token.test.near".parse().unwrap(),
+                    ak_receiver: "other.test.near".parse().unwrap(),
+                },
+            )
+            .into()),
+        );
+    }
+
+    #[test]
+    fn test_delegate_deposit_with_function_call_reports_deposit_error() {
+        let version =
+            ProtocolFeature::FixDelegateActionNonceOnDepositWithFunctionCall.protocol_version();
+        let result = deposit_with_function_call_and_receiver_mismatch(version);
+
         assert_eq!(
             result.result,
             Err(ActionErrorKind::DelegateActionAccessKeyError(
@@ -1565,38 +1600,6 @@ mod tests {
             )
             .into()),
         );
-
-        (state_update, initial_nonce, sender_id, sender_pub_key)
-    }
-
-    #[test]
-    fn test_deposit_with_function_call_nonce_consumed_before_fix() {
-        let version =
-            ProtocolFeature::FixDelegateActionNonceOnDepositWithFunctionCall.protocol_version() - 1;
-        let (state_update, initial_nonce, sender_id, sender_pub_key) =
-            deposit_with_function_call_nonce_scenario(version);
-
-        let stored_key = get_access_key(&state_update, &sender_id, &sender_pub_key)
-            .expect("trie read must not fail")
-            .expect("access key must still exist");
-
-        // Pre-fix: nonce is silently advanced despite the rejection.
-        assert_eq!(stored_key.nonce, initial_nonce + 1);
-    }
-
-    #[test]
-    fn test_deposit_with_function_call_nonce_not_consumed_after_fix() {
-        let version =
-            ProtocolFeature::FixDelegateActionNonceOnDepositWithFunctionCall.protocol_version();
-        let (state_update, initial_nonce, sender_id, sender_pub_key) =
-            deposit_with_function_call_nonce_scenario(version);
-
-        let stored_key = get_access_key(&state_update, &sender_id, &sender_pub_key)
-            .expect("trie read must not fail")
-            .expect("access key must still exist");
-
-        // Post-fix: nonce must not advance on a rejected action.
-        assert_eq!(stored_key.nonce, initial_nonce);
     }
 
     #[test]
