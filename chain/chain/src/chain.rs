@@ -84,7 +84,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId, ShardIndex,
 };
-use near_primitives::utils::MaybeValidated;
+use near_primitives::utils::{MaybeValidated, get_block_shard_id};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
@@ -96,6 +96,7 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::get_genesis_state_roots;
 use near_store::merkle_proof::MerkleProofAccess;
 use near_store::{DBCol, StateSnapshotConfig};
+use near_vm_runner::logic::ProtocolVersion;
 use node_runtime::{PostState, PostStateReadyCallback, SignedValidPeriodTransactions};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::cell::Cell;
@@ -1453,13 +1454,16 @@ impl Chain {
     /// `(header.hash(), shard_id)`. This makes historical chunk producer lookups
     /// available from the DB without recomputation.
     ///
-    /// Only populated on nightly builds. On stable builds this is a no-op.
-    #[cfg(feature = "nightly")]
+    /// Gated behind `EarlyKickout` protocol feature. No-op when disabled.
     pub(crate) fn save_chunk_producers_for_header(
         epoch_manager: &dyn EpochManagerAdapter,
         header: &BlockHeader,
         chain_store_update: &mut ChainStoreUpdate,
+        protocol_version: ProtocolVersion,
     ) -> Result<(), Error> {
+        if !ProtocolFeature::EarlyKickout.enabled(protocol_version) {
+            return Ok(());
+        }
         let prev_block_hash = header.hash();
 
         // Get the epoch for the next block (height + 1). At epoch boundaries
@@ -1488,7 +1492,7 @@ impl Chain {
                 epoch_info.sample_chunk_producer(&shard_layout, shard_id, height)
             {
                 let validator_stake = epoch_info.get_validator(validator_id);
-                let key = near_primitives::utils::get_block_shard_id(prev_block_hash, shard_id);
+                let key = get_block_shard_id(prev_block_hash, shard_id);
                 store_update.insert_ser(DBCol::ChunkProducers, &key, &validator_stake);
             }
         }
@@ -1549,11 +1553,11 @@ impl Chain {
                 *header.random_value(),
             )?;
             chain_store_update.merge(epoch_manager_update.into());
-            #[cfg(feature = "nightly")]
             Self::save_chunk_producers_for_header(
                 self.epoch_manager.as_ref(),
                 header,
                 &mut chain_store_update,
+                current_protocol_version,
             )?;
             chain_store_update.commit()?;
         }

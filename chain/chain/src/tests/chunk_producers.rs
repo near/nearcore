@@ -10,6 +10,7 @@ mod tests {
     use near_primitives::test_utils::TestBlockBuilder;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::utils::get_block_shard_id;
+    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::DBCol;
 
     /// Verify that the ChunkProducers column is populated for the genesis block.
@@ -185,6 +186,7 @@ mod tests {
                 epoch_manager.as_ref(),
                 block.header(),
                 &mut chain_store_update,
+                PROTOCOL_VERSION,
             );
             assert!(result.is_ok(), "should return Ok when epoch is not available");
             chain_store_update.commit().unwrap();

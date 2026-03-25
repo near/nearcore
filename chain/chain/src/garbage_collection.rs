@@ -1309,7 +1309,6 @@ impl<'a> ChainStoreUpdate<'a> {
             => unreachable!(),
             // ChunkProducers is not garbage collected. Once dynamic chunk producer
             // sampling ships, historical assignments become non-recomputable.
-            #[cfg(feature = "nightly")]
             DBCol::ChunkProducers => unreachable!(),
         }
         self.merge(store_update);
