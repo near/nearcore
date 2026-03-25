@@ -607,9 +607,10 @@ impl RunCmd {
                 }
             };
 
-            // Write marker if this is an epoch sync data reset shutdown.
+            // Write marker and re-exec if this is an epoch sync data reset shutdown.
             if let ShutdownSignal::ClientShutdown(ShutdownReason::EpochSyncDataReset) = &sig {
                 write_epoch_sync_data_reset_marker(&hot_store_path);
+                exec_restart();
             }
 
             tracing::warn!(target: "neard", ?sig, "stopping, this may take a few minutes");
@@ -654,6 +655,34 @@ fn write_epoch_sync_data_reset_marker(hot_store_path: &Path) {
         .and_then(|f| f.sync_all())
         .expect("failed to fsync reset marker file");
     tracing::info!(target: "neard", ?marker_path, "epoch sync data reset marker written");
+}
+
+/// On non-unix platforms, exec is not available.
+#[cfg(not(unix))]
+fn exec_restart() {
+    tracing::warn!(
+        target: "neard",
+        "automatic restart after epoch sync data reset is not supported on this platform, \
+         please restart manually"
+    );
+}
+
+/// Re-execs the current process with the same arguments.
+/// On success, this function never returns (the process image is replaced).
+#[cfg(unix)]
+fn exec_restart() {
+    use std::env::{args_os, current_exe};
+    use std::os::unix::process::CommandExt;
+    use std::process::Command;
+
+    let binary = current_exe().expect("failed to determine current executable path");
+    let args: Vec<_> = args_os().skip(1).collect();
+
+    tracing::info!(target: "neard", ?binary, ?args, "restarting process after epoch sync data reset");
+
+    // exec() replaces the process image. If it returns, it failed.
+    let err = Command::new(&binary).args(&args).exec();
+    panic!("failed to exec {:?}: {}", binary, err);
 }
 
 #[cfg(not(unix))]
