@@ -15,8 +15,10 @@ pub mod retrieve;
 
 pub(super) mod block_data;
 pub(super) mod epoch_data;
-pub mod file_id;
+mod file_id;
 pub(super) mod shard_data;
+
+pub use file_id::CloudDir;
 
 /// Handles operations related to cloud storage used for archival data.
 pub struct CloudStorage {

@@ -139,3 +139,54 @@ impl CloudStorage {
         Ok(files.iter().any(|f| f == filename))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use near_external_storage::ExternalConnection;
+
+    fn test_cloud_storage(root_dir: &std::path::Path) -> CloudStorage {
+        CloudStorage {
+            external: ExternalConnection::Filesystem { root_dir: root_dir.to_path_buf() },
+            chain_id: "test".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_dir_constructs_correct_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cs = test_cloud_storage(tmp.path());
+
+        // Create files under chain_id=test/metadata/shard_head/
+        let shard_dir = tmp.path().join("chain_id=test/metadata/shard_head");
+        std::fs::create_dir_all(&shard_dir).unwrap();
+        std::fs::write(shard_dir.join("0"), b"").unwrap();
+        std::fs::write(shard_dir.join("1"), b"").unwrap();
+
+        let mut entries = cs.list_dir(&CloudDir::ShardHeads).await.unwrap();
+        entries.sort();
+        assert_eq!(entries, vec!["0", "1"]);
+    }
+
+    #[tokio::test]
+    async fn test_list_dir_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cs = test_cloud_storage(tmp.path());
+
+        let entries = cs.list_dir(&CloudDir::ShardHeads).await.unwrap();
+        assert!(entries.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_dir_contains() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cs = test_cloud_storage(tmp.path());
+
+        let meta_dir = tmp.path().join("chain_id=test/metadata");
+        std::fs::create_dir_all(&meta_dir).unwrap();
+        std::fs::write(meta_dir.join("block_head"), b"").unwrap();
+
+        assert!(cs.dir_contains(&CloudDir::Metadata, "block_head").await.unwrap());
+        assert!(!cs.dir_contains(&CloudDir::Metadata, "nonexistent").await.unwrap());
+    }
+}
