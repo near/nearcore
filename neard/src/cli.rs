@@ -607,10 +607,11 @@ impl RunCmd {
                 }
             };
 
-            // Write marker and re-exec if this is an epoch sync data reset shutdown.
-            if let ShutdownSignal::ClientShutdown(ShutdownReason::EpochSyncDataReset) = &sig {
+            // Write marker if this is an epoch sync data reset shutdown.
+            let needs_restart =
+                matches!(&sig, ShutdownSignal::ClientShutdown(ShutdownReason::EpochSyncDataReset));
+            if needs_restart {
                 write_epoch_sync_data_reset_marker(&hot_store_path);
-                exec_restart();
             }
 
             tracing::warn!(target: "neard", ?sig, "stopping, this may take a few minutes");
@@ -621,6 +622,12 @@ impl RunCmd {
             near_async::shutdown_all_actors();
             // Disable the subscriber to properly shutdown the tracer.
             near_o11y::reload(Some("error"), None, Some("off"), None).unwrap();
+
+            // Re-exec after shutting down actors. We skip RocksDB shutdown since
+            // the data directory will be wiped on the next startup anyway.
+            if needs_restart {
+                exec_restart();
+            }
         });
         tracing::info!(target: "neard", "waiting for rocksdb to gracefully shutdown");
         RocksDB::block_until_all_instances_are_dropped();
@@ -651,9 +658,15 @@ fn write_epoch_sync_data_reset_marker(hot_store_path: &Path) {
     std::fs::create_dir_all(hot_store_path)
         .expect("failed to create data directory for reset marker");
     std::fs::write(&marker_path, b"").expect("failed to write epoch sync reset marker");
+    // Fsync the marker file and the parent directory to ensure the directory
+    // entry is durably persisted (fsync on the file alone is not sufficient
+    // on all filesystems).
     std::fs::File::open(&marker_path)
         .and_then(|f| f.sync_all())
         .expect("failed to fsync reset marker file");
+    std::fs::File::open(hot_store_path)
+        .and_then(|d| d.sync_all())
+        .expect("failed to fsync hot store directory");
     tracing::info!(target: "neard", ?marker_path, "epoch sync data reset marker written");
 }
 
