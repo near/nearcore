@@ -16,14 +16,11 @@ use near_primitives::types::{
     AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, ShardId, ShardIndex,
     ValidatorInfoIdentifier,
 };
-#[cfg(feature = "nightly")]
 use near_primitives::utils::get_block_shard_id;
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::EpochValidatorInfo;
-#[cfg(feature = "nightly")]
 use near_store::DBCol;
 use near_store::ShardUId;
-#[cfg(feature = "nightly")]
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::epoch_store::EpochStoreUpdateAdapter;
 use std::cmp::Ordering;
@@ -1013,9 +1010,10 @@ impl EpochManagerAdapter for EpochManagerHandle {
         prev_block_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<ValidatorStake, EpochError> {
-        // Try DB first (column only exists on nightly builds).
-        #[cfg(feature = "nightly")]
-        {
+        let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
+        let protocol_version = self.get_epoch_protocol_version(&epoch_id)?;
+        // Try DB first when EarlyKickout is enabled (column is populated).
+        if ProtocolFeature::EarlyKickout.enabled(protocol_version) {
             let epoch_manager = self.read();
             let key = get_block_shard_id(prev_block_hash, shard_id);
             if let Some(validator) = epoch_manager
@@ -1033,7 +1031,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
             %shard_id,
             "chunk producer not in DB, falling back to computation",
         );
-        let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
         let block_info = self.get_block_info(prev_block_hash)?;
         let height = block_info.height() + 1;
         self.get_chunk_producer_for_height(&epoch_id, height, shard_id)
@@ -1044,8 +1041,9 @@ impl EpochManagerAdapter for EpochManagerHandle {
         prev_block_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<ValidatorStake, EpochError> {
-        #[cfg(feature = "nightly")]
-        {
+        let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
+        let protocol_version = self.get_epoch_protocol_version(&epoch_id)?;
+        if ProtocolFeature::EarlyKickout.enabled(protocol_version) {
             let epoch_manager = self.read();
             let key = get_block_shard_id(prev_block_hash, shard_id);
             return match epoch_manager
@@ -1060,14 +1058,10 @@ impl EpochManagerAdapter for EpochManagerHandle {
                 ))),
             };
         }
-        // On stable, fall back to computation (DB column not populated).
-        #[cfg(not(feature = "nightly"))]
-        {
-            let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
-            let block_info = self.get_block_info(prev_block_hash)?;
-            let height = block_info.height() + 1;
-            self.get_chunk_producer_for_height(&epoch_id, height, shard_id)
-        }
+        // Feature not enabled — fall back to computation.
+        let block_info = self.get_block_info(prev_block_hash)?;
+        let height = block_info.height() + 1;
+        self.get_chunk_producer_for_height(&epoch_id, height, shard_id)
     }
 
     fn get_chunk_validator_assignments(
