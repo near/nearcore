@@ -630,7 +630,7 @@ fn validate_delegate_action_key(
                 // Before this fix, the missing early return allowed execution
                 // to fall through to the receiver_id and method_name checks,
                 // which could overwrite this error with a different one.
-                if ProtocolFeature::FixDelegateActionNonceOnDepositWithFunctionCall
+                if ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
                     .enabled(apply_state.current_protocol_version)
                 {
                     return Ok(());
@@ -1570,7 +1570,7 @@ mod tests {
     #[test]
     fn test_delegate_deposit_with_function_call_reports_receiver_mismatch_before_fix() {
         let version =
-            ProtocolFeature::FixDelegateActionNonceOnDepositWithFunctionCall.protocol_version() - 1;
+            ProtocolFeature::FixDelegateActionDepositWithFunctionCallError.protocol_version() - 1;
         let result = deposit_with_function_call_and_receiver_mismatch(version);
 
         // Legacy: missing early return lets ReceiverMismatch overwrite
@@ -1590,7 +1590,7 @@ mod tests {
     #[test]
     fn test_delegate_deposit_with_function_call_reports_deposit_error() {
         let version =
-            ProtocolFeature::FixDelegateActionNonceOnDepositWithFunctionCall.protocol_version();
+            ProtocolFeature::FixDelegateActionDepositWithFunctionCallError.protocol_version();
         let result = deposit_with_function_call_and_receiver_mismatch(version);
 
         assert_eq!(
