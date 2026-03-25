@@ -1,7 +1,7 @@
 use crate::archive::cloud_storage::CloudStorage;
 use crate::archive::cloud_storage::block_data::BlockData;
 use crate::archive::cloud_storage::epoch_data::EpochData;
-use crate::archive::cloud_storage::file_id::{CloudDir, CloudStorageFileID};
+use crate::archive::cloud_storage::file_id::{CloudStorageFileID, ListableCloudDir};
 use crate::archive::cloud_storage::shard_data::ShardData;
 use borsh::BorshDeserialize;
 use near_primitives::state_sync::ShardStateSyncResponseHeader;
@@ -22,7 +22,10 @@ pub enum CloudRetrievalError {
 
 impl CloudStorage {
     /// Lists the entries in a cloud directory.
-    pub async fn list_dir(&self, dir: &CloudDir) -> Result<Vec<String>, CloudRetrievalError> {
+    pub async fn list_dir(
+        &self,
+        dir: &ListableCloudDir,
+    ) -> Result<Vec<String>, CloudRetrievalError> {
         let full_path = format!("chain_id={}/{}", self.chain_id, dir.path());
         self.external
             .list(&full_path)
@@ -36,7 +39,7 @@ impl CloudStorage {
     ) -> Result<Option<BlockHeight>, CloudRetrievalError> {
         let file_id = CloudStorageFileID::BlockHead;
         let (_, filename) = self.location_dir_and_file(&file_id);
-        if !self.dir_contains(&CloudDir::Metadata, &filename).await? {
+        if !self.dir_contains(&ListableCloudDir::Metadata, &filename).await? {
             return Ok(None);
         }
         self.retrieve(&file_id).await.map(Some)
@@ -49,7 +52,7 @@ impl CloudStorage {
     ) -> Result<Option<BlockHeight>, CloudRetrievalError> {
         let file_id = CloudStorageFileID::ShardHead(shard_id);
         let (_, filename) = self.location_dir_and_file(&file_id);
-        if !self.dir_contains(&CloudDir::ShardHeads, &filename).await? {
+        if !self.dir_contains(&ListableCloudDir::ShardHeads, &filename).await? {
             return Ok(None);
         }
         self.retrieve(&file_id).await.map(Some)
@@ -132,7 +135,7 @@ impl CloudStorage {
     /// Checks if a directory contains a file with the given name.
     pub(super) async fn dir_contains(
         &self,
-        dir: &CloudDir,
+        dir: &ListableCloudDir,
         filename: &str,
     ) -> Result<bool, CloudRetrievalError> {
         let files = self.list_dir(dir).await?;
@@ -163,7 +166,7 @@ mod tests {
         std::fs::write(shard_dir.join("0"), b"").unwrap();
         std::fs::write(shard_dir.join("1"), b"").unwrap();
 
-        let mut entries = cs.list_dir(&CloudDir::ShardHeads).await.unwrap();
+        let mut entries = cs.list_dir(&ListableCloudDir::ShardHeads).await.unwrap();
         entries.sort();
         assert_eq!(entries, vec!["0", "1"]);
     }
@@ -173,7 +176,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let cs = test_cloud_storage(tmp.path());
 
-        let entries = cs.list_dir(&CloudDir::ShardHeads).await.unwrap();
+        let entries = cs.list_dir(&ListableCloudDir::ShardHeads).await.unwrap();
         assert!(entries.is_empty());
     }
 
@@ -186,7 +189,7 @@ mod tests {
         std::fs::create_dir_all(&meta_dir).unwrap();
         std::fs::write(meta_dir.join("block_head"), b"").unwrap();
 
-        assert!(cs.dir_contains(&CloudDir::Metadata, "block_head").await.unwrap());
-        assert!(!cs.dir_contains(&CloudDir::Metadata, "nonexistent").await.unwrap());
+        assert!(cs.dir_contains(&ListableCloudDir::Metadata, "block_head").await.unwrap());
+        assert!(!cs.dir_contains(&ListableCloudDir::Metadata, "nonexistent").await.unwrap());
     }
 }

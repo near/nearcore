@@ -3,7 +3,7 @@ use crate::archive::cloud_storage::CloudStorage;
 use crate::archive::cloud_storage::block_data::build_block_data;
 use crate::archive::cloud_storage::bucket_config::BucketConfig;
 use crate::archive::cloud_storage::epoch_data::build_epoch_data;
-use crate::archive::cloud_storage::file_id::{CloudDir, CloudStorageFileID};
+use crate::archive::cloud_storage::file_id::{CloudStorageFileID, ListableCloudDir};
 use crate::archive::cloud_storage::retrieve::CloudRetrievalError;
 use crate::archive::cloud_storage::shard_data::build_shard_data;
 use near_primitives::errors::EpochError;
@@ -61,7 +61,7 @@ impl CloudStorage {
         let file_id = CloudStorageFileID::Config;
         let (_, filename) = self.location_dir_and_file(&file_id);
         let exists = self
-            .dir_contains(&CloudDir::Metadata, &filename)
+            .dir_contains(&ListableCloudDir::Metadata, &filename)
             .await
             .map_err(CloudArchivingError::from)?;
         let existing: Option<BucketConfig> = if exists {

@@ -1,14 +1,15 @@
 use crate::archive::cloud_storage::CloudStorage;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
 
-/// Directories that can be safely listed (recursively).
-#[derive(Clone, Debug)]
-pub enum CloudDir {
+/// Cloud directories that can be safely listed (recursively).
+/// Unbounded directories (heights/, epochs/) must not be listed.
+#[derive(Clone, Copy, Debug)]
+pub enum ListableCloudDir {
     Metadata,
     ShardHeads,
 }
 
-impl CloudDir {
+impl ListableCloudDir {
     pub fn path(&self) -> String {
         match self {
             Self::Metadata => "metadata".into(),
@@ -42,10 +43,12 @@ impl CloudStorage {
     /// Returns the directory path and file name for the given file identifier.
     pub fn location_dir_and_file(&self, file_id: &CloudStorageFileID) -> (String, String) {
         let (mut dir_path, file_name) = match file_id {
-            CloudStorageFileID::Config => (CloudDir::Metadata.path(), "config".into()),
-            CloudStorageFileID::BlockHead => (CloudDir::Metadata.path(), "block_head".into()),
+            CloudStorageFileID::Config => (ListableCloudDir::Metadata.path(), "config".into()),
+            CloudStorageFileID::BlockHead => {
+                (ListableCloudDir::Metadata.path(), "block_head".into())
+            }
             CloudStorageFileID::ShardHead(shard_id) => {
-                (CloudDir::ShardHeads.path(), format!("{shard_id}"))
+                (ListableCloudDir::ShardHeads.path(), format!("{shard_id}"))
             }
             CloudStorageFileID::Epoch(epoch_id) => {
                 (format!("epochs/epoch_id={}", epoch_id.0), "epoch_data".into())

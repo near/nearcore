@@ -8,8 +8,8 @@ use near_store::DBCol;
 use near_store::Mode;
 use near_store::NodeStorage;
 use near_store::Store;
-use near_store::archive::cloud_storage::CloudDir;
 use near_store::archive::cloud_storage::CloudStorage;
+use near_store::archive::cloud_storage::ListableCloudDir;
 use near_store::archive::cloud_storage::opener::CloudStorageOpener;
 use near_store::db::CLOUD_BLOCK_HEAD_KEY;
 use near_store::db::CLOUD_MIN_HEAD_KEY;
@@ -40,7 +40,7 @@ fn collect_external(cloud_storage: &Arc<CloudStorage>) -> anyhow::Result<Externa
         .context("failed to retrieve block head from cloud")?;
 
     let shard_files = runtime
-        .block_on(cloud_storage.list_dir(&CloudDir::ShardHeads))
+        .block_on(cloud_storage.list_dir(&ListableCloudDir::ShardHeads))
         .context("failed to list shard heads in cloud")?;
 
     let mut shard_heads = Vec::new();
@@ -96,14 +96,15 @@ fn read_local_shard_heads(store: &Store) -> Vec<(ShardId, BlockHeight)> {
     shard_heads
 }
 
-fn print_status(external: &ExternalStatus, local: &LocalStatus) {
+fn print_external(external: &ExternalStatus) {
     println!("=== External storage (cloud) ===");
     println!("  block head:  {:?}", external.block_head);
     for (shard_id, height) in &external.shard_heads {
         println!("  shard {} head: {}", shard_id, height);
     }
+}
 
-    println!();
+fn print_local(local: &LocalStatus) {
     println!("=== Local storage (DB) ===");
     println!("  cloud min head:   {:?}", local.cloud_min_head.as_ref().map(|t| t.height));
     println!("  cloud block head: {:?}", local.cloud_block_head);
@@ -144,9 +145,14 @@ impl StatusCmd {
         .context("failed to open local DB")?
         .get_hot_store();
 
-        let external = collect_external(&cloud_storage)?;
+        match collect_external(&cloud_storage) {
+            Ok(external) => print_external(&external),
+            Err(err) => println!("=== External storage (cloud) ===\n  error: {err:#}"),
+        }
+        println!();
+
         let local = collect_local(&store)?;
-        print_status(&external, &local);
+        print_local(&local);
 
         Ok(())
     }

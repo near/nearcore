@@ -18,7 +18,7 @@ pub(super) mod epoch_data;
 mod file_id;
 pub(super) mod shard_data;
 
-pub use file_id::CloudDir;
+pub use file_id::ListableCloudDir;
 
 /// Handles operations related to cloud storage used for archival data.
 pub struct CloudStorage {
