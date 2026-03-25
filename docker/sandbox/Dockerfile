@@ -17,12 +17,15 @@ ARG TARGETARCH
 FROM download-${TARGETARCH} AS final
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates && \
+    apt-get install -y --no-install-recommends ca-certificates curl && \
     rm -rf /var/lib/apt/lists/*
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 EXPOSE 3030
+
+HEALTHCHECK --interval=5s --timeout=3s --start-period=10s --retries=3 \
+    CMD curl -sf http://localhost:3030/status || exit 1
 
 ENTRYPOINT ["entrypoint.sh"]
