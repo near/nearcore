@@ -827,7 +827,7 @@ mod tests {
     use crate::near_primitives::shard_layout::ShardUId;
     use near_primitives::account::FunctionCallPermission;
     use near_primitives::action::delegate::NonDelegateAction;
-    use near_primitives::action::{FunctionCallAction, TransferAction};
+    use near_primitives::action::FunctionCallAction;
     use near_primitives::apply::ApplyChunkReason;
     use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
     use near_primitives::congestion_info::BlockCongestionInfo;
@@ -1579,6 +1579,33 @@ mod tests {
     }
 
     #[test]
+    fn test_delegate_action_gas_key_function_call() {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let access_key = AccessKey {
+            nonce: 0,
+            permission: AccessKeyPermission::GasKeyFunctionCall(
+                GasKeyInfo { balance: Balance::from_near(1), num_nonces: 1 },
+                FunctionCallPermission {
+                    allowance: None,
+                    receiver_id: signed_delegate_action.delegate_action.receiver_id.to_string(),
+                    method_names: vec!["test_method".parse().unwrap()],
+                },
+            ),
+        };
+
+        let mut delegate_action = signed_delegate_action.delegate_action;
+        delegate_action.actions =
+            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
+                args: Vec::new(),
+                deposit: Balance::ZERO,
+                gas: Gas::from_gas(300),
+                method_name: "test_method".parse().unwrap(),
+            })))];
+        let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
+        assert!(result.result.is_ok(), "result error: {:?}", result.result);
+    }
+
+    #[test]
     fn test_delegate_action_gas_key_function_call_incorrect_action() {
         let (_, signed_delegate_action) = create_delegate_action_receipt();
         let access_key = AccessKey {
@@ -1594,15 +1621,89 @@ mod tests {
         };
 
         let mut delegate_action = signed_delegate_action.delegate_action;
-        delegate_action.actions = vec![non_delegate_action(Action::Transfer(TransferAction {
-            deposit: Balance::from_near(50),
-        }))];
+        delegate_action.actions =
+            vec![non_delegate_action(Action::CreateAccount(CreateAccountAction {}))];
 
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
         assert_eq!(
             result.result,
             Err(ActionErrorKind::DelegateActionAccessKeyError(
                 InvalidAccessKeyError::RequiresFullAccess,
+            )
+            .into())
+        );
+    }
+
+    #[test]
+    fn test_delegate_action_gas_key_function_call_actions_number() {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let access_key = AccessKey {
+            nonce: 0,
+            permission: AccessKeyPermission::GasKeyFunctionCall(
+                GasKeyInfo { balance: Balance::from_near(1), num_nonces: 1 },
+                FunctionCallPermission {
+                    allowance: None,
+                    receiver_id: signed_delegate_action.delegate_action.receiver_id.to_string(),
+                    method_names: vec!["test_method".parse().unwrap()],
+                },
+            ),
+        };
+
+        let mut delegate_action = signed_delegate_action.delegate_action;
+        delegate_action.actions = vec![
+            non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
+                args: Vec::new(),
+                deposit: Balance::ZERO,
+                gas: Gas::from_gas(300),
+                method_name: "test_method".parse().unwrap(),
+            }))),
+            non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
+                args: Vec::new(),
+                deposit: Balance::ZERO,
+                gas: Gas::from_gas(300),
+                method_name: "test_method".parse().unwrap(),
+            }))),
+        ];
+
+        let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::RequiresFullAccess,
+            )
+            .into())
+        );
+    }
+
+    #[test]
+    fn test_delegate_action_gas_key_function_call_deposit() {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let access_key = AccessKey {
+            nonce: 0,
+            permission: AccessKeyPermission::GasKeyFunctionCall(
+                GasKeyInfo { balance: Balance::from_near(1), num_nonces: 1 },
+                FunctionCallPermission {
+                    allowance: None,
+                    receiver_id: signed_delegate_action.delegate_action.receiver_id.to_string(),
+                    method_names: Vec::new(),
+                },
+            ),
+        };
+
+        let mut delegate_action = signed_delegate_action.delegate_action;
+        delegate_action.actions =
+            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
+                args: Vec::new(),
+                deposit: Balance::from_yoctonear(1),
+                gas: Gas::from_gas(300),
+                method_name: "test_method".parse().unwrap(),
+            })))];
+
+        let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::DepositWithFunctionCall,
             )
             .into())
         );
@@ -1617,7 +1718,7 @@ mod tests {
                 GasKeyInfo { balance: Balance::from_near(1), num_nonces: 1 },
                 FunctionCallPermission {
                     allowance: None,
-                    receiver_id: "other.near".to_string(),
+                    receiver_id: "another.near".parse().unwrap(),
                     method_names: Vec::new(),
                 },
             ),
@@ -1638,7 +1739,7 @@ mod tests {
             Err(ActionErrorKind::DelegateActionAccessKeyError(
                 InvalidAccessKeyError::ReceiverMismatch {
                     tx_receiver: delegate_action.receiver_id,
-                    ak_receiver: "other.near".parse().unwrap(),
+                    ak_receiver: "another.near".parse().unwrap(),
                 },
             )
             .into())
@@ -1655,7 +1756,7 @@ mod tests {
                 FunctionCallPermission {
                     allowance: None,
                     receiver_id: signed_delegate_action.delegate_action.receiver_id.to_string(),
-                    method_names: vec!["allowed_method".parse().unwrap()],
+                    method_names: vec!["another_method".parse().unwrap()],
                 },
             ),
         };
@@ -1666,7 +1767,7 @@ mod tests {
                 args: Vec::new(),
                 deposit: Balance::ZERO,
                 gas: Gas::from_gas(300),
-                method_name: "other_method".parse().unwrap(),
+                method_name: "test_method".parse().unwrap(),
             })))];
 
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
@@ -1674,7 +1775,7 @@ mod tests {
             result.result,
             Err(ActionErrorKind::DelegateActionAccessKeyError(
                 InvalidAccessKeyError::MethodNameMismatch {
-                    method_name: "other_method".parse().unwrap(),
+                    method_name: "test_method".parse().unwrap(),
                 },
             )
             .into())
