@@ -726,7 +726,7 @@ fn test_one_yocto_near_on_promise_enabled() {
 #[test]
 fn test_one_yocto_near_on_promise_disabled() {
     let mut logic_builder = VMLogicBuilder::default();
-    // Feature disabled by default
+    logic_builder.config.one_yocto_near_on_promise = false;
     logic_builder.context.account_balance = Balance::ZERO;
     logic_builder.context.attached_deposit = Balance::ZERO;
     let mut logic = logic_builder.build();
