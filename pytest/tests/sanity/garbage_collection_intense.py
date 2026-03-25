@@ -22,15 +22,15 @@ client_config = {
     "consensus": {
         "min_block_production_delay": {
             "secs": 0,
-            "nanos": 100000000
+            "nanos": 150000000
         },
         "max_block_production_delay": {
             "secs": 0,
-            "nanos": 400000000
+            "nanos": 600000000
         },
         "max_block_wait_delay": {
             "secs": 0,
-            "nanos": 400000000
+            "nanos": 600000000
         }
     },
     "gc_step_period": {

@@ -7,7 +7,9 @@ use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, BlockHeight, BlockId, BlockReference, EpochId, ShardId};
 use near_store::adapter::chain_store::ChainStoreAdapter;
+use std::net::{IpAddr, SocketAddr, UdpSocket};
 use std::sync::Arc;
+use url::Url;
 
 /// Indicates the origin of a jsonrpc request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -97,6 +99,8 @@ impl ShardedRpcPool {
     /// Create a new sharded rpc pool.
     /// When config is provided, HTTP clients are created for each configured node.
     /// When config is None, the pool starts with no remote nodes.
+    /// Any configured node whose address resolves to a local IP is detected as
+    /// a self-connection and excluded from the remote pool.
     pub fn new(
         config: Option<ShardedRpcConfig>,
         shard_tracker: ShardTracker,
@@ -107,6 +111,19 @@ impl ShardedRpcPool {
                 let nodes: Vec<_> = config
                     .nodes
                     .iter()
+                    .filter(|node_config| {
+                        if is_local_address(&node_config.address) {
+                            tracing::info!(
+                                target: "jsonrpc",
+                                address = %node_config.address,
+                                tracked_shards = ?node_config.tracked_shards,
+                                "sharded rpc pool: detected self-connection, \
+                                 excluding from remote pool"
+                            );
+                            return false;
+                        }
+                        true
+                    })
                     .map(|node_config| ShardedRpcNode {
                         client: Arc::new(near_jsonrpc_client_internal::new_client(
                             &node_config.address,
@@ -114,6 +131,12 @@ impl ShardedRpcPool {
                         tracked_shards: node_config.tracked_shards.clone(),
                     })
                     .collect();
+                tracing::info!(
+                    target: "jsonrpc",
+                    total_configured = config.nodes.len(),
+                    remote_nodes = nodes.len(),
+                    "sharded rpc pool initialized"
+                );
                 nodes
             }
             None => vec![],
@@ -255,4 +278,81 @@ impl ShardedRpcPool {
 
 fn make_rpc_error(err: impl std::fmt::Display) -> RpcError {
     RpcError::new_internal_error(None, format!("get_nodes_for_query internal error: {}", err))
+}
+
+/// Checks whether the given IP address belongs to a local network interface
+/// by attempting to bind a UDP socket to it. The OS only allows binding to
+/// IPs assigned to local interfaces, making this a reliable detection method.
+///
+/// Note: the bind may fail in hardened environments even
+/// for local IPs, causing a false negative. This is not a bit problem: the
+/// node would forward requests to itself over the network.
+fn is_local_ip(ip: IpAddr) -> bool {
+    if ip.is_loopback() || ip.is_unspecified() {
+        return true;
+    }
+    UdpSocket::bind(SocketAddr::new(ip, 0)).is_ok()
+}
+
+/// Checks if a node URL (e.g. "http://10.128.0.5:3030") points to the local machine.
+/// Resolves the host to IP addresses and returns true if any of them are local.
+fn is_local_address(node_url: &str) -> bool {
+    match try_resolve_is_local(node_url) {
+        Ok(is_local) => is_local,
+        Err(err) => {
+            tracing::warn!(
+                target: "jsonrpc",
+                url = %node_url,
+                %err,
+                "sharded rpc pool: could not determine if address is local, treating as remote"
+            );
+            false
+        }
+    }
+}
+
+/// Called once at pool init time, so synchronous DNS resolution is acceptable.
+fn try_resolve_is_local(node_url: &str) -> Result<bool, String> {
+    let parsed = Url::parse(node_url).map_err(|e| format!("failed to parse URL: {e}"))?;
+    let port = parsed.port_or_known_default().unwrap_or(80);
+    let resolved: Vec<SocketAddr> = parsed
+        .socket_addrs(|| Some(port))
+        .map_err(|e| format!("failed to resolve {node_url}: {e}"))?;
+    // If any resolved address is local, treat the entire entry as self and
+    // drop it from the pool. This avoids the node forwarding requests to
+    // itself over the network, at the cost of also discarding any non-local
+    // addresses that the same hostname may resolve to.
+    Ok(resolved.iter().any(|addr| is_local_ip(addr.ip())))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_local_ip() {
+        assert!(is_local_ip("127.0.0.1".parse::<IpAddr>().unwrap()));
+        assert!(is_local_ip("0.0.0.0".parse::<IpAddr>().unwrap()));
+        assert!(!is_local_ip("10.99.99.99".parse::<IpAddr>().unwrap()));
+        assert!(is_local_ip("::1".parse::<IpAddr>().unwrap()));
+        assert!(is_local_ip("::".parse::<IpAddr>().unwrap()));
+    }
+
+    #[test]
+    fn test_is_local_address_loopback() {
+        assert!(is_local_address("http://127.0.0.1:3030"));
+        assert!(is_local_address("http://127.0.0.1:4040"));
+        assert!(is_local_address("http://[::1]:3030"));
+    }
+
+    #[test]
+    fn test_is_local_address_external() {
+        assert!(!is_local_address("http://10.99.99.99:3030"));
+    }
+
+    #[test]
+    fn test_is_local_address_invalid_url() {
+        assert!(!is_local_address("not-a-url"));
+        assert!(!is_local_address(""));
+    }
 }
