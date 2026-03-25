@@ -502,7 +502,7 @@ impl NetworkState {
             let succeeded = !result.is_err();
 
             if let Err(ref err) = result {
-                tracing::info!(target:"network", ?err, %peer_info, "failed to connect");
+                tracing::info!(target:"network", %err, %peer_info, "failed to connect");
             }
 
             // The peer may not be in the peer store; we try to record the connection attempt but
