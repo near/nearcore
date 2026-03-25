@@ -481,8 +481,11 @@ impl ShardsManagerActor {
         let request_full = force_request_full
             || self.shard_tracker.cares_about_shard_this_or_next_epoch(ancestor_hash, shard_id);
 
-        let chunk_producer_account_id =
-            self.epoch_manager.get_chunk_producer_info(ancestor_hash, shard_id)?.take_account_id();
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(ancestor_hash)?;
+        let chunk_producer_account_id = self
+            .epoch_manager
+            .get_chunk_producer_for_height(&epoch_id, height, shard_id)?
+            .take_account_id();
 
         // In the following we compute which target accounts we should request parts and receipts from
         // First we choose a shard representative target which is either the original chunk producer
