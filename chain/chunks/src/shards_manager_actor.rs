@@ -122,7 +122,6 @@ use near_primitives::sharding::{
     PartialEncodedChunkPart, PartialEncodedChunkV2, ShardChunk, ShardChunkHeader,
     ShardChunkWithEncoding, TransactionReceipt,
 };
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, EpochId, MerkleHash, ShardId,
 };
@@ -672,11 +671,7 @@ impl ShardsManagerActor {
         }
         let chunk_producer = self
             .epoch_manager
-            .get_chunk_producer_by_cpk(&ChunkProductionKey {
-                epoch_id,
-                height_created: next_chunk_height,
-                shard_id,
-            })?
+            .get_chunk_producer_for_height(&epoch_id, next_chunk_height, shard_id)?
             .take_account_id();
         if &chunk_producer == me {
             return Ok(true);
@@ -2000,11 +1995,7 @@ impl ShardsManagerActor {
         accounts_forwarded_to.insert(me.clone());
         let next_chunk_producer = self
             .epoch_manager
-            .get_chunk_producer_by_cpk(&ChunkProductionKey {
-                epoch_id: *epoch_id,
-                height_created: current_chunk_height + 1,
-                shard_id,
-            })?
+            .get_chunk_producer_for_height(epoch_id, current_chunk_height + 1, shard_id)?
             .take_account_id();
         for bp in block_producers {
             let bp_account_id = bp.take_account_id();

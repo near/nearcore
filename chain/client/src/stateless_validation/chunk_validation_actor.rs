@@ -382,7 +382,7 @@ impl ChunkValidationActor {
         let chunk_header = state_witness.chunk_header().clone();
         let chunk_producer_name = self
             .epoch_manager
-            .require_chunk_producer_info(&prev_block_hash, shard_id)?
+            .get_chunk_producer_info(&prev_block_hash, shard_id)?
             .take_account_id();
 
         let expected_epoch_id =
