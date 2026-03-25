@@ -208,7 +208,6 @@ impl CloudArchiveHarness {
 
 /// Verifies that `cloud_head` progresses without crashes.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_basic() {
     let mut h = CloudArchiveHarness::builder().build();
@@ -220,7 +219,6 @@ fn test_cloud_archival_basic() {
 
 /// Verifies that both `cloud_head` and `cold_head` progress with cold DB enabled.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_with_cold() {
     let mut h = CloudArchiveHarness::builder().cold_storage(true).build();
@@ -233,7 +231,6 @@ fn test_cloud_archival_with_cold() {
 /// Verifies that while the cloud writer is paused, GC stop never exceeds the first block
 /// of the epoch containing `cloud_head` and the writer catches up after resuming.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_resume() {
     let mut h = CloudArchiveHarness::builder().build();
@@ -261,7 +258,6 @@ fn test_cloud_archival_resume() {
 
 /// Verifies that block data can be read from the cloud at multiple heights.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_read_data_at_height() {
     let all_shards = CloudArchiveHarness::all_shard_ids();
@@ -278,7 +274,6 @@ fn test_cloud_archival_read_data_at_height() {
 /// Verifies that a reader node can bootstrap from cloud storage using a
 /// state snapshot and per-block state deltas.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_use_snapshot() {
     let mut h = CloudArchiveHarness::builder().build();
@@ -306,7 +301,6 @@ fn test_cloud_archival_use_snapshot() {
 /// A writer with `archive_block_data: false` and no tracked shards is misconfigured
 /// and must panic during initialization.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 #[should_panic(expected = "cloud archival writer must track at least one component")]
 fn test_cloud_archival_misconfigured_writer_panics() {
@@ -318,7 +312,6 @@ fn test_cloud_archival_misconfigured_writer_panics() {
 
 /// Verifies that a writer recovers when one shard's external head lags behind.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_lagging_shard_catchup() {
     let all_shards = CloudArchiveHarness::all_shard_ids();
@@ -340,7 +333,6 @@ fn test_cloud_archival_lagging_shard_catchup() {
 /// Verifies that the writer stops when a shard's external head is set back
 /// far enough that the data has already been garbage collected.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_lagging_shard_beyond_gc() {
     let mut h = CloudArchiveHarness::builder().build();
@@ -364,7 +356,6 @@ fn test_cloud_archival_lagging_shard_beyond_gc() {
 /// Verifies that a second writer joining mid-test catches up and covers
 /// additional shards. Writer_b only archives from its join height onward.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_writer_joins_later() {
     let all_shard_uids = CloudArchiveHarness::all_shard_uids();
@@ -411,7 +402,6 @@ fn test_cloud_archival_writer_joins_later() {
 
 /// Verifies that two writers tracking all shards both produce valid data.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_multi_writer_same_shards() {
     let all_shard_uids = CloudArchiveHarness::all_shard_uids();
@@ -430,7 +420,6 @@ fn test_cloud_archival_multi_writer_same_shards() {
 /// Verifies that two writers with disjoint shard assignments together cover
 /// all shards.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_multi_writer_disjoint_shards() {
     let all_shard_uids = CloudArchiveHarness::all_shard_uids();
