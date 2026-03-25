@@ -785,3 +785,103 @@ fn test_far_horizon_tx_during_sync() {
     assert_far_horizon_sync_sequence(&sync_history.borrow());
     assert!(tx_counter > 0, "expected at least some txs to be injected during sync");
 }
+
+// Scenario: A fresh node enters StateSync but state part downloads always
+// fail (P2P-only config, testloop drops P2P state requests). The chain
+// advances to a new epoch, making the sync hash stale. The node should
+// detect this and trigger recovery.
+//
+// Setup:
+//   - 4 validators, epoch_length=10, 4 shards
+//   - Network runs past the epoch sync horizon
+//   - Add a fresh node with P2P-only state sync (no external storage)
+//   - Node enters StateSync (parts blocked), record the sync hash
+//   - Advance the chain until validators have a different sync hash
+//
+// Assertions:
+//   - The syncing node's sync hash differs from the validators' current one
+//   - Node is denylisted via EpochSyncDataReset
+// Requires test_features because STALE_SYNC_HASH_THRESHOLD is lowered from
+// 100 to 5 under that feature, making it reachable with epoch_length=10.
+#[test]
+#[cfg(feature = "test_features")]
+fn test_far_horizon_stale_sync_hash_detection() {
+    use near_chain_configs::SyncConfig;
+    use near_client::sync::state::STALE_SYNC_HASH_THRESHOLD;
+
+    if !SYNC_V2_ENABLED {
+        return;
+    }
+    init_test_logger();
+
+    let epoch_length = 10;
+    let accounts = make_accounts(100);
+    let mut env = TestLoopBuilder::new()
+        .validators(4, 0)
+        .num_shards(4)
+        .epoch_length(epoch_length)
+        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
+        .build();
+
+    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
+    env.node_runner(0).run_until_head_height(far_horizon_height(epoch_length));
+
+    let new_account = create_account_id("new_node");
+    let node_state = env
+        .node_state_builder()
+        .account_id(&new_account)
+        .config_modifier(|config| {
+            config.tracked_shards_config = TrackedShardsConfig::AllShards;
+            config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
+            // Use P2P-only state sync. The testloop's default peer manager
+            // handler drops P2P state part requests, so state sync will never
+            // make progress — the node stays stuck in StateSync.
+            config.state_sync.sync = SyncConfig::Peers;
+        })
+        .build();
+    env.add_node("new_node", node_state);
+    let new_node_idx = env.node_datas.len() - 1;
+
+    // Run until new node enters StateSync and record its sync hash.
+    let mut node_sync_hash = None;
+    let new_node_handle = env.node_datas[new_node_idx].client_sender.actor_handle();
+    env.test_loop.run_until(
+        |data| {
+            let status = &data.get(&new_node_handle).client.sync_handler.sync_status;
+            if let SyncStatus::StateSync(s) = status {
+                node_sync_hash = Some(s.sync_hash);
+                true
+            } else {
+                false
+            }
+        },
+        Duration::seconds(20),
+    );
+    let node_sync_hash = node_sync_hash.unwrap();
+
+    // Advance the chain by one epoch so the validators get a new sync hash.
+    env.node_runner(0).run_for_number_of_blocks(epoch_length as usize);
+
+    // validator sync hash should have changed to a new epoch
+    let validator_sync_hash = env.node(0).client().chain.find_sync_hash().unwrap().unwrap();
+    assert_ne!(node_sync_hash, validator_sync_hash);
+
+    // Advance the chain past the detection threshold. The stale sync hash
+    // check fires on each run_sync_step when in StateSync, and once
+    // highest_height > epoch_start + epoch_length + STALE_SYNC_HASH_THRESHOLD
+    // the node triggers EpochSyncDataReset.
+    env.node_runner(0).run_for_number_of_blocks(epoch_length as usize);
+
+    assert!(env.test_loop.is_denylisted("new_node"));
+
+    // Verify the chain advanced past the detection threshold. The syncing
+    // node sees validator heights via highest_height_peers.
+    let sync_hash_height =
+        env.node(0).client().chain.get_block_header(&node_sync_hash).unwrap().height();
+    let validator_height = env.node(0).head().height;
+    let expected_threshold = sync_hash_height + epoch_length + STALE_SYNC_HASH_THRESHOLD;
+    assert!(
+        validator_height > expected_threshold,
+        "validator height {validator_height} should exceed threshold {expected_threshold}",
+    );
+}
