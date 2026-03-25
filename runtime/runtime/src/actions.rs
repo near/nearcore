@@ -613,7 +613,7 @@ fn validate_delegate_action_key(
 
     // The restriction of "function call" access keys:
     // the transaction must contain the only `FunctionCall` if "function call" access key is used
-    if let AccessKeyPermission::FunctionCall(ref function_call_permission) = access_key.permission {
+    if let Some(function_call_permission) = access_key.permission.function_call_permission() {
         if actions.len() != 1 {
             result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
                 InvalidAccessKeyError::RequiresFullAccess,
@@ -826,8 +826,8 @@ mod tests {
     use crate::actions_test_utils::{setup_account, test_delete_large_account};
     use crate::near_primitives::shard_layout::ShardUId;
     use near_primitives::account::FunctionCallPermission;
-    use near_primitives::action::FunctionCallAction;
     use near_primitives::action::delegate::NonDelegateAction;
+    use near_primitives::action::{FunctionCallAction, TransferAction};
     use near_primitives::apply::ApplyChunkReason;
     use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
     use near_primitives::congestion_info::BlockCongestionInfo;
@@ -1573,6 +1573,37 @@ mod tests {
                 InvalidAccessKeyError::MethodNameMismatch {
                     method_name: "test_method".parse().unwrap(),
                 },
+            )
+            .into())
+        );
+    }
+
+    #[test]
+    fn test_delegate_action_gas_key_function_call_restricts_transfer() {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let access_key = AccessKey {
+            nonce: 0,
+            permission: AccessKeyPermission::GasKeyFunctionCall(
+                GasKeyInfo { balance: Balance::from_near(1), num_nonces: 1 },
+                FunctionCallPermission {
+                    allowance: None,
+                    receiver_id: "token.test.near".to_string(),
+                    method_names: vec!["test_method".to_string()],
+                },
+            ),
+        };
+
+        let mut delegate_action = signed_delegate_action.delegate_action;
+        delegate_action.receiver_id = "other.near".parse().unwrap();
+        delegate_action.actions = vec![non_delegate_action(Action::Transfer(TransferAction {
+            deposit: Balance::from_near(50),
+        }))];
+
+        let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::RequiresFullAccess,
             )
             .into())
         );
