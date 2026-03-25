@@ -496,7 +496,7 @@ impl ProtocolFeature {
             | ProtocolFeature::InstantDeleteAccount => 83,
             ProtocolFeature::Wasmtime => 84,
             ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
-            | ProtocolFeature::OneYoctoNearOnPromise=> 85,
+            | ProtocolFeature::OneYoctoNearOnPromise => 85,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
