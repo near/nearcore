@@ -36,7 +36,6 @@ use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEn
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, EpochHeight, ShardId};
-use near_schema_checker_lib::ProtocolSchema;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::net::SocketAddr;
@@ -65,35 +64,22 @@ pub struct KnownProducer {
 }
 
 /// Ban reason.
-#[derive(
-    borsh::BorshSerialize,
-    borsh::BorshDeserialize,
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Copy,
-    ProtocolSchema,
-)]
-#[borsh(use_discriminant = false)]
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub enum ReasonForBan {
-    None = 0,
-    BadBlock = 1,
-    BadBlockHeader = 2,
-    HeightFraud = 3,
-    BadHandshake = 4,
-    BadBlockApproval = 5,
-    Abusive = 6,
-    InvalidSignature = 7,
-    InvalidPeerId = 8,
-    InvalidHash = 9,
-    InvalidEdge = 10,
-    /// Reserved: was InvalidDistanceVector (removed distance vector routing feature).
-    /// Do not reuse discriminant 11 — borsh serialization uses sequential ordering.
-    _ReservedInvalidDistanceVector = 11,
-    Blacklisted = 14,
-    ProvidedNotEnoughHeaders = 15,
-    BadChunkStateWitness = 16,
+    None,
+    BadBlock,
+    BadBlockHeader,
+    HeightFraud,
+    BadHandshake,
+    BadBlockApproval,
+    Abusive,
+    InvalidSignature,
+    InvalidPeerId,
+    InvalidHash,
+    InvalidEdge,
+    Blacklisted,
+    ProvidedNotEnoughHeaders,
+    BadChunkStateWitness,
 }
 
 /// Banning signal sent from Peer instance to PeerManager
