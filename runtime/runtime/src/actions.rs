@@ -838,6 +838,8 @@ mod tests {
     use near_store::test_utils::TestTriesBuilder;
     use std::sync::Arc;
 
+    const TEST_GAS_KEY_NUM_NONCES: u16 = 1;
+
     fn test_action_create_account(
         account_id: AccountId,
         predecessor_id: AccountId,
@@ -1581,17 +1583,14 @@ mod tests {
     #[test]
     fn test_delegate_action_gas_key_function_call() {
         let (_, signed_delegate_action) = create_delegate_action_receipt();
-        let access_key = AccessKey {
-            nonce: 0,
-            permission: AccessKeyPermission::GasKeyFunctionCall(
-                GasKeyInfo { balance: Balance::from_near(1), num_nonces: 1 },
-                FunctionCallPermission {
-                    allowance: None,
-                    receiver_id: signed_delegate_action.delegate_action.receiver_id.to_string(),
-                    method_names: vec!["test_method".parse().unwrap()],
-                },
-            ),
-        };
+        let access_key = AccessKey::gas_key_function_call(
+            TEST_GAS_KEY_NUM_NONCES,
+            FunctionCallPermission {
+                allowance: None,
+                receiver_id: signed_delegate_action.delegate_action.receiver_id.to_string(),
+                method_names: vec!["test_method".parse().unwrap()],
+            },
+        );
 
         let mut delegate_action = signed_delegate_action.delegate_action;
         delegate_action.actions =
@@ -1608,17 +1607,14 @@ mod tests {
     #[test]
     fn test_delegate_action_gas_key_function_call_incorrect_action() {
         let (_, signed_delegate_action) = create_delegate_action_receipt();
-        let access_key = AccessKey {
-            nonce: 0,
-            permission: AccessKeyPermission::GasKeyFunctionCall(
-                GasKeyInfo { balance: Balance::from_near(1), num_nonces: 1 },
-                FunctionCallPermission {
-                    allowance: None,
-                    receiver_id: signed_delegate_action.delegate_action.receiver_id.to_string(),
-                    method_names: vec!["test_method".parse().unwrap()],
-                },
-            ),
-        };
+        let access_key = AccessKey::gas_key_function_call(
+            TEST_GAS_KEY_NUM_NONCES,
+            FunctionCallPermission {
+                allowance: None,
+                receiver_id: signed_delegate_action.delegate_action.receiver_id.to_string(),
+                method_names: vec!["test_method".parse().unwrap()],
+            },
+        );
 
         let mut delegate_action = signed_delegate_action.delegate_action;
         delegate_action.actions =
@@ -1637,17 +1633,14 @@ mod tests {
     #[test]
     fn test_delegate_action_gas_key_function_call_actions_number() {
         let (_, signed_delegate_action) = create_delegate_action_receipt();
-        let access_key = AccessKey {
-            nonce: 0,
-            permission: AccessKeyPermission::GasKeyFunctionCall(
-                GasKeyInfo { balance: Balance::from_near(1), num_nonces: 1 },
-                FunctionCallPermission {
-                    allowance: None,
-                    receiver_id: signed_delegate_action.delegate_action.receiver_id.to_string(),
-                    method_names: vec!["test_method".parse().unwrap()],
-                },
-            ),
-        };
+        let access_key = AccessKey::gas_key_function_call(
+            TEST_GAS_KEY_NUM_NONCES,
+            FunctionCallPermission {
+                allowance: None,
+                receiver_id: signed_delegate_action.delegate_action.receiver_id.to_string(),
+                method_names: vec!["test_method".parse().unwrap()],
+            },
+        );
 
         let mut delegate_action = signed_delegate_action.delegate_action;
         delegate_action.actions = vec![
@@ -1678,17 +1671,14 @@ mod tests {
     #[test]
     fn test_delegate_action_gas_key_function_call_deposit() {
         let (_, signed_delegate_action) = create_delegate_action_receipt();
-        let access_key = AccessKey {
-            nonce: 0,
-            permission: AccessKeyPermission::GasKeyFunctionCall(
-                GasKeyInfo { balance: Balance::from_near(1), num_nonces: 1 },
-                FunctionCallPermission {
-                    allowance: None,
-                    receiver_id: signed_delegate_action.delegate_action.receiver_id.to_string(),
-                    method_names: Vec::new(),
-                },
-            ),
-        };
+        let access_key = AccessKey::gas_key_function_call(
+            TEST_GAS_KEY_NUM_NONCES,
+            FunctionCallPermission {
+                allowance: None,
+                receiver_id: signed_delegate_action.delegate_action.receiver_id.to_string(),
+                method_names: Vec::new(),
+            },
+        );
 
         let mut delegate_action = signed_delegate_action.delegate_action;
         delegate_action.actions =
@@ -1712,17 +1702,14 @@ mod tests {
     #[test]
     fn test_delegate_action_gas_key_function_call_receiver_id() {
         let (_, signed_delegate_action) = create_delegate_action_receipt();
-        let access_key = AccessKey {
-            nonce: 0,
-            permission: AccessKeyPermission::GasKeyFunctionCall(
-                GasKeyInfo { balance: Balance::from_near(1), num_nonces: 1 },
-                FunctionCallPermission {
-                    allowance: None,
-                    receiver_id: "another.near".parse().unwrap(),
-                    method_names: Vec::new(),
-                },
-            ),
-        };
+        let access_key = AccessKey::gas_key_function_call(
+            TEST_GAS_KEY_NUM_NONCES,
+            FunctionCallPermission {
+                allowance: None,
+                receiver_id: "another.near".parse().unwrap(),
+                method_names: Vec::new(),
+            },
+        );
 
         let mut delegate_action = signed_delegate_action.delegate_action;
         delegate_action.actions =
@@ -1749,17 +1736,14 @@ mod tests {
     #[test]
     fn test_delegate_action_gas_key_function_call_method() {
         let (_, signed_delegate_action) = create_delegate_action_receipt();
-        let access_key = AccessKey {
-            nonce: 0,
-            permission: AccessKeyPermission::GasKeyFunctionCall(
-                GasKeyInfo { balance: Balance::from_near(1), num_nonces: 1 },
-                FunctionCallPermission {
-                    allowance: None,
-                    receiver_id: signed_delegate_action.delegate_action.receiver_id.to_string(),
-                    method_names: vec!["another_method".parse().unwrap()],
-                },
-            ),
-        };
+        let access_key = AccessKey::gas_key_function_call(
+            TEST_GAS_KEY_NUM_NONCES,
+            FunctionCallPermission {
+                allowance: None,
+                receiver_id: signed_delegate_action.delegate_action.receiver_id.to_string(),
+                method_names: vec!["another_method".parse().unwrap()],
+            },
+        );
 
         let mut delegate_action = signed_delegate_action.delegate_action;
         delegate_action.actions =
