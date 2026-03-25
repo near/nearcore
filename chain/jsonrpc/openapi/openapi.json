@@ -285,6 +285,34 @@
         }
       }
     },
+    "/EXPERIMENTAL_receipt_to_tx": {
+      "post": {
+        "description": "Resolves a receipt ID back to the originating transaction hash and sender account",
+        "operationId": "EXPERIMENTAL_receipt_to_tx",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_EXPERIMENTAL_receipt_to_tx"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcReceiptToTxResponse_and_RpcReceiptToTxError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/EXPERIMENTAL_split_storage_info": {
       "post": {
         "description": "Contains the split storage information. More info on split storage [here](https://near-nodes.io/archival/split-storage-archival)",
@@ -5188,6 +5216,64 @@
           }
         ]
       },
+      "ErrorWrapper_for_RpcReceiptToTxError": {
+        "oneOf": [
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
+              },
+              "name": {
+                "enum": [
+                  "REQUEST_VALIDATION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcReceiptToTxError"
+              },
+              "name": {
+                "enum": [
+                  "HANDLER_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/InternalError"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "ErrorWrapper_for_RpcSplitStorageInfoError": {
         "oneOf": [
           {
@@ -8947,6 +9033,33 @@
         "title": "JsonRpcRequest_for_EXPERIMENTAL_receipt",
         "type": "object"
       },
+      "JsonRpcRequest_for_EXPERIMENTAL_receipt_to_tx": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "EXPERIMENTAL_receipt_to_tx"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcReceiptToTxRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_EXPERIMENTAL_receipt_to_tx",
+        "type": "object"
+      },
       "JsonRpcRequest_for_EXPERIMENTAL_split_storage_info": {
         "properties": {
           "id": {
@@ -10410,6 +10523,46 @@
           "id"
         ],
         "title": "JsonRpcResponse_for_RpcReceiptResponse_and_RpcReceiptError",
+        "type": "object"
+      },
+      "JsonRpcResponse_for_RpcReceiptToTxResponse_and_RpcReceiptToTxError": {
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcReceiptToTxResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcReceiptToTxError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id"
+        ],
+        "title": "JsonRpcResponse_for_RpcReceiptToTxResponse_and_RpcReceiptToTxError",
         "type": "object"
       },
       "JsonRpcResponse_for_RpcSplitStorageInfoResponse_and_RpcSplitStorageInfoError": {
@@ -15798,6 +15951,147 @@
           "receiver_id",
           "receipt_id",
           "receipt"
+        ],
+        "type": "object"
+      },
+      "RpcReceiptToTxError": {
+        "oneOf": [
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "receipt_id": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  }
+                },
+                "required": [
+                  "receipt_id"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNKNOWN_RECEIPT"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "limit": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "receipt_id": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  }
+                },
+                "required": [
+                  "receipt_id",
+                  "limit"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "DEPTH_EXCEEDED"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_message"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNSUPPORTED"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_message"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "RpcReceiptToTxRequest": {
+        "properties": {
+          "receipt_id": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        "required": [
+          "receipt_id"
+        ],
+        "title": "RpcReceiptToTxRequest",
+        "type": "object"
+      },
+      "RpcReceiptToTxResponse": {
+        "properties": {
+          "sender_account_id": {
+            "$ref": "#/components/schemas/AccountId"
+          },
+          "transaction_hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        "required": [
+          "transaction_hash",
+          "sender_account_id"
         ],
         "type": "object"
       },
