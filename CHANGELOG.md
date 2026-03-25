@@ -5,6 +5,7 @@
 ### Protocol Changes
 * The contract runtime has been upgraded to use the new Wasmtime-based runtime;
 * The contract runtime now allows for bulk memory instructions in Wasm code.
+* Stabilize GasKeys: transactions can now specify a gas key to pay for gas costs separately from the signer's main access key.
 
 ### Non-protocol Changes
 * New `EXPERIMENTAL_receipt_to_tx` RPC method that resolves a receipt ID back to the originating transaction hash and sender account. Requires `save_receipt_to_tx` config enabled and all-shards tracking. ([#15414](https://github.com/near/nearcore/pull/15414))
