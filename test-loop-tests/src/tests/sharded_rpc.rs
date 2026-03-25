@@ -604,7 +604,7 @@ fn test_rpc_experimental_view_code_forwarding() {
     h.deploy_contract_to_alice();
 
     let mut run_view_code = |node_id: &AccountId, account: &AccountId| -> Result<(), RpcError> {
-        let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
+        let result = h.env.runner_for_account(node_id).run_with_jsonrpc_client(
             |client| {
                 client.EXPERIMENTAL_view_code(RpcViewCodeRequest {
                     block_reference: BlockReference::Finality(Finality::None),
@@ -646,7 +646,7 @@ fn test_rpc_experimental_view_state_forwarding() {
     h.env.runner_for_account(&alice_node).run_tx(tx, Duration::seconds(5));
 
     let mut run_view_state = |node_id: &AccountId, account: &AccountId| -> Result<(), RpcError> {
-        let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
+        let result = h.env.runner_for_account(node_id).run_with_jsonrpc_client(
             |client| {
                 client.EXPERIMENTAL_view_state(RpcViewStateRequest {
                     block_reference: BlockReference::Finality(Finality::None),
@@ -677,7 +677,7 @@ fn test_rpc_experimental_view_access_key_forwarding() {
         |node_id: &AccountId, account: &AccountId| -> Result<(), RpcError> {
             let public_key =
                 near_primitives::test_utils::create_user_test_signer(account.as_ref()).public_key();
-            let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
+            let result = h.env.runner_for_account(node_id).run_with_jsonrpc_client(
                 |client| {
                     client.EXPERIMENTAL_view_access_key(RpcViewAccessKeyRequest {
                         block_reference: BlockReference::Finality(Finality::None),
@@ -708,7 +708,7 @@ fn test_rpc_experimental_view_access_key_list_forwarding() {
 
     let mut run_view_access_key_list =
         |node_id: &AccountId, account: &AccountId| -> Result<(), RpcError> {
-            let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
+            let result = h.env.runner_for_account(node_id).run_with_jsonrpc_client(
                 |client| {
                     client.EXPERIMENTAL_view_access_key_list(RpcViewAccessKeyListRequest {
                         block_reference: BlockReference::Finality(Finality::None),
@@ -743,7 +743,7 @@ fn test_rpc_experimental_view_gas_key_nonces_forwarding() {
         let err = h
             .env
             .runner_for_account(node_id)
-            .run_jsonrpc_query(
+            .run_with_jsonrpc_client(
                 |client| {
                     client.EXPERIMENTAL_view_gas_key_nonces(RpcViewGasKeyNoncesRequest {
                         block_reference: BlockReference::Finality(Finality::None),
@@ -778,7 +778,7 @@ fn test_rpc_experimental_call_function_forwarding() {
 
     let mut run_call_function =
         |node_id: &AccountId, account: &AccountId| -> Result<(), RpcError> {
-            let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
+            let result = h.env.runner_for_account(node_id).run_with_jsonrpc_client(
                 |client| {
                     client.EXPERIMENTAL_call_function(RpcCallFunctionRequest {
                         block_reference: BlockReference::Finality(Finality::None),
@@ -812,7 +812,7 @@ fn test_rpc_experimental_congestion_level_block_shard_id_forwarding() {
 
     let mut run_congestion_level =
         |node_id: &AccountId, shard_uid: ShardUId| -> Result<(), RpcError> {
-            let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
+            let result = h.env.runner_for_account(node_id).run_with_jsonrpc_client(
                 |client| {
                     client.EXPERIMENTAL_congestion_level(RpcCongestionLevelRequest {
                         chunk_reference: ChunkReference::BlockShardId {
@@ -851,7 +851,7 @@ fn test_rpc_experimental_congestion_level_chunk_hash_forwarding() {
 
     let mut run_congestion_level =
         |node_id: &AccountId, chunk_id: CryptoHash| -> Result<(), RpcError> {
-            let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
+            let result = h.env.runner_for_account(node_id).run_with_jsonrpc_client(
                 |client| {
                     client.EXPERIMENTAL_congestion_level(RpcCongestionLevelRequest {
                         chunk_reference: ChunkReference::ChunkHash { chunk_id },
@@ -880,7 +880,7 @@ fn test_rpc_experimental_view_code_error_format() {
     let err = h
         .env
         .runner_for_account(&h.alice_node)
-        .run_jsonrpc_query(
+        .run_with_jsonrpc_client(
             |client| {
                 client.EXPERIMENTAL_view_code(RpcViewCodeRequest {
                     block_reference: BlockReference::Finality(Finality::None),
@@ -903,7 +903,7 @@ fn test_rpc_experimental_call_function_error_format() {
     let err = h
         .env
         .runner_for_account(&h.zoe_node)
-        .run_jsonrpc_query(
+        .run_with_jsonrpc_client(
             |client| {
                 client.EXPERIMENTAL_call_function(RpcCallFunctionRequest {
                     block_reference: BlockReference::Finality(Finality::None),
@@ -930,7 +930,7 @@ fn test_rpc_experimental_view_access_key_error_format() {
     let err = h
         .env
         .runner_for_account(&h.zoe_node)
-        .run_jsonrpc_query(
+        .run_with_jsonrpc_client(
             |client| {
                 client.EXPERIMENTAL_view_access_key(RpcViewAccessKeyRequest {
                     block_reference: BlockReference::Finality(Finality::None),
