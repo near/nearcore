@@ -1579,7 +1579,7 @@ mod tests {
     }
 
     #[test]
-    fn test_delegate_action_gas_key_function_call_restricts_transfer() {
+    fn test_delegate_action_gas_key_function_call_incorrect_action() {
         let (_, signed_delegate_action) = create_delegate_action_receipt();
         let access_key = AccessKey {
             nonce: 0,
@@ -1587,14 +1587,13 @@ mod tests {
                 GasKeyInfo { balance: Balance::from_near(1), num_nonces: 1 },
                 FunctionCallPermission {
                     allowance: None,
-                    receiver_id: "token.test.near".to_string(),
-                    method_names: vec!["test_method".to_string()],
+                    receiver_id: signed_delegate_action.delegate_action.receiver_id.to_string(),
+                    method_names: vec!["test_method".parse().unwrap()],
                 },
             ),
         };
 
         let mut delegate_action = signed_delegate_action.delegate_action;
-        delegate_action.receiver_id = "other.near".parse().unwrap();
         delegate_action.actions = vec![non_delegate_action(Action::Transfer(TransferAction {
             deposit: Balance::from_near(50),
         }))];
@@ -1604,6 +1603,79 @@ mod tests {
             result.result,
             Err(ActionErrorKind::DelegateActionAccessKeyError(
                 InvalidAccessKeyError::RequiresFullAccess,
+            )
+            .into())
+        );
+    }
+
+    #[test]
+    fn test_delegate_action_gas_key_function_call_receiver_id() {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let access_key = AccessKey {
+            nonce: 0,
+            permission: AccessKeyPermission::GasKeyFunctionCall(
+                GasKeyInfo { balance: Balance::from_near(1), num_nonces: 1 },
+                FunctionCallPermission {
+                    allowance: None,
+                    receiver_id: "other.near".to_string(),
+                    method_names: Vec::new(),
+                },
+            ),
+        };
+
+        let mut delegate_action = signed_delegate_action.delegate_action;
+        delegate_action.actions =
+            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
+                args: Vec::new(),
+                deposit: Balance::ZERO,
+                gas: Gas::from_gas(300),
+                method_name: "test_method".parse().unwrap(),
+            })))];
+
+        let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::ReceiverMismatch {
+                    tx_receiver: delegate_action.receiver_id,
+                    ak_receiver: "other.near".parse().unwrap(),
+                },
+            )
+            .into())
+        );
+    }
+
+    #[test]
+    fn test_delegate_action_gas_key_function_call_method() {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let access_key = AccessKey {
+            nonce: 0,
+            permission: AccessKeyPermission::GasKeyFunctionCall(
+                GasKeyInfo { balance: Balance::from_near(1), num_nonces: 1 },
+                FunctionCallPermission {
+                    allowance: None,
+                    receiver_id: signed_delegate_action.delegate_action.receiver_id.to_string(),
+                    method_names: vec!["allowed_method".parse().unwrap()],
+                },
+            ),
+        };
+
+        let mut delegate_action = signed_delegate_action.delegate_action;
+        delegate_action.actions =
+            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
+                args: Vec::new(),
+                deposit: Balance::ZERO,
+                gas: Gas::from_gas(300),
+                method_name: "other_method".parse().unwrap(),
+            })))];
+
+        let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::MethodNameMismatch {
+                    method_name: "other_method".parse().unwrap(),
+                },
             )
             .into())
         );
