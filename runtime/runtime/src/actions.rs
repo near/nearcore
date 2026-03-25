@@ -1519,8 +1519,7 @@ mod tests {
 
     /// Build a delegate action that triggers both DepositWithFunctionCall
     /// (deposit > 0) and ReceiverMismatch (receiver differs from the function
-    /// call permission). Before the fix, the missing early return lets
-    /// ReceiverMismatch overwrite DepositWithFunctionCall.
+    /// call permission).
     fn deposit_with_function_call_and_receiver_mismatch(
         protocol_version: ProtocolVersion,
     ) -> ActionResult {
