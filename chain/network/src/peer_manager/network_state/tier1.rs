@@ -328,7 +328,7 @@ impl super::NetworkState {
                     let proxy = (*proxy).clone();
                     let actor_system = actor_system.clone();
                     handles.push(async move {
-                        let res = async {
+                        async {
                             let stream = tcp::Stream::connect(
                                 &PeerInfo {
                                     id: proxy.peer_id,
@@ -346,11 +346,10 @@ impl super::NetworkState {
                                 self.clone(),
                             )
                             .await
-                        }.await;
-                        if let Err(err) = &res {
+                        }.await
+                        .inspect_err(|err| {
                             tracing::info!(target: "network", %err, node_id = %self.config.node_id(), peer_addr = %proxy.addr, "failed to establish a tier1 connection");
-                        }
-                        res
+                        })
                     });
                 }
             }
