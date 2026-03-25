@@ -205,6 +205,7 @@ snapshot_kind: text
     "reftypes_bulk_memory": false,
     "deterministic_account_ids": false,
     "gas_key_host_fns": false,
+    "one_yocto_near_on_promise": false,
     "storage_get_mode": "FlatStorage",
     "fix_contract_loading_cost": false,
     "implicit_account_creation": true,
