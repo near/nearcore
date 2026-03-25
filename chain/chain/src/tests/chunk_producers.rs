@@ -193,9 +193,9 @@ mod tests {
         }
     }
 
-    /// Verify that get_chunk_producer_info falls back to computation when DB is empty.
+    /// Verify that get_chunk_producer_info errors on DB miss when EarlyKickout is enabled.
     #[test]
-    fn test_get_chunk_producer_info_falls_back_on_db_miss() {
+    fn test_get_chunk_producer_info_errors_on_db_miss() {
         init_test_logger();
         let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap());
         clock.advance(Duration::milliseconds(3444));
@@ -210,8 +210,14 @@ mod tests {
 
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&block_hash).unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
-        let block_info = epoch_manager.get_block_info(&block_hash).unwrap();
-        let height = block_info.height() + 1;
+
+        // Succeeds when DB is populated.
+        for shard_id in shard_layout.shard_ids() {
+            assert!(
+                epoch_manager.get_chunk_producer_info(&block_hash, shard_id).is_ok(),
+                "should succeed when DB is populated, shard {shard_id}"
+            );
+        }
 
         // Delete chunk producers from DB to simulate a miss.
         {
@@ -223,63 +229,11 @@ mod tests {
             store_update.commit();
         }
 
-        // get_chunk_producer_info should still succeed via computation fallback.
-        for shard_id in shard_layout.shard_ids() {
-            let result = epoch_manager.get_chunk_producer_info(&block_hash, shard_id);
-            assert!(result.is_ok(), "should fall back to computation on DB miss, shard {shard_id}");
-
-            let from_fallback = result.unwrap();
-            let from_computation =
-                epoch_manager.get_chunk_producer_for_height(&epoch_id, height, shard_id).unwrap();
-            assert_eq!(
-                from_fallback.account_id(),
-                from_computation.account_id(),
-                "fallback should match computation, shard {shard_id}"
-            );
-        }
-    }
-
-    /// Verify that require_chunk_producer_info returns error on DB miss.
-    #[test]
-    fn test_require_chunk_producer_info_errors_on_miss() {
-        init_test_logger();
-        let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap());
-        clock.advance(Duration::milliseconds(3444));
-        let (mut chain, epoch_manager, _, signer) = setup(clock.clock());
-
-        // Process a block.
-        let prev = chain.get_block(&chain.genesis().hash().clone()).unwrap();
-        clock.advance(Duration::milliseconds(1));
-        let block = TestBlockBuilder::from_prev_block(clock.clock(), &prev, signer).build();
-        let block_hash = *block.hash();
-        chain.process_block_test(block).unwrap();
-
-        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&block_hash).unwrap();
-        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
-
-        // require should succeed when DB is populated.
+        // Should error on miss when EarlyKickout is enabled.
         for shard_id in shard_layout.shard_ids() {
             assert!(
-                epoch_manager.require_chunk_producer_info(&block_hash, shard_id).is_ok(),
-                "require should succeed when DB is populated, shard {shard_id}"
-            );
-        }
-
-        // Delete chunk producers from DB.
-        {
-            let mut store_update = chain.chain_store().store().store_update();
-            for shard_id in shard_layout.shard_ids() {
-                let key = get_block_shard_id(&block_hash, shard_id);
-                store_update.delete(DBCol::ChunkProducers, &key);
-            }
-            store_update.commit();
-        }
-
-        // require should error on miss.
-        for shard_id in shard_layout.shard_ids() {
-            assert!(
-                epoch_manager.require_chunk_producer_info(&block_hash, shard_id).is_err(),
-                "require should error when DB is empty, shard {shard_id}"
+                epoch_manager.get_chunk_producer_info(&block_hash, shard_id).is_err(),
+                "should error on DB miss, shard {shard_id}"
             );
         }
     }

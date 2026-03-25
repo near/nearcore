@@ -191,13 +191,13 @@ impl ChunkValidationActor {
     }
 
     fn send_state_witness_ack(&self, witness: &ChunkStateWitness) -> Result<(), Error> {
-        // TODO(#chunk_producer_lookups): migrate to require_chunk_producer_info
-        // once V2 wire types provide prev_block_hash (PR 3).
         let chunk_producer = self
             .epoch_manager
-            .get_chunk_producer_by_cpk(&witness.chunk_production_key())?
-            .account_id()
-            .clone();
+            .get_chunk_producer_info(
+                witness.chunk_header().prev_block_hash(),
+                witness.chunk_header().shard_id(),
+            )?
+            .take_account_id();
 
         // Skip sending ack to self.
         if let Some(validator_signer) = self.validator_signer.get() {

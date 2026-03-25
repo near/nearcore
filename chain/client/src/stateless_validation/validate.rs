@@ -104,8 +104,8 @@ pub fn validate_partial_encoded_state_witness(
         store,
     )?);
 
-    // TODO(#chunk_producer_lookups): migrate to require_chunk_producer_info
-    // once V2 wire types provide prev_block_hash (PR 3).
+    // TODO(#chunk_producer_lookups): migrate to get_chunk_producer_info
+    // once V2 wire types provide prev_block_hash.
     let chunk_producer =
         epoch_manager.get_chunk_producer_by_cpk(&partial_witness.chunk_production_key())?;
     if !partial_witness.verify(chunk_producer.public_key()) {
@@ -122,8 +122,8 @@ pub fn validate_partial_encoded_contract_deploys(
 ) -> Result<ChunkRelevance, Error> {
     let key = partial_deploys.chunk_production_key();
     require_relevant!(validate_chunk_relevant(epoch_manager, key, store)?);
-    // TODO(#chunk_producer_lookups): migrate to require_chunk_producer_info
-    // once V2 wire types provide prev_block_hash (PR 3).
+    // TODO(#chunk_producer_lookups): migrate to get_chunk_producer_info
+    // once V2 wire types provide prev_block_hash.
     let chunk_producer = epoch_manager.get_chunk_producer_by_cpk(key)?;
     if !partial_deploys.verify_signature(chunk_producer.public_key()) {
         return Err(Error::Other("Invalid contract deploys signature".to_owned()));
@@ -334,8 +334,8 @@ fn validate_witness_contract_accesses_signature(
     epoch_manager: &dyn EpochManagerAdapter,
     accesses: &ChunkContractAccesses,
 ) -> Result<(), Error> {
-    // TODO(#chunk_producer_lookups): migrate to require_chunk_producer_info
-    // once V2 wire types provide prev_block_hash (PR 3).
+    // TODO(#chunk_producer_lookups): migrate to get_chunk_producer_info
+    // once V2 wire types provide prev_block_hash.
     let chunk_producer =
         epoch_manager.get_chunk_producer_by_cpk(accesses.chunk_production_key())?;
     if !accesses.verify_signature(chunk_producer.public_key()) {

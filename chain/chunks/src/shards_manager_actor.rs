@@ -96,8 +96,8 @@ use near_async::tokio::TokioRuntimeHandle;
 use near_chain::byzantine_assert;
 use near_chain::near_chain_primitives::error::Error::DBNotFoundErr;
 use near_chain::signature_verification::{
+    verify_chunk_header_signature_by_hash_and_parts,
     verify_chunk_header_signature_with_epoch_manager,
-    verify_chunk_header_signature_with_epoch_manager_and_parts,
 };
 use near_chain::types::EpochManagerAdapter;
 use near_chain::validate::validate_chunk_proofs;
@@ -1275,13 +1275,11 @@ impl ShardsManagerActor {
         }
 
         // check signature
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&forward.prev_block_hash)?;
-        let valid_signature = verify_chunk_header_signature_with_epoch_manager_and_parts(
+        let valid_signature = verify_chunk_header_signature_by_hash_and_parts(
             self.epoch_manager.as_ref(),
             &forward.chunk_hash,
             &forward.signature,
-            epoch_id,
-            forward.height_created,
+            &forward.prev_block_hash,
             forward.shard_id,
         )?;
 

@@ -493,18 +493,13 @@ pub trait EpochManagerAdapter: Send + Sync {
         Ok(epoch_info.get_validator(validator_id))
     }
 
-    /// Chunk producer for a given prev_block_hash and shard. Reads from the
-    /// ChunkProducers DB column first, falls back to computation on miss.
-    /// Use for non-consensus paths where a best-effort answer is acceptable.
+    /// Chunk producer for a given prev_block_hash and shard. When EarlyKickout
+    /// is enabled, reads from the ChunkProducers DB column and errors on miss.
+    /// When the feature is not enabled, falls back to deterministic computation.
+    // TODO(#chunk-producer-column): once dynamic sampling ships and the DB may
+    // diverge from computation (blacklisted producers excluded), consider adding
+    // a lenient variant with computation fallback for non-critical paths.
     fn get_chunk_producer_info(
-        &self,
-        prev_block_hash: &CryptoHash,
-        shard_id: ShardId,
-    ) -> Result<ValidatorStake, EpochError>;
-
-    /// Strict chunk producer lookup from DB. Returns error if no DB entry
-    /// exists. Use for consensus-critical paths where the DB must be populated.
-    fn require_chunk_producer_info(
         &self,
         prev_block_hash: &CryptoHash,
         shard_id: ShardId,
@@ -1012,37 +1007,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<ValidatorStake, EpochError> {
         let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
         let protocol_version = self.get_epoch_protocol_version(&epoch_id)?;
-        // Try DB first when EarlyKickout is enabled (column is populated).
-        if ProtocolFeature::EarlyKickout.enabled(protocol_version) {
-            let epoch_manager = self.read();
-            let key = get_block_shard_id(prev_block_hash, shard_id);
-            if let Some(validator) = epoch_manager
-                .store
-                .store_ref()
-                .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
-            {
-                return Ok(validator);
-            }
-        }
-        // Fall back to computation.
-        tracing::debug!(
-            target: "epoch_manager",
-            %prev_block_hash,
-            %shard_id,
-            "chunk producer not in DB, falling back to computation",
-        );
-        let block_info = self.get_block_info(prev_block_hash)?;
-        let height = block_info.height() + 1;
-        self.get_chunk_producer_for_height(&epoch_id, height, shard_id)
-    }
-
-    fn require_chunk_producer_info(
-        &self,
-        prev_block_hash: &CryptoHash,
-        shard_id: ShardId,
-    ) -> Result<ValidatorStake, EpochError> {
-        let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
-        let protocol_version = self.get_epoch_protocol_version(&epoch_id)?;
         if ProtocolFeature::EarlyKickout.enabled(protocol_version) {
             let epoch_manager = self.read();
             let key = get_block_shard_id(prev_block_hash, shard_id);
@@ -1053,7 +1017,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
             {
                 Some(validator) => Ok(validator),
                 None => Err(EpochError::ChunkProducerSelectionError(format!(
-                    "chunk producer unknown for prev_block_hash={}, shard_id={}",
+                    "chunk producer not in DB for prev_block_hash={}, shard_id={}",
                     prev_block_hash, shard_id,
                 ))),
             };
