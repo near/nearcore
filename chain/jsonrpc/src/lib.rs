@@ -1280,19 +1280,21 @@ impl JsonRpcHandler {
         &self,
         request_data: near_jsonrpc_primitives::types::congestion::RpcCongestionLevelRequest,
     ) -> Result<Value, RpcError> {
-        let (block_hint, shard_hint) = match &request_data.chunk_reference {
+        let (block_hint, shard_hint, strategy) = match &request_data.chunk_reference {
             ChunkReference::BlockShardId { block_id, shard_id } => {
                 let block_hint = BlockReference::BlockId(block_id.clone()).into();
-                (block_hint, ShardHint::Id(*shard_id))
+                (block_hint, ShardHint::Id(*shard_id), CoordinatorRequestStrategy::Sequential)
             }
-            ChunkReference::ChunkHash { .. } => (BlockHint::None, ShardHint::None),
+            ChunkReference::ChunkHash { .. } => {
+                (BlockHint::None, ShardHint::None, CoordinatorRequestStrategy::ParallelTakeFirst)
+            }
         };
         self.run_coordinator_request(
             "EXPERIMENTAL_congestion_level",
             request_data,
             block_hint,
             shard_hint,
-            CoordinatorRequestStrategy::Sequential,
+            strategy,
         )
         .await
     }
