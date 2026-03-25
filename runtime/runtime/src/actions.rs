@@ -627,6 +627,14 @@ fn validate_delegate_action_key(
                     InvalidAccessKeyError::DepositWithFunctionCall,
                 )
                 .into());
+                // Before this fix, the missing early return allowed execution
+                // to fall through to the receiver_id and method_name checks,
+                // which could overwrite this error with a different one.
+                if ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
+                    .enabled(apply_state.current_protocol_version)
+                {
+                    return Ok(());
+                }
             }
             if delegate_action.receiver_id != function_call_permission.receiver_id {
                 result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
@@ -1506,6 +1514,90 @@ mod tests {
                 InvalidAccessKeyError::DepositWithFunctionCall,
             )
             .into())
+        );
+    }
+
+    /// Build a delegate action that triggers both DepositWithFunctionCall
+    /// (deposit > 0) and ReceiverMismatch (receiver differs from the function
+    /// call permission).
+    fn deposit_with_function_call_and_receiver_mismatch(
+        protocol_version: ProtocolVersion,
+    ) -> ActionResult {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let sender_id = signed_delegate_action.delegate_action.sender_id.clone();
+        let sender_pub_key = signed_delegate_action.delegate_action.public_key.clone();
+
+        let initial_nonce: u64 = 19_000_000;
+        let access_key = AccessKey {
+            nonce: initial_nonce,
+            permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                allowance: None,
+                // Use a different receiver than the delegate action to trigger
+                // ReceiverMismatch after DepositWithFunctionCall.
+                receiver_id: "other.test.near".to_string(),
+                method_names: Vec::new(),
+            }),
+        };
+
+        let mut apply_state =
+            create_apply_state(signed_delegate_action.delegate_action.max_block_height);
+        apply_state.current_protocol_version = protocol_version;
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+
+        let mut delegate_action = signed_delegate_action.delegate_action;
+        delegate_action.nonce = initial_nonce + 1;
+        delegate_action.actions =
+            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
+                args: Vec::new(),
+                deposit: Balance::from_yoctonear(1),
+                gas: Gas::from_gas(300),
+                method_name: "any_method".parse().unwrap(),
+            })))];
+
+        let mut result = ActionResult::default();
+        validate_delegate_action_key(
+            &mut state_update,
+            &apply_state,
+            &delegate_action,
+            &mut result,
+        )
+        .expect("validate_delegate_action_key must not return a RuntimeError");
+
+        result
+    }
+
+    #[test]
+    fn test_delegate_deposit_with_function_call_reports_receiver_mismatch_before_fix() {
+        let version =
+            ProtocolFeature::FixDelegateActionDepositWithFunctionCallError.protocol_version() - 1;
+        let result = deposit_with_function_call_and_receiver_mismatch(version);
+
+        // Legacy: missing early return lets ReceiverMismatch overwrite
+        // DepositWithFunctionCall.
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::ReceiverMismatch {
+                    tx_receiver: "token.test.near".parse().unwrap(),
+                    ak_receiver: "other.test.near".parse().unwrap(),
+                },
+            )
+            .into()),
+        );
+    }
+
+    #[test]
+    fn test_delegate_deposit_with_function_call_reports_deposit_error() {
+        let version =
+            ProtocolFeature::FixDelegateActionDepositWithFunctionCallError.protocol_version();
+        let result = deposit_with_function_call_and_receiver_mismatch(version);
+
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::DepositWithFunctionCall,
+            )
+            .into()),
         );
     }
 

@@ -1,9 +1,11 @@
 use crate::config::safe_add_compute;
+use crate::contract_code::RuntimeContractIdentifier;
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::receipt_manager::ReceiptManager;
 use crate::{ActionResult, ApplyState, metrics};
 use near_parameters::RuntimeConfig;
 use near_primitives::account::Account;
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError};
 use near_primitives::hash::CryptoHash;
@@ -12,11 +14,13 @@ use near_primitives::receipt::{
     VersionedActionReceipt,
 };
 use near_primitives::transaction::FunctionCallAction;
+use near_primitives::trie_key::{SmallKeyVec, TrieKey};
 use near_primitives::types::{AccountId, EpochInfoProvider};
 use near_primitives_core::version::ProtocolFeature;
+use near_store::trie::AccessOptions;
 use near_store::{
-    StorageError, TrieUpdate, enqueue_promise_yield_timeout, get_promise_yield_indices,
-    set_promise_yield_indices,
+    KeyLookupMode, StorageError, TrieUpdate, enqueue_promise_yield_timeout,
+    get_promise_yield_indices, set_promise_yield_indices,
 };
 use near_vm_runner::PreparedContract;
 use near_vm_runner::logic::errors::{
@@ -37,7 +41,7 @@ pub(crate) fn action_function_call(
     account_id: &AccountId,
     function_call: &FunctionCallAction,
     action_hash: &CryptoHash,
-    code_hash: CryptoHash,
+    contract_id: &RuntimeContractIdentifier,
     config: &RuntimeConfig,
     is_last_action: bool,
     epoch_info_provider: &dyn EpochInfoProvider,
@@ -50,13 +54,7 @@ pub(crate) fn action_function_call(
         .into());
     }
 
-    let account_contract = account.contract();
-    state_update.record_contract_call(
-        account_id.clone(),
-        code_hash,
-        account_contract.as_ref(),
-        apply_state.apply_reason.clone(),
-    )?;
+    record_contract_call(state_update, contract_id, &apply_state.apply_reason)?;
 
     #[cfg(feature = "test_features")]
     apply_recorded_storage_garbage(function_call, state_update);
@@ -342,6 +340,51 @@ pub(crate) fn execute_function_call(
     }
 
     Ok(outcome)
+}
+
+/// Records an access to the contract code due to a function call.
+///
+/// For local and global contracts, verifies the contract exists in the trie
+/// and records its code hash for distribution to validators. Built-in wallet
+/// contracts and absent contracts are skipped.
+fn record_contract_call(
+    state_update: &TrieUpdate,
+    contract_id: &RuntimeContractIdentifier,
+    apply_reason: &ApplyChunkReason,
+) -> Result<(), StorageError> {
+    // Recording is only needed for distributing contracts to validators when
+    // updating the tracked shard.
+    if *apply_reason != ApplyChunkReason::UpdateTrackedShard {
+        return Ok(());
+    }
+
+    let (code_hash, trie_key) = match contract_id {
+        RuntimeContractIdentifier::None | RuntimeContractIdentifier::LegacyEthWallet(_) => {
+            return Ok(());
+        }
+        RuntimeContractIdentifier::AccountLocal { code_hash, account_id } => {
+            (*code_hash, TrieKey::ContractCode { account_id: account_id.clone() })
+        }
+        RuntimeContractIdentifier::Global { code_hash, identifier } => {
+            (*code_hash, TrieKey::GlobalContractCode { identifier: identifier.clone().into() })
+        }
+    };
+
+    // Only record the call if the trie contains the contract (with the given hash).
+    // This avoids recording contracts that do not exist or are newly-deployed.
+    // The lookup has no side effects (not charging gas or recording trie nodes).
+    let mut key = SmallKeyVec::new_const();
+    trie_key.append_into(&mut key);
+    let contract_ref = state_update
+        .trie
+        .get_optimized_ref(&key, KeyLookupMode::MemOrFlatOrTrie, AccessOptions::NO_SIDE_EFFECTS)
+        .or_else(|err| {
+            if matches!(err, StorageError::MissingTrieValue(_)) { Ok(None) } else { Err(err) }
+        })?;
+    if contract_ref.is_some_and(|value_ref| value_ref.value_hash() == code_hash) {
+        state_update.contract_storage().record_call(code_hash);
+    }
+    Ok(())
 }
 
 /// See #11703 for more details

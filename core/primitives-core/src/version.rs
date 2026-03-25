@@ -343,6 +343,10 @@ pub enum ProtocolFeature {
     /// (storage stake, function call permission) that could return an error,
     /// violating the documented contract of no mutation on error.
     FixAccessKeyAllowanceCharging,
+    /// Fix missing early return on DepositWithFunctionCall error path in
+    /// validate_delegate_action_key. Previously the error could be
+    /// overwritten by a subsequent receiver_id or method_name check.
+    FixDelegateActionDepositWithFunctionCallError,
     Spice,
     ContinuousEpochSync,
     /// Apply PromiseYield receipts immediately after emitting them. Allows to perform the resume
@@ -491,7 +495,8 @@ impl ProtocolFeature {
             | ProtocolFeature::EthImplicitGlobalContract
             | ProtocolFeature::InstantDeleteAccount => 83,
             ProtocolFeature::Wasmtime => 84,
-            ProtocolFeature::OneYoctoNearOnPromise => 85,
+            ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
+            | ProtocolFeature::OneYoctoNearOnPromise=> 85,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -501,13 +506,12 @@ impl ProtocolFeature {
             ProtocolFeature::GasKeys => 149,
             ProtocolFeature::DynamicResharding => 150,
             ProtocolFeature::StrictNonce => 151,
+            ProtocolFeature::ContinuousEpochSync => 152,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,
-
             // Place features that are not yet in Nightly below this line.
-            ProtocolFeature::ContinuousEpochSync => 201,
         }
     }
 
@@ -526,7 +530,7 @@ pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 80;
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 85;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 151;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 152;
 
 // TODO(spice): Once spice is mature and close to release make it part of nightly - at the point in
 // time cargo feature for spice should be removed as well.
