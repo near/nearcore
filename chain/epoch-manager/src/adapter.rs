@@ -499,10 +499,6 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Chunk producer for a given prev_block_hash and shard. Reads from the
     /// ChunkProducers DB column first, falls back to computation on miss.
     /// Use for non-consensus paths where a best-effort answer is acceptable.
-    ///
-    /// NOTE: returns the producer for height `prev_block.height + 1`. If the
-    /// chunk's `height_created` differs (skipped blocks), use
-    /// `get_chunk_producer_for_height` with the actual height instead.
     fn get_chunk_producer_info(
         &self,
         prev_block_hash: &CryptoHash,

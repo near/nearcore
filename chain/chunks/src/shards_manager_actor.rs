@@ -481,14 +481,8 @@ impl ShardsManagerActor {
         let request_full = force_request_full
             || self.shard_tracker.cares_about_shard_this_or_next_epoch(ancestor_hash, shard_id);
 
-        let chunk_producer_account_id = self
-            .epoch_manager
-            .get_chunk_producer_by_cpk(&ChunkProductionKey {
-                epoch_id: self.epoch_manager.get_epoch_id_from_prev_block(ancestor_hash)?,
-                height_created: height,
-                shard_id,
-            })?
-            .take_account_id();
+        let chunk_producer_account_id =
+            self.epoch_manager.get_chunk_producer_info(ancestor_hash, shard_id)?.take_account_id();
 
         // In the following we compute which target accounts we should request parts and receipts from
         // First we choose a shard representative target which is either the original chunk producer
@@ -1779,7 +1773,7 @@ impl ShardsManagerActor {
         // calculating owner parts requires that, so we first check
         // whether prev_block_hash is in the chain, if not, returns NeedBlock
         let prev_block_hash = header.prev_block_hash();
-        let epoch_id = match self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash) {
+        let _epoch_id = match self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash) {
             Ok(epoch_id) => epoch_id,
             Err(_) => {
                 tracing::debug!(target: "chunks", ?prev_block_hash, "block not found");
@@ -1838,11 +1832,7 @@ impl ShardsManagerActor {
 
         let chunk_producer = self
             .epoch_manager
-            .get_chunk_producer_by_cpk(&ChunkProductionKey {
-                epoch_id,
-                height_created: header.height_created(),
-                shard_id: header.shard_id(),
-            })?
+            .get_chunk_producer_info(header.prev_block_hash(), header.shard_id())?
             .take_account_id();
 
         if have_all_parts {

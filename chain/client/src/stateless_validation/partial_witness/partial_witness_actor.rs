@@ -410,6 +410,8 @@ impl PartialWitnessActor {
         let ChunkProductionKey { shard_id, epoch_id, height_created } =
             partial_witness.chunk_production_key();
 
+        // TODO(#chunk_producer_lookups): migrate to require_chunk_producer_info
+        // once V2 wire types provide prev_block_hash (PR 3).
         let chunk_producer = self
             .epoch_manager
             .get_chunk_producer_by_cpk(&ChunkProductionKey { epoch_id, height_created, shard_id })?

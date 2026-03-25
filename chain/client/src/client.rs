@@ -1349,16 +1349,12 @@ impl Client {
         &mut self,
         chunk_header: ShardChunkHeader,
     ) -> Result<(), Error> {
-        let epoch_id =
-            self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
         let chunk_producer = self
             .epoch_manager
-            .get_chunk_producer_for_height(
-                &epoch_id,
-                chunk_header.height_created(),
-                chunk_header.shard_id(),
-            )?
+            .get_chunk_producer_info(chunk_header.prev_block_hash(), chunk_header.shard_id())?
             .take_account_id();
+        let epoch_id =
+            self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
         tracing::error!(
             target: "client",
             ?chunk_producer,

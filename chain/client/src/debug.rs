@@ -629,9 +629,8 @@ impl ClientActor {
                                 chunk_producer: self
                                     .client
                                     .epoch_manager
-                                    .get_chunk_producer_for_height(
-                                        block_header.epoch_id(),
-                                        block_header.height(),
+                                    .get_chunk_producer_info(
+                                        chunk.prev_block_hash(),
                                         chunk.shard_id(),
                                     )
                                     .map(|info| info.take_account_id())

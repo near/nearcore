@@ -47,6 +47,9 @@ pub fn verify_chunk_header_signature_with_epoch_manager(
     )
 }
 
+// TODO(#chunk_producer_lookups): migrate to require_chunk_producer_info
+// once the ShardsManager's validate_chunk_header is refactored to separate
+// preliminary (epoch_id-based) and full (prev_block_hash-based) validation.
 pub fn verify_chunk_header_signature_with_epoch_manager_and_parts(
     epoch_manager: &dyn EpochManagerAdapter,
     chunk_hash: &ChunkHash,

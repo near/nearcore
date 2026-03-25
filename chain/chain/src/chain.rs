@@ -75,7 +75,6 @@ use near_primitives::sharding::{
     ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof, StateSyncInfo,
 };
 use near_primitives::state_sync::ReceiptProofResponse;
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize,
 };
@@ -3487,15 +3486,14 @@ impl Chain {
         // Create the callback only when this node is the chunk producer for the next height. It's
         // used only for early prepare transactions, doesn't make sense to call it if the node isn't
         // a chunk producer.
-        let cpk = ChunkProductionKey {
-            shard_id: shard_uid.shard_id(),
-            epoch_id: epoch_id,
-            height_created: block.height + 1,
-        };
         let Some(signer) = self.validator_signer.get() else {
             return None;
         };
-        let Ok(producer) = self.epoch_manager.get_chunk_producer_by_cpk(&cpk) else {
+        let Ok(producer) = self.epoch_manager.get_chunk_producer_for_height(
+            &epoch_id,
+            block.height + 1,
+            shard_uid.shard_id(),
+        ) else {
             return None;
         };
         if signer.validator_id() != producer.account_id() {
