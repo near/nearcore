@@ -36,7 +36,7 @@ fn test_backfill_matches_normal_processing() {
     // Submit a send_money transaction (creates a FromTransaction receipt).
     let tx = SignedTransaction::send_money(
         1,
-        user_account.clone(),
+        user_account,
         receiver_account,
         &signer,
         Balance::from_yoctonear(100),
