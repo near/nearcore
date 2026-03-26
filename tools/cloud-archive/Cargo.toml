@@ -1,0 +1,23 @@
+[package]
+name = "near-cloud-archive-tool"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+borsh.workspace = true
+clap.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+
+nearcore.workspace = true
+near-chain-configs.workspace = true
+near-primitives.workspace = true
+near-store.workspace = true

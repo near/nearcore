@@ -5,6 +5,7 @@ use near_async::ActorSystem;
 use near_chain_configs::{GenesisValidationMode, TrackedShardsConfig};
 use near_client::ConfigUpdater;
 use near_client::client_actor::ShutdownReason;
+use near_cloud_archive_tool::CloudArchiveCommand;
 use near_cold_store_tool::ColdStoreCommand;
 use near_config_utils::DownloadConfigType;
 use near_database_tool::commands::DatabaseCommand;
@@ -133,6 +134,9 @@ impl NeardCmd {
             NeardSubCommand::AmendGenesis(cmd) => {
                 cmd.run()?;
             }
+            NeardSubCommand::CloudArchive(cmd) => {
+                cmd.run(&home_dir, genesis_validation)?;
+            }
             NeardSubCommand::ColdStore(cmd) => {
                 cmd.run(&home_dir, genesis_validation)?;
             }
@@ -252,6 +256,10 @@ pub(super) enum NeardSubCommand {
 
     /// Amend a genesis/records file created by `dump-state`.
     AmendGenesis(AmendGenesisCommand),
+
+    /// Cloud archive reader tools.
+    #[clap(name = "cloud-archive")]
+    CloudArchive(CloudArchiveCommand),
 
     /// Testing tool for cold storage
     ColdStore(ColdStoreCommand),
