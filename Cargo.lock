@@ -8449,6 +8449,7 @@ dependencies = [
  "near-client",
  "near-client-primitives",
  "near-crypto",
+ "near-database-tool",
  "near-epoch-manager",
  "near-external-storage",
  "near-indexer",
