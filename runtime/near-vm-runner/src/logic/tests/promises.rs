@@ -723,6 +723,30 @@ fn test_one_yocto_near_on_promise_enabled() {
         .expect_err("transfer should still fail with zero balance");
 }
 
+/// When the contract has non-zero balance, 1 yoctoNEAR is deducted normally.
+#[test]
+fn test_one_yocto_near_on_promise_deducts_with_nonzero_balance() {
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.one_yocto_near_on_promise = true;
+    logic_builder.context.account_balance = Balance::from_yoctonear(1);
+    logic_builder.context.attached_deposit = Balance::ZERO;
+    let mut logic = logic_builder.build();
+
+    let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
+
+    // Deducts the 1 yoctoNEAR from balance
+    promise_batch_action_function_call_weight(&mut logic, index, 1, Gas::ZERO, 0)
+        .expect("should succeed with sufficient balance");
+    assert!(
+        logic.result_state.current_account_balance.is_zero(),
+        "balance should be zero after deduction"
+    );
+
+    // Balance is now zero, so the skip kicks in
+    promise_batch_action_function_call_weight(&mut logic, index, 1, Gas::ZERO, 0)
+        .expect("should succeed via zero-balance exemption");
+}
+
 #[test]
 fn test_one_yocto_near_on_promise_disabled() {
     let mut logic_builder = VMLogicBuilder::default();

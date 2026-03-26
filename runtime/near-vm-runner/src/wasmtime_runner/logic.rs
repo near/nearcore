@@ -2976,7 +2976,14 @@ pub fn promise_batch_action_function_call_weight(
     )?;
     // Prepaid gas
     ctx.result_state.gas_counter.prepay_gas(Gas::from_gas(gas))?;
-    if !(amount == Balance::from_yoctonear(1) && ctx.config.one_yocto_near_on_promise) {
+    // Allow attaching exactly 1 yoctoNEAR to a promise function call
+    // when the contract has zero balance. This lets deterministic accounts
+    // call functions like ft_transfer_call that require an attached deposit
+    // without needing to be seeded with balance first.
+    let skip_deduct = amount == Balance::from_yoctonear(1)
+        && ctx.config.one_yocto_near_on_promise
+        && ctx.result_state.current_account_balance.is_zero();
+    if !skip_deduct {
         ctx.result_state.deduct_balance(amount)?;
     }
     ctx.ext.append_action_function_call_weight(
