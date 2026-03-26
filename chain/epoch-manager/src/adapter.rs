@@ -1005,9 +1005,13 @@ impl EpochManagerAdapter for EpochManagerHandle {
         prev_block_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<ValidatorStake, EpochError> {
-        let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
-        let protocol_version = self.get_epoch_protocol_version(&epoch_id)?;
-        if ProtocolFeature::EarlyKickout.enabled(protocol_version) {
+        // Check the protocol version of the block's OWN epoch (not the chunk's
+        // epoch). The DB entry was written when prev_block was processed, using
+        // the block's epoch version. At epoch boundaries the chunk's epoch may
+        // have EarlyKickout enabled while the parent block's epoch didn't.
+        let block_epoch_id = self.get_epoch_id(prev_block_hash)?;
+        let block_protocol_version = self.get_epoch_protocol_version(&block_epoch_id)?;
+        if ProtocolFeature::EarlyKickout.enabled(block_protocol_version) {
             let epoch_manager = self.read();
             let key = get_block_shard_id(prev_block_hash, shard_id);
             return match epoch_manager
@@ -1022,10 +1026,11 @@ impl EpochManagerAdapter for EpochManagerHandle {
                 ))),
             };
         }
-        // Feature not enabled — fall back to computation.
+        // Feature not enabled for prev_block's epoch — fall back to computation.
+        let chunk_epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
         let block_info = self.get_block_info(prev_block_hash)?;
         let height = block_info.height() + 1;
-        self.get_chunk_producer_for_height(&epoch_id, height, shard_id)
+        self.get_chunk_producer_for_height(&chunk_epoch_id, height, shard_id)
     }
 
     fn get_chunk_validator_assignments(
