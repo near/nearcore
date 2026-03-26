@@ -897,6 +897,21 @@ impl std::fmt::Display for ErrorContainer {
     }
 }
 
+/// Lookup the memory export and cache it on success.
+fn get_memory(caller: &mut wasmtime::Caller<'_, Ctx>) -> Result<Memory, VMLogicError> {
+    use crate::logic::HostError;
+    match caller.data().memory {
+        Export::Unresolved(memory) => {
+            let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
+                return Err(HostError::MemoryAccessViolation.into());
+            };
+            caller.data_mut().memory = Export::Resolved(memory);
+            Ok(memory)
+        }
+        Export::Resolved(memory) => Ok(memory),
+    }
+}
+
 fn link(linker: &mut wasmtime::Linker<Ctx>, config: &Config) {
     macro_rules! add_import {
         (
@@ -908,7 +923,12 @@ fn link(linker: &mut wasmtime::Linker<Ctx>, config: &Config) {
                 let _span = TRACE.then(|| {
                     tracing::trace_span!(target: "vm::host_function", stringify!($name)).entered()
                 });
-                match logic::$func(&mut caller, $( $arg_name as $arg_type, )*) {
+                let memory = match get_memory(&mut caller) {
+                    Ok(m) => m,
+                    Err(err) => return Err(ErrorContainer(parking_lot::Mutex::new(Some(err))).into()),
+                };
+                let (memory, ctx) = memory.data_and_store_mut(&mut caller);
+                match logic::$func(ctx, memory, $( $arg_name as $arg_type, )*) {
                     Ok(result) => Ok(result as ($( $returns ),* ) ),
                     Err(err) => {
                         Err(ErrorContainer(parking_lot::Mutex::new(Some(err))).into())

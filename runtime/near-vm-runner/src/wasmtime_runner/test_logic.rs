@@ -1,78 +1,18 @@
-use super::{Ctx, ErrorContainer, Export, link};
-use crate::imports;
+use super::Ctx;
+use super::logic;
 use crate::logic::errors::VMLogicError;
 use crate::logic::gas_counter::GasCounter;
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::vmstate::Registers;
 use crate::logic::{Config, ExecutionResultState, MemSlice, VMContext, VMOutcome};
-use crate::tests::test_vm_config;
 use near_parameters::RuntimeFeesConfig;
 use std::sync::Arc;
-use wasmtime::{Engine, Instance, Linker, Memory, Module, Store};
+use wasmtime::{Engine, Memory, Store};
 
-/// Size of the guest memory in the test WAT shim (1 page = 64KB).
-/// Matches `MockedMemory::MEMORY_SIZE`.
-const MEMORY_PAGES: u32 = 1;
-const MEMORY_SIZE: u64 = MEMORY_PAGES as u64 * 64 * 1024;
-
-fn extract_vm_logic_error(err: anyhow::Error) -> VMLogicError {
-    let cause = err.root_cause();
-    if let Some(container) = cause.downcast_ref::<ErrorContainer>() {
-        container.take().expect("error already taken")
-    } else {
-        panic!("unexpected wasmtime error: {err:?}");
-    }
-}
-
-/// Build a WAT module that imports all host functions and re-exports them, plus
-/// exports a 1-page linear memory. This lets us call host functions through the
-/// normal wasmtime path (which creates `Caller` internally).
-#[allow(clippy::large_stack_frames)]
-fn build_wat_shim(config: &Config) -> String {
-    let mut imports = String::new();
-    let mut exports = String::new();
-
-    fn wat_type(t: &str) -> &str {
-        match t {
-            "u64" => "i64",
-            "u32" => "i32",
-            other => panic!("unexpected wasm type: {other}"),
-        }
-    }
-
-    macro_rules! add_wat {
-        ($mod:ident / $name:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >) => {{
-            let params: &[&str] = &[$(wat_type(stringify!($arg_type))),*];
-            let results: &[&str] = &[$(wat_type(stringify!($returns))),*];
-            let param_str = if params.is_empty() {
-                String::new()
-            } else {
-                format!(" (param{})", params.iter().map(|t| format!(" {t}")).collect::<String>())
-            };
-            let result_str = if results.is_empty() {
-                String::new()
-            } else {
-                format!(" (result{})", results.iter().map(|t| format!(" {t}")).collect::<String>())
-            };
-            imports.push_str(&format!(
-                "  (import \"{}\" \"{}\" (func ${}{}{}))\n",
-                stringify!($mod), stringify!($name), stringify!($name), param_str, result_str,
-            ));
-            exports.push_str(&format!(
-                "  (export \"{}\" (func ${}))\n",
-                stringify!($name), stringify!($name),
-            ));
-        }};
-    }
-
-    imports::for_each_available_import!(config, add_wat);
-
-    format!("(module\n{imports}{exports}  (memory (export \"memory\") {MEMORY_PAGES})\n)")
-}
+const MEMORY_SIZE: u64 = 64 * 1024;
 
 pub(crate) struct WasmtimeTestLogic {
     store: Store<Ctx>,
-    instance: Instance,
     memory: Memory,
     mem_write_offset: u64,
 }
@@ -93,296 +33,47 @@ impl WasmtimeTestLogic {
         let context: &'static VMContext = unsafe { core::mem::transmute(context) };
 
         let config = Arc::new(config);
-        let wat = build_wat_shim(&config);
-        let wat_bytes = wat::parse_str(&wat).expect("failed to parse WAT shim");
-
         let engine = Engine::default();
-        let module = Module::new(&engine, &wat_bytes).expect("failed to compile WAT shim");
-
-        let mut linker = Linker::new(&engine);
-        link(&mut linker, &config);
 
         let result_state = ExecutionResultState::new(
             context,
             context.make_gas_counter(&config),
             Arc::clone(&config),
         );
-        let memory_export = module.get_export_index("memory").expect("WAT shim must export memory");
-        let ctx = Ctx::new(ext, context, Arc::new(fees_config), result_state, memory_export);
+        // Create a dummy ModuleExport for the memory field in Ctx. We'll
+        // pre-resolve it immediately after creating the store, so the
+        // Unresolved value is never actually used.
+        let dummy_wasm = wat::parse_str("(module (memory (export \"memory\") 1))").unwrap();
+        let dummy_memory_export = wasmtime::Module::new(&engine, &dummy_wasm)
+            .unwrap()
+            .get_export_index("memory")
+            .unwrap();
+        let ctx = Ctx::new(ext, context, Arc::new(fees_config), result_state, dummy_memory_export);
 
         let mut store = Store::new(&engine, ctx);
         store.limiter(|ctx| &mut ctx.limits);
 
-        let pre = linker.instantiate_pre(&module).expect("failed to pre-instantiate WAT shim");
-        let instance = pre.instantiate(&mut store).expect("failed to instantiate WAT shim");
-        let memory =
-            instance.get_memory(&mut store, "memory").expect("WAT shim must export memory");
+        let memory = Memory::new(&mut store, wasmtime::MemoryType::new(1, Some(1))).unwrap();
+        store.data_mut().memory = super::Export::Resolved(memory);
 
-        // Pre-resolve the memory in Ctx so that host functions don't need to
-        // call `caller.get_module_export` (which fails with on-demand
-        // allocation since those create "Dummy" instances).
-        store.data_mut().memory = Export::Resolved(memory);
-
-        Self { store, instance, memory, mem_write_offset: 0 }
+        Self { store, memory, mem_write_offset: 0 }
     }
 
-    // ---------------------------------------------------------------
-    // Generic call helpers
-    //
-    // Uses `get_export` + `into_func` + `typed` instead of
-    // `get_typed_func` because wasmtime's on-demand allocator creates
-    // "Dummy" instances that don't support `get_typed_func`.
-    // ---------------------------------------------------------------
-
-    fn get_func(&mut self, name: &str) -> wasmtime::Func {
-        let wasmtime::Extern::Func(func) = self
-            .instance
-            .get_export(&mut self.store, name)
-            .unwrap_or_else(|| panic!("export {name:?} not found"))
-        else {
-            panic!("export {name:?} is not a function");
-        };
-        func
+    /// Returns `(&mut [u8], &mut Ctx)` — guest memory and store context.
+    fn ctx_and_mem(&mut self) -> (&mut [u8], &mut Ctx) {
+        self.memory.data_and_store_mut(&mut self.store)
     }
 
-    fn call_0(&mut self, name: &str) -> Result<(), VMLogicError> {
-        let func = self.get_func(name);
-        let func = func.typed::<(), ()>(&self.store).unwrap();
-        func.call(&mut self.store, ()).map_err(extract_vm_logic_error)
-    }
-
-    fn call_0_ret(&mut self, name: &str) -> Result<u64, VMLogicError> {
-        let func = self.get_func(name);
-        let func = func.typed::<(), u64>(&self.store).unwrap();
-        func.call(&mut self.store, ()).map_err(extract_vm_logic_error)
-    }
-
-    fn call_1(&mut self, name: &str, a: u64) -> Result<(), VMLogicError> {
-        let func = self.get_func(name);
-        let func = func.typed::<(u64,), ()>(&self.store).unwrap();
-        func.call(&mut self.store, (a,)).map_err(extract_vm_logic_error)
-    }
-
-    fn call_1_ret(&mut self, name: &str, a: u64) -> Result<u64, VMLogicError> {
-        let func = self.get_func(name);
-        let func = func.typed::<(u64,), u64>(&self.store).unwrap();
-        func.call(&mut self.store, (a,)).map_err(extract_vm_logic_error)
-    }
-
-    fn call_2(&mut self, name: &str, a: u64, b: u64) -> Result<(), VMLogicError> {
-        let func = self.get_func(name);
-        let func = func.typed::<(u64, u64), ()>(&self.store).unwrap();
-        func.call(&mut self.store, (a, b)).map_err(extract_vm_logic_error)
-    }
-
-    fn call_2_ret(&mut self, name: &str, a: u64, b: u64) -> Result<u64, VMLogicError> {
-        let func = self.get_func(name);
-        let func = func.typed::<(u64, u64), u64>(&self.store).unwrap();
-        func.call(&mut self.store, (a, b)).map_err(extract_vm_logic_error)
-    }
-
-    fn call_3(&mut self, name: &str, a: u64, b: u64, c: u64) -> Result<(), VMLogicError> {
-        let func = self.get_func(name);
-        let func = func.typed::<(u64, u64, u64), ()>(&self.store).unwrap();
-        func.call(&mut self.store, (a, b, c)).map_err(extract_vm_logic_error)
-    }
-
-    fn call_3_ret(&mut self, name: &str, a: u64, b: u64, c: u64) -> Result<u64, VMLogicError> {
-        let func = self.get_func(name);
-        let func = func.typed::<(u64, u64, u64), u64>(&self.store).unwrap();
-        func.call(&mut self.store, (a, b, c)).map_err(extract_vm_logic_error)
-    }
-
-    fn call_4(&mut self, name: &str, a: u64, b: u64, c: u64, d: u64) -> Result<(), VMLogicError> {
-        let func = self.get_func(name);
-        let func = func.typed::<(u64, u64, u64, u64), ()>(&self.store).unwrap();
-        func.call(&mut self.store, (a, b, c, d)).map_err(extract_vm_logic_error)
-    }
-
-    fn call_4_ret(
-        &mut self,
-        name: &str,
-        a: u64,
-        b: u64,
-        c: u64,
-        d: u64,
-    ) -> Result<u64, VMLogicError> {
-        let func = self.get_func(name);
-        let func = func.typed::<(u64, u64, u64, u64), u64>(&self.store).unwrap();
-        func.call(&mut self.store, (a, b, c, d)).map_err(extract_vm_logic_error)
-    }
-
-    fn call_5(
-        &mut self,
-        name: &str,
-        a: u64,
-        b: u64,
-        c: u64,
-        d: u64,
-        e: u64,
-    ) -> Result<(), VMLogicError> {
-        let func = self.get_func(name);
-        let func = func.typed::<(u64, u64, u64, u64, u64), ()>(&self.store).unwrap();
-        func.call(&mut self.store, (a, b, c, d, e)).map_err(extract_vm_logic_error)
-    }
-
-    fn call_5_ret(
-        &mut self,
-        name: &str,
-        a: u64,
-        b: u64,
-        c: u64,
-        d: u64,
-        e: u64,
-    ) -> Result<u64, VMLogicError> {
-        let func = self.get_func(name);
-        let func = func.typed::<(u64, u64, u64, u64, u64), u64>(&self.store).unwrap();
-        func.call(&mut self.store, (a, b, c, d, e)).map_err(extract_vm_logic_error)
-    }
-
-    fn call_6(
-        &mut self,
-        name: &str,
-        a: u64,
-        b: u64,
-        c: u64,
-        d: u64,
-        e: u64,
-        f: u64,
-    ) -> Result<(), VMLogicError> {
-        let func = self.get_func(name);
-        let func = func.typed::<(u64, u64, u64, u64, u64, u64), ()>(&self.store).unwrap();
-        func.call(&mut self.store, (a, b, c, d, e, f)).map_err(extract_vm_logic_error)
-    }
-
-    fn call_7(
-        &mut self,
-        name: &str,
-        a: u64,
-        b: u64,
-        c: u64,
-        d: u64,
-        e: u64,
-        f: u64,
-        g: u64,
-    ) -> Result<(), VMLogicError> {
-        let func = self.get_func(name);
-        let func = func.typed::<(u64, u64, u64, u64, u64, u64, u64), ()>(&self.store).unwrap();
-        func.call(&mut self.store, (a, b, c, d, e, f, g)).map_err(extract_vm_logic_error)
-    }
-
-    fn call_7_ret(
-        &mut self,
-        name: &str,
-        a: u64,
-        b: u64,
-        c: u64,
-        d: u64,
-        e: u64,
-        f: u64,
-        g: u64,
-    ) -> Result<u64, VMLogicError> {
-        let func = self.get_func(name);
-        let func = func.typed::<(u64, u64, u64, u64, u64, u64, u64), u64>(&self.store).unwrap();
-        func.call(&mut self.store, (a, b, c, d, e, f, g)).map_err(extract_vm_logic_error)
-    }
-
-    fn call_8(
-        &mut self,
-        name: &str,
-        a: u64,
-        b: u64,
-        c: u64,
-        d: u64,
-        e: u64,
-        f: u64,
-        g: u64,
-        h: u64,
-    ) -> Result<(), VMLogicError> {
-        let func = self.get_func(name);
-        let func = func.typed::<(u64, u64, u64, u64, u64, u64, u64, u64), ()>(&self.store).unwrap();
-        func.call(&mut self.store, (a, b, c, d, e, f, g, h)).map_err(extract_vm_logic_error)
-    }
-
-    fn call_8_ret(
-        &mut self,
-        name: &str,
-        a: u64,
-        b: u64,
-        c: u64,
-        d: u64,
-        e: u64,
-        f: u64,
-        g: u64,
-        h: u64,
-    ) -> Result<u64, VMLogicError> {
-        let func = self.get_func(name);
-        let func =
-            func.typed::<(u64, u64, u64, u64, u64, u64, u64, u64), u64>(&self.store).unwrap();
-        func.call(&mut self.store, (a, b, c, d, e, f, g, h)).map_err(extract_vm_logic_error)
-    }
-
-    fn call_9(
-        &mut self,
-        name: &str,
-        a: u64,
-        b: u64,
-        c: u64,
-        d: u64,
-        e: u64,
-        f: u64,
-        g: u64,
-        h: u64,
-        i: u64,
-    ) -> Result<(), VMLogicError> {
-        let func = self.get_func(name);
-        let func =
-            func.typed::<(u64, u64, u64, u64, u64, u64, u64, u64, u64), ()>(&self.store).unwrap();
-        func.call(&mut self.store, (a, b, c, d, e, f, g, h, i)).map_err(extract_vm_logic_error)
-    }
-
-    fn call_9_ret(
-        &mut self,
-        name: &str,
-        a: u64,
-        b: u64,
-        c: u64,
-        d: u64,
-        e: u64,
-        f: u64,
-        g: u64,
-        h: u64,
-        i: u64,
-    ) -> Result<u64, VMLogicError> {
-        let func = self.get_func(name);
-        let func =
-            func.typed::<(u64, u64, u64, u64, u64, u64, u64, u64, u64), u64>(&self.store).unwrap();
-        func.call(&mut self.store, (a, b, c, d, e, f, g, h, i)).map_err(extract_vm_logic_error)
-    }
-
-    fn call_abort(
-        &mut self,
-        msg_ptr: u32,
-        filename_ptr: u32,
-        line: u32,
-        col: u32,
-    ) -> Result<(), VMLogicError> {
-        let func = self.get_func("abort");
-        let func = func.typed::<(u32, u32, u32, u32), ()>(&self.store).unwrap();
-        func.call(&mut self.store, (msg_ptr, filename_ptr, line, col))
-            .map_err(extract_vm_logic_error)
-    }
-
-    // ---------------------------------------------------------------
     // Registers API
-    // ---------------------------------------------------------------
 
     pub(crate) fn read_register(&mut self, register_id: u64, ptr: u64) -> Result<(), VMLogicError> {
-        self.call_2("read_register", register_id, ptr)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::read_register(ctx, mem, register_id, ptr)
     }
 
     pub(crate) fn register_len(&mut self, register_id: u64) -> Result<u64, VMLogicError> {
-        self.call_1_ret("register_len", register_id)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::register_len(ctx, mem, register_id)
     }
 
     pub(crate) fn write_register(
@@ -391,79 +82,89 @@ impl WasmtimeTestLogic {
         data_len: u64,
         data_ptr: u64,
     ) -> Result<(), VMLogicError> {
-        self.call_3("write_register", register_id, data_len, data_ptr)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::write_register(ctx, mem, register_id, data_len, data_ptr)
     }
 
-    // ---------------------------------------------------------------
     // Context API
-    // ---------------------------------------------------------------
 
     pub(crate) fn current_account_id(&mut self, register_id: u64) -> Result<(), VMLogicError> {
-        self.call_1("current_account_id", register_id)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::current_account_id(ctx, mem, register_id)
     }
 
     pub(crate) fn signer_account_id(&mut self, register_id: u64) -> Result<(), VMLogicError> {
-        self.call_1("signer_account_id", register_id)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::signer_account_id(ctx, mem, register_id)
     }
 
     pub(crate) fn signer_account_pk(&mut self, register_id: u64) -> Result<(), VMLogicError> {
-        self.call_1("signer_account_pk", register_id)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::signer_account_pk(ctx, mem, register_id)
     }
 
     pub(crate) fn predecessor_account_id(&mut self, register_id: u64) -> Result<(), VMLogicError> {
-        self.call_1("predecessor_account_id", register_id)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::predecessor_account_id(ctx, mem, register_id)
     }
 
     pub(crate) fn input(&mut self, register_id: u64) -> Result<(), VMLogicError> {
-        self.call_1("input", register_id)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::input(ctx, mem, register_id)
     }
 
     pub(crate) fn block_index(&mut self) -> Result<u64, VMLogicError> {
-        self.call_0_ret("block_index")
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::block_index(ctx, mem)
     }
 
     pub(crate) fn block_timestamp(&mut self) -> Result<u64, VMLogicError> {
-        self.call_0_ret("block_timestamp")
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::block_timestamp(ctx, mem)
     }
 
     pub(crate) fn epoch_height(&mut self) -> Result<u64, VMLogicError> {
-        self.call_0_ret("epoch_height")
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::epoch_height(ctx, mem)
     }
 
     pub(crate) fn storage_usage(&mut self) -> Result<u64, VMLogicError> {
-        self.call_0_ret("storage_usage")
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::storage_usage(ctx, mem)
     }
 
-    // ---------------------------------------------------------------
     // Economics API
-    // ---------------------------------------------------------------
 
     pub(crate) fn account_balance(&mut self, balance_ptr: u64) -> Result<(), VMLogicError> {
-        self.call_1("account_balance", balance_ptr)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::account_balance(ctx, mem, balance_ptr)
     }
 
     pub(crate) fn account_locked_balance(&mut self, balance_ptr: u64) -> Result<(), VMLogicError> {
-        self.call_1("account_locked_balance", balance_ptr)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::account_locked_balance(ctx, mem, balance_ptr)
     }
 
     pub(crate) fn attached_deposit(&mut self, balance_ptr: u64) -> Result<(), VMLogicError> {
-        self.call_1("attached_deposit", balance_ptr)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::attached_deposit(ctx, mem, balance_ptr)
     }
 
     pub(crate) fn prepaid_gas(&mut self) -> Result<u64, VMLogicError> {
-        self.call_0_ret("prepaid_gas")
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::prepaid_gas(ctx, mem)
     }
 
     pub(crate) fn used_gas(&mut self) -> Result<u64, VMLogicError> {
-        self.call_0_ret("used_gas")
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::used_gas(ctx, mem)
     }
 
-    // ---------------------------------------------------------------
     // Math API
-    // ---------------------------------------------------------------
 
     pub(crate) fn random_seed(&mut self, register_id: u64) -> Result<(), VMLogicError> {
-        self.call_1("random_seed", register_id)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::random_seed(ctx, mem, register_id)
     }
 
     pub(crate) fn sha256(
@@ -472,7 +173,8 @@ impl WasmtimeTestLogic {
         value_ptr: u64,
         register_id: u64,
     ) -> Result<(), VMLogicError> {
-        self.call_3("sha256", value_len, value_ptr, register_id)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::sha256(ctx, mem, value_len, value_ptr, register_id)
     }
 
     pub(crate) fn keccak256(
@@ -481,7 +183,8 @@ impl WasmtimeTestLogic {
         value_ptr: u64,
         register_id: u64,
     ) -> Result<(), VMLogicError> {
-        self.call_3("keccak256", value_len, value_ptr, register_id)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::keccak256(ctx, mem, value_len, value_ptr, register_id)
     }
 
     pub(crate) fn keccak512(
@@ -490,7 +193,8 @@ impl WasmtimeTestLogic {
         value_ptr: u64,
         register_id: u64,
     ) -> Result<(), VMLogicError> {
-        self.call_3("keccak512", value_len, value_ptr, register_id)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::keccak512(ctx, mem, value_len, value_ptr, register_id)
     }
 
     pub(crate) fn ripemd160(
@@ -499,7 +203,8 @@ impl WasmtimeTestLogic {
         value_ptr: u64,
         register_id: u64,
     ) -> Result<(), VMLogicError> {
-        self.call_3("ripemd160", value_len, value_ptr, register_id)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::ripemd160(ctx, mem, value_len, value_ptr, register_id)
     }
 
     pub(crate) fn ecrecover(
@@ -512,8 +217,10 @@ impl WasmtimeTestLogic {
         malleability_flag: u64,
         register_id: u64,
     ) -> Result<u64, VMLogicError> {
-        self.call_7_ret(
-            "ecrecover",
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::ecrecover(
+            ctx,
+            mem,
             hash_len,
             hash_ptr,
             sign_len,
@@ -533,38 +240,48 @@ impl WasmtimeTestLogic {
         pub_key_len: u64,
         pub_key_ptr: u64,
     ) -> Result<u64, VMLogicError> {
-        let func = self.get_func("ed25519_verify");
-        let func = func.typed::<(u64, u64, u64, u64, u64, u64), u64>(&self.store).unwrap();
-        func.call(&mut self.store, (sig_len, sig_ptr, msg_len, msg_ptr, pub_key_len, pub_key_ptr))
-            .map_err(extract_vm_logic_error)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::ed25519_verify(
+            ctx,
+            mem,
+            sig_len,
+            sig_ptr,
+            msg_len,
+            msg_ptr,
+            pub_key_len,
+            pub_key_ptr,
+        )
     }
 
-    // ---------------------------------------------------------------
     // Miscellaneous API
-    // ---------------------------------------------------------------
 
     pub(crate) fn value_return(
         &mut self,
         value_len: u64,
         value_ptr: u64,
     ) -> Result<(), VMLogicError> {
-        self.call_2("value_return", value_len, value_ptr)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::value_return(ctx, mem, value_len, value_ptr)
     }
 
     pub(crate) fn panic(&mut self) -> Result<(), VMLogicError> {
-        self.call_0("panic")
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::panic(ctx, mem)
     }
 
     pub(crate) fn panic_utf8(&mut self, len: u64, ptr: u64) -> Result<(), VMLogicError> {
-        self.call_2("panic_utf8", len, ptr)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::panic_utf8(ctx, mem, len, ptr)
     }
 
     pub(crate) fn log_utf8(&mut self, len: u64, ptr: u64) -> Result<(), VMLogicError> {
-        self.call_2("log_utf8", len, ptr)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::log_utf8(ctx, mem, len, ptr)
     }
 
     pub(crate) fn log_utf16(&mut self, len: u64, ptr: u64) -> Result<(), VMLogicError> {
-        self.call_2("log_utf16", len, ptr)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::log_utf16(ctx, mem, len, ptr)
     }
 
     pub(crate) fn abort(
@@ -574,12 +291,11 @@ impl WasmtimeTestLogic {
         line: u32,
         col: u32,
     ) -> Result<(), VMLogicError> {
-        self.call_abort(msg_ptr, filename_ptr, line, col)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::abort(ctx, mem, msg_ptr, filename_ptr, line, col)
     }
 
-    // ---------------------------------------------------------------
     // Promises API
-    // ---------------------------------------------------------------
 
     pub(crate) fn promise_create(
         &mut self,
@@ -592,8 +308,10 @@ impl WasmtimeTestLogic {
         amount_ptr: u64,
         gas: u64,
     ) -> Result<u64, VMLogicError> {
-        self.call_8_ret(
-            "promise_create",
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_create(
+            ctx,
+            mem,
             account_id_len,
             account_id_ptr,
             method_name_len,
@@ -617,8 +335,10 @@ impl WasmtimeTestLogic {
         amount_ptr: u64,
         gas: u64,
     ) -> Result<u64, VMLogicError> {
-        self.call_9_ret(
-            "promise_then",
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_then(
+            ctx,
+            mem,
             promise_index,
             account_id_len,
             account_id_ptr,
@@ -636,7 +356,8 @@ impl WasmtimeTestLogic {
         promise_idx_ptr: u64,
         promise_idx_count: u64,
     ) -> Result<u64, VMLogicError> {
-        self.call_2_ret("promise_and", promise_idx_ptr, promise_idx_count)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_and(ctx, mem, promise_idx_ptr, promise_idx_count)
     }
 
     pub(crate) fn promise_batch_create(
@@ -644,7 +365,8 @@ impl WasmtimeTestLogic {
         account_id_len: u64,
         account_id_ptr: u64,
     ) -> Result<u64, VMLogicError> {
-        self.call_2_ret("promise_batch_create", account_id_len, account_id_ptr)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_batch_create(ctx, mem, account_id_len, account_id_ptr)
     }
 
     pub(crate) fn promise_batch_then(
@@ -653,7 +375,8 @@ impl WasmtimeTestLogic {
         account_id_len: u64,
         account_id_ptr: u64,
     ) -> Result<u64, VMLogicError> {
-        self.call_3_ret("promise_batch_then", promise_index, account_id_len, account_id_ptr)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_batch_then(ctx, mem, promise_index, account_id_len, account_id_ptr)
     }
 
     pub(crate) fn promise_set_refund_to(
@@ -662,7 +385,8 @@ impl WasmtimeTestLogic {
         account_id_len: u64,
         account_id_ptr: u64,
     ) -> Result<(), VMLogicError> {
-        self.call_3("promise_set_refund_to", promise_index, account_id_len, account_id_ptr)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_set_refund_to(ctx, mem, promise_index, account_id_len, account_id_ptr)
     }
 
     pub(crate) fn promise_batch_action_state_init(
@@ -672,8 +396,10 @@ impl WasmtimeTestLogic {
         code_ptr: u64,
         amount_ptr: u64,
     ) -> Result<u64, VMLogicError> {
-        self.call_4_ret(
-            "promise_batch_action_state_init",
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_batch_action_state_init(
+            ctx,
+            mem,
             promise_idx,
             code_len,
             code_ptr,
@@ -688,8 +414,10 @@ impl WasmtimeTestLogic {
         code_hash_ptr: u64,
         amount_ptr: u64,
     ) -> Result<u64, VMLogicError> {
-        self.call_4_ret(
-            "promise_batch_action_state_init_by_account_id",
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_batch_action_state_init_by_account_id(
+            ctx,
+            mem,
             promise_idx,
             account_id_len,
             code_hash_ptr,
@@ -706,8 +434,10 @@ impl WasmtimeTestLogic {
         value_len: u64,
         value_ptr: u64,
     ) -> Result<(), VMLogicError> {
-        self.call_6(
-            "set_state_init_data_entry",
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::set_state_init_data_entry(
+            ctx,
+            mem,
             promise_idx,
             action_index,
             key_len,
@@ -718,22 +448,23 @@ impl WasmtimeTestLogic {
     }
 
     pub(crate) fn current_contract_code(&mut self, register_id: u64) -> Result<u64, VMLogicError> {
-        self.call_1_ret("current_contract_code", register_id)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::current_contract_code(ctx, mem, register_id)
     }
 
     pub(crate) fn refund_to_account_id(&mut self, register_id: u64) -> Result<(), VMLogicError> {
-        self.call_1("refund_to_account_id", register_id)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::refund_to_account_id(ctx, mem, register_id)
     }
 
-    // ---------------------------------------------------------------
-    // Promise API actions
-    // ---------------------------------------------------------------
+    // Promise batch actions
 
     pub(crate) fn promise_batch_action_create_account(
         &mut self,
         promise_index: u64,
     ) -> Result<(), VMLogicError> {
-        self.call_1("promise_batch_action_create_account", promise_index)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_batch_action_create_account(ctx, mem, promise_index)
     }
 
     pub(crate) fn promise_batch_action_deploy_contract(
@@ -742,7 +473,8 @@ impl WasmtimeTestLogic {
         code_len: u64,
         code_ptr: u64,
     ) -> Result<(), VMLogicError> {
-        self.call_3("promise_batch_action_deploy_contract", promise_index, code_len, code_ptr)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_batch_action_deploy_contract(ctx, mem, promise_index, code_len, code_ptr)
     }
 
     pub(crate) fn promise_batch_action_deploy_global_contract(
@@ -751,8 +483,10 @@ impl WasmtimeTestLogic {
         code_len: u64,
         code_ptr: u64,
     ) -> Result<(), VMLogicError> {
-        self.call_3(
-            "promise_batch_action_deploy_global_contract",
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_batch_action_deploy_global_contract(
+            ctx,
+            mem,
             promise_index,
             code_len,
             code_ptr,
@@ -765,8 +499,10 @@ impl WasmtimeTestLogic {
         code_len: u64,
         code_ptr: u64,
     ) -> Result<(), VMLogicError> {
-        self.call_3(
-            "promise_batch_action_deploy_global_contract_by_account_id",
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_batch_action_deploy_global_contract_by_account_id(
+            ctx,
+            mem,
             promise_index,
             code_len,
             code_ptr,
@@ -779,8 +515,10 @@ impl WasmtimeTestLogic {
         code_hash_len: u64,
         code_hash_ptr: u64,
     ) -> Result<(), VMLogicError> {
-        self.call_3(
-            "promise_batch_action_use_global_contract",
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_batch_action_use_global_contract(
+            ctx,
+            mem,
             promise_index,
             code_hash_len,
             code_hash_ptr,
@@ -793,8 +531,10 @@ impl WasmtimeTestLogic {
         account_id_len: u64,
         account_id_ptr: u64,
     ) -> Result<(), VMLogicError> {
-        self.call_3(
-            "promise_batch_action_use_global_contract_by_account_id",
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_batch_action_use_global_contract_by_account_id(
+            ctx,
+            mem,
             promise_index,
             account_id_len,
             account_id_ptr,
@@ -811,8 +551,10 @@ impl WasmtimeTestLogic {
         amount_ptr: u64,
         gas: u64,
     ) -> Result<(), VMLogicError> {
-        self.call_7(
-            "promise_batch_action_function_call",
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_batch_action_function_call(
+            ctx,
+            mem,
             promise_index,
             method_name_len,
             method_name_ptr,
@@ -834,8 +576,10 @@ impl WasmtimeTestLogic {
         gas: u64,
         gas_weight: u64,
     ) -> Result<(), VMLogicError> {
-        self.call_8(
-            "promise_batch_action_function_call_weight",
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_batch_action_function_call_weight(
+            ctx,
+            mem,
             promise_index,
             method_name_len,
             method_name_ptr,
@@ -852,7 +596,8 @@ impl WasmtimeTestLogic {
         promise_index: u64,
         amount_ptr: u64,
     ) -> Result<(), VMLogicError> {
-        self.call_2("promise_batch_action_transfer", promise_index, amount_ptr)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_batch_action_transfer(ctx, mem, promise_index, amount_ptr)
     }
 
     pub(crate) fn promise_batch_action_stake(
@@ -862,8 +607,10 @@ impl WasmtimeTestLogic {
         public_key_len: u64,
         public_key_ptr: u64,
     ) -> Result<(), VMLogicError> {
-        self.call_4(
-            "promise_batch_action_stake",
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_batch_action_stake(
+            ctx,
+            mem,
             promise_index,
             amount_ptr,
             public_key_len,
@@ -878,8 +625,10 @@ impl WasmtimeTestLogic {
         public_key_ptr: u64,
         nonce: u64,
     ) -> Result<(), VMLogicError> {
-        self.call_4(
-            "promise_batch_action_add_key_with_full_access",
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_batch_action_add_key_with_full_access(
+            ctx,
+            mem,
             promise_index,
             public_key_len,
             public_key_ptr,
@@ -899,8 +648,10 @@ impl WasmtimeTestLogic {
         method_names_len: u64,
         method_names_ptr: u64,
     ) -> Result<(), VMLogicError> {
-        self.call_9(
-            "promise_batch_action_add_key_with_function_call",
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_batch_action_add_key_with_function_call(
+            ctx,
+            mem,
             promise_index,
             public_key_len,
             public_key_ptr,
@@ -919,8 +670,10 @@ impl WasmtimeTestLogic {
         public_key_len: u64,
         public_key_ptr: u64,
     ) -> Result<(), VMLogicError> {
-        self.call_3(
-            "promise_batch_action_delete_key",
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_batch_action_delete_key(
+            ctx,
+            mem,
             promise_index,
             public_key_len,
             public_key_ptr,
@@ -933,8 +686,10 @@ impl WasmtimeTestLogic {
         beneficiary_id_len: u64,
         beneficiary_id_ptr: u64,
     ) -> Result<(), VMLogicError> {
-        self.call_3(
-            "promise_batch_action_delete_account",
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_batch_action_delete_account(
+            ctx,
+            mem,
             promise_index,
             beneficiary_id_len,
             beneficiary_id_ptr,
@@ -948,8 +703,10 @@ impl WasmtimeTestLogic {
         public_key_ptr: u64,
         amount_ptr: u64,
     ) -> Result<(), VMLogicError> {
-        self.call_4(
-            "promise_batch_action_transfer_to_gas_key",
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_batch_action_transfer_to_gas_key(
+            ctx,
+            mem,
             promise_index,
             public_key_len,
             public_key_ptr,
@@ -964,8 +721,10 @@ impl WasmtimeTestLogic {
         public_key_ptr: u64,
         num_nonces: u64,
     ) -> Result<(), VMLogicError> {
-        self.call_4(
-            "promise_batch_action_add_gas_key_with_full_access",
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_batch_action_add_gas_key_with_full_access(
+            ctx,
+            mem,
             promise_index,
             public_key_len,
             public_key_ptr,
@@ -985,8 +744,10 @@ impl WasmtimeTestLogic {
         method_names_len: u64,
         method_names_ptr: u64,
     ) -> Result<(), VMLogicError> {
-        self.call_9(
-            "promise_batch_action_add_gas_key_with_function_call",
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_batch_action_add_gas_key_with_function_call(
+            ctx,
+            mem,
             promise_index,
             public_key_len,
             public_key_ptr,
@@ -999,9 +760,7 @@ impl WasmtimeTestLogic {
         )
     }
 
-    // ---------------------------------------------------------------
-    // Promise API yield/resume
-    // ---------------------------------------------------------------
+    // Promise yield/resume
 
     pub(crate) fn promise_yield_create(
         &mut self,
@@ -1013,8 +772,10 @@ impl WasmtimeTestLogic {
         gas_weight: u64,
         register_id: u64,
     ) -> Result<u64, VMLogicError> {
-        self.call_7_ret(
-            "promise_yield_create",
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_yield_create(
+            ctx,
+            mem,
             method_name_len,
             method_name_ptr,
             arguments_len,
@@ -1032,18 +793,15 @@ impl WasmtimeTestLogic {
         payload_len: u64,
         payload_ptr: u64,
     ) -> Result<u32, VMLogicError> {
-        let func = self.get_func("promise_yield_resume");
-        let func = func.typed::<(u64, u64, u64, u64), u32>(&self.store).unwrap();
-        func.call(&mut self.store, (data_id_len, data_id_ptr, payload_len, payload_ptr))
-            .map_err(extract_vm_logic_error)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_yield_resume(ctx, mem, data_id_len, data_id_ptr, payload_len, payload_ptr)
     }
 
-    // ---------------------------------------------------------------
-    // Promise API results
-    // ---------------------------------------------------------------
+    // Promise results
 
     pub(crate) fn promise_results_count(&mut self) -> Result<u64, VMLogicError> {
-        self.call_0_ret("promise_results_count")
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_results_count(ctx, mem)
     }
 
     pub(crate) fn promise_result(
@@ -1051,16 +809,16 @@ impl WasmtimeTestLogic {
         result_idx: u64,
         register_id: u64,
     ) -> Result<u64, VMLogicError> {
-        self.call_2_ret("promise_result", result_idx, register_id)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_result(ctx, mem, result_idx, register_id)
     }
 
     pub(crate) fn promise_return(&mut self, promise_idx: u64) -> Result<(), VMLogicError> {
-        self.call_1("promise_return", promise_idx)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::promise_return(ctx, mem, promise_idx)
     }
 
-    // ---------------------------------------------------------------
     // Storage API
-    // ---------------------------------------------------------------
 
     pub(crate) fn storage_write(
         &mut self,
@@ -1070,7 +828,8 @@ impl WasmtimeTestLogic {
         value_ptr: u64,
         register_id: u64,
     ) -> Result<u64, VMLogicError> {
-        self.call_5_ret("storage_write", key_len, key_ptr, value_len, value_ptr, register_id)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::storage_write(ctx, mem, key_len, key_ptr, value_len, value_ptr, register_id)
     }
 
     pub(crate) fn storage_read(
@@ -1079,7 +838,8 @@ impl WasmtimeTestLogic {
         key_ptr: u64,
         register_id: u64,
     ) -> Result<u64, VMLogicError> {
-        self.call_3_ret("storage_read", key_len, key_ptr, register_id)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::storage_read(ctx, mem, key_len, key_ptr, register_id)
     }
 
     pub(crate) fn storage_remove(
@@ -1088,7 +848,8 @@ impl WasmtimeTestLogic {
         key_ptr: u64,
         register_id: u64,
     ) -> Result<u64, VMLogicError> {
-        self.call_3_ret("storage_remove", key_len, key_ptr, register_id)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::storage_remove(ctx, mem, key_len, key_ptr, register_id)
     }
 
     pub(crate) fn storage_has_key(
@@ -1096,7 +857,8 @@ impl WasmtimeTestLogic {
         key_len: u64,
         key_ptr: u64,
     ) -> Result<u64, VMLogicError> {
-        self.call_2_ret("storage_has_key", key_len, key_ptr)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::storage_has_key(ctx, mem, key_len, key_ptr)
     }
 
     pub(crate) fn storage_iter_prefix(
@@ -1104,7 +866,8 @@ impl WasmtimeTestLogic {
         prefix_len: u64,
         prefix_ptr: u64,
     ) -> Result<u64, VMLogicError> {
-        self.call_2_ret("storage_iter_prefix", prefix_len, prefix_ptr)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::storage_iter_prefix(ctx, mem, prefix_len, prefix_ptr)
     }
 
     pub(crate) fn storage_iter_range(
@@ -1114,7 +877,8 @@ impl WasmtimeTestLogic {
         end_len: u64,
         end_ptr: u64,
     ) -> Result<u64, VMLogicError> {
-        self.call_4_ret("storage_iter_range", start_len, start_ptr, end_len, end_ptr)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::storage_iter_range(ctx, mem, start_len, start_ptr, end_len, end_ptr)
     }
 
     pub(crate) fn storage_iter_next(
@@ -1123,29 +887,22 @@ impl WasmtimeTestLogic {
         key_register_id: u64,
         value_register_id: u64,
     ) -> Result<u64, VMLogicError> {
-        self.call_3_ret("storage_iter_next", iterator_id, key_register_id, value_register_id)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::storage_iter_next(ctx, mem, iterator_id, key_register_id, value_register_id)
     }
 
-    // ---------------------------------------------------------------
     // Gas
-    // ---------------------------------------------------------------
 
     pub(crate) fn gas_seen_from_wasm(&mut self, opcodes: u32) -> Result<(), VMLogicError> {
-        let func = self.get_func("gas");
-        let func = func.typed::<(u32,), ()>(&self.store).unwrap();
-        func.call(&mut self.store, (opcodes,)).map_err(extract_vm_logic_error)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::gas_seen_from_wasm(ctx, mem, opcodes)
     }
 
     pub(crate) fn gas_opcodes(&mut self, opcodes: u32) -> Result<(), VMLogicError> {
-        let config = Arc::clone(&self.store.data().config);
-        let gas = opcodes as u64 * config.regular_op_cost as u64;
-        let ctx = self.store.data_mut();
-        ctx.result_state.gas_counter.burn_gas(near_primitives_core::gas::Gas::from_gas(gas))
+        logic::gas_opcodes(&mut self.store.data_mut().result_state, opcodes)
     }
 
-    // ---------------------------------------------------------------
     // Validator API
-    // ---------------------------------------------------------------
 
     pub(crate) fn validator_stake(
         &mut self,
@@ -1153,16 +910,16 @@ impl WasmtimeTestLogic {
         account_id_ptr: u64,
         stake_ptr: u64,
     ) -> Result<(), VMLogicError> {
-        self.call_3("validator_stake", account_id_len, account_id_ptr, stake_ptr)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::validator_stake(ctx, mem, account_id_len, account_id_ptr, stake_ptr)
     }
 
     pub(crate) fn validator_total_stake(&mut self, stake_ptr: u64) -> Result<(), VMLogicError> {
-        self.call_1("validator_total_stake", stake_ptr)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::validator_total_stake(ctx, mem, stake_ptr)
     }
 
-    // ---------------------------------------------------------------
     // Alt BN128
-    // ---------------------------------------------------------------
 
     pub(crate) fn alt_bn128_g1_multiexp(
         &mut self,
@@ -1170,7 +927,8 @@ impl WasmtimeTestLogic {
         value_ptr: u64,
         register_id: u64,
     ) -> Result<(), VMLogicError> {
-        self.call_3("alt_bn128_g1_multiexp", value_len, value_ptr, register_id)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::alt_bn128_g1_multiexp(ctx, mem, value_len, value_ptr, register_id)
     }
 
     pub(crate) fn alt_bn128_g1_sum(
@@ -1179,7 +937,8 @@ impl WasmtimeTestLogic {
         value_ptr: u64,
         register_id: u64,
     ) -> Result<(), VMLogicError> {
-        self.call_3("alt_bn128_g1_sum", value_len, value_ptr, register_id)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::alt_bn128_g1_sum(ctx, mem, value_len, value_ptr, register_id)
     }
 
     pub(crate) fn alt_bn128_pairing_check(
@@ -1187,12 +946,11 @@ impl WasmtimeTestLogic {
         value_len: u64,
         value_ptr: u64,
     ) -> Result<u64, VMLogicError> {
-        self.call_2_ret("alt_bn128_pairing_check", value_len, value_ptr)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::alt_bn128_pairing_check(ctx, mem, value_len, value_ptr)
     }
 
-    // ---------------------------------------------------------------
     // BLS12-381
-    // ---------------------------------------------------------------
 
     pub(crate) fn bls12381_p1_sum(
         &mut self,
@@ -1200,7 +958,8 @@ impl WasmtimeTestLogic {
         value_ptr: u64,
         register_id: u64,
     ) -> Result<u64, VMLogicError> {
-        self.call_3_ret("bls12381_p1_sum", value_len, value_ptr, register_id)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::bls12381_p1_sum(ctx, mem, value_len, value_ptr, register_id)
     }
 
     pub(crate) fn bls12381_p2_sum(
@@ -1209,7 +968,8 @@ impl WasmtimeTestLogic {
         value_ptr: u64,
         register_id: u64,
     ) -> Result<u64, VMLogicError> {
-        self.call_3_ret("bls12381_p2_sum", value_len, value_ptr, register_id)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::bls12381_p2_sum(ctx, mem, value_len, value_ptr, register_id)
     }
 
     pub(crate) fn bls12381_g1_multiexp(
@@ -1218,7 +978,8 @@ impl WasmtimeTestLogic {
         value_ptr: u64,
         register_id: u64,
     ) -> Result<u64, VMLogicError> {
-        self.call_3_ret("bls12381_g1_multiexp", value_len, value_ptr, register_id)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::bls12381_g1_multiexp(ctx, mem, value_len, value_ptr, register_id)
     }
 
     pub(crate) fn bls12381_g2_multiexp(
@@ -1227,7 +988,8 @@ impl WasmtimeTestLogic {
         value_ptr: u64,
         register_id: u64,
     ) -> Result<u64, VMLogicError> {
-        self.call_3_ret("bls12381_g2_multiexp", value_len, value_ptr, register_id)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::bls12381_g2_multiexp(ctx, mem, value_len, value_ptr, register_id)
     }
 
     pub(crate) fn bls12381_map_fp_to_g1(
@@ -1236,7 +998,8 @@ impl WasmtimeTestLogic {
         value_ptr: u64,
         register_id: u64,
     ) -> Result<u64, VMLogicError> {
-        self.call_3_ret("bls12381_map_fp_to_g1", value_len, value_ptr, register_id)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::bls12381_map_fp_to_g1(ctx, mem, value_len, value_ptr, register_id)
     }
 
     pub(crate) fn bls12381_map_fp2_to_g2(
@@ -1245,7 +1008,8 @@ impl WasmtimeTestLogic {
         value_ptr: u64,
         register_id: u64,
     ) -> Result<u64, VMLogicError> {
-        self.call_3_ret("bls12381_map_fp2_to_g2", value_len, value_ptr, register_id)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::bls12381_map_fp2_to_g2(ctx, mem, value_len, value_ptr, register_id)
     }
 
     pub(crate) fn bls12381_pairing_check(
@@ -1253,7 +1017,8 @@ impl WasmtimeTestLogic {
         value_len: u64,
         value_ptr: u64,
     ) -> Result<u64, VMLogicError> {
-        self.call_2_ret("bls12381_pairing_check", value_len, value_ptr)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::bls12381_pairing_check(ctx, mem, value_len, value_ptr)
     }
 
     pub(crate) fn bls12381_p1_decompress(
@@ -1262,7 +1027,8 @@ impl WasmtimeTestLogic {
         value_ptr: u64,
         register_id: u64,
     ) -> Result<u64, VMLogicError> {
-        self.call_3_ret("bls12381_p1_decompress", value_len, value_ptr, register_id)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::bls12381_p1_decompress(ctx, mem, value_len, value_ptr, register_id)
     }
 
     pub(crate) fn bls12381_p2_decompress(
@@ -1271,12 +1037,11 @@ impl WasmtimeTestLogic {
         value_ptr: u64,
         register_id: u64,
     ) -> Result<u64, VMLogicError> {
-        self.call_3_ret("bls12381_p2_decompress", value_len, value_ptr, register_id)
+        let (mem, ctx) = self.ctx_and_mem();
+        logic::bls12381_p2_decompress(ctx, mem, value_len, value_ptr, register_id)
     }
 
-    // ---------------------------------------------------------------
-    // Test helpers — access Ctx directly (no wasm call needed)
-    // ---------------------------------------------------------------
+    // Test helpers
 
     pub(crate) fn gas_counter(&mut self) -> &mut GasCounter {
         &mut self.store.data_mut().result_state.gas_counter
@@ -1337,27 +1102,5 @@ impl WasmtimeTestLogic {
 
     pub(crate) fn compute_outcome(self) -> VMOutcome {
         self.store.into_data().result_state.compute_outcome()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn wat_shim_covers_all_host_functions() {
-        let config = test_vm_config(None);
-        let wat = build_wat_shim(&config);
-        let wat_bytes = wat::parse_str(&wat).expect("WAT shim should parse");
-        let engine = Engine::default();
-        let module = Module::new(&engine, &wat_bytes).expect("WAT shim should compile");
-        let func_export_count = module.exports().filter(|e| e.ty().func().is_some()).count();
-        // If you add a host function to imports.rs, update this count and add
-        // a delegate method to WasmtimeTestLogic.
-        let expected = if cfg!(feature = "nightly") { 98 } else { 95 };
-        assert_eq!(
-            func_export_count, expected,
-            "WAT shim export count changed — did you add/remove a host function?"
-        );
     }
 }
