@@ -77,6 +77,7 @@ members = [
     "test-loop-tests",
     "test-utils/store-validator",
     "test-utils/testlib",
+    "tools/cloud-archive",
     "tools/database",
     "tools/congestion-model",
     "tools/fork-network",
@@ -246,6 +247,7 @@ near-chunks = { path = "chain/chunks" }
 near-chunks-primitives = { path = "chain/chunks-primitives" }
 near-client = { path = "chain/client" }
 near-client-primitives = { path = "chain/client-primitives" }
+near-cloud-archive-tool = { path = "tools/cloud-archive" }
 near-cold-store-tool = { path = "tools/cold-store", package = "cold-store-tool" }
 near-config-utils = { path = "utils/config" }
 nearcore = { path = "nearcore" }

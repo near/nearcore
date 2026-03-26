@@ -405,6 +405,23 @@ impl JsonRpcClient {
         call_method(&self.transport, "EXPERIMENTAL_call_function", request)
     }
 
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_view_gas_key_nonces(
+        &self,
+        request: near_jsonrpc_primitives::types::view_gas_key_nonces::RpcViewGasKeyNoncesRequest,
+    ) -> RpcRequest<near_jsonrpc_primitives::types::view_gas_key_nonces::RpcViewGasKeyNoncesResponse>
+    {
+        call_method(&self.transport, "EXPERIMENTAL_view_gas_key_nonces", request)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_congestion_level(
+        &self,
+        request: near_jsonrpc_primitives::types::congestion::RpcCongestionLevelRequest,
+    ) -> RpcRequest<near_jsonrpc_primitives::types::congestion::RpcCongestionLevelResponse> {
+        call_method(&self.transport, "EXPERIMENTAL_congestion_level", request)
+    }
+
     pub fn validators(
         &self,
         epoch_id_or_block_id: Option<EpochReference>,
