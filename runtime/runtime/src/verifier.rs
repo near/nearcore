@@ -2076,7 +2076,7 @@ mod tests {
         );
     }
 
-    /// Verify that `OneYoctoNearOnPromise` does NOT relax the rule that
+    /// Verify that `OneYoctoOnPromise` does NOT relax the rule that
     /// function-call access keys cannot attach any deposit to a transaction.
     /// The feature only applies to promise-level function calls inside a
     /// contract, not to user-signed transactions.

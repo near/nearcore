@@ -4001,7 +4001,7 @@ fn test_gas_key_tx_deposit_insufficient_charges_gas() {
 /// records the subsidized amount in BalanceStats and accumulates across
 /// multiple receipts from different accounts in the same chunk.
 #[test]
-fn test_one_yocto_near_subsidy_tracked_in_stats() {
+fn test_one_yocto_subsidy_tracked_in_stats() {
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         Balance::from_near(1_000_000),

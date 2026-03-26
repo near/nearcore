@@ -699,9 +699,9 @@ fn test_promise_batch_action_add_gas_key_with_function_call() {
 }
 
 #[test]
-fn test_one_yocto_near_on_promise_enabled() {
+fn test_one_yocto_on_promise_enabled() {
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.one_yocto_near_on_promise = true;
+    logic_builder.config.one_yocto_on_promise = true;
     logic_builder.context.account_balance = Balance::ZERO;
     logic_builder.context.attached_deposit = Balance::ZERO;
     let mut logic = logic_builder.build();
@@ -731,9 +731,9 @@ fn test_one_yocto_near_on_promise_enabled() {
 
 /// When the contract has non-zero balance, 1 yoctoNEAR is deducted normally.
 #[test]
-fn test_one_yocto_near_on_promise_deducts_with_nonzero_balance() {
+fn test_one_yocto_on_promise_deducts_with_nonzero_balance() {
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.one_yocto_near_on_promise = true;
+    logic_builder.config.one_yocto_on_promise = true;
     logic_builder.context.account_balance = Balance::from_yoctonear(1);
     logic_builder.context.attached_deposit = Balance::ZERO;
     let mut logic = logic_builder.build();
@@ -765,9 +765,9 @@ fn test_one_yocto_near_on_promise_deducts_with_nonzero_balance() {
 }
 
 #[test]
-fn test_one_yocto_near_on_promise_disabled() {
+fn test_one_yocto_on_promise_disabled() {
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.one_yocto_near_on_promise = false;
+    logic_builder.config.one_yocto_on_promise = false;
     logic_builder.context.account_balance = Balance::ZERO;
     logic_builder.context.attached_deposit = Balance::ZERO;
     let mut logic = logic_builder.build();

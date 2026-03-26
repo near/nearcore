@@ -252,7 +252,7 @@ pub enum Parameter {
     GasKeyHostFns,
 
     // Flag to allow 1 yoctoNEAR on promise function calls without balance
-    OneYoctoNearOnPromise,
+    OneYoctoOnPromise,
 }
 
 #[derive(

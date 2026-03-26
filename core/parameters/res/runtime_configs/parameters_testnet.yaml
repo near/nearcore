@@ -275,7 +275,7 @@ global_contract_host_fns: false
 reftypes_bulk_memory: false
 deterministic_account_ids: false
 gas_key_host_fns: false
-one_yocto_near_on_promise: false
+one_yocto_on_promise: false
 
 # TODO What should be the config for testnet?
 

@@ -385,7 +385,7 @@ pub enum ProtocolFeature {
     /// without requiring the calling contract to have sufficient balance.
     /// This enables contracts with zero balance to still signal
     /// "attached deposit required" to the callee.
-    OneYoctoNearOnPromise,
+    OneYoctoOnPromise,
 }
 
 impl ProtocolFeature {
@@ -496,7 +496,7 @@ impl ProtocolFeature {
             | ProtocolFeature::InstantDeleteAccount => 83,
             ProtocolFeature::Wasmtime => 84,
             ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
-            | ProtocolFeature::OneYoctoNearOnPromise => 85,
+            | ProtocolFeature::OneYoctoOnPromise => 85,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,

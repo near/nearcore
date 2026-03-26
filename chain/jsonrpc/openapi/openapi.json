@@ -20447,8 +20447,8 @@
             "minimum": 0,
             "type": "integer"
           },
-          "one_yocto_near_on_promise": {
-            "description": "See [VMConfig::one_yocto_near_on_promise](crate::vm::Config::one_yocto_near_on_promise).",
+          "one_yocto_on_promise": {
+            "description": "See [VMConfig::one_yocto_on_promise](crate::vm::Config::one_yocto_on_promise).",
             "type": "boolean"
           },
           "reftypes_bulk_memory": {

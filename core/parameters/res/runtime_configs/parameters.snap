@@ -267,4 +267,4 @@ action_use_global_contract_per_identifier_byte
 global_contract_host_fns                true
 deterministic_account_ids               true
 gas_key_host_fns                        false
-one_yocto_near_on_promise               true
+one_yocto_on_promise                    true

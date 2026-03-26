@@ -2759,7 +2759,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         // call functions like ft_transfer_call that require an attached deposit
         // without needing to be seeded with balance first.
         let skip_deduct = amount == Balance::from_yoctonear(1)
-            && self.config.one_yocto_near_on_promise
+            && self.config.one_yocto_on_promise
             && self.result_state.current_account_balance.is_zero();
         if skip_deduct {
             self.result_state.subsidized_amount = self

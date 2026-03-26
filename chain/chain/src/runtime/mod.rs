@@ -351,7 +351,7 @@ impl NightshadeRuntime {
             // Theoretically this may become negativem but the subsidized amout is many orders
             // of magnitude lower than the burned amount for each promise, so it should not
             // happen.
-            if ProtocolFeature::OneYoctoNearOnPromise.enabled(current_protocol_version) {
+            if ProtocolFeature::OneYoctoOnPromise.enabled(current_protocol_version) {
                 burnt.checked_sub(apply_result.stats.balance.subsidized_amount).ok_or_else(
                     || Error::Other("subsidized amount exceeds total burnt balance".to_string()),
                 )?
