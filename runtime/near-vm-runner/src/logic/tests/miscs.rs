@@ -1,20 +1,21 @@
+use super::{Backend, VMLogicBuilder};
 use crate::logic::HostError;
 use crate::logic::tests::helpers::*;
-use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
 use crate::map;
 use hex::FromHex;
 use near_parameters::ExtCosts;
 use near_primitives_core::account::AccountContract;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
+use near_vm_runner_test_macro::vm_test;
 use serde::de::Error;
 use serde_json::from_slice;
 use std::{fmt::Display, fs};
 
-#[test]
-fn test_sha256() {
+#[vm_test]
+fn test_sha256(backend: Backend) {
     let mut logic_builder = VMLogicBuilder::default();
-    let mut logic = logic_builder.build();
+    let mut logic = logic_builder.build_with_backend(backend);
     let data = logic.internal_mem_write(b"tesdsst");
 
     logic.sha256(data.len, data.ptr, 0).unwrap();
@@ -40,11 +41,10 @@ fn test_sha256() {
     });
 }
 
-#[test]
-fn test_keccak256() {
+#[vm_test]
+fn test_keccak256(backend: Backend) {
     let mut logic_builder = VMLogicBuilder::default();
-    let mut logic = logic_builder.build();
-
+    let mut logic = logic_builder.build_with_backend(backend);
     let data = logic.internal_mem_write(b"tesdsst");
     logic.keccak256(data.len, data.ptr, 0).unwrap();
     logic.assert_read_register(
@@ -69,11 +69,10 @@ fn test_keccak256() {
     });
 }
 
-#[test]
-fn test_keccak512() {
+#[vm_test]
+fn test_keccak512(backend: Backend) {
     let mut logic_builder = VMLogicBuilder::default();
-    let mut logic = logic_builder.build();
-
+    let mut logic = logic_builder.build_with_backend(backend);
     let data = logic.internal_mem_write(b"tesdsst");
     logic.keccak512(data.len, data.ptr, 0).unwrap();
     logic.assert_read_register(
@@ -100,11 +99,10 @@ fn test_keccak512() {
     });
 }
 
-#[test]
-fn test_ripemd160() {
+#[vm_test]
+fn test_ripemd160(backend: Backend) {
     let mut logic_builder = VMLogicBuilder::default();
-    let mut logic = logic_builder.build();
-
+    let mut logic = logic_builder.build_with_backend(backend);
     let data = logic.internal_mem_write(b"tesdsst");
     logic.ripemd160(data.len, data.ptr, 0).unwrap();
     logic.assert_read_register(
@@ -149,15 +147,15 @@ where
         .and_then(|v| v)
 }
 
-#[test]
-fn test_ecrecover() {
+#[vm_test]
+fn test_ecrecover(backend: Backend) {
     for EcrecoverTest { m, v, sig, mc, res } in from_slice::<'_, Vec<_>>(
         fs::read("src/logic/tests/ecrecover-tests.json").unwrap().as_slice(),
     )
     .unwrap()
     {
         let mut logic_builder = VMLogicBuilder::default();
-        let mut logic = logic_builder.build();
+        let mut logic = logic_builder.build_with_backend(backend);
         let m = logic.internal_mem_write(&m);
         let sig = logic.internal_mem_write(&sig);
 
@@ -185,10 +183,10 @@ fn test_ecrecover() {
     }
 }
 
-#[test]
-fn test_hash256_register() {
+#[vm_test]
+fn test_hash256_register(backend: Backend) {
     let mut logic_builder = VMLogicBuilder::default();
-    let mut logic = logic_builder.build();
+    let mut logic = logic_builder.build_with_backend(backend);
     let data = b"tesdsst";
     logic.wrapped_internal_write_register(1, data).unwrap();
 
@@ -215,12 +213,12 @@ fn test_hash256_register() {
     });
 }
 
-#[test]
-fn test_key_length_limit() {
+#[vm_test]
+fn test_key_length_limit(backend: Backend) {
     let mut logic_builder = VMLogicBuilder::default();
     let limit = 1024;
     logic_builder.config.limit_config.max_length_storage_key = limit;
-    let mut logic = logic_builder.build();
+    let mut logic = logic_builder.build_with_backend(backend);
 
     // Under the limit. Valid calls.
     let key = crate::logic::MemSlice { ptr: 0, len: limit };
@@ -256,12 +254,12 @@ fn test_key_length_limit() {
     );
 }
 
-#[test]
-fn test_value_length_limit() {
+#[vm_test]
+fn test_value_length_limit(backend: Backend) {
     let mut logic_builder = VMLogicBuilder::default();
     let limit = 1024;
     logic_builder.config.limit_config.max_length_storage_value = limit;
-    let mut logic = logic_builder.build();
+    let mut logic = logic_builder.build_with_backend(backend);
     let key = logic.internal_mem_write(b"hello");
 
     logic
@@ -276,12 +274,12 @@ fn test_value_length_limit() {
     );
 }
 
-#[test]
-fn test_num_promises() {
+#[vm_test]
+fn test_num_promises(backend: Backend) {
     let mut logic_builder = VMLogicBuilder::default();
     let num_promises = 10;
     logic_builder.config.limit_config.max_promises_per_function_call_action = num_promises;
-    let mut logic = logic_builder.build();
+    let mut logic = logic_builder.build_with_backend(backend);
     let account_id = logic.internal_mem_write(b"alice");
     for _ in 0..num_promises {
         logic
@@ -298,12 +296,12 @@ fn test_num_promises() {
     );
 }
 
-#[test]
-fn test_num_joined_promises() {
+#[vm_test]
+fn test_num_joined_promises(backend: Backend) {
     let mut logic_builder = VMLogicBuilder::default();
     let num_deps = 10;
     logic_builder.config.limit_config.max_number_input_data_dependencies = num_deps;
-    let mut logic = logic_builder.build();
+    let mut logic = logic_builder.build_with_backend(backend);
     let account_id = logic.internal_mem_write(b"alice");
     let promise_id = logic
         .promise_batch_create(account_id.len, account_id.ptr)
@@ -323,12 +321,12 @@ fn test_num_joined_promises() {
     );
 }
 
-#[test]
-fn test_num_input_dependencies_recursive_join() {
+#[vm_test]
+fn test_num_input_dependencies_recursive_join(backend: Backend) {
     let mut logic_builder = VMLogicBuilder::default();
     let num_steps = 10;
     logic_builder.config.limit_config.max_number_input_data_dependencies = 1 << num_steps;
-    let mut logic = logic_builder.build();
+    let mut logic = logic_builder.build_with_backend(backend);
     let account_id = logic.internal_mem_write(b"alice");
     let original_promise_id = logic
         .promise_batch_create(account_id.len, account_id.ptr)
@@ -364,12 +362,12 @@ fn test_num_input_dependencies_recursive_join() {
     );
 }
 
-#[test]
-fn test_return_value_limit() {
+#[vm_test]
+fn test_return_value_limit(backend: Backend) {
     let mut logic_builder = VMLogicBuilder::default();
     let limit = 1024;
     logic_builder.config.limit_config.max_length_returned_data = limit;
-    let mut logic = logic_builder.build();
+    let mut logic = logic_builder.build_with_backend(backend);
 
     logic.value_return(limit, 0).expect("Returned value length is under the limit");
     assert_eq!(
@@ -378,12 +376,12 @@ fn test_return_value_limit() {
     );
 }
 
-#[test]
-fn test_contract_size_limit() {
+#[vm_test]
+fn test_contract_size_limit(backend: Backend) {
     let mut logic_builder = VMLogicBuilder::default();
     let limit = 1024;
     logic_builder.config.limit_config.max_contract_size = limit;
-    let mut logic = logic_builder.build();
+    let mut logic = logic_builder.build_with_backend(backend);
 
     let account_id = logic.internal_mem_write(b"alice");
 
@@ -408,11 +406,10 @@ fn test_contract_size_limit() {
     );
 }
 
-#[test]
-fn test_current_contract_code_none() {
+#[vm_test]
+fn test_current_contract_code_none(backend: Backend) {
     let mut logic_builder = VMLogicBuilder::default();
-    let mut logic = logic_builder.build();
-
+    let mut logic = logic_builder.build_with_backend(backend);
     // 0 if the contract code is None
     // 1 if the contract code is Local(CryptoHash)
     // 2 if the contract code is Global(CryptoHash)
@@ -421,12 +418,12 @@ fn test_current_contract_code_none() {
     assert_eq!(None, logic.registers().get_for_free(0));
 }
 
-#[test]
-fn test_current_contract_code_local() {
+#[vm_test]
+fn test_current_contract_code_local(backend: Backend) {
     let mut logic_builder = VMLogicBuilder::default();
     let code_hash = CryptoHash::hash_borsh("seed");
     logic_builder.context.account_contract = AccountContract::Local(code_hash);
-    let mut logic = logic_builder.build();
+    let mut logic = logic_builder.build_with_backend(backend);
 
     // 0 if the contract code is None
     // 1 if the contract code is Local(CryptoHash)
@@ -436,12 +433,12 @@ fn test_current_contract_code_local() {
     logic.assert_read_register(code_hash.as_bytes(), 0);
 }
 
-#[test]
-fn test_current_contract_code_global_by_hash() {
+#[vm_test]
+fn test_current_contract_code_global_by_hash(backend: Backend) {
     let mut logic_builder = VMLogicBuilder::default();
     let code_hash = CryptoHash::hash_borsh("seed2");
     logic_builder.context.account_contract = AccountContract::Global(code_hash);
-    let mut logic = logic_builder.build();
+    let mut logic = logic_builder.build_with_backend(backend);
 
     // 0 if the contract code is None
     // 1 if the contract code is Local(CryptoHash)
@@ -451,12 +448,12 @@ fn test_current_contract_code_global_by_hash() {
     logic.assert_read_register(code_hash.as_bytes(), 0);
 }
 
-#[test]
-fn test_current_contract_code_global_by_id() {
+#[vm_test]
+fn test_current_contract_code_global_by_id(backend: Backend) {
     let mut logic_builder = VMLogicBuilder::default();
     let account_id: AccountId = "alice.near".parse().unwrap();
     logic_builder.context.account_contract = AccountContract::GlobalByAccount(account_id.clone());
-    let mut logic = logic_builder.build();
+    let mut logic = logic_builder.build_with_backend(backend);
 
     // 0 if the contract code is None
     // 1 if the contract code is Local(CryptoHash)

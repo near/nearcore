@@ -1,0 +1,17 @@
+[package]
+name = "near-vm-runner-test-macro"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+quote.workspace = true
+syn.workspace = true

@@ -11,7 +11,8 @@ mod promises;
 mod registers;
 mod storage_read_write;
 mod storage_usage;
+mod test_vm_logic_delegates;
 mod view_method;
 mod vm_logic_builder;
 
-use vm_logic_builder::TestVMLogic;
+use vm_logic_builder::{Backend, TestVMLogic, VMLogicBuilder};

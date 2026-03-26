@@ -1,7 +1,9 @@
+use super::TestVMLogic;
 use crate::logic::HostError;
+use crate::logic::MemSlice;
+use crate::logic::errors::VMLogicError;
 use crate::logic::tests::helpers::*;
 use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
-use crate::logic::{MemSlice, VMLogic, VMLogicError};
 use crate::map;
 use near_parameters::ExtCosts;
 
@@ -400,7 +402,7 @@ fn test_valid_log_utf16_null_terminated_fail() {
 mod utf8_mem_violation {
     use super::*;
 
-    fn check(read_ok: bool, test: fn(&mut VMLogic<'_>, MemSlice) -> Result<(), VMLogicError>) {
+    fn check(read_ok: bool, test: fn(&mut TestVMLogic<'_>, MemSlice) -> Result<(), VMLogicError>) {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
 
@@ -456,7 +458,7 @@ mod utf8_mem_violation {
 mod utf16_mem_violation {
     use super::*;
 
-    fn check(read_ok: bool, test: fn(&mut VMLogic<'_>, MemSlice) -> Result<(), VMLogicError>) {
+    fn check(read_ok: bool, test: fn(&mut TestVMLogic<'_>, MemSlice) -> Result<(), VMLogicError>) {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
 
