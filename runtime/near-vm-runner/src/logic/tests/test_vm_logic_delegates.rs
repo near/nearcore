@@ -11,6 +11,7 @@ impl TestVMLogic<'_> {
     pub(super) fn gas_counter(&mut self) -> &mut GasCounter {
         match self {
             Self::Legacy { logic, .. } => logic.gas_counter(),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.gas_counter(),
         }
     }
@@ -18,6 +19,7 @@ impl TestVMLogic<'_> {
     pub(super) fn config(&self) -> &Config {
         match self {
             Self::Legacy { logic, .. } => logic.config(),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.config(),
         }
     }
@@ -25,6 +27,7 @@ impl TestVMLogic<'_> {
     pub(super) fn registers(&mut self) -> &mut Registers {
         match self {
             Self::Legacy { logic, .. } => logic.registers(),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.registers(),
         }
     }
@@ -32,6 +35,7 @@ impl TestVMLogic<'_> {
     pub(super) fn logs(&self) -> &[String] {
         match self {
             Self::Legacy { logic, .. } => logic.logs(),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.logs(),
         }
     }
@@ -43,6 +47,7 @@ impl TestVMLogic<'_> {
     ) -> Result<()> {
         match self {
             Self::Legacy { logic, .. } => logic.wrapped_internal_write_register(register_id, data),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.wrapped_internal_write_register(register_id, data),
         }
     }
@@ -50,6 +55,7 @@ impl TestVMLogic<'_> {
     pub(super) fn gas_opcodes(&mut self, opcodes: u32) -> Result<()> {
         match self {
             Self::Legacy { logic, .. } => logic.gas_opcodes(opcodes),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.gas_opcodes(opcodes),
         }
     }
@@ -57,6 +63,7 @@ impl TestVMLogic<'_> {
     pub(super) fn read_register(&mut self, register_id: u64, ptr: u64) -> Result<()> {
         match self {
             Self::Legacy { logic, .. } => logic.read_register(register_id, ptr),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.read_register(register_id, ptr),
         }
     }
@@ -64,6 +71,7 @@ impl TestVMLogic<'_> {
     pub(super) fn register_len(&mut self, register_id: u64) -> Result<u64> {
         match self {
             Self::Legacy { logic, .. } => logic.register_len(register_id),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.register_len(register_id),
         }
     }
@@ -76,6 +84,7 @@ impl TestVMLogic<'_> {
     ) -> Result<()> {
         match self {
             Self::Legacy { logic, .. } => logic.write_register(register_id, data_len, data_ptr),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.write_register(register_id, data_len, data_ptr),
         }
     }
@@ -83,6 +92,7 @@ impl TestVMLogic<'_> {
     pub(super) fn current_account_id(&mut self, register_id: u64) -> Result<()> {
         match self {
             Self::Legacy { logic, .. } => logic.current_account_id(register_id),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.current_account_id(register_id),
         }
     }
@@ -90,6 +100,7 @@ impl TestVMLogic<'_> {
     pub(super) fn signer_account_id(&mut self, register_id: u64) -> Result<()> {
         match self {
             Self::Legacy { logic, .. } => logic.signer_account_id(register_id),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.signer_account_id(register_id),
         }
     }
@@ -97,6 +108,7 @@ impl TestVMLogic<'_> {
     pub(super) fn signer_account_pk(&mut self, register_id: u64) -> Result<()> {
         match self {
             Self::Legacy { logic, .. } => logic.signer_account_pk(register_id),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.signer_account_pk(register_id),
         }
     }
@@ -104,6 +116,7 @@ impl TestVMLogic<'_> {
     pub(super) fn predecessor_account_id(&mut self, register_id: u64) -> Result<()> {
         match self {
             Self::Legacy { logic, .. } => logic.predecessor_account_id(register_id),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.predecessor_account_id(register_id),
         }
     }
@@ -111,6 +124,7 @@ impl TestVMLogic<'_> {
     pub(super) fn input(&mut self, register_id: u64) -> Result<()> {
         match self {
             Self::Legacy { logic, .. } => logic.input(register_id),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.input(register_id),
         }
     }
@@ -118,6 +132,7 @@ impl TestVMLogic<'_> {
     pub(super) fn block_index(&mut self) -> Result<u64> {
         match self {
             Self::Legacy { logic, .. } => logic.block_index(),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.block_index(),
         }
     }
@@ -125,6 +140,7 @@ impl TestVMLogic<'_> {
     pub(super) fn block_timestamp(&mut self) -> Result<u64> {
         match self {
             Self::Legacy { logic, .. } => logic.block_timestamp(),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.block_timestamp(),
         }
     }
@@ -132,6 +148,7 @@ impl TestVMLogic<'_> {
     pub(super) fn epoch_height(&mut self) -> Result<u64> {
         match self {
             Self::Legacy { logic, .. } => logic.epoch_height(),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.epoch_height(),
         }
     }
@@ -139,6 +156,7 @@ impl TestVMLogic<'_> {
     pub(super) fn storage_usage(&mut self) -> Result<u64> {
         match self {
             Self::Legacy { logic, .. } => logic.storage_usage(),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.storage_usage(),
         }
     }
@@ -146,6 +164,7 @@ impl TestVMLogic<'_> {
     pub(super) fn account_balance(&mut self, balance_ptr: u64) -> Result<()> {
         match self {
             Self::Legacy { logic, .. } => logic.account_balance(balance_ptr),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.account_balance(balance_ptr),
         }
     }
@@ -153,6 +172,7 @@ impl TestVMLogic<'_> {
     pub(super) fn account_locked_balance(&mut self, balance_ptr: u64) -> Result<()> {
         match self {
             Self::Legacy { logic, .. } => logic.account_locked_balance(balance_ptr),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.account_locked_balance(balance_ptr),
         }
     }
@@ -160,6 +180,7 @@ impl TestVMLogic<'_> {
     pub(super) fn attached_deposit(&mut self, balance_ptr: u64) -> Result<()> {
         match self {
             Self::Legacy { logic, .. } => logic.attached_deposit(balance_ptr),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.attached_deposit(balance_ptr),
         }
     }
@@ -167,6 +188,7 @@ impl TestVMLogic<'_> {
     pub(super) fn prepaid_gas(&mut self) -> Result<u64> {
         match self {
             Self::Legacy { logic, .. } => logic.prepaid_gas(),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.prepaid_gas(),
         }
     }
@@ -174,6 +196,7 @@ impl TestVMLogic<'_> {
     pub(super) fn used_gas(&mut self) -> Result<u64> {
         match self {
             Self::Legacy { logic, .. } => logic.used_gas(),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.used_gas(),
         }
     }
@@ -181,6 +204,7 @@ impl TestVMLogic<'_> {
     pub(super) fn random_seed(&mut self, register_id: u64) -> Result<()> {
         match self {
             Self::Legacy { logic, .. } => logic.random_seed(register_id),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.random_seed(register_id),
         }
     }
@@ -193,6 +217,7 @@ impl TestVMLogic<'_> {
     ) -> Result<()> {
         match self {
             Self::Legacy { logic, .. } => logic.sha256(value_len, value_ptr, register_id),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.sha256(value_len, value_ptr, register_id),
         }
     }
@@ -205,6 +230,7 @@ impl TestVMLogic<'_> {
     ) -> Result<()> {
         match self {
             Self::Legacy { logic, .. } => logic.keccak256(value_len, value_ptr, register_id),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.keccak256(value_len, value_ptr, register_id),
         }
     }
@@ -217,6 +243,7 @@ impl TestVMLogic<'_> {
     ) -> Result<()> {
         match self {
             Self::Legacy { logic, .. } => logic.keccak512(value_len, value_ptr, register_id),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.keccak512(value_len, value_ptr, register_id),
         }
     }
@@ -229,6 +256,7 @@ impl TestVMLogic<'_> {
     ) -> Result<()> {
         match self {
             Self::Legacy { logic, .. } => logic.ripemd160(value_len, value_ptr, register_id),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.ripemd160(value_len, value_ptr, register_id),
         }
     }
@@ -253,6 +281,7 @@ impl TestVMLogic<'_> {
                 malleability_flag,
                 register_id,
             ),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.ecrecover(
                 hash_len,
                 hash_ptr,
@@ -278,6 +307,7 @@ impl TestVMLogic<'_> {
             Self::Legacy { logic, .. } => {
                 logic.ed25519_verify(sig_len, sig_ptr, msg_len, msg_ptr, pub_key_len, pub_key_ptr)
             }
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => {
                 w.ed25519_verify(sig_len, sig_ptr, msg_len, msg_ptr, pub_key_len, pub_key_ptr)
             }
@@ -287,6 +317,7 @@ impl TestVMLogic<'_> {
     pub(super) fn value_return(&mut self, value_len: u64, value_ptr: u64) -> Result<()> {
         match self {
             Self::Legacy { logic, .. } => logic.value_return(value_len, value_ptr),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.value_return(value_len, value_ptr),
         }
     }
@@ -294,6 +325,7 @@ impl TestVMLogic<'_> {
     pub(super) fn log_utf8(&mut self, len: u64, ptr: u64) -> Result<()> {
         match self {
             Self::Legacy { logic, .. } => logic.log_utf8(len, ptr),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.log_utf8(len, ptr),
         }
     }
@@ -301,6 +333,7 @@ impl TestVMLogic<'_> {
     pub(super) fn log_utf16(&mut self, len: u64, ptr: u64) -> Result<()> {
         match self {
             Self::Legacy { logic, .. } => logic.log_utf16(len, ptr),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.log_utf16(len, ptr),
         }
     }
@@ -327,6 +360,7 @@ impl TestVMLogic<'_> {
                 amount_ptr,
                 gas,
             ),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.promise_create(
                 account_id_len,
                 account_id_ptr,
@@ -364,6 +398,7 @@ impl TestVMLogic<'_> {
                 amount_ptr,
                 gas,
             ),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.promise_then(
                 promise_index,
                 account_id_len,
@@ -385,6 +420,7 @@ impl TestVMLogic<'_> {
     ) -> Result<u64> {
         match self {
             Self::Legacy { logic, .. } => logic.promise_and(promise_idx_ptr, promise_idx_count),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.promise_and(promise_idx_ptr, promise_idx_count),
         }
     }
@@ -398,6 +434,7 @@ impl TestVMLogic<'_> {
             Self::Legacy { logic, .. } => {
                 logic.promise_batch_create(account_id_len, account_id_ptr)
             }
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.promise_batch_create(account_id_len, account_id_ptr),
         }
     }
@@ -412,6 +449,7 @@ impl TestVMLogic<'_> {
             Self::Legacy { logic, .. } => {
                 logic.promise_batch_then(promise_index, account_id_len, account_id_ptr)
             }
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => {
                 w.promise_batch_then(promise_index, account_id_len, account_id_ptr)
             }
@@ -421,6 +459,7 @@ impl TestVMLogic<'_> {
     pub(super) fn promise_results_count(&mut self) -> Result<u64> {
         match self {
             Self::Legacy { logic, .. } => logic.promise_results_count(),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.promise_results_count(),
         }
     }
@@ -428,6 +467,7 @@ impl TestVMLogic<'_> {
     pub(super) fn promise_result(&mut self, result_idx: u64, register_id: u64) -> Result<u64> {
         match self {
             Self::Legacy { logic, .. } => logic.promise_result(result_idx, register_id),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.promise_result(result_idx, register_id),
         }
     }
@@ -435,6 +475,7 @@ impl TestVMLogic<'_> {
     pub(super) fn promise_return(&mut self, promise_idx: u64) -> Result<()> {
         match self {
             Self::Legacy { logic, .. } => logic.promise_return(promise_idx),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.promise_return(promise_idx),
         }
     }
@@ -442,6 +483,7 @@ impl TestVMLogic<'_> {
     pub(super) fn promise_batch_action_create_account(&mut self, promise_index: u64) -> Result<()> {
         match self {
             Self::Legacy { logic, .. } => logic.promise_batch_action_create_account(promise_index),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.promise_batch_action_create_account(promise_index),
         }
     }
@@ -456,6 +498,7 @@ impl TestVMLogic<'_> {
             Self::Legacy { logic, .. } => {
                 logic.promise_batch_action_deploy_contract(promise_index, code_len, code_ptr)
             }
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => {
                 w.promise_batch_action_deploy_contract(promise_index, code_len, code_ptr)
             }
@@ -472,6 +515,7 @@ impl TestVMLogic<'_> {
             Self::Legacy { logic, .. } => {
                 logic.promise_batch_action_deploy_global_contract(promise_index, code_len, code_ptr)
             }
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => {
                 w.promise_batch_action_deploy_global_contract(promise_index, code_len, code_ptr)
             }
@@ -490,6 +534,7 @@ impl TestVMLogic<'_> {
                 code_hash_len,
                 code_hash_ptr,
             ),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.promise_batch_action_use_global_contract(
                 promise_index,
                 code_hash_len,
@@ -511,6 +556,7 @@ impl TestVMLogic<'_> {
                     account_id_len,
                     account_id_ptr,
                 ),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.promise_batch_action_use_global_contract_by_account_id(
                 promise_index,
                 account_id_len,
@@ -539,6 +585,7 @@ impl TestVMLogic<'_> {
                 amount_ptr,
                 gas,
             ),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.promise_batch_action_function_call(
                 promise_index,
                 method_name_len,
@@ -573,6 +620,7 @@ impl TestVMLogic<'_> {
                 gas,
                 gas_weight,
             ),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.promise_batch_action_function_call_weight(
                 promise_index,
                 method_name_len,
@@ -595,6 +643,7 @@ impl TestVMLogic<'_> {
             Self::Legacy { logic, .. } => {
                 logic.promise_batch_action_transfer(promise_index, amount_ptr)
             }
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.promise_batch_action_transfer(promise_index, amount_ptr),
         }
     }
@@ -613,6 +662,7 @@ impl TestVMLogic<'_> {
                 public_key_len,
                 public_key_ptr,
             ),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.promise_batch_action_stake(
                 promise_index,
                 amount_ptr,
@@ -636,6 +686,7 @@ impl TestVMLogic<'_> {
                 public_key_ptr,
                 nonce,
             ),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.promise_batch_action_add_key_with_full_access(
                 promise_index,
                 public_key_len,
@@ -669,6 +720,7 @@ impl TestVMLogic<'_> {
                 method_names_len,
                 method_names_ptr,
             ),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.promise_batch_action_add_key_with_function_call(
                 promise_index,
                 public_key_len,
@@ -693,6 +745,7 @@ impl TestVMLogic<'_> {
             Self::Legacy { logic, .. } => {
                 logic.promise_batch_action_delete_key(promise_index, public_key_len, public_key_ptr)
             }
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => {
                 w.promise_batch_action_delete_key(promise_index, public_key_len, public_key_ptr)
             }
@@ -711,6 +764,7 @@ impl TestVMLogic<'_> {
                 beneficiary_id_len,
                 beneficiary_id_ptr,
             ),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.promise_batch_action_delete_account(
                 promise_index,
                 beneficiary_id_len,
@@ -733,6 +787,7 @@ impl TestVMLogic<'_> {
                 public_key_ptr,
                 num_nonces,
             ),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.promise_batch_action_add_gas_key_with_full_access(
                 promise_index,
                 public_key_len,
@@ -767,6 +822,7 @@ impl TestVMLogic<'_> {
                     method_names_len,
                     method_names_ptr,
                 ),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.promise_batch_action_add_gas_key_with_function_call(
                 promise_index,
                 public_key_len,
@@ -795,6 +851,7 @@ impl TestVMLogic<'_> {
                 public_key_ptr,
                 amount_ptr,
             ),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.promise_batch_action_transfer_to_gas_key(
                 promise_index,
                 public_key_len,
@@ -817,6 +874,7 @@ impl TestVMLogic<'_> {
                     code_len,
                     code_ptr,
                 ),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.promise_batch_action_deploy_global_contract_by_account_id(
                 promise_index,
                 code_len,
@@ -828,6 +886,7 @@ impl TestVMLogic<'_> {
     pub(super) fn refund_to_account_id(&mut self, register_id: u64) -> Result<()> {
         match self {
             Self::Legacy { logic, .. } => logic.refund_to_account_id(register_id),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.refund_to_account_id(register_id),
         }
     }
@@ -843,6 +902,7 @@ impl TestVMLogic<'_> {
             Self::Legacy { logic, .. } => {
                 logic.promise_batch_action_state_init(promise_idx, code_len, code_ptr, amount_ptr)
             }
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => {
                 w.promise_batch_action_state_init(promise_idx, code_len, code_ptr, amount_ptr)
             }
@@ -863,6 +923,7 @@ impl TestVMLogic<'_> {
                 code_hash_ptr,
                 amount_ptr,
             ),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.promise_batch_action_state_init_by_account_id(
                 promise_idx,
                 account_id_len,
@@ -890,6 +951,7 @@ impl TestVMLogic<'_> {
                 value_len,
                 value_ptr,
             ),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.set_state_init_data_entry(
                 promise_idx,
                 action_index,
@@ -904,6 +966,7 @@ impl TestVMLogic<'_> {
     pub(super) fn current_contract_code(&mut self, register_id: u64) -> Result<u64> {
         match self {
             Self::Legacy { logic, .. } => logic.current_contract_code(register_id),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.current_contract_code(register_id),
         }
     }
@@ -920,6 +983,7 @@ impl TestVMLogic<'_> {
             Self::Legacy { logic, .. } => {
                 logic.storage_write(key_len, key_ptr, value_len, value_ptr, register_id)
             }
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => {
                 w.storage_write(key_len, key_ptr, value_len, value_ptr, register_id)
             }
@@ -934,6 +998,7 @@ impl TestVMLogic<'_> {
     ) -> Result<u64> {
         match self {
             Self::Legacy { logic, .. } => logic.storage_read(key_len, key_ptr, register_id),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.storage_read(key_len, key_ptr, register_id),
         }
     }
@@ -946,6 +1011,7 @@ impl TestVMLogic<'_> {
     ) -> Result<u64> {
         match self {
             Self::Legacy { logic, .. } => logic.storage_remove(key_len, key_ptr, register_id),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.storage_remove(key_len, key_ptr, register_id),
         }
     }
@@ -953,6 +1019,7 @@ impl TestVMLogic<'_> {
     pub(super) fn storage_has_key(&mut self, key_len: u64, key_ptr: u64) -> Result<u64> {
         match self {
             Self::Legacy { logic, .. } => logic.storage_has_key(key_len, key_ptr),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.storage_has_key(key_len, key_ptr),
         }
     }
@@ -960,6 +1027,7 @@ impl TestVMLogic<'_> {
     pub(super) fn storage_iter_prefix(&mut self, prefix_len: u64, prefix_ptr: u64) -> Result<u64> {
         match self {
             Self::Legacy { logic, .. } => logic.storage_iter_prefix(prefix_len, prefix_ptr),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.storage_iter_prefix(prefix_len, prefix_ptr),
         }
     }
@@ -975,6 +1043,7 @@ impl TestVMLogic<'_> {
             Self::Legacy { logic, .. } => {
                 logic.storage_iter_range(start_len, start_ptr, end_len, end_ptr)
             }
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.storage_iter_range(start_len, start_ptr, end_len, end_ptr),
         }
     }
@@ -989,6 +1058,7 @@ impl TestVMLogic<'_> {
             Self::Legacy { logic, .. } => {
                 logic.storage_iter_next(iterator_id, key_register_id, value_register_id)
             }
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => {
                 w.storage_iter_next(iterator_id, key_register_id, value_register_id)
             }
@@ -1005,6 +1075,7 @@ impl TestVMLogic<'_> {
             Self::Legacy { logic, .. } => {
                 logic.alt_bn128_g1_multiexp(value_len, value_ptr, register_id)
             }
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.alt_bn128_g1_multiexp(value_len, value_ptr, register_id),
         }
     }
@@ -1017,6 +1088,7 @@ impl TestVMLogic<'_> {
     ) -> Result<()> {
         match self {
             Self::Legacy { logic, .. } => logic.alt_bn128_g1_sum(value_len, value_ptr, register_id),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.alt_bn128_g1_sum(value_len, value_ptr, register_id),
         }
     }
@@ -1028,6 +1100,7 @@ impl TestVMLogic<'_> {
     ) -> Result<u64> {
         match self {
             Self::Legacy { logic, .. } => logic.alt_bn128_pairing_check(value_len, value_ptr),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.alt_bn128_pairing_check(value_len, value_ptr),
         }
     }
@@ -1035,6 +1108,7 @@ impl TestVMLogic<'_> {
     pub(super) fn bls12381_pairing_check(&mut self, value_len: u64, value_ptr: u64) -> Result<u64> {
         match self {
             Self::Legacy { logic, .. } => logic.bls12381_pairing_check(value_len, value_ptr),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.bls12381_pairing_check(value_len, value_ptr),
         }
     }
@@ -1047,6 +1121,7 @@ impl TestVMLogic<'_> {
     ) -> Result<u64> {
         match self {
             Self::Legacy { logic, .. } => logic.bls12381_p1_sum(value_len, value_ptr, register_id),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.bls12381_p1_sum(value_len, value_ptr, register_id),
         }
     }
@@ -1059,6 +1134,7 @@ impl TestVMLogic<'_> {
     ) -> Result<u64> {
         match self {
             Self::Legacy { logic, .. } => logic.bls12381_p2_sum(value_len, value_ptr, register_id),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.bls12381_p2_sum(value_len, value_ptr, register_id),
         }
     }
@@ -1073,6 +1149,7 @@ impl TestVMLogic<'_> {
             Self::Legacy { logic, .. } => {
                 logic.bls12381_g1_multiexp(value_len, value_ptr, register_id)
             }
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.bls12381_g1_multiexp(value_len, value_ptr, register_id),
         }
     }
@@ -1087,6 +1164,7 @@ impl TestVMLogic<'_> {
             Self::Legacy { logic, .. } => {
                 logic.bls12381_g2_multiexp(value_len, value_ptr, register_id)
             }
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.bls12381_g2_multiexp(value_len, value_ptr, register_id),
         }
     }
@@ -1101,6 +1179,7 @@ impl TestVMLogic<'_> {
             Self::Legacy { logic, .. } => {
                 logic.bls12381_map_fp_to_g1(value_len, value_ptr, register_id)
             }
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.bls12381_map_fp_to_g1(value_len, value_ptr, register_id),
         }
     }
@@ -1115,6 +1194,7 @@ impl TestVMLogic<'_> {
             Self::Legacy { logic, .. } => {
                 logic.bls12381_map_fp2_to_g2(value_len, value_ptr, register_id)
             }
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.bls12381_map_fp2_to_g2(value_len, value_ptr, register_id),
         }
     }
@@ -1129,6 +1209,7 @@ impl TestVMLogic<'_> {
             Self::Legacy { logic, .. } => {
                 logic.bls12381_p1_decompress(value_len, value_ptr, register_id)
             }
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.bls12381_p1_decompress(value_len, value_ptr, register_id),
         }
     }
@@ -1143,6 +1224,7 @@ impl TestVMLogic<'_> {
             Self::Legacy { logic, .. } => {
                 logic.bls12381_p2_decompress(value_len, value_ptr, register_id)
             }
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.bls12381_p2_decompress(value_len, value_ptr, register_id),
         }
     }

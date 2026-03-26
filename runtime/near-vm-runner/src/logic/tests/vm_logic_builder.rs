@@ -2,6 +2,7 @@ use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::mocks::mock_memory::MockedMemory;
 use crate::logic::{Config, ExecutionResultState, MemSlice, VMContext, VMLogic, VMOutcome};
 use crate::tests::test_vm_config;
+#[cfg(feature = "wasmtime_vm")]
 use crate::wasmtime_runner::test_logic::WasmtimeTestLogic;
 use near_parameters::RuntimeFeesConfig;
 use near_primitives_core::types::{Balance, Gas};
@@ -65,12 +66,15 @@ impl VMLogicBuilder {
                     mem_write_offset: 0,
                 }
             }
+            #[cfg(feature = "wasmtime_vm")]
             Backend::Wasmtime => TestVMLogic::Wasmtime(WasmtimeTestLogic::new(
                 &mut self.ext,
                 &self.context,
                 self.fees_config.clone(),
                 self.config.clone(),
             )),
+            #[cfg(not(feature = "wasmtime_vm"))]
+            Backend::Wasmtime => panic!("wasmtime_vm feature not enabled"),
         }
     }
 
@@ -122,6 +126,7 @@ pub(super) enum TestVMLogic<'a> {
         /// Offset at which `internal_memory_write` will write next.
         mem_write_offset: u64,
     },
+    #[cfg(feature = "wasmtime_vm")]
     Wasmtime(WasmtimeTestLogic),
 }
 
@@ -140,6 +145,7 @@ impl TestVMLogic<'_> {
                 *mem_write_offset += slice.len;
                 slice
             }
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.internal_mem_write(data),
         }
     }
@@ -151,6 +157,7 @@ impl TestVMLogic<'_> {
                 logic.memory().set_for_free(ptr, data).unwrap();
                 MemSlice { len: u64::try_from(data.len()).unwrap(), ptr }
             }
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.internal_mem_write_at(ptr, data),
         }
     }
@@ -161,6 +168,7 @@ impl TestVMLogic<'_> {
             Self::Legacy { logic, .. } => {
                 logic.memory().view_for_free(MemSlice { ptr, len }).unwrap().into_owned()
             }
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.internal_mem_read(ptr, len),
         }
     }
@@ -185,6 +193,7 @@ impl TestVMLogic<'_> {
                 let got = logic.memory().view_for_free(MemSlice { ptr, len }).unwrap();
                 assert_eq!(want, &got[..]);
             }
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.assert_read_register(want, register_id),
         }
     }
@@ -192,6 +201,7 @@ impl TestVMLogic<'_> {
     pub(super) fn compute_outcome(self) -> VMOutcome {
         match self {
             Self::Legacy { logic, .. } => logic.result_state.compute_outcome(),
+            #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime(w) => w.compute_outcome(),
         }
     }
