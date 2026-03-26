@@ -23,6 +23,7 @@ use near_primitives::sharding::ShardChunk;
 use near_primitives::state::FlatStateValue;
 use near_primitives::state::{PartialState, TrieValue};
 use near_primitives::state_sync::StateSyncDumpProgress;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
 };
@@ -124,9 +125,17 @@ impl EntityDebugHandlerImpl {
                 let chunk = store
                     .get_ser::<ShardChunk>(DBCol::Chunks, &borsh::to_vec(&chunk_hash).unwrap())
                     .ok_or_else(|| anyhow!("Chunk not found"))?;
+                // TODO(#chunk_producer_lookups): migrate to get_chunk_producer_info once
+                // the block is guaranteed registered with the epoch manager at this point.
+                let epoch_id =
+                    self.epoch_manager.get_epoch_id_from_prev_block(chunk.prev_block())?;
                 let author = self
                     .epoch_manager
-                    .get_chunk_producer_info(chunk.prev_block(), chunk.shard_id())?
+                    .get_chunk_producer_by_cpk(&ChunkProductionKey {
+                        epoch_id,
+                        height_created: chunk.height_created(),
+                        shard_id: chunk.shard_id(),
+                    })?
                     .take_account_id();
                 Ok(serialize_entity(&ChunkView::from_author_chunk(author, chunk)))
             }

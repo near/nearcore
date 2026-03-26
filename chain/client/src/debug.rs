@@ -25,6 +25,7 @@ use near_primitives::congestion_info::CongestionControl;
 use near_primitives::errors::EpochError;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state_sync::get_num_state_parts;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::types::{
     AccountId, BlockHeight, NumShards, ShardId, ShardIndex, ValidatorInfoIdentifier,
@@ -626,13 +627,17 @@ impl ClientActor {
                             DebugChunkStatus {
                                 shard_id: chunk.shard_id().into(),
                                 chunk_hash: chunk.chunk_hash().clone(),
+                                // TODO(#chunk_producer_lookups): migrate to
+                                // get_chunk_producer_info once the block is guaranteed
+                                // registered with the epoch manager at this point.
                                 chunk_producer: self
                                     .client
                                     .epoch_manager
-                                    .get_chunk_producer_info(
-                                        chunk.prev_block_hash(),
-                                        chunk.shard_id(),
-                                    )
+                                    .get_chunk_producer_by_cpk(&ChunkProductionKey {
+                                        epoch_id: *block_header.epoch_id(),
+                                        height_created: block_header.height(),
+                                        shard_id: chunk.shard_id(),
+                                    })
                                     .map(|info| info.take_account_id())
                                     .ok(),
                                 gas_used: chunk.prev_gas_used().as_gas(),

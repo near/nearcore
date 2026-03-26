@@ -6,6 +6,7 @@ use near_primitives::block::{Block, ChunkType, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::views::{
     BlockProcessingInfo, BlockProcessingStatus, ChainProcessingInfo, ChunkProcessingInfo,
@@ -141,9 +142,19 @@ impl ChunkTrackingStats {
         } else {
             ChunkProcessingStatus::NeedToRequest
         };
+        // TODO(#chunk_producer_lookups): migrate to get_chunk_producer_info once
+        // the block is guaranteed registered with the epoch manager at this point.
         let created_by = epoch_manager
-            .get_chunk_producer_info(&self.prev_block_hash, self.shard_id)
-            .map(|info| info.take_account_id())
+            .get_epoch_id_from_prev_block(&self.prev_block_hash)
+            .and_then(|epoch_id| {
+                epoch_manager
+                    .get_chunk_producer_by_cpk(&ChunkProductionKey {
+                        epoch_id,
+                        height_created: self.height_created,
+                        shard_id: self.shard_id,
+                    })
+                    .map(|info| info.take_account_id())
+            })
             .ok();
         let request_duration = if let Some(requested_timestamp) = self.requested_timestamp {
             if let Some(completed_timestamp) = self.completed_timestamp {

@@ -122,6 +122,7 @@ use near_primitives::sharding::{
     PartialEncodedChunkPart, PartialEncodedChunkV2, ShardChunk, ShardChunkHeader,
     ShardChunkWithEncoding, TransactionReceipt,
 };
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, EpochId, MerkleHash, ShardId,
 };
@@ -1769,7 +1770,7 @@ impl ShardsManagerActor {
         // calculating owner parts requires that, so we first check
         // whether prev_block_hash is in the chain, if not, returns NeedBlock
         let prev_block_hash = header.prev_block_hash();
-        let _epoch_id = match self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash) {
+        let epoch_id = match self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash) {
             Ok(epoch_id) => epoch_id,
             Err(_) => {
                 tracing::debug!(target: "chunks", ?prev_block_hash, "block not found");
@@ -1826,9 +1827,15 @@ impl ShardsManagerActor {
             self.encoded_chunks.mark_received_all_receipts(&chunk_hash);
         }
 
+        // TODO(#chunk_producer_lookups): migrate to get_chunk_producer_info once
+        // the block is guaranteed registered with the epoch manager at this point.
         let chunk_producer = self
             .epoch_manager
-            .get_chunk_producer_info(header.prev_block_hash(), header.shard_id())?
+            .get_chunk_producer_by_cpk(&ChunkProductionKey {
+                epoch_id,
+                height_created: header.height_created(),
+                shard_id: header.shard_id(),
+            })?
             .take_account_id();
 
         if have_all_parts {
