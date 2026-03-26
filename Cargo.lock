@@ -4413,6 +4413,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-cloud-archive-tool"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "borsh",
+ "clap",
+ "near-chain-configs",
+ "near-primitives",
+ "near-store",
+ "nearcore",
+ "tokio",
+]
+
+[[package]]
 name = "near-config-utils"
 version = "0.0.0"
 dependencies = [
@@ -5596,6 +5610,7 @@ dependencies = [
  "near-async",
  "near-chain-configs",
  "near-client",
+ "near-cloud-archive-tool",
  "near-config-utils",
  "near-database-tool",
  "near-dump-test-contract",

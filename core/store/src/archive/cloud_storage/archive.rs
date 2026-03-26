@@ -3,7 +3,7 @@ use crate::archive::cloud_storage::CloudStorage;
 use crate::archive::cloud_storage::block_data::build_block_data;
 use crate::archive::cloud_storage::bucket_config::BucketConfig;
 use crate::archive::cloud_storage::epoch_data::build_epoch_data;
-use crate::archive::cloud_storage::file_id::CloudStorageFileID;
+use crate::archive::cloud_storage::file_id::{CloudStorageFileID, ListableCloudDir};
 use crate::archive::cloud_storage::retrieve::CloudRetrievalError;
 use crate::archive::cloud_storage::shard_data::build_shard_data;
 use near_primitives::errors::EpochError;
@@ -59,8 +59,16 @@ impl CloudStorage {
     // Will be replaced with ifGenerationMatch:0 atomic uploads.
     pub async fn ensure_bucket_config(&self) -> Result<(), CloudArchivingError> {
         let file_id = CloudStorageFileID::Config;
-        let existing: Option<BucketConfig> =
-            self.retrieve_if_exists(&file_id).await.map_err(CloudArchivingError::from)?;
+        let (_, filename) = self.location_dir_and_file(&file_id);
+        let exists = self
+            .dir_contains(&ListableCloudDir::Metadata, &filename)
+            .await
+            .map_err(CloudArchivingError::from)?;
+        let existing: Option<BucketConfig> = if exists {
+            Some(self.retrieve(&file_id).await.map_err(CloudArchivingError::from)?)
+        } else {
+            None
+        };
         let local_config = BucketConfig::local();
         match existing {
             None => {
