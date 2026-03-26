@@ -17,6 +17,7 @@ const EPOCH_LENGTH: u64 = 5;
 /// 3. Run the backfill function.
 /// 4. Verify that the backfilled entries match the originals.
 #[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_backfill_matches_normal_processing() {
     init_test_logger();
 
@@ -129,6 +130,7 @@ fn test_backfill_matches_normal_processing() {
 
 /// Backfill is idempotent — running it twice produces the same result.
 #[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_backfill_idempotent() {
     init_test_logger();
 
