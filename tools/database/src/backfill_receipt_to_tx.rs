@@ -1,7 +1,7 @@
 use anyhow::Context;
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
-use near_chain::ChainStore;
+use near_chain::{ChainStore, Error};
 use near_chain_configs::GenesisValidationMode;
 use near_o11y::tracing;
 use near_primitives::receipt::{
@@ -141,7 +141,7 @@ pub fn backfill_receipt_to_tx(
     for height in from_height..=to_height {
         let block_hash = match chain_store.get_block_hash_by_height(height) {
             Ok(hash) => hash,
-            Err(near_chain::Error::DBNotFoundErr(_)) => {
+            Err(Error::DBNotFoundErr(_)) => {
                 stats.heights_skipped += 1;
                 if let Some(p) = progress {
                     p.inc(1);
