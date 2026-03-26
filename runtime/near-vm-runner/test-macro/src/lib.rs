@@ -40,20 +40,34 @@ pub fn vm_test(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let impl_name = syn::Ident::new(&format!("{}_impl", name), name.span());
     let wasmtime_name = syn::Ident::new(&format!("{}_wasmtime", name), name.span());
     let body = &input.block;
-    let attrs = &input.attrs;
     let params = &input.sig.inputs;
 
+    // Split attributes: test-specific attrs like #[should_panic] and #[ignore]
+    // go only on the #[test] fns, while general attrs like #[allow(...)] go on
+    // both the impl fn and the test fns.
+    let mut impl_attrs = Vec::new();
+    let mut test_attrs = Vec::new();
+    for attr in &input.attrs {
+        let is_test_attr = attr.path().is_ident("should_panic") || attr.path().is_ident("ignore");
+        if is_test_attr {
+            test_attrs.push(attr);
+        } else {
+            impl_attrs.push(attr);
+            test_attrs.push(attr);
+        }
+    }
+
     let expanded = quote! {
-        #(#attrs)*
+        #(#impl_attrs)*
         fn #impl_name(#params) #body
 
-        #(#attrs)*
+        #(#test_attrs)*
         #[test]
         fn #name() {
             #impl_name(Backend::Legacy);
         }
 
-        #(#attrs)*
+        #(#test_attrs)*
         #[test]
         fn #wasmtime_name() {
             #impl_name(Backend::Wasmtime);
