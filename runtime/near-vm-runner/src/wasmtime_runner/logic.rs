@@ -2983,7 +2983,13 @@ pub fn promise_batch_action_function_call_weight(
     let skip_deduct = amount == Balance::from_yoctonear(1)
         && ctx.config.one_yocto_near_on_promise
         && ctx.result_state.current_account_balance.is_zero();
-    if !skip_deduct {
+    if skip_deduct {
+        ctx.result_state.subsidized_amount = ctx
+            .result_state
+            .subsidized_amount
+            .checked_add(amount)
+            .expect("subsidized_amount overflow");
+    } else {
         ctx.result_state.deduct_balance(amount)?;
     }
     ctx.ext.append_action_function_call_weight(

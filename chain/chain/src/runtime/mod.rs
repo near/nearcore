@@ -338,15 +338,27 @@ impl NightshadeRuntime {
             metrics.report(&shard_label);
         }
 
-        let total_balance_burnt = apply_result
-            .stats
-            .balance
-            .tx_burnt_amount
-            .checked_add(apply_result.stats.balance.other_burnt_amount)
-            .and_then(|result| result.checked_add(apply_result.stats.balance.slashed_burnt_amount))
-            .ok_or_else(|| {
-                Error::Other("Integer overflow during burnt balance summation".to_string())
-            })?;
+        let total_balance_burnt = {
+            let burnt = apply_result
+                .stats
+                .balance
+                .tx_burnt_amount
+                .checked_add(apply_result.stats.balance.other_burnt_amount)
+                .and_then(|r| r.checked_add(apply_result.stats.balance.slashed_burnt_amount))
+                .ok_or_else(|| {
+                    Error::Other("Integer overflow during burnt balance summation".to_string())
+                })?;
+            // Theoretically this may become negativem but the subsidized amout is many orders
+            // of magnitude lower than the burned amount for each promise, so it should not
+            // happen.
+            if ProtocolFeature::OneYoctoNearOnPromise.enabled(current_protocol_version) {
+                burnt.checked_sub(apply_result.stats.balance.subsidized_amount).ok_or_else(
+                    || Error::Other("subsidized amount exceeds total burnt balance".to_string()),
+                )?
+            } else {
+                burnt
+            }
+        };
 
         let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_block_hash)?;
 
