@@ -37,7 +37,7 @@ fn test_backfill_matches_normal_processing() {
     let tx = SignedTransaction::send_money(
         1,
         user_account.clone(),
-        receiver_account.clone(),
+        receiver_account,
         &signer,
         Balance::from_yoctonear(100),
         block_hash,
@@ -106,15 +106,10 @@ fn test_backfill_matches_normal_processing() {
 
     assert!(stats.entries_written > 0, "backfill should have written entries");
 
-    // Collect backfilled entries and compare with originals.
-    let backfilled_entries: Vec<(Vec<u8>, ReceiptToTxInfo)> = store
-        .iter_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx)
-        .map(|(k, v)| (k.to_vec(), v))
-        .collect();
-
+    // Verify backfill produced the same number of entries as normal processing.
     assert_eq!(
         original_entries.len(),
-        backfilled_entries.len(),
+        store.iter_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx).count(),
         "backfill should produce the same number of entries as normal processing"
     );
 
