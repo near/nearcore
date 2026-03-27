@@ -38,7 +38,11 @@ use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::sharding::ShardChunk;
+use near_primitives::sharding::{
+    EncodedShardChunk, EncodedShardChunkBody, EncodedShardChunkV2, ShardChunk, ShardChunkHeader,
+    ShardChunkHeaderV3,
+};
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::SpiceChunkId;
@@ -406,6 +410,103 @@ fn produce_n_blocks(actors: &mut [TestActor], num_blocks: usize) -> Vec<Arc<Bloc
         prev_block = block;
     }
     blocks
+}
+
+/// Produces a block where each new chunk has a corrupted tx_root. The encoded
+/// chunks are saved to `DBCol::InvalidChunks` so the executor can attach the
+/// proof to the witness.
+fn produce_block_with_malicious_chunk(actors: &mut [TestActor], prev_block: &Block) -> Arc<Block> {
+    let normal_headers =
+        get_fake_next_block_chunk_headers(prev_block, actors[0].actor.epoch_manager.as_ref());
+    let malicious_tx_root = CryptoHash::hash_bytes(b"malicious tx root");
+    let epoch_id = *prev_block.header().epoch_id();
+
+    let mut malicious_headers = Vec::new();
+    for header in &normal_headers {
+        let shard_id = header.shard_id();
+        let height = header.height_created();
+        let chunk_producer = actors[0]
+            .actor
+            .epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                shard_id,
+                epoch_id,
+                height_created: height,
+            })
+            .unwrap();
+        let signer = create_test_signer(chunk_producer.account_id().as_str());
+        let mut malicious_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new_for_spice(
+            *prev_block.hash(),
+            Default::default(), // encoded_merkle_root
+            0,                  // encoded_length
+            height,
+            shard_id,
+            Default::default(), // prev_outgoing_receipts_root
+            malicious_tx_root,
+            &signer,
+        ));
+        *malicious_header.height_included_mut() = height;
+        malicious_headers.push(malicious_header);
+    }
+
+    for actor in actors.iter_mut() {
+        let mut store_update = actor.actor.chain_store.store_update();
+        for header in &malicious_headers {
+            let encoded_chunk = EncodedShardChunk::V2(EncodedShardChunkV2 {
+                header: header.clone(),
+                content: EncodedShardChunkBody { parts: vec![] },
+            });
+            store_update.save_invalid_chunk(encoded_chunk);
+        }
+        store_update.commit().unwrap();
+    }
+
+    let block_producer = actors[0]
+        .actor
+        .epoch_manager
+        .get_block_producer_info(&epoch_id, prev_block.header().height() + 1)
+        .unwrap();
+    let signer = Arc::new(create_test_signer(block_producer.account_id().as_str()));
+    let block = TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer)
+        .chunks(malicious_headers)
+        .spice_core_statements(vec![])
+        .build();
+    for actor in actors.iter_mut() {
+        process_block_sync(
+            &mut actor.chain,
+            block.clone().into(),
+            Provenance::PRODUCED,
+            &mut BlockProcessingArtifact::default(),
+        )
+        .unwrap();
+    }
+    block
+}
+
+/// Produces a block that reuses the previous block's chunk headers, making all
+/// chunks non-new for the new block height.
+fn produce_block_with_missing_chunks(actors: &mut [TestActor], prev_block: &Block) -> Arc<Block> {
+    let chunks = prev_block.chunks().iter_raw().cloned().collect_vec();
+    let block_producer = actors[0]
+        .actor
+        .epoch_manager
+        .get_block_producer_info(prev_block.header().epoch_id(), prev_block.header().height() + 1)
+        .unwrap();
+    let signer = Arc::new(create_test_signer(block_producer.account_id().as_str()));
+    let block = TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer)
+        .chunks(chunks)
+        .spice_core_statements(vec![])
+        .build();
+    for actor in actors.iter_mut() {
+        process_block_sync(
+            &mut actor.chain,
+            block.clone().into(),
+            Provenance::PRODUCED,
+            &mut BlockProcessingArtifact::default(),
+        )
+        .unwrap();
+    }
+    block
 }
 
 fn find_chunk_execution_result(
@@ -1193,4 +1294,80 @@ fn test_is_descendant_of_final_execution_head_returns_false_for_final_execution_
     store_update.commit().unwrap();
 
     assert_eq!(is_descendant_of_final_execution_head(&chain.chain_store, block.header()), false);
+}
+
+/// Verifies that when a malicious chunk producer sends an invalid chunk (saved
+/// in `DBCol::InvalidChunks`), the executor populates `invalid_chunk_proof` in
+/// the witness so validators can independently verify the invalidity.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_witness_contains_invalid_chunk_proof_for_malicious_chunk() {
+    let (outgoing_sc, _outgoing_rc) = unbounded();
+    let mut actors = setup_with_non_validator(outgoing_sc);
+    let prev_block = actors[0].chain.genesis_block();
+    let block = produce_block_with_malicious_chunk(&mut actors, &prev_block);
+    let actor = &mut actors[0];
+    let shard_id = block.chunks().get(0).unwrap().shard_id();
+
+    actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+    assert!(block_executed(actor, &block));
+
+    let witness = get_witness(actor.chain.chain_store().store_ref(), block.hash(), shard_id)
+        .expect("witness should be saved");
+    assert!(
+        witness.invalid_chunk_proof().is_some(),
+        "witness should contain invalid_chunk_proof for a malicious chunk",
+    );
+}
+
+/// Verifies that a valid chunk produces a witness without `invalid_chunk_proof`.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_witness_has_no_invalid_chunk_proof_for_valid_chunk() {
+    let (outgoing_sc, _outgoing_rc) = unbounded();
+    let mut actors = setup_with_non_validator(outgoing_sc);
+    let prev_block = actors[0].chain.genesis_block();
+    let block = produce_block(&mut actors, &prev_block);
+    let actor = &mut actors[0];
+    let shard_id = block.chunks().get(0).unwrap().shard_id();
+
+    actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+    assert!(block_executed(actor, &block));
+
+    let witness = get_witness(actor.chain.chain_store().store_ref(), block.hash(), shard_id)
+        .expect("witness should be saved");
+    assert!(
+        witness.invalid_chunk_proof().is_none(),
+        "witness should not contain invalid_chunk_proof for a valid chunk",
+    );
+}
+
+/// Verifies that a non-new (missing) chunk — where the chunk header from the
+/// previous block is repeated — produces a witness without `invalid_chunk_proof`.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_witness_has_no_invalid_chunk_proof_for_missing_chunk() {
+    let (outgoing_sc, _outgoing_rc) = unbounded();
+    let mut actors = setup_with_shards(1, outgoing_sc);
+
+    let genesis = actors[0].chain.genesis_block();
+    let block1 = produce_block(&mut actors, &genesis);
+    actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *block1.hash() });
+    assert!(block_executed(&actors[0], &block1));
+    // Record endorsements so block1's execution results are persisted; required
+    // for block2 to be eligible for execution.
+    record_endorsements(&mut actors, &block1);
+
+    let block2 = produce_block_with_missing_chunks(&mut actors, &block1);
+    let shard_id = block2.chunks().get(0).unwrap().shard_id();
+
+    actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *block2.hash() });
+    assert!(block_executed(&actors[0], &block2));
+
+    let witness = get_witness(actors[0].chain.chain_store().store_ref(), block2.hash(), shard_id)
+        .expect("witness should be saved");
+    assert!(
+        witness.invalid_chunk_proof().is_none(),
+        "witness should not contain invalid_chunk_proof for a non-new (missing) chunk",
+    );
 }

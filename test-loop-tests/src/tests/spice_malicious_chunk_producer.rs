@@ -11,10 +11,11 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::EncodedShardChunk;
+use near_primitives::types::AccountId;
 use near_primitives::types::Gas;
 use near_store::DBCol;
 use parking_lot::Mutex;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// Test that a malicious chunk producer sending chunks with corrupted tx_root
@@ -143,7 +144,9 @@ fn test_spice_block_sync_with_malicious_chunks() {
 /// Test that validators endorse chunks containing an `invalid_chunk_proof`
 /// (witness produced when a malicious chunk producer sends a corrupted chunk
 /// body). Verifies the full end-to-end flow: witnesses are self-contained,
-/// validators can pre-validate and execute them, and endorsements are produced.
+/// validators can pre-validate and execute them, and ALL assigned validators
+/// endorse the result. Also verifies that gas_used is zero for blocks with
+/// invalid chunks (empty chunk was executed).
 #[cfg(feature = "test_features")]
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
@@ -158,15 +161,18 @@ fn test_spice_witness_validation_with_invalid_chunk() {
     let handles: Vec<_> =
         env.node_datas.iter().map(|nd| nd.peer_manager_sender.actor_handle()).collect();
 
-    // Track block hashes that receive at least one endorsement.
-    let endorsed_block_hashes: Arc<Mutex<HashSet<CryptoHash>>> =
-        Arc::new(Mutex::new(HashSet::new()));
+    // Track which validators endorsed each block hash.
+    let endorsements_by_block: Arc<Mutex<HashMap<CryptoHash, HashSet<AccountId>>>> =
+        Arc::new(Mutex::new(HashMap::new()));
     for handle in handles {
-        let hashes = endorsed_block_hashes.clone();
+        let map = endorsements_by_block.clone();
         let peer_actor = env.test_loop.data.get_mut(&handle);
         peer_actor.register_override_handler(Box::new(move |request| {
             if let NetworkRequests::SpiceChunkEndorsement(_, endorsement) = &request {
-                hashes.lock().insert(*endorsement.block_hash());
+                map.lock()
+                    .entry(*endorsement.block_hash())
+                    .or_default()
+                    .insert(endorsement.account_id().clone());
             }
             Some(request)
         }));
@@ -182,19 +188,50 @@ fn test_spice_witness_validation_with_invalid_chunk() {
     // Run long enough for the malicious node to be scheduled as chunk producer.
     env.node_runner(honest_node).run_for_number_of_blocks(10);
 
-    // Verify that each block containing an invalid chunk was endorsed.
+    // Verify that each block containing an invalid chunk was endorsed by ALL
+    // assigned validators, and that gas_used is zero (empty chunk executed).
     let node = env.node(honest_node);
     let chain_store = node.client().chain.chain_store();
-    let endorsed = endorsed_block_hashes.lock();
+    let epoch_manager = &node.client().epoch_manager;
+    let endorsements = endorsements_by_block.lock();
     let mut invalid_chunk_count = 0;
     for (_, value) in node.store().iter(DBCol::InvalidChunks) {
         let chunk: EncodedShardChunk = borsh::from_slice(&value).unwrap();
-        let height = chunk.cloned_header().height_created();
+        let header = chunk.cloned_header();
+        let shard_id = header.shard_id();
+        let height = header.height_created();
         let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
-        assert!(
-            endorsed.contains(&block_hash),
-            "block at height {height} with invalid chunk should have received an endorsement",
+        let epoch_id = epoch_manager.get_epoch_id(&block_hash).unwrap();
+
+        // Assert ALL assigned validators endorsed.
+        let assignments =
+            epoch_manager.get_chunk_validator_assignments(&epoch_id, shard_id, height).unwrap();
+        let expected = assignments.len();
+        let block_endorsers = endorsements.get(&block_hash).unwrap_or_else(|| {
+            panic!("block at height {height} with invalid chunk received no endorsements")
+        });
+        let received = block_endorsers.len();
+        assert_eq!(
+            expected, received,
+            "block at height {height}: expected {expected} endorsements but got {received}",
         );
+        for validator in assignments.ordered_chunk_validators() {
+            assert!(
+                block_endorsers.contains(&validator),
+                "validator {validator} did not endorse block at height {height}",
+            );
+        }
+
+        // Assert gas_used == Gas::ZERO (empty chunk was executed).
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+        let chunk_extra = chain_store.get_chunk_extra(&block_hash, &shard_uid).unwrap();
+        assert_eq!(
+            chunk_extra.gas_used(),
+            Gas::ZERO,
+            "block at height {height}: empty chunk should use zero gas",
+        );
+
         invalid_chunk_count += 1;
     }
     assert!(invalid_chunk_count > 0, "expected at least one invalid chunk stored as evidence");
