@@ -10,7 +10,7 @@ We run a single ‘round’ of GC after a new block is accepted to the chain - a
 in order not to delay the chain too much, we make sure that each round removes
 at most 2 blocks from the chain.
 
-For more details look at function `clear_data()` in file `chain/chain/src/chain.rs`
+For more details look at function `clear_data()` in file `chain/chain/src/garbage_collection.rs`
 
 ## How it works
 
@@ -77,7 +77,7 @@ chain, so headers were kept forever. Now that epoch sync provides a lightweight
 proof-based bootstrap mechanism, old block headers are no longer needed and are
 garbage collected alongside their corresponding blocks.
 
-When GC processes a block (in `gc_block_data()`), it also deletes the block
+When GC processes a block (in `clear_block_data()`), it also deletes the block
 header from `DBCol::BlockHeader`. Sufficient headers are always kept for
 transaction validation: `transaction_validity_period` requires headers for
 approximately the last two epochs, and GC retains at least

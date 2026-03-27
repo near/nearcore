@@ -143,13 +143,13 @@ ClientActor has some periodically running routines that are worth noting:
 
 * [Doomslug
   timer](https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L1198) -
-  This routine runs every `doomslug_step_period` (set to 100ms by default) and
+  This routine runs every `doomslug_step_period` (set to 10ms by default) and
   updates consensus information. If the node is a validator node, it also sends
   approvals when necessary.
 * [Block
   production](https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L991) -
   This routine runs every `block_production_tracking_delay` (which is set to
-  100ms by default) and checks if the node should produce a block.
+  10ms by default) and checks if the node should produce a block.
 * [Log
   summary](https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L1790) -
   Prints a log line that summarizes block rate, average gas used, the height of
