@@ -143,11 +143,27 @@ fn test_indexer_instant_receipt() {
     let yield_outcome =
         env.rpc_runner().run_until_outcome_available(yield_receipt_id, Duration::seconds(5));
 
-    // Step 3: Start the indexer at the block where the callback executed.
+    // Step 3: Start the indexer at the block where the instant receipt was created
+    // and stream through to the callback block.
+    let yield_create_block_hash = local_outcome.block_hash;
+    let yield_create_height = env.rpc_node().block(yield_create_block_hash).header().height();
     let callback_block_hash = yield_outcome.block_hash;
-    let callback_height =
-        env.rpc_node().client().chain.get_block(&callback_block_hash).unwrap().header().height();
-    let mut indexer_receiver = start_indexer(&env, SyncModeEnum::BlockHeight(callback_height));
+    let callback_height = env.rpc_node().block(callback_block_hash).header().height();
+
+    let mut indexer_receiver = start_indexer(&env, SyncModeEnum::BlockHeight(yield_create_height));
+
+    // Verify instant_receipts at the block where the instant receipt was created.
+    let msg = receive_indexer_message(&mut env, &mut indexer_receiver);
+    assert_eq!(msg.block.header.height, yield_create_height);
+    let indexer_shard = &msg.shards[0];
+    let indexer_chunk = indexer_shard.chunk.as_ref().unwrap();
+    assert_eq!(indexer_chunk.instant_receipts.len(), 1);
+    assert_eq!(indexer_chunk.instant_receipts[0].receipt_id, yield_receipt_id);
+    // Skip intermediate blocks to reach the callback block.
+    let num_blocks_to_skip = callback_height - yield_create_height - 1;
+    for _ in 0..num_blocks_to_skip {
+        receive_indexer_message(&mut env, &mut indexer_receiver);
+    }
     let msg = receive_indexer_message(&mut env, &mut indexer_receiver);
     assert_eq!(msg.block.header.height, callback_height);
     let indexer_shard = &msg.shards[0];
