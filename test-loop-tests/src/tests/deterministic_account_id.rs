@@ -53,7 +53,7 @@ use near_primitives::types::Gas;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::derive_near_deterministic_account_id;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
-use near_primitives::views::AccountView;
+use near_primitives::views::{AccountView, ExecutionStatusView};
 use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
 use near_vm_runner::ContractCode;
 use std::collections::BTreeMap;
@@ -377,12 +377,11 @@ fn test_deterministic_state_init_prepay_for_storage() {
 
 /// Try to do Transfer and AddKey in a single transaction targeting a
 /// deterministic account. A single Transfer can create a deterministic
-/// account, but multiple actions are disallowed in that case.
+/// account, but multiple actions are disallowed.
+/// It should not be possible to add an access key to a deterministic account this way, as it would
+/// give the creator control over the account before StateInit.
 #[test]
 fn test_transfer_and_add_key_to_deterministic_account() {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let mut env = TestEnv::setup(Balance::from_near(100));
     env.deploy_global_contract(GlobalContractDeployMode::AccountId);
 
@@ -421,11 +420,10 @@ fn test_transfer_and_add_key_to_deterministic_account() {
 /// deterministic account. Should fail the same way as Transfer + AddKey:
 /// multiple actions are disallowed when creating a deterministic account
 /// via transfer.
+/// It should not be possible to deploy a contract to a deterministic account this way, as it would
+/// give the creator control over the account before StateInit.
 #[test]
 fn test_transfer_and_deploy_contract_to_deterministic_account() {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let mut env = TestEnv::setup(Balance::from_near(100));
     env.deploy_global_contract(GlobalContractDeployMode::AccountId);
 
@@ -464,9 +462,6 @@ fn test_transfer_and_deploy_contract_to_deterministic_account() {
 /// transfer.
 #[test]
 fn test_transfer_and_state_init_to_deterministic_account() {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let mut env = TestEnv::setup(Balance::from_near(100));
     env.deploy_global_contract(GlobalContractDeployMode::AccountId);
 
@@ -504,9 +499,6 @@ fn test_transfer_and_state_init_to_deterministic_account() {
 /// actions are created by a contract via `call_promise`.
 #[test]
 fn test_contract_transfer_and_add_key_to_deterministic_account() {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let mut env = TestEnv::setup(Balance::from_near(100));
     env.deploy_global_contract(GlobalContractDeployMode::AccountId);
     env.deploy_test_contract();
@@ -546,9 +538,6 @@ fn test_contract_transfer_and_add_key_to_deterministic_account() {
 /// the actions are created by a contract via `call_promise`.
 #[test]
 fn test_contract_transfer_and_deploy_contract_to_deterministic_account() {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let mut env = TestEnv::setup(Balance::from_near(100));
     env.deploy_global_contract(GlobalContractDeployMode::AccountId);
     env.deploy_test_contract();
@@ -586,9 +575,6 @@ fn test_contract_transfer_and_deploy_contract_to_deterministic_account() {
 /// actions are created by a contract via `call_promise`.
 #[test]
 fn test_contract_transfer_and_state_init_to_deterministic_account() {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let mut env = TestEnv::setup(Balance::from_near(100));
     env.deploy_global_contract(GlobalContractDeployMode::AccountId);
     env.deploy_test_contract();
@@ -946,7 +932,8 @@ impl TestEnv {
     }
 
     /// Call `call_promise` on the user account's test contract and assert
-    /// that the resulting promise receipt fails.
+    /// that the child receipt (the promise batch) fails with
+    /// AccountDoesNotExist.
     fn assert_call_promise_creates_failing_receipt(
         &mut self,
         call_promise_args: serde_json::Value,
@@ -966,10 +953,33 @@ impl TestEnv {
         );
 
         let outcome = self.try_execute_tx(tx).expect("should be able to send transaction");
-        let promise_outcome = outcome.receipts_outcome.iter().find(|o| {
-            matches!(&o.outcome.status, near_primitives::views::ExecutionStatusView::Failure(_))
-        });
-        assert!(promise_outcome.is_some(), "expected a failing receipt outcome");
+
+        // The first receipt is the call_promise FunctionCall itself.
+        let call_promise_outcome = &outcome.receipts_outcome[0];
+        assert!(
+            matches!(
+                call_promise_outcome.outcome.status,
+                near_primitives::views::ExecutionStatusView::SuccessReceiptId(_)
+            ),
+            "call_promise should succeed, got: {:?}",
+            call_promise_outcome.outcome.status
+        );
+
+        // Find the child receipt produced by call_promise (the batch with
+        // Transfer + second action) and assert it fails.
+        let child_id = &call_promise_outcome.outcome.receipt_ids[0];
+        let child_outcome = outcome
+            .receipts_outcome
+            .iter()
+            .find(|o| o.id == *child_id)
+            .expect("child receipt outcome not found");
+        assert_matches!(
+            child_outcome.outcome.status,
+            ExecutionStatusView::Failure(TxExecutionError::ActionError(ActionError {
+                kind: ActionErrorKind::AccountDoesNotExist { .. },
+                index: Some(0)
+            }))
+        );
     }
 
     /// Assumes to use global_contract_account by account id as code.
