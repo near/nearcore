@@ -1,5 +1,5 @@
 pub use crate::archive::cloud_storage::block_data::BlockData;
-use crate::archive::cloud_storage::epoch_data::EpochData;
+pub use crate::archive::cloud_storage::epoch_data::EpochData;
 use crate::archive::cloud_storage::shard_data::ShardData;
 use near_external_storage::ExternalConnection;
 use near_primitives::state_sync::ShardStateSyncResponseHeader;

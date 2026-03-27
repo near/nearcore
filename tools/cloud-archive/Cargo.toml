@@ -16,6 +16,9 @@ anyhow.workspace = true
 borsh.workspace = true
 clap.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
+tracing.workspace = true
+
+near-client.workspace = true
 
 nearcore.workspace = true
 near-chain-configs.workspace = true
