@@ -19,6 +19,7 @@ pub fn random_config() -> RuntimeConfig {
                 global_contract_storage_amount_per_byte: Balance::from_yoctonear(u128::from(
                     rng.next_u64(),
                 )),
+                storage_gas_per_byte: Gas::from_gas(10_000_000_000),
             },
             burnt_gas_reward: Rational32::new((rng.next_u32() % 100).try_into().unwrap(), 100),
             pessimistic_gas_price_inflation_ratio: Rational32::new(

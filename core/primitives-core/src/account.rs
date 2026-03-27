@@ -26,6 +26,7 @@ pub enum AccountVersion {
     #[default]
     V1,
     V2,
+    V3,
 }
 
 /// Per account information stored in the state.
@@ -39,6 +40,7 @@ pub enum AccountVersion {
 pub enum Account {
     V1(AccountV1),
     V2(AccountV2),
+    V3(AccountV3),
 }
 
 // Original representation of the account.
@@ -154,6 +156,53 @@ pub struct AccountV2 {
     contract: AccountContract,
 }
 
+/// How storage is paid for on this account.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Debug,
+    Clone,
+    Copy,
+    Default,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub enum StoragePayment {
+    /// Traditional storage staking: account balance must cover storage_amount_per_byte * storage_usage.
+    #[default]
+    Deposit,
+    /// Storage is paid for by burning storage gas during execution.
+    StorageGas,
+}
+
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Debug,
+    Clone,
+    ProtocolSchema,
+)]
+pub struct AccountV3 {
+    /// The total not locked tokens.
+    amount: Balance,
+    /// The amount locked due to staking.
+    locked: Balance,
+    /// Storage used by the given account, includes account id, this struct, access keys and other data.
+    storage_usage: StorageUsage,
+    /// Type of contract deployed to this account, if any.
+    contract: AccountContract,
+    /// How storage is paid for on this account.
+    storage_payment: StoragePayment,
+}
+
 impl Account {
     /// Max number of bytes an account can have in its state (excluding contract code)
     /// before it is infeasible to delete.
@@ -188,6 +237,7 @@ impl Account {
         match self {
             Self::V1(account) => account.amount,
             Self::V2(account) => account.amount,
+            Self::V3(account) => account.amount,
         }
     }
 
@@ -196,6 +246,7 @@ impl Account {
         match self {
             Self::V1(account) => account.locked,
             Self::V2(account) => account.locked,
+            Self::V3(account) => account.locked,
         }
     }
 
@@ -206,6 +257,7 @@ impl Account {
                 Cow::Owned(AccountContract::from_local_code_hash(account.code_hash))
             }
             Self::V2(account) => Cow::Borrowed(&account.contract),
+            Self::V3(account) => Cow::Borrowed(&account.contract),
         }
     }
 
@@ -214,6 +266,7 @@ impl Account {
         match self {
             Self::V1(account) => account.storage_usage,
             Self::V2(account) => account.storage_usage,
+            Self::V3(account) => account.storage_usage,
         }
     }
 
@@ -222,6 +275,7 @@ impl Account {
         match self {
             Self::V1(_) => AccountVersion::V1,
             Self::V2(_) => AccountVersion::V2,
+            Self::V3(_) => AccountVersion::V3,
         }
     }
 
@@ -229,7 +283,8 @@ impl Account {
     pub fn global_contract_hash(&self) -> Option<CryptoHash> {
         match self {
             Self::V2(AccountV2 { contract: AccountContract::Global(hash), .. }) => Some(*hash),
-            Self::V1(_) | Self::V2(_) => None,
+            Self::V3(AccountV3 { contract: AccountContract::Global(hash), .. }) => Some(*hash),
+            Self::V1(_) | Self::V2(_) | Self::V3(_) => None,
         }
     }
 
@@ -239,7 +294,10 @@ impl Account {
             Self::V2(AccountV2 { contract: AccountContract::GlobalByAccount(account), .. }) => {
                 Some(account)
             }
-            Self::V1(_) | Self::V2(_) => None,
+            Self::V3(AccountV3 { contract: AccountContract::GlobalByAccount(account), .. }) => {
+                Some(account)
+            }
+            Self::V1(_) | Self::V2(_) | Self::V3(_) => None,
         }
     }
 
@@ -250,9 +308,13 @@ impl Account {
                 AccountContract::from_local_code_hash(account.code_hash).local_code()
             }
             Self::V2(AccountV2 { contract: AccountContract::Local(hash), .. }) => Some(*hash),
+            Self::V3(AccountV3 { contract: AccountContract::Local(hash), .. }) => Some(*hash),
             Self::V2(AccountV2 { contract: AccountContract::None, .. })
             | Self::V2(AccountV2 { contract: AccountContract::Global(_), .. })
-            | Self::V2(AccountV2 { contract: AccountContract::GlobalByAccount(_), .. }) => None,
+            | Self::V2(AccountV2 { contract: AccountContract::GlobalByAccount(_), .. })
+            | Self::V3(AccountV3 { contract: AccountContract::None, .. })
+            | Self::V3(AccountV3 { contract: AccountContract::Global(_), .. })
+            | Self::V3(AccountV3 { contract: AccountContract::GlobalByAccount(_), .. }) => None,
         }
     }
 
@@ -261,6 +323,7 @@ impl Account {
         match self {
             Self::V1(account) => account.amount = amount,
             Self::V2(account) => account.amount = amount,
+            Self::V3(account) => account.amount = amount,
         }
     }
 
@@ -269,6 +332,7 @@ impl Account {
         match self {
             Self::V1(account) => account.locked = locked,
             Self::V2(account) => account.locked = locked,
+            Self::V3(account) => account.locked = locked,
         }
     }
 
@@ -288,6 +352,9 @@ impl Account {
             Self::V2(account) => {
                 account.contract = contract;
             }
+            Self::V3(account) => {
+                account.contract = contract;
+            }
         }
     }
 
@@ -296,6 +363,32 @@ impl Account {
         match self {
             Self::V1(account) => account.storage_usage = storage_usage,
             Self::V2(account) => account.storage_usage = storage_usage,
+            Self::V3(account) => account.storage_usage = storage_usage,
+        }
+    }
+
+    #[inline]
+    pub fn storage_payment(&self) -> StoragePayment {
+        match self {
+            Self::V1(_) | Self::V2(_) => StoragePayment::Deposit,
+            Self::V3(account) => account.storage_payment,
+        }
+    }
+
+    #[inline]
+    pub fn set_storage_payment(&mut self, storage_payment: StoragePayment) {
+        match self {
+            Self::V3(account) => account.storage_payment = storage_payment,
+            _ => {
+                let v3 = AccountV3 {
+                    amount: self.amount(),
+                    locked: self.locked(),
+                    storage_usage: self.storage_usage(),
+                    contract: self.contract().into_owned(),
+                    storage_payment,
+                };
+                *self = Self::V3(v3);
+            }
         }
     }
 }
@@ -317,6 +410,8 @@ struct SerdeAccount {
     global_contract_hash: Option<CryptoHash>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     global_contract_account_id: Option<AccountId>,
+    #[serde(default)]
+    storage_payment: StoragePayment,
 }
 
 impl<'de> serde::Deserialize<'de> for Account {
@@ -364,6 +459,23 @@ impl<'de> serde::Deserialize<'de> for Account {
                     contract,
                 }))
             }
+            AccountVersion::V3 => {
+                let contract = match account_data.global_contract_account_id {
+                    Some(account_id) => AccountContract::GlobalByAccount(account_id),
+                    None => match account_data.global_contract_hash {
+                        Some(hash) => AccountContract::Global(hash),
+                        None => AccountContract::from_local_code_hash(account_data.code_hash),
+                    },
+                };
+
+                Ok(Account::V3(AccountV3 {
+                    amount: account_data.amount,
+                    locked: account_data.locked,
+                    storage_usage: account_data.storage_usage,
+                    contract,
+                    storage_payment: account_data.storage_payment,
+                }))
+            }
         }
     }
 }
@@ -383,6 +495,7 @@ impl serde::Serialize for Account {
             version,
             global_contract_hash: self.global_contract_hash(),
             global_contract_account_id: self.global_contract_account_id().cloned(),
+            storage_payment: self.storage_payment(),
         };
         repr.serialize(serializer)
     }
@@ -405,6 +518,7 @@ impl schemars::JsonSchema for Account {
 enum BorshVersionedAccount {
     // V1 is not included since it is serialized directly without being wrapped in enum
     V2(AccountV2) = 0,
+    V3(AccountV3) = 1,
 }
 
 impl BorshDeserialize for Account {
@@ -416,6 +530,7 @@ impl BorshDeserialize for Account {
             let versioned_account = BorshVersionedAccount::deserialize_reader(rd)?;
             let account = match versioned_account {
                 BorshVersionedAccount::V2(account_v2) => Account::V2(account_v2),
+                BorshVersionedAccount::V3(account_v3) => Account::V3(account_v3),
             };
             Ok(account)
         } else {
@@ -439,6 +554,7 @@ impl BorshSerialize for Account {
         let versioned_account = match self {
             Account::V1(account_v1) => return account_v1.serialize(writer),
             Account::V2(account_v2) => BorshVersionedAccount::V2(account_v2.clone()),
+            Account::V3(account_v3) => BorshVersionedAccount::V3(account_v3.clone()),
         };
         let sentinel = Account::SERIALIZATION_SENTINEL;
         BorshSerialize::serialize(&sentinel, writer)?;
@@ -660,6 +776,7 @@ mod tests {
             version: AccountVersion::V2,
             global_contract_hash,
             global_contract_account_id,
+            storage_payment: StoragePayment::Deposit,
         }
     }
 
@@ -681,6 +798,7 @@ mod tests {
             version: AccountVersion::V1,
             global_contract_hash: None,
             global_contract_account_id: None,
+            storage_payment: StoragePayment::Deposit,
         };
         let actual_serde_repr: SerdeAccount = serde_json::from_str(&serialized_account).unwrap();
         assert_eq!(actual_serde_repr, expected_serde_repr);
@@ -731,6 +849,7 @@ mod tests {
             version: AccountVersion::V2,
             global_contract_hash: None,
             global_contract_account_id: None,
+            storage_payment: StoragePayment::Deposit,
         };
         let actual_serde_repr: SerdeAccount = serde_json::from_str(&serialized_account).unwrap();
         assert_eq!(actual_serde_repr, expected_serde_repr);
