@@ -475,8 +475,7 @@ pub trait EpochManagerAdapter: Send + Sync {
     }
 
     /// Chunk producer info for given height for given shard. Return EpochError if outside of known boundaries.
-    /// Deprecated: prefer `get_chunk_producer_for_height` or `get_chunk_producer_info` instead.
-    fn get_chunk_producer_by_cpk(
+    fn get_chunk_producer_info(
         &self,
         key: &ChunkProductionKey,
     ) -> Result<ValidatorStake, EpochError> {
@@ -493,38 +492,21 @@ pub trait EpochManagerAdapter: Send + Sync {
         Ok(epoch_info.get_validator(validator_id))
     }
 
-    /// Chunk producer for a given prev_block_hash and shard. When EarlyKickout
-    /// is enabled, reads from the ChunkProducers DB column and errors on miss.
-    /// When the feature is not enabled, falls back to deterministic computation.
+    /// Hash-based chunk producer lookup. When EarlyKickout is enabled for the
+    /// block's epoch, reads from the ChunkProducers DB column and errors on
+    /// miss. Otherwise falls back to deterministic computation.
+    ///
+    /// Only safe to call when `prev_block_hash` is guaranteed to have been
+    /// processed (registered with the epoch manager via `add_validator_proposals`
+    /// and written to the ChunkProducers DB column via `save_chunk_producers_for_header`).
     // TODO(#chunk-producer-column): once dynamic sampling ships and the DB may
     // diverge from computation (blacklisted producers excluded), consider adding
     // a lenient variant with computation fallback for non-critical paths.
-    fn get_chunk_producer_info(
+    fn get_chunk_producer_info_db(
         &self,
         prev_block_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<ValidatorStake, EpochError>;
-
-    /// Chunk producer for a given epoch, height, and shard via deterministic
-    /// sampling. Does not require a block hash — use for speculative lookups
-    /// (e.g. tx routing to future heights).
-    fn get_chunk_producer_for_height(
-        &self,
-        epoch_id: &EpochId,
-        height: BlockHeight,
-        shard_id: ShardId,
-    ) -> Result<ValidatorStake, EpochError> {
-        let epoch_info = self.get_epoch_info(epoch_id)?;
-        let shard_layout = self.get_shard_layout(epoch_id)?;
-        let Some(validator_id) = epoch_info.sample_chunk_producer(&shard_layout, shard_id, height)
-        else {
-            return Err(EpochError::ChunkProducerSelectionError(format!(
-                "invalid shard {} for height {}",
-                shard_id, height,
-            )));
-        };
-        Ok(epoch_info.get_validator(validator_id))
-    }
 
     /// Gets the chunk validators for a given height and shard.
     fn get_chunk_validator_assignments(
@@ -1000,7 +982,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
         Ok(epoch_manager.get_all_chunk_producers(epoch_id)?.to_vec())
     }
 
-    fn get_chunk_producer_info(
+    fn get_chunk_producer_info_db(
         &self,
         prev_block_hash: &CryptoHash,
         shard_id: ShardId,
@@ -1030,7 +1012,8 @@ impl EpochManagerAdapter for EpochManagerHandle {
         let chunk_epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
         let block_info = self.get_block_info(prev_block_hash)?;
         let height = block_info.height() + 1;
-        self.get_chunk_producer_for_height(&chunk_epoch_id, height, shard_id)
+        let cpk = ChunkProductionKey { epoch_id: chunk_epoch_id, height_created: height, shard_id };
+        self.get_chunk_producer_info(&cpk)
     }
 
     fn get_chunk_validator_assignments(

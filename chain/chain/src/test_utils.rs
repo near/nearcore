@@ -236,7 +236,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
             if let Some(block) = maybe_block {
                 for chunk_header in block.chunks().iter() {
                     let chunk_producer = epoch_manager
-                        .get_chunk_producer_by_cpk(&ChunkProductionKey {
+                        .get_chunk_producer_info(&ChunkProductionKey {
                             epoch_id,
                             height_created: chunk_header.height_created(),
                             shard_id: chunk_header.shard_id(),
@@ -326,7 +326,7 @@ pub fn get_fake_next_block_chunk_headers(
         let shard_id = chunk.shard_id();
         let height = block.header().height() + 1;
         let chunk_producer = epoch_manager
-            .get_chunk_producer_by_cpk(&ChunkProductionKey {
+            .get_chunk_producer_info(&ChunkProductionKey {
                 shard_id,
                 epoch_id: *block.header().epoch_id(),
                 height_created: height,

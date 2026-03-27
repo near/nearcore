@@ -237,7 +237,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
             }
             for shard_id in shard_layout.shard_ids() {
                 let chunk_producer = epoch_manager
-                    .get_chunk_producer_by_cpk(&ChunkProductionKey {
+                    .get_chunk_producer_info(&ChunkProductionKey {
                         epoch_id,
                         height_created: block.header().prev_height().unwrap() + 1,
                         shard_id,

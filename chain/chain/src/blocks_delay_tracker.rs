@@ -142,13 +142,11 @@ impl ChunkTrackingStats {
         } else {
             ChunkProcessingStatus::NeedToRequest
         };
-        // TODO(#chunk_producer_lookups): migrate to get_chunk_producer_info once
-        // the block is guaranteed registered with the epoch manager at this point.
         let created_by = epoch_manager
             .get_epoch_id_from_prev_block(&self.prev_block_hash)
             .and_then(|epoch_id| {
                 epoch_manager
-                    .get_chunk_producer_by_cpk(&ChunkProductionKey {
+                    .get_chunk_producer_info(&ChunkProductionKey {
                         epoch_id,
                         height_created: self.height_created,
                         shard_id: self.shard_id,

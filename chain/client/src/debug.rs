@@ -152,7 +152,11 @@ impl BlockProductionTracker {
                 });
             } else {
                 let chunk_producer = epoch_manager
-                    .get_chunk_producer_for_height(epoch_id, block_height, shard_id)?
+                    .get_chunk_producer_info(&ChunkProductionKey {
+                        epoch_id: *epoch_id,
+                        height_created: block_height,
+                        shard_id,
+                    })?
                     .take_account_id();
                 chunk_collection_info.push(ChunkCollection {
                     chunk_producer,
@@ -627,13 +631,10 @@ impl ClientActor {
                             DebugChunkStatus {
                                 shard_id: chunk.shard_id().into(),
                                 chunk_hash: chunk.chunk_hash().clone(),
-                                // TODO(#chunk_producer_lookups): migrate to
-                                // get_chunk_producer_info once the block is guaranteed
-                                // registered with the epoch manager at this point.
                                 chunk_producer: self
                                     .client
                                     .epoch_manager
-                                    .get_chunk_producer_by_cpk(&ChunkProductionKey {
+                                    .get_chunk_producer_info(&ChunkProductionKey {
                                         epoch_id: *block_header.epoch_id(),
                                         height_created: block_header.height(),
                                         shard_id: chunk.shard_id(),
@@ -757,7 +758,11 @@ impl ClientActor {
                     let chunk_producer = self
                         .client
                         .epoch_manager
-                        .get_chunk_producer_for_height(&epoch_id, height, shard_id)
+                        .get_chunk_producer_info(&ChunkProductionKey {
+                            epoch_id,
+                            height_created: height,
+                            shard_id,
+                        })
                         .map(|info| info.take_account_id().to_string())
                         .unwrap_or_default();
                     if chunk_producer == validator_id {

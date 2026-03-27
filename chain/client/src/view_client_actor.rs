@@ -714,11 +714,11 @@ impl ViewClientActor {
                 .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
                 let validator = self
                     .epoch_manager
-                    .get_chunk_producer_for_height(
-                        &head.epoch_id,
-                        head.height + self.config.tx_routing_height_horizon - 1,
-                        target_shard_id,
-                    )
+                    .get_chunk_producer_info(&ChunkProductionKey {
+                        epoch_id: head.epoch_id,
+                        height_created: head.height + self.config.tx_routing_height_horizon - 1,
+                        shard_id: target_shard_id,
+                    })
                     .map(|info| info.take_account_id())
                     .map_err(|err| TxStatusError::ChainError(err.into()))?;
 
@@ -862,8 +862,6 @@ impl Handler<GetChunk, Result<ChunkView, GetChunkError>> for ViewClientActor {
             }
         };
 
-        // TODO(#chunk_producer_lookups): migrate to get_chunk_producer_info once
-        // the block is guaranteed registered with the epoch manager at this point.
         let chunk_inner = chunk.cloned_header().take_inner();
         let epoch_id = self
             .epoch_manager
@@ -871,7 +869,7 @@ impl Handler<GetChunk, Result<ChunkView, GetChunkError>> for ViewClientActor {
             .into_chain_error()?;
         let author = self
             .epoch_manager
-            .get_chunk_producer_by_cpk(&ChunkProductionKey {
+            .get_chunk_producer_info(&ChunkProductionKey {
                 epoch_id,
                 height_created: chunk_inner.height_created(),
                 shard_id: chunk_inner.shard_id(),

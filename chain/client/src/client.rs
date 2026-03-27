@@ -1350,13 +1350,11 @@ impl Client {
         &mut self,
         chunk_header: ShardChunkHeader,
     ) -> Result<(), Error> {
-        // TODO(#chunk_producer_lookups): migrate to get_chunk_producer_info once
-        // the block is guaranteed registered with the epoch manager at this point.
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
         let chunk_producer = self
             .epoch_manager
-            .get_chunk_producer_by_cpk(&ChunkProductionKey {
+            .get_chunk_producer_info(&ChunkProductionKey {
                 epoch_id,
                 height_created: chunk_header.height_created(),
                 shard_id: chunk_header.shard_id(),

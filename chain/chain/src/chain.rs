@@ -75,6 +75,7 @@ use near_primitives::sharding::{
     ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof, StateSyncInfo,
 };
 use near_primitives::state_sync::ReceiptProofResponse;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize,
 };
@@ -3483,11 +3484,12 @@ impl Chain {
         let Some(signer) = self.validator_signer.get() else {
             return None;
         };
-        let Ok(producer) = self.epoch_manager.get_chunk_producer_for_height(
-            &epoch_id,
-            block.height + 1,
-            shard_uid.shard_id(),
-        ) else {
+        let cpk = ChunkProductionKey {
+            epoch_id,
+            height_created: block.height + 1,
+            shard_id: shard_uid.shard_id(),
+        };
+        let Ok(producer) = self.epoch_manager.get_chunk_producer_info(&cpk) else {
             return None;
         };
         if signer.validator_id() != producer.account_id() {

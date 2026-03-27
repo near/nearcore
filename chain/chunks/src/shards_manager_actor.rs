@@ -481,10 +481,13 @@ impl ShardsManagerActor {
         let request_full = force_request_full
             || self.shard_tracker.cares_about_shard_this_or_next_epoch(ancestor_hash, shard_id);
 
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(ancestor_hash)?;
         let chunk_producer_account_id = self
             .epoch_manager
-            .get_chunk_producer_for_height(&epoch_id, height, shard_id)?
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id: self.epoch_manager.get_epoch_id_from_prev_block(ancestor_hash)?,
+                height_created: height,
+                shard_id,
+            })?
             .take_account_id();
 
         // In the following we compute which target accounts we should request parts and receipts from
@@ -672,7 +675,11 @@ impl ShardsManagerActor {
         }
         let chunk_producer = self
             .epoch_manager
-            .get_chunk_producer_for_height(&epoch_id, next_chunk_height, shard_id)?
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id,
+                height_created: next_chunk_height,
+                shard_id,
+            })?
             .take_account_id();
         if &chunk_producer == me {
             return Ok(true);
@@ -1276,8 +1283,6 @@ impl ShardsManagerActor {
         }
 
         // check signature
-        // TODO(#chunk_producer_lookups): migrate to verify_chunk_header_signature_by_hash_and_parts
-        // once the block is guaranteed registered with the epoch manager at this point.
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&forward.prev_block_hash)?;
         let valid_signature = verify_chunk_header_signature_with_epoch_manager_and_parts(
             self.epoch_manager.as_ref(),
@@ -1831,11 +1836,9 @@ impl ShardsManagerActor {
             self.encoded_chunks.mark_received_all_receipts(&chunk_hash);
         }
 
-        // TODO(#chunk_producer_lookups): migrate to get_chunk_producer_info once
-        // the block is guaranteed registered with the epoch manager at this point.
         let chunk_producer = self
             .epoch_manager
-            .get_chunk_producer_by_cpk(&ChunkProductionKey {
+            .get_chunk_producer_info(&ChunkProductionKey {
                 epoch_id,
                 height_created: header.height_created(),
                 shard_id: header.shard_id(),
@@ -2004,7 +2007,11 @@ impl ShardsManagerActor {
         accounts_forwarded_to.insert(me.clone());
         let next_chunk_producer = self
             .epoch_manager
-            .get_chunk_producer_for_height(epoch_id, current_chunk_height + 1, shard_id)?
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id: *epoch_id,
+                height_created: current_chunk_height + 1,
+                shard_id,
+            })?
             .take_account_id();
         for bp in block_producers {
             let bp_account_id = bp.take_account_id();

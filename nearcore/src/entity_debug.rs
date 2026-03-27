@@ -125,13 +125,11 @@ impl EntityDebugHandlerImpl {
                 let chunk = store
                     .get_ser::<ShardChunk>(DBCol::Chunks, &borsh::to_vec(&chunk_hash).unwrap())
                     .ok_or_else(|| anyhow!("Chunk not found"))?;
-                // TODO(#chunk_producer_lookups): migrate to get_chunk_producer_info once
-                // the block is guaranteed registered with the epoch manager at this point.
                 let epoch_id =
                     self.epoch_manager.get_epoch_id_from_prev_block(chunk.prev_block())?;
                 let author = self
                     .epoch_manager
-                    .get_chunk_producer_by_cpk(&ChunkProductionKey {
+                    .get_chunk_producer_info(&ChunkProductionKey {
                         epoch_id,
                         height_created: chunk.height_created(),
                         shard_id: chunk.shard_id(),
@@ -468,7 +466,11 @@ impl EntityDebugHandlerImpl {
                     .shard_ids()
                     .map(|shard_id| {
                         self.epoch_manager
-                            .get_chunk_producer_for_height(&epoch_id, block_height, shard_id)
+                            .get_chunk_producer_info(&ChunkProductionKey {
+                                epoch_id,
+                                height_created: block_height,
+                                shard_id,
+                            })
                             .map(|info| info.take_account_id())
                             .context("Getting chunk producer")
                     })

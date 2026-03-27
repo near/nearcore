@@ -68,7 +68,7 @@ fn chunk_producer_for_block(actor: &TestActor, block: &Block) -> String {
         shard_id: block.chunks()[0].shard_id(),
         height_created: block.header().height(),
     };
-    actor.epoch_manager.get_chunk_producer_by_cpk(&key).unwrap().account_id().to_string()
+    actor.epoch_manager.get_chunk_producer_info(&key).unwrap().account_id().to_string()
 }
 
 /// Send an empty contract accesses message for a block, signaling no contracts are needed.

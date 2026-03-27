@@ -155,11 +155,9 @@ impl ChunkProducer {
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
     ) -> Result<Option<ProduceChunkResult>, Error> {
-        // TODO(#chunk_producer_lookups): migrate to get_chunk_producer_info once
-        // the block is guaranteed registered with the epoch manager at this point.
         let chunk_proposer = self
             .epoch_manager
-            .get_chunk_producer_by_cpk(&ChunkProductionKey {
+            .get_chunk_producer_info(&ChunkProductionKey {
                 epoch_id: *epoch_id,
                 height_created: next_height,
                 shard_id,

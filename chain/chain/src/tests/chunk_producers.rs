@@ -158,10 +158,10 @@ mod tests {
         }
     }
 
-    /// Verify that get_chunk_producer_info(prev_block_hash, shard_id) reads from DB
-    /// and matches the result of get_chunk_producer_for_height.
+    /// Verify that get_chunk_producer_info_db reads from DB and matches
+    /// the result of get_chunk_producer_info (CPK-based computation).
     #[test]
-    fn test_get_chunk_producer_info_reads_from_db() {
+    fn test_get_chunk_producer_info_db_reads_from_db() {
         init_test_logger();
         let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap());
         clock.advance(Duration::milliseconds(3444));
@@ -180,11 +180,11 @@ mod tests {
         let height = block_info.height() + 1;
 
         for shard_id in shard_layout.shard_ids() {
-            // get_chunk_producer_info reads from DB with fallback.
-            let from_db = epoch_manager.get_chunk_producer_info(&block_hash, shard_id).unwrap();
-            // get_chunk_producer_for_height uses computation only.
-            let from_computation =
-                epoch_manager.get_chunk_producer_for_height(&epoch_id, height, shard_id).unwrap();
+            // get_chunk_producer_info_db reads from DB with fallback.
+            let from_db = epoch_manager.get_chunk_producer_info_db(&block_hash, shard_id).unwrap();
+            // get_chunk_producer_info uses CPK-based computation.
+            let cpk = ChunkProductionKey { epoch_id, height_created: height, shard_id };
+            let from_computation = epoch_manager.get_chunk_producer_info(&cpk).unwrap();
             assert_eq!(
                 from_db.account_id(),
                 from_computation.account_id(),
@@ -193,9 +193,9 @@ mod tests {
         }
     }
 
-    /// Verify that get_chunk_producer_info errors on DB miss when EarlyKickout is enabled.
+    /// Verify that get_chunk_producer_info_db errors on DB miss when EarlyKickout is enabled.
     #[test]
-    fn test_get_chunk_producer_info_errors_on_db_miss() {
+    fn test_get_chunk_producer_info_db_errors_on_db_miss() {
         init_test_logger();
         let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap());
         clock.advance(Duration::milliseconds(3444));
@@ -214,7 +214,7 @@ mod tests {
         // Succeeds when DB is populated.
         for shard_id in shard_layout.shard_ids() {
             assert!(
-                epoch_manager.get_chunk_producer_info(&block_hash, shard_id).is_ok(),
+                epoch_manager.get_chunk_producer_info_db(&block_hash, shard_id).is_ok(),
                 "should succeed when DB is populated, shard {shard_id}"
             );
         }
@@ -232,50 +232,8 @@ mod tests {
         // Should error on miss when EarlyKickout is enabled.
         for shard_id in shard_layout.shard_ids() {
             assert!(
-                epoch_manager.get_chunk_producer_info(&block_hash, shard_id).is_err(),
+                epoch_manager.get_chunk_producer_info_db(&block_hash, shard_id).is_err(),
                 "should error on DB miss, shard {shard_id}"
-            );
-        }
-    }
-
-    /// Verify that get_chunk_producer_for_height matches the old get_chunk_producer_by_cpk.
-    #[test]
-    fn test_get_chunk_producer_for_height_matches_old_api() {
-        init_test_logger();
-        let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap());
-        clock.advance(Duration::milliseconds(3444));
-        let (mut chain, epoch_manager, _, signer) = setup(clock.clock());
-
-        // Build a few blocks.
-        for _ in 0..3 {
-            let prev_hash = *chain.head_header().unwrap().hash();
-            let prev = chain.get_block(&prev_hash).unwrap();
-            clock.advance(Duration::milliseconds(1));
-            let block =
-                TestBlockBuilder::from_prev_block(clock.clock(), &prev, signer.clone()).build();
-            chain.process_block_test(block).unwrap();
-        }
-
-        let head = chain.head().unwrap();
-        let block_info = epoch_manager.get_block_info(&head.last_block_hash).unwrap();
-        let epoch_id = epoch_manager.get_epoch_id(&head.last_block_hash).unwrap();
-        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
-        let height = block_info.height();
-
-        for shard_id in shard_layout.shard_ids() {
-            let from_new =
-                epoch_manager.get_chunk_producer_for_height(&epoch_id, height, shard_id).unwrap();
-            let from_old = epoch_manager
-                .get_chunk_producer_by_cpk(&ChunkProductionKey {
-                    epoch_id,
-                    height_created: height,
-                    shard_id,
-                })
-                .unwrap();
-            assert_eq!(
-                from_new.account_id(),
-                from_old.account_id(),
-                "new and old API should agree, shard {shard_id}"
             );
         }
     }
