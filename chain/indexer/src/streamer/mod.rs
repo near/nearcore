@@ -13,7 +13,7 @@ use near_indexer_primitives::{
 use near_parameters::RuntimeConfig;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::ReceiptSource;
-use near_primitives::types::Balance;
+use near_primitives::types::{Balance, BlockHeight, EpochId, ShardId};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{BlockView, ChunkView, ExecutionStatusView, ReceiptView};
 use parking_lot::RwLock;
@@ -57,12 +57,8 @@ pub async fn build_streamer_message(
     let runtime_config = runtime_config_store.get_config(protocol_config_view.protocol_version);
 
     let mut shards_outcomes = client.fetch_outcomes_with_receipts(block.header.hash).await?;
-    let mut state_changes = client
-        .fetch_state_changes(
-            block.header.hash,
-            near_primitives::types::EpochId(block.header.epoch_id),
-        )
-        .await?;
+    let mut state_changes =
+        client.fetch_state_changes(block.header.hash, EpochId(block.header.epoch_id)).await?;
     let mut indexer_shards = shard_ids
         .map(|shard_id| IndexerShard {
             shard_id,
@@ -224,7 +220,7 @@ pub async fn build_streamer_message(
 async fn fetch_instant_receipts(
     view_client: &IndexerViewClientFetcher,
     block_hash: CryptoHash,
-    shard_id: near_primitives::types::ShardId,
+    shard_id: ShardId,
 ) -> Vec<ReceiptView> {
     let instant_receipt_ids: Vec<CryptoHash> =
         match view_client.fetch_processed_receipt_ids(block_hash, shard_id).await {
@@ -397,7 +393,7 @@ pub async fn start(
         Err(err) => panic!("Unable to open indexer db: {:?}", err),
     };
 
-    let mut last_synced_block_height: Option<near_primitives::types::BlockHeight> = None;
+    let mut last_synced_block_height: Option<BlockHeight> = None;
 
     'main: loop {
         clock.sleep(INTERVAL).await;
