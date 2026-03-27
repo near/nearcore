@@ -42,6 +42,8 @@ mod receipt_to_tx;
 mod reject_outdated_blocks;
 mod resharding_v3;
 mod sharded_rpc;
+mod sharded_rpc_reliability;
+mod sharded_rpc_resharding;
 mod shutdown_signal;
 mod single_shard_tracking;
 mod spice;
