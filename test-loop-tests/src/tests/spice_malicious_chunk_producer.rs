@@ -10,6 +10,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::EncodedShardChunk;
 use near_primitives::types::Gas;
+use near_primitives::utils::get_endorsements_key_prefix;
 use near_store::DBCol;
 
 /// Test that a malicious chunk producer sending chunks with corrupted tx_root
@@ -133,4 +134,67 @@ fn test_spice_block_sync_with_malicious_chunks() {
             "syncing node missing invalid chunk that the honest node detected",
         );
     }
+}
+
+/// Test that validators endorse chunks containing a `proof_of_invalid_chunk`
+/// (witness produced when a malicious chunk producer sends a corrupted chunk
+/// body). Verifies the full end-to-end flow by checking persisted endorsements.
+#[cfg(feature = "test_features")]
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_witness_validation_with_invalid_chunk() {
+    init_test_logger();
+
+    let num_producers = 4;
+    let num_validators = 2;
+    let mut env = TestLoopBuilder::new().validators(num_producers, num_validators).build();
+
+    let (malicious_node, honest_node) = (0, 1);
+    env.node_runner(malicious_node).send_adversarial_message(
+        NetworkAdversarialMessage::AdvProduceChunks(
+            AdvProduceChunksMode::ProduceWithCorruptedTxRoot,
+        ),
+    );
+
+    // Run for enough blocks that the malicious node is scheduled as chunk
+    // producer at least once. With 4 producers and 1 shard, each producer gets
+    // roughly 1 in 4 slots.
+    env.node_runner(honest_node).run_for_number_of_blocks(10);
+
+    let node = env.node(honest_node);
+    let chain_store = node.client().chain.chain_store();
+    let epoch_manager = &node.client().epoch_manager;
+    let mut invalid_chunk_count = 0;
+    for (_, value) in node.store().iter(DBCol::InvalidChunks) {
+        let chunk: EncodedShardChunk = borsh::from_slice(&value).unwrap();
+        let header = chunk.cloned_header();
+        let shard_id = header.shard_id();
+        let height = header.height_created();
+        let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
+        let epoch_id = epoch_manager.get_epoch_id(&block_hash).unwrap();
+
+        // Verify all assigned validators endorsed by scanning persisted endorsements.
+        let assignments =
+            epoch_manager.get_chunk_validator_assignments(&epoch_id, shard_id, height).unwrap();
+        let prefix = get_endorsements_key_prefix(&block_hash, shard_id);
+        let stored_count = node.store().iter_prefix(DBCol::endorsements(), &prefix).count();
+        assert_eq!(
+            assignments.len(),
+            stored_count,
+            "block at height {height}: expected {} endorsements but got {stored_count}",
+            assignments.len(),
+        );
+
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+        let chunk_extra = chain_store.get_chunk_extra(&block_hash, &shard_uid).unwrap();
+        assert_eq!(
+            chunk_extra.gas_used(),
+            Gas::ZERO,
+            "block at height {height}: empty chunk should use zero gas",
+        );
+
+        invalid_chunk_count += 1;
+    }
+    assert!(invalid_chunk_count > 0, "expected at least one invalid chunk stored as evidence");
 }
