@@ -1449,6 +1449,35 @@ impl Chain {
     /// available from the DB without recomputation.
     ///
     /// Gated behind `EarlyKickout` protocol feature. No-op when disabled.
+    /// Save chunk producers for genesis chunks (height 0) which have
+    /// prev_block_hash = CryptoHash::default(). This is called once during
+    /// genesis init so that get_chunk_producer_info_db works for genesis chunks.
+    pub(crate) fn save_genesis_chunk_producers(
+        epoch_manager: &dyn EpochManagerAdapter,
+        chain_store_update: &mut ChainStoreUpdate,
+        protocol_version: ProtocolVersion,
+    ) -> Result<(), Error> {
+        if !ProtocolFeature::EarlyKickout.enabled(protocol_version) {
+            return Ok(());
+        }
+        let default_hash = CryptoHash::default();
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&default_hash)?;
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+        let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
+
+        let mut store_update = chain_store_update.store().store_update();
+        for shard_id in shard_layout.shard_ids() {
+            if let Some(validator_id) = epoch_info.sample_chunk_producer(&shard_layout, shard_id, 0)
+            {
+                let validator_stake = epoch_info.get_validator(validator_id);
+                let key = get_block_shard_id(&default_hash, shard_id);
+                store_update.insert_ser(DBCol::ChunkProducers, &key, &validator_stake);
+            }
+        }
+        chain_store_update.merge(store_update);
+        Ok(())
+    }
+
     pub(crate) fn save_chunk_producers_for_header(
         epoch_manager: &dyn EpochManagerAdapter,
         header: &BlockHeader,

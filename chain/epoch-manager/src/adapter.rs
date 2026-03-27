@@ -991,6 +991,8 @@ impl EpochManagerAdapter for EpochManagerHandle {
         // epoch). The DB entry was written when prev_block was processed, using
         // the block's epoch version. At epoch boundaries the chunk's epoch may
         // have EarlyKickout enabled while the parent block's epoch didn't.
+        // For genesis chunks (prev_block_hash = default), get_epoch_id returns
+        // the genesis epoch — the DB entry is saved during genesis init.
         let block_epoch_id = self.get_epoch_id(prev_block_hash)?;
         let block_protocol_version = self.get_epoch_protocol_version(&block_epoch_id)?;
         if ProtocolFeature::EarlyKickout.enabled(block_protocol_version) {
