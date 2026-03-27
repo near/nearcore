@@ -8,6 +8,8 @@
 
 ### Non-protocol Changes
 * New `EXPERIMENTAL_receipt_to_tx` RPC method that resolves a receipt ID back to the originating transaction hash and sender account. Requires `save_receipt_to_tx` config enabled and all-shards tracking. ([#15414](https://github.com/near/nearcore/pull/15414))
+* New sync handler (sync-v2) replaces the legacy sync implementation with a clean state machine. Nodes are routed through one of two paths based on how far behind they are: near-horizon nodes sync blocks directly, while far-horizon nodes follow the full pipeline (epoch sync, header sync, state sync, block sync). ([#15335](https://github.com/near/nearcore/pull/15335))
+* Epoch sync proofs are now maintained incrementally at each epoch boundary instead of being derived on demand. Block headers are garbage collected alongside block bodies on non-archival nodes, reducing disk usage. ([#15412](https://github.com/near/nearcore/pull/15412))
 
 ## [2.11.0]
 
