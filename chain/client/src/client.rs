@@ -228,7 +228,6 @@ impl Client {
         if self.last_validator_key_check_epoch.as_ref() == Some(epoch_id) {
             return;
         }
-        self.last_validator_key_check_epoch = Some(*epoch_id);
         let validator_id = signer.validator_id();
         let epoch_info = match self.epoch_manager.get_epoch_info(epoch_id) {
             Ok(info) => info,
@@ -237,6 +236,7 @@ impl Client {
                 return;
             }
         };
+        self.last_validator_key_check_epoch = Some(*epoch_id);
         let Some(validator_stake) = epoch_info.get_validator_by_account(validator_id) else {
             return;
         };
