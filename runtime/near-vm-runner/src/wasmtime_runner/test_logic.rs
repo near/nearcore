@@ -6,28 +6,33 @@ use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::vmstate::Registers;
 use crate::logic::{Config, ExecutionResultState, MemSlice, VMContext, VMOutcome};
 use near_parameters::RuntimeFeesConfig;
+use std::marker::PhantomData;
 use std::sync::Arc;
 use wasmtime::{Engine, Memory, Store};
 
 const MEMORY_SIZE: u64 = 64 * 1024;
 
-pub(crate) struct WasmtimeTestLogic {
+/// Wasmtime-backed test logic that calls host function implementations
+/// directly. The lifetime `'a` ties it to the `VMLogicBuilder` that created
+/// it, preventing the transmuted `'static` references from escaping.
+pub(crate) struct WasmtimeTestLogic<'a> {
     store: Store<Ctx>,
     memory: Memory,
     mem_write_offset: u64,
+    _lifetime: PhantomData<&'a mut ()>,
 }
 
 #[allow(dead_code)]
-impl WasmtimeTestLogic {
-    pub(crate) fn new(
-        ext: &mut MockedExternal,
-        context: &VMContext,
+impl WasmtimeTestLogic<'_> {
+    pub(crate) fn new<'a>(
+        ext: &'a mut MockedExternal,
+        context: &'a VMContext,
         fees_config: RuntimeFeesConfig,
         config: Config,
-    ) -> Self {
-        // SAFETY: same transmute pattern as production code. The references are
-        // valid for the lifetime of the WasmtimeTestLogic because the builder
-        // that owns them outlives it.
+    ) -> WasmtimeTestLogic<'a> {
+        // SAFETY: the 'static transmute is required by wasmtime's Store<Ctx>,
+        // but the returned WasmtimeTestLogic<'a> borrows the builder via
+        // PhantomData, so the compiler prevents it from outliving ext/context.
         let ext: &'static mut dyn crate::logic::External =
             unsafe { core::mem::transmute(ext as &mut dyn crate::logic::External) };
         let context: &'static VMContext = unsafe { core::mem::transmute(context) };
@@ -56,7 +61,7 @@ impl WasmtimeTestLogic {
         let memory = Memory::new(&mut store, wasmtime::MemoryType::new(1, Some(1))).unwrap();
         store.data_mut().memory = super::Export::Resolved(memory);
 
-        Self { store, memory, mem_write_offset: 0 }
+        WasmtimeTestLogic { store, memory, mem_write_offset: 0, _lifetime: PhantomData }
     }
 
     /// Returns `(&mut [u8], &mut Ctx)` — guest memory and store context.
