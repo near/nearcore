@@ -22,8 +22,8 @@ pub use near_client_primitives::types::{
     Error, GetBlock, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree, GetChunk,
     GetClientConfig, GetExecutionOutcome, GetExecutionOutcomeResponse,
     GetExecutionOutcomesForBlock, GetGasPrice, GetMaintenanceWindows, GetNetworkInfo,
-    GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetShardChunk, GetSplitStorageInfo,
-    GetStateChanges, GetStateChangesInBlock, GetStateChangesWithCauseInBlock,
+    GetNextLightClientBlock, GetProcessedReceiptIds, GetProtocolConfig, GetReceipt, GetShardChunk,
+    GetSplitStorageInfo, GetStateChanges, GetStateChangesInBlock, GetStateChangesWithCauseInBlock,
     GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfo, GetValidatorOrdered, Query,
     QueryError, Status, StatusResponse, SyncStatus, TxStatus, TxStatusError,
 };

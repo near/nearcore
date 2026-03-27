@@ -4,17 +4,18 @@ use futures::StreamExt;
 use near_async::messaging::{AsyncSender, CanSendAsync, IntoMultiSender};
 use near_chain_configs::ProtocolConfigView;
 use near_client::{
-    GetBlock, GetChunk, GetExecutionOutcomesForBlock, GetProtocolConfig, GetReceipt,
-    GetStateChangesWithCauseInBlockForTrackedShards, Status, StatusResponse,
+    GetBlock, GetChunk, GetExecutionOutcomesForBlock, GetProcessedReceiptIds, GetProtocolConfig,
+    GetReceipt, GetStateChangesWithCauseInBlockForTrackedShards, Status, StatusResponse,
 };
 use near_client_primitives::types::{
-    GetBlockError, GetChunkError, GetProtocolConfigError, GetReceiptError, GetStateChangesError,
-    StatusError,
+    GetBlockError, GetChunkError, GetProcessedReceiptIdsError, GetProtocolConfigError,
+    GetReceiptError, GetStateChangesError, StatusError,
 };
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_indexer_primitives::IndexerExecutionOutcomeWithOptionalReceipt;
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::ProcessedReceiptMetadata;
 use near_primitives::types::{BlockId, BlockReference, EpochId, Finality, ShardId};
 use near_primitives::views::{
     BlockView, ChunkView, ExecutionOutcomeWithIdView, ReceiptView, StateChangesView,
@@ -35,6 +36,10 @@ struct IndexerViewClientSender {
     pub get_state_changes_with_cause_in_block_for_tracked_shards_sender: AsyncSender<
         GetStateChangesWithCauseInBlockForTrackedShards,
         Result<HashMap<ShardId, StateChangesView>, GetStateChangesError>,
+    >,
+    pub get_processed_receipt_ids_sender: AsyncSender<
+        GetProcessedReceiptIds,
+        Result<Vec<ProcessedReceiptMetadata>, GetProcessedReceiptIdsError>,
     >,
 }
 
@@ -197,13 +202,25 @@ impl IndexerViewClientFetcher {
             .map_err(|err| FailedToFetchData::String(err.to_string()))
     }
 
-    async fn fetch_receipt_by_id(
+    pub(crate) async fn fetch_receipt_by_id(
         &self,
         receipt_id: CryptoHash,
     ) -> Result<Option<ReceiptView>, FailedToFetchData> {
         tracing::debug!(target: INDEXER, ?receipt_id, "fetch receipt by id");
         self.sender
             .send_async(GetReceipt { receipt_id })
+            .await?
+            .map_err(|err| FailedToFetchData::String(err.to_string()))
+    }
+
+    pub(crate) async fn fetch_processed_receipt_ids(
+        &self,
+        block_hash: CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<Vec<ProcessedReceiptMetadata>, FailedToFetchData> {
+        tracing::debug!(target: INDEXER, ?block_hash, %shard_id, "fetch processed receipt ids");
+        self.sender
+            .send_async(GetProcessedReceiptIds { block_hash, shard_id })
             .await?
             .map_err(|err| FailedToFetchData::String(err.to_string()))
     }

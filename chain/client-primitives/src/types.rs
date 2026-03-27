@@ -792,6 +792,39 @@ pub struct GetExecutionOutcomesForBlock {
 }
 
 #[derive(Debug)]
+pub struct GetProcessedReceiptIds {
+    pub block_hash: CryptoHash,
+    pub shard_id: ShardId,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetProcessedReceiptIdsError {
+    #[error("IO Error: {error_message}")]
+    IOError { error_message: String },
+    #[error("Block or shard data not found: {error_message}")]
+    UnknownBlock { error_message: String },
+    #[error(
+        "It is a bug if you receive this error type, please, report this incident: \
+         https://github.com/near/nearcore/issues/new/choose. Details: {error_message}"
+    )]
+    Unreachable { error_message: String },
+}
+
+impl From<near_chain_primitives::error::Error> for GetProcessedReceiptIdsError {
+    fn from(error: near_chain_primitives::error::Error) -> Self {
+        match error {
+            near_chain_primitives::Error::IOErr(error) => {
+                Self::IOError { error_message: error.to_string() }
+            }
+            near_chain_primitives::Error::DBNotFoundErr(error_message) => {
+                Self::UnknownBlock { error_message }
+            }
+            _ => Self::Unreachable { error_message: error.to_string() },
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct GetBlockProof {
     pub block_hash: CryptoHash,
     pub head_block_hash: CryptoHash,

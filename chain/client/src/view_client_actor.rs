@@ -19,11 +19,11 @@ use near_client_primitives::types::{
     Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
     GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
     GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetMaintenanceWindows,
-    GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProtocolConfig,
-    GetProtocolConfigError, GetReceipt, GetReceiptError, GetSplitStorageInfo,
-    GetSplitStorageInfoError, GetStateChangesError, GetStateChangesWithCauseInBlock,
-    GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfoError, Query, QueryError,
-    TxStatus, TxStatusError,
+    GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProcessedReceiptIds,
+    GetProcessedReceiptIdsError, GetProtocolConfig, GetProtocolConfigError, GetReceipt,
+    GetReceiptError, GetSplitStorageInfo, GetSplitStorageInfoError, GetStateChangesError,
+    GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
+    GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError,
 };
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
@@ -41,7 +41,7 @@ use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{PartialMerkleTree, merklize};
 use near_primitives::network::AnnounceAccount;
-use near_primitives::receipt::Receipt;
+use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt};
 use near_primitives::sharding::ShardChunk;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{
@@ -1214,6 +1214,30 @@ impl Handler<GetReceipt, Result<Option<ReceiptView>, GetReceiptError>> for ViewC
             .chain_store()
             .get_receipt(&msg.receipt_id)
             .map(|receipt| Receipt::clone(&receipt).into()))
+    }
+}
+
+impl
+    Handler<
+        GetProcessedReceiptIds,
+        Result<Vec<ProcessedReceiptMetadata>, GetProcessedReceiptIdsError>,
+    > for ViewClientActor
+{
+    fn handle(
+        &mut self,
+        msg: GetProcessedReceiptIds,
+    ) -> Result<Vec<ProcessedReceiptMetadata>, GetProcessedReceiptIdsError> {
+        tracing::debug!(target: "client", ?msg);
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["GetProcessedReceiptIds"])
+            .start_timer();
+        Ok(self
+            .chain
+            .chain_store()
+            .get_processed_receipt_ids(&msg.block_hash, msg.shard_id)?
+            .iter()
+            .cloned()
+            .collect())
     }
 }
 
