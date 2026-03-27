@@ -135,6 +135,7 @@ fn new_test_witness_for_chunk(
         transactions,
         ChunkExecutionResultHash(CryptoHash::default()),
         CryptoHash::default(),
+        None,
     )
 }
 

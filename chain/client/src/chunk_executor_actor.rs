@@ -766,14 +766,24 @@ impl ChunkExecutorActor {
     ) -> Result<ChunkExecutionData, Error> {
         let block_hash = block.header().hash();
         let epoch_id = self.epoch_manager.get_epoch_id(block_hash).unwrap();
-        let transactions = {
+        let (transactions, proof_of_invalid_chunk) = {
             let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id).unwrap();
             let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
             let chunk_headers = block.chunks();
             let chunk_header = chunk_headers.get(shard_index).unwrap();
             match self.get_new_chunk_if_valid(chunk_header, block.header().height()).unwrap() {
-                Some(chunk) => chunk.into_transactions(),
-                None => vec![],
+                Some(chunk) => (chunk.into_transactions(), None),
+                None => {
+                    let proof = if chunk_header.is_new_chunk(block.header().height()) {
+                        // Chunk is new but invalid (malicious producer): include proof.
+                        self.chain_store
+                            .is_invalid_chunk(chunk_header.chunk_hash())
+                            .map(|enc| Box::new(enc.content().clone()))
+                    } else {
+                        None
+                    };
+                    (vec![], proof)
+                }
             }
         };
 
@@ -816,6 +826,7 @@ impl ChunkExecutorActor {
             transactions,
             execution_result_hash,
             contract_accesses_hash,
+            proof_of_invalid_chunk,
         );
         Ok(ChunkExecutionData { witness: state_witness, code_accesses: contract_accesses })
     }
