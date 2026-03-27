@@ -11090,6 +11090,13 @@
             "nullable": true,
             "type": "integer"
           },
+          "max_function_body_size": {
+            "description": "If present, stores max byte size of a single function body in a contract",
+            "format": "uint64",
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          },
           "max_functions_number_per_contract": {
             "description": "If present, stores max number of functions in one contract",
             "format": "uint64",
@@ -11104,6 +11111,13 @@
               }
             ],
             "description": "Max amount of gas that can be used, excluding gas attached to promises."
+          },
+          "max_instrumented_code_size": {
+            "description": "If present, stores max byte size of the wasm code after gas instrumentation.\nThis prevents Cranelift's 24-bit SSA counter from overflowing on\npathologically large contracts.",
+            "format": "uint64",
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
           },
           "max_length_method_name": {
             "description": "Max length of any method name (without terminating character).",
@@ -11783,6 +11797,20 @@
             "description": "Contract contains too many table elements.",
             "enum": [
               "TooManyTableElements"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "A function body in the contract exceeds the size limit.",
+            "enum": [
+              "FunctionBodyTooLarge"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "The instrumented code exceeds the size limit.",
+            "enum": [
+              "InstrumentedCodeTooLarge"
             ],
             "type": "string"
           }
