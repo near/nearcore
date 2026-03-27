@@ -209,6 +209,10 @@ pub struct BalanceStats {
     pub gas_deficit_amount: Balance,
     /// No longer used, keeping to preserve borsh deserialization of the old data in the db.
     pub _deprecated_global_actions_burnt_amount: Balance,
+    /// Amount of balance subsidized (effectively minted) for zero-balance contracts
+    /// attaching 1 yoctoNEAR to promise function calls. This amount must be
+    /// subtracted from total_balance_burnt to keep total supply correct.
+    pub subsidized_amount: Balance,
 }
 
 /// Convert a bandwidth request from the bitmap representation to a list of requested values.

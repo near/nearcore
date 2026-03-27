@@ -57,7 +57,8 @@ pub fn setup_client(
     node_state: NodeSetupState,
     shared_state: &SharedState,
 ) -> NodeExecutionData {
-    let NodeSetupState { account_id, client_config, storage } = node_state;
+    let NodeSetupState { account_id, client_config, storage, validator_signer: custom_signer } =
+        node_state;
     let is_archival = client_config.archive;
     let SharedState {
         genesis,
@@ -131,10 +132,8 @@ pub fn setup_client(
     );
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
-    let validator_signer = MutableConfigValue::new(
-        Some(Arc::new(create_test_signer(account_id.as_str()))),
-        "validator_signer",
-    );
+    let signer = custom_signer.unwrap_or_else(|| Arc::new(create_test_signer(account_id.as_str())));
+    let validator_signer = MutableConfigValue::new(Some(signer), "validator_signer");
     let shard_tracker = ShardTracker::new(
         client_config.tracked_shards_config.clone(),
         epoch_manager.clone(),

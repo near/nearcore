@@ -9,9 +9,17 @@ else
     export RUST_LOG="${RUST_LOG:-neard::cli=off,info}"
 fi
 
+# Configurable root account and test seed (deterministic key generation)
+NEAR_ROOT_ACCOUNT="${NEAR_ROOT_ACCOUNT:-sandbox}"
+NEAR_TEST_SEED="${NEAR_TEST_SEED:-sandbox}"
+NEAR_CHAIN_ID="${NEAR_CHAIN_ID:-sandbox}"
+
 # Initialize sandbox data directory if not already done
 if [ ! -f /data/genesis.json ]; then
-    near-sandbox --home /data init --fast
+    near-sandbox --home /data init --fast \
+        --account-id "$NEAR_ROOT_ACCOUNT" \
+        --test-seed "$NEAR_TEST_SEED" \
+        --chain-id "$NEAR_CHAIN_ID"
 fi
 
 # Apply custom config overrides from /config volume mount

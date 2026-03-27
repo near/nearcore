@@ -13,6 +13,7 @@ use near_client::{Client, ProcessTxRequest, Query, QueryError, ViewClientActor};
 use near_crypto::PublicKey;
 use near_jsonrpc::client::JsonRpcClient;
 use near_jsonrpc_primitives::errors::RpcError;
+use near_jsonrpc_primitives::types::query::{RpcQueryRequest, RpcQueryResponse};
 use near_primitives::action::{Action, GlobalContractDeployMode, GlobalContractIdentifier};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::gas::Gas;
@@ -554,7 +555,7 @@ impl<'a> NodeRunner<'a> {
         result.lock().take().unwrap()
     }
 
-    pub fn run_jsonrpc_query<T>(
+    pub fn run_with_jsonrpc_client<T>(
         &mut self,
         make_query: impl FnOnce(&JsonRpcClient) -> BoxFuture<'static, Result<T, RpcError>>,
         maximum_duration: Duration,
@@ -564,6 +565,14 @@ impl<'a> NodeRunner<'a> {
     {
         let jsonrpc_client = self.node_data.jsonrpc_client();
         self.run_future("jsonrpc_query", make_query(&jsonrpc_client), maximum_duration)
+    }
+
+    pub fn run_jsonrpc_query(
+        &mut self,
+        request: RpcQueryRequest,
+        maximum_duration: Duration,
+    ) -> Result<RpcQueryResponse, RpcError> {
+        self.run_with_jsonrpc_client(|client| client.query(request), maximum_duration)
     }
 
     #[cfg(feature = "test_features")]

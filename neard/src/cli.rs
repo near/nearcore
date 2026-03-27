@@ -5,6 +5,7 @@ use near_async::ActorSystem;
 use near_chain_configs::{GenesisValidationMode, TrackedShardsConfig};
 use near_client::ConfigUpdater;
 use near_client::client_actor::ShutdownReason;
+use near_cloud_archive_tool::CloudArchiveCommand;
 use near_cold_store_tool::ColdStoreCommand;
 use near_config_utils::DownloadConfigType;
 use near_database_tool::commands::DatabaseCommand;
@@ -133,6 +134,9 @@ impl NeardCmd {
             NeardSubCommand::AmendGenesis(cmd) => {
                 cmd.run()?;
             }
+            NeardSubCommand::CloudArchive(cmd) => {
+                cmd.run(&home_dir, genesis_validation)?;
+            }
             NeardSubCommand::ColdStore(cmd) => {
                 cmd.run(&home_dir, genesis_validation)?;
             }
@@ -252,6 +256,10 @@ pub(super) enum NeardSubCommand {
 
     /// Amend a genesis/records file created by `dump-state`.
     AmendGenesis(AmendGenesisCommand),
+
+    /// Cloud archive reader tools.
+    #[clap(name = "cloud-archive")]
+    CloudArchive(CloudArchiveCommand),
 
     /// Testing tool for cold storage
     ColdStore(ColdStoreCommand),
@@ -608,7 +616,9 @@ impl RunCmd {
             };
 
             // Write marker if this is an epoch sync data reset shutdown.
-            if let ShutdownSignal::ClientShutdown(ShutdownReason::EpochSyncDataReset) = &sig {
+            let needs_restart =
+                matches!(&sig, ShutdownSignal::ClientShutdown(ShutdownReason::EpochSyncDataReset));
+            if needs_restart {
                 write_epoch_sync_data_reset_marker(&hot_store_path);
             }
 
@@ -620,6 +630,12 @@ impl RunCmd {
             near_async::shutdown_all_actors();
             // Disable the subscriber to properly shutdown the tracer.
             near_o11y::reload(Some("error"), None, Some("off"), None).unwrap();
+
+            // Re-exec after shutting down actors. We skip RocksDB shutdown since
+            // the data directory will be wiped on the next startup anyway.
+            if needs_restart {
+                exec_restart();
+            }
         });
         tracing::info!(target: "neard", "waiting for rocksdb to gracefully shutdown");
         RocksDB::block_until_all_instances_are_dropped();
@@ -650,10 +666,44 @@ fn write_epoch_sync_data_reset_marker(hot_store_path: &Path) {
     std::fs::create_dir_all(hot_store_path)
         .expect("failed to create data directory for reset marker");
     std::fs::write(&marker_path, b"").expect("failed to write epoch sync reset marker");
+    // Fsync the marker file and the parent directory to ensure the directory
+    // entry is durably persisted (fsync on the file alone is not sufficient
+    // on all filesystems).
     std::fs::File::open(&marker_path)
         .and_then(|f| f.sync_all())
         .expect("failed to fsync reset marker file");
+    std::fs::File::open(hot_store_path)
+        .and_then(|d| d.sync_all())
+        .expect("failed to fsync hot store directory");
     tracing::info!(target: "neard", ?marker_path, "epoch sync data reset marker written");
+}
+
+/// On non-unix platforms, exec is not available.
+#[cfg(not(unix))]
+fn exec_restart() {
+    tracing::warn!(
+        target: "neard",
+        "automatic restart after epoch sync data reset is not supported on this platform, \
+         please restart manually"
+    );
+}
+
+/// Re-execs the current process with the same arguments.
+/// On success, this function never returns (the process image is replaced).
+#[cfg(unix)]
+fn exec_restart() {
+    use std::env::{args_os, current_exe};
+    use std::os::unix::process::CommandExt;
+    use std::process::Command;
+
+    let binary = current_exe().expect("failed to determine current executable path");
+    let args: Vec<_> = args_os().skip(1).collect();
+
+    tracing::info!(target: "neard", ?binary, ?args, "restarting process after epoch sync data reset");
+
+    // exec() replaces the process image. If it returns, it failed.
+    let err = Command::new(&binary).args(&args).exec();
+    panic!("failed to exec {:?}: {}", binary, err);
 }
 
 #[cfg(not(unix))]

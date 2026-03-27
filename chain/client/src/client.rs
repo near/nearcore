@@ -181,6 +181,10 @@ pub struct Client {
     chunk_producer_accounts_cache: Option<(EpochId, Arc<Vec<AccountId>>)>,
     /// Reed-Solomon encoder for shadow chunk validation.
     shadow_validation_reed_solomon: OnceLock<Arc<ReedSolomon>>,
+    /// The last epoch for which the validator key was checked. Used to ensure
+    /// the check runs once per epoch on the first non-syncing head block, even
+    /// if the epoch boundary was crossed during sync.
+    last_validator_key_check_epoch: Option<EpochId>,
     /// watch::Sender used to notify watchers about new postprocessed blocks.
     pub block_notification_watch_sender:
         tokio::sync::watch::Sender<Option<BlockNotificationMessage>>,
@@ -208,6 +212,40 @@ impl Client {
     /// It will update all validator signers that synchronize with it.
     pub(crate) fn update_validator_signer(&self, signer: Option<Arc<ValidatorSigner>>) -> bool {
         self.validator_signer.update(signer)
+    }
+
+    /// Checks the validator key once per epoch on new head blocks while not syncing.
+    /// Skips if currently syncing (to avoid false positives when the key was
+    /// rotated after the node's stale local head), and skips if the current
+    /// epoch was already checked. Should be called on every new head block.
+    /// Panics if the local key does not match the key registered in the epoch.
+    pub(crate) fn check_validator_key_on_new_head(&mut self, block: &Block) {
+        if self.sync_handler.sync_status.is_syncing() {
+            return;
+        }
+        let Some(signer) = self.validator_signer.get() else { return };
+        let epoch_id = block.header().epoch_id();
+        if self.last_validator_key_check_epoch.as_ref() == Some(epoch_id) {
+            return;
+        }
+        let validator_id = signer.validator_id();
+        let Ok(epoch_info) = self.epoch_manager.get_epoch_info(epoch_id) else {
+            tracing::error!(target: "client", ?epoch_id, "failed to get epoch info for validator key check");
+            return;
+        };
+        self.last_validator_key_check_epoch = Some(*epoch_id);
+        let Some(validator_stake) = epoch_info.get_validator_by_account(validator_id) else {
+            return;
+        };
+        let local_key = signer.public_key();
+        let on_chain_key = validator_stake.public_key();
+        if &local_key != on_chain_key {
+            panic!(
+                "validator key mismatch for {}: local key {} does not match \
+                 on-chain key {}. Update validator_key.json or rotate the key on-chain.",
+                validator_id, local_key, on_chain_key,
+            );
+        }
     }
 
     /// Returns the Reed-Solomon encoder for shadow validation, initializing it lazily if needed.
@@ -433,6 +471,7 @@ impl Client {
             last_optimistic_block_produced: None,
             chunk_producer_accounts_cache: None,
             shadow_validation_reed_solomon: OnceLock::new(),
+            last_validator_key_check_epoch: None,
             block_notification_watch_sender,
         })
     }
@@ -1648,6 +1687,8 @@ impl Client {
             if let Err(err) = self.send_network_chain_info() {
                 tracing::error!(target: "client", ?err, "failed to update network chain info");
             }
+
+            self.check_validator_key_on_new_head(&block);
 
             // If the next block is the first of the next epoch and the shard
             // layout is changing we need to reshard the transaction pool.

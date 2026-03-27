@@ -1,6 +1,7 @@
 ---
 source: core/parameters/src/config_store.rs
 expression: config_view
+snapshot_kind: text
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
@@ -204,6 +205,7 @@ expression: config_view
     "reftypes_bulk_memory": true,
     "deterministic_account_ids": true,
     "gas_key_host_fns": false,
+    "one_yocto_on_promise": true,
     "storage_get_mode": "FlatStorage",
     "fix_contract_loading_cost": true,
     "implicit_account_creation": true,
@@ -236,6 +238,8 @@ expression: config_view
       "max_locals_per_contract": 1000000,
       "max_tables_per_contract": 1,
       "max_elements_per_contract_table": 10000,
+      "max_function_body_size": 262144,
+      "max_instrumented_code_size": 16777216,
       "account_id_validity_rules_version": 2,
       "yield_timeout_length_in_blocks": 200,
       "max_yield_payload_size": 1024,
