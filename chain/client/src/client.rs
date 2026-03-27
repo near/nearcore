@@ -181,6 +181,10 @@ pub struct Client {
     chunk_producer_accounts_cache: Option<(EpochId, Arc<Vec<AccountId>>)>,
     /// Reed-Solomon encoder for shadow chunk validation.
     shadow_validation_reed_solomon: OnceLock<Arc<ReedSolomon>>,
+    /// The last epoch for which the validator key was checked. Used to ensure
+    /// the check runs once per epoch on the first non-syncing head block, even
+    /// if the epoch boundary was crossed during sync.
+    last_validator_key_check_epoch: Option<EpochId>,
     /// watch::Sender used to notify watchers about new postprocessed blocks.
     pub block_notification_watch_sender:
         tokio::sync::watch::Sender<Option<BlockNotificationMessage>>,
@@ -210,9 +214,25 @@ impl Client {
         self.validator_signer.update(signer)
     }
 
+    /// Checks the validator key once per epoch on new head blocks while not syncing.
+    /// Skips if currently syncing (to avoid false positives when the key was
+    /// rotated after the node's stale local head), and skips if the current
+    /// epoch was already checked. Should be called on every new head block.
+    pub(crate) fn check_validator_key_on_new_head(&mut self, block: &Block) {
+        if self.sync_handler.sync_status.is_syncing() {
+            return;
+        }
+        let epoch_id = block.header().epoch_id();
+        if self.last_validator_key_check_epoch.as_ref() == Some(epoch_id) {
+            return;
+        }
+        self.assert_validator_key_for_epoch(epoch_id);
+        self.last_validator_key_check_epoch = Some(*epoch_id);
+    }
+
     /// Panics if this node's validator key does not match the key registered in the given epoch.
     /// No-op if the node is not a validator in the epoch.
-    pub fn check_validator_key_for_epoch(&self, epoch_id: &EpochId) {
+    fn assert_validator_key_for_epoch(&self, epoch_id: &EpochId) {
         let Some(signer) = self.validator_signer.get() else { return };
         let validator_id = signer.validator_id();
         let epoch_info = match self.epoch_manager.get_epoch_info(epoch_id) {
@@ -459,6 +479,7 @@ impl Client {
             last_optimistic_block_produced: None,
             chunk_producer_accounts_cache: None,
             shadow_validation_reed_solomon: OnceLock::new(),
+            last_validator_key_check_epoch: None,
             block_notification_watch_sender,
         })
     }
@@ -1675,17 +1696,14 @@ impl Client {
                 tracing::error!(target: "client", ?err, "failed to update network chain info");
             }
 
+            self.check_validator_key_on_new_head(&block);
+
             // If the next block is the first of the next epoch and the shard
             // layout is changing we need to reshard the transaction pool.
             // TODO make sure transactions don't get added for the old shard
             // layout after the pool resharding
-            if self.epoch_manager.is_next_block_epoch_start(&block_hash).unwrap_or(false) {
-                if let Ok(next_epoch_id) =
-                    self.epoch_manager.get_epoch_id_from_prev_block(&block_hash)
-                {
-                    self.check_validator_key_for_epoch(&next_epoch_id);
-                }
 
+            if self.epoch_manager.is_next_block_epoch_start(&block_hash).unwrap_or(false) {
                 let new_shard_layout =
                     self.epoch_manager.get_shard_layout_from_prev_block(&block_hash);
                 let old_shard_layout =
