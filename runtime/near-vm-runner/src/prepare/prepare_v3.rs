@@ -11,6 +11,7 @@ struct PrepareContext<'a> {
     output_code: Vec<u8>,
     function_limit: u64,
     local_limit: u64,
+    function_body_size_limit: u64,
     table_limit: u32,
     table_element_limit: u64,
     validator: wp::Validator,
@@ -38,6 +39,7 @@ impl<'a> PrepareContext<'a> {
             // specified, use that as a limit.
             function_limit: limits.max_functions_number_per_contract.unwrap_or(u64::MAX),
             local_limit: limits.max_locals_per_contract.unwrap_or(u64::MAX),
+            function_body_size_limit: limits.max_function_body_size.unwrap_or(u64::MAX),
             table_limit: limits.max_tables_per_contract.unwrap_or(u32::MAX),
             table_element_limit,
             validator: wp::Validator::new_with_features(features.into()),
@@ -60,7 +62,7 @@ impl<'a> PrepareContext<'a> {
         let parser = wp::Parser::new(0);
         for payload in parser.parse_all(self.code) {
             let payload = payload.map_err(|err| {
-                tracing::trace!(?err, "was not able to early prepare the input module");
+                tracing::trace!(target: "vm", ?err, "was not able to early prepare the input module");
                 PrepareError::Deserialization
             })?;
             match payload {
@@ -226,6 +228,16 @@ impl<'a> PrepareContext<'a> {
                     self.copy_section(SectionId::Code, range.clone())?;
                 }
                 wp::Payload::CodeSectionEntry(func) => {
+                    let body_size = func.range().len() as u64;
+                    if body_size > self.function_body_size_limit {
+                        tracing::debug!(
+                            target: "vm",
+                            body_size,
+                            limit = self.function_body_size_limit,
+                            "function body size exceeds the limit"
+                        );
+                        return Err(PrepareError::FunctionBodyTooLarge);
+                    }
                     let local_reader =
                         func.get_locals_reader().map_err(|_| PrepareError::Deserialization)?;
                     for local in local_reader {
@@ -273,7 +285,7 @@ impl<'a> PrepareContext<'a> {
                 | wp::Payload::ComponentImportSection(_)
                 | wp::Payload::ComponentExportSection(_)
                 | _ => {
-                    tracing::trace!("input module contains unsupported section");
+                    tracing::trace!(target: "vm", "input module contains unsupported section");
                     return Err(PrepareError::Deserialization);
                 }
             }
@@ -385,7 +397,15 @@ pub(crate) fn prepare_contract(
     let lightly_steamed = PrepareContext::new(original_code, features, config).run()?;
 
     match kind {
-        VMKind::NearVm => return Ok(lightly_steamed),
+        VMKind::NearVm => {
+            if let Some(max_size) = config.limit_config.max_instrumented_code_size {
+                if lightly_steamed.len() as u64 > max_size {
+                    tracing::debug!(target: "vm", size=lightly_steamed.len(), ?kind, "instrumented code too large");
+                    return Err(PrepareError::InstrumentedCodeTooLarge);
+                }
+            }
+            return Ok(lightly_steamed);
+        }
         VMKind::Wasmer0 | VMKind::Wasmtime | VMKind::Wasmer2 => {}
     }
 
@@ -398,7 +418,7 @@ pub(crate) fn prepare_contract(
         })
         .analyze(&lightly_steamed)
         .map_err(|err| {
-            tracing::error!(?err, ?kind, "analysis failed");
+            tracing::error!(target: "vm", ?err, ?kind, "analysis failed");
             PrepareError::Deserialization
         })?;
     // Make sure contracts can’t call the instrumentation functions via `env`.
@@ -411,9 +431,20 @@ pub(crate) fn prepare_contract(
     )
     .run()
     .map_err(|err| {
-        tracing::error!(?err, ?kind, "instrumentation failed");
+        tracing::error!(target: "vm", ?err, ?kind, "instrumentation failed");
         PrepareError::Serialization
     })?;
+    // Guard against overflowing Cranelift’s 24-bit SSA value counter. Each wasm
+    // byte produces at least one SSA value, so capping the instrumented size is a
+    // conservative proxy.
+    // TODO: if we ever need to relax this limit, count actual wasm instructions
+    // during the instrumentation pass instead of using byte size as a proxy.
+    if let Some(max_size) = config.limit_config.max_instrumented_code_size {
+        if res.len() as u64 > max_size {
+            tracing::debug!(target: "vm", size=res.len(), ?kind, "instrumented code too large");
+            return Err(PrepareError::InstrumentedCodeTooLarge);
+        }
+    }
     Ok(res)
 }
 
@@ -552,7 +583,7 @@ mod test {
     ) -> Result<(), PrepareError> {
         let (function_count, local_count, table_count, element_count) =
             wasmparser_decode(code, features).map_err(|e| {
-                tracing::debug!(err=?e, "wasmparser failed decoding a contract");
+                tracing::debug!(target: "vm", err=?e, "wasmparser failed decoding a contract");
                 PrepareError::Deserialization
             })?;
         // Verify the number of functions does not exceed the limit we imposed. Note that the ordering

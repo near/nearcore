@@ -1,6 +1,8 @@
 ---
 source: core/primitives/src/views.rs
+assertion_line: 2976
 expression: "&view"
+snapshot_kind: text
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
@@ -236,6 +238,8 @@ expression: "&view"
       "max_locals_per_contract": 1000000,
       "max_tables_per_contract": 1,
       "max_elements_per_contract_table": 10000,
+      "max_function_body_size": 262144,
+      "max_instrumented_code_size": 16777216,
       "account_id_validity_rules_version": 2,
       "yield_timeout_length_in_blocks": 200,
       "max_yield_payload_size": 1024,
