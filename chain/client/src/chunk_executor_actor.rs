@@ -806,8 +806,8 @@ impl ChunkExecutorActor {
         Ok(ChunkExecutionData { witness: state_witness, code_accesses: contract_accesses })
     }
 
-    /// Returns the chunk if it is a new, valid chunk. Returns `None` if there
-    /// is no new chunk or if the chunk is invalid (malicious chunk producer).
+    /// Returns the chunk if it is a new, valid chunk. Returns `None` if the
+    /// chunk is not new, or if the chunk is invalid (malicious chunk producer).
     fn get_new_chunk_if_valid(
         &self,
         chunk_header: &ShardChunkHeader,
