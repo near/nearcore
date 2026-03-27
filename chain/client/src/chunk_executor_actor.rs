@@ -752,7 +752,7 @@ impl ChunkExecutorActor {
     ) -> Result<ChunkExecutionData, Error> {
         let block_hash = block.header().hash();
         let epoch_id = self.epoch_manager.get_epoch_id(block_hash).unwrap();
-        let (transactions, invalid_chunk_proof) = {
+        let (transactions, proof_of_invalid_chunk) = {
             let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id).unwrap();
             let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
             let chunk_headers = block.chunks();
@@ -812,7 +812,7 @@ impl ChunkExecutorActor {
             transactions,
             execution_result_hash,
             contract_accesses_hash,
-            invalid_chunk_proof,
+            proof_of_invalid_chunk,
         );
         Ok(ChunkExecutionData { witness: state_witness, code_accesses: contract_accesses })
     }

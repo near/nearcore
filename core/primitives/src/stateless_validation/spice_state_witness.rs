@@ -107,7 +107,7 @@ pub struct SpiceChunkStateWitnessV1 {
     /// be RS-reconstructed (all parts filled) so validators can independently
     /// verify the invalidity. When present, validators accept empty
     /// transactions instead of the chunk header's tx_root.
-    pub invalid_chunk_proof: Option<Box<EncodedShardChunkBody>>,
+    pub proof_of_invalid_chunk: Option<Box<EncodedShardChunkBody>>,
 }
 
 impl SpiceChunkStateWitness {
@@ -119,7 +119,7 @@ impl SpiceChunkStateWitness {
         transactions: Vec<SignedTransaction>,
         execution_result_hash: ChunkExecutionResultHash,
         contract_accesses_hash: CryptoHash,
-        invalid_chunk_proof: Option<Box<EncodedShardChunkBody>>,
+        proof_of_invalid_chunk: Option<Box<EncodedShardChunkBody>>,
     ) -> Self {
         Self::V1(SpiceChunkStateWitnessV1 {
             chunk_id,
@@ -129,7 +129,7 @@ impl SpiceChunkStateWitness {
             transactions,
             execution_result_hash,
             contract_accesses_hash,
-            invalid_chunk_proof,
+            proof_of_invalid_chunk,
         })
     }
 
@@ -181,9 +181,9 @@ impl SpiceChunkStateWitness {
         }
     }
 
-    pub fn invalid_chunk_proof(&self) -> Option<&EncodedShardChunkBody> {
+    pub fn proof_of_invalid_chunk(&self) -> Option<&EncodedShardChunkBody> {
         match self {
-            Self::V1(witness) => witness.invalid_chunk_proof.as_deref(),
+            Self::V1(witness) => witness.proof_of_invalid_chunk.as_deref(),
         }
     }
 }

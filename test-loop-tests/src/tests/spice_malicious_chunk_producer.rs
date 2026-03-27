@@ -141,7 +141,7 @@ fn test_spice_block_sync_with_malicious_chunks() {
     }
 }
 
-/// Test that validators endorse chunks containing an `invalid_chunk_proof`
+/// Test that validators endorse chunks containing an `proof_of_invalid_chunk`
 /// (witness produced when a malicious chunk producer sends a corrupted chunk
 /// body). Verifies the full end-to-end flow: witnesses are self-contained,
 /// validators can pre-validate and execute them, and ALL assigned validators

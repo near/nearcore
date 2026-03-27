@@ -1297,11 +1297,11 @@ fn test_is_descendant_of_final_execution_head_returns_false_for_final_execution_
 }
 
 /// Verifies that when a malicious chunk producer sends an invalid chunk (saved
-/// in `DBCol::InvalidChunks`), the executor populates `invalid_chunk_proof` in
+/// in `DBCol::InvalidChunks`), the executor populates `proof_of_invalid_chunk` in
 /// the witness so validators can independently verify the invalidity.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_witness_contains_invalid_chunk_proof_for_malicious_chunk() {
+fn test_witness_contains_proof_of_invalid_chunk_for_malicious_chunk() {
     let (outgoing_sc, _outgoing_rc) = unbounded();
     let mut actors = setup_with_non_validator(outgoing_sc);
     let prev_block = actors[0].chain.genesis_block();
@@ -1315,14 +1315,14 @@ fn test_witness_contains_invalid_chunk_proof_for_malicious_chunk() {
     let witness = get_witness(actor.chain.chain_store().store_ref(), block.hash(), shard_id)
         .expect("witness should be saved");
     assert!(
-        witness.invalid_chunk_proof().is_some(),
-        "witness should contain invalid_chunk_proof for a malicious chunk",
+        witness.proof_of_invalid_chunk().is_some(),
+        "witness should contain proof_of_invalid_chunk for a malicious chunk",
     );
     assert!(
         witness.transactions().is_empty(),
         "witness should have empty transactions for a malicious chunk",
     );
-    let proof = witness.invalid_chunk_proof().unwrap();
+    let proof = witness.proof_of_invalid_chunk().unwrap();
     let (body_merkle_root, _) = proof.get_merkle_hash_and_paths();
     let chunks = block.chunks();
     let chunk_header = chunks.get(0).unwrap();
@@ -1333,10 +1333,10 @@ fn test_witness_contains_invalid_chunk_proof_for_malicious_chunk() {
     );
 }
 
-/// Verifies that a valid chunk produces a witness without `invalid_chunk_proof`.
+/// Verifies that a valid chunk produces a witness without `proof_of_invalid_chunk`.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_witness_has_no_invalid_chunk_proof_for_valid_chunk() {
+fn test_witness_has_no_proof_of_invalid_chunk_for_valid_chunk() {
     let (outgoing_sc, _outgoing_rc) = unbounded();
     let mut actors = setup_with_non_validator(outgoing_sc);
     let prev_block = actors[0].chain.genesis_block();
@@ -1350,16 +1350,16 @@ fn test_witness_has_no_invalid_chunk_proof_for_valid_chunk() {
     let witness = get_witness(actor.chain.chain_store().store_ref(), block.hash(), shard_id)
         .expect("witness should be saved");
     assert!(
-        witness.invalid_chunk_proof().is_none(),
-        "witness should not contain invalid_chunk_proof for a valid chunk",
+        witness.proof_of_invalid_chunk().is_none(),
+        "witness should not contain proof_of_invalid_chunk for a valid chunk",
     );
 }
 
 /// Verifies that a non-new (missing) chunk — where the chunk header from the
-/// previous block is repeated — produces a witness without `invalid_chunk_proof`.
+/// previous block is repeated — produces a witness without `proof_of_invalid_chunk`.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_witness_has_no_invalid_chunk_proof_for_missing_chunk() {
+fn test_witness_has_no_proof_of_invalid_chunk_for_missing_chunk() {
     let (outgoing_sc, _outgoing_rc) = unbounded();
     let mut actors = setup_with_shards(1, outgoing_sc);
 
@@ -1380,7 +1380,7 @@ fn test_witness_has_no_invalid_chunk_proof_for_missing_chunk() {
     let witness = get_witness(actors[0].chain.chain_store().store_ref(), block2.hash(), shard_id)
         .expect("witness should be saved");
     assert!(
-        witness.invalid_chunk_proof().is_none(),
-        "witness should not contain invalid_chunk_proof for a non-new (missing) chunk",
+        witness.proof_of_invalid_chunk().is_none(),
+        "witness should not contain proof_of_invalid_chunk for a non-new (missing) chunk",
     );
 }
