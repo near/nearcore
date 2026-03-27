@@ -381,11 +381,6 @@ pub enum ProtocolFeature {
     /// (sequential ordering). Transactions with a nonce gap are held in the
     /// pool rather than discarded.
     StrictNonce,
-    /// Allow attaching exactly 1 yoctoNEAR to a promise function call
-    /// without requiring the calling contract to have sufficient balance.
-    /// This enables contracts with zero balance to still signal
-    /// "attached deposit required" to the callee.
-    OneYoctoOnPromise,
 }
 
 impl ProtocolFeature {
@@ -495,8 +490,7 @@ impl ProtocolFeature {
             | ProtocolFeature::EthImplicitGlobalContract
             | ProtocolFeature::InstantDeleteAccount => 83,
             ProtocolFeature::Wasmtime => 84,
-            ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
-            | ProtocolFeature::OneYoctoOnPromise => 85,
+            ProtocolFeature::FixDelegateActionDepositWithFunctionCallError => 85,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
