@@ -1,6 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_account_id;
-use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::TrackedShardsConfig;
 use near_client::NetworkAdversarialMessage;
@@ -64,8 +63,6 @@ fn test_spice_chain_with_malicious_chunk_producer() {
         invalid_chunk_count += 1;
     }
     assert!(invalid_chunk_count > 0, "expected at least one invalid chunk stored as evidence");
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Test that a node joining late can block-sync past malicious chunks that
@@ -131,6 +128,4 @@ fn test_spice_block_sync_with_malicious_chunks() {
             "syncing node missing invalid chunk that the honest node detected",
         );
     }
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
