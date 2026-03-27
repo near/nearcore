@@ -103,11 +103,12 @@ fn get_context() -> VMContext {
     }
 }
 
-/// Legacy wrapper around `VMLogic` with test helper methods.
+/// Wrapper around `VMLogic` which adds helper test methods.
 /// TODO(wasmtime): remove once legacy VMLogic path is fully retired.
 #[cfg(not(feature = "wasmtime_vm"))]
 pub(super) struct TestVMLogic<'a> {
     logic: VMLogic<'a>,
+    /// Offset at which `internal_memory_write` will write next.
     mem_write_offset: u64,
 }
 
@@ -135,21 +136,38 @@ impl std::ops::DerefMut for TestVMLogic<'_> {
 
 #[cfg(not(feature = "wasmtime_vm"))]
 impl TestVMLogic<'_> {
+    /// Writes data into guest memory and returns pointer at its location.
+    ///
+    /// Subsequent calls to the method write buffers one after the other.  It
+    /// makes it convenient to populate the memory with various different data
+    /// to later use in function calls.
     pub(super) fn internal_mem_write(&mut self, data: &[u8]) -> MemSlice {
         let slice = self.internal_mem_write_at(self.mem_write_offset, data);
         self.mem_write_offset += slice.len;
         slice
     }
 
+    /// Writes data into guest memory at given location.
     pub(super) fn internal_mem_write_at(&mut self, ptr: u64, data: &[u8]) -> MemSlice {
         self.memory().set_for_free(ptr, data).unwrap();
         MemSlice { len: u64::try_from(data.len()).unwrap(), ptr }
     }
 
+    /// Reads data from guest memory into a Vector.
     pub(super) fn internal_mem_read(&mut self, ptr: u64, len: u64) -> Vec<u8> {
         self.memory().view_for_free(MemSlice { ptr, len }).unwrap().into_owned()
     }
 
+    /// Calls `logic.read_register` and then on success reads data from guest
+    /// memory comparing it to expected value.
+    ///
+    /// The `read_register` call is made as if contract has made it.  In
+    /// particular, gas is charged for it.  Later reading of the contents of the
+    /// memory is done for free.  Panics if the register is not set or contracts
+    /// runs out of gas.
+    ///
+    /// The value of the register is read onto the end of the guest memory
+    /// overriding anything that might already be there.
     #[track_caller]
     pub(super) fn assert_read_register(&mut self, want: &[u8], register_id: u64) {
         let len = self.registers().get_len(register_id).unwrap();
