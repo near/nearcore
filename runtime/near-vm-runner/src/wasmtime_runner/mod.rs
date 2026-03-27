@@ -200,6 +200,11 @@ impl ConcurrencySemaphore {
 }
 
 enum Export<T> {
+    // The ModuleExport payload is not read because get_memory uses
+    // string-based lookup (caller.get_export) instead of
+    // caller.get_module_export, since the latter panics when the Caller's
+    // instance is a host-side dummy (e.g. re-exported host functions).
+    #[allow(dead_code)]
     Unresolved(ModuleExport),
     Resolved(T),
 }
@@ -895,6 +900,21 @@ impl std::fmt::Display for ErrorContainer {
     }
 }
 
+/// Lookup the memory export and cache it on success. Returns `None` if the
+/// module has no memory export (e.g. a re-exported host function).
+fn get_memory(caller: &mut wasmtime::Caller<'_, Ctx>) -> Option<Memory> {
+    match caller.data().memory {
+        Export::Unresolved(_) => {
+            // Use string-based export lookup to avoid the _module() panic
+            // that get_module_export triggers on Dummy instances.
+            let memory = caller.get_export(crate::MEMORY_EXPORT)?.into_memory()?;
+            caller.data_mut().memory = Export::Resolved(memory);
+            Some(memory)
+        }
+        Export::Resolved(memory) => Some(memory),
+    }
+}
+
 fn link(linker: &mut wasmtime::Linker<Ctx>, config: &Config) {
     macro_rules! add_import {
         (
@@ -906,7 +926,18 @@ fn link(linker: &mut wasmtime::Linker<Ctx>, config: &Config) {
                 let _span = TRACE.then(|| {
                     tracing::trace_span!(target: "vm::host_function", stringify!($name)).entered()
                 });
-                match logic::$func(&mut caller, $( $arg_name as $arg_type, )*) {
+                let (memory, ctx) = match get_memory(&mut caller) {
+                    Some(m) => m.data_and_store_mut(&mut caller),
+                    None => {
+                        // Module has no memory export (e.g. re-exported
+                        // host functions). Provide an empty slice — the
+                        // logic function will error if it tries to access
+                        // memory.
+                        let ctx = caller.data_mut();
+                        (&mut [][..], ctx)
+                    }
+                };
+                match logic::$func(ctx, memory, $( $arg_name as $arg_type, )*) {
                     Ok(result) => Ok(result as ($( $returns ),* ) ),
                     Err(err) => {
                         Err(ErrorContainer(parking_lot::Mutex::new(Some(err))).into())
