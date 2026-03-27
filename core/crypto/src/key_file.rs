@@ -55,7 +55,6 @@ impl KeyFile {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::KeyType;
 
     const ACCOUNT_ID: &str = "example";
     const SECRET_KEY: &str = "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr";
@@ -126,8 +125,8 @@ mod test {
         let path = tmp.path().join("key-file");
 
         let account_id: AccountId = ACCOUNT_ID.parse().unwrap();
-        let secret_key = SecretKey::from_seed(KeyType::ED25519, "seed1");
-        let wrong_public_key = SecretKey::from_seed(KeyType::ED25519, "seed2").public_key();
+        let secret_key: SecretKey = SECRET_KEY.parse().unwrap();
+        let wrong_public_key = "ed25519:3ThNatHmFR6gtMEFMEBPw6M1PGH6FVbGMzwBd4JqHTFT".parse().unwrap();
         let key_file = KeyFile { account_id, public_key: wrong_public_key, secret_key };
         key_file.write_to_file(&path).unwrap();
 
