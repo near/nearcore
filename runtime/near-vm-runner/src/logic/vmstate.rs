@@ -95,7 +95,9 @@ impl<'a> Memory<'a> {
         self.0.write_memory(offset, buf).map_err(|_| HostError::MemoryAccessViolation.into())
     }
 
+    // TODO(wasmtime): remove once legacy VMLogic test path is fully retired.
     #[cfg(test)]
+    #[allow(dead_code)]
     pub(super) fn set_for_free(&mut self, offset: u64, buf: &[u8]) -> Result<()> {
         self.0.write_memory(offset, buf).map_err(|_| HostError::MemoryAccessViolation.into())
     }
