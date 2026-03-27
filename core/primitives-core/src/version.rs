@@ -490,7 +490,8 @@ impl ProtocolFeature {
             | ProtocolFeature::EthImplicitGlobalContract
             | ProtocolFeature::InstantDeleteAccount => 83,
             ProtocolFeature::Wasmtime => 84,
-            ProtocolFeature::FixDelegateActionDepositWithFunctionCallError => 85,
+            ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
+            | ProtocolFeature::ContinuousEpochSync => 85,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -500,7 +501,6 @@ impl ProtocolFeature {
             ProtocolFeature::GasKeys => 149,
             ProtocolFeature::DynamicResharding => 150,
             ProtocolFeature::StrictNonce => 151,
-            ProtocolFeature::ContinuousEpochSync => 152,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
@@ -524,7 +524,7 @@ pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 80;
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 85;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 152;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 151;
 
 // TODO(spice): Once spice is mature and close to release make it part of nightly - at the point in
 // time cargo feature for spice should be removed as well.
