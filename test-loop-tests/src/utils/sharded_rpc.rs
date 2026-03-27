@@ -14,19 +14,19 @@ use near_store::ShardUId;
 /// Sets up a 2-shard environment with 2 RPC nodes (each tracking one shard)
 /// and 1 validator. Two user accounts (alice, zoe) are placed on different shards.
 pub(crate) struct TwoShardHarness {
-    pub env: TestLoopEnv,
-    pub alice: AccountId,
-    pub zoe: AccountId,
+    pub(crate) env: TestLoopEnv,
+    pub(crate) alice: AccountId,
+    pub(crate) zoe: AccountId,
     /// RPC node that tracks alice's shard.
-    pub alice_node: AccountId,
+    pub(crate) alice_node: AccountId,
     /// RPC node that tracks zoe's shard.
-    pub zoe_node: AccountId,
+    pub(crate) zoe_node: AccountId,
     /// Validator node (tracks all shards by default).
-    pub validator: AccountId,
+    pub(crate) validator: AccountId,
 }
 
 impl TwoShardHarness {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let shard_layout = ShardLayout::multi_shard(2, 1);
         let shard_uids: Vec<ShardUId> = shard_layout.shard_uids().collect();
 
@@ -69,7 +69,7 @@ impl TwoShardHarness {
     }
 
     /// Deploy the standard test contract to alice.
-    pub fn deploy_contract_to_alice(&mut self) {
+    pub(crate) fn deploy_contract_to_alice(&mut self) {
         let tx = self.env.node_for_account(&self.alice_node).tx_deploy_test_contract(&self.alice);
         self.env.runner_for_account(&self.alice_node).run_tx(tx, Duration::seconds(5));
     }
@@ -77,7 +77,7 @@ impl TwoShardHarness {
     /// Ensure the final head lags behind the consensus head, so that tests
     /// asserting on block heights for different finality levels are meaningful.
     /// Advances a few blocks if needed. Returns `(final_height, head_height)`.
-    pub fn ensure_finality_lag(&mut self) -> (BlockHeight, BlockHeight) {
+    pub(crate) fn ensure_finality_lag(&mut self) -> (BlockHeight, BlockHeight) {
         let final_height =
             self.env.node_for_account(&self.validator).client().chain.final_head().unwrap().height;
         let head_height = self.env.node_for_account(&self.validator).head().height;

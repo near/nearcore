@@ -114,7 +114,12 @@ fn test_rpc_parallel_take_first_partial_failure() {
 
     let outcome =
         h.env.node_for_account(&validator).client().chain.get_execution_outcome(&tx_hash).unwrap();
-    let receipt_id = outcome.outcome_with_id.outcome.receipt_ids[0];
+    let receipt_id = *outcome
+        .outcome_with_id
+        .outcome
+        .receipt_ids
+        .first()
+        .expect("transfer should produce at least one receipt");
 
     let alice_node = h.alice_node.clone();
     let zoe_node = h.zoe_node.clone();

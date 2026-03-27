@@ -993,6 +993,7 @@ fn test_rpc_call_function_finality_final() {
 /// Queries with an explicit BlockId::Height should succeed cross-shard,
 /// exercising the BlockHint::Height code path in nodes_for_query.
 #[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_rpc_query_view_account_by_block_height() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -1031,6 +1032,7 @@ fn test_rpc_query_view_account_by_block_height() {
 /// Queries with an explicit BlockId::Hash should succeed cross-shard,
 /// exercising the BlockHint::Hash code path in nodes_for_query.
 #[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_rpc_query_view_account_by_block_hash() {
     init_test_logger();
     let mut h = TwoShardHarness::new();

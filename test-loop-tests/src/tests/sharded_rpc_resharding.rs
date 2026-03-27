@@ -26,11 +26,12 @@ use std::sync::Arc;
 ///
 /// Sets up a multi-shard environment with RPC nodes, triggers a shard split via
 /// `force_split_shards`, and records block heights before and after resharding.
+#[allow(dead_code)]
 struct ReshardingRpcHarness {
     env: TestLoopEnv,
     /// An account placed on the shard that will be split.
     test_account: AccountId,
-    /// RPC node identifiers.
+    /// RPC node identifiers (used by #[ignore]d tests).
     rpc0: AccountId,
     rpc1: AccountId,
     /// Validator node (tracks all shards).
@@ -105,7 +106,8 @@ impl ReshardingRpcHarness {
         // Run until shard layout changes (resharding completes).
         let epoch_manager = env.node_for_account(&validator0).client().epoch_manager.clone();
         let initial_layout = base_shard_layout;
-        // Dynamic resharding has a 2-epoch activation delay, so allow enough time.
+        // Dynamic resharding has a 2-epoch activation delay; multiply by 8
+        // (2 epochs delay + buffer for catchup) with 1 second per block.
         let max_wait = Duration::seconds((epoch_length * 8) as i64);
         env.runner_for_account(&validator0).run_until(
             |node| {
