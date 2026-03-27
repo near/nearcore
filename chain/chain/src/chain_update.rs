@@ -300,6 +300,12 @@ impl<'a> ChainUpdate<'a> {
             *block.header().random_value(),
         )?;
         self.chain_store_update.merge(epoch_manager_update.into());
+        Chain::save_chunk_producers_for_header(
+            self.epoch_manager.as_ref(),
+            block.header(),
+            &mut self.chain_store_update,
+            current_protocol_version,
+        )?;
 
         if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
             // If this is the first block of the epoch, update epoch sync proof.

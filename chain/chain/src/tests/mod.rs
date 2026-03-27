@@ -1,3 +1,4 @@
+mod chunk_producers;
 mod doomslug;
 mod garbage_collection;
 mod simple_chain;
