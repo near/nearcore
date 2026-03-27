@@ -7,7 +7,7 @@ use std::collections::HashMap;
 type Result<T> = ::std::result::Result<T, VMLogicError>;
 
 pub(super) fn promise_create(
-    logic: &mut TestVMLogic<'_>,
+    logic: &mut TestVMLogic,
     account_id: &[u8],
     amount: u128,
     gas: u64,
@@ -35,7 +35,7 @@ pub(super) fn promise_batch_create(logic: &mut TestVMLogic, account_id: &str) ->
 }
 
 pub(super) fn promise_batch_action_function_call(
-    logic: &mut TestVMLogic<'_>,
+    logic: &mut TestVMLogic,
     promise_index: u64,
     amount: u128,
     gas: Gas,
@@ -51,7 +51,7 @@ pub(super) fn promise_batch_action_function_call(
 }
 
 pub(super) fn promise_batch_action_function_call_ext(
-    logic: &mut TestVMLogic<'_>,
+    logic: &mut TestVMLogic,
     promise_index: u64,
     method_id: &[u8],
     args: &[u8],
@@ -74,7 +74,7 @@ pub(super) fn promise_batch_action_function_call_ext(
 }
 
 pub(super) fn promise_batch_action_function_call_weight(
-    logic: &mut TestVMLogic<'_>,
+    logic: &mut TestVMLogic,
     promise_index: u64,
     amount: u128,
     gas: Gas,
@@ -92,7 +92,7 @@ pub(super) fn promise_batch_action_function_call_weight(
 }
 
 pub(super) fn promise_batch_action_function_call_weight_ext(
-    logic: &mut TestVMLogic<'_>,
+    logic: &mut TestVMLogic,
     promise_index: u64,
     method_id: &[u8],
     args: &[u8],
@@ -117,7 +117,7 @@ pub(super) fn promise_batch_action_function_call_weight_ext(
 }
 
 pub(super) fn promise_batch_action_add_key_with_function_call(
-    logic: &mut TestVMLogic<'_>,
+    logic: &mut TestVMLogic,
     promise_index: u64,
     public_key: &[u8],
     nonce: u64,
@@ -144,7 +144,7 @@ pub(super) fn promise_batch_action_add_key_with_function_call(
 }
 
 pub(super) fn promise_batch_action_add_key_with_full_access(
-    logic: &mut TestVMLogic<'_>,
+    logic: &mut TestVMLogic,
     promise_index: u64,
     public_key: &[u8],
     nonce: u64,
@@ -160,7 +160,7 @@ pub(super) fn promise_batch_action_add_key_with_full_access(
 }
 
 pub(super) fn promise_batch_action_add_gas_key_with_full_access(
-    logic: &mut TestVMLogic<'_>,
+    logic: &mut TestVMLogic,
     promise_index: u64,
     public_key: &[u8],
     num_nonces: u64,
@@ -175,7 +175,7 @@ pub(super) fn promise_batch_action_add_gas_key_with_full_access(
 }
 
 pub(super) fn promise_batch_action_add_gas_key_with_function_call(
-    logic: &mut TestVMLogic<'_>,
+    logic: &mut TestVMLogic,
     promise_index: u64,
     public_key: &[u8],
     num_nonces: u64,

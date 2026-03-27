@@ -5423,7 +5423,6 @@ dependencies = [
  "near-vm-compiler",
  "near-vm-compiler-singlepass",
  "near-vm-engine",
- "near-vm-runner-test-macro",
  "near-vm-types",
  "near-vm-vm",
  "num-rational 0.3.2",
@@ -5450,14 +5449,6 @@ dependencies = [
  "wasmtime",
  "wat",
  "zeropool-bn",
-]
-
-[[package]]
-name = "near-vm-runner-test-macro"
-version = "0.0.0"
-dependencies = [
- "quote",
- "syn 2.0.106",
 ]
 
 [[package]]

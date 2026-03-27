@@ -202,6 +202,7 @@ impl ConcurrencySemaphore {
 }
 
 enum Export<T> {
+    #[allow(dead_code)]
     Unresolved(ModuleExport),
     Resolved(T),
 }

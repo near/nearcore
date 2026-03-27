@@ -2,7 +2,8 @@
 // cspell:ignore pmul, pneg, psum, regs, wbmap, yabig, ybig
 mod tests {
     use crate::logic::MemSlice;
-    use crate::logic::tests::vm_logic_builder::{TestVMLogic, VMLogicBuilder};
+    use crate::logic::tests::TestVMLogic;
+    use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
     use ark_bls12_381::{Bls12_381, Fq, Fq2, Fr, G1Affine, G2Affine};
     use ark_ec::hashing::{curve_maps::wb::WBMap, map_to_curve_hasher::MapToCurve};
     use ark_ec::{AffineRepr, CurveGroup, bls12::Bls12Config, pairing::Pairing};
