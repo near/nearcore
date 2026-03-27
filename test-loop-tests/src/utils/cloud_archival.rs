@@ -495,6 +495,7 @@ pub(crate) fn verify_block_range(
             .get_ser(DBCol::BlockMerkleTree, block_hash.as_ref())
             .unwrap_or_else(|| panic!("BlockMerkleTree missing at height {height}"));
         if let Some(prev) = prev_hash {
+            assert_eq!(*header.prev_hash(), prev, "prev_hash linkage broken at height {height}");
             let prev_tree: PartialMerkleTree = store
                 .get_ser(DBCol::BlockMerkleTree, CryptoHash::as_ref(&prev))
                 .expect("prev BlockMerkleTree should exist");

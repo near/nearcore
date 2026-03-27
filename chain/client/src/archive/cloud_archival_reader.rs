@@ -28,9 +28,10 @@ pub fn save_block_data(store: &Store, block_data: &BlockData) {
     // Update block merkle tree incrementally.
     if header.is_genesis() {
         update.set_ser(DBCol::BlockMerkleTree, block_hash.as_ref(), &PartialMerkleTree::default());
-    } else if let Some(prev_tree) =
-        store.get_ser::<PartialMerkleTree>(DBCol::BlockMerkleTree, header.prev_hash().as_ref())
-    {
+    } else {
+        let prev_tree: PartialMerkleTree = store
+            .get_ser(DBCol::BlockMerkleTree, header.prev_hash().as_ref())
+            .expect("prev block's merkle tree must exist; ensure save_epoch_data was called first");
         let mut tree = prev_tree;
         tree.insert(*header.prev_hash());
         update.set_ser(DBCol::BlockMerkleTree, block_hash.as_ref(), &tree);
@@ -59,8 +60,6 @@ pub fn save_epoch_data(
         epoch_start_prev_hash.as_ref(),
         epoch_data.epoch_start_prev_block_merkle_tree(),
     );
-
-    update.set_ser(DBCol::StateSyncHashes, epoch_id.as_ref(), &epoch_data.sync_block_height());
 
     update.commit();
 }
