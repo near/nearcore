@@ -1,17 +1,22 @@
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::mocks::mock_memory::MockedMemory;
-use crate::logic::{Config, ExecutionResultState, MemSlice, VMContext, VMLogic};
+use crate::logic::{Config, VMContext};
+#[cfg(not(feature = "wasmtime_vm"))]
+use crate::logic::{ExecutionResultState, MemSlice, VMLogic};
 use crate::tests::test_vm_config;
 #[cfg(feature = "wasmtime_vm")]
 pub(super) use crate::wasmtime_runner::test_logic::WasmtimeTestLogic as TestVMLogic;
 use near_parameters::RuntimeFeesConfig;
 use near_primitives_core::types::{Balance, Gas};
+#[cfg(not(feature = "wasmtime_vm"))]
 use std::sync::Arc;
 
 pub(super) struct VMLogicBuilder {
     pub ext: MockedExternal,
     pub config: Config,
     pub fees_config: RuntimeFeesConfig,
+    // TODO(wasmtime): only needed for legacy build path.
+    #[allow(dead_code)]
     pub memory: MockedMemory,
     pub context: VMContext,
 }
