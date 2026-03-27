@@ -229,24 +229,21 @@ impl Client {
             return;
         }
         let validator_id = signer.validator_id();
-        let epoch_info = match self.epoch_manager.get_epoch_info(epoch_id) {
-            Ok(info) => info,
-            Err(err) => {
-                tracing::error!(target: "client", ?epoch_id, ?err, "failed to get epoch info for validator key check");
-                return;
-            }
+        let Ok(epoch_info) = self.epoch_manager.get_epoch_info(epoch_id) else {
+            tracing::error!(target: "client", ?epoch_id, "failed to get epoch info for validator key check");
+            return;
         };
         self.last_validator_key_check_epoch = Some(*epoch_id);
         let Some(validator_stake) = epoch_info.get_validator_by_account(validator_id) else {
             return;
         };
         let local_key = signer.public_key();
-        let epoch_key = validator_stake.public_key();
-        if &local_key != epoch_key {
+        let on_chain_key = validator_stake.public_key();
+        if &local_key != on_chain_key {
             panic!(
                 "validator key mismatch for {}: local key {} does not match \
-                 epoch key {}. Update validator_key.json or rotate the key on-chain.",
-                validator_id, local_key, epoch_key,
+                 on-chain key {}. Update validator_key.json or rotate the key on-chain.",
+                validator_id, local_key, on_chain_key,
             );
         }
     }
