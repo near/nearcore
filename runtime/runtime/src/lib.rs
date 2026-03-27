@@ -2635,8 +2635,6 @@ impl Runtime {
     }
 }
 
-/// Returns the signature and public key if they are of ED25519 type.
-///
 impl ApplyState {
     fn own_congestion_info(&self, trie: &dyn TrieAccess) -> Result<CongestionInfo, RuntimeError> {
         if let Some(congestion_info) = self.congestion_info.get(&self.shard_id) {
