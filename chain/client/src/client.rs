@@ -218,22 +218,17 @@ impl Client {
     /// Skips if currently syncing (to avoid false positives when the key was
     /// rotated after the node's stale local head), and skips if the current
     /// epoch was already checked. Should be called on every new head block.
+    /// Panics if the local key does not match the key registered in the epoch.
     pub(crate) fn check_validator_key_on_new_head(&mut self, block: &Block) {
         if self.sync_handler.sync_status.is_syncing() {
             return;
         }
+        let Some(signer) = self.validator_signer.get() else { return };
         let epoch_id = block.header().epoch_id();
         if self.last_validator_key_check_epoch.as_ref() == Some(epoch_id) {
             return;
         }
-        self.assert_validator_key_for_epoch(epoch_id);
         self.last_validator_key_check_epoch = Some(*epoch_id);
-    }
-
-    /// Panics if this node's validator key does not match the key registered in the given epoch.
-    /// No-op if the node is not a validator in the epoch.
-    fn assert_validator_key_for_epoch(&self, epoch_id: &EpochId) {
-        let Some(signer) = self.validator_signer.get() else { return };
         let validator_id = signer.validator_id();
         let epoch_info = match self.epoch_manager.get_epoch_info(epoch_id) {
             Ok(info) => info,
