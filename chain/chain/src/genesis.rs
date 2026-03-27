@@ -137,9 +137,17 @@ impl Chain {
                 .add_validator_proposals(block_info, *genesis.header().random_value())?
                 .into(),
         );
+        // Save chunk producers for height 1 (next height after genesis).
         Self::save_chunk_producers_for_header(
             epoch_manager,
             genesis.header(),
+            &mut store_update,
+            genesis_protocol_version,
+        )?;
+        // Save chunk producers for the genesis chunks themselves (height 0).
+        // Genesis chunks have prev_block_hash = CryptoHash::default().
+        Self::save_genesis_chunk_producers(
+            epoch_manager,
             &mut store_update,
             genesis_protocol_version,
         )?;
