@@ -3,7 +3,7 @@ use crate::logic::mocks::mock_memory::MockedMemory;
 use crate::logic::{Config, ExecutionResultState, VMContext, VMLogic};
 use crate::tests::test_vm_config;
 #[cfg(feature = "wasmtime_vm")]
-use crate::wasmtime_runner::test_logic::WasmtimeTestLogic;
+pub(super) use crate::wasmtime_runner::test_logic::WasmtimeTestLogic as TestVMLogic;
 use near_parameters::RuntimeFeesConfig;
 use near_primitives_core::types::{Balance, Gas};
 use std::sync::Arc;
@@ -12,6 +12,8 @@ pub(super) struct VMLogicBuilder {
     pub ext: MockedExternal,
     pub config: Config,
     pub fees_config: RuntimeFeesConfig,
+    // TODO(wasmtime): remove once legacy VMLogic path is fully retired.
+    #[allow(dead_code)]
     pub memory: MockedMemory,
     pub context: VMContext,
 }
@@ -38,8 +40,8 @@ impl VMLogicBuilder {
     }
 
     #[cfg(feature = "wasmtime_vm")]
-    pub fn build(&mut self) -> WasmtimeTestLogic {
-        WasmtimeTestLogic::new(
+    pub fn build(&mut self) -> TestVMLogic {
+        TestVMLogic::new(
             &mut self.ext,
             &self.context,
             self.fees_config.clone(),
@@ -47,9 +49,9 @@ impl VMLogicBuilder {
         )
     }
 
-    /// TODO(wasmtime): remove once legacy VMLogic path is fully retired.
-    #[allow(dead_code)]
-    pub fn build_legacy(&mut self) -> VMLogic<'_> {
+    // TODO(wasmtime): remove once legacy VMLogic path is fully retired.
+    #[cfg(not(feature = "wasmtime_vm"))]
+    pub fn build(&mut self) -> VMLogic<'_> {
         let result_state = ExecutionResultState::new(
             &self.context,
             self.context.make_gas_counter(&self.config),

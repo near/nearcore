@@ -14,7 +14,6 @@ mod storage_usage;
 mod view_method;
 mod vm_logic_builder;
 
-use vm_logic_builder::VMLogicBuilder;
-
 #[cfg(feature = "wasmtime_vm")]
-pub(super) type TestVMLogic = crate::wasmtime_runner::test_logic::WasmtimeTestLogic;
+use vm_logic_builder::TestVMLogic;
+use vm_logic_builder::VMLogicBuilder;
