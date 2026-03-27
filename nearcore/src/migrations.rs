@@ -223,8 +223,23 @@ fn update_epoch_sync_proof(
         store_update.commit();
     }
 
-    // Now we generate the epoch sync proof and update it to latest
+    // Generate the epoch sync proof. On short chains (e.g. tests),
+    // find_target_epoch_to_produce_proof_for would walk past genesis — skip and let
+    // the runtime produce it later via extend_epoch_sync_proof.
     tracing::info!(target: "migrations", "generating latest epoch sync proof");
+    let chain_store = store.chain_store();
+    let final_head = chain_store.final_head()?;
+    let current_epoch_start_height = epoch_store.get_epoch_start(&final_head.epoch_id)?;
+    if current_epoch_start_height < transaction_validity_period {
+        tracing::info!(
+            target: "migrations",
+            ?current_epoch_start_height,
+            ?transaction_validity_period,
+            "chain is too short to produce epoch sync proof, skipping"
+        );
+        return Ok(());
+    }
+
     let last_block_hash =
         find_target_epoch_to_produce_proof_for(&store, transaction_validity_period)?;
 
