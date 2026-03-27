@@ -201,6 +201,10 @@ pub struct Config {
     /// Whether to enable gas key host functions.
     pub gas_key_host_fns: bool,
 
+    /// Whether to allow attaching exactly 1 yoctoNEAR to a promise function
+    /// call without requiring the calling contract to have sufficient balance.
+    pub one_yocto_on_promise: bool,
+
     /// Describes limits for VM and Runtime.
     pub limit_config: LimitConfig,
 }

@@ -20475,6 +20475,10 @@
             "minimum": 0,
             "type": "integer"
           },
+          "one_yocto_on_promise": {
+            "description": "See [VMConfig::one_yocto_on_promise](crate::vm::Config::one_yocto_on_promise).",
+            "type": "boolean"
+          },
           "reftypes_bulk_memory": {
             "description": "See [VMConfig::reftypes_bulk_memory](crate::vm::Config::reftypes_bulk_memory).",
             "type": "boolean"

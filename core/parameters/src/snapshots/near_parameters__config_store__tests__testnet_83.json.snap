@@ -1,6 +1,7 @@
 ---
 source: core/parameters/src/config_store.rs
 expression: config_view
+snapshot_kind: text
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
@@ -204,6 +205,7 @@ expression: config_view
     "reftypes_bulk_memory": false,
     "deterministic_account_ids": true,
     "gas_key_host_fns": false,
+    "one_yocto_on_promise": false,
     "storage_get_mode": "FlatStorage",
     "fix_contract_loading_cost": false,
     "implicit_account_creation": true,
