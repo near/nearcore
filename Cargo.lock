@@ -2015,7 +2015,6 @@ version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "115531babc129696a58c64a4fef0a8bf9e9698629fb97e9e40767d235cfbcd53"
 dependencies = [
- "pkcs8",
  "signature",
 ]
 
@@ -2028,10 +2027,8 @@ dependencies = [
  "curve25519-dalek",
  "ed25519",
  "rand_core 0.6.4",
- "serde",
  "sha2 0.10.6",
  "subtle",
- "zeroize",
 ]
 
 [[package]]
@@ -4070,18 +4067,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "merlin"
-version = "3.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58c38e2799fc0978b65dfff8023ec7843e2330bb462f19198840b34b6582397d"
-dependencies = [
- "byteorder",
- "keccak",
- "rand_core 0.6.4",
- "zeroize",
-]
-
-[[package]]
 name = "mime"
 version = "0.3.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4520,22 +4505,6 @@ dependencies = [
  "subtle",
  "tempfile",
  "thiserror 2.0.16",
-]
-
-[[package]]
-name = "near-crypto-ed25519-batch"
-version = "0.0.0"
-dependencies = [
- "criterion",
- "curve25519-dalek",
- "ed25519-dalek",
- "hex",
- "merlin",
- "rand 0.8.5",
- "rand_core 0.6.4",
- "serde",
- "serde_json",
- "sha2 0.10.6",
 ]
 
 [[package]]
@@ -5734,9 +5703,7 @@ dependencies = [
  "base64 0.21.0",
  "borsh",
  "bytesize 1.1.0",
- "crossbeam-utils",
  "dashmap",
- "ed25519-dalek",
  "enum-map",
  "expect-test",
  "hex",
@@ -5744,7 +5711,6 @@ dependencies = [
  "near-async",
  "near-chain-configs",
  "near-crypto",
- "near-crypto-ed25519-batch",
  "near-o11y",
  "near-parameters",
  "near-primitives",
@@ -5753,14 +5719,12 @@ dependencies = [
  "near-test-contracts",
  "near-vm-runner",
  "near-wallet-contract",
- "num-integer",
  "parking_lot 0.12.1",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
  "rayon",
  "serde_json",
  "sha2 0.10.6",
- "smallvec",
  "tempfile",
  "testlib",
  "thiserror 2.0.16",
