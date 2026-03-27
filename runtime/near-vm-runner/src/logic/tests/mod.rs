@@ -15,4 +15,3 @@ mod view_method;
 mod vm_logic_builder;
 
 use vm_logic_builder::TestVMLogic;
-use vm_logic_builder::VMLogicBuilder;
