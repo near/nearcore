@@ -3481,13 +3481,13 @@ impl Chain {
         // Create the callback only when this node is the chunk producer for the next height. It's
         // used only for early prepare transactions, doesn't make sense to call it if the node isn't
         // a chunk producer.
+        let cpk = ChunkProductionKey {
+            shard_id: shard_uid.shard_id(),
+            epoch_id: epoch_id,
+            height_created: block.height + 1,
+        };
         let Some(signer) = self.validator_signer.get() else {
             return None;
-        };
-        let cpk = ChunkProductionKey {
-            epoch_id,
-            height_created: block.height + 1,
-            shard_id: shard_uid.shard_id(),
         };
         let Ok(producer) = self.epoch_manager.get_chunk_producer_info(&cpk) else {
             return None;
