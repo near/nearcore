@@ -897,18 +897,18 @@ impl std::fmt::Display for ErrorContainer {
     }
 }
 
-/// Lookup the memory export and cache it on success.
-fn get_memory(caller: &mut wasmtime::Caller<'_, Ctx>) -> Result<Memory, VMLogicError> {
-    use crate::logic::HostError;
+/// Lookup the memory export and cache it on success. Returns `None` if the
+/// module has no memory export (e.g. a re-exported host function).
+fn get_memory(caller: &mut wasmtime::Caller<'_, Ctx>) -> Option<Memory> {
     match caller.data().memory {
-        Export::Unresolved(memory) => {
-            let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
-                return Err(HostError::MemoryAccessViolation.into());
-            };
+        Export::Unresolved(_) => {
+            // Use string-based export lookup to avoid the _module() panic
+            // that get_module_export triggers on Dummy instances.
+            let memory = caller.get_export(crate::MEMORY_EXPORT)?.into_memory()?;
             caller.data_mut().memory = Export::Resolved(memory);
-            Ok(memory)
+            Some(memory)
         }
-        Export::Resolved(memory) => Ok(memory),
+        Export::Resolved(memory) => Some(memory),
     }
 }
 
@@ -923,11 +923,17 @@ fn link(linker: &mut wasmtime::Linker<Ctx>, config: &Config) {
                 let _span = TRACE.then(|| {
                     tracing::trace_span!(target: "vm::host_function", stringify!($name)).entered()
                 });
-                let memory = match get_memory(&mut caller) {
-                    Ok(m) => m,
-                    Err(err) => return Err(ErrorContainer(parking_lot::Mutex::new(Some(err))).into()),
+                let (memory, ctx) = match get_memory(&mut caller) {
+                    Some(m) => m.data_and_store_mut(&mut caller),
+                    None => {
+                        // Module has no memory export (e.g. re-exported
+                        // host functions). Provide an empty slice — the
+                        // logic function will error if it tries to access
+                        // memory.
+                        let ctx = caller.data_mut();
+                        (&mut [][..], ctx)
+                    }
                 };
-                let (memory, ctx) = memory.data_and_store_mut(&mut caller);
                 match logic::$func(ctx, memory, $( $arg_name as $arg_type, )*) {
                     Ok(result) => Ok(result as ($( $returns ),* ) ),
                     Err(err) => {
