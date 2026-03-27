@@ -492,24 +492,27 @@ impl FlatStorage {
         guard.shard_uid
     }
 
-    /// Adds a hold that prevents the flat head from advancing.
-    /// Multiple holds can be active simultaneously (e.g. from state snapshots
-    /// and background memtrie loading). The flat head will not advance until
-    /// all holds are released via [`Self::release_flat_head_hold`].
-    pub fn hold_flat_head(&self) {
-        let mut guard = self.0.write();
-        guard.move_head_hold_count += 1;
+    /// Places a hold that prevents the flat head from advancing. Returns a
+    /// guard that releases the hold when dropped. Multiple holds can be active
+    /// simultaneously (e.g. from state snapshots and background memtrie
+    /// loading). The flat head will not advance until all guards are dropped.
+    pub fn hold_flat_head(&self) -> FlatHeadHold {
+        self.0.write().move_head_hold_count += 1;
+        FlatHeadHold(Arc::clone(&self.0))
     }
+}
 
-    /// Releases one hold on the flat head. When all holds are released
-    /// (counter reaches zero), the flat head is free to advance again.
-    ///
-    /// Panics if called more times than [`Self::hold_flat_head`].
-    pub fn release_flat_head_hold(&self) {
+/// RAII guard that keeps the flat head from advancing. Created by
+/// [`FlatStorage::hold_flat_head`]. When dropped, the hold is released and
+/// the flat head may advance once all holds are gone.
+pub struct FlatHeadHold(Arc<RwLock<FlatStorageInner>>);
+
+impl Drop for FlatHeadHold {
+    fn drop(&mut self) {
         let mut guard = self.0.write();
-        assert!(
+        debug_assert!(
             guard.move_head_hold_count > 0,
-            "release_flat_head_hold called without a corresponding hold_flat_head"
+            "FlatHeadHold dropped but hold count is already zero"
         );
         guard.move_head_hold_count -= 1;
     }
