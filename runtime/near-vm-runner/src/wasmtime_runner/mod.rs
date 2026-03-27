@@ -202,6 +202,10 @@ impl ConcurrencySemaphore {
 }
 
 enum Export<T> {
+    // The ModuleExport payload is not read because get_memory uses
+    // string-based lookup (caller.get_export) instead of
+    // caller.get_module_export, since the latter panics when the Caller's
+    // instance is a host-side dummy (e.g. re-exported host functions).
     #[allow(dead_code)]
     Unresolved(ModuleExport),
     Resolved(T),
