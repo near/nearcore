@@ -1318,6 +1318,19 @@ fn test_witness_contains_invalid_chunk_proof_for_malicious_chunk() {
         witness.invalid_chunk_proof().is_some(),
         "witness should contain invalid_chunk_proof for a malicious chunk",
     );
+    assert!(
+        witness.transactions().is_empty(),
+        "witness should have empty transactions for a malicious chunk",
+    );
+    let proof = witness.invalid_chunk_proof().unwrap();
+    let (body_merkle_root, _) = proof.get_merkle_hash_and_paths();
+    let chunks = block.chunks();
+    let chunk_header = chunks.get(0).unwrap();
+    assert_eq!(
+        body_merkle_root,
+        *chunk_header.encoded_merkle_root(),
+        "proof body's encoded_merkle_root should match chunk header's encoded_merkle_root",
+    );
 }
 
 /// Verifies that a valid chunk produces a witness without `invalid_chunk_proof`.

@@ -804,11 +804,13 @@ mod tests {
             Some(Box::new(body)),
         );
 
-        let result = test_chain.run_pre_validation(&witness);
+        let output = test_chain
+            .run_pre_validation(&witness)
+            .expect("pre-validation should succeed with a valid invalid_chunk_proof");
+        let transactions = output.new_chunk_data.transactions.into_nonexpired_transactions();
         assert!(
-            result.is_ok(),
-            "pre-validation should succeed with a valid invalid_chunk_proof: {:?}",
-            result.err()
+            transactions.is_empty(),
+            "invalid_chunk_proof path should produce zero non-expired transactions",
         );
     }
 
