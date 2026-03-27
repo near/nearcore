@@ -401,7 +401,7 @@ fn test_valid_log_utf16_null_terminated_fail() {
 mod utf8_mem_violation {
     use super::*;
 
-    fn check(read_ok: bool, test: fn(&mut TestVMLogic, MemSlice) -> Result<(), VMLogicError>) {
+    fn check(read_ok: bool, test: fn(&mut TestVMLogic<'_>, MemSlice) -> Result<(), VMLogicError>) {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
 
@@ -457,7 +457,7 @@ mod utf8_mem_violation {
 mod utf16_mem_violation {
     use super::*;
 
-    fn check(read_ok: bool, test: fn(&mut TestVMLogic, MemSlice) -> Result<(), VMLogicError>) {
+    fn check(read_ok: bool, test: fn(&mut TestVMLogic<'_>, MemSlice) -> Result<(), VMLogicError>) {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
 
