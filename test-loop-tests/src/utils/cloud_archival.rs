@@ -309,7 +309,7 @@ pub fn bootstrap_reader(
 
     // Download all blocks in the range into the reader's store.
     {
-        let store = env.node_for_account(reader_id).client().chain.chain_store.store().clone();
+        let store = env.node_for_account(reader_id).client().chain.chain_store.store();
         bootstrap_range(&store, &cloud_storage, start_height, target_block_height)
             .expect("bootstrap_range should succeed");
     }
