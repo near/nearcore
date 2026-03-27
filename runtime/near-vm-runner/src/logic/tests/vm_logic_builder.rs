@@ -43,7 +43,7 @@ impl VMLogicBuilder {
     }
 
     #[cfg(feature = "wasmtime_vm")]
-    pub fn build(&mut self) -> TestVMLogic {
+    pub fn build(&mut self) -> TestVMLogic<'_> {
         TestVMLogic::new(
             &mut self.ext,
             &self.context,
