@@ -14,6 +14,5 @@ mod storage_usage;
 mod view_method;
 mod vm_logic_builder;
 
-#[cfg(feature = "wasmtime_vm")]
 use vm_logic_builder::TestVMLogic;
 use vm_logic_builder::VMLogicBuilder;

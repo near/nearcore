@@ -1,9 +1,8 @@
-use super::TestVMLogic;
 use crate::logic::HostError;
-use crate::logic::MemSlice;
-use crate::logic::errors::VMLogicError;
 use crate::logic::tests::helpers::*;
+use crate::logic::tests::vm_logic_builder::TestVMLogic;
 use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
+use crate::logic::{MemSlice, VMLogicError};
 use crate::map;
 use near_parameters::ExtCosts;
 

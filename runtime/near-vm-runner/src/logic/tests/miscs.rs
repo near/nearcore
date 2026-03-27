@@ -1,6 +1,6 @@
-use super::VMLogicBuilder;
 use crate::logic::HostError;
 use crate::logic::tests::helpers::*;
+use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
 use crate::map;
 use hex::FromHex;
 use near_parameters::ExtCosts;
@@ -44,6 +44,7 @@ fn test_sha256() {
 fn test_keccak256() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build();
+
     let data = logic.internal_mem_write(b"tesdsst");
     logic.keccak256(data.len, data.ptr, 0).unwrap();
     logic.assert_read_register(
@@ -72,6 +73,7 @@ fn test_keccak256() {
 fn test_keccak512() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build();
+
     let data = logic.internal_mem_write(b"tesdsst");
     logic.keccak512(data.len, data.ptr, 0).unwrap();
     logic.assert_read_register(
@@ -102,6 +104,7 @@ fn test_keccak512() {
 fn test_ripemd160() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build();
+
     let data = logic.internal_mem_write(b"tesdsst");
     logic.ripemd160(data.len, data.ptr, 0).unwrap();
     logic.assert_read_register(
@@ -263,10 +266,10 @@ fn test_value_length_limit() {
 
     logic
         .storage_write(key.len, key.ptr, limit / 2, 0, 0)
-        .expect("Value length doesn't exceed the limit");
+        .expect("Value length doesn’t exceed the limit");
     logic
         .storage_write(key.len, key.ptr, limit, 0, 0)
-        .expect("Value length doesn't exceed the limit");
+        .expect("Value length doesn’t exceed the limit");
     assert_eq!(
         logic.storage_write(key.len, key.ptr, limit + 1, 0, 0),
         Err(HostError::ValueLengthExceeded { length: limit + 1, limit }.into())
@@ -409,6 +412,7 @@ fn test_contract_size_limit() {
 fn test_current_contract_code_none() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build();
+
     // 0 if the contract code is None
     // 1 if the contract code is Local(CryptoHash)
     // 2 if the contract code is Global(CryptoHash)

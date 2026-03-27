@@ -1,22 +1,17 @@
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::mocks::mock_memory::MockedMemory;
-use crate::logic::{Config, VMContext};
-#[cfg(not(feature = "wasmtime_vm"))]
-use crate::logic::{ExecutionResultState, VMLogic};
+use crate::logic::{Config, ExecutionResultState, MemSlice, VMContext, VMLogic};
 use crate::tests::test_vm_config;
 #[cfg(feature = "wasmtime_vm")]
 pub(super) use crate::wasmtime_runner::test_logic::WasmtimeTestLogic as TestVMLogic;
 use near_parameters::RuntimeFeesConfig;
 use near_primitives_core::types::{Balance, Gas};
-#[cfg(not(feature = "wasmtime_vm"))]
 use std::sync::Arc;
 
 pub(super) struct VMLogicBuilder {
     pub ext: MockedExternal,
     pub config: Config,
     pub fees_config: RuntimeFeesConfig,
-    // TODO(wasmtime): remove once legacy VMLogic path is fully retired.
-    #[allow(dead_code)]
     pub memory: MockedMemory,
     pub context: VMContext,
 }
@@ -54,19 +49,19 @@ impl VMLogicBuilder {
 
     // TODO(wasmtime): remove once legacy VMLogic path is fully retired.
     #[cfg(not(feature = "wasmtime_vm"))]
-    pub fn build(&mut self) -> VMLogic<'_> {
+    pub fn build(&mut self) -> TestVMLogic<'_> {
         let result_state = ExecutionResultState::new(
             &self.context,
             self.context.make_gas_counter(&self.config),
             Arc::new(self.config.clone()),
         );
-        VMLogic::new(
+        TestVMLogic::from(VMLogic::new(
             &mut self.ext,
             &self.context,
             Arc::new(self.fees_config.clone()),
             result_state,
             &mut self.memory,
-        )
+        ))
     }
 
     pub fn free() -> Self {
@@ -105,5 +100,66 @@ fn get_context() -> VMContext {
         random_seed: vec![0, 1, 2],
         view_config: None,
         output_data_receivers: vec![],
+    }
+}
+
+/// Legacy wrapper around `VMLogic` with test helper methods.
+/// TODO(wasmtime): remove once legacy VMLogic path is fully retired.
+#[cfg(not(feature = "wasmtime_vm"))]
+pub(super) struct TestVMLogic<'a> {
+    logic: VMLogic<'a>,
+    mem_write_offset: u64,
+}
+
+#[cfg(not(feature = "wasmtime_vm"))]
+impl<'a> std::convert::From<VMLogic<'a>> for TestVMLogic<'a> {
+    fn from(logic: VMLogic<'a>) -> Self {
+        Self { logic, mem_write_offset: 0 }
+    }
+}
+
+#[cfg(not(feature = "wasmtime_vm"))]
+impl<'a> std::ops::Deref for TestVMLogic<'a> {
+    type Target = VMLogic<'a>;
+    fn deref(&self) -> &Self::Target {
+        &self.logic
+    }
+}
+
+#[cfg(not(feature = "wasmtime_vm"))]
+impl std::ops::DerefMut for TestVMLogic<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.logic
+    }
+}
+
+#[cfg(not(feature = "wasmtime_vm"))]
+impl TestVMLogic<'_> {
+    pub(super) fn internal_mem_write(&mut self, data: &[u8]) -> MemSlice {
+        let slice = self.internal_mem_write_at(self.mem_write_offset, data);
+        self.mem_write_offset += slice.len;
+        slice
+    }
+
+    pub(super) fn internal_mem_write_at(&mut self, ptr: u64, data: &[u8]) -> MemSlice {
+        self.memory().set_for_free(ptr, data).unwrap();
+        MemSlice { len: u64::try_from(data.len()).unwrap(), ptr }
+    }
+
+    pub(super) fn internal_mem_read(&mut self, ptr: u64, len: u64) -> Vec<u8> {
+        self.memory().view_for_free(MemSlice { ptr, len }).unwrap().into_owned()
+    }
+
+    #[track_caller]
+    pub(super) fn assert_read_register(&mut self, want: &[u8], register_id: u64) {
+        let len = self.registers().get_len(register_id).unwrap();
+        let ptr = MockedMemory::MEMORY_SIZE - len;
+        self.read_register(register_id, ptr).unwrap();
+        let got = self.memory().view_for_free(MemSlice { ptr, len }).unwrap();
+        assert_eq!(want, &got[..]);
+    }
+
+    pub fn compute_outcome(self) -> crate::logic::VMOutcome {
+        self.logic.result_state.compute_outcome()
     }
 }
