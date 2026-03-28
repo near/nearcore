@@ -1956,7 +1956,9 @@ fn test_validate_chunk_extra() {
     let chunk_header = encoded_chunk.cloned_header();
     let signer = env.clients[0].validator_signer.get();
     let validator_id = signer.as_ref().unwrap().validator_id().clone();
-    let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk).unwrap();
+    let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk)
+        .map_err(|(err, _)| err)
+        .unwrap();
     env.clients[0]
         .distribute_and_persist_encoded_chunk(chunk, merkle_paths, receipts, validator_id)
         .unwrap();

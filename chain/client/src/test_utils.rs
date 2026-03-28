@@ -254,7 +254,9 @@ pub fn create_chunk(
         .max_gas_price(Balance::from_yoctonear(100))
         .block_merkle_tree(&mut block_merkle_tree)
         .build();
-    let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk).unwrap();
+    let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk)
+        .map_err(|(err, _)| err)
+        .unwrap();
     (ProduceChunkResult { chunk, encoded_chunk_parts_paths: merkle_paths, receipts }, block)
 }
 
