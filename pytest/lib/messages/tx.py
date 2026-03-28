@@ -9,6 +9,18 @@ class Transaction:
     pass
 
 
+class TransactionV1:
+    pass
+
+
+class TransactionNonce:
+    pass
+
+
+class GasKeyNonceData:
+    pass
+
+
 class Action:
     pass
 
@@ -58,6 +70,18 @@ class DeleteKey:
 
 
 class DeleteAccount:
+    pass
+
+
+class DeterministicStateInit:
+    pass
+
+
+class TransferToGasKey:
+    pass
+
+
+class WithdrawFromGasKey:
     pass
 
 
@@ -123,6 +147,9 @@ tx_schema = [
                 ['delegate', SignedDelegate],
                 ['deployGlobalContract', DeployGlobalContract],
                 ['useGlobalContract', UseGlobalContract],
+                ['deterministicStateInit', DeterministicStateInit],
+                ['transferToGasKey', TransferToGasKey],
+                ['withdrawFromGasKey', WithdrawFromGasKey],
             ]
         }
     ],
@@ -217,6 +244,49 @@ tx_schema = [
         DeleteAccount, {
             'kind': 'struct',
             'fields': [['beneficiaryId', 'string']]
+        }
+    ],
+    # DeterministicStateInit fields are not implemented for pytest yet.
+    # The entry must remain in the Action enum to preserve borsh variant indices.
+    [DeterministicStateInit, {
+        'kind': 'struct',
+        'fields': []
+    }],
+    [
+        TransferToGasKey, {
+            'kind': 'struct',
+            'fields': [['publicKey', PublicKey], ['deposit', 'u128']]
+        }
+    ],
+    [
+        WithdrawFromGasKey, {
+            'kind': 'struct',
+            'fields': [['publicKey', PublicKey], ['amount', 'u128']]
+        }
+    ],
+    [
+        TransactionV1, {
+            'kind':
+                'struct',
+            'fields': [['signerId', 'string'], ['publicKey', PublicKey],
+                       ['nonce', TransactionNonce], ['receiverId', 'string'],
+                       ['blockHash', [32]], ['actions', [Action]]]
+        }
+    ],
+    [
+        TransactionNonce, {
+            'kind': 'enum',
+            'field': 'enum',
+            'values': [
+                ['nonce', 'u64'],
+                ['gasKeyNonce', GasKeyNonceData],
+            ]
+        }
+    ],
+    [
+        GasKeyNonceData, {
+            'kind': 'struct',
+            'fields': [['nonce', 'u64'], ['nonceIndex', 'u16']]
         }
     ],
     [
