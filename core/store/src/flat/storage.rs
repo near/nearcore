@@ -379,8 +379,8 @@ impl FlatStorage {
 
         for block_hash in blocks.into_iter().rev() {
             let mut store_update = guard.store.store_update();
-            // Delta must exist because flat storage is locked and we could retrieve
-            // path from old to new head. Otherwise we return internal error.
+            // Delta must exist because flat storage is locked, and we could retrieve
+            // path from old to new head. Otherwise, we return internal error.
             let changes = guard
                 .store
                 .get_delta(shard_uid, block_hash)
@@ -406,13 +406,11 @@ impl FlatStorage {
             // interrupted in the middle.
             // TODO (#7327): in case of long forks it can take a while and delay processing of some chunk.
             // Consider avoid iterating over all blocks and make removals lazy.
-            let gc_height = metadata.block.height;
             let hashes_to_remove: Vec<_> = guard
                 .deltas
                 .iter()
-                .filter(|(_, delta)| delta.metadata.block.height <= gc_height)
-                .map(|(block_hash, _)| block_hash)
-                .cloned()
+                .filter(|(_, delta)| delta.metadata.block.height <= metadata.block.height)
+                .map(|(block_hash, _)| *block_hash)
                 .collect();
             for hash in hashes_to_remove {
                 store_update.remove_delta(shard_uid, hash);

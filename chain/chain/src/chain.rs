@@ -45,8 +45,9 @@ use crate::{DoomslugThresholdMode, metrics};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use itertools::Itertools;
 use lru::LruCache;
-use near_async::futures::AsyncComputationSpawner;
-use near_async::futures::AsyncComputationSpawnerExt;
+use near_async::futures::{
+    AsyncComputationSpawner, AsyncComputationSpawnerExt, StdThreadAsyncComputationSpawner,
+};
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain_configs::{MutableValidatorSigner, ProtocolVersionCheckConfig};
@@ -253,6 +254,25 @@ pub enum ApplyChunksIterationMode {
     Sequential,
 }
 
+/// Async computation spawner to be used for background memtrie loading tasks.
+#[derive(Default)]
+pub enum MemtrieLoadingSpawner {
+    /// Use a dedicated OS thread per loading task (default).
+    #[default]
+    Default,
+    /// Use a custom spawner, e.g. for deterministic test-loop execution.
+    Custom(Arc<dyn AsyncComputationSpawner>),
+}
+
+impl MemtrieLoadingSpawner {
+    pub fn into_spawner(self) -> Arc<dyn AsyncComputationSpawner> {
+        match self {
+            MemtrieLoadingSpawner::Default => Arc::new(StdThreadAsyncComputationSpawner),
+            MemtrieLoadingSpawner::Custom(spawner) => spawner,
+        }
+    }
+}
+
 /// Facade to the blockchain block processing and storage.
 /// Provides current view on the state according to the chain state.
 pub struct Chain {
@@ -283,6 +303,8 @@ pub struct Chain {
     apply_chunks_receiver: Receiver<BlockApplyChunksResult>,
     /// Used to spawn the apply chunks jobs.
     apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
+    /// Used to spawn background memtrie loading tasks.
+    memtrie_loading_spawner: Arc<dyn AsyncComputationSpawner>,
     /// Used to decide whether to parallelize shard updates when applying chunks.
     apply_chunks_iteration_mode: ApplyChunksIterationMode,
     pub apply_chunk_results_cache: ApplyChunksResultCache,
@@ -443,6 +465,7 @@ impl Chain {
             apply_chunks_receiver: rc,
             apply_chunks_spawner: ApplyChunksSpawner::default().into_spawner(thread_limit),
             apply_chunks_iteration_mode: ApplyChunksIterationMode::default(),
+            memtrie_loading_spawner: MemtrieLoadingSpawner::default().into_spawner(),
             apply_chunk_results_cache: ApplyChunksResultCache::new(APPLY_CHUNK_RESULTS_CACHE_SIZE),
             last_time_head_updated: clock.now(),
             processed_hashes: LruCache::new(NonZeroUsize::new(PROCESSED_HASHES_POOL_SIZE).unwrap()),
@@ -468,6 +491,7 @@ impl Chain {
         snapshot_callbacks: Option<SnapshotCallbacks>,
         apply_chunks_spawner: ApplyChunksSpawner,
         apply_chunks_iteration_mode: ApplyChunksIterationMode,
+        memtrie_loading_spawner: MemtrieLoadingSpawner,
         validator_signer: MutableValidatorSigner,
         resharding_sender: ReshardingSender,
         on_post_state_ready_sender: Option<PostStateReadySender>,
@@ -554,12 +578,11 @@ impl Chain {
             .cloned()
             .collect();
 
-        let head_protocol_version = epoch_manager.get_epoch_protocol_version(&tip.epoch_id)?;
-        let shard_uids_pending_resharding = epoch_manager
-            .get_shard_uids_pending_resharding(head_protocol_version, PROTOCOL_VERSION)?;
+        let shard_uid_pending_resharding =
+            epoch_manager.get_resharding_parent_shard_uid(&tip.epoch_id, &tip.last_block_hash);
         runtime_adapter.get_tries().load_memtries_for_enabled_shards(
             &tracked_shards,
-            &shard_uids_pending_resharding,
+            shard_uid_pending_resharding.as_ref(),
             true,
         )?;
 
@@ -626,6 +649,7 @@ impl Chain {
             apply_chunks_receiver: rc,
             apply_chunks_spawner,
             apply_chunks_iteration_mode,
+            memtrie_loading_spawner: memtrie_loading_spawner.into_spawner(),
             apply_chunk_results_cache: ApplyChunksResultCache::new(APPLY_CHUNK_RESULTS_CACHE_SIZE),
             last_time_head_updated: clock.now(),
             pending_state_patch: Default::default(),
@@ -1860,6 +1884,10 @@ impl Chain {
 
         self.update_optimistic_blocks_pool(&block)?;
 
+        // Try to finalize any completed background memtrie loads, so they are used in the
+        // subsequent block processing.
+        self.runtime_adapter.get_tries().try_finalize_background_memtrie_loading();
+
         let epoch_id = block.header().epoch_id();
         let mut shards_cares_this_or_next_epoch = vec![];
         for shard_id in self.epoch_manager.shard_ids(epoch_id)? {
@@ -1904,6 +1932,7 @@ impl Chain {
         }
 
         if self.epoch_manager.is_next_block_epoch_start(block.header().prev_hash())? {
+            self.maybe_start_memtrie_preload_for_resharding(&block)?;
             // Keep in memory only these tries that we care about this or next epoch.
             self.runtime_adapter.get_tries().retain_memtries(&shards_cares_this_or_next_epoch);
         }
@@ -2130,6 +2159,41 @@ impl Chain {
             return Ok(None);
         }
         Ok(Some(new_flat_head))
+    }
+
+    /// If a resharding is upcoming (current epoch's shard layout differs from
+    /// the next epoch), start loading the parent shard's memtrie in a background
+    /// thread so it's ready by the time resharding executes.
+    fn maybe_start_memtrie_preload_for_resharding(&self, block: &Block) -> Result<(), Error> {
+        let Some(parent_shard_uid) = self
+            .epoch_manager
+            .get_resharding_parent_shard_uid(block.header().epoch_id(), block.hash())
+        else {
+            return Ok(());
+        };
+
+        if !self.shard_tracker.cares_about_shard_this_or_next_epoch(
+            block.header().prev_hash(),
+            parent_shard_uid.shard_id(),
+        ) {
+            return Ok(());
+        }
+
+        let tries = self.runtime_adapter.get_tries();
+        if tries.get_memtries(parent_shard_uid).is_some() {
+            return Ok(());
+        }
+
+        tracing::info!(
+            target: "memtrie",
+            ?parent_shard_uid,
+            "detected upcoming resharding, starting background memtrie load"
+        );
+        tries.spawn_background_memtrie_loading_for_shard(
+            parent_shard_uid,
+            &*self.memtrie_loading_spawner,
+        );
+        Ok(())
     }
 
     /// Update flat storage and memtrie for given `shard_id` and newly

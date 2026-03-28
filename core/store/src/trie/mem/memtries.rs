@@ -241,6 +241,11 @@ impl MemTries {
         }
     }
 
+    /// Returns whether the given state root exists in this memtrie.
+    pub fn contains_root(&self, root: &StateRoot) -> bool {
+        self.roots.contains_key(root)
+    }
+
     #[cfg(test)]
     pub fn arena(&self) -> &HybridArena {
         &self.arena

@@ -37,7 +37,8 @@ use near_chain::test_utils::format_hash;
 use near_chain::types::{ChainConfig, LatestKnown, RuntimeAdapter};
 use near_chain::{
     ApplyChunksIterationMode, ApplyChunksSpawner, BlockProcessingArtifact, BlockStatus, Chain,
-    ChainGenesis, ChainStoreAccess, ChunksReadiness, Doomslug, DoomslugThresholdMode, Provenance,
+    ChainGenesis, ChainStoreAccess, ChunksReadiness, Doomslug, DoomslugThresholdMode,
+    MemtrieLoadingSpawner, Provenance,
 };
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdatableClientConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
@@ -267,6 +268,8 @@ pub struct AsyncComputationMultiSpawner {
     epoch_sync: Arc<dyn AsyncComputationSpawner>,
     /// Spawner to run 'prepare transactions' tasks (defaults to `RayonAsyncComputationSpawner`)
     prepare_transactions: Arc<dyn AsyncComputationSpawner>,
+    /// Spawner to run background memtrie loading tasks (defaults to `StdThreadAsyncComputationSpawner`)
+    pub memtrie_loading: MemtrieLoadingSpawner,
 }
 
 impl Default for AsyncComputationMultiSpawner {
@@ -275,6 +278,7 @@ impl Default for AsyncComputationMultiSpawner {
             apply_chunks: Default::default(),
             epoch_sync: Arc::new(RayonAsyncComputationSpawner),
             prepare_transactions: Arc::new(RayonAsyncComputationSpawner),
+            memtrie_loading: Default::default(),
         }
     }
 }
@@ -285,7 +289,8 @@ impl AsyncComputationMultiSpawner {
         Self {
             apply_chunks: ApplyChunksSpawner::Custom(spawner.clone()),
             epoch_sync: spawner.clone(),
-            prepare_transactions: spawner,
+            prepare_transactions: spawner.clone(),
+            memtrie_loading: MemtrieLoadingSpawner::Custom(spawner),
         }
     }
 
@@ -348,6 +353,7 @@ impl Client {
             snapshot_callbacks,
             multi_spawner.apply_chunks,
             apply_chunks_iteration_mode,
+            multi_spawner.memtrie_loading,
             validator_signer.clone(),
             resharding_sender.clone(),
             Some(myself_sender.on_post_state_ready.clone()),

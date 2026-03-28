@@ -474,11 +474,7 @@ impl ForkNetworkCommand {
         let runtime =
             NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager)
                 .context("could not create the transaction runtime")?;
-        // TODO: add an option to not load them all at once. As is, this takes an insane amount of memory for mainnet state.
-        runtime
-            .get_tries()
-            .load_memtries_for_enabled_shards(&all_shard_uids, &[].into(), true)
-            .unwrap();
+        runtime.get_tries().load_memtries_for_enabled_shards(&all_shard_uids, None, true)?;
 
         let shard_tries = runtime.get_tries();
         let target_shard_layout2 = target_shard_layout.clone();
