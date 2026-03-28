@@ -572,16 +572,6 @@ pub async fn start_with_config_and_synchronization_impl(
         Arc::new(WitnessCreationThreadPool::new()),
     ));
 
-    let _gc_actor = actor_system.spawn_tokio_actor(GCActor::new(
-        runtime.store().clone(),
-        &chain_genesis,
-        runtime.clone(),
-        epoch_manager.clone(),
-        shard_tracker.clone(),
-        config.client_config.gc.clone(),
-        storage.is_local_archive(),
-    ));
-
     let resharding_handle = ReshardingHandle::new();
     let resharding_sender = actor_system.spawn_tokio_actor(ReshardingActor::new(
         epoch_manager.clone(),
@@ -644,6 +634,16 @@ pub async fn start_with_config_and_synchronization_impl(
         config.client_config.log_summary_period,
         epoch_manager.clone(),
     );
+    // Spawn after start_client so that Chain::new has initialized head in the store.
+    let _gc_actor = actor_system.spawn_tokio_actor(GCActor::new(
+        runtime.store().clone(),
+        &chain_genesis,
+        runtime.clone(),
+        epoch_manager.clone(),
+        shard_tracker.clone(),
+        config.client_config.gc.clone(),
+        storage.is_local_archive(),
+    ));
 
     client_adapter_for_shards_manager.bind(client_actor.clone());
     client_adapter_for_partial_witness_actor.bind(ChunkValidationSenderForPartialWitness {
