@@ -149,7 +149,7 @@ that is ‘old’ enough  - which in current configuration means 5 epochs ago.</
 <p>We run a single ‘round’ of GC after a new block is accepted to the chain - and
 in order not to delay the chain too much, we make sure that each round removes
 at most 2 blocks from the chain.</p>
-<p>For more details look at function <code>clear_data()</code> in file <code>chain/chain/src/chain.rs</code></p>
+<p>For more details look at function <code>clear_data()</code> in file <code>chain/chain/src/garbage_collection.rs</code></p>
 <h2 id="how-it-works"><a class="header" href="#how-it-works">How it works</a></h2>
 <p>Imagine the following chain (with 2 forks)</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/195649805-e7997192-be3a-4bf0-992d-d35b2ad80847.png" alt="" /></p>
@@ -184,6 +184,18 @@ the canonical chain:</p>
 <p>Same as before, we’d remove up to 2 blocks in each run:</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/195650127-b30865e1-d9c1-4950-8607-67d82a185b76.png" alt="" /></p>
 <p>Until we catch up to the <code>gc_stop</code>.</p>
+<h2 id="block-header-garbage-collection"><a class="header" href="#block-header-garbage-collection">Block header garbage collection</a></h2>
+<p>Before epoch sync existed, nodes needed all block headers to sync to the latest
+chain, so headers were kept forever. Now that epoch sync provides a lightweight
+proof-based bootstrap mechanism, old block headers are no longer needed and are
+garbage collected alongside their corresponding blocks.</p>
+<p>When GC processes a block (in <code>clear_block_data()</code>), it also deletes the block
+header from <code>DBCol::BlockHeader</code>. Sufficient headers are always kept for
+transaction validation: <code>transaction_validity_period</code> requires headers for
+approximately the last two epochs, and GC retains at least
+<code>MIN_GC_NUM_EPOCHS_TO_KEEP = 3</code> epochs of data.</p>
+<p>On archival nodes with split storage, block headers are copied to cold storage
+before being removed from the hot store.</p>
 
                     </main>
 
