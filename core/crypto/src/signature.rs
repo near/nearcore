@@ -76,10 +76,25 @@ impl TryFrom<&[u8]> for Secp256K1PublicKey {
     type Error = crate::errors::ParseKeyError;
 
     fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
-        data.try_into().map(Self).map_err(|_| Self::Error::InvalidLength {
+        let data: [u8; 64] = data.try_into().map_err(|_| Self::Error::InvalidLength {
             expected_length: 64,
             received_length: data.len(),
-        })
+        })?;
+
+        // We add 0x04 header byte to show that this is "uncompressed" public key, as
+        // internal `secp256k1_ec_pubkey_parse` expects it to be 65 bytes
+        //
+        // P.S. newer version of secp256k1 crate also accept 64 byte-sized PublicKey, but on older
+        // versions it just passes it to internal `secp256k1_ec_pubkey_parse` C library binding
+        let mut uncompressed = [0x04; 65];
+        uncompressed[1..].copy_from_slice(&data);
+
+        // This checks if PublicKey lies on the curve
+        secp256k1::PublicKey::from_slice(&uncompressed).map_err(|e| {
+            crate::errors::ParseKeyError::InvalidData { error_message: e.to_string() }
+        })?;
+
+        Ok(Self(data))
     }
 }
 
@@ -267,7 +282,11 @@ impl FromStr for PublicKey {
         let (key_type, key_data) = split_key_type_data(value)?;
         Ok(match key_type {
             KeyType::ED25519 => Self::ED25519(ED25519PublicKey(decode_bs58(key_data)?)),
-            KeyType::SECP256K1 => Self::SECP256K1(Secp256K1PublicKey(decode_bs58(key_data)?)),
+            KeyType::SECP256K1 => {
+                let data = decode_bs58::<64>(key_data)?;
+                let pk = Secp256K1PublicKey::try_from(data.as_slice())?;
+                Self::SECP256K1(pk)
+            }
         })
     }
 }
@@ -921,5 +940,8 @@ mod tests {
         assert!(serde_json::from_str::<PublicKey>(invalid).is_err());
         assert!(serde_json::from_str::<SecretKey>(invalid).is_err());
         assert!(serde_json::from_str::<Signature>(invalid).is_err());
+
+        let invalid_pk_secp = "\"secp256k1:qMoRgcoXai4mBPsdbHi1wfyxF9TdbPCF4qSDQTRP3TfescSRoUdSx6nmeQoN3aiwGzwMyGXAb1gUjBTv5AY8DXj\"";
+        assert!(serde_json::from_str::<PublicKey>(invalid_pk_secp).is_err());
     }
 }
