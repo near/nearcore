@@ -249,7 +249,7 @@ impl Handler<StateRequestHeader, Option<StatePartOrHeader>> for StateRequestActo
         let protocol_version = self
             .get_protocol_version_from_sync_hash(&sync_hash)
             .inspect_err(|err| {
-                tracing::error!(target: "sync", ?err, "failed to get sync_hash protocol version");
+                tracing::debug!(target: "sync", ?err, "failed to get sync_hash protocol version");
             })
             .ok()?;
 
@@ -301,7 +301,7 @@ impl Handler<StateRequestPart, Option<StatePartOrHeader>> for StateRequestActor 
         let protocol_version = self
             .get_protocol_version_from_sync_hash(&sync_hash)
             .inspect_err(|err| {
-                tracing::error!(target: "sync", ?err, "failed to get sync_hash protocol version");
+                tracing::debug!(target: "sync", ?err, "failed to get sync_hash protocol version");
             })
             .ok()?;
 
