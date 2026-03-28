@@ -203,6 +203,46 @@ let user = create_account_id("user");
 let user: AccountId = "user".parse().unwrap();
 ```
 
+## Anti-pattern: opaque base function tests
+
+A test should be readable at the call site — you should immediately see what it sets up, what it exercises, and what it checks. Avoid hiding test-specific logic behind a params builder passed to a shared base function. See `src/tests/resharding_v3.rs` for a real example of this anti-pattern.
+
+**Avoid this:**
+
+```rust
+fn test_feature_with_delayed_receipts() {
+    init_test_logger();
+    let params = TestFeatureParametersBuilder::default()
+        .deploy_test_contract(true)
+        .add_loop_action(call_burn_gas_contract(...))
+        .add_loop_action(check_receipts(...))
+        .limit_outgoing_gas(true)
+        .num_accounts(8)
+        .build();
+    test_feature_base(params);
+}
+```
+
+Every test looks the same — a builder with different flags passed to a monolithic function. What makes this test unique is buried in the params. You need to read `test_feature_base` to understand what `deploy_test_contract(true)` or `add_loop_action(...)` actually does.
+
+**Do this instead** — keep infrastructure config in a shared builder, but make the things that differ between tests visible in the test body:
+
+```rust
+fn test_feature_with_delayed_receipts() {
+    init_test_logger();
+    let mut harness = FeatureHarness::builder()
+        .limit_outgoing_gas(true)
+        .num_accounts(8)
+        .build();
+    harness.deploy_test_contract(&account);
+    harness.call_burn_gas_contract(...);
+    harness.check_receipts(...);
+    harness.shutdown();
+}
+```
+
+Now the test tells its own story: it deploys a contract, burns gas, and checks receipts. The builder only handles shared infrastructure (topology, genesis overrides).
+
 ## Migration
 
 For historical context, there are multiple existing ways for writing such tests. The following list presents these methods in order of their development:
