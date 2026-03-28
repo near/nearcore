@@ -772,7 +772,9 @@ fn call_gas_instrumentation(
             | InstrumentationKind::TableCopy
             | InstrumentationKind::MemoryInit
             | InstrumentationKind::MemoryFill
-            | InstrumentationKind::MemoryCopy,
+            | InstrumentationKind::MemoryCopy
+            | InstrumentationKind::MemoryGrow
+            | InstrumentationKind::TableGrow,
         ) => {
             let count_idx = local_idx.checked_add(1).ok_or(Error::TooManyLocals)?;
             func.local_tee(count_idx)
