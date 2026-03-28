@@ -101,62 +101,41 @@ The main logic is illustrated below:
 
 `PeerManagerActor` periodically sends a `NetworkInfo` message to `ClientActor`
 to update it on the latest peer information, which includes the height of each
-peer. Once `ClientActor` realizes that it is more than `sync_height_threshold`
-(which by default is set to 1) behind the highest height among peers, it starts
-to sync. The synchronization process is done in three steps:
+peer. Once `ClientActor` realizes that it is behind the highest height among
+peers, it starts to sync.
 
-1. Header sync. The node first identifies the headers it needs to sync through a
-   [`get_locator`](https://github.com/near/nearcore/blob/279044f09a7e6e5e3f26db4898af3655dae6eda6/chain/client/src/sync.rs#L332)
-   calculation. This is essentially an exponential backoff computation that
-   tries to identify commonly known headers between the node and its peers. Then
-   it would request headers from different peers, at most
-   `MAX_BLOCK_HEADER_HASHES` (which is 512) headers at a time.
-2. After the headers are synced, the node would determine whether it needs to
-   run state sync. The exact condition can be found
-   [here](https://github.com/near/nearcore/blob/279044f09a7e6e5e3f26db4898af3655dae6eda6/chain/client/src/sync.rs#L458)
-   but basically a node would do state sync if it is more than 2 epochs behind
-   the head of the network. State sync is a very complex process and warrants
-   its own section. We will give a high level overview here.
+The sync handler classifies the node into one of two categories based on how
+far behind it is:
 
-   1. First, the node computes `sync_hash` which is the hash of the block that
-      identifies the state that the node wants to sync. This is guaranteed to be
-      the first block of the most recent epoch. In fact, there is a
-      [check](https://github.com/near/nearcore/blob/279044f09a7e6e5e3f26db4898af3655dae6eda6/chain/chain/src/chain.rs#L4292)
-      on the receiver side that this is indeed the case. The node would also
-      request the block whose hash is `sync_hash`
-   2. The node [deletes basically all data (blocks, chunks, state) from its
-      storage](https://github.com/near/nearcore/blob/279044f09a7e6e5e3f26db4898af3655dae6eda6/chain/chain/src/chain.rs#L1809).
-      This is not an optimal solution, but it makes the implementation for
-      combining state easier when there is no stale data in storage.
-   3. For the state of each shard that the node needs to download, it first
-      requests a
-      [header](https://github.com/near/nearcore/blob/279044f09a7e6e5e3f26db4898af3655dae6eda6/core/primitives/src/syncing.rs#L40)
-      that contains some metadata the node needs to know about. Then the node
-      computes the number of state parts it needs to download and requests those
-      parts from different peers who track the shard.
-   4. After all parts are downloaded, the node [combines those state
-       parts](https://github.com/near/nearcore/blob/279044f09a7e6e5e3f26db4898af3655dae6eda6/chain/client/src/client_actor.rs#L1877)
-       and then
-       [finalizes](https://github.com/near/nearcore/blob/279044f09a7e6e5e3f26db4898af3655dae6eda6/chain/chain/src/chain.rs#L3065)
-       the state sync by applying the last chunk included in or before the sync
-       block so that the node has the state after applying sync block to be able
-       to apply the next block.
-   5. The node [resets
-        heads](https://github.com/near/nearcore/blob/279044f09a7e6e5e3f26db4898af3655dae6eda6/chain/chain/src/chain.rs#L1874)
-        properly after state sync.
+1. **Near horizon** (within ~2-3 epochs of the tip). The node enters block sync
+   directly. Header sync and block sync run together on every tick — header
+   sync extends the chain of known headers while block sync follows it,
+   requesting up to 10 blocks at a time. The node has recent enough state to
+   apply blocks as they arrive, so no state sync is needed.
 
-3. Block Sync. The node first gets the block with highest height that is on the
-   canonical chain and request from there `MAX_BLOCK_REQUESTS` (which is set to 5)
-   blocks from different peers in a round robin order. The block sync routine
-   runs again if head has changed (progress is made) or if a timeout (which is
-   set to 2s) has happened.
+2. **Far horizon** (more than ~2-3 epochs behind). The node follows the full
+   pipeline:
+   1. **Epoch sync**: downloads a light-client proof that bootstraps the node
+      to a recent epoch, skipping potentially millions of block headers.
+   2. **Header sync**: downloads block headers from the epoch sync boundary
+      forward, up to 512 headers at a time, until a valid state sync hash is
+      found.
+   3. **State sync**: downloads the full state snapshot at the sync hash (near
+      the beginning of a recent epoch). For each tracked shard, state parts are
+      downloaded from peers and assembled into the full state.
+   4. **Block sync**: downloads and applies blocks from the sync point to the
+      tip, with header sync running alongside.
+
+   If a non-genesis node needs epoch sync (it was running before but fell too
+   far behind), the node writes a data reset marker, shuts down, and restarts
+   fresh — wiping stale DB data before re-entering the far-horizon path.
+
+For more details, see the [sync documentation](./sync.md).
 
 **Note:** when a block is received and its height is no more than 500 + the
-node’s current head height, then the node would request its previous block
-automatically. This is called orphan sync and helps to speed up the syncing
-process. If, on the other hand, the height is more than 500 + the node’s current
-head height, the block is simply dropped.
-<!-- TODO: Either this note is incorrect or the block processing diagram is. -->
+node’s current head height, the node requests its previous block automatically.
+This is called orphan sync and helps speed up the syncing process. If the
+height is more than 500 + the node’s current head height, the block is dropped.
 
 ## How `ClientActor` works
 
@@ -164,13 +143,13 @@ ClientActor has some periodically running routines that are worth noting:
 
 * [Doomslug
   timer](https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L1198) -
-  This routine runs every `doomslug_step_period` (set to 100ms by default) and
+  This routine runs every `doomslug_step_period` (set to 10ms by default) and
   updates consensus information. If the node is a validator node, it also sends
   approvals when necessary.
 * [Block
   production](https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L991) -
   This routine runs every `block_production_tracking_delay` (which is set to
-  100ms by default) and checks if the node should produce a block.
+  10ms by default) and checks if the node should produce a block.
 * [Log
   summary](https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L1790) -
   Prints a log line that summarizes block rate, average gas used, the height of
