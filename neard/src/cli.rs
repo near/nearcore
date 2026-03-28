@@ -363,6 +363,11 @@ pub(super) struct InitCmd {
     /// from genesis configuration will be taken.
     #[clap(long)]
     max_gas_burnt_view: Option<Gas>,
+    /// Customize max_gas_burnt runtime limit for localnet/sandbox ONLY.
+    /// If not specified, value from runtime parameters will be used.
+    /// This override is ignored on mainnet, testnet and other production chains.
+    #[clap(long)]
+    max_gas_burnt: Option<Gas>,
     /// Specify the cloud bucket to use for state sync.
     #[clap(long)]
     state_sync_bucket: Option<String>,
@@ -425,6 +430,7 @@ impl InitCmd {
             self.download_config_url.as_deref(),
             self.boot_nodes.as_deref(),
             self.max_gas_burnt_view,
+            self.max_gas_burnt,
             self.state_sync_bucket.as_deref(),
         )
         .context("Failed to initialize configs")
@@ -477,6 +483,12 @@ pub(super) struct RunCmd {
     /// configuration will be taken.
     #[clap(long)]
     max_gas_burnt_view: Option<Gas>,
+    /// Customize max_gas_burnt runtime limit for localnet/sandbox ONLY.
+    /// If not specified, either value given at 'init' (i.e. present in config.json)
+    /// or one from runtime parameters will be used.
+    /// This override is ignored on mainnet, testnet and other production chains.
+    #[clap(long)]
+    max_gas_burnt: Option<Gas>,
 }
 
 impl RunCmd {
@@ -544,6 +556,9 @@ impl RunCmd {
         }
         if self.max_gas_burnt_view.is_some() {
             near_config.client_config.max_gas_burnt_view = self.max_gas_burnt_view;
+        }
+        if self.max_gas_burnt.is_some() {
+            near_config.client_config.max_gas_burnt = self.max_gas_burnt;
         }
 
         #[cfg(feature = "sandbox")]
