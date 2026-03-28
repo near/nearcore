@@ -2,12 +2,13 @@ use crate::setup::builder::{ArchivalKind, TestLoopBuilder};
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::archival_account_id;
 use crate::utils::cloud_archival::{
-    WriterConfig, add_writer_node, apply_writer_settings, bootstrap_reader_at_height,
-    check_account_balance, check_data_at_height_for_shards, gc_and_heads_sanity_checks,
-    get_cloud_head, get_writer_handle, run_node_until, simulate_lagging_shard,
-    snapshots_sanity_check, stop_and_restart_node,
+    WriterConfig, add_writer_node, apply_writer_settings, bootstrap_reader, check_account_balance,
+    check_data_at_height_for_shards, gc_and_heads_sanity_checks, get_cloud_head, get_writer_handle,
+    run_node_until, simulate_lagging_shard, snapshots_sanity_check, stop_and_restart_node,
+    verify_block_range,
 };
 use near_async::time::Duration;
+use near_chain::ChainStoreAccess;
 use near_chain_configs::MIN_GC_NUM_EPOCHS_TO_KEEP;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ShardId};
@@ -116,9 +117,9 @@ impl CloudArchiveHarness {
         stop_and_restart_node(&mut self.env, node_identifier.as_str());
     }
 
-    fn bootstrap_reader(&mut self, target_height: BlockHeight) {
+    fn bootstrap_reader(&mut self, start_height: BlockHeight, target_height: BlockHeight) {
         let reader_id: AccountId = "reader".parse().unwrap();
-        bootstrap_reader_at_height(&mut self.env, &reader_id, target_height);
+        bootstrap_reader(&mut self.env, &reader_id, start_height, target_height);
         self.reader_id = Some(reader_id);
     }
 
@@ -151,6 +152,12 @@ impl CloudArchiveHarness {
         let head_height = self.env.archival_node().head().height;
         let final_epoch_height = head_height / self.epoch_length;
         snapshots_sanity_check(&self.env, &self.archival_id, final_epoch_height);
+    }
+
+    fn assert_reader_blocks(&self, start_height: BlockHeight, end_height: BlockHeight) {
+        let reader_id = self.reader_id.as_ref().expect("no reader bootstrapped");
+        let store = self.env.node_for_account(reader_id).client().chain.chain_store().store();
+        verify_block_range(&store, start_height, end_height);
     }
 
     fn assert_reader_account_balance(&self, account: &AccountId, expected: Balance) {
@@ -289,11 +296,12 @@ fn test_cloud_archival_use_snapshot() {
     h.assert_heads_and_gc_ok();
     h.assert_snapshots_ok();
 
-    // Bootstrap reader at mid-epoch-2. Verify the target was gc-ed locally
-    // so the reader must use cloud storage.
+    // Bootstrap reader from mid-epoch-1 to mid-epoch-2, spanning an epoch boundary.
+    let start = h.epoch_length / 2;
     let target = h.epoch_length + h.epoch_length / 2;
     assert!(h.gc_tail() > target, "target height should be gc-ed");
-    h.bootstrap_reader(target);
+    h.bootstrap_reader(start, target);
+    h.assert_reader_blocks(start, target);
     h.assert_reader_account_balance(
         &CloudArchiveHarness::USER_ACCOUNT.parse().unwrap(),
         CloudArchiveHarness::USER_BALANCE,

@@ -16,6 +16,8 @@ pub enum EpochData {
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct EpochDataV1 {
+    /// The epoch ID this data belongs to.
+    epoch_id: EpochId,
     /// Read from `DBCol::EpochInfo`.
     epoch_info: EpochInfo,
     /// Provided by the caller of `build_epoch_data`.
@@ -49,6 +51,7 @@ pub fn build_epoch_data(
     let epoch_start_prev_block_merkle_tree =
         store.get_block_merkle_tree(epoch_start_block.header().prev_hash())?;
     let epoch_data = EpochDataV1 {
+        epoch_id,
         epoch_info,
         shard_layout,
         epoch_start_height,
@@ -59,6 +62,12 @@ pub fn build_epoch_data(
 }
 
 impl EpochData {
+    pub fn epoch_id(&self) -> &EpochId {
+        match self {
+            EpochData::V1(data) => &data.epoch_id,
+        }
+    }
+
     pub fn epoch_info(&self) -> &EpochInfo {
         match self {
             EpochData::V1(data) => &data.epoch_info,
