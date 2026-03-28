@@ -45,9 +45,7 @@ ignore = [
     # of existence naturally.
     "RUSTSEC-2024-0436",
 
-    # rustls-pemfile is no longer maintained, but it's indirectly required by rust-s3,
-    # which cannot be updated without moving to Rust 1.88
-    # TODO(#14768): Remove this and updated necessary crates to get rid of rustls-pemfile
+    # rustls-pemfile is unmaintained, but it's indirectly required by object_store and reqwest
     "RUSTSEC-2025-0134",
 
     # time has a DoS vulnerability (stack exhaustion), fixed in 0.3.47+ which requires Rust 1.88

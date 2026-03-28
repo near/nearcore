@@ -4,9 +4,9 @@ use lru::LruCache;
 use near_async::time::Clock;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
-use s3::creds::time::ext::InstantExt as _;
 use std::hash::Hash;
 use std::num::NonZeroUsize;
+use time::ext::InstantExt as _;
 
 /// Limit to the number of witnesses tracked.
 ///
