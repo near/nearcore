@@ -15,12 +15,16 @@ pub struct AccessKey {
 }
 ```
 
-There are 2 types of `AccessKeyPermission` in NEAR currently: `FullAccess` and `FunctionCall`. `FullAccess` grants permissions to issue any action on the account. This includes [DeployContract](../RuntimeSpec/Actions.md#deploycontractaction), [Transfer](../RuntimeSpec/Actions.md#transferaction) tokens, call functions [FunctionCall](../RuntimeSpec/Actions.md#functioncallaction), [Stake](../RuntimeSpec/Actions.md#stakeaction) and even permission to delete the account [DeleteAccountAction](../RuntimeSpec/Actions.md#deleteaccountaction). `FunctionCall` on the other hand, **only** grants permission to call any or a specific set of methods on one given contract. It has an allowance of `$NEAR` that can be spent on **GAS and transaction fees only**. Function call access keys **cannot** be used to transfer `$NEAR`.
+There are 2 types of access keys in NEAR: **regular access keys** and **gas keys**. Regular access keys have `FullAccess` or `FunctionCall` permission. Gas keys have `GasKeyFullAccess` or `GasKeyFunctionCall` permission and carry a prepaid balance used to pay for gas costs.
+
+`FullAccess` grants permissions to issue any action on the account. This includes [DeployContract](../RuntimeSpec/Actions.md#deploycontractaction), [Transfer](../RuntimeSpec/Actions.md#transferaction) tokens, call functions [FunctionCall](../RuntimeSpec/Actions.md#functioncallaction), [Stake](../RuntimeSpec/Actions.md#stakeaction) and even permission to delete the account [DeleteAccountAction](../RuntimeSpec/Actions.md#deleteaccountaction). `FunctionCall` on the other hand, **only** grants permission to call any or a specific set of methods on one given contract. It has an allowance of `$NEAR` that can be spent on **GAS and transaction fees only**. Function call access keys **cannot** be used to transfer `$NEAR`.
 
 ```rust
 pub enum AccessKeyPermission {
     FunctionCall(FunctionCallPermission),
     FullAccess,
+    GasKeyFunctionCall(GasKeyInfo, FunctionCallPermission),
+    GasKeyFullAccess(GasKeyInfo),
 }
 ```
 
@@ -47,6 +51,48 @@ pub struct FunctionCallPermission {
     pub method_names: Vec<String>,
 }
 ```
+
+## Gas Keys
+
+Gas keys are a special type of access key that carry a prepaid NEAR balance used exclusively to pay for gas costs. When a transaction is signed with a gas key, the gas fees are deducted from the gas key's balance rather than the signer's account balance. Deposits (e.g., for `Transfer` or `FunctionCall` with attached deposit) are still paid from the account balance.
+
+Gas keys are created via [AddKey](../RuntimeSpec/Actions.md#addkeyaction) with a `GasKeyFullAccess` or `GasKeyFunctionCall` permission. They are funded via [TransferToGasKey](../RuntimeSpec/Actions.md#transfertogaskeyaction) and drained via [WithdrawFromGasKey](../RuntimeSpec/Actions.md#withdrawfromgaskeyaction).
+
+### GasKeyInfo
+
+```rust
+pub struct GasKeyInfo {
+    /// Prepaid balance available for paying gas costs.
+    pub balance: Balance,
+    /// Number of independent nonce slots for this gas key.
+    pub num_nonces: NonceIndex,
+}
+```
+
+- `balance` starts at zero when the key is created and is increased via `TransferToGasKey`.
+- `num_nonces` determines how many independent nonce indices (0..num_nonces) the gas key supports, enabling parallel transaction submission. Maximum value is 1024.
+
+### AccessKeyPermission::GasKeyFullAccess
+
+Equivalent to `FullAccess` but with a gas key balance. Grants permission to issue any action on the account, with gas costs paid from the gas key balance.
+
+### AccessKeyPermission::GasKeyFunctionCall
+
+Equivalent to `FunctionCall` but with a gas key balance. Grants limited permission to make function calls, with gas costs paid from the gas key balance. The `FunctionCallPermission` embedded in this variant must have `allowance` set to `None`.
+
+### Gas Key Nonces
+
+Unlike regular access keys which have a single nonce, gas keys have multiple independent nonce slots (up to 1024). Each nonce slot is stored separately in the trie as a `GasKeyNonce` entry. This allows multiple clients sharing the same gas key to submit transactions in parallel without nonce conflicts by using different `nonce_index` values.
+
+Transactions using a gas key must be `TransactionV1` and include a `GasKeyNonce` which specifies both the `nonce` value and the `nonce_index` to use. See [Transactions](../RuntimeSpec/Transactions.md) for details.
+
+### Gas Key Deletion
+
+When a gas key is deleted (via [DeleteKey](../RuntimeSpec/Actions.md#deletekeyaction)), its remaining balance is burned. To protect users from accidental loss, deletion fails if the gas key balance exceeds 1 NEAR. Users must first withdraw funds via [WithdrawFromGasKey](../RuntimeSpec/Actions.md#withdrawfromgaskeyaction) to reduce the balance below 1 NEAR before deleting.
+
+### Gas Key Namespace
+
+Gas keys and regular access keys share the same public key namespace on an account. A public key can only be associated with one access key (regular or gas) at a time. Adding a key with a public key that already exists will fail with `AddKeyAlreadyExists`.
 
 ## Account without access keys
 
