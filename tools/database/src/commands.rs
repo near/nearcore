@@ -4,6 +4,7 @@ use crate::analyze_data_size_distribution::AnalyzeDataSizeDistributionCommand;
 use crate::analyze_delayed_receipt::AnalyzeDelayedReceiptCommand;
 use crate::analyze_gas_usage::AnalyzeGasUsageCommand;
 use crate::analyze_high_load::HighLoadStatsCommand;
+use crate::backfill_receipt_to_tx::BackfillReceiptToTxCommand;
 use crate::compact::RunCompactionCommand;
 use crate::drop_column::DropColumnCommand;
 use crate::make_snapshot::MakeSnapshotCommand;
@@ -73,6 +74,10 @@ enum SubCommand {
     /// Analyze size of contracts present in the current state
     AnalyzeContractSizes(AnalyzeContractSizesCommand),
 
+    /// Backfill the ReceiptToTx DB column from historical execution outcomes.
+    /// Reconstructs receipt-to-transaction mappings for the EXPERIMENTAL_receipt_to_tx RPC.
+    BackfillReceiptToTx(BackfillReceiptToTxCommand),
+
     /// Manually set database version
     SetVersion(SetVersionCommand),
 }
@@ -103,6 +108,7 @@ impl DatabaseCommand {
             SubCommand::HighLoadStats(cmd) => cmd.run(home),
             SubCommand::AnalyzeDelayedReceipt(cmd) => cmd.run(home, genesis_validation),
             SubCommand::AnalyzeContractSizes(cmd) => cmd.run(home, genesis_validation),
+            SubCommand::BackfillReceiptToTx(cmd) => cmd.run(home, genesis_validation),
             SubCommand::SetVersion(cmd) => cmd.run(home, genesis_validation),
         }
     }
