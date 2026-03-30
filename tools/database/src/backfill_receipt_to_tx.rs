@@ -137,6 +137,8 @@ pub fn backfill_receipt_to_tx(
     let mut store_update = write_store.store_update();
     let mut batch_count: usize = 0;
     let mut stats = BackfillStats { blocks_processed: 0, entries_written: 0, heights_skipped: 0 };
+    let mut last_completed_height: Option<BlockHeight> = None;
+    let mut last_checkpointed_height: Option<BlockHeight> = None;
 
     for height in from_height..=to_height {
         let block_hash = match chain_store.get_block_hash_by_height(height) {
@@ -241,8 +243,13 @@ pub fn backfill_receipt_to_tx(
                         store_update.commit();
                         store_update = write_store.store_update();
                         batch_count = 0;
-                        if let Some(path) = checkpoint_path {
-                            write_checkpoint(path, height)?;
+                        if let (Some(path), Some(completed)) =
+                            (checkpoint_path, last_completed_height)
+                        {
+                            if last_checkpointed_height != Some(completed) {
+                                write_checkpoint(path, completed)?;
+                                last_checkpointed_height = Some(completed);
+                            }
                         }
                     }
                 }
@@ -250,6 +257,8 @@ pub fn backfill_receipt_to_tx(
         }
 
         stats.blocks_processed += 1;
+        last_completed_height = Some(height);
+
         if let Some(p) = progress {
             p.inc(1);
         }
@@ -267,8 +276,10 @@ pub fn backfill_receipt_to_tx(
     // Flush remaining batch.
     if batch_count > 0 {
         store_update.commit();
-        if let Some(path) = checkpoint_path {
-            write_checkpoint(path, to_height)?;
+    }
+    if let (Some(path), Some(completed)) = (checkpoint_path, last_completed_height) {
+        if last_checkpointed_height != Some(completed) {
+            write_checkpoint(path, completed)?;
         }
     }
 

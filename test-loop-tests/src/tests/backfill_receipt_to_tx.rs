@@ -7,6 +7,7 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::Balance;
 use near_store::DBCol;
+use std::fs;
 
 const EPOCH_LENGTH: u64 = 5;
 
@@ -211,4 +212,95 @@ fn test_backfill_idempotent() {
         assert_eq!(k1, k2);
         assert_eq!(v1, v2);
     }
+}
+
+/// Checkpoint only records fully completed heights, not in-progress ones.
+///
+/// Uses batch_size=1 so every entry triggers a batch commit. Verifies that:
+/// 1. After completion, checkpoint equals the last processed height
+/// 2. Re-running from checkpoint processes 0 new entries (no skipped receipts)
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_checkpoint_does_not_skip_mid_height_receipts() {
+    init_test_logger();
+
+    let user_account = create_account_id("account0");
+
+    let mut env = TestLoopBuilder::new()
+        .add_user_account(&user_account, Balance::from_near(1_000_000))
+        .epoch_length(EPOCH_LENGTH)
+        .config_modifier(|config, _| {
+            config.save_receipt_to_tx = false;
+        })
+        .build();
+
+    let signer = create_user_test_signer(&user_account);
+    let block_hash = env.validator().head().last_block_hash;
+
+    let tx = SignedTransaction::send_money(
+        1,
+        user_account.clone(),
+        user_account,
+        &signer,
+        Balance::from_yoctonear(100),
+        block_hash,
+    );
+    env.validator().submit_tx(tx);
+
+    let target_height = env.validator().head().height + 2 * EPOCH_LENGTH;
+    env.validator_runner().run_until_executed_height(target_height);
+
+    let store = env.validator().store();
+    let chain_store = env.validator().client().chain.chain_store();
+    let genesis_height = chain_store.get_genesis_height();
+    let head_height = env.validator().head().height;
+
+    let checkpoint_dir = tempfile::tempdir().unwrap();
+    let checkpoint_path = checkpoint_dir.path().join("test.checkpoint");
+
+    // Run backfill with batch_size=1 (commits after every single entry).
+    // This maximizes the chance of mid-height commits.
+    let stats = backfill_receipt_to_tx(
+        chain_store,
+        &store,
+        &store,
+        genesis_height,
+        head_height,
+        1, // batch_size=1: commit after every entry
+        Some(&checkpoint_path),
+        None,
+    )
+    .expect("backfill should succeed");
+
+    assert!(stats.entries_written > 0, "backfill should have written entries");
+
+    // Checkpoint should exist and equal head_height.
+    let checkpoint_value: u64 =
+        fs::read_to_string(&checkpoint_path).unwrap().trim().parse().unwrap();
+    assert_eq!(checkpoint_value, head_height, "checkpoint should equal the last processed height");
+
+    let entries_count = store.iter(DBCol::ReceiptToTx).count();
+
+    // Now resume from checkpoint. Since checkpoint = head_height,
+    // from_height = checkpoint+1 > head_height, so nothing to process.
+    // This proves the checkpoint correctly represents "everything up to
+    // this height is done" — no receipts were skipped mid-height.
+    let stats2 = backfill_receipt_to_tx(
+        chain_store,
+        &store,
+        &store,
+        checkpoint_value + 1,
+        head_height,
+        1,
+        Some(&checkpoint_path),
+        None,
+    )
+    .expect("resume backfill should succeed");
+
+    assert_eq!(stats2.entries_written, 0, "resume should write 0 new entries");
+    assert_eq!(
+        store.iter(DBCol::ReceiptToTx).count(),
+        entries_count,
+        "entry count should not change after resume"
+    );
 }
