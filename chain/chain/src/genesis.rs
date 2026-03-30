@@ -19,7 +19,7 @@ use near_primitives::types::chunk_extra::{ChunkExtra, ChunkExtraV2};
 use near_primitives::types::{Balance, EpochId, Gas, ShardId, StateRoot};
 use near_primitives::version::{PROD_GENESIS_PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreUpdateAdapter;
-use near_store::{Store, TrieChanges, get_genesis_state_roots};
+use near_store::{Store, get_genesis_state_roots};
 use near_vm_runner::logic::ProtocolVersion;
 use node_runtime::bootstrap_congestion_info;
 use std::sync::Arc;
@@ -118,7 +118,6 @@ impl Chain {
         chain_store: &mut ChainStore,
         genesis: &Block,
         genesis_chunks: &[ShardChunk],
-        save_trie_changes: bool,
     ) -> Result<(), Error> {
         let state_roots = genesis_chunks.iter().map(|chunk| chunk.prev_state_root()).collect_vec();
         let mut store_update = chain_store.store_update();
@@ -157,24 +156,13 @@ impl Chain {
         let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
         let genesis_epoch_id = genesis.header().epoch_id();
         let mut tmp_store_update = store_update.store().store_update();
-        for (shard_uid, state_root) in
-            epoch_manager.get_shard_layout(genesis_epoch_id)?.shard_uids().zip(state_roots.iter())
-        {
+        for shard_uid in epoch_manager.get_shard_layout(genesis_epoch_id)?.shard_uids() {
             flat_storage_manager.set_flat_storage_for_genesis(
                 &mut tmp_store_update.flat_store_update(),
                 shard_uid,
                 genesis.hash(),
                 genesis.header().height(),
             );
-            if save_trie_changes {
-                // Save empty TrieChanges for genesis so that the cold store loop
-                // can process genesis height using the standard update_cold_db path.
-                tmp_store_update.trie_store_update().set_trie_changes(
-                    shard_uid,
-                    genesis.hash(),
-                    &TrieChanges::empty(*state_root),
-                );
-            }
         }
         store_update.merge(tmp_store_update);
         store_update.commit()?;

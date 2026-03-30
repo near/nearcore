@@ -530,7 +530,6 @@ impl Chain {
                     &mut chain_store,
                     &genesis,
                     &genesis_chunks,
-                    chain_config.save_trie_changes,
                 )?;
                 let genesis_head = Tip::from_header(genesis.header());
                 (genesis_head.clone(), genesis_head)
