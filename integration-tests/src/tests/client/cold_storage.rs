@@ -428,9 +428,9 @@ fn test_cold_loop_on_gc_boundary() {
     set_genesis_height(&mut store_update, &0);
     store_update.commit();
 
-    test_copy_all_data_to_cold(cold_db, &hot_store).unwrap();
+    test_copy_all_data_to_cold(cold_db, hot_store).unwrap();
 
-    update_cold_head(cold_db, &hot_store, &(height_delta - 1)).unwrap();
+    update_cold_head(cold_db, hot_store, &(height_delta - 1)).unwrap();
 
     for height in height_delta..height_delta * 2 {
         let signer = InMemorySigner::test_signer(&test0());
