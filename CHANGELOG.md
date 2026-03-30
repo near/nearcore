@@ -5,12 +5,18 @@
 ### Protocol Changes
 * The contract runtime has been upgraded to use the new Wasmtime-based runtime;
 * The contract runtime now allows for bulk memory instructions in Wasm code.
+* New opt-in strict nonce mode for transactions added in nightly. When enabled, transactions with stale nonces are rejected and expired strict-nonce transactions are evicted from the pool via callback. ([#15361](https://github.com/near/nearcore/pull/15361), [#15402](https://github.com/near/nearcore/pull/15402))
+* Make sure delegate action returns the correct error consistently. ([#15458](https://github.com/near/nearcore/pull/15458))
 
 ### Non-protocol Changes
 * Removed deprecated fields from `EpochConfig`, `GenesisConfig`, and `ProtocolConfigView`: `num_block_producer_seats_per_shard`, `avg_hidden_validator_seats_per_shard`, `num_chunk_only_producer_seats`.
 * New `EXPERIMENTAL_receipt_to_tx` RPC method that resolves a receipt ID back to the originating transaction hash and sender account. Requires `save_receipt_to_tx` config enabled and all-shards tracking. ([#15414](https://github.com/near/nearcore/pull/15414))
 * New sync handler (sync-v2) replaces the legacy sync implementation with a clean state machine. Nodes are routed through one of two paths based on how far behind they are: near-horizon nodes sync blocks directly, while far-horizon nodes follow the full pipeline (epoch sync, header sync, state sync, block sync). ([#15335](https://github.com/near/nearcore/pull/15335))
 * Epoch sync proofs are now maintained incrementally at each epoch boundary instead of being derived on demand. Block headers are garbage collected alongside block bodies on non-archival nodes, reducing disk usage. ([#15412](https://github.com/near/nearcore/pull/15412))
+* Validator key consistency check runs once per epoch to detect mismatches between the node's validator key and the key registered on chain. Misconfigured nodes will exit via panic. ([#15417](https://github.com/near/nearcore/pull/15417))
+* State sync status now shows download and apply parts progress. ([#15391](https://github.com/near/nearcore/pull/15391))
+* Fix: allow `Disconnect` message on Tier3 connections. ([#15405](https://github.com/near/nearcore/pull/15405))
+* Fix: gracefully handle expired peer in `peer_connection_attempt`. ([#15390](https://github.com/near/nearcore/pull/15390))
 
 ## [2.11.0]
 
