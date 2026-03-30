@@ -40,8 +40,13 @@ pub(crate) struct FlatStorageInner {
     flat_head: BlockInfo,
     /// Cached deltas for all blocks supported by this flat storage.
     deltas: HashMap<CryptoHash, CachedFlatStateDelta>,
-    /// Defines whether flat head can be moved forward or not.
-    move_head_enabled: bool,
+    /// Number of active holds preventing the flat head from advancing.
+    /// Flat head updates are allowed only when this counter is zero.
+    /// Multiple subsystems (state snapshots, background memtrie loading, etc.)
+    /// may independently hold the flat head; the counter ensures one releasing
+    /// its hold does not accidentally re-enable updates while another still
+    /// needs them paused.
+    move_head_hold_count: u32,
     metrics: FlatStorageMetrics,
 }
 
@@ -271,7 +276,7 @@ impl FlatStorage {
             shard_uid,
             flat_head,
             deltas,
-            move_head_enabled: true,
+            move_head_hold_count: 0,
             metrics,
         };
         inner.update_delta_metrics();
@@ -361,7 +366,7 @@ impl FlatStorage {
         strict: bool,
     ) -> Result<(), FlatStorageError> {
         let mut guard = self.0.write();
-        if !guard.move_head_enabled {
+        if guard.move_head_hold_count > 0 {
             return Ok(());
         }
 
@@ -487,13 +492,29 @@ impl FlatStorage {
         guard.shard_uid
     }
 
-    /// Updates `move_head_enabled`. If false, this will prevent flat storage updates and deltas will accumulate
-    /// until this is called again with `enabled=true`.
-    /// TODO: This could be improved by setting a maximum block height instead of a bool that disables all updates,
-    /// by using the `want_snapshot` field of the flat storage manager we already have.
-    pub fn set_flat_head_update_mode(&self, enabled: bool) {
+    /// Places a hold that prevents the flat head from advancing. Returns a
+    /// guard that releases the hold when dropped. Multiple holds can be active
+    /// simultaneously (e.g. from state snapshots and background memtrie
+    /// loading). The flat head will not advance until all guards are dropped.
+    pub fn hold_flat_head(&self) -> FlatHeadHold {
+        self.0.write().move_head_hold_count += 1;
+        FlatHeadHold(Arc::clone(&self.0))
+    }
+}
+
+/// RAII guard that keeps the flat head from advancing. Created by
+/// [`FlatStorage::hold_flat_head`]. When dropped, the hold is released and
+/// the flat head may advance once all holds are gone.
+pub struct FlatHeadHold(Arc<RwLock<FlatStorageInner>>);
+
+impl Drop for FlatHeadHold {
+    fn drop(&mut self) {
         let mut guard = self.0.write();
-        guard.move_head_enabled = enabled;
+        debug_assert!(
+            guard.move_head_hold_count > 0,
+            "FlatHeadHold dropped but hold count is already zero"
+        );
+        guard.move_head_hold_count -= 1;
     }
 }
 
