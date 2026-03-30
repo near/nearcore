@@ -6,6 +6,7 @@ use crate::{
     default_chunks_cache_height_horizon, default_enable_early_prepare_transactions,
     default_orphan_state_witness_max_size, default_orphan_state_witness_pool_size,
     default_produce_chunk_add_transactions_time_limit,
+    default_transaction_pool_strict_nonce_ttl_blocks,
 };
 use chrono::{DateTime, Utc};
 use near_crypto::{InMemorySigner, PublicKey};
@@ -127,8 +128,6 @@ impl Genesis {
 
             // epoch config parameters
             num_block_producer_seats: epoch_config.num_block_producer_seats,
-            num_block_producer_seats_per_shard: epoch_config.num_block_producer_seats_per_shard,
-            avg_hidden_validator_seats_per_shard: epoch_config.avg_hidden_validator_seats_per_shard,
             protocol_upgrade_stake_threshold: epoch_config.protocol_upgrade_stake_threshold,
             epoch_length: epoch_config.epoch_length,
             block_producer_kickout_threshold: epoch_config.block_producer_kickout_threshold,
@@ -169,9 +168,8 @@ impl Genesis {
         clock: Clock,
         accounts: Vec<AccountId>,
         num_validator_seats: NumSeats,
-        num_validator_seats_per_shard: Vec<NumSeats>,
+        num_shards: NumShards,
     ) -> Self {
-        let num_shards = num_validator_seats_per_shard.len() as NumShards;
         Self::from_accounts(
             clock,
             accounts,
@@ -183,9 +181,8 @@ impl Genesis {
     pub fn test_sharded_new_version(
         accounts: Vec<AccountId>,
         num_validator_seats: NumSeats,
-        num_validator_seats_per_shard: Vec<NumSeats>,
+        num_shards: NumShards,
     ) -> Self {
-        let num_shards = num_validator_seats_per_shard.len() as NumShards;
         Self::from_accounts(
             Clock::real(),
             accounts,
@@ -310,6 +307,7 @@ impl ClientConfig {
             save_trie_changes: true,
             save_untracked_partial_chunks_parts: true,
             save_tx_outcomes: true,
+            save_receipt_to_tx: true,
             save_state_changes: true,
             log_summary_style: LogSummaryStyle::Colored,
             view_client_threads: 1,
@@ -325,6 +323,8 @@ impl ClientConfig {
             state_sync: StateSyncConfig::default(),
             epoch_sync: EpochSyncConfig::default(),
             transaction_pool_size_limit: None,
+            transaction_pool_strict_nonce_ttl_blocks:
+                default_transaction_pool_strict_nonce_ttl_blocks(),
             enable_multiline_logging: false,
             resharding_config: MutableConfigValue::new(
                 ReshardingConfig::default(),

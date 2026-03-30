@@ -922,7 +922,6 @@ def create_and_upload_genesis_file_from_empty_genesis(
 
     genesis_config['shard_layout'] = {'V0': {'num_shards': 4, 'version': 0}}
     genesis_config['simple_nightshade_shard_layout'] = {}
-    genesis_config['num_block_producer_seats_per_shard'] = [int(num_seats)] * 4
 
     genesis_config['records'] = records
     pmap(

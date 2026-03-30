@@ -28,8 +28,8 @@ pub use client_config::{
     default_state_sync_external_timeout, default_state_sync_p2p_timeout,
     default_state_sync_retry_backoff, default_sync_check_period, default_sync_height_threshold,
     default_sync_max_block_requests, default_sync_step_period, default_transaction_pool_size_limit,
-    default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
-    default_view_client_threads,
+    default_transaction_pool_strict_nonce_ttl_blocks, default_trie_viewer_state_size_limit,
+    default_tx_routing_height_horizon, default_view_client_threads,
 };
 pub use genesis_config::{
     Genesis, GenesisChangeConfig, GenesisConfig, GenesisContents, GenesisRecords,

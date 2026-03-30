@@ -91,7 +91,6 @@ archival_config = {
 nodes = start_cluster(
     2, 1, 1, None,
     [["epoch_length", EPOCH_LENGTH], ["num_block_producer_seats", 5],
-     ["num_block_producer_seats_per_shard", [5]],
      ["chunk_producer_kickout_threshold", 80]], {
          0: client_config,
          1: client_config,

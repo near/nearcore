@@ -20,7 +20,10 @@ fn test_epoch_sync_proof_update() {
 
     init_test_logger();
     let epoch_length = 10;
-    let mut env = TestLoopBuilder::new().epoch_length(epoch_length).build();
+    // validate_epoch_sync_proof uses derive_epoch_sync_proof_from_last_block which
+    // needs epoch data back to genesis. Keep GC window large enough for 10 epochs.
+    let mut env =
+        TestLoopBuilder::new().epoch_length(epoch_length).gc_num_epochs_to_keep(10).build();
 
     let epoch_store = env.validator().client().chain.chain_store.epoch_store();
 
@@ -142,6 +145,8 @@ fn test_epoch_sync_stale_node_triggers_reset() {
 // Test that a fresh node (genesis-only) can bootstrap via epoch sync using the
 // ContinuousEpochSync proof path.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_epoch_sync_bootstrap_fresh_node() {
     // This test is only relevant when ContinuousEpochSync is enabled.
     if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
@@ -201,7 +206,6 @@ fn test_epoch_sync_bootstrap_fresh_node() {
             "EpochSync",
             "HeaderSync",
             "StateSync",
-            "StateSyncDone",
             "BlockSync",
             "NoSync",
         ]

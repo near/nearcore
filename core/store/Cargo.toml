@@ -49,6 +49,7 @@ tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+zstd.workspace = true
 
 near-async.workspace = true
 near-chain-configs = { workspace = true, features = ["metrics"] }

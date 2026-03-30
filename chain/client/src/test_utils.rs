@@ -141,6 +141,7 @@ fn create_chunk_on_height_for_shard(
             shard_id,
             &signer,
             &client.chain.transaction_validity_check(last_block.header().clone().into()),
+            &|_| true,
         )
         .unwrap()
         .unwrap()
@@ -169,6 +170,7 @@ pub fn create_chunk(
                 ShardId::new(0),
                 &signer,
                 &client.chain.transaction_validity_check(last_block.header().clone().into()),
+                &|_| true,
             )
             .unwrap()
             .unwrap();

@@ -139,7 +139,6 @@ The `src/examples/` directory contains minimal self-contained tests demonstratin
 | `missing_chunk.rs` | Triggering missing chunks using adversarial messages |
 | `validator_rotation.rs` | Validator rotation across epochs |
 | `resharding.rs` | Dynamic resharding (manual genesis setup) |
-| `raw_client.rs` | Low-level client setup without `TestLoopBuilder` |
 
 ## Advanced features
 

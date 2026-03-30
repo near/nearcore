@@ -1291,14 +1291,56 @@ mod tests {
             assert_eq!(receipt_or_state_stored_receipt, deserialized_receipt);
         }
     }
+
+    #[test]
+    fn receipt_to_tx_info_borsh_roundtrip_from_transaction() {
+        let info = ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+            origin: ReceiptOrigin::FromTransaction(ReceiptOriginTransaction {
+                tx_hash: CryptoHash::hash_bytes(b"tx"),
+                sender_account_id: "alice.near".parse().unwrap(),
+            }),
+            receiver_account_id: "bob.near".parse().unwrap(),
+            shard_id: ShardId::new(0),
+        });
+        let bytes = borsh::to_vec(&info).unwrap();
+        let decoded: ReceiptToTxInfo = borsh::from_slice(&bytes).unwrap();
+        assert_eq!(info, decoded);
+    }
+
+    #[test]
+    fn receipt_to_tx_info_borsh_roundtrip_from_receipt() {
+        let info = ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+            origin: ReceiptOrigin::FromReceipt(ReceiptOriginReceipt {
+                parent_receipt_id: CryptoHash::hash_bytes(b"parent"),
+                parent_predecessor_id: "alice.near".parse().unwrap(),
+            }),
+            receiver_account_id: "contract.near".parse().unwrap(),
+            shard_id: ShardId::new(1),
+        });
+        let bytes = borsh::to_vec(&info).unwrap();
+        let decoded: ReceiptToTxInfo = borsh::from_slice(&bytes).unwrap();
+        assert_eq!(info, decoded);
+    }
 }
 
 /// Source of a processed receipt, used to track how a receipt was applied.
+///
+/// Stored in `DBCol::ProcessedReceiptIds` (local-only, not part of consensus).
+/// Adding new variants is safe for protocol but may cause deserialization
+/// failures if the node rolls back to an older binary. Recovery via epoch sync.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ReceiptSource {
-    Local,
-    Delayed,
-    Instant,
+    Local = 0,
+    Delayed = 1,
+    Instant = 2,
+    /// Marker for receipt IDs that only need their `ReceiptToTx` index entry
+    /// garbage-collected. Used for receipts whose `ReceiptToTx` mapping was saved
+    /// on the source shard but that don't appear in `OutcomeIds` (e.g. data
+    /// receipts, PromiseResume, cross-shard receipts on a source-only node,
+    /// GlobalContractDistribution receipts).
+    ReceiptToTxGc = 3,
 }
 
 /// A processed receipt together with its source. Runtime-only struct, not serialized to DB.
@@ -1310,8 +1352,10 @@ pub struct ProcessedReceipt {
 
 /// Lightweight metadata about a processed receipt, stored instead of the full receipt.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ProcessedReceiptMetadata {
-    V0(ProcessedReceiptMetadataV0),
+    V0(ProcessedReceiptMetadataV0) = 0,
 }
 
 impl ProcessedReceiptMetadata {
@@ -1336,4 +1380,44 @@ impl ProcessedReceiptMetadata {
 pub struct ProcessedReceiptMetadataV0 {
     pub receipt_id: CryptoHash,
     pub source: ReceiptSource,
+}
+
+/// Describes the origin of a receipt: either created directly from a transaction,
+/// or spawned as a child of another receipt.
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+pub enum ReceiptOrigin {
+    FromTransaction(ReceiptOriginTransaction) = 0,
+    FromReceipt(ReceiptOriginReceipt) = 1,
+}
+
+/// A receipt that was created directly from a signed transaction.
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
+pub struct ReceiptOriginTransaction {
+    pub tx_hash: CryptoHash,
+    pub sender_account_id: AccountId,
+}
+
+/// A receipt that was spawned as a child of another receipt.
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
+pub struct ReceiptOriginReceipt {
+    pub parent_receipt_id: CryptoHash,
+    pub parent_predecessor_id: AccountId,
+}
+
+/// Versioned mapping from receipt_id to its origin information.
+/// Stored in `DBCol::ReceiptToTx` to enable reverse lookups from receipt to originating transaction.
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+pub enum ReceiptToTxInfo {
+    V1(ReceiptToTxInfoV1) = 0,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
+pub struct ReceiptToTxInfoV1 {
+    pub origin: ReceiptOrigin,
+    pub receiver_account_id: AccountId,
+    pub shard_id: ShardId,
 }

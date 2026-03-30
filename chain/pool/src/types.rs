@@ -22,6 +22,9 @@ pub struct TransactionGroup {
     pub(crate) removed_transaction_hashes: Vec<CryptoHash>,
     /// Total size of transactions that were pulled from the group using `.next()`.
     pub(crate) removed_transaction_size: u64,
+    /// Set to `true` when `next()` pops a transaction, reset to `false` when
+    /// the iterator yields this group. Used to detect stalled groups.
+    pub(crate) removed_any_since_yield: bool,
 }
 
 impl TransactionGroup {
@@ -31,6 +34,7 @@ impl TransactionGroup {
         if let Some(validated_tx) = self.transactions.pop() {
             self.removed_transaction_hashes.push(validated_tx.get_hash());
             self.removed_transaction_size += validated_tx.get_size();
+            self.removed_any_since_yield = true;
             Some(validated_tx)
         } else {
             None

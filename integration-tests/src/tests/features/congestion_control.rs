@@ -58,7 +58,7 @@ fn set_default_congestion_control(config_store: &RuntimeConfigStore, config: &mu
 /// The test version of runtime has custom gas cost.
 fn setup_test_runtime(_sender_id: AccountId, protocol_version: ProtocolVersion) -> TestEnv {
     let accounts = TestEnvBuilder::make_accounts(1);
-    let mut genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
+    let mut genesis = Genesis::test_sharded_new_version(accounts, 1, 4);
     genesis.config.epoch_length = 10;
     genesis.config.transaction_validity_period = 20;
     genesis.config.protocol_version = protocol_version;

@@ -31,7 +31,10 @@ use near_jsonrpc_primitives::types::{
     },
     network_info::{RpcNetworkInfoError, RpcNetworkInfoResponse},
     query::{RpcQueryError, RpcQueryRequest, RpcQueryResponse},
-    receipts::{RpcReceiptError, RpcReceiptRequest, RpcReceiptResponse},
+    receipts::{
+        RpcReceiptError, RpcReceiptRequest, RpcReceiptResponse, RpcReceiptToTxError,
+        RpcReceiptToTxRequest, RpcReceiptToTxResponse,
+    },
     split_storage::{
         RpcSplitStorageInfoError, RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse,
     },
@@ -636,7 +639,7 @@ fn whole_spec(all_schemas: SchemasMap, all_paths: PathsMap) -> OpenApi {
         openapi: "3.0.0".to_string(),
         info: okapi::openapi3::Info {
             title: "NEAR Protocol JSON RPC API".to_string(),
-            version: "1.2.3".to_string(),
+            version: "1.2.4".to_string(),
             ..Default::default()
         },
         paths: all_paths,
@@ -842,6 +845,13 @@ fn main() {
         &mut all_paths,
         "EXPERIMENTAL_receipt".to_string(),
         "Fetches a receipt by its ID (as is, without a status or execution outcome)".to_string(),
+    );
+    add_spec_for_path::<RpcReceiptToTxRequest, RpcReceiptToTxResponse, RpcReceiptToTxError>(
+        &mut all_schemas,
+        &mut all_paths,
+        "EXPERIMENTAL_receipt_to_tx".to_string(),
+        "Resolves a receipt ID back to the originating transaction hash and sender account"
+            .to_string(),
     );
     add_spec_for_path::<RpcTransactionStatusRequest, RpcTransactionResponse, RpcTransactionError>(
         &mut all_schemas,

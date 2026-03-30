@@ -7,8 +7,6 @@ use crate::client::{
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::config::PEERS_RESPONSE_MAX_PEERS;
-#[cfg(feature = "distance_vector_routing")]
-use crate::network_protocol::DistanceVector;
 use crate::network_protocol::{
     Edge, EdgeState, OwnedAccount, PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo,
     PeersRequest, PeersResponse, RawRoutedMessage, RoutingTableUpdate,
@@ -24,8 +22,6 @@ use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_manager_actor::MAX_TIER2_PEERS;
 use crate::private_messages::{RegisterPeerError, SendMessage};
 use crate::rate_limits::messages_limits;
-#[cfg(feature = "distance_vector_routing")]
-use crate::routing::NetworkTopologyChange;
 use crate::routing::edge::verify_nonce;
 use crate::snapshot_hosts::SnapshotHostInfoError;
 use crate::stats::metrics;
@@ -123,8 +119,8 @@ pub(crate) enum ClosingReason {
     TooLargeClockSkew,
     #[error("owned_account.peer_id doesn't match handshake.sender_peer_id")]
     OwnedAccountMismatch,
-    #[error("PeerActor stopped NOT via PeerActor::stop()")]
-    Unknown,
+    #[error("actor system shutting down")]
+    ActorSystemShutdown,
 }
 
 impl ClosingReason {
@@ -144,7 +140,7 @@ impl ClosingReason {
             ClosingReason::DisconnectMessage => false,  // graceful disconnect
             ClosingReason::TooLargeClockSkew => true,   // reconnect will fail for the same reason
             ClosingReason::OwnedAccountMismatch => true, // misbehaving peer
-            ClosingReason::Unknown => false,            // only happens in tests
+            ClosingReason::ActorSystemShutdown => false, // node shutting down
         }
     }
 }
@@ -1296,18 +1292,6 @@ impl PeerActor {
                     message_processed_event();
                 });
             }
-            #[cfg(not(feature = "distance_vector_routing"))]
-            PeerMessage::DistanceVector(_) => {}
-            #[cfg(feature = "distance_vector_routing")]
-            PeerMessage::DistanceVector(dv) => {
-                let conn = conn.clone();
-                let network_state = self.network_state.clone();
-                self.handle.spawn("handle distance vector", async move {
-                    Self::handle_distance_vector(&network_state, conn.clone(), dv).await;
-                    #[cfg(test)]
-                    message_processed_event();
-                });
-            }
             PeerMessage::SyncAccountsData(msg) => {
                 metrics::SYNC_ACCOUNTS_DATA
                     .with_label_values(&[
@@ -1509,14 +1493,6 @@ impl PeerActor {
             conn.stop(Some(ban_reason));
         }
 
-        // Also pass the edges to the V2 routing table
-        #[cfg(feature = "distance_vector_routing")]
-        if let Err(ban_reason) =
-            network_state.update_routes(NetworkTopologyChange::EdgeNonceRefresh(rtu.edges)).await
-        {
-            conn.stop(Some(ban_reason));
-        }
-
         // For every announce we received, we fetch the last announce with the same account_id
         // that we already broadcasted. Client actor will both verify signatures of the received announces
         // as well as filter out those which are older than the fetched ones (to avoid overriding
@@ -1536,26 +1512,6 @@ impl PeerActor {
             Ok(Err(ban_reason)) => conn.stop(Some(ban_reason)),
             Ok(Ok(accounts)) => network_state.add_accounts(accounts).await,
             Err(_) => {}
-        }
-    }
-
-    #[tracing::instrument(level = "trace", target = "network", "handle_distance_vector", skip_all)]
-    #[cfg(feature = "distance_vector_routing")]
-    async fn handle_distance_vector(
-        network_state: &Arc<NetworkState>,
-        conn: Arc<connection::Connection>,
-        distance_vector: DistanceVector,
-    ) {
-        if conn.peer_info.id != distance_vector.root {
-            conn.stop(Some(ReasonForBan::InvalidDistanceVector));
-            return;
-        }
-
-        if let Err(ban_reason) = network_state
-            .update_routes(NetworkTopologyChange::PeerAdvertisedDistances(distance_vector))
-            .await
-        {
-            conn.stop(Some(ban_reason));
         }
     }
 }
@@ -1591,28 +1547,17 @@ impl messaging::Actor for PeerActor {
     }
 
     fn stop_actor(&mut self) {
-        // closing_reason may be None in case the whole actor system is stopped.
-        // It happens a lot in tests.
         metrics::PEER_CONNECTIONS_TOTAL.dec();
-        match &self.closing_reason {
-            None => {
-                // Due to actor system shutdown, sometimes closing reason may be not set.
-                // But it is only expected to happen in tests.
-                tracing::error!(target:"network", "closing reason not set, this should happen only in tests");
-            }
-            Some(reason) => {
-                tracing::debug!(target: "network", my_node_id = ?self.my_node_info.id, peer_info = %self.peer_info, %reason, "peer disconnected");
+        let closing_reason =
+            self.closing_reason.take().unwrap_or(ClosingReason::ActorSystemShutdown);
 
-                // If we are on the inbound side of the connection, set a flag in the disconnect
-                // message advising the outbound side whether to attempt to re-establish the connection.
-                let remove_from_connection_store =
-                    self.peer_type == PeerType::Inbound && reason.remove_from_connection_store();
+        tracing::debug!(target: "network", my_node_id = ?self.my_node_info.id, peer_info = %self.peer_info, %closing_reason, "peer disconnected");
 
-                self.send_message(&PeerMessage::Disconnect(Disconnect {
-                    remove_from_connection_store,
-                }));
-            }
-        }
+        // If we are on the inbound side of the connection, set a flag in the disconnect
+        // message advising the outbound side whether to attempt to re-establish the connection.
+        let remove_from_connection_store =
+            self.peer_type == PeerType::Inbound && closing_reason.remove_from_connection_store();
+        self.send_message(&PeerMessage::Disconnect(Disconnect { remove_from_connection_store }));
 
         match &self.peer_status {
             // If PeerActor is in Connecting state, then
@@ -1624,10 +1569,7 @@ impl messaging::Actor for PeerActor {
                 // We should find a way to centralize it.
                 #[cfg(test)]
                 self.network_state.config.event_sink.send(Event::ConnectionClosed(
-                    ConnectionClosedEvent {
-                        stream_id: self.stream_id,
-                        reason: self.closing_reason.clone().unwrap_or(ClosingReason::Unknown),
-                    },
+                    ConnectionClosedEvent { stream_id: self.stream_id, reason: closing_reason },
                 ));
             }
             // Clean up the Connection from the NetworkState.
@@ -1635,12 +1577,7 @@ impl messaging::Actor for PeerActor {
                 let network_state = self.network_state.clone();
                 let clock = self.clock.clone();
                 let conn = conn.clone();
-                network_state.unregister(
-                    &clock,
-                    &conn,
-                    self.stream_id,
-                    self.closing_reason.clone().unwrap_or(ClosingReason::Unknown),
-                );
+                network_state.unregister(&clock, &conn, self.stream_id, closing_reason);
             }
         }
     }

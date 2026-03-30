@@ -123,7 +123,7 @@ fn test_not_process_same_block_twice() {
 #[test]
 fn test_bad_shard_id() {
     let accounts = TestEnvBuilder::make_accounts(1);
-    let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
+    let genesis = Genesis::test_sharded_new_version(accounts, 1, 4);
     let mut env = TestEnv::builder_from_genesis(&genesis).build();
 
     let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();
@@ -189,7 +189,7 @@ fn test_bad_shard_id() {
 #[test]
 fn test_bad_block_content_vrf() {
     let accounts = TestEnvBuilder::make_accounts(1);
-    let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
+    let genesis = Genesis::test_sharded_new_version(accounts, 1, 4);
     let mut env = TestEnv::builder_from_genesis(&genesis).build();
 
     let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();
@@ -211,7 +211,7 @@ fn test_bad_block_content_vrf() {
 #[test]
 fn test_bad_block_signature() {
     let accounts = TestEnvBuilder::make_accounts(1);
-    let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
+    let genesis = Genesis::test_sharded_new_version(accounts, 1, 4);
     let mut env = TestEnv::builder_from_genesis(&genesis).build();
 
     let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();
@@ -276,7 +276,7 @@ fn test_validate_chunk_with_chunk_extra_bad_congestion_info_impl(mode: BadConges
     }
 
     let accounts = TestEnvBuilder::make_accounts(1);
-    let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
+    let genesis = Genesis::test_sharded_new_version(accounts, 1, 4);
     let mut env = TestEnv::builder_from_genesis(&genesis).build();
 
     let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();
@@ -385,7 +385,7 @@ fn check_block_produced_from_optimistic_block(block: &Block, optimistic_block: &
 #[test]
 fn test_process_optimistic_block() {
     let accounts = TestEnvBuilder::make_accounts(1);
-    let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
+    let genesis = Genesis::test_sharded_new_version(accounts, 1, 4);
     let mut env = TestEnv::builder_from_genesis(&genesis).build();
 
     let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();

@@ -24,6 +24,7 @@ pub struct PrepareTransactionsJobInputs {
     pub prev_block_context: PrepareTransactionsBlockContext,
     pub tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     pub tx_validity_period_check: Box<dyn Fn(&SignedTransaction) -> bool + Send + 'static>,
+    pub validate_tx_ttl: Box<dyn Fn(&SignedTransaction) -> bool + Send + 'static>,
     pub prev_chunk_tx_hashes: HashSet<CryptoHash>,
     pub time_limit: Option<Duration>,
 }
@@ -50,6 +51,7 @@ impl PrepareTransactionsJobInputs {
             prev_block_context,
             tx_pool,
             tx_validity_period_check: Box::new(|_| true),
+            validate_tx_ttl: Box::new(|_| true),
             prev_chunk_tx_hashes: HashSet::new(),
             time_limit: None,
         }
@@ -134,6 +136,7 @@ impl PrepareTransactionsJob {
             inputs.prev_block_context,
             &mut iter,
             &inputs.tx_validity_period_check,
+            &inputs.validate_tx_ttl,
             inputs.prev_chunk_tx_hashes,
             inputs.time_limit,
             Some((&self).cancel.clone()),

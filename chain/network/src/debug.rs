@@ -1,4 +1,3 @@
-use near_primitives::views::NetworkRoutesView;
 use near_primitives::views::{
     NetworkGraphView, PeerStoreView, RecentOutboundConnectionsView, SnapshotHostsView,
 };
@@ -9,7 +8,6 @@ pub enum GetDebugStatus {
     PeerStore,
     Graph,
     RecentOutboundConnections,
-    Routes,
     SnapshotHosts,
 }
 
@@ -18,6 +16,5 @@ pub enum DebugStatus {
     PeerStore(PeerStoreView),
     Graph(NetworkGraphView),
     RecentOutboundConnections(RecentOutboundConnectionsView),
-    Routes(NetworkRoutesView),
     SnapshotHosts(SnapshotHostsView),
 }

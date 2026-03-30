@@ -22,15 +22,15 @@ client_config = {
     "consensus": {
         "min_block_production_delay": {
             "secs": 0,
-            "nanos": 100000000
+            "nanos": 150000000
         },
         "max_block_production_delay": {
             "secs": 0,
-            "nanos": 400000000
+            "nanos": 600000000
         },
         "max_block_wait_delay": {
             "secs": 0,
-            "nanos": 400000000
+            "nanos": 600000000
         }
     },
     "gc_step_period": {
@@ -55,7 +55,6 @@ client_config = {
 nodes = start_cluster(
     2, 0, 1, None,
     [["epoch_length", EPOCH_LENGTH], ["num_block_producer_seats", 5],
-     ["num_block_producer_seats_per_shard", [5]],
      ["chunk_producer_kickout_threshold", 80],
      ["shard_layout", {
          "V0": {

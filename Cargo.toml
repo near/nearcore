@@ -77,6 +77,7 @@ members = [
     "test-loop-tests",
     "test-utils/store-validator",
     "test-utils/testlib",
+    "tools/cloud-archive",
     "tools/database",
     "tools/congestion-model",
     "tools/fork-network",
@@ -246,6 +247,7 @@ near-chunks = { path = "chain/chunks" }
 near-chunks-primitives = { path = "chain/chunks-primitives" }
 near-client = { path = "chain/client" }
 near-client-primitives = { path = "chain/client-primitives" }
+near-cloud-archive-tool = { path = "tools/cloud-archive" }
 near-cold-store-tool = { path = "tools/cold-store", package = "cold-store-tool" }
 near-config-utils = { path = "utils/config" }
 nearcore = { path = "nearcore" }
@@ -311,7 +313,7 @@ num-traits = "0.2.15"
 num-integer = "0.1.46"
 
 okapi = { git = "https://github.com/near/near-okapi-fork.git", rev = "fd7de89e130ab99a546f04e3faefcd53044f98d0", features = ["schemars-alpha"] } # Upstream crate can be used as soon as schemars 1.0 is supported https://github.com/GREsau/okapi/pull/161
-object_store = { version = "0.12", features = ["gcp"] }
+object_store = { version = "0.13", features = ["gcp"] }
 openssl-probe = "0.1.4"
 opentelemetry = { version = "0.30", features = ["trace"] }
 opentelemetry_sdk = { version = "0.30", features = ["rt-tokio"] }
@@ -340,7 +342,7 @@ redis = "0.23.0"
 reed-solomon-erasure = { version = "6.0.0", features = ["simd-accel"] }
 regex = "1.7.1"
 region = "3.0"
-reqwest = { version = "0.12.0", features = ["blocking", "native-tls-vendored"] }
+reqwest = { version = "0.13", features = ["blocking", "native-tls-vendored", "form", "query"] }
 ripemd = "0.1.1"
 rkyv = "0.8.13"
 rlimit = "0.7"

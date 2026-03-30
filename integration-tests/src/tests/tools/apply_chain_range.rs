@@ -19,7 +19,6 @@ use std::path::Path;
 fn setup(epoch_length: NumBlocks) -> (Store, Genesis, TestEnv) {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.num_block_producer_seats = 2;
-    genesis.config.num_block_producer_seats_per_shard = vec![2];
     genesis.config.epoch_length = epoch_length;
     genesis.config.transaction_validity_period = epoch_length * 2;
     let store = create_test_store();

@@ -467,20 +467,26 @@ impl WasmtimeVM {
         let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::Wasmtime)
             .map_err(CompilationError::PrepareError)?;
         let serialized = self.engine.precompile_module(&prepared_code).map_err(|err| {
-            tracing::error!(?err, "wasmtime failed to compile the prepared code (this is defense-in-depth, the error was recovered from but should be reported to the developers)");
+            tracing::debug!(
+                target: "vm",
+                ?err,
+                code_hash = %code.hash(),
+                code_size = code.code().len(),
+                "wasmtime contract compilation failed",
+            );
             CompilationError::WasmtimeCompileError { msg: err.to_string() }
-        });
+        })?;
 
         tracing::debug!(
             target: "vm",
             original_size = %code.code().len(),
             prepared_size = %prepared_code.len(),
-            compiled_size = %serialized.as_ref().map(|s| s.len()).unwrap_or(0),
+            compiled_size = %serialized.len(),
             "wasmtime compiled contract",
         );
 
         crate::metrics::compilation_duration(VMKind::Wasmtime, start.elapsed());
-        serialized
+        Ok(serialized)
     }
 
     #[tracing::instrument(

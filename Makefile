@@ -2,7 +2,6 @@
 
 export DOCKER_BUILDKIT = 1
 export CARGO_BUILD_RUSTFLAGS = -D warnings
-export NEAR_RELEASE_BUILD = no
 export OPENSSL_STATIC = 1
 export CARGO_TARGET_DIR = target
 
@@ -34,7 +33,6 @@ release: neard-release
 neard: neard-release
 	@echo 'neard binary ready in ./target/release/neard'
 
-neard-release: NEAR_RELEASE_BUILD=release
 neard-release:
 	cargo build -p neard --release
 
@@ -63,7 +61,6 @@ nightly-debug:
 	cargo build -p genesis-populate --features nearcore/nightly
 
 #? assertions-release: build release version of neard with open debug_assertions
-assertions-release: NEAR_RELEASE_BUILD=release
 assertions-release:
 	CARGO_PROFILE_RELEASE_DEBUG=true CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=true cargo build -p neard --release
 
@@ -88,7 +85,6 @@ neard-sandbox-release:
 	cargo build -p neard --features sandbox --release
 
 #? test-features-release: build release version of neard with test_features feature
-test-features-release: NEAR_RELEASE_BUILD=release
 test-features-release:
 	cargo build -p neard --release --features test_features
 

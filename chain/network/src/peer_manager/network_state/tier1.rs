@@ -328,32 +328,33 @@ impl super::NetworkState {
                     let proxy = (*proxy).clone();
                     let actor_system = actor_system.clone();
                     handles.push(async move {
-                        let stream = tcp::Stream::connect(
-                            &PeerInfo {
-                                id: proxy.peer_id,
-                                addr: Some(proxy.addr),
-                                account_id: None,
-                            },
-                            tcp::Tier::T1,
-                            &self.config.socket_options,
-                        )
-                        .await?;
-                        PeerActor::spawn_and_handshake(
-                            clock.clone(),
-                            actor_system,
-                            stream,
-                            self.clone(),
-                        )
-                        .await
+                        async {
+                            let stream = tcp::Stream::connect(
+                                &PeerInfo {
+                                    id: proxy.peer_id,
+                                    addr: Some(proxy.addr),
+                                    account_id: None,
+                                },
+                                tcp::Tier::T1,
+                                &self.config.socket_options,
+                            )
+                            .await?;
+                            PeerActor::spawn_and_handshake(
+                                clock.clone(),
+                                actor_system,
+                                stream,
+                                self.clone(),
+                            )
+                            .await
+                        }.await
+                        .inspect_err(|err| {
+                            tracing::info!(target: "network", %err, node_id = %self.config.node_id(), peer_addr = %proxy.addr, "failed to establish a tier1 connection");
+                        })
                     });
                 }
             }
             tracing::debug!(target: "network", node_id = %self.config.node_id(), num_connections = handles.len(), "establishing new connections");
-            for res in futures_util::future::join_all(handles).await {
-                if let Err(err) = res {
-                    tracing::info!(target: "network", ?err, node_id = %self.config.node_id(), "failed to establish a tier1 connection");
-                }
-            }
+            futures_util::future::join_all(handles).await;
             tracing::debug!(target: "network", node_id = %self.config.node_id(), "done establishing new connections");
         }
     }

@@ -33,8 +33,8 @@ use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBit
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithIdAndProof,
-    ExecutionStatus, FunctionCallAction, PartialExecutionOutcome, PartialExecutionStatus,
-    SignedTransaction, StakeAction, TransferAction,
+    ExecutionStatus, FunctionCallAction, NonceMode, PartialExecutionOutcome,
+    PartialExecutionStatus, SignedTransaction, StakeAction, TransferAction,
 };
 use crate::trie_split::TrieSplit;
 use crate::types::{
@@ -599,37 +599,6 @@ pub struct EdgeView {
 pub struct NetworkGraphView {
     pub edges: Vec<EdgeView>,
     pub next_hops: HashMap<PeerId, Vec<PeerId>>,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct LabeledEdgeView {
-    pub peer0: u32,
-    pub peer1: u32,
-    pub nonce: u64,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Default)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct EdgeCacheView {
-    pub peer_labels: HashMap<PeerId, u32>,
-    pub spanning_trees: HashMap<u32, Vec<LabeledEdgeView>>,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct PeerDistancesView {
-    pub distance: Vec<Option<u32>>,
-    pub min_nonce: u64,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Default)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct NetworkRoutesView {
-    pub edge_cache: EdgeCacheView,
-    pub local_edges: HashMap<PeerId, EdgeView>,
-    pub peer_distances: HashMap<PeerId, PeerDistancesView>,
-    pub my_distances: HashMap<PeerId, u32>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
@@ -1648,12 +1617,18 @@ pub struct SignedTransactionView {
     pub hash: CryptoHash,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub nonce_index: Option<NonceIndex>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub nonce_mode: Option<NonceMode>,
 }
 
 impl From<SignedTransaction> for SignedTransactionView {
     fn from(signed_tx: SignedTransaction) -> Self {
         let hash = signed_tx.get_hash();
         let transaction = signed_tx.transaction;
+        let nonce_mode = match transaction.nonce_mode() {
+            NonceMode::Monotonic => None,
+            mode => Some(mode),
+        };
         SignedTransactionView {
             signer_id: transaction.signer_id().clone(),
             public_key: transaction.public_key().clone(),
@@ -1664,6 +1639,7 @@ impl From<SignedTransaction> for SignedTransactionView {
             signature: signed_tx.signature,
             hash,
             _priority_fee: 0,
+            nonce_mode,
         }
     }
 }

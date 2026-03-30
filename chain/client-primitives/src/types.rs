@@ -38,12 +38,12 @@ impl From<near_primitives::errors::EpochError> for Error {
 }
 
 /// Various status of syncing a specific shard.
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum ShardSyncStatus {
     StateDownloadHeader,
-    StateDownloadParts,
+    StateDownloadParts { done: u64, total: u64 },
     StateApplyScheduling,
-    StateApplyInProgress,
+    StateApplyInProgress { done: u64, total: u64 },
     StateApplyFinalizing,
     StateSyncDone,
 }
@@ -56,9 +56,9 @@ impl ShardSyncStatus {
             // Avoid reusing values for different states.
             // When introducing a new state, always assign a unique, new value to prevent confusion.
             ShardSyncStatus::StateDownloadHeader => 0,
-            ShardSyncStatus::StateDownloadParts => 1,
+            ShardSyncStatus::StateDownloadParts { .. } => 1,
             ShardSyncStatus::StateApplyScheduling => 2,
-            ShardSyncStatus::StateApplyInProgress => 3,
+            ShardSyncStatus::StateApplyInProgress { .. } => 3,
             ShardSyncStatus::StateApplyFinalizing => 4,
             ShardSyncStatus::StateSyncDone => 5,
         }
@@ -78,9 +78,13 @@ impl ToString for ShardSyncStatus {
     fn to_string(&self) -> String {
         match self {
             ShardSyncStatus::StateDownloadHeader => "header".to_string(),
-            ShardSyncStatus::StateDownloadParts => "parts".to_string(),
+            ShardSyncStatus::StateDownloadParts { done, total } => {
+                format!("parts ({done}/{total})")
+            }
             ShardSyncStatus::StateApplyScheduling => "apply scheduling".to_string(),
-            ShardSyncStatus::StateApplyInProgress => "apply in progress".to_string(),
+            ShardSyncStatus::StateApplyInProgress { done, total } => {
+                format!("apply in progress ({done}/{total})")
+            }
             ShardSyncStatus::StateApplyFinalizing => "apply finalizing".to_string(),
             ShardSyncStatus::StateSyncDone => "done".to_string(),
         }
@@ -811,6 +815,39 @@ pub struct GetExecutionOutcomesForBlock {
 }
 
 #[derive(Debug)]
+pub struct GetProcessedReceiptIds {
+    pub block_hash: CryptoHash,
+    pub shard_id: ShardId,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetProcessedReceiptIdsError {
+    #[error("IO Error: {error_message}")]
+    IOError { error_message: String },
+    #[error("Block or shard data not found: {error_message}")]
+    UnknownBlock { error_message: String },
+    #[error(
+        "It is a bug if you receive this error type, please, report this incident: \
+         https://github.com/near/nearcore/issues/new/choose. Details: {error_message}"
+    )]
+    Unreachable { error_message: String },
+}
+
+impl From<near_chain_primitives::error::Error> for GetProcessedReceiptIdsError {
+    fn from(error: near_chain_primitives::error::Error) -> Self {
+        match error {
+            near_chain_primitives::Error::IOErr(error) => {
+                Self::IOError { error_message: error.to_string() }
+            }
+            near_chain_primitives::Error::DBNotFoundErr(error_message) => {
+                Self::UnknownBlock { error_message }
+            }
+            _ => Self::Unreachable { error_message: error.to_string() },
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct GetBlockProof {
     pub block_hash: CryptoHash,
     pub head_block_hash: CryptoHash,
@@ -881,6 +918,27 @@ impl From<near_chain_primitives::Error> for GetReceiptError {
             _ => Self::Unreachable(error.to_string()),
         }
     }
+}
+
+#[derive(Debug)]
+pub struct GetReceiptToTx {
+    pub receipt_id: CryptoHash,
+}
+
+#[derive(Debug)]
+pub struct GetReceiptToTxResponse {
+    pub transaction_hash: CryptoHash,
+    pub sender_account_id: AccountId,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetReceiptToTxError {
+    #[error("Receipt with id {0} has never been observed on this node")]
+    UnknownReceipt(CryptoHash),
+    #[error("depth limit {limit} exceeded when resolving receipt {receipt_id}")]
+    DepthExceeded { receipt_id: CryptoHash, limit: u32 },
+    #[error("this node does not support receipt-to-tx lookup: {0}")]
+    Unsupported(String),
 }
 
 #[derive(Debug)]

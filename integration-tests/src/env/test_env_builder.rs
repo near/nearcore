@@ -55,6 +55,7 @@ pub struct TestEnvBuilder {
     enable_split_store: bool,
     save_trie_changes: bool,
     save_tx_outcomes: bool,
+    save_receipt_to_tx: bool,
     state_snapshot_enabled: bool,
     track_all_shards: bool,
     protocol_version_check: ProtocolVersionCheckConfig,
@@ -84,6 +85,7 @@ impl TestEnvBuilder {
             enable_split_store: false,
             save_trie_changes: true,
             save_tx_outcomes: true,
+            save_receipt_to_tx: true,
             state_snapshot_enabled: false,
             track_all_shards: false,
             protocol_version_check: Default::default(),
@@ -437,6 +439,11 @@ impl TestEnvBuilder {
         self
     }
 
+    pub fn save_receipt_to_tx(mut self, save_receipt_to_tx: bool) -> Self {
+        self.save_receipt_to_tx = save_receipt_to_tx;
+        self
+    }
+
     pub fn protocol_version_check(
         mut self,
         protocol_version_check: ProtocolVersionCheckConfig,
@@ -568,6 +575,7 @@ impl TestEnvBuilder {
                         rng_seed,
                         self.enable_split_store,
                         self.save_tx_outcomes,
+                        self.save_receipt_to_tx,
                         self.protocol_version_check,
                         Some(snapshot_callbacks),
                         partial_witness_adapter.into_multi_sender(),
@@ -604,6 +612,7 @@ impl TestEnvBuilder {
                     ChunkExecutorConfig {
                         save_trie_changes: self.save_trie_changes,
                         save_tx_outcomes: self.save_tx_outcomes,
+                        save_receipt_to_tx: self.save_receipt_to_tx,
                         ..Default::default()
                     },
                 )
@@ -634,6 +643,7 @@ impl TestEnvBuilder {
             seeds,
             enable_split_store: self.enable_split_store,
             save_tx_outcomes: self.save_tx_outcomes,
+            save_receipt_to_tx: self.save_receipt_to_tx,
             protocol_version_check: self.protocol_version_check,
         }
     }
