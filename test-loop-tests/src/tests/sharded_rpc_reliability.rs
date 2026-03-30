@@ -80,14 +80,12 @@ fn test_rpc_coordinator_header_bypass() {
         .unwrap();
 
     // The coordinator-flagged request was processed locally on zoe's node.
-    // Since zoe's node doesn't track alice's shard, it should return an error.
+    // Since zoe's node doesn't track alice's shard, it must return UnavailableShard.
     match response {
         Message::Response(resp) => {
-            assert!(
-                resp.result.is_err(),
-                "coordinator request should fail locally (no forwarding), got success: {:?}",
-                resp.result,
-            );
+            let err =
+                resp.result.expect_err("coordinator request should fail locally (no forwarding)");
+            assert_rpc_error(&err, "UNAVAILABLE_SHARD");
         }
         other => panic!("expected Response, got: {other:?}"),
     }
