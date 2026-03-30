@@ -102,6 +102,16 @@ pub struct EpochConfig {
     pub epoch_length: BlockHeightDelta,
     /// Number of seats for block producers.
     pub num_block_producer_seats: NumSeats,
+    /// TODO(#15481): remove after the deprecation changes are released.
+    #[deprecated]
+    #[serde(default)]
+    #[builder(default)]
+    pub num_block_producer_seats_per_shard: Vec<NumSeats>,
+    /// TODO(#15481): remove after the deprecation changes are released.
+    #[deprecated]
+    #[serde(default)]
+    #[builder(default)]
+    pub avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
     /// Threshold for kicking out block producers.
     pub block_producer_kickout_threshold: u8,
     /// Threshold for kicking out chunk producers.
@@ -133,6 +143,11 @@ pub struct EpochConfig {
     pub num_chunk_producer_seats: NumSeats,
     // #[default(300)]
     pub num_chunk_validator_seats: NumSeats,
+    /// TODO(#15481): remove after the deprecation changes are released.
+    #[deprecated]
+    #[serde(default)]
+    #[builder(default)]
+    pub num_chunk_only_producer_seats: NumSeats,
     // #[default(1)]
     pub minimum_validators_per_shard: NumSeats,
     // #[default(Rational32::new(160, 1_000_000))]
@@ -198,6 +213,7 @@ impl EpochConfigBuilder {
 impl EpochConfig {
     // Create test-only epoch config.
     // Not depends on genesis!
+    #[allow(deprecated)]
     pub fn genesis_test(
         num_block_producer_seats: NumSeats,
         shard_layout: ShardLayout,
@@ -211,6 +227,8 @@ impl EpochConfig {
         Self {
             epoch_length,
             num_block_producer_seats,
+            num_block_producer_seats_per_shard: vec![],
+            avg_hidden_validator_seats_per_shard: vec![],
             target_validator_mandates_per_shard: 68,
             validator_max_kickout_stake_perc: 100,
             online_min_threshold: Rational32::new(90, 100),
@@ -224,6 +242,7 @@ impl EpochConfig {
             shard_layout_config: ShardLayoutConfig::Static { shard_layout },
             num_chunk_producer_seats: 100,
             num_chunk_validator_seats: 300,
+            num_chunk_only_producer_seats: 0,
             minimum_validators_per_shard: 1,
             minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
             chunk_producer_assignment_changes_limit: 5,
