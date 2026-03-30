@@ -5,7 +5,7 @@
 ### Protocol Changes
 * The contract runtime has been upgraded to use the new Wasmtime-based runtime;
 * The contract runtime now allows for bulk memory instructions in Wasm code.
-* New opt-in strict nonce mode for transactions added in nightly. When used, the transaction nonce must use the next valid nonce, not any greater nonce than the last transaction. ([#15361](https://github.com/near/nearcore/pull/15361), [#15402](https://github.com/near/nearcore/pull/15402))
+* New opt-in strict nonce mode for transactions added in nightly. When enabled, each transaction must use a nonce exactly equal to the previous nonce for that access key plus one; nonces that repeat or skip values are rejected. ([#15361](https://github.com/near/nearcore/pull/15361), [#15402](https://github.com/near/nearcore/pull/15402))
 * Ensure delegate action returns the correct error consistently. ([#15458](https://github.com/near/nearcore/pull/15458))
 
 ### Non-protocol Changes
