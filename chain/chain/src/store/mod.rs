@@ -36,6 +36,7 @@ use near_primitives::utils::{
     get_block_shard_id, get_outcome_id_block_hash, get_outcome_id_block_hash_rev, index_to_bytes,
     to_timestamp,
 };
+use near_primitives::version::ProtocolFeature;
 use near_primitives::views::LightClientBlockView;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
@@ -48,6 +49,7 @@ use near_store::{
     KeyForStateChanges, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, PartialStorage, Store,
     StoreUpdate, TAIL_KEY, WrappedTrieChanges,
 };
+use near_vm_runner::logic::ProtocolVersion;
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io;
@@ -1862,6 +1864,43 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn update_gc_stop_height(&mut self, height: BlockHeight) {
         self.gc_stop_height = Some(height);
+    }
+
+    /// Pre-computes and persists chunk producer assignments for the block following `header`.
+    ///
+    /// For each shard in the epoch after `header`, samples the chunk producer at
+    /// height `header.height() + 1` and writes it to `DBCol::ChunkProducers` keyed by
+    /// `(header.hash(), shard_id)`. This makes historical chunk producer lookups
+    /// available from the DB without recomputation.
+    ///
+    /// Gated behind `EarlyKickout` protocol feature. No-op when disabled.
+    pub fn save_chunk_producers_for_header(
+        &mut self,
+        epoch_manager: &dyn EpochManagerAdapter,
+        header: &BlockHeader,
+        protocol_version: ProtocolVersion,
+    ) -> Result<(), Error> {
+        if !ProtocolFeature::EarlyKickout.enabled(protocol_version) {
+            return Ok(());
+        }
+        let prev_block_hash = header.hash();
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+        let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
+        let height = header.height() + 1;
+
+        let mut store_update = self.store().store_update();
+        for shard_id in shard_layout.shard_ids() {
+            if let Some(validator_id) =
+                epoch_info.sample_chunk_producer(&shard_layout, shard_id, height)
+            {
+                let validator_stake = epoch_info.get_validator(validator_id);
+                let key = get_block_shard_id(prev_block_hash, shard_id);
+                store_update.insert_ser(DBCol::ChunkProducers, &key, &validator_stake);
+            }
+        }
+        self.merge(store_update);
+        Ok(())
     }
 
     /// Merge another StoreUpdate into this one

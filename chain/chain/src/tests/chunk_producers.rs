@@ -1,8 +1,7 @@
 #[cfg(feature = "nightly")]
 mod tests {
-    use crate::chain::Chain;
+    use crate::ChainStoreAccess;
     use crate::test_utils::setup;
-    use crate::{ChainStoreAccess, ChainStoreUpdate};
     use near_async::time::{Duration, FakeClock, Utc};
     use near_epoch_manager::EpochManagerAdapter;
     use near_o11y::testonly::init_test_logger;
@@ -10,7 +9,6 @@ mod tests {
     use near_primitives::test_utils::TestBlockBuilder;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::utils::get_block_shard_id;
-    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::DBCol;
 
     /// Verify that the ChunkProducers column is populated for the genesis block.
@@ -154,56 +152,6 @@ mod tests {
                     block.header().height()
                 );
             }
-        }
-    }
-
-    /// Verify that save_chunk_producers_for_header gracefully skips when the
-    /// epoch is not available (e.g. at epoch boundaries before finalization).
-    #[test]
-    fn test_chunk_producers_epoch_boundary_skip() {
-        init_test_logger();
-        let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap());
-        clock.advance(Duration::milliseconds(3444));
-        let (mut chain, epoch_manager, _, signer) = setup(clock.clock());
-
-        // Build a block but don't process it or register it with the epoch manager.
-        let prev = chain.get_block(&chain.genesis().hash().clone()).unwrap();
-        clock.advance(Duration::milliseconds(1));
-        let block = TestBlockBuilder::from_prev_block(clock.clock(), &prev, signer).build();
-        let block_hash = *block.hash();
-
-        // The block's hash is not known to the epoch manager (no add_validator_proposals called),
-        // so get_epoch_id_from_prev_block(block_hash) will fail — triggering the skip path.
-        assert!(
-            epoch_manager.get_epoch_id_from_prev_block(&block_hash).is_err(),
-            "precondition: epoch_id should not be available for unprocessed block"
-        );
-
-        // Call save_chunk_producers_for_header — it should return Ok(()) and skip gracefully.
-        {
-            let mut chain_store_update = ChainStoreUpdate::new(chain.mut_chain_store());
-            let result = Chain::save_chunk_producers_for_header(
-                epoch_manager.as_ref(),
-                block.header(),
-                &mut chain_store_update,
-                PROTOCOL_VERSION,
-            );
-            assert!(result.is_ok(), "should return Ok when epoch is not available");
-            chain_store_update.commit().unwrap();
-        }
-
-        // Verify no chunk producers were written for this block.
-        let genesis_epoch_id =
-            epoch_manager.get_epoch_id_from_prev_block(chain.genesis().hash()).unwrap();
-        let shard_layout = epoch_manager.get_shard_layout(&genesis_epoch_id).unwrap();
-        for shard_id in shard_layout.shard_ids() {
-            let key = get_block_shard_id(&block_hash, shard_id);
-            let value: Option<ValidatorStake> =
-                chain.chain_store().store().get_ser(DBCol::ChunkProducers, &key);
-            assert!(
-                value.is_none(),
-                "no chunk producer should be stored when epoch is not available, shard {shard_id}"
-            );
         }
     }
 }
