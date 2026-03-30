@@ -18,7 +18,7 @@ use near_primitives::types::{Balance, Gas};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
 use near_store::archive::cold_storage::{
-    test_cold_genesis_update, test_get_store_reads, update_cold_db, update_cold_head,
+    test_copy_all_data_to_cold, test_get_store_reads, update_cold_db, update_cold_head,
 };
 use near_store::db::metadata::{DB_VERSION, DbKind};
 use near_store::test_utils::create_test_node_storage_with_cold;
@@ -128,7 +128,7 @@ fn test_storage_after_commit_of_cold_update() {
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let cold_db = storage.cold_db().unwrap();
 
-    test_cold_genesis_update(&cold_db, &env.clients[0].runtime_adapter.store()).unwrap();
+    test_copy_all_data_to_cold(&cold_db, &env.clients[0].runtime_adapter.store()).unwrap();
 
     let state_reads = test_get_store_reads(DBCol::State);
 
@@ -289,7 +289,7 @@ fn test_cold_db_copy_with_height_skips() {
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let cold_db = storage.cold_db().unwrap();
 
-    test_cold_genesis_update(&cold_db, &env.clients[0].runtime_adapter.store()).unwrap();
+    test_copy_all_data_to_cold(&cold_db, &env.clients[0].runtime_adapter.store()).unwrap();
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
     for height in 1..max_height {
@@ -428,7 +428,7 @@ fn test_cold_loop_on_gc_boundary() {
     set_genesis_height(&mut store_update, &0);
     store_update.commit();
 
-    test_cold_genesis_update(cold_db, &hot_store).unwrap();
+    test_copy_all_data_to_cold(cold_db, &hot_store).unwrap();
 
     update_cold_head(cold_db, &hot_store, &(height_delta - 1)).unwrap();
 

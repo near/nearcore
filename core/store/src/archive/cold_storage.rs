@@ -389,11 +389,25 @@ pub fn get_cold_head(cold_db: &ColdDB) -> io::Result<Option<Tip>> {
         .transpose()
 }
 
+/// Copies all State column entries from hot to cold storage.
+///
+/// Genesis state is written directly to the State column (not via TrieChanges),
+/// so `update_cold_db`'s `copy_state_from_store` copies nothing at genesis.
+/// Call this before the cold store loop processes genesis height.
+pub fn copy_state_to_cold(cold_db: &ColdDB, hot_store: &Store) -> io::Result<()> {
+    copy_from_store(
+        cold_db,
+        hot_store,
+        DBCol::State,
+        hot_store.iter(DBCol::State).map(|(k, _)| k.to_vec()).collect(),
+    )
+}
+
 // The copy_state_from_store function depends on the state nodes to be present
 // in the trie changes. This isn't the case for genesis so instead this method
 // can be used to copy the genesis records from hot to cold.
 // TODO - How did copying from genesis worked in the prod migration to split storage?
-pub fn test_cold_genesis_update(cold_db: &ColdDB, hot_store: &Store) -> io::Result<()> {
+pub fn test_copy_all_data_to_cold(cold_db: &ColdDB, hot_store: &Store) -> io::Result<()> {
     for col in DBCol::iter() {
         if !col.is_cold() {
             continue;
