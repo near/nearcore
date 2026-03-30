@@ -118,6 +118,7 @@ impl Chain {
         chain_store: &mut ChainStore,
         genesis: &Block,
         genesis_chunks: &[ShardChunk],
+        save_trie_changes: bool,
     ) -> Result<(), Error> {
         let state_roots = genesis_chunks.iter().map(|chunk| chunk.prev_state_root()).collect_vec();
         let mut store_update = chain_store.store_update();
@@ -165,13 +166,15 @@ impl Chain {
                 genesis.hash(),
                 genesis.header().height(),
             );
-            // Save empty TrieChanges for genesis so that the cold store loop
-            // can process genesis height using the standard update_cold_db path.
-            tmp_store_update.trie_store_update().set_trie_changes(
-                shard_uid,
-                genesis.hash(),
-                &TrieChanges::empty(*state_root),
-            );
+            if save_trie_changes {
+                // Save empty TrieChanges for genesis so that the cold store loop
+                // can process genesis height using the standard update_cold_db path.
+                tmp_store_update.trie_store_update().set_trie_changes(
+                    shard_uid,
+                    genesis.hash(),
+                    &TrieChanges::empty(*state_root),
+                );
+            }
         }
         store_update.merge(tmp_store_update);
         store_update.commit()?;

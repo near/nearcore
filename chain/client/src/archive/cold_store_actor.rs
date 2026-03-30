@@ -101,7 +101,6 @@ pub struct ColdStoreActor {
 impl Actor for ColdStoreActor {
     fn start_actor(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
         tracing::info!(target: "cold_store", "starting the cold store actor");
-        self.copy_genesis_state_if_needed();
         self.cold_store_loop(ctx);
     }
 }
@@ -126,33 +125,6 @@ impl ColdStoreActor {
             shard_tracker,
             keep_going,
         }
-    }
-
-    /// Copies genesis state to cold storage if not already initialized.
-    ///
-    /// Genesis state is written directly to the State column (not via
-    /// TrieChanges), so `update_cold_db`'s `copy_state_from_store` won't
-    /// capture it. This copies all State entries explicitly. The remaining
-    /// genesis columns (Block, Chunks, etc.) are handled by the cold store
-    /// loop's first iteration at genesis height.
-    fn copy_genesis_state_if_needed(&self) {
-        if self.cold_db.as_store().chain_store().head().is_ok() {
-            return;
-        }
-
-        // Verify that the hot store is still at genesis. If it has progressed,
-        // copying all State entries would include non-genesis data.
-        let hot_head = self.hot_store.chain_store().head().expect("hot store head not set");
-        assert_eq!(
-            hot_head.height, self.genesis_height,
-            "cold store is uninitialized but hot store is at height {} (expected genesis height {}). \
-             cold store initialization must happen before the node starts syncing",
-            hot_head.height, self.genesis_height,
-        );
-
-        tracing::info!(target: "cold_store", "cold store not initialized, copying genesis state");
-        copy_state_to_cold(&self.cold_db, &self.hot_store)
-            .expect("failed to copy genesis state to cold store");
     }
 
     // This method will copy data from hot storage to cold storage in a loop.
@@ -216,6 +188,17 @@ impl ColdStoreActor {
     /// Updates cold store head after.
     fn cold_store_copy(&self) -> anyhow::Result<ColdStoreCopyResult, ColdStoreError> {
         let cold_head = get_cold_head(&self.cold_db)?;
+
+        // If cold storage is not initialized, copy genesis state first.
+        // Genesis state is written directly to the State column (not via
+        // TrieChanges), so update_cold_db's copy_state_from_store won't
+        // capture it. We copy all State entries explicitly here; the remaining
+        // genesis columns (Block, Chunks, etc.) are handled by update_cold_db
+        // below when it processes genesis height.
+        if cold_head.is_none() {
+            tracing::info!(target: "cold_store", "cold store not initialized, copying genesis state");
+            copy_state_to_cold(&self.cold_db, &self.hot_store)?;
+        }
 
         // When cold HEAD is not set, start copying from genesis height.
         // When set, start from cold_head + 1.
