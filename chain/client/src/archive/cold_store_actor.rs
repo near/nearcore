@@ -8,12 +8,9 @@ use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::errors::EpochError;
 use near_primitives::types::BlockHeight;
 use near_store::adapter::StoreAdapter;
-use near_store::archive::cold_storage::{
-    CopyAllDataToColdStatus, copy_all_data_to_cold, get_cold_head, update_cold_db, update_cold_head,
-};
+use near_store::archive::cold_storage::{get_cold_head, update_cold_db, update_cold_head};
 use near_store::config::SplitStorageConfig;
 use near_store::db::ColdDB;
-use near_store::db::metadata::DbKind;
 use near_store::{DBCol, FINAL_HEAD_KEY, Store, TAIL_KEY, set_genesis_height};
 use std::sync::{Arc, atomic::AtomicBool};
 
@@ -89,16 +86,6 @@ fn cold_store_copy_result_to_string(
     }
 }
 
-#[derive(Debug)]
-enum ColdStoreMigrationResult {
-    /// Cold storage was already initialized
-    NoNeedForMigration,
-    /// Performed a successful cold storage migration
-    SuccessfulMigration,
-    /// Migration was interrupted by keep_going flag
-    MigrationInterrupted,
-}
-
 pub struct ColdStoreActor {
     split_storage_config: SplitStorageConfig,
     genesis_height: BlockHeight,
@@ -112,8 +99,7 @@ pub struct ColdStoreActor {
 impl Actor for ColdStoreActor {
     fn start_actor(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
         tracing::info!(target: "cold_store", "starting the cold store actor");
-        // Note that we start with the cold store migration loop which later spawns the cold store loop.
-        self.cold_store_migration_loop(ctx);
+        self.cold_store_loop(ctx);
     }
 }
 
@@ -136,116 +122,6 @@ impl ColdStoreActor {
             epoch_manager,
             shard_tracker,
             keep_going,
-        }
-    }
-
-    /// This function performs migration to cold storage if needed.
-    /// Migration can be interrupted via `keep_going` flag.
-    ///
-    /// Migration is performed if cold storage does not have a head set.
-    /// New head is determined based on hot storage DBKind.
-    /// - If hot storage is of type `Archive`, we need to perform initial migration from legacy archival node.
-    ///   This process will take a long time. Cold head will be set to hot final head BEFORE the migration started.
-    /// - If hot storage is of type `Hot`, this node was just created in split storage mode from genesis.
-    ///   Genesis data is written to hot storage before node can join the chain. Cold storage remains empty during that time.
-    ///   Thus, when cold loop is spawned, we need to perform migration of genesis data to cold storage.
-    ///   Cold head will be set to genesis height.
-    /// - Other kinds of hot storage are indicative of configuration error.
-    /// New cold head is written only after the migration is fully finished.
-    ///
-    /// After cold head is determined this function
-    /// 1. performs migration
-    /// 2. updates cold head
-    ///
-    /// Any Ok status means that this function should not be retried:
-    /// - either migration was performed (now or earlier)
-    /// - or migration was interrupted, which means the `keep_going` flag was set to `false`
-    ///   which means that everything cold store thread related has to stop
-    ///
-    /// Error status means that for some reason migration cannot be performed.
-    fn cold_store_migration(&self) -> anyhow::Result<ColdStoreMigrationResult> {
-        // Migration is only needed if cold storage is not properly initialized,
-        // i.e. if cold head is not set.
-        if self.cold_db.as_store().chain_store().head().is_ok() {
-            tracing::info!(target: "cold_store", "cold store already has a head set, no migration needed");
-            return Ok(ColdStoreMigrationResult::NoNeedForMigration);
-        }
-
-        tracing::info!(target: "cold_store", "starting population of cold store");
-        let new_cold_height = match self.hot_store.get_db_kind() {
-            None => {
-                tracing::error!(target: "cold_store", "hot store kind is unknown");
-                return Err(anyhow::anyhow!("Hot store DBKind is not set"));
-            }
-            Some(DbKind::Hot) => {
-                tracing::info!(target: "cold_store", "hot store kind is hot");
-                self.genesis_height
-            }
-            Some(DbKind::Archive) => {
-                tracing::info!(target: "cold_store", "hot store kind is archive");
-                self.hot_store.chain_store().final_head()?.height
-            }
-            Some(kind) => {
-                tracing::error!(target: "cold_store", ?kind, "hot store kind not supported");
-                return Err(anyhow::anyhow!(format!("Hot store DBKind not {kind:?}.")));
-            }
-        };
-
-        tracing::info!(target: "cold_store", new_cold_height, "determined cold storage head height after migration");
-
-        let batch_size = self.split_storage_config.cold_store_initial_migration_batch_size;
-        match copy_all_data_to_cold(
-            self.get_cold_db(),
-            &self.hot_store,
-            batch_size,
-            &self.keep_going,
-        ) {
-            CopyAllDataToColdStatus::EverythingCopied => {
-                tracing::info!(target: "cold_store", new_cold_height, "cold storage population was successful, writing cold head");
-                update_cold_head(self.cold_db.as_ref(), &self.hot_store, &new_cold_height)?;
-                Ok(ColdStoreMigrationResult::SuccessfulMigration)
-            }
-            CopyAllDataToColdStatus::Interrupted => {
-                tracing::info!(target: "cold_store", "cold storage population was interrupted");
-                Ok(ColdStoreMigrationResult::MigrationInterrupted)
-            }
-        }
-    }
-
-    /// Runs a loop that tries to copy all data from hot store to cold (do migration).
-    /// If migration fails sleeps for 30s and tries again.
-    /// If migration returned any successful status (including interruption status) breaks the loop.
-    fn cold_store_migration_loop(&self, ctx: &mut dyn DelayedActionRunner<Self>) {
-        if !self.keep_going.load(std::sync::atomic::Ordering::Relaxed) {
-            tracing::debug!(target: "cold_store", "stopping the initial migration loop");
-            return;
-        }
-
-        match self.cold_store_migration() {
-            Err(err) => {
-                // We can either stop the cold store actor or hope that next time migration will not fail.
-                // Here we pick the second option.
-                let duration =
-                    self.split_storage_config.cold_store_initial_migration_loop_sleep_duration;
-                tracing::error!(target: "cold_store", ?err, ?duration, "migration failed, sleeping and trying again");
-                ctx.run_later("cold_store_migration_loop", duration, move |actor, ctx| {
-                    actor.cold_store_migration_loop(ctx);
-                });
-            }
-            Ok(migration_status) => {
-                match migration_status {
-                    ColdStoreMigrationResult::MigrationInterrupted => {
-                        tracing::info!(target: "cold_store", "cold storage migration was interrupted");
-                        return;
-                    }
-                    ColdStoreMigrationResult::NoNeedForMigration
-                    | ColdStoreMigrationResult::SuccessfulMigration => {
-                        // Migration was successful, we can start the cold store loop.
-                        tracing::info!(target: "cold_store", "starting the cold store loop");
-                        self.cold_store_loop(ctx);
-                    }
-                }
-            }
         }
     }
 

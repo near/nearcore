@@ -1112,10 +1112,6 @@ def configure_cold_storage_for_archival_node(node_dir: str):
     if "split_storage" not in config_json:
         config_json["split_storage"] = {
             "enable_split_storage_view_client": True,
-            "cold_store_initial_migration_loop_sleep_duration": {
-                "secs": 0,
-                "nanos": 100000000
-            },
             "cold_store_loop_sleep_duration": {
                 "secs": 0,
                 "nanos": 100000000

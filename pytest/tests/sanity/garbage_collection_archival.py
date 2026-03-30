@@ -73,10 +73,6 @@ archival_config = {
     "save_trie_changes": True,
     "split_storage": {
         "enable_split_storage_view_client": True,
-        "cold_store_initial_migration_loop_sleep_duration": {
-            "secs": 0,
-            "nanos": 100000000
-        },
         "cold_store_loop_sleep_duration": {
             "secs": 0,
             "nanos": 100000000

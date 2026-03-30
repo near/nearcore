@@ -338,12 +338,6 @@ pub struct SplitStorageConfig {
     #[serde(default = "default_enable_split_storage_view_client")]
     pub enable_split_storage_view_client: bool,
 
-    #[serde(default = "default_cold_store_initial_migration_batch_size")]
-    pub cold_store_initial_migration_batch_size: usize,
-    #[serde(default = "default_cold_store_initial_migration_loop_sleep_duration")]
-    #[serde(with = "near_time::serde_duration_as_std")]
-    pub cold_store_initial_migration_loop_sleep_duration: Duration,
-
     #[serde(default = "default_cold_store_loop_sleep_duration")]
     #[serde(with = "near_time::serde_duration_as_std")]
     pub cold_store_loop_sleep_duration: Duration,
@@ -356,10 +350,6 @@ impl Default for SplitStorageConfig {
     fn default() -> Self {
         SplitStorageConfig {
             enable_split_storage_view_client: default_enable_split_storage_view_client(),
-            cold_store_initial_migration_batch_size:
-                default_cold_store_initial_migration_batch_size(),
-            cold_store_initial_migration_loop_sleep_duration:
-                default_cold_store_initial_migration_loop_sleep_duration(),
             cold_store_loop_sleep_duration: default_cold_store_loop_sleep_duration(),
             num_cold_store_read_threads: default_num_cold_store_read_threads(),
         }
@@ -368,14 +358,6 @@ impl Default for SplitStorageConfig {
 
 fn default_enable_split_storage_view_client() -> bool {
     false
-}
-
-fn default_cold_store_initial_migration_batch_size() -> usize {
-    500_000_000
-}
-
-fn default_cold_store_initial_migration_loop_sleep_duration() -> Duration {
-    Duration::seconds(30)
 }
 
 fn default_num_cold_store_read_threads() -> usize {
