@@ -45,15 +45,7 @@ impl WasmtimeTestLogic<'_> {
             context.make_gas_counter(&config),
             Arc::clone(&config),
         );
-        // Create a dummy ModuleExport for the memory field in Ctx. We'll
-        // pre-resolve it immediately after creating the store, so the
-        // Unresolved value is never actually used.
-        let dummy_wasm = wat::parse_str("(module (memory (export \"memory\") 1))").unwrap();
-        let dummy_memory_export = wasmtime::Module::new(&engine, &dummy_wasm)
-            .unwrap()
-            .get_export_index("memory")
-            .unwrap();
-        let ctx = Ctx::new(ext, context, Arc::new(fees_config), result_state, dummy_memory_export);
+        let ctx = Ctx::new(ext, context, Arc::new(fees_config), result_state);
 
         let mut store = Store::new(&engine, ctx);
         store.limiter(|ctx| &mut ctx.limits);
