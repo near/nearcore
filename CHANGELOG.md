@@ -5,8 +5,8 @@
 ### Protocol Changes
 * The contract runtime has been upgraded to use the new Wasmtime-based runtime;
 * The contract runtime now allows for bulk memory instructions in Wasm code.
-* New opt-in strict nonce mode for transactions added in nightly. When enabled, transactions with stale nonces are rejected and expired strict-nonce transactions are evicted from the pool via callback. ([#15361](https://github.com/near/nearcore/pull/15361), [#15402](https://github.com/near/nearcore/pull/15402))
-* Make sure delegate action returns the correct error consistently. ([#15458](https://github.com/near/nearcore/pull/15458))
+* New opt-in strict nonce mode for transactions added in nightly. When used, the transaction nonce must use the next valid nonce, not any greater nonce than the last transaction. ([#15361](https://github.com/near/nearcore/pull/15361), [#15402](https://github.com/near/nearcore/pull/15402))
+* Ensure delegate action returns the correct error consistently. ([#15458](https://github.com/near/nearcore/pull/15458))
 
 ### Non-protocol Changes
 * Removed deprecated fields from `EpochConfig`, `GenesisConfig`, and `ProtocolConfigView`: `num_block_producer_seats_per_shard`, `avg_hidden_validator_seats_per_shard`, `num_chunk_only_producer_seats`.
