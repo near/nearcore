@@ -166,6 +166,14 @@ fn migrate_48_to_49(
 ) -> anyhow::Result<()> {
     tracing::info!(target: "migrations", "starting migration from DB version 48 to 49");
 
+    // State snapshot DBs only contain state data — no chain or epoch data.
+    // All steps in this migration are chain-dependent, so skip them.
+    let chain_store = hot_store.chain_store();
+    if chain_store.final_head().is_err() {
+        tracing::info!(target: "migrations", "no chain data found (state snapshot DB), skipping migration steps");
+        return Ok(());
+    }
+
     if let Some(cold_db) = cold_db {
         copy_block_headers_to_cold_db(hot_store, cold_db)?;
     }
