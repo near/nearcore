@@ -33,6 +33,7 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, Nonce};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
+use near_primitives::validator_signer::ValidatorSigner;
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::test_utils::TestNodeStorage;
 use nearcore::state_sync::StateSyncDumpHandle;
@@ -73,6 +74,7 @@ pub struct NodeSetupState {
     pub account_id: AccountId,
     pub client_config: ClientConfig,
     pub storage: TestNodeStorage,
+    pub validator_signer: Option<Arc<ValidatorSigner>>,
 }
 
 /// This is the state associated with each node in the test loop environment after being built.

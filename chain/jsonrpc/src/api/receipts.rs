@@ -1,9 +1,12 @@
 use super::{Params, RpcFrom, RpcRequest};
 use near_async::messaging::AsyncSendError;
-use near_client_primitives::types::{GetReceipt, GetReceiptError};
+use near_client_primitives::types::{
+    GetReceipt, GetReceiptError, GetReceiptToTx, GetReceiptToTxError,
+};
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::receipts::{
-    ReceiptReference, RpcReceiptError, RpcReceiptRequest,
+    ReceiptReference, RpcReceiptError, RpcReceiptRequest, RpcReceiptToTxError,
+    RpcReceiptToTxRequest,
 };
 use serde_json::Value;
 
@@ -37,6 +40,36 @@ impl RpcFrom<GetReceiptError> for RpcReceiptError {
                     .inc();
                 Self::InternalError { error_message: error.to_string() }
             }
+        }
+    }
+}
+
+impl RpcRequest for RpcReceiptToTxRequest {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
+        Ok(Self { receipt_reference: Params::parse(value)? })
+    }
+}
+
+impl RpcFrom<AsyncSendError> for RpcReceiptToTxError {
+    fn rpc_from(error: AsyncSendError) -> Self {
+        Self::InternalError { error_message: error.to_string() }
+    }
+}
+
+impl RpcFrom<ReceiptReference> for GetReceiptToTx {
+    fn rpc_from(receipt_reference: ReceiptReference) -> Self {
+        Self { receipt_id: receipt_reference.receipt_id }
+    }
+}
+
+impl RpcFrom<GetReceiptToTxError> for RpcReceiptToTxError {
+    fn rpc_from(error: GetReceiptToTxError) -> Self {
+        match error {
+            GetReceiptToTxError::UnknownReceipt(receipt_id) => Self::UnknownReceipt { receipt_id },
+            GetReceiptToTxError::DepthExceeded { receipt_id, limit } => {
+                Self::DepthExceeded { receipt_id, limit }
+            }
+            GetReceiptToTxError::Unsupported(error_message) => Self::Unsupported { error_message },
         }
     }
 }

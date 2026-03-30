@@ -343,6 +343,10 @@ pub enum ProtocolFeature {
     /// (storage stake, function call permission) that could return an error,
     /// violating the documented contract of no mutation on error.
     FixAccessKeyAllowanceCharging,
+    /// Fix missing early return on DepositWithFunctionCall error path in
+    /// validate_delegate_action_key. Previously the error could be
+    /// overwritten by a subsequent receiver_id or method_name check.
+    FixDelegateActionDepositWithFunctionCallError,
     Spice,
     ContinuousEpochSync,
     /// Apply PromiseYield receipts immediately after emitting them. Allows to perform the resume
@@ -486,6 +490,8 @@ impl ProtocolFeature {
             | ProtocolFeature::EthImplicitGlobalContract
             | ProtocolFeature::InstantDeleteAccount => 83,
             ProtocolFeature::Wasmtime => 84,
+            ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
+            | ProtocolFeature::ContinuousEpochSync => 85,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -499,9 +505,7 @@ impl ProtocolFeature {
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,
-
             // Place features that are not yet in Nightly below this line.
-            ProtocolFeature::ContinuousEpochSync => 201,
         }
     }
 
@@ -517,7 +521,7 @@ pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 80;
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 84;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 85;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 151;

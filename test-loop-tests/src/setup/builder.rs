@@ -567,7 +567,7 @@ impl<'a> NodeStateBuilder<'a> {
         let client_config = self.create_client_config();
         let storage = self.setup_storage(client_config.chain_id.clone());
         let account_id = self.account_id.unwrap();
-        NodeSetupState { account_id, client_config, storage }
+        NodeSetupState { account_id, client_config, storage, validator_signer: None }
     }
 
     fn create_client_config(&self) -> ClientConfig {

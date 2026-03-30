@@ -5,6 +5,9 @@ use near_jsonrpc_primitives::message::Message;
 use near_jsonrpc_primitives::types::changes::{
     RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockByTypeResponse,
 };
+use near_jsonrpc_primitives::types::receipts::{
+    RpcReceiptRequest, RpcReceiptResponse, RpcReceiptToTxRequest, RpcReceiptToTxResponse,
+};
 use near_jsonrpc_primitives::types::transactions::{
     RpcSendTransactionRequest, RpcTransactionResponse, RpcTransactionStatusRequest,
 };
@@ -322,9 +325,17 @@ impl JsonRpcClient {
     #[allow(non_snake_case)]
     pub fn EXPERIMENTAL_receipt(
         &self,
-        request: near_jsonrpc_primitives::types::receipts::RpcReceiptRequest,
-    ) -> RpcRequest<near_jsonrpc_primitives::types::receipts::RpcReceiptResponse> {
+        request: RpcReceiptRequest,
+    ) -> RpcRequest<RpcReceiptResponse> {
         call_method(&self.transport, "EXPERIMENTAL_receipt", request)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_receipt_to_tx(
+        &self,
+        request: RpcReceiptToTxRequest,
+    ) -> RpcRequest<RpcReceiptToTxResponse> {
+        call_method(&self.transport, "EXPERIMENTAL_receipt_to_tx", request)
     }
 
     #[allow(non_snake_case)]
@@ -392,6 +403,23 @@ impl JsonRpcClient {
         request: near_jsonrpc_primitives::types::call_function::RpcCallFunctionRequest,
     ) -> RpcRequest<near_jsonrpc_primitives::types::call_function::RpcCallFunctionResponse> {
         call_method(&self.transport, "EXPERIMENTAL_call_function", request)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_view_gas_key_nonces(
+        &self,
+        request: near_jsonrpc_primitives::types::view_gas_key_nonces::RpcViewGasKeyNoncesRequest,
+    ) -> RpcRequest<near_jsonrpc_primitives::types::view_gas_key_nonces::RpcViewGasKeyNoncesResponse>
+    {
+        call_method(&self.transport, "EXPERIMENTAL_view_gas_key_nonces", request)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_congestion_level(
+        &self,
+        request: near_jsonrpc_primitives::types::congestion::RpcCongestionLevelRequest,
+    ) -> RpcRequest<near_jsonrpc_primitives::types::congestion::RpcCongestionLevelResponse> {
+        call_method(&self.transport, "EXPERIMENTAL_congestion_level", request)
     }
 
     pub fn validators(

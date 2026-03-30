@@ -1,7 +1,7 @@
 use crate::archive::cloud_storage::CloudStorage;
 use crate::archive::cloud_storage::block_data::BlockData;
 use crate::archive::cloud_storage::epoch_data::EpochData;
-use crate::archive::cloud_storage::file_id::CloudStorageFileID;
+use crate::archive::cloud_storage::file_id::{CloudStorageFileID, ListableCloudDir};
 use crate::archive::cloud_storage::shard_data::ShardData;
 use borsh::BorshDeserialize;
 use near_primitives::state_sync::ShardStateSyncResponseHeader;
@@ -12,6 +12,8 @@ use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
 pub enum CloudRetrievalError {
     #[error("Failed to retrieve {file_id:?} from the cloud archive: {error}")]
     GetError { file_id: CloudStorageFileID, error: anyhow::Error },
+    #[error("Failed to decompress {file_id:?} from the cloud archive: {error}")]
+    DecompressionError { file_id: CloudStorageFileID, error: std::io::Error },
     #[error("Failed to deserialize {file_id:?} from the cloud archive: {error}")]
     DeserializeError { file_id: CloudStorageFileID, error: borsh::io::Error },
     #[error("Failed to list directory in the cloud archive: {dir}; error: {error}")]
@@ -19,11 +21,28 @@ pub enum CloudRetrievalError {
 }
 
 impl CloudStorage {
+    /// Lists the entries in a cloud directory.
+    pub async fn list_dir(
+        &self,
+        dir: &ListableCloudDir,
+    ) -> Result<Vec<String>, CloudRetrievalError> {
+        let full_path = format!("chain_id={}/{}", self.chain_id, dir.path());
+        self.external
+            .list(&full_path)
+            .await
+            .map_err(|error| CloudRetrievalError::ListError { dir: full_path, error })
+    }
+
     /// Returns the block head from external storage, if present.
     pub async fn retrieve_cloud_block_head_if_exists(
         &self,
     ) -> Result<Option<BlockHeight>, CloudRetrievalError> {
-        self.retrieve_if_exists(&CloudStorageFileID::BlockHead).await
+        let file_id = CloudStorageFileID::BlockHead;
+        let (_, filename) = self.location_dir_and_file(&file_id);
+        if !self.dir_contains(&ListableCloudDir::Metadata, &filename).await? {
+            return Ok(None);
+        }
+        self.retrieve(&file_id).await.map(Some)
     }
 
     /// Returns a shard head from external storage, if present.
@@ -31,7 +50,12 @@ impl CloudStorage {
         &self,
         shard_id: ShardId,
     ) -> Result<Option<BlockHeight>, CloudRetrievalError> {
-        self.retrieve_if_exists(&CloudStorageFileID::ShardHead(shard_id)).await
+        let file_id = CloudStorageFileID::ShardHead(shard_id);
+        let (_, filename) = self.location_dir_and_file(&file_id);
+        if !self.dir_contains(&ListableCloudDir::ShardHeads, &filename).await? {
+            return Ok(None);
+        }
+        self.retrieve(&file_id).await.map(Some)
     }
 
     /// Returns the state snapshot header from external storage.
@@ -50,7 +74,7 @@ impl CloudStorage {
         epoch_id: EpochId,
     ) -> Result<EpochData, CloudRetrievalError> {
         let file_id = CloudStorageFileID::Epoch(epoch_id);
-        self.retrieve(&file_id).await
+        self.retrieve_compressed(&file_id).await
     }
 
     pub(super) async fn retrieve_block_data(
@@ -58,7 +82,7 @@ impl CloudStorage {
         block_height: BlockHeight,
     ) -> Result<BlockData, CloudRetrievalError> {
         let file_id = CloudStorageFileID::Block(block_height);
-        self.retrieve(&file_id).await
+        self.retrieve_compressed(&file_id).await
     }
 
     pub(super) async fn retrieve_shard_data(
@@ -67,24 +91,28 @@ impl CloudStorage {
         shard_id: ShardId,
     ) -> Result<ShardData, CloudRetrievalError> {
         let file_id = CloudStorageFileID::Shard(block_height, shard_id);
-        self.retrieve(&file_id).await
+        self.retrieve_compressed(&file_id).await
     }
 
-    /// Downloads and deserializes a file from the cloud archive, returning
-    /// `None` if the file does not exist.
-    async fn retrieve_if_exists<T: BorshDeserialize>(
+    /// Downloads, decompresses, and deserializes a file from the cloud archive.
+    // TODO(cloud_archival): Benchmark decompression: spawn_blocking,
+    // multithreaded decompression for large shard blobs.
+    pub(super) async fn retrieve_compressed<T: BorshDeserialize>(
         &self,
         file_id: &CloudStorageFileID,
-    ) -> Result<Option<T>, CloudRetrievalError> {
-        if !self.exists(file_id).await? {
-            return Ok(None);
-        }
-        let value = self.retrieve(file_id).await?;
-        Ok(Some(value))
+    ) -> Result<T, CloudRetrievalError> {
+        let compressed = self.download(file_id).await?;
+        let bytes = zstd::decode_all(compressed.as_slice()).map_err(|error| {
+            CloudRetrievalError::DecompressionError { file_id: file_id.clone(), error }
+        })?;
+        T::try_from_slice(&bytes).map_err(|error| CloudRetrievalError::DeserializeError {
+            file_id: file_id.clone(),
+            error,
+        })
     }
 
     /// Downloads and deserializes a file from the cloud archive.
-    async fn retrieve<T: BorshDeserialize>(
+    pub(super) async fn retrieve<T: BorshDeserialize>(
         &self,
         file_id: &CloudStorageFileID,
     ) -> Result<T, CloudRetrievalError> {
@@ -104,17 +132,64 @@ impl CloudStorage {
             .map_err(|error| CloudRetrievalError::GetError { file_id: file_id.clone(), error })
     }
 
-    /// Checks if a given file exists in the cloud archive.
-    ///
-    /// Note: Internally this may trigger a recursive directory listing — avoid calling it
-    /// on directories containing many files.
-    async fn exists(&self, file_id: &CloudStorageFileID) -> Result<bool, CloudRetrievalError> {
-        let (dir, filename) = self.location_dir_and_file(file_id);
-        let files = self
-            .external
-            .list(&dir)
-            .await
-            .map_err(|error| CloudRetrievalError::ListError { dir, error })?;
-        Ok(files.contains(&filename))
+    /// Checks if a directory contains a file with the given name.
+    pub(super) async fn dir_contains(
+        &self,
+        dir: &ListableCloudDir,
+        filename: &str,
+    ) -> Result<bool, CloudRetrievalError> {
+        let files = self.list_dir(dir).await?;
+        Ok(files.iter().any(|f| f == filename))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use near_external_storage::ExternalConnection;
+
+    fn test_cloud_storage(root_dir: &std::path::Path) -> CloudStorage {
+        CloudStorage {
+            external: ExternalConnection::Filesystem { root_dir: root_dir.to_path_buf() },
+            chain_id: "test".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_dir_constructs_correct_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cs = test_cloud_storage(tmp.path());
+
+        // Create files under chain_id=test/metadata/shard_head/
+        let shard_dir = tmp.path().join("chain_id=test/metadata/shard_head");
+        std::fs::create_dir_all(&shard_dir).unwrap();
+        std::fs::write(shard_dir.join("0"), b"").unwrap();
+        std::fs::write(shard_dir.join("1"), b"").unwrap();
+
+        let mut entries = cs.list_dir(&ListableCloudDir::ShardHeads).await.unwrap();
+        entries.sort();
+        assert_eq!(entries, vec!["0", "1"]);
+    }
+
+    #[tokio::test]
+    async fn test_list_dir_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cs = test_cloud_storage(tmp.path());
+
+        let entries = cs.list_dir(&ListableCloudDir::ShardHeads).await.unwrap();
+        assert!(entries.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_dir_contains() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cs = test_cloud_storage(tmp.path());
+
+        let meta_dir = tmp.path().join("chain_id=test/metadata");
+        std::fs::create_dir_all(&meta_dir).unwrap();
+        std::fs::write(meta_dir.join("block_head"), b"").unwrap();
+
+        assert!(cs.dir_contains(&ListableCloudDir::Metadata, "block_head").await.unwrap());
+        assert!(!cs.dir_contains(&ListableCloudDir::Metadata, "nonexistent").await.unwrap());
     }
 }

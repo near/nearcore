@@ -1,10 +1,29 @@
 use crate::archive::cloud_storage::CloudStorage;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
 
+/// Cloud directories that can be safely listed (recursively).
+/// Unbounded directories (heights/, epochs/) must not be listed.
+#[derive(Clone, Copy, Debug)]
+pub enum ListableCloudDir {
+    Metadata,
+    ShardHeads,
+}
+
+impl ListableCloudDir {
+    pub fn path(&self) -> String {
+        match self {
+            Self::Metadata => "metadata".into(),
+            Self::ShardHeads => "metadata/shard_head".into(),
+        }
+    }
+}
+
 /// Identifiers of files stored in cloud archival storage.
 /// Each variant maps to a specific logical file within the archive.
 #[derive(Clone, Debug)]
 pub enum CloudStorageFileID {
+    /// Archive-wide configuration (compression level, etc.).
+    Config,
     /// Tracks the latest block height for which block data has been archived.
     BlockHead,
     /// Tracks the latest block height for which shard data has been archived
@@ -24,18 +43,21 @@ impl CloudStorage {
     /// Returns the directory path and file name for the given file identifier.
     pub fn location_dir_and_file(&self, file_id: &CloudStorageFileID) -> (String, String) {
         let (mut dir_path, file_name) = match file_id {
-            CloudStorageFileID::BlockHead => ("metadata".into(), "block_head".into()),
+            CloudStorageFileID::Config => (ListableCloudDir::Metadata.path(), "config".into()),
+            CloudStorageFileID::BlockHead => {
+                (ListableCloudDir::Metadata.path(), "block_head".into())
+            }
             CloudStorageFileID::ShardHead(shard_id) => {
-                ("metadata/shard_head".into(), format!("{shard_id}"))
+                (ListableCloudDir::ShardHeads.path(), format!("{shard_id}"))
             }
             CloudStorageFileID::Epoch(epoch_id) => {
-                (format!("epoch_id={}", epoch_id.0), "epoch_data".into())
+                (format!("epochs/epoch_id={}", epoch_id.0), "epoch_data".into())
             }
             CloudStorageFileID::Block(height) => {
-                (format!("block_height={height}"), "block_data".into())
+                (format!("heights/block_height={height}"), "block_data".into())
             }
             CloudStorageFileID::Shard(height, shard_id) => {
-                (format!("block_height={height}/shard_id={shard_id}"), "shard_data".into())
+                (format!("heights/block_height={height}/shard_id={shard_id}"), "shard_data".into())
             }
             CloudStorageFileID::StateHeader(epoch_height, epoch_id, shard_id) => (
                 format!(

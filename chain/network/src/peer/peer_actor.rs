@@ -7,8 +7,6 @@ use crate::client::{
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::config::PEERS_RESPONSE_MAX_PEERS;
-#[cfg(feature = "distance_vector_routing")]
-use crate::network_protocol::DistanceVector;
 use crate::network_protocol::{
     Edge, EdgeState, OwnedAccount, PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo,
     PeersRequest, PeersResponse, RawRoutedMessage, RoutingTableUpdate,
@@ -24,8 +22,6 @@ use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_manager_actor::MAX_TIER2_PEERS;
 use crate::private_messages::{RegisterPeerError, SendMessage};
 use crate::rate_limits::messages_limits;
-#[cfg(feature = "distance_vector_routing")]
-use crate::routing::NetworkTopologyChange;
 use crate::routing::edge::verify_nonce;
 use crate::snapshot_hosts::SnapshotHostInfoError;
 use crate::stats::metrics;
@@ -1296,18 +1292,6 @@ impl PeerActor {
                     message_processed_event();
                 });
             }
-            #[cfg(not(feature = "distance_vector_routing"))]
-            PeerMessage::DistanceVector(_) => {}
-            #[cfg(feature = "distance_vector_routing")]
-            PeerMessage::DistanceVector(dv) => {
-                let conn = conn.clone();
-                let network_state = self.network_state.clone();
-                self.handle.spawn("handle distance vector", async move {
-                    Self::handle_distance_vector(&network_state, conn.clone(), dv).await;
-                    #[cfg(test)]
-                    message_processed_event();
-                });
-            }
             PeerMessage::SyncAccountsData(msg) => {
                 metrics::SYNC_ACCOUNTS_DATA
                     .with_label_values(&[
@@ -1509,14 +1493,6 @@ impl PeerActor {
             conn.stop(Some(ban_reason));
         }
 
-        // Also pass the edges to the V2 routing table
-        #[cfg(feature = "distance_vector_routing")]
-        if let Err(ban_reason) =
-            network_state.update_routes(NetworkTopologyChange::EdgeNonceRefresh(rtu.edges)).await
-        {
-            conn.stop(Some(ban_reason));
-        }
-
         // For every announce we received, we fetch the last announce with the same account_id
         // that we already broadcasted. Client actor will both verify signatures of the received announces
         // as well as filter out those which are older than the fetched ones (to avoid overriding
@@ -1536,26 +1512,6 @@ impl PeerActor {
             Ok(Err(ban_reason)) => conn.stop(Some(ban_reason)),
             Ok(Ok(accounts)) => network_state.add_accounts(accounts).await,
             Err(_) => {}
-        }
-    }
-
-    #[tracing::instrument(level = "trace", target = "network", "handle_distance_vector", skip_all)]
-    #[cfg(feature = "distance_vector_routing")]
-    async fn handle_distance_vector(
-        network_state: &Arc<NetworkState>,
-        conn: Arc<connection::Connection>,
-        distance_vector: DistanceVector,
-    ) {
-        if conn.peer_info.id != distance_vector.root {
-            conn.stop(Some(ReasonForBan::InvalidDistanceVector));
-            return;
-        }
-
-        if let Err(ban_reason) = network_state
-            .update_routes(NetworkTopologyChange::PeerAdvertisedDistances(distance_vector))
-            .await
-        {
-            conn.stop(Some(ban_reason));
         }
     }
 }

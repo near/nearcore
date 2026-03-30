@@ -24,6 +24,7 @@ pub trait ViewRuntimeAdapter {
         shard_uid: &ShardUId,
         state_root: MerkleHash,
         account_id: &AccountId,
+        current_protocol_version: ProtocolVersion,
     ) -> Result<ContractCode, crate::state_viewer::errors::ViewContractCodeError>;
 
     fn call_function(

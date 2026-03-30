@@ -16,6 +16,7 @@ mod create_delete_account;
 mod cross_shard_tx;
 mod deterministic_account_id;
 mod early_prepare_transactions;
+#[cfg(feature = "test_features")]
 mod eth_implicit_global_contract;
 mod fix_chunk_producer_stake_threshold;
 mod fix_stake_threshold;
@@ -49,6 +50,7 @@ mod spice_utils;
 mod split_storage;
 mod stake_nodes;
 mod sync;
+mod validator_key_check;
 mod view_requests;
 mod view_requests_to_archival_node;
 mod yield_resume;

@@ -2076,6 +2076,80 @@ mod tests {
         );
     }
 
+    /// Verify that `OneYoctoOnPromise` does NOT relax the rule that
+    /// function-call access keys cannot attach any deposit to a transaction.
+    /// The feature only applies to promise-level function calls inside a
+    /// contract, not to user-signed transactions.
+    #[test]
+    fn test_validate_transaction_deposit_with_function_call_one_yocto() {
+        let config = RuntimeConfig::test();
+        let (signer, mut state_update, gas_price) = setup_common(
+            TESTING_INIT_BALANCE,
+            Balance::ZERO,
+            Some(AccessKey {
+                nonce: 0,
+                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                    allowance: None,
+                    receiver_id: bob_account().into(),
+                    method_names: vec![],
+                }),
+            }),
+        );
+
+        let signed_tx = SignedTransaction::from_actions(
+            1,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "hello".to_string(),
+                args: b"abc".to_vec(),
+                gas: Gas::from_gas(100),
+                deposit: Balance::from_yoctonear(1),
+            }))],
+            CryptoHash::default(),
+        );
+
+        let err = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            PROTOCOL_VERSION,
+        )
+        .expect_err("expected an error");
+        assert_eq!(
+            err,
+            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::DepositWithFunctionCall,)
+        );
+
+        // The same transaction without any deposit should succeed.
+        let signed_tx = SignedTransaction::from_actions(
+            2,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "hello".to_string(),
+                args: b"abc".to_vec(),
+                gas: Gas::from_gas(100),
+                deposit: Balance::ZERO,
+            }))],
+            CryptoHash::default(),
+        );
+
+        validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            PROTOCOL_VERSION,
+        )
+        .expect("transaction with zero deposit should succeed");
+    }
+
     #[test]
     fn test_validate_transaction_exceeding_tx_size_limit() {
         let (signer, mut state_update, gas_price) =

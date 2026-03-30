@@ -3995,3 +3995,115 @@ fn test_gas_key_tx_deposit_insufficient_charges_gas() {
             .unwrap();
     assert_eq!(new_nonce, initial_nonce + 1);
 }
+
+/// Test that calling a function that attaches 1 yoctoNEAR via
+/// promise_batch_action_function_call_weight on a zero-balance contract
+/// records the subsidized amount in BalanceStats and accumulates across
+/// multiple receipts from different accounts in the same chunk.
+#[test]
+fn test_one_yocto_subsidy_tracked_in_stats() {
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+
+    let shard_uid = ShardUId::single_shard();
+
+    // Step 1: deploy the test contract to both accounts.
+    let deploy_alice = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![Action::DeployContract(DeployContractAction {
+            code: near_test_contracts::rs_contract().to_vec(),
+        })],
+    );
+    let deploy_bob = create_receipt_with_actions(
+        bob_account(),
+        signers[1].clone(),
+        vec![Action::DeployContract(DeployContractAction {
+            code: near_test_contracts::rs_contract().to_vec(),
+        })],
+    );
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(shard_uid, root),
+            &None,
+            &apply_state,
+            &[deploy_alice, deploy_bob],
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+
+    // Step 2: set both accounts' balance to zero so the subsidy kicks in.
+    let mut state_update = tries.new_trie_update(shard_uid, root);
+    for account_id in &[alice_account(), bob_account()] {
+        let mut account = get_account(&state_update, account_id).unwrap().unwrap();
+        account.set_amount(Balance::ZERO);
+        set_account(&mut state_update, account_id.clone(), &account);
+    }
+    state_update.commit(StateChangeCause::Migration);
+    let trie_changes = state_update.finalize().unwrap().trie_changes;
+    let mut store_update = tries.store_update();
+    let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+    store_update.commit();
+
+    // Step 3: call max_self_recursion_delay on both accounts in the same chunk.
+    // Each call attaches 1 yoctoNEAR via promise_batch_action_function_call_weight
+    // on a zero-balance account, so the subsidized amount should accumulate to
+    // 2 yoctoNEAR. Using separate accounts avoids the gas rebate from the first
+    // receipt making the account non-zero for the second.
+    let call_alice = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "max_self_recursion_delay".to_string(),
+            args: 0u32.to_be_bytes().to_vec(),
+            gas: Gas::from_teragas(100),
+            deposit: Balance::ZERO,
+        }))],
+    );
+
+    let call_bob = create_receipt_with_actions(
+        bob_account(),
+        signers[1].clone(),
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "max_self_recursion_delay".to_string(),
+            args: 0u32.to_be_bytes().to_vec(),
+            gas: Gas::from_teragas(100),
+            deposit: Balance::ZERO,
+        }))],
+    );
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(shard_uid, root),
+            &None,
+            &apply_state,
+            &[call_alice, call_bob],
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    // Both function calls should succeed.
+    assert_matches!(&apply_result.outcomes[..], [first, second] => {
+        assert_matches!(first.outcome.status, ExecutionStatus::SuccessReceiptId(_),
+            "first call: expected success but got {:?}", first.outcome.status);
+        assert_matches!(second.outcome.status, ExecutionStatus::SuccessReceiptId(_),
+            "second call: expected success but got {:?}", second.outcome.status);
+    });
+
+    // The subsidy should accumulate across both receipts.
+    assert_eq!(
+        apply_result.stats.balance.subsidized_amount,
+        Balance::from_yoctonear(2),
+        "stats should track 2 yoctoNEAR subsidized across two zero-balance contract calls"
+    );
+}

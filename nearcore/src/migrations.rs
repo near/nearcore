@@ -59,6 +59,11 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
                 &self.config.config.store,
             ),
             47 => migrate_47_to_48(cold_db, &self.config.genesis.config, &self.config.config.store),
+            48 => migrate_48_to_49(
+                hot_store,
+                cold_db,
+                self.config.genesis.config.transaction_validity_period,
+            ),
             DB_VERSION.. => unreachable!(),
         }
     }
@@ -154,7 +159,6 @@ fn recover_shard_1_at_block_height_115185108(
 /// 1. Copy block headers from hot_store to cold_db (if cold_db is present)
 /// 2. Generate and save the compressed epoch sync proof
 /// 3. Clear the block headers from genesis to tail in hot_store
-#[allow(dead_code)]
 fn migrate_48_to_49(
     hot_store: &Store,
     cold_db: Option<&ColdDB>,
@@ -219,8 +223,23 @@ fn update_epoch_sync_proof(
         store_update.commit();
     }
 
-    // Now we generate the epoch sync proof and update it to latest
+    // Generate the epoch sync proof. On short chains (e.g. tests),
+    // find_target_epoch_to_produce_proof_for would walk past genesis — skip and let
+    // the runtime produce it later via extend_epoch_sync_proof.
     tracing::info!(target: "migrations", "generating latest epoch sync proof");
+    let chain_store = store.chain_store();
+    let final_head = chain_store.final_head()?;
+    let current_epoch_start_height = epoch_store.get_epoch_start(&final_head.epoch_id)?;
+    if current_epoch_start_height < transaction_validity_period {
+        tracing::info!(
+            target: "migrations",
+            ?current_epoch_start_height,
+            ?transaction_validity_period,
+            "chain is too short to produce epoch sync proof, skipping"
+        );
+        return Ok(());
+    }
+
     let last_block_hash =
         find_target_epoch_to_produce_proof_for(&store, transaction_validity_period)?;
 

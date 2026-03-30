@@ -48,6 +48,9 @@ pub struct ExecutionResultState {
     /// Keeping track of the current account balance, which can decrease when we create promises
     /// and attach balance to them.
     pub(crate) current_account_balance: Balance,
+    /// Total amount subsidized by skipping balance deduction for 1 yoctoNEAR
+    /// attached deposits on zero-balance contract promise calls.
+    pub(crate) subsidized_amount: Balance,
     /// Storage usage of the current account at the moment
     pub(crate) current_storage_usage: StorageUsage,
 }
@@ -72,6 +75,7 @@ impl ExecutionResultState {
             total_log_length: 0,
             return_data: ReturnData::None,
             current_account_balance,
+            subsidized_amount: Balance::ZERO,
             current_storage_usage,
         }
     }
@@ -141,6 +145,7 @@ impl ExecutionResultState {
             logs: self.logs,
             profile,
             aborted: None,
+            subsidized_amount: self.subsidized_amount,
         }
     }
 }
@@ -2749,7 +2754,22 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         self.pay_action_per_byte(ActionCosts::function_call_byte, num_bytes, sir)?;
         // Prepaid gas
         self.result_state.gas_counter.prepay_gas(gas)?;
-        self.result_state.deduct_balance(amount)?;
+        // Allow attaching exactly 1 yoctoNEAR to a promise function call
+        // when the contract has zero balance. This lets deterministic accounts
+        // call functions like ft_transfer_call that require an attached deposit
+        // without needing to be seeded with balance first.
+        let skip_deduct = amount == Balance::from_yoctonear(1)
+            && self.config.one_yocto_on_promise
+            && self.result_state.current_account_balance.is_zero();
+        if skip_deduct {
+            self.result_state.subsidized_amount = self
+                .result_state
+                .subsidized_amount
+                .checked_add(amount)
+                .expect("subsidized_amount overflow");
+        } else {
+            self.result_state.deduct_balance(amount)?;
+        }
         self.ext.append_action_function_call_weight(
             receipt_idx,
             method_name,
@@ -4166,6 +4186,9 @@ pub struct VMOutcome {
     /// Data collected from making a contract call
     pub profile: ProfileDataV3,
     pub aborted: Option<FunctionCallError>,
+    /// Amount of balance subsidized (minted) by skipping deduction for
+    /// 1 yoctoNEAR attached deposits on zero-balance contracts.
+    pub subsidized_amount: Balance,
 }
 
 impl VMOutcome {
@@ -4198,6 +4221,7 @@ impl VMOutcome {
             logs: Vec::new(),
             profile: ProfileDataV3::default(),
             aborted: Some(error),
+            subsidized_amount: Balance::ZERO,
         }
     }
 

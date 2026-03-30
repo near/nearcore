@@ -19,25 +19,55 @@ static OLD_TESTNET: WalletContract =
 static LOCALNET: WalletContract =
     WalletContract::new(include_bytes!("../res/wallet_contract_localnet.wasm"));
 
+/// Identifies a legacy ETH wallet contract variant by chain.
+#[derive(Clone, Debug)]
+pub enum LegacyEthWallet {
+    Mainnet,
+    /// Current testnet wallet contract (from protocol version 71+).
+    Testnet,
+    /// Initial wallet contract released to testnet at protocol version 70,
+    /// before it was updated. Never deployed to mainnet.
+    OldTestnet,
+    Localnet,
+}
+
+impl LegacyEthWallet {
+    /// Resolve a code hash to a legacy ETH wallet variant, if it matches any
+    /// known wallet contract magic bytes.
+    pub fn resolve(code_hash: CryptoHash) -> Option<Self> {
+        if MAINNET.check_magic_bytes(&code_hash) {
+            return Some(LegacyEthWallet::Mainnet);
+        }
+        if TESTNET.check_magic_bytes(&code_hash) {
+            return Some(LegacyEthWallet::Testnet);
+        }
+        if OLD_TESTNET.check_magic_bytes(&code_hash) {
+            return Some(LegacyEthWallet::OldTestnet);
+        }
+        if LOCALNET.check_magic_bytes(&code_hash) {
+            return Some(LegacyEthWallet::Localnet);
+        }
+        None
+    }
+
+    fn wallet_contract(&self) -> &'static WalletContract {
+        match self {
+            LegacyEthWallet::Mainnet => &MAINNET,
+            LegacyEthWallet::Testnet => &TESTNET,
+            LegacyEthWallet::OldTestnet => &OLD_TESTNET,
+            LegacyEthWallet::Localnet => &LOCALNET,
+        }
+    }
+
+    /// Return the contract code for this legacy ETH wallet variant.
+    pub fn contract(&self) -> Arc<ContractCode> {
+        self.wallet_contract().read_contract()
+    }
+}
+
 /// Get wallet contract code for different Near chains.
 pub fn wallet_contract(code_hash: CryptoHash) -> Option<Arc<ContractCode>> {
-    fn check(code_hash: &CryptoHash, contract: &WalletContract) -> Option<Arc<ContractCode>> {
-        let magic_bytes = contract.magic_bytes();
-        if code_hash == magic_bytes.hash() { Some(contract.read_contract()) } else { None }
-    }
-    if let Some(c) = check(&code_hash, &MAINNET) {
-        return Some(c);
-    }
-    if let Some(c) = check(&code_hash, &TESTNET) {
-        return Some(c);
-    }
-    if let Some(c) = check(&code_hash, &OLD_TESTNET) {
-        return Some(c);
-    }
-    if let Some(c) = check(&code_hash, &LOCALNET) {
-        return Some(c);
-    }
-    return None;
+    LegacyEthWallet::resolve(code_hash).map(|w| w.contract())
 }
 
 /// near[wallet contract hash]
@@ -108,6 +138,10 @@ impl WalletContract {
 
     fn read_contract(&self) -> Arc<ContractCode> {
         self.contract.get_or_init(|| Arc::new(ContractCode::new(self.code.to_vec(), None))).clone()
+    }
+
+    fn check_magic_bytes(&self, code_hash: &CryptoHash) -> bool {
+        code_hash == self.magic_bytes().hash()
     }
 
     fn magic_bytes(&self) -> Arc<ContractCode> {

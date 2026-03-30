@@ -48,7 +48,6 @@ impl tcp::Tier {
             PeerMessage::OptimisticBlock(..) => true,
             PeerMessage::Routed(msg) => self.is_allowed_receive_routed(msg.body()),
             PeerMessage::SyncRoutingTable(..)
-            | PeerMessage::DistanceVector(..)
             | PeerMessage::RequestUpdateNonce(..)
             | PeerMessage::SyncAccountsData(..)
             | PeerMessage::PeersRequest(..)

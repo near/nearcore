@@ -41,7 +41,14 @@ impl KeyFile {
         let json_str_without_comments: String =
             near_config_utils::strip_comments_from_json_str(&json_config_str)?;
 
-        Ok(serde_json::from_str(&json_str_without_comments)?)
+        let key_file: Self = serde_json::from_str(&json_str_without_comments)?;
+        if key_file.secret_key.public_key() != key_file.public_key {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "public key does not correspond to secret key in key file",
+            ));
+        }
+        Ok(key_file)
     }
 }
 
@@ -110,5 +117,25 @@ mod test {
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
         let inner_msg = err.into_inner().unwrap().to_string();
         assert!(inner_msg.contains("duplicate field"));
+    }
+
+    #[test]
+    fn test_from_file_mismatched_keys() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("key-file");
+
+        let account_id: AccountId = ACCOUNT_ID.parse().unwrap();
+        let secret_key: SecretKey = SECRET_KEY.parse().unwrap();
+        let wrong_public_key =
+            "ed25519:3ThNatHmFR6gtMEFMEBPw6M1PGH6FVbGMzwBd4JqHTFT".parse().unwrap();
+        let key_file = KeyFile { account_id, public_key: wrong_public_key, secret_key };
+        key_file.write_to_file(&path).unwrap();
+
+        let err = match KeyFile::from_file(&path) {
+            Err(e) => e,
+            Ok(_) => panic!("expected error for mismatched keys"),
+        };
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        assert!(err.to_string().contains("public key does not correspond to secret key"));
     }
 }
