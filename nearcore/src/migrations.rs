@@ -22,9 +22,13 @@ use near_store::{
 };
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::mpsc;
+use std::thread;
 
 const BATCH_SIZE: u64 = 100_000;
 const MAX_SST_FILE_SIZE: u64 = 256 * 1024 * 1024; // 256 MB
+/// Number of parallel SST writer threads.
+const NUM_SST_WRITERS: usize = 4;
 
 pub(super) struct Migrator<'a> {
     config: &'a NearConfig,
@@ -214,56 +218,133 @@ fn copy_block_headers_to_cold_db(
     Ok(())
 }
 
-/// Writes all block headers into SST files in the given directory.
-/// Returns the SST file paths created.
+/// A batch of key-value pairs to be written into a single SST file.
+struct SstBatch {
+    file_index: u64,
+    entries: Vec<(Box<[u8]>, Box<[u8]>)>,
+}
+
+/// Writes all block headers into SST files using parallel writer threads.
 ///
-/// The RocksDB iterator yields sorted keys, satisfying SstFileWriter's ordering
-/// requirement. We use SstFileWriter rather than ingesting existing SST files
-/// because RocksDB 8.1.1 rejects DB-generated files (facebook/rocksdb#9346).
+/// A reader thread iterates block headers from the hot store and groups them
+/// into batches (one per SST file). Batches are sent to a pool of writer
+/// threads via a bounded channel, so multiple SST files are written
+/// concurrently. This increases I/O queue depth on the cold disk, utilizing
+/// more of the available bandwidth.
+///
+/// The RocksDB iterator yields sorted keys. Each batch contains a contiguous
+/// sorted range, so the resulting SST files have non-overlapping key ranges
+/// as required by ingest.
 fn write_block_headers_to_sst_files(store: &Store, sst_dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
     std::fs::create_dir_all(sst_dir)?;
 
-    tracing::info!(target: "migrations", ?sst_dir, "starting SST file creation for block headers");
+    tracing::info!(
+        target: "migrations",
+        ?sst_dir,
+        num_writers = NUM_SST_WRITERS,
+        "starting parallel SST file creation for block headers"
+    );
 
-    // Use LZ4 compression to match the cold store's column configuration.
-    let mut opts = rocksdb::Options::default();
-    opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
-    let mut writer = rocksdb::SstFileWriter::create(&opts);
-    let mut sst_paths: Vec<PathBuf> = Vec::new();
+    // Bounded channel: capacity = NUM_SST_WRITERS so the reader blocks when all
+    // writers are busy, providing natural backpressure.
+    let (tx, rx) = mpsc::sync_channel::<SstBatch>(NUM_SST_WRITERS);
+
+    let sst_dir_owned = sst_dir.to_path_buf();
+
+    // Spawn writer threads that share the receiver via a mutex.
+    let rx = std::sync::Arc::new(std::sync::Mutex::new(rx));
+    let mut writer_handles = Vec::with_capacity(NUM_SST_WRITERS);
+    for worker_id in 0..NUM_SST_WRITERS {
+        let rx = rx.clone();
+        let sst_dir = sst_dir_owned.clone();
+        let handle = thread::Builder::new().name(format!("sst-writer-{}", worker_id)).spawn(
+            move || -> anyhow::Result<Vec<PathBuf>> {
+                let mut opts = rocksdb::Options::default();
+                opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
+                let mut writer = rocksdb::SstFileWriter::create(&opts);
+                let mut paths = Vec::new();
+
+                loop {
+                    let batch = {
+                        let lock = rx.lock().unwrap();
+                        lock.recv()
+                    };
+                    let batch = match batch {
+                        Ok(batch) => batch,
+                        Err(_) => break, // channel closed, no more batches
+                    };
+
+                    let path = sst_dir.join(format!("{:06}.sst", batch.file_index));
+                    writer.open(&path)?;
+                    for (key, value) in &batch.entries {
+                        writer.put(key, value)?;
+                    }
+                    writer.finish()?;
+                    paths.push(path);
+                }
+
+                Ok(paths)
+            },
+        )?;
+        writer_handles.push(handle);
+    }
+
+    // Reader: iterate hot store and send batches to writers.
     let mut file_index: u64 = 0;
     let mut total_bytes: u64 = 0;
-    let mut file_open = false;
+    let mut total_count: u64 = 0;
+    let mut batch_bytes: u64 = 0;
+    let mut entries: Vec<(Box<[u8]>, Box<[u8]>)> = Vec::new();
 
-    for (count, (key, value)) in store.iter_raw_bytes(DBCol::BlockHeader).enumerate() {
-        if !file_open {
-            let path = sst_dir.join(format!("{:06}.sst", file_index));
-            writer.open(&path)?;
-            sst_paths.push(path);
-            file_open = true;
-        }
-
+    for (key, value) in store.iter_raw_bytes(DBCol::BlockHeader) {
         total_bytes += (key.len() + value.len()) as u64;
-        writer.put(&*key, &*value)?;
+        batch_bytes += (key.len() + value.len()) as u64;
+        total_count += 1;
+        entries.push((key, value));
 
-        if writer.file_size() >= MAX_SST_FILE_SIZE {
-            writer.finish()?;
-            file_open = false;
+        if batch_bytes >= MAX_SST_FILE_SIZE {
+            tx.send(SstBatch { file_index, entries })?;
             file_index += 1;
             let total_gb = format!("{:.2}", total_bytes as f64 / (1024.0 * 1024.0 * 1024.0));
-            tracing::info!(target: "migrations", file_index, count, total_gb, "completed SST file");
+            tracing::info!(
+                target: "migrations",
+                file_index,
+                count = total_count,
+                total_gb,
+                "sent SST batch to writer"
+            );
+            entries = Vec::new();
+            batch_bytes = 0;
         }
     }
 
-    if file_open {
-        writer.finish()?;
+    // Send the last partial batch.
+    if !entries.is_empty() {
+        tx.send(SstBatch { file_index, entries })?;
     }
+
+    // Drop sender to signal writers to finish.
+    drop(tx);
+
+    // Collect results from all writers.
+    let mut sst_paths: Vec<PathBuf> = Vec::new();
+    for handle in writer_handles {
+        let paths =
+            handle.join().map_err(|e| anyhow::anyhow!("SST writer thread panicked: {:?}", e))??;
+        sst_paths.extend(paths);
+    }
+
+    // Sort by filename to maintain ingestion order.
+    sst_paths.sort();
 
     let total_gb = format!("{:.2}", total_bytes as f64 / (1024.0 * 1024.0 * 1024.0));
     tracing::info!(
         target: "migrations",
         total_gb,
+        total_count,
         sst_files = sst_paths.len(),
-        "completed SST file creation for block headers",
+        num_writers = NUM_SST_WRITERS,
+        "completed parallel SST file creation for block headers",
     );
 
     Ok(sst_paths)
