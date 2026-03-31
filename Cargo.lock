@@ -5411,6 +5411,7 @@ dependencies = [
  "finite-wasm 0.5.0",
  "finite-wasm 0.6.0",
  "hex",
+ "libc",
  "lru 0.16.3",
  "memoffset 0.8.0",
  "near-crypto",

@@ -6,6 +6,8 @@
 mod cache;
 mod errors;
 mod features;
+#[cfg(feature = "wasmtime_vm")]
+mod forked_compile;
 mod imports;
 pub mod logic;
 #[cfg(feature = "metrics")]

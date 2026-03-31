@@ -466,16 +466,17 @@ impl WasmtimeVM {
         let start = std::time::Instant::now();
         let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::Wasmtime)
             .map_err(CompilationError::PrepareError)?;
-        let serialized = self.engine.precompile_module(&prepared_code).map_err(|err| {
-            tracing::debug!(
-                target: "vm",
-                ?err,
-                code_hash = %code.hash(),
-                code_size = code.code().len(),
-                "wasmtime contract compilation failed",
-            );
-            CompilationError::WasmtimeCompileError { msg: err.to_string() }
-        })?;
+        let serialized = crate::forked_compile::compile_in_fork(&self.engine, &prepared_code)
+            .map_err(|err| {
+                tracing::debug!(
+                    target: "vm",
+                    ?err,
+                    code_hash = %code.hash(),
+                    code_size = code.code().len(),
+                    "wasmtime contract compilation failed",
+                );
+                err
+            })?;
 
         tracing::debug!(
             target: "vm",
