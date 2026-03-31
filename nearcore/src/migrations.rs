@@ -18,19 +18,22 @@ use near_store::db::{ColdDB, DBTransaction, Database};
 use near_store::flat::FlatStorageManager;
 use near_store::{
     DBCol, LATEST_KNOWN_KEY, ShardTries, ShardUId, StateSnapshotConfig, Store, StoreConfig,
-    TrieChanges, TrieConfig, TrieUpdate, get_genesis_height, set,
+    TrieChanges, TrieConfig, TrieUpdate, set,
 };
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 const BATCH_SIZE: u64 = 100_000;
+const MAX_SST_FILE_SIZE: u64 = 256 * 1024 * 1024; // 256 MB
 
 pub(super) struct Migrator<'a> {
     config: &'a NearConfig,
+    home_dir: &'a Path,
 }
 
 impl<'a> Migrator<'a> {
-    pub fn new(config: &'a NearConfig) -> Self {
-        Self { config }
+    pub fn new(config: &'a NearConfig, home_dir: &'a Path) -> Self {
+        Self { config, home_dir }
     }
 }
 
@@ -63,6 +66,8 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
                 hot_store,
                 cold_db,
                 self.config.genesis.config.transaction_validity_period,
+                self.home_dir,
+                &self.config.config.store,
             ),
             DB_VERSION.. => unreachable!(),
         }
@@ -163,11 +168,13 @@ fn migrate_48_to_49(
     hot_store: &Store,
     cold_db: Option<&ColdDB>,
     transaction_validity_period: BlockHeightDelta,
+    home_dir: &Path,
+    cold_store_config: &StoreConfig,
 ) -> anyhow::Result<()> {
     tracing::info!(target: "migrations", "starting migration from DB version 48 to 49");
 
     if let Some(cold_db) = cold_db {
-        copy_block_headers_to_cold_db(hot_store, cold_db)?;
+        copy_block_headers_to_cold_db(hot_store, cold_db, home_dir, cold_store_config)?;
     }
 
     update_epoch_sync_proof(hot_store.clone(), transaction_validity_period)?;
@@ -176,33 +183,90 @@ fn migrate_48_to_49(
     Ok(())
 }
 
-// Copy block headers from hot_store to cold_db in batches
-// Note that we are using raw DBTransaction iteration to avoid deserializing and re-serializing the block headers
-// Typically this is NOT recommended as ColdDB has specific ways for storing data, example RC columns.
-// But in our case this is fine as the block headers are stored as-is in both hot and cold DBs.
-fn copy_block_headers_to_cold_db(hot_store: &Store, cold_db: &ColdDB) -> anyhow::Result<()> {
-    let genesis_height = get_genesis_height(hot_store).unwrap();
-    let head_height = hot_store.chain_store().head().unwrap().height;
-    let approx_num_blocks = head_height - genesis_height;
+/// Copies block headers from hot store to cold DB via SST bulk ingestion.
+///
+/// Writes the column to SST files on the cold store's filesystem, then ingests
+/// them with move_files=true (rename, no copy). This bypasses the normal write
+/// path and reduces copy time from hours to minutes.
+fn copy_block_headers_to_cold_db(
+    hot_store: &Store,
+    cold_db: &ColdDB,
+    home_dir: &Path,
+    cold_store_config: &StoreConfig,
+) -> anyhow::Result<()> {
+    let cold_store_path =
+        home_dir.join(cold_store_config.path.as_deref().unwrap_or_else(|| Path::new("cold-data")));
+    let sst_dir = cold_store_path.join("migration-sst-tmp");
 
-    tracing::info!(target: "migrations", ?approx_num_blocks, "copying block headers to cold db");
+    tracing::info!(target: "migrations", "copying block headers to cold db via SST ingestion");
+    let sst_paths = write_block_headers_to_sst_files(hot_store, &sst_dir)?;
 
-    let mut count = 0;
-    let mut transaction = DBTransaction::new();
-    for (key, value) in hot_store.iter_raw_bytes(DBCol::BlockHeader) {
-        transaction.set(DBCol::BlockHeader, key.into_vec(), value.into_vec());
-        count += 1;
-        if count % BATCH_SIZE == 0 {
-            cold_db.write(transaction);
-            transaction = DBTransaction::new();
-            let percent_complete = (count as f64 / approx_num_blocks as f64) * 100.0;
-            tracing::info!(target: "migrations", ?count, ?approx_num_blocks, ?percent_complete, "copied block headers to cold db");
+    // move_files=true: SST dir is on the same filesystem as cold store, so
+    // ingest renames instead of copying.
+    tracing::info!(target: "migrations", sst_files = sst_paths.len(), "ingesting SST files into cold db");
+    cold_db.ingest_external_sst_files(DBCol::BlockHeader, &sst_paths, true)?;
+    tracing::info!(target: "migrations", "SST ingestion into cold db complete");
+
+    // Files were moved by ingest; clean up the empty directory.
+    std::fs::remove_dir_all(&sst_dir)?;
+
+    tracing::info!(target: "migrations", "completed copying block headers to cold db");
+    Ok(())
+}
+
+/// Writes all block headers into SST files in the given directory.
+/// Returns the SST file paths created.
+///
+/// The RocksDB iterator yields sorted keys, satisfying SstFileWriter's ordering
+/// requirement. We use SstFileWriter rather than ingesting existing SST files
+/// because RocksDB 8.1.1 rejects DB-generated files (facebook/rocksdb#9346).
+fn write_block_headers_to_sst_files(store: &Store, sst_dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    std::fs::create_dir_all(sst_dir)?;
+
+    tracing::info!(target: "migrations", ?sst_dir, "starting SST file creation for block headers");
+
+    // Use LZ4 compression to match the cold store's column configuration.
+    let mut opts = rocksdb::Options::default();
+    opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
+    let mut writer = rocksdb::SstFileWriter::create(&opts);
+    let mut sst_paths: Vec<PathBuf> = Vec::new();
+    let mut file_index: u64 = 0;
+    let mut total_bytes: u64 = 0;
+    let mut file_open = false;
+
+    for (count, (key, value)) in store.iter_raw_bytes(DBCol::BlockHeader).enumerate() {
+        if !file_open {
+            let path = sst_dir.join(format!("{:06}.sst", file_index));
+            writer.open(&path)?;
+            sst_paths.push(path);
+            file_open = true;
+        }
+
+        total_bytes += (key.len() + value.len()) as u64;
+        writer.put(&*key, &*value)?;
+
+        if writer.file_size() >= MAX_SST_FILE_SIZE {
+            writer.finish()?;
+            file_open = false;
+            file_index += 1;
+            let total_gb = format!("{:.2}", total_bytes as f64 / (1024.0 * 1024.0 * 1024.0));
+            tracing::info!(target: "migrations", file_index, count, total_gb, "completed SST file");
         }
     }
-    cold_db.write(transaction);
-    tracing::info!(target: "migrations", ?count, ?approx_num_blocks, "completed copying block headers to cold db");
 
-    Ok(())
+    if file_open {
+        writer.finish()?;
+    }
+
+    let total_gb = format!("{:.2}", total_bytes as f64 / (1024.0 * 1024.0 * 1024.0));
+    tracing::info!(
+        target: "migrations",
+        total_gb,
+        sst_files = sst_paths.len(),
+        "completed SST file creation for block headers",
+    );
+
+    Ok(sst_paths)
 }
 
 fn update_epoch_sync_proof(

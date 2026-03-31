@@ -2,6 +2,7 @@ use crate::db::refcount::set_refcount;
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database};
 use crate::{DBCol, Store};
 use near_o11y::log_assert_fail;
+use std::path::PathBuf;
 
 /// A database which provides access to the cold storage.
 ///
@@ -112,6 +113,16 @@ impl Database for ColdDB {
         columns_to_keep: Option<&[DBCol]>,
     ) -> anyhow::Result<()> {
         self.cold.create_checkpoint(path, columns_to_keep)
+    }
+
+    fn ingest_external_sst_files(
+        &self,
+        col: DBCol,
+        paths: &[PathBuf],
+        move_files: bool,
+    ) -> anyhow::Result<()> {
+        Self::assert_is_in_colddb(col);
+        self.cold.ingest_external_sst_files(col, paths, move_files)
     }
 }
 

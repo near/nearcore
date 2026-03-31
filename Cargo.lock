@@ -5584,6 +5584,7 @@ dependencies = [
  "primitive-types 0.10.1",
  "rand 0.8.5",
  "reqwest 0.13.2",
+ "rocksdb",
  "serde",
  "serde_ignored",
  "serde_json",
