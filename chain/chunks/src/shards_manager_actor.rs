@@ -483,11 +483,7 @@ impl ShardsManagerActor {
 
         let chunk_producer_account_id = self
             .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
-                epoch_id: self.epoch_manager.get_epoch_id_from_prev_block(ancestor_hash)?,
-                height_created: height,
-                shard_id,
-            })?
+            .get_chunk_producer_info_db(ancestor_hash, shard_id)?
             .take_account_id();
 
         // In the following we compute which target accounts we should request parts and receipts from
@@ -653,12 +649,10 @@ impl ShardsManagerActor {
     /// The node will wait if it's a block producer or a chunk producer that is responsible
     /// for producing the next chunk in this shard.
     /// `prev_hash`: previous block hash of the chunk that we are requesting
-    /// `next_chunk_height`: height of the next chunk of the chunk that we are requesting
     fn should_wait_for_chunk_forwarding(
         &self,
         prev_hash: &CryptoHash,
         shard_id: ShardId,
-        next_chunk_height: BlockHeight,
         me: Option<&AccountId>,
     ) -> Result<bool, EpochError> {
         // chunks will not be forwarded to non-validators
@@ -673,14 +667,8 @@ impl ShardsManagerActor {
                 return Ok(true);
             }
         }
-        let chunk_producer = self
-            .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
-                epoch_id,
-                height_created: next_chunk_height,
-                shard_id,
-            })?
-            .take_account_id();
+        let chunk_producer =
+            self.epoch_manager.get_chunk_producer_info_db(prev_hash, shard_id)?.take_account_id();
         if &chunk_producer == me {
             return Ok(true);
         }
@@ -770,7 +758,7 @@ impl ShardsManagerActor {
             && self.chain_header_head.prev_block_hash != prev_block_hash;
 
         let should_wait_for_chunk_forwarding =
-                self.should_wait_for_chunk_forwarding(&ancestor_hash, chunk_header.shard_id(), chunk_header.height_created()+1, me).unwrap_or_else(|_| {
+                self.should_wait_for_chunk_forwarding(&ancestor_hash, chunk_header.shard_id(), me).unwrap_or_else(|_| {
                     // ancestor_hash must be accepted because we don't request missing chunks through this
                     // this function for orphans
                     debug_assert!(false, "{:?} must be accepted", ancestor_hash);
