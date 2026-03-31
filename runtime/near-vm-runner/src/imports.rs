@@ -84,7 +84,7 @@ macro_rules! imports {
         /// generating method definitions). Unlike `for_each_available_import`,
         /// this calls `$M!` directly (not via `call_with_name`) so that the
         /// trailing `;` is preserved for item-position expansion.
-        macro_rules! for_each_import {
+        macro_rules! for_each_import_item {
             ($M:ident) => {$(
                 $(#[cfg(feature = $feature_name)])?
                 $M!($( @in $mod : )? $( @as $name : )? $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >);
@@ -360,7 +360,7 @@ imports! {
 }
 
 #[cfg(test)]
-pub(crate) use for_each_import;
+pub(crate) use for_each_import_item;
 pub(crate) use {call_with_name, for_each_available_import};
 
 pub(crate) const fn should_trace_host_function(host_function: &str) -> bool {

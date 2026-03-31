@@ -17,7 +17,7 @@ static CACHED_ENGINE_MODULE: LazyLock<(Engine, Module)> = LazyLock::new(|| {
     (engine, module)
 });
 
-const MEMORY_SIZE: u64 = 64 * 1024;
+use crate::logic::mocks::mock_memory::MockedMemory;
 
 /// Wasmtime-backed test logic that calls host function implementations
 /// directly. The lifetime `'a` ties it to the `VMLogicBuilder` that created
@@ -33,15 +33,8 @@ pub(crate) struct WasmtimeTestLogic<'a> {
 /// Internal (finite-wasm instrumentation) imports are skipped.
 macro_rules! delegate_import {
     (@in internal : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >) => {};
-    (@as $name:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >) => {
-        #[allow(unused_parens)]
-        pub(crate) fn $func(&mut self, $( $arg_name: $arg_type ),*) -> Result<($($returns),*), VMLogicError> {
-            let (mem, ctx) = self.ctx_and_mem();
-            logic::$func(ctx, mem, $( $arg_name ),*)
-        }
-    };
-    ($func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >) => {
-        #[allow(unused_parens)]
+    ($( @as $name:ident : )? $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >) => {
+        #[allow(dead_code, unused_parens)]
         pub(crate) fn $func(&mut self, $( $arg_name: $arg_type ),*) -> Result<($($returns),*), VMLogicError> {
             let (mem, ctx) = self.ctx_and_mem();
             logic::$func(ctx, mem, $( $arg_name ),*)
@@ -49,7 +42,6 @@ macro_rules! delegate_import {
     };
 }
 
-#[allow(dead_code)]
 impl WasmtimeTestLogic<'_> {
     pub(crate) fn new<'a>(
         ext: &'a mut MockedExternal,
@@ -84,18 +76,17 @@ impl WasmtimeTestLogic<'_> {
         WasmtimeTestLogic { store, memory, mem_write_offset: 0, _lifetime: PhantomData }
     }
 
-    /// Returns `(&mut [u8], &mut Ctx)` — guest memory and store context.
     fn ctx_and_mem(&mut self) -> (&mut [u8], &mut Ctx) {
         self.memory.data_and_store_mut(&mut self.store)
     }
 
-    crate::imports::for_each_import!(delegate_import);
+    // Expands to pub(crate) fn $name(&mut self, ...) delegates for every
+    // host function import, forwarding to logic::$func(ctx, mem, ...).
+    crate::imports::for_each_import_item!(delegate_import);
 
     pub(crate) fn gas_opcodes(&mut self, opcodes: u32) -> Result<(), VMLogicError> {
         logic::gas_opcodes(&mut self.store.data_mut().result_state, opcodes)
     }
-
-    // Test helpers
 
     pub(crate) fn gas_counter(&mut self) -> &mut GasCounter {
         &mut self.store.data_mut().result_state.gas_counter
@@ -107,10 +98,6 @@ impl WasmtimeTestLogic<'_> {
 
     pub(crate) fn registers(&mut self) -> &mut Registers {
         &mut self.store.data_mut().registers
-    }
-
-    pub(crate) fn logs(&self) -> &[String] {
-        &self.store.data().result_state.logs
     }
 
     pub(crate) fn internal_mem_write(&mut self, data: &[u8]) -> MemSlice {
@@ -134,7 +121,7 @@ impl WasmtimeTestLogic<'_> {
     #[track_caller]
     pub(crate) fn assert_read_register(&mut self, want: &[u8], register_id: u64) {
         let len = self.registers().get_len(register_id).unwrap();
-        let ptr = MEMORY_SIZE - len;
+        let ptr = MockedMemory::MEMORY_SIZE - len;
         self.read_register(register_id, ptr).unwrap();
         let got = self.internal_mem_read(ptr, len);
         assert_eq!(want, &got[..]);
