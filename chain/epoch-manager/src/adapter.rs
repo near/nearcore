@@ -749,22 +749,22 @@ pub trait EpochManagerAdapter: Send + Sync {
     ///
     /// Compares the shard layout of `epoch_id` with the next epoch's layout (derived from
     /// `last_block_hash`). If they differ, returns the parent shard being split. Returns `None`
-    /// if no resharding is pending or if the next epoch cannot be determined.
+    /// if no resharding is pending.
     fn get_resharding_parent_shard_uid(
         &self,
         epoch_id: &EpochId,
         last_block_hash: &CryptoHash,
-    ) -> Option<ShardUId> {
-        let next_epoch_id = self.get_next_epoch_id(last_block_hash).ok()?;
-        let current_layout = self.get_shard_layout(epoch_id).ok()?;
-        let next_layout = self.get_shard_layout(&next_epoch_id).ok()?;
+    ) -> Result<Option<ShardUId>, EpochError> {
+        let next_epoch_id = self.get_next_epoch_id(last_block_hash)?;
+        let current_layout = self.get_shard_layout(epoch_id)?;
+        let next_layout = self.get_shard_layout(&next_epoch_id)?;
         if current_layout == next_layout {
-            return None;
+            return Ok(None);
         }
         let split_parent_shard_uids = next_layout.get_split_parent_shard_uids();
         // There should be exactly one shard split when layout changes
         debug_assert!(split_parent_shard_uids.len() == 1);
-        split_parent_shard_uids.into_iter().next()
+        Ok(split_parent_shard_uids.into_iter().next())
     }
 
     /// Get all static shard layouts from the given `latest_protocol_version` (inclusive) back to

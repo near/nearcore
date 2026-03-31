@@ -579,7 +579,7 @@ impl Chain {
             .collect();
 
         let shard_uid_pending_resharding =
-            epoch_manager.get_resharding_parent_shard_uid(&tip.epoch_id, &tip.last_block_hash);
+            epoch_manager.get_resharding_parent_shard_uid(&tip.epoch_id, &tip.last_block_hash)?;
         runtime_adapter.get_tries().load_memtries_for_enabled_shards(
             &tracked_shards,
             shard_uid_pending_resharding.as_ref(),
@@ -2167,7 +2167,7 @@ impl Chain {
     fn maybe_start_memtrie_preload_for_resharding(&self, block: &Block) -> Result<(), Error> {
         let Some(parent_shard_uid) = self
             .epoch_manager
-            .get_resharding_parent_shard_uid(block.header().epoch_id(), block.hash())
+            .get_resharding_parent_shard_uid(block.header().epoch_id(), block.hash())?
         else {
             return Ok(());
         };

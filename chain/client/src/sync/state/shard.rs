@@ -252,7 +252,7 @@ pub(super) async fn run_state_sync_for_shard(
     {
         let handle = computation_task_tracker.get_handle(&format!("shard {}", shard_id)).await;
         let shard_uid_pending_resharding =
-            epoch_manager.get_resharding_parent_shard_uid(&epoch_id, &sync_hash);
+            epoch_manager.get_resharding_parent_shard_uid(&epoch_id, &sync_hash)?;
         handle.set_status("Loading memtrie");
         runtime.get_tries().load_memtrie_on_catchup(
             &shard_uid,

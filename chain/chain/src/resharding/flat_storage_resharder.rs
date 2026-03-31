@@ -466,12 +466,12 @@ impl FlatStorageResharder {
                     parent_shard,
                     FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }),
                 );
-                // The flat head hold is released by the caller dropping
-                // the FlatHeadHold guard returned from preprocessing.
                 // Remove children shards entirely.
                 for child_shard in [left_child_shard, right_child_shard] {
                     store_update.remove_flat_storage(child_shard);
                 }
+                // The flat head hold is released by the caller dropping
+                // the FlatHeadHold guard returned from preprocessing.
             }
             FlatStorageReshardingTaskResult::Cancelled => {
                 // Remove children shards leftovers, but keep intact their current status and deltas

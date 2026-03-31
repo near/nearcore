@@ -497,8 +497,7 @@ impl FlatStorage {
     /// simultaneously (e.g. from state snapshots and background memtrie
     /// loading). The flat head will not advance until all guards are dropped.
     pub fn hold_flat_head(&self) -> FlatHeadHold {
-        self.0.write().move_head_hold_count += 1;
-        FlatHeadHold(Arc::clone(&self.0))
+        FlatHeadHold::new(self.0.clone())
     }
 }
 
@@ -506,6 +505,13 @@ impl FlatStorage {
 /// [`FlatStorage::hold_flat_head`]. When dropped, the hold is released and
 /// the flat head may advance once all holds are gone.
 pub struct FlatHeadHold(Arc<RwLock<FlatStorageInner>>);
+
+impl FlatHeadHold {
+    fn new(inner: Arc<RwLock<FlatStorageInner>>) -> Self {
+        inner.write().move_head_hold_count += 1;
+        Self(inner)
+    }
+}
 
 impl Drop for FlatHeadHold {
     fn drop(&mut self) {

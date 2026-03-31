@@ -27,7 +27,7 @@ struct PendingSnapshot {
     block_hash: CryptoHash,
     min_chunk_prev_height: BlockHeight,
     /// Guards keeping each shard's flat head frozen. Dropping them releases the holds.
-    _holds: Vec<FlatHeadHold>,
+    holds: Vec<FlatHeadHold>,
 }
 
 pub struct FlatStorageManagerInner {
@@ -90,7 +90,7 @@ impl FlatStorageManager {
         let flat_storage = FlatStorage::new(self.0.store.clone(), shard_uid)?;
         // If a snapshot is pending, the new shard must also be held.
         if let Some(snapshot) = pending_snapshot.as_mut() {
-            snapshot._holds.push(flat_storage.hold_flat_head());
+            snapshot.holds.push(flat_storage.hold_flat_head());
         }
         let original_value = flat_storages.insert(shard_uid, flat_storage);
         if original_value.is_some() {
@@ -308,11 +308,9 @@ impl FlatStorageManager {
     // we rely on the canonical one being requested after any other forks, which may not be the case.
     pub fn want_snapshot(&self, block_hash: CryptoHash, min_chunk_prev_height: BlockHeight) {
         let flat_storages = self.0.flat_storages.lock();
-        let holds: Vec<FlatHeadHold> =
-            flat_storages.values().map(|fs| fs.hold_flat_head()).collect();
+        let holds = flat_storages.values().map(|fs| fs.hold_flat_head()).collect();
         let mut pending_snapshot = self.0.pending_snapshot.lock();
-        *pending_snapshot =
-            Some(PendingSnapshot { block_hash, min_chunk_prev_height, _holds: holds });
+        *pending_snapshot = Some(PendingSnapshot { block_hash, min_chunk_prev_height, holds });
         tracing::debug!(target: "store", "locked flat head updates");
     }
 

@@ -55,7 +55,8 @@ impl TrieSanityCheck {
     ) -> &mut EpochTrieCheck {
         let shard_pending_resharding = client
             .epoch_manager
-            .get_resharding_parent_shard_uid(&tip.epoch_id, &tip.last_block_hash);
+            .get_resharding_parent_shard_uid(&tip.epoch_id, &tip.last_block_hash)
+            .unwrap();
         let shard_layout = client.epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
         let is_resharded = shard_layout.num_shards() == new_num_shards;
 
@@ -209,7 +210,8 @@ fn assert_state_sanity(
 
     let shard_pending_resharding = client
         .epoch_manager
-        .get_resharding_parent_shard_uid(&final_head.epoch_id, &final_head.last_block_hash);
+        .get_resharding_parent_shard_uid(&final_head.epoch_id, &final_head.last_block_hash)
+        .unwrap();
 
     for shard_uid in shard_layout.shard_uids() {
         if !should_assert_state_sanity(
