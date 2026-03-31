@@ -1057,6 +1057,14 @@ pub mod chunk_extra {
                 ChunkExtra::V5(v5) => v5.proposed_split.as_ref(),
             }
         }
+
+        #[inline]
+        pub fn clear_proposed_split(&mut self) {
+            match self {
+                Self::V1(_) | Self::V2(_) | Self::V3(_) | Self::V4(_) => {}
+                ChunkExtra::V5(v5) => v5.proposed_split = None,
+            }
+        }
     }
 }
 

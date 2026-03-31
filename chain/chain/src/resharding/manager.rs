@@ -252,6 +252,10 @@ impl ReshardingManager {
             let mut child_chunk_extra = ChunkExtra::clone(&parent_chunk_extra);
             *child_chunk_extra.state_root_mut() = trie_changes.new_root;
             *child_chunk_extra.congestion_info_mut() = child_congestion_info;
+            // Clear the parent's proposed_split so it doesn't get carried over
+            // to the child shard. A stale proposed_split on a child shard can
+            // cause DuplicateBoundaryAccount errors during epoch finalization.
+            child_chunk_extra.clear_proposed_split();
 
             chain_store_update.save_chunk_extra(
                 block_hash,
