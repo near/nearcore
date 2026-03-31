@@ -8,11 +8,12 @@ use crate::logic::logic::Promise;
 use crate::logic::recorded_storage_counter::RecordedStorageCounter;
 use crate::logic::vmstate::Registers;
 use crate::logic::{Config, ExecutionResultState, External, GasCounter, VMContext, VMOutcome};
+use crate::metrics::COMPILATION_PATH_TOTAL;
 use crate::runner::VMResult;
 use crate::{
     CompiledContract, CompiledContractInfo, Contract, ContractCode, ContractRuntimeCache,
     EXPORT_PREFIX, MEMORY_EXPORT, NoContractRuntimeCache, REMAINING_GAS_EXPORT, START_EXPORT,
-    imports, prepare,
+    compiler_daemon, imports, prepare,
 };
 use core::mem::transmute;
 use core::ops::Deref;
@@ -486,16 +487,23 @@ impl WasmtimeVM {
         let start = std::time::Instant::now();
         let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::Wasmtime)
             .map_err(CompilationError::PrepareError)?;
-        let serialized = self.engine.precompile_module(&prepared_code).map_err(|err| {
-            tracing::debug!(
-                target: "vm",
-                ?err,
-                code_hash = %code.hash(),
-                code_size = code.code().len(),
-                "wasmtime contract compilation failed",
-            );
-            CompilationError::WasmtimeCompileError { msg: err.to_string() }
-        })?;
+
+        let serialized = if compiler_daemon::is_daemon_configured() {
+            COMPILATION_PATH_TOTAL.with_label_values(&["daemon"]).inc();
+            compiler_daemon::compile_in_subprocess(&prepared_code, &self.config.limit_config)?
+        } else {
+            COMPILATION_PATH_TOTAL.with_label_values(&["in_process"]).inc();
+            self.engine.precompile_module(&prepared_code).map_err(|err| {
+                tracing::debug!(
+                    target: "vm",
+                    ?err,
+                    code_hash = %code.hash(),
+                    code_size = code.code().len(),
+                    "wasmtime contract compilation failed",
+                );
+                CompilationError::WasmtimeCompileError { msg: err.to_string() }
+            })?
+        };
 
         tracing::debug!(
             target: "vm",

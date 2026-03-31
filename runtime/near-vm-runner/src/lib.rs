@@ -4,6 +4,8 @@
 #![cfg_attr(enable_const_type_id, feature(const_type_id))]
 
 mod cache;
+#[cfg(feature = "wasmtime_vm")]
+pub mod compiler_daemon;
 mod errors;
 mod features;
 mod imports;

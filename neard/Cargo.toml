@@ -53,6 +53,7 @@ near-state-parts-dump-check.workspace = true
 near-state-viewer.workspace = true
 near-store.workspace = true
 near-undo-block.workspace = true
+near-vm-runner.workspace = true
 near-dump-test-contract = { workspace = true, optional = true }
 
 [build-dependencies]

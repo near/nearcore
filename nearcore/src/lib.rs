@@ -393,6 +393,13 @@ pub async fn start_with_config_and_synchronization_impl(
     shutdown_signal: Option<broadcast::Sender<ShutdownReason>>,
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
+    match std::env::current_exe() {
+        Ok(exe) => near_vm_runner::compiler_daemon::set_daemon_binary(exe),
+        Err(e) => tracing::warn!(
+            "could not determine current exe, WASM compilation will run in-process: {e}"
+        ),
+    }
+
     let storage = open_storage(home_dir, &config)?;
     if config.client_config.enable_statistics_export {
         let period = config.client_config.log_summary_period;

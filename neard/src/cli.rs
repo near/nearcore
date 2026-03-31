@@ -177,6 +177,9 @@ impl NeardCmd {
             NeardSubCommand::DumpEpochConfigs(cmd) => {
                 cmd.run(&home_dir)?;
             }
+            NeardSubCommand::CompileWasm => {
+                near_vm_runner::compiler_daemon::daemon_main();
+            }
         };
         Ok(())
     }
@@ -295,6 +298,10 @@ pub(super) enum NeardSubCommand {
     #[cfg(feature = "dump-test-contract")]
     /// Dump hard-coded epoch configs into JSON files
     DumpEpochConfigs(DumpEpochConfigsCommand),
+
+    /// Internal: out-of-process WASM compiler daemon.
+    #[clap(hide = true)]
+    CompileWasm,
 }
 
 #[allow(unused)]

@@ -24,6 +24,15 @@ static COMPILATION_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     .unwrap()
 });
 
+pub(crate) static COMPILATION_PATH_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_vm_compilation_path_total",
+        "Number of compilations by path: daemon (out-of-process) or in_process",
+        &["path"],
+    )
+    .unwrap()
+});
+
 static COMPILED_CONTRACT_CACHE_LOOKUPS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_vm_compiled_contract_cache_lookups_total",
