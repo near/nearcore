@@ -7,8 +7,15 @@ use crate::logic::vmstate::Registers;
 use crate::logic::{Config, ExecutionResultState, MemSlice, VMContext, VMOutcome};
 use near_parameters::RuntimeFeesConfig;
 use std::marker::PhantomData;
-use std::sync::Arc;
-use wasmtime::{Engine, Memory, Store};
+use std::sync::{Arc, LazyLock};
+use wasmtime::{Engine, Memory, Module, Store};
+
+static CACHED_ENGINE_MODULE: LazyLock<(Engine, Module)> = LazyLock::new(|| {
+    let engine = Engine::default();
+    let wasm = wat::parse_str("(module (memory (export \"memory\") 1))").unwrap();
+    let module = Module::new(&engine, &wasm).unwrap();
+    (engine, module)
+});
 
 const MEMORY_SIZE: u64 = 64 * 1024;
 
@@ -38,24 +45,17 @@ impl WasmtimeTestLogic<'_> {
         let context: &'static VMContext = unsafe { core::mem::transmute(context) };
 
         let config = Arc::new(config);
-        let engine = Engine::default();
+        let (engine, module) = &*CACHED_ENGINE_MODULE;
 
         let result_state = ExecutionResultState::new(
             context,
             context.make_gas_counter(&config),
             Arc::clone(&config),
         );
-        // Create a dummy ModuleExport for the memory field in Ctx. We
-        // pre-resolve it immediately after creating the store, so the
-        // Unresolved value is never actually used.
-        let dummy_wasm = wat::parse_str("(module (memory (export \"memory\") 1))").unwrap();
-        let dummy_memory_export = wasmtime::Module::new(&engine, &dummy_wasm)
-            .unwrap()
-            .get_export_index("memory")
-            .unwrap();
+        let dummy_memory_export = module.get_export_index("memory").unwrap();
         let ctx = Ctx::new(ext, context, Arc::new(fees_config), result_state, dummy_memory_export);
 
-        let mut store = Store::new(&engine, ctx);
+        let mut store = Store::new(engine, ctx);
         store.limiter(|ctx| &mut ctx.limits);
 
         let memory = Memory::new(&mut store, wasmtime::MemoryType::new(1, Some(1))).unwrap();
