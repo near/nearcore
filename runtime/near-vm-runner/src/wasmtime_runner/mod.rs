@@ -698,11 +698,30 @@ impl crate::runner::VM for WasmtimeVM {
         crate::logic::errors::CacheError,
     > {
         if self.contract_cached(cache, *code.hash())? {
+            tracing::warn!(
+                target: "vm",
+                code_hash = %code.hash(),
+                "compilation cache hit"
+            );
             return Ok(Ok(ContractPrecompilatonResult::ContractAlreadyInCache));
         }
-        Ok(self
+        tracing::warn!(
+            target: "vm",
+            code_hash = %code.hash(),
+            code_size = code.code().len(),
+            "compilation cache miss, starting compile"
+        );
+        let start = std::time::Instant::now();
+        let result = self
             .compile_and_cache(code, cache)?
-            .map(|_| ContractPrecompilatonResult::ContractCompiled))
+            .map(|_| ContractPrecompilatonResult::ContractCompiled);
+        tracing::warn!(
+            target: "vm",
+            code_hash = %code.hash(),
+            elapsed_ms = start.elapsed().as_millis() as u64,
+            "compilation finished"
+        );
+        Ok(result)
     }
 
     fn prepare(

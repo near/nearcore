@@ -12,4 +12,6 @@ mod parent;
 pub mod protocol;
 
 pub use child::daemon_main;
-pub use parent::{compile_in_subprocess, is_daemon_configured, set_daemon_binary};
+pub use parent::{
+    benchmark_in_subprocess, compile_in_subprocess, is_daemon_configured, set_daemon_binary,
+};

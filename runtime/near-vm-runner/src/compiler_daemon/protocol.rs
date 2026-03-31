@@ -17,6 +17,26 @@ pub enum CompileResponse {
     Err(String),
 }
 
+/// Response variant that includes compilation stats for benchmarking.
+#[derive(Debug, BorshSerialize, BorshDeserialize)]
+pub struct BenchmarkResponse {
+    /// Compiled module bytes, or error message.
+    pub result: Result<Vec<u8>, String>,
+    /// Time spent in `precompile_module`, in nanoseconds.
+    pub compile_time_nanos: u64,
+    /// Peak resident set size (maxrss) of the daemon process, in bytes.
+    pub peak_rss_bytes: u64,
+}
+
+/// Requests understood by the daemon. The daemon distinguishes between
+/// a plain compile and a benchmark compile by a one-byte tag that the
+/// parent writes before the frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum RequestKind {
+    Compile,
+    Benchmark,
+}
+
 pub fn write_frame(w: &mut impl Write, data: &[u8]) -> std::io::Result<()> {
     w.write_all(&(data.len() as u32).to_le_bytes())?;
     w.write_all(data)?;

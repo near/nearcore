@@ -8,6 +8,47 @@ mod instrument_v3;
 mod prepare_v2;
 mod prepare_v3;
 
+/// Cheap section-header scan that extracts module-level counts from raw wasm.
+/// Does not validate the module; just counts sections.
+#[derive(Debug, Default)]
+pub struct WasmStats {
+    pub types: u32,
+    pub imports: u32,
+    pub functions: u32,
+    pub tables: u32,
+    pub memories: u32,
+    pub globals: u32,
+    pub exports: u32,
+    pub data_segments: u32,
+    pub element_segments: u32,
+    pub max_function_body: u32,
+}
+
+pub fn extract_wasm_stats(code: &[u8]) -> WasmStats {
+    use finite_wasm_6::wasmparser as wp;
+    let mut stats = WasmStats::default();
+    let parser = wp::Parser::new(0);
+    for payload in parser.parse_all(code) {
+        let Ok(payload) = payload else { break };
+        match payload {
+            wp::Payload::TypeSection(r) => stats.types = r.count(),
+            wp::Payload::ImportSection(r) => stats.imports = r.count(),
+            wp::Payload::FunctionSection(r) => stats.functions = r.count(),
+            wp::Payload::TableSection(r) => stats.tables = r.count(),
+            wp::Payload::MemorySection(r) => stats.memories = r.count(),
+            wp::Payload::GlobalSection(r) => stats.globals = r.count(),
+            wp::Payload::ExportSection(r) => stats.exports = r.count(),
+            wp::Payload::DataSection(r) => stats.data_segments = r.count(),
+            wp::Payload::ElementSection(r) => stats.element_segments = r.count(),
+            wp::Payload::CodeSectionEntry(f) => {
+                stats.max_function_body = stats.max_function_body.max(f.range().len() as u32);
+            }
+            _ => {}
+        }
+    }
+    stats
+}
+
 /// Loads the given module given in `original_code`, performs some checks on it and
 /// does some preprocessing.
 ///

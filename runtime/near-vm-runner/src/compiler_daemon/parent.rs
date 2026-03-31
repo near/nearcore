@@ -3,7 +3,9 @@
 //! A global Mutex serializes all access to the daemon subprocess and its
 //! pipes, so concurrent callers block until the current compilation finishes.
 
-use super::protocol::{CompileRequest, CompileResponse, read_frame, write_frame};
+use super::protocol::{
+    BenchmarkResponse, CompileRequest, CompileResponse, RequestKind, read_frame, write_frame,
+};
 use crate::logic::errors::CompilationError;
 use near_parameters::vm::LimitConfig;
 use std::path::{Path, PathBuf};
@@ -29,7 +31,7 @@ pub fn is_daemon_configured() -> bool {
 
 type CompileResult = Result<Vec<u8>, String>;
 
-struct DaemonProcess {
+pub struct DaemonProcess {
     child: Child,
     stdin: ChildStdin,
     stdout: ChildStdout,
@@ -37,15 +39,36 @@ struct DaemonProcess {
 
 impl DaemonProcess {
     fn spawn(binary: &Path) -> std::io::Result<Self> {
+        Self::spawn_inner(binary, Stdio::inherit())
+    }
+
+    fn spawn_quiet(binary: &Path) -> std::io::Result<Self> {
+        Self::spawn_inner(binary, Stdio::null())
+    }
+
+    fn spawn_inner(binary: &Path, stderr: Stdio) -> std::io::Result<Self> {
         let mut child = Command::new(binary)
             .arg("compile-wasm")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
+            .stderr(stderr)
             .spawn()?;
         let stdin = child.stdin.take().unwrap();
         let stdout = child.stdout.take().unwrap();
         Ok(Self { child, stdin, stdout })
+    }
+
+    fn send_request(
+        &mut self,
+        kind: RequestKind,
+        request: &CompileRequest,
+    ) -> Result<Vec<u8>, String> {
+        let request_bytes = borsh::to_vec(&(kind, request))
+            .map_err(|e| format!("failed to serialize request: {e}"))?;
+        write_frame(&mut self.stdin, &request_bytes)
+            .map_err(|e| format!("failed to send to compiler daemon: {e}"))?;
+        read_frame(&mut self.stdout)
+            .map_err(|e| format!("failed to read from compiler daemon: {e}"))
     }
 
     /// Send a compilation request and read the response. Returns:
@@ -53,18 +76,19 @@ impl DaemonProcess {
     /// - `Ok(Err(msg))` -- daemon reported a compilation error (not retryable)
     /// - `Err(msg)` -- IPC failure, daemon likely crashed (retryable)
     fn compile_raw(&mut self, request: &CompileRequest) -> Result<CompileResult, String> {
-        let request_bytes =
-            borsh::to_vec(request).map_err(|e| format!("failed to serialize request: {e}"))?;
-        write_frame(&mut self.stdin, &request_bytes)
-            .map_err(|e| format!("failed to send to compiler daemon: {e}"))?;
-        let response_bytes = read_frame(&mut self.stdout)
-            .map_err(|e| format!("failed to read from compiler daemon: {e}"))?;
+        let response_bytes = self.send_request(RequestKind::Compile, request)?;
         let response: CompileResponse = borsh::from_slice(&response_bytes)
             .map_err(|e| format!("failed to deserialize response: {e}"))?;
         match response {
             CompileResponse::Ok(bytes) => Ok(Ok(bytes)),
             CompileResponse::Err(msg) => Ok(Err(msg)),
         }
+    }
+
+    fn benchmark_raw(&mut self, request: &CompileRequest) -> Result<BenchmarkResponse, String> {
+        let response_bytes = self.send_request(RequestKind::Benchmark, request)?;
+        borsh::from_slice(&response_bytes)
+            .map_err(|e| format!("failed to deserialize benchmark response: {e}"))
     }
 
     fn is_alive(&mut self) -> bool {
@@ -146,4 +170,38 @@ pub fn compile_in_subprocess(
 
     let mut state = get_or_init_state().lock().unwrap();
     state.compile(&request).map_err(|msg| CompilationError::WasmtimeCompileError { msg })
+}
+
+/// Compile in a subprocess and return benchmark stats.
+/// If `cold` is true, spawns a fresh daemon and kills it after.
+/// If `cold` is false, reuses `daemon_slot` across calls.
+pub fn benchmark_in_subprocess(
+    binary: &Path,
+    daemon_slot: &mut Option<DaemonProcess>,
+    cold: bool,
+    prepared_code: &[u8],
+    limit_config: &LimitConfig,
+) -> Result<BenchmarkResponse, String> {
+    let request = CompileRequest {
+        prepared_code: prepared_code.to_vec(),
+        max_memory_pages: limit_config.max_memory_pages,
+        max_tables_per_contract: limit_config.max_tables_per_contract,
+        max_elements_per_contract_table: limit_config
+            .max_elements_per_contract_table
+            .map(|v| v as u64),
+    };
+    if daemon_slot.as_mut().and_then(|d| (!d.is_alive()).then(|| ())).is_some() {
+        *daemon_slot = None;
+    }
+    if daemon_slot.is_none() {
+        *daemon_slot = Some(
+            DaemonProcess::spawn_quiet(binary)
+                .map_err(|e| format!("failed to spawn compiler daemon: {e}"))?,
+        );
+    }
+    let result = daemon_slot.as_mut().unwrap().benchmark_raw(&request);
+    if cold {
+        *daemon_slot = None;
+    }
+    result
 }

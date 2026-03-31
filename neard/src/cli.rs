@@ -180,9 +180,137 @@ impl NeardCmd {
             NeardSubCommand::CompileWasm => {
                 near_vm_runner::compiler_daemon::daemon_main();
             }
+            NeardSubCommand::BenchmarkCompile(cmd) => {
+                cmd.run()?;
+            }
         };
         Ok(())
     }
+}
+
+impl BenchmarkCompileCmd {
+    fn run(self) -> anyhow::Result<()> {
+        use near_parameters::RuntimeConfigStore;
+        use near_parameters::vm::VMKind;
+        use near_primitives_core::version::PROTOCOL_VERSION;
+        use near_vm_runner::compiler_daemon;
+        use near_vm_runner::prepare::{extract_wasm_stats, prepare_contract};
+
+        let binary = std::env::current_exe()?;
+        let store = RuntimeConfigStore::test();
+        let config = store.get_config(PROTOCOL_VERSION).wasm_config.clone();
+        let vm_config = near_parameters::vm::Config {
+            vm_kind: VMKind::Wasmtime,
+            ..near_parameters::vm::Config::clone(&config)
+        };
+
+        let mut entries: Vec<_> = std::fs::read_dir(&self.dir)?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "wasm"))
+            .collect();
+        entries.sort_by_key(|e| e.file_name());
+
+        println!(
+            "{:<70} {:>10} {:>10} {:>10} {:>8} {:>10} {:>10} {:>12} \
+             {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>8}",
+            "contract",
+            "raw_b",
+            "prepped_b",
+            "compiled_b",
+            "prep_ms",
+            "compile_ms",
+            "ovrhd_ms",
+            "peak_rss_mb",
+            "types",
+            "funcs",
+            "globals",
+            "imports",
+            "exports",
+            "data_s",
+            "elem_s",
+            "max_body",
+        );
+
+        let mut daemon_slot = None;
+        let mut success = 0u32;
+        let mut failed = 0u32;
+        for entry in &entries {
+            let path = entry.path();
+            let name = path.file_name().unwrap().to_string_lossy();
+            let raw_code = std::fs::read(&path)?;
+            let raw_bytes = raw_code.len();
+            let stats = extract_wasm_stats(&raw_code);
+
+            let prep_start = std::time::Instant::now();
+            let prepared_code = match prepare_contract(&raw_code, &vm_config, VMKind::Wasmtime) {
+                Ok(code) => code,
+                Err(e) => {
+                    eprintln!("{name}: prepare failed: {e:?}");
+                    failed += 1;
+                    continue;
+                }
+            };
+            let prep_ms = prep_start.elapsed().as_secs_f64() * 1000.0;
+            let prepared_bytes = prepared_code.len();
+
+            let wall_start = std::time::Instant::now();
+            let bench = match compiler_daemon::benchmark_in_subprocess(
+                &binary,
+                &mut daemon_slot,
+                self.cold,
+                &prepared_code,
+                &vm_config.limit_config,
+            ) {
+                Ok(b) => b,
+                Err(e) => {
+                    eprintln!("{name}: daemon error: {e}");
+                    failed += 1;
+                    continue;
+                }
+            };
+            let wall_ms = wall_start.elapsed().as_secs_f64() * 1000.0;
+
+            match bench.result {
+                Ok(ref compiled) => {
+                    let compile_ms = bench.compile_time_nanos as f64 / 1_000_000.0;
+                    let overhead_ms = wall_ms - compile_ms;
+                    let peak_rss_mb = bench.peak_rss_bytes as f64 / (1024.0 * 1024.0);
+                    println!(
+                        "{:<70} {:>10} {:>10} {:>10} {:>8.1} {:>10.1} {:>10.1} {:>12.1} \
+                         {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>8}",
+                        truncate_name(&name, 70),
+                        raw_bytes,
+                        prepared_bytes,
+                        compiled.len(),
+                        prep_ms,
+                        compile_ms,
+                        overhead_ms,
+                        peak_rss_mb,
+                        stats.types,
+                        stats.functions,
+                        stats.globals,
+                        stats.imports,
+                        stats.exports,
+                        stats.data_segments,
+                        stats.element_segments,
+                        stats.max_function_body,
+                    );
+                    success += 1;
+                }
+                Err(e) => {
+                    eprintln!("{name}: compilation failed: {e}");
+                    failed += 1;
+                }
+            }
+        }
+
+        eprintln!("\n{success} succeeded, {failed} failed out of {} contracts", entries.len());
+        Ok(())
+    }
+}
+
+fn truncate_name(s: &str, max: usize) -> String {
+    if s.len() <= max { s.to_string() } else { format!("...{}", &s[s.len() - max + 3..]) }
 }
 
 #[derive(clap::Parser)]
@@ -302,6 +430,19 @@ pub(super) enum NeardSubCommand {
     /// Internal: out-of-process WASM compiler daemon.
     #[clap(hide = true)]
     CompileWasm,
+
+    /// Benchmark WASM compilation for a directory of .wasm contracts.
+    #[clap(hide = true)]
+    BenchmarkCompile(BenchmarkCompileCmd),
+}
+
+#[derive(clap::Parser)]
+pub(super) struct BenchmarkCompileCmd {
+    /// Directory containing .wasm contract files.
+    dir: PathBuf,
+    /// Spawn a fresh daemon per contract (cold engine). Default reuses one daemon.
+    #[clap(long)]
+    cold: bool,
 }
 
 #[allow(unused)]
