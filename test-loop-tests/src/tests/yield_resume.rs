@@ -9,6 +9,7 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_crypto::Signer;
 use near_o11y::testonly::init_test_logger;
+use near_parameters::RuntimeConfigStore;
 use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::block::ChunkType;
 use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
@@ -526,10 +527,30 @@ fn test_yield_resume_across_protocol_upgrade() {
     // Immediately start voting for the new protocol version
     let protocol_upgrade_schedule = ProtocolUpgradeVotingSchedule::new_immediate(new_protocol);
 
+    // On non-x86_64 (e.g. macOS ARM), Wasmtime is always used, which runs V3
+    // instrumentation that charges linear gas for memory.grow/table.grow. At
+    // old_protocol (82) and new_protocol (83) the linear_op costs are 300 Tgas
+    // sentinel values (only calibrated in protocol 84+), making any contract
+    // with memory.grow immediately exceed max_gas_burnt. Patch the runtime
+    // config so these protocol versions use the calibrated costs.
+    let runtime_config_store = if !cfg!(target_arch = "x86_64") {
+        let mut store = RuntimeConfigStore::for_chain_id("mainnet");
+        for version in [old_protocol, new_protocol] {
+            let config = Arc::make_mut(store.get_config_mut(version));
+            let wasm = Arc::make_mut(&mut config.wasm_config);
+            wasm.linear_op_base_cost = 26_328_192;
+            wasm.linear_op_unit_cost = 822_756;
+        }
+        store
+    } else {
+        RuntimeConfigStore::for_chain_id("mainnet")
+    };
+
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .protocol_upgrade_schedule(protocol_upgrade_schedule)
+        .runtime_config_store(runtime_config_store)
         .clients(clients)
         .build();
 
