@@ -1072,6 +1072,11 @@ pub fn init_configs(
         config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
     }
     if let Some(bucket) = state_sync_bucket {
+        tracing::warn!(
+            target: "near",
+            "--state-sync-bucket is deprecated and will be removed in a future release. \
+             Cloud state sync is being deprecated in favor of peer-based state sync."
+        );
         config.state_sync = Some(StateSyncConfig::gcs_with_bucket(bucket.to_string()));
     }
 

@@ -31,6 +31,7 @@ impl<'a> ConfigValidator<'a> {
 
     /// this function would check all conditions, and add all error messages to ConfigValidator.errors
     fn validate_all_conditions(&mut self) {
+        self.warn_deprecated_centralized_state_sync();
         self.validate_cloud_archival_config();
         self.validate_cold_store_config();
         self.validate_state_sync_config();
@@ -89,6 +90,28 @@ impl<'a> ConfigValidator<'a> {
                 "'config.tx_routing_height_horizon' can't be too high to avoid spamming the network. Keep it below 100. Got {tx_routing_height_horizon}."
             );
             self.validation_errors.push_config_semantics_error(error_message);
+        }
+    }
+
+    fn warn_deprecated_centralized_state_sync(&self) {
+        let Some(state_sync) = &self.config.state_sync else {
+            return;
+        };
+
+        if state_sync.dump.is_some() {
+            tracing::warn!(
+                target: "config",
+                "centralized state sync is deprecated and will be removed in a future release. \
+                 'state_sync.dump' configuration will stop being supported."
+            );
+        }
+        if matches!(state_sync.sync, SyncConfig::ExternalStorage(_)) {
+            tracing::warn!(
+                target: "config",
+                "centralized state sync is deprecated and will be removed in a future release. \
+                 'state_sync.sync.ExternalStorage' configuration will stop being supported. \
+                 Please migrate to peer-based state sync (\"Peers\")."
+            );
         }
     }
 
