@@ -400,6 +400,15 @@ fn derive_v3() {
     assert_eq!(derived_layout.ancestor_uids(ShardId::new(4)), Some(to_shard_uids([2, 0])));
     assert_eq!(derived_layout.ancestor_uids(ShardId::new(5)), Some(to_shard_uids([3, 2, 0])));
     assert_eq!(derived_layout.ancestor_uids(ShardId::new(6)), Some(to_shard_uids([3, 2, 0])));
+
+    assert_eq!(derived_layout.resolve_to_current_shard(ShardId::new(0)), Some(ShardId::new(1)));
+    assert_eq!(derived_layout.resolve_to_current_shard(ShardId::new(1)), Some(ShardId::new(1)));
+    assert_eq!(derived_layout.resolve_to_current_shard(ShardId::new(2)), Some(ShardId::new(5)));
+    assert_eq!(derived_layout.resolve_to_current_shard(ShardId::new(3)), Some(ShardId::new(5)));
+    assert_eq!(derived_layout.resolve_to_current_shard(ShardId::new(4)), Some(ShardId::new(4)));
+    assert_eq!(derived_layout.resolve_to_current_shard(ShardId::new(5)), Some(ShardId::new(5)));
+    assert_eq!(derived_layout.resolve_to_current_shard(ShardId::new(6)), Some(ShardId::new(6)));
+    assert_eq!(derived_layout.resolve_to_current_shard(ShardId::new(99)), None);
 }
 
 #[test]
