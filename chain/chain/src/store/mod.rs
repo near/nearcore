@@ -28,6 +28,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::{TrieKey, trie_key_parsers};
 use near_primitives::types::chunk_extra::ChunkExtra;
+use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId, StateChanges, StateChangesExt,
     StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
@@ -1061,6 +1062,7 @@ pub(crate) struct ChainStoreCacheUpdate {
     block_ordinal_to_hash: HashMap<NumBlocks, CryptoHash>,
     processed_block_heights: HashSet<BlockHeight>,
     receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
+    chunk_producers: HashMap<(CryptoHash, ShardId), ValidatorStake>,
 }
 
 /// Provides layer to update chain without touching the underlying database.
@@ -1889,17 +1891,16 @@ impl<'a> ChainStoreUpdate<'a> {
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
         let height = header.height() + 1;
 
-        let mut store_update = self.store().store_update();
         for shard_id in shard_layout.shard_ids() {
             if let Some(validator_id) =
                 epoch_info.sample_chunk_producer(&shard_layout, shard_id, height)
             {
                 let validator_stake = epoch_info.get_validator(validator_id);
-                let key = get_block_shard_id(prev_block_hash, shard_id);
-                store_update.insert_ser(DBCol::ChunkProducers, &key, &validator_stake);
+                self.chain_store_cache_update
+                    .chunk_producers
+                    .insert((*prev_block_hash, shard_id), validator_stake);
             }
         }
-        self.merge(store_update);
         Ok(())
     }
 
@@ -2144,6 +2145,16 @@ impl<'a> ChainStoreUpdate<'a> {
             for (receipt_id, info) in &self.chain_store_cache_update.receipt_to_tx {
                 store_update.insert_ser(DBCol::ReceiptToTx, receipt_id.as_ref(), info);
             }
+        }
+
+        for ((block_hash, shard_id), validator_stake) in
+            &self.chain_store_cache_update.chunk_producers
+        {
+            store_update.insert_ser(
+                DBCol::ChunkProducers,
+                &get_block_shard_id(block_hash, *shard_id),
+                validator_stake,
+            );
         }
 
         for (block_hash, refcount) in &self.chain_store_cache_update.block_refcounts {
