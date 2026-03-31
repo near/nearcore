@@ -141,6 +141,10 @@ impl std::ops::DerefMut for TestVMLogic<'_> {
 
 #[cfg(not(feature = "wasmtime_vm"))]
 impl TestVMLogic<'_> {
+    pub(super) fn result_state(&self) -> &ExecutionResultState {
+        &self.logic.result_state
+    }
+
     /// Writes data into guest memory and returns pointer at its location.
     ///
     /// Subsequent calls to the method write buffers one after the other.  It

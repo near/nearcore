@@ -88,6 +88,10 @@ impl WasmtimeTestLogic<'_> {
         logic::gas_opcodes(&mut self.store.data_mut().result_state, opcodes)
     }
 
+    pub(crate) fn result_state(&self) -> &ExecutionResultState {
+        &self.store.data().result_state
+    }
+
     pub(crate) fn gas_counter(&mut self) -> &mut GasCounter {
         &mut self.store.data_mut().result_state.gas_counter
     }
