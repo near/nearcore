@@ -153,6 +153,76 @@ fn guest_memory_size(pages: u32) -> Option<usize> {
     pages.checked_mul(GUEST_PAGE_SIZE)
 }
 
+/// Apply the compiler settings shared between the in-process engine and the
+/// out-of-process compiler daemon. Everything that influences the serialized
+/// artifact lives here; only the instance allocation strategy differs between
+/// the two engines. Keeping these in sync is critical for artifact
+/// compatibility.
+fn apply_compiler_config(config: &mut wasmtime::Config, max_memory_size: usize) {
+    config
+        // From official documentation:
+        // > Note that systems loading many modules may wish to disable this
+        // > configuration option instead of leaving it on-by-default.
+        // > Some platforms exhibit quadratic behavior when registering/unregistering
+        // > unwinding information which can greatly slow down the module loading/unloading process.
+        // https://docs.rs/wasmtime/latest/wasmtime/struct.Config.html#method.native_unwind_info
+        .native_unwind_info(false)
+        .wasm_backtrace_max_frames(None)
+        .wasm_backtrace_details(WasmBacktraceDetails::Disable)
+        // Disable native -> wasm code address mappings to reduce the generated code size.
+        // This saves around 40% of total size for contracts on mainnet.
+        .generate_address_map(false)
+        // Enable copy-on-write heap images.
+        .memory_init_cow(true)
+        // Wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
+        .max_wasm_stack(1024 * 1024 * 1024)
+        // Winch on x86_64 (production); Cranelift elsewhere
+        // (e.g. aarch64 development environment) since Winch on
+        // aarch64 lacks wide-arithmetic support in wasmtime 45.
+        // TODO: drop the Cranelift fallback once a wasmtime release
+        // adds wide-arithmetic to Winch on aarch64.
+        .strategy(if cfg!(target_arch = "x86_64") { Strategy::Winch } else { Strategy::Cranelift })
+        // No-op for Winch wasm bodies (single-pass codegen, no opt
+        // pipeline).
+        .cranelift_opt_level(OptLevel::None)
+        // Single-pass regalloc trades codegen quality for compile
+        // speed. Only applies to Cranelift (Winch has its own
+        // regalloc and silently ignores this setting).
+        .cranelift_regalloc_algorithm(RegallocAlgorithm::SinglePass)
+        // Disable inlining. No-op on Winch (Winch doesn't inline)
+        .compiler_inlining(Inlining::No)
+        // Despite the `cranelift_` prefix, this setting also takes
+        // effect on Winch (winch/codegen reads `enable_nan_canonicalization`
+        // from the shared compiler flags at codegen time).
+        .cranelift_nan_canonicalization(true)
+        // Enable signals-based traps. This is required to elide explicit bounds-checking.
+        .signals_based_traps(true)
+        // Configure linear memories such that explicit bounds-checking can be elided.
+        .force_memory_init_memfd(true)
+        .memory_guaranteed_dense_image_size(0)
+        .guard_before_linear_memory(false)
+        .memory_guard_size(0)
+        .memory_may_move(false)
+        .memory_reservation(max_memory_size.try_into().unwrap_or(u64::MAX))
+        .memory_reservation_for_growth(0)
+        .wasm_wide_arithmetic(true);
+}
+
+/// Create a wasmtime Engine for compilation only (no pooling allocator).
+/// Used by the out-of-process compiler daemon. The default (on-demand)
+/// allocator is used instead of pooling because the daemon runs with a memory
+/// limit (by RLIMIT_AS) and pooling pre-reserves too much virtual memory.
+/// This is safe: the allocator only affects instantiation, not the
+/// serialized artifact produced by `precompile_module`.
+pub(crate) fn create_compiler_engine(max_memory_pages: u32) -> wasmtime::Result<Engine> {
+    // `Config::from(WasmFeatures)` resolves to `Config::default()`, so the
+    // daemon's feature set matches the in-process engine in `new_for_target`.
+    let mut config = wasmtime::Config::default();
+    let max_memory_size = guest_memory_size(max_memory_pages).unwrap_or(usize::MAX);
+    apply_compiler_config(&mut config, max_memory_size);
+    Engine::new(&config)
+}
+
 struct InstancePermit<'a> {
     instances: &'a AtomicU64,
     tables: &'a AtomicU64,
@@ -496,58 +566,8 @@ impl WasmtimeVM {
                 .max_core_instance_size(MAX_CORE_INSTANCE_SIZE)
                 .table_keep_resident(max_elements_per_contract_table);
 
-            engine_config
-                .allocation_strategy(InstanceAllocationStrategy::Pooling(pooling_config))
-                // From official documentation:
-                // > Note that systems loading many modules may wish to disable this
-                // > configuration option instead of leaving it on-by-default.
-                // > Some platforms exhibit quadratic behavior when registering/unregistering
-                // > unwinding information which can greatly slow down the module loading/unloading process.
-                // https://docs.rs/wasmtime/latest/wasmtime/struct.Config.html#method.native_unwind_info
-                .native_unwind_info(false)
-                .wasm_backtrace_max_frames(None)
-                .wasm_backtrace_details(WasmBacktraceDetails::Disable)
-                // Disable native -> wasm code address mappings to reduce the generated code size.
-                // This saves around 40% of total size for contracts on mainnet.
-                .generate_address_map(false)
-                // Enable copy-on-write heap images.
-                .memory_init_cow(true)
-                // Wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
-                .max_wasm_stack(1024 * 1024 * 1024)
-                // Winch on x86_64 (production); Cranelift elsewhere
-                // (e.g. aarch64 development environment) since Winch on
-                // aarch64 lacks wide-arithmetic support in wasmtime 45.
-                // TODO: drop the Cranelift fallback once a wasmtime release
-                // adds wide-arithmetic to Winch on aarch64.
-                .strategy(if cfg!(target_arch = "x86_64") {
-                    Strategy::Winch
-                } else {
-                    Strategy::Cranelift
-                })
-                // No-op for Winch wasm bodies (single-pass codegen, no opt
-                // pipeline).
-                .cranelift_opt_level(OptLevel::None)
-                // Single-pass regalloc trades codegen quality for compile
-                // speed. Only applies to Cranelift (Winch has its own
-                // regalloc and silently ignores this setting).
-                .cranelift_regalloc_algorithm(RegallocAlgorithm::SinglePass)
-                // Disable inlining. No-op on Winch (Winch doesn't inline)
-                .compiler_inlining(Inlining::No)
-                // Despite the `cranelift_` prefix, this setting also takes
-                // effect on Winch (winch/codegen reads `enable_nan_canonicalization`
-                // from the shared compiler flags at codegen time).
-                .cranelift_nan_canonicalization(true)
-                // Enable signals-based traps. This is required to elide explicit bounds-checking.
-                .signals_based_traps(true)
-                // Configure linear memories such that explicit bounds-checking can be elided.
-                .force_memory_init_memfd(true)
-                .memory_guaranteed_dense_image_size(0)
-                .guard_before_linear_memory(false)
-                .memory_guard_size(0)
-                .memory_may_move(false)
-                .memory_reservation(max_memory_size.try_into().unwrap_or(u64::MAX))
-                .memory_reservation_for_growth(0)
-                .wasm_wide_arithmetic(true);
+            engine_config.allocation_strategy(InstanceAllocationStrategy::Pooling(pooling_config));
+            apply_compiler_config(&mut engine_config, max_memory_size);
 
             let config = Arc::clone(&vm_key.config);
             let engine = Engine::new(&engine_config).expect("failed to construct Wasmtime engine");
