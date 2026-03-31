@@ -75,6 +75,54 @@ fn guest_memory_size(pages: u32) -> Option<usize> {
     pages.checked_mul(GUEST_PAGE_SIZE)
 }
 
+/// Apply the Cranelift compiler settings shared between the in-process engine
+/// and the out-of-process compiler daemon. Keeping these in sync is critical
+/// for artifact compatibility.
+fn apply_compiler_config(config: &mut wasmtime::Config, max_memory_size: usize) {
+    config
+        // From official documentation:
+        // > Note that systems loading many modules may wish to disable this
+        // > configuration option instead of leaving it on-by-default.
+        // > Some platforms exhibit quadratic behavior when registering/unregistering
+        // > unwinding information which can greatly slow down the module loading/unloading process.
+        // https://docs.rs/wasmtime/latest/wasmtime/struct.Config.html#method.native_unwind_info
+        .native_unwind_info(false)
+        .wasm_backtrace(false)
+        .wasm_backtrace_details(WasmBacktraceDetails::Disable)
+        // Enable copy-on-write heap images.
+        .memory_init_cow(true)
+        // Wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
+        .max_wasm_stack(1024 * 1024 * 1024)
+        // Enable the Cranelift optimizing compiler.
+        .strategy(Strategy::Cranelift)
+        // Enable signals-based traps. This is required to elide explicit bounds-checking.
+        .signals_based_traps(true)
+        // Configure linear memories such that explicit bounds-checking can be elided.
+        .force_memory_init_memfd(true)
+        .memory_guaranteed_dense_image_size(max_memory_size.try_into().unwrap_or(u64::MAX))
+        .guard_before_linear_memory(false)
+        .memory_guard_size(0)
+        .memory_may_move(false)
+        .memory_reservation(max_memory_size.try_into().unwrap_or(u64::MAX))
+        .memory_reservation_for_growth(0)
+        .compiler_inlining(true)
+        .cranelift_nan_canonicalization(true)
+        .wasm_wide_arithmetic(true);
+}
+
+/// Create a wasmtime Engine for compilation only (no pooling allocator).
+/// Used by the out-of-process compiler daemon. The default (on-demand)
+/// allocator is used instead of pooling because the daemon with a memory
+/// limit (by RLIMIT_AS) and pooling pre-reserves too much virtual memory.
+/// This is safe: the allocator only affects instantiation, not the
+/// serialized artifact produced by `precompile_module`.
+pub(crate) fn create_compiler_engine(max_memory_pages: u32) -> anyhow::Result<Engine> {
+    let mut config = wasmtime::Config::default();
+    let max_memory_size = guest_memory_size(max_memory_pages).unwrap_or(usize::MAX);
+    apply_compiler_config(&mut config, max_memory_size);
+    Engine::new(&config)
+}
+
 struct InstancePermit<'a> {
     instances: &'a AtomicU64,
     tables: &'a AtomicU64,
@@ -408,36 +456,8 @@ impl WasmtimeVM {
                 .max_tables_per_module(max_tables_per_contract)
                 .table_keep_resident(max_elements_per_contract_table);
 
-            engine_config
-                .allocation_strategy(InstanceAllocationStrategy::Pooling(pooling_config))
-                // From official documentation:
-                // > Note that systems loading many modules may wish to disable this
-                // > configuration option instead of leaving it on-by-default.
-                // > Some platforms exhibit quadratic behavior when registering/unregistering
-                // > unwinding information which can greatly slow down the module loading/unloading process.
-                // https://docs.rs/wasmtime/latest/wasmtime/struct.Config.html#method.native_unwind_info
-                .native_unwind_info(false)
-                .wasm_backtrace(false)
-                .wasm_backtrace_details(WasmBacktraceDetails::Disable)
-                // Enable copy-on-write heap images.
-                .memory_init_cow(true)
-                // Wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
-                .max_wasm_stack(1024 * 1024 * 1024)
-                // Enable the Cranelift optimizing compiler.
-                .strategy(Strategy::Cranelift)
-                // Enable signals-based traps. This is required to elide explicit bounds-checking.
-                .signals_based_traps(true)
-                // Configure linear memories such that explicit bounds-checking can be elided.
-                .force_memory_init_memfd(true)
-                .memory_guaranteed_dense_image_size(max_memory_size.try_into().unwrap_or(u64::MAX))
-                .guard_before_linear_memory(false)
-                .memory_guard_size(0)
-                .memory_may_move(false)
-                .memory_reservation(max_memory_size.try_into().unwrap_or(u64::MAX))
-                .memory_reservation_for_growth(0)
-                .compiler_inlining(true)
-                .cranelift_nan_canonicalization(true)
-                .wasm_wide_arithmetic(true);
+            engine_config.allocation_strategy(InstanceAllocationStrategy::Pooling(pooling_config));
+            apply_compiler_config(&mut engine_config, max_memory_size);
 
             let config = Arc::clone(&vm_key.config);
             let engine = Engine::new(&engine_config).expect("failed to construct Wasmtime engine");
