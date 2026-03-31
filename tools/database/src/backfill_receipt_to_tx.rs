@@ -11,11 +11,10 @@ use near_primitives::receipt::{
 use near_primitives::types::BlockHeight;
 use near_store::{DBCol, Store};
 use nearcore::open_storage;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Instant;
 
-const CHECKPOINT_FILENAME: &str = "backfill-receipt-to-tx.checkpoint";
+pub const BACKFILL_CHECKPOINT_KEY: &[u8] = b"BACKFILL_RECEIPT_TO_TX";
 
 /// Stats returned by the backfill function.
 pub struct BackfillStats {
@@ -62,11 +61,12 @@ impl BackfillReceiptToTxCommand {
         let genesis_height = chain_store.get_genesis_height();
         let head_height = chain_store.head().context("failed to get chain head")?.height;
 
-        let checkpoint_path = home.join("data").join(CHECKPOINT_FILENAME);
-
         let from_height = match self.from_block_height {
             Some(h) => h,
-            None => read_checkpoint(&checkpoint_path).map(|h| h + 1).unwrap_or(genesis_height),
+            None => write_store
+                .get_ser::<BlockHeight>(DBCol::Misc, BACKFILL_CHECKPOINT_KEY)
+                .map(|h| h + 1)
+                .unwrap_or(genesis_height),
         };
         let to_height = self.to_block_height.unwrap_or(head_height).min(head_height);
 
@@ -100,7 +100,7 @@ impl BackfillReceiptToTxCommand {
             from_height,
             to_height,
             self.batch_size,
-            Some(&checkpoint_path),
+            true,
             Some(&progress),
         )?;
 
@@ -124,6 +124,9 @@ impl BackfillReceiptToTxCommand {
 /// Iterates forward through block heights, reads execution outcomes for each
 /// block/shard, and reconstructs `ReceiptToTxInfo` entries by looking up
 /// transaction and receipt data from the DB.
+///
+/// When `use_checkpoint` is true, the checkpoint is stored in `DBCol::Misc`
+/// atomically with the ReceiptToTx entries in the same write batch.
 pub fn backfill_receipt_to_tx(
     chain_store: &ChainStore,
     read_store: &Store,
@@ -131,14 +134,13 @@ pub fn backfill_receipt_to_tx(
     from_height: BlockHeight,
     to_height: BlockHeight,
     batch_size: usize,
-    checkpoint_path: Option<&Path>,
+    use_checkpoint: bool,
     progress: Option<&ProgressBar>,
 ) -> anyhow::Result<BackfillStats> {
     let mut store_update = write_store.store_update();
     let mut batch_count: usize = 0;
     let mut stats = BackfillStats { blocks_processed: 0, entries_written: 0, heights_skipped: 0 };
     let mut last_completed_height: Option<BlockHeight> = None;
-    let mut last_checkpointed_height: Option<BlockHeight> = None;
 
     for height in from_height..=to_height {
         let block_hash = match chain_store.get_block_hash_by_height(height) {
@@ -240,17 +242,20 @@ pub fn backfill_receipt_to_tx(
                     stats.entries_written += 1;
 
                     if batch_count >= batch_size {
+                        // Write checkpoint for last completed height atomically
+                        // with the data entries.
+                        if use_checkpoint {
+                            if let Some(completed) = last_completed_height {
+                                store_update.set_ser(
+                                    DBCol::Misc,
+                                    BACKFILL_CHECKPOINT_KEY,
+                                    &completed,
+                                );
+                            }
+                        }
                         store_update.commit();
                         store_update = write_store.store_update();
                         batch_count = 0;
-                        if let (Some(path), Some(completed)) =
-                            (checkpoint_path, last_completed_height)
-                        {
-                            if last_checkpointed_height != Some(completed) {
-                                write_checkpoint(path, completed)?;
-                                last_checkpointed_height = Some(completed);
-                            }
-                        }
                     }
                 }
             }
@@ -273,43 +278,15 @@ pub fn backfill_receipt_to_tx(
         }
     }
 
-    // Flush remaining batch.
-    if batch_count > 0 {
-        store_update.commit();
-    }
-    if let (Some(path), Some(completed)) = (checkpoint_path, last_completed_height) {
-        if last_checkpointed_height != Some(completed) {
-            write_checkpoint(path, completed)?;
+    // Flush remaining batch with final checkpoint.
+    if use_checkpoint {
+        if let Some(completed) = last_completed_height {
+            store_update.set_ser(DBCol::Misc, BACKFILL_CHECKPOINT_KEY, &completed);
         }
+    }
+    if batch_count > 0 || use_checkpoint {
+        store_update.commit();
     }
 
     Ok(stats)
-}
-
-fn read_checkpoint(path: &Path) -> Option<BlockHeight> {
-    let content = fs::read_to_string(path).ok()?;
-    content.trim().parse::<BlockHeight>().ok()
-}
-
-fn write_checkpoint(path: &Path, height: BlockHeight) -> anyhow::Result<()> {
-    fs::write(path, height.to_string()).context("failed to write checkpoint file")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_checkpoint_round_trip() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("test.checkpoint");
-
-        assert_eq!(read_checkpoint(&path), None);
-
-        write_checkpoint(&path, 12345).unwrap();
-        assert_eq!(read_checkpoint(&path), Some(12345));
-
-        write_checkpoint(&path, 99999).unwrap();
-        assert_eq!(read_checkpoint(&path), Some(99999));
-    }
 }
