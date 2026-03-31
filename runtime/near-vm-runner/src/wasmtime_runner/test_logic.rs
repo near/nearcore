@@ -3,6 +3,7 @@ use super::logic;
 use crate::logic::errors::VMLogicError;
 use crate::logic::gas_counter::GasCounter;
 use crate::logic::mocks::mock_external::MockedExternal;
+use crate::logic::mocks::mock_memory::MockedMemory;
 use crate::logic::vmstate::Registers;
 use crate::logic::{Config, ExecutionResultState, MemSlice, VMContext, VMOutcome};
 use near_parameters::RuntimeFeesConfig;
@@ -16,8 +17,6 @@ static CACHED_ENGINE_MODULE: LazyLock<(Engine, Module)> = LazyLock::new(|| {
     let module = Module::new(&engine, &wasm).unwrap();
     (engine, module)
 });
-
-use crate::logic::mocks::mock_memory::MockedMemory;
 
 /// Wasmtime-backed test logic that calls host function implementations
 /// directly. The lifetime `'a` ties it to the `VMLogicBuilder` that created
