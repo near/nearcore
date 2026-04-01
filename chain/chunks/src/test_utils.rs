@@ -23,11 +23,12 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::MerkleHash;
 use near_primitives::types::{AccountId, Balance, EpochId, Gas};
+use near_primitives::utils::get_block_shard_id;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chunk_store::ChunkStoreAdapter;
-use near_store::set_genesis_height;
 use near_store::test_utils::create_test_store;
+use near_store::{DBCol, set_genesis_height};
 use parking_lot::{Mutex, RwLock};
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::VecDeque;
@@ -105,6 +106,36 @@ impl ChunkTestFixture {
         // generate a random block hash for the block at height 1
         let (mock_parent_hash, mock_height) =
             if orphan_chunk { (CryptoHash::hash_bytes(&[]), 2) } else { (mock_ancestor_hash, 1) };
+
+        // Populate ChunkProducers DB so hash-based chunk producer lookups work
+        // under nightly (EarlyKickout enabled). Production code does this in
+        // save_genesis_chunk_producers / save_chunk_producers_for_header.
+        //
+        // TODO(#chunk_producer_lookups): this writes height-1 producers under
+        // CryptoHash::default(), which production reserves for height-0 genesis
+        // chunks. Consider using record_block to register a real predecessor
+        // hash so the fixture matches production semantics.
+        if !orphan_chunk {
+            let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&mock_ancestor_hash).unwrap();
+            let shard_layout_for_db = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+            let mut store_update = store.store_update();
+            for shard_id in shard_layout_for_db.shard_ids() {
+                let validator = epoch_manager
+                    .get_chunk_producer_info(&ChunkProductionKey {
+                        epoch_id,
+                        height_created: mock_height,
+                        shard_id,
+                    })
+                    .unwrap();
+                store_update.insert_ser(
+                    DBCol::ChunkProducers,
+                    &get_block_shard_id(&mock_ancestor_hash, shard_id),
+                    &validator,
+                );
+            }
+            store_update.commit();
+        }
+
         // setting this to 2 instead of 0 so that when chunk producers
         let mock_shard_id = shard_layout.shard_ids().next().unwrap();
         let mock_epoch_id =

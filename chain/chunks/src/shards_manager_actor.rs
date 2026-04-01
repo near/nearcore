@@ -3339,10 +3339,25 @@ mod test {
     #[test]
     fn test_forward_cached_on_chunk_producer_db_miss() {
         // Default fixture: non-orphan, prev_block_hash = CryptoHash::default() (genesis).
-        // Under nightly, EarlyKickout is enabled, so get_chunk_producer_info_db
-        // reads from the ChunkProducers DB column. The fixture doesn't populate
-        // this column, so the lookup returns ChunkProducerNotInDB → DBNotFoundErr.
+        // The fixture populates ChunkProducers DB, so we delete the entries to
+        // exercise the ChunkProducerNotInDB → DBNotFoundErr → cache path.
         let fixture = ChunkTestFixture::default();
+
+        // Delete ChunkProducers entries so the DB miss path is exercised.
+        {
+            let epoch_id =
+                fixture.epoch_manager.get_epoch_id_from_prev_block(&CryptoHash::default()).unwrap();
+            let shard_layout = fixture.epoch_manager.get_shard_layout(&epoch_id).unwrap();
+            let mut store_update = fixture.chain_store.store().store_update();
+            for shard_id in shard_layout.shard_ids() {
+                use near_primitives::utils::get_block_shard_id;
+                store_update.delete(
+                    DBCol::ChunkProducers,
+                    &get_block_shard_id(&CryptoHash::default(), shard_id),
+                );
+            }
+            store_update.commit();
+        }
         let mut shards_manager = ShardsManagerActor::new(
             FakeClock::default().clock(),
             mutable_validator_signer(&fixture.mock_shard_tracker),
