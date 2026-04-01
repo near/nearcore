@@ -37,7 +37,6 @@ fn test_slow_compilation_causes_stale_chunks() {
 
     let mut env = TestLoopBuilder::new()
         .validators(num_block_and_chunk_producers, num_chunk_validators_only)
-        .num_shards(2)
         .enable_rpc()
         .add_user_account(&user, Balance::from_near(100))
         .async_computation_delay(move |name| {
