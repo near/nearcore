@@ -3,8 +3,7 @@ use crate::cache::{CompiledContractInfo, ContractRuntimeCache};
 use crate::logic::Config;
 use crate::logic::errors::VMRunnerError;
 use crate::logic::mocks::mock_external::MockedExternal;
-use crate::runner::VMKindExt;
-use crate::runner::VMResult;
+use crate::runner::{VMKindExt, VMResult};
 use crate::{ContractCode, MockContractRuntimeCache};
 use assert_matches::assert_matches;
 use near_parameters::RuntimeFeesConfig;
@@ -336,7 +335,7 @@ fn test_no_duplicate_compilation() {
     use crate::wasmtime_runner::{WasmtimeVM, compilation_locks};
     use std::sync::Arc;
 
-    let config = test_vm_config(Some(near_parameters::vm::VMKind::Wasmtime));
+    let config = test_vm_config(Some(VMKind::Wasmtime));
     let cache = MockContractRuntimeCache::default();
     let wasm = wat::parse_str(r#"(module (func (export "main")))"#).unwrap();
     let code = ContractCode::new(wasm, None);
