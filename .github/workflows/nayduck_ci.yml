@@ -67,12 +67,14 @@ jobs:
             sleep 60
           done
 
-          UNSUCCESSFUL_TESTS=$(jq '.tests | .[] | select(.status != "PASSED" and .status != "IGNORED") ' <<< ${TEST_RESULTS} )
+          UNSUCCESSFUL_TESTS=$(jq -r '.tests | .[] | select(.status != "PASSED" and .status != "IGNORED") | "\(.status): \(.name)"' <<< ${TEST_RESULTS} )
           if [ -z "$UNSUCCESSFUL_TESTS" ]; then
             echo "Nayduck CI tests passed."
             echo "Results available at https://nayduck.nearone.org/#/run/$RUN_ID"
           else
             echo "CI Nayduck tests are failing https://nayduck.nearone.org/#/run/$RUN_ID."
+            echo "Failed tests:"
+            echo "$UNSUCCESSFUL_TESTS"
             echo "Fix them before merging"
             exit 1
           fi
