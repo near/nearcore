@@ -20,10 +20,11 @@ use core::sync::atomic::{AtomicU64, Ordering};
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::{LimitConfig, VMKind};
 use near_primitives_core::gas::Gas;
+use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::Balance;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, OnceLock};
 use wasmtime::{
     CallHook, Engine, Extern, ExternType, Instance, InstanceAllocationStrategy, InstancePre,
     Linker, Memory, Module, ModuleExport, PoolingAllocationConfig, ResourcesRequired, Store,
@@ -71,6 +72,17 @@ struct VMKey {
 
 static VMS: LazyLock<parking_lot::RwLock<HashMap<VMKey, WasmtimeVM>>> =
     LazyLock::new(parking_lot::RwLock::default);
+
+/// Per-code-hash compilation lock. Prevents duplicate compilations when
+/// multiple threads (e.g. precompile_contracts and validate_chunk_state_witness)
+/// race to compile the same contract simultaneously. Entries are removed after
+/// compilation completes.
+type CompilationLocks = parking_lot::Mutex<HashMap<CryptoHash, Arc<parking_lot::Mutex<()>>>>;
+
+fn compilation_locks() -> &'static CompilationLocks {
+    static LOCKS: OnceLock<CompilationLocks> = OnceLock::new();
+    LOCKS.get_or_init(|| parking_lot::Mutex::new(HashMap::new()))
+}
 
 fn guest_memory_size(pages: u32) -> Option<usize> {
     let pages = usize::try_from(pages).ok()?;
@@ -497,13 +509,29 @@ impl WasmtimeVM {
         name = "Wasmtime::compile_and_cache",
         skip_all
     )]
+    /// Compile a contract and store the result in the cache. Uses a per-code-hash
+    /// lock to prevent duplicate compilations when multiple threads race on the
+    /// same contract (e.g. precompile_contracts vs validate_chunk_state_witness).
     fn compile_and_cache(
         &self,
         code: &ContractCode,
         cache: &dyn ContractRuntimeCache,
     ) -> Result<Result<Vec<u8>, CompilationError>, CacheError> {
-        let serialized_or_error = self.compile_uncached(code);
         let key = get_contract_cache_key(*code.hash(), &self.config, self.vm_hash());
+
+        // Acquire a per-key lock so only one thread compiles a given contract.
+        let lock = compilation_locks().lock().entry(key).or_default().clone();
+        let _guard = lock.lock();
+
+        // Check the disk cache: another thread may have compiled while we waited.
+        if let Some(info) = cache.get(&key).map_err(CacheError::ReadError)? {
+            match info.compiled {
+                CompiledContract::Code(module) => return Ok(Ok(module)),
+                CompiledContract::CompileModuleError(err) => return Ok(Err(err)),
+            }
+        }
+
+        let serialized_or_error = self.compile_uncached(code);
         let record = CompiledContractInfo {
             wasm_bytes: code.code().len() as u64,
             compiled: match &serialized_or_error {
@@ -512,6 +540,9 @@ impl WasmtimeVM {
             },
         };
         cache.put(&key, record).map_err(CacheError::WriteError)?;
+
+        // Clean up the lock entry now that the result is cached.
+        compilation_locks().lock().remove(&key);
         Ok(serialized_or_error)
     }
 
