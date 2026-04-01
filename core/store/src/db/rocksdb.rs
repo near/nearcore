@@ -547,6 +547,7 @@ impl Database for RocksDB {
         let mut opts = ::rocksdb::IngestExternalFileOptions::default();
         opts.set_move_files(move_files);
         // Required when ingesting SST files from a live DB (non-zero sequence numbers).
+        // cspell:ignore seqno
         opts.set_allow_global_seqno(true);
         self.db
             .ingest_external_file_cf_opts(&cf, &opts, paths.to_vec())
