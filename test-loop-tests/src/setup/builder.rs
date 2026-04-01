@@ -62,6 +62,8 @@ pub(crate) struct TestLoopBuilder {
     upgrade_schedule: Option<ProtocolUpgradeVotingSchedule>,
     /// Accounts whose clients should be configured in an RPC pool.
     rpc_pool: Option<Vec<AccountId>>,
+    /// Custom delay function for async computation spawners.
+    async_computation_delay: Option<Arc<dyn Fn(&str) -> near_async::time::Duration + Send + Sync>>,
 }
 
 impl TestLoopBuilder {
@@ -79,6 +81,7 @@ impl TestLoopBuilder {
             load_memtries_for_tracked_shards: true,
             upgrade_schedule: None,
             rpc_pool: None,
+            async_computation_delay: None,
         }
     }
 
@@ -319,6 +322,15 @@ impl TestLoopBuilder {
         self
     }
 
+    /// Custom delay function for all async computation spawners.
+    pub(crate) fn async_computation_delay(
+        mut self,
+        delay: impl Fn(&str) -> near_async::time::Duration + Send + Sync + 'static,
+    ) -> Self {
+        self.async_computation_delay = Some(Arc::new(delay));
+        self
+    }
+
     /// Custom function to change the configs before constructing each client.
     pub fn config_modifier(
         mut self,
@@ -512,12 +524,14 @@ impl TestLoopBuilder {
             }
         };
         let tempdir_path = self.test_loop_data_dir.path().to_path_buf();
-        NodeStateBuilder::new(genesis.clone(), tempdir_path)
+        let mut state = NodeStateBuilder::new(genesis.clone(), tempdir_path)
             .account_id(&account_id)
             .cold_storage(enable_cold_storage)
             .cloud_storage(enable_cloud_storage)
             .config_modifier(config_modifier)
-            .build()
+            .build();
+        state.async_computation_delay = self.async_computation_delay.clone();
+        state
     }
 }
 
@@ -567,7 +581,13 @@ impl<'a> NodeStateBuilder<'a> {
         let client_config = self.create_client_config();
         let storage = self.setup_storage(client_config.chain_id.clone());
         let account_id = self.account_id.unwrap();
-        NodeSetupState { account_id, client_config, storage, validator_signer: None }
+        NodeSetupState {
+            account_id,
+            client_config,
+            storage,
+            validator_signer: None,
+            async_computation_delay: None,
+        }
     }
 
     fn create_client_config(&self) -> ClientConfig {

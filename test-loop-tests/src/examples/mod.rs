@@ -9,4 +9,5 @@ mod missing_chunk;
 mod node_lifecycle;
 mod resharding;
 mod setup;
+mod slow_compilation;
 mod validator_rotation;

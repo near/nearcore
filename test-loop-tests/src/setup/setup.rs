@@ -57,8 +57,20 @@ pub fn setup_client(
     node_state: NodeSetupState,
     shared_state: &SharedState,
 ) -> NodeExecutionData {
-    let NodeSetupState { account_id, client_config, storage, validator_signer: custom_signer } =
-        node_state;
+    let NodeSetupState {
+        account_id,
+        client_config,
+        storage,
+        validator_signer: custom_signer,
+        async_computation_delay,
+    } = node_state;
+    let default_delay = |_: &str| Duration::milliseconds(80);
+    let delay_fn: Arc<dyn Fn(&str) -> Duration + Send + Sync> =
+        async_computation_delay.unwrap_or_else(|| Arc::new(default_delay));
+    let make_spawner = |test_loop: &mut TestLoopV2, id: &str| {
+        let df = delay_fn.clone();
+        Arc::new(test_loop.async_computation_spawner(id, move |name| df(name)))
+    };
     let is_archival = client_config.archive;
     let SharedState {
         genesis,
@@ -153,9 +165,8 @@ pub fn setup_client(
     // Make sure this is the same as the account_id of the client to redirect the network messages properly.
     let peer_id = PeerId::new(create_test_signer(account_id.as_str()).public_key());
 
-    let multi_spawner = AsyncComputationMultiSpawner::all_custom(Arc::new(
-        test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80)),
-    ));
+    let multi_spawner =
+        AsyncComputationMultiSpawner::all_custom(make_spawner(test_loop, identifier));
 
     let chunk_validation_client_sender = LateBoundSender::<ChunkValidationSender>::new();
 
@@ -264,7 +275,7 @@ pub fn setup_client(
         validator_signer.clone(),
         client_config.save_latest_witnesses,
         client_config.save_invalid_witnesses,
-        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
+        make_spawner(test_loop, identifier),
         client_config.orphan_state_witness_pool_size,
         client_config.orphan_state_witness_max_size.as_u64(),
     );
@@ -341,9 +352,9 @@ pub fn setup_client(
         validator_signer.clone(),
         epoch_manager.clone(),
         runtime_adapter.clone(),
-        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))), // Heavy contract compilation
-        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(10))),
-        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(10))),
+        make_spawner(test_loop, identifier),
+        make_spawner(test_loop, identifier),
+        make_spawner(test_loop, identifier),
     );
 
     let peer_manager_actor = TestLoopPeerManagerActor::new(
@@ -449,7 +460,7 @@ pub fn setup_client(
         shard_tracker.clone(),
         network_adapter.as_multi_sender(),
         validator_signer.clone(),
-        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
+        make_spawner(test_loop, identifier),
         apply_chunks_iteration_mode,
         chunk_executor_adapter.as_sender(),
         spice_core_writer_adapter.as_sender(),
@@ -478,9 +489,7 @@ pub fn setup_client(
         network_adapter.as_multi_sender(),
         validator_signer.clone(),
         spice_core_writer_adapter.as_sender(),
-        ApplyChunksSpawner::Custom(Arc::new(
-            test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80)),
-        )),
+        ApplyChunksSpawner::Custom(make_spawner(test_loop, identifier)),
     );
 
     test_loop.data.register_actor(

@@ -75,6 +75,10 @@ pub struct NodeSetupState {
     pub client_config: ClientConfig,
     pub storage: TestNodeStorage,
     pub validator_signer: Option<Arc<ValidatorSigner>>,
+    /// Custom delay function for async computation spawners. If None, uses the
+    /// default 80ms for all operations.
+    pub async_computation_delay:
+        Option<Arc<dyn Fn(&str) -> near_async::time::Duration + Send + Sync>>,
 }
 
 /// This is the state associated with each node in the test loop environment after being built.
