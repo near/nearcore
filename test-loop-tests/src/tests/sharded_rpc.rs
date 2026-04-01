@@ -1012,6 +1012,10 @@ fn test_rpc_query_view_account_by_block_height() {
             },
             Duration::seconds(5),
         )?;
+        assert_eq!(
+            result.block_height, head_height,
+            "result should come from the requested height"
+        );
         match result.kind {
             QueryResponseKind::ViewAccount(view) => {
                 assert_eq!(view.amount, expected_balance, "node: {node_id}, account: {account}");
@@ -1051,6 +1055,7 @@ fn test_rpc_query_view_account_by_block_hash() {
             },
             Duration::seconds(5),
         )?;
+        assert_eq!(result.block_hash, head_hash, "result should come from the requested hash");
         match result.kind {
             QueryResponseKind::ViewAccount(view) => {
                 assert_eq!(view.amount, expected_balance, "node: {node_id}, account: {account}");
