@@ -106,6 +106,7 @@ prepare = [
     "metrics",
 ]
 
+winch = ["wasmtime_vm", "wasmtime/winch"]
 no_cpu_compatibility_checks = []
 
 metrics = ["prometheus", "near-o11y"]
