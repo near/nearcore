@@ -34,6 +34,37 @@ fn bench_contract(path: &str) {
         };
         println!("{vm_kind:?} {name:<55} {:>8.1}ms  {status}", elapsed.as_secs_f64() * 1000.0);
     }
+
+    // Also benchmark Wasmtime with Winch (non-optimizing) backend if available.
+    #[cfg(feature = "winch")]
+    {
+        let config = near_parameters::vm::Config {
+            vm_kind: VMKind::Wasmtime,
+            ..near_parameters::vm::Config::clone(&runtime_config.wasm_config)
+        };
+        let prepared =
+            near_vm_runner::prepare::prepare_contract(&code_bytes, &config, VMKind::Wasmtime);
+        match prepared {
+            Ok(prepared_code) => {
+                let mut engine_config = wasmtime::Config::default();
+                engine_config.strategy(wasmtime::Strategy::Winch);
+                match wasmtime::Engine::new(&engine_config) {
+                    Ok(engine) => {
+                        let start = Instant::now();
+                        let result = engine.precompile_module(&prepared_code);
+                        let elapsed = start.elapsed();
+                        let status = if result.is_ok() { "ok" } else { "FAILED" };
+                        println!(
+                            "Winch    {name:<55} {:>8.1}ms  {status}",
+                            elapsed.as_secs_f64() * 1000.0
+                        );
+                    }
+                    Err(e) => println!("Winch    {name:<55} engine error: {e}"),
+                }
+            }
+            Err(e) => println!("Winch    {name:<55} prepare error: {e:?}"),
+        }
+    }
 }
 
 fn main() {
