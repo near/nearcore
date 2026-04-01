@@ -85,17 +85,6 @@ pub(crate) fn compilation_locks() -> &'static CompilationLocks {
     LOCKS.get_or_init(|| parking_lot::Mutex::new(HashMap::new()))
 }
 
-/// Removes the compilation lock entry from the global map on drop, ensuring
-/// cleanup on all exit paths (success, cache hit, and error) without requiring
-/// manual `remove` calls at each return site.
-struct CompilationLockCleanup(CryptoHash);
-
-impl Drop for CompilationLockCleanup {
-    fn drop(&mut self) {
-        compilation_locks().lock().remove(&self.0);
-    }
-}
-
 fn guest_memory_size(pages: u32) -> Option<usize> {
     let pages = usize::try_from(pages).ok()?;
     pages.checked_mul(GUEST_PAGE_SIZE)
@@ -533,9 +522,16 @@ impl WasmtimeVM {
         let key = get_contract_cache_key(*code.hash(), &self.config, self.vm_hash());
 
         // Acquire a per-key lock so only one thread compiles a given contract.
+        // The cleanup guard removes the lock entry on all exit paths.
         let lock = compilation_locks().lock().entry(key).or_default().clone();
         let _guard = lock.lock();
-        let _cleanup = CompilationLockCleanup(key);
+        struct Cleanup(CryptoHash);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                compilation_locks().lock().remove(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(key);
 
         // Check the disk cache: another thread may have compiled while we waited.
         if let Some(info) = cache.get(&key).map_err(CacheError::ReadError)? {
