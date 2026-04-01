@@ -3351,4 +3351,106 @@ mod test {
             .unwrap();
         assert_eq!(fixture.count_chunk_ready_for_inclusion_messages(), 0);
     }
+
+    #[test]
+    fn test_orphan_chunk_request_graceful_degradation() {
+        // When requesting chunks for orphans, prev_block_hash (from the chunk header) is unknown
+        // to the epoch manager because the parent block hasn't been processed yet. The code should
+        // gracefully degrade:
+        // - should_wait_for_chunk_forwarding: returns false when chunk producer DB lookup fails
+        // - request_partial_encoded_chunk: falls back to random target when chunk producer is unknown
+        // - resend_chunk_requests: also works with the stored unknown prev_block_hash
+        let mut fixture = ChunkTestFixture::new(true, 3, 6, 6, true);
+        let clock = FakeClock::default();
+        let mut shards_manager = ShardsManagerActor::new(
+            clock.clock(),
+            mutable_validator_signer(&fixture.mock_shard_tracker),
+            Arc::new(fixture.epoch_manager.clone()),
+            Arc::new(fixture.epoch_manager.clone()),
+            fixture.shard_tracker.clone(),
+            fixture.mock_network.as_sender(),
+            fixture.mock_client_adapter.as_sender(),
+            fixture.store.clone(),
+            fixture.mock_chain_head.clone(),
+            fixture.mock_chain_head.clone(),
+            Duration::hours(1),
+            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
+        );
+
+        // Orphan fixture: prev_block_hash is unknown, ancestor_hash is known (genesis).
+        let prev_block_hash = *fixture.mock_chunk_header.prev_block_hash();
+        let ancestor_hash = CryptoHash::default();
+        assert_ne!(
+            prev_block_hash, ancestor_hash,
+            "orphan fixture should have different prev_block_hash and ancestor_hash"
+        );
+
+        // Verify should_wait_for_chunk_forwarding gracefully degrades when the chunk
+        // producer DB lookup fails. Use a chunk-only producer as `me` so the block
+        // producer check doesn't short-circuit before reaching the DB lookup.
+        let chunk_only_producer: AccountId = "test_cp_0".parse().unwrap();
+        let result = shards_manager.should_wait_for_chunk_forwarding(
+            &prev_block_hash,
+            &ancestor_hash,
+            fixture.mock_chunk_header.shard_id(),
+            Some(&chunk_only_producer),
+        );
+        assert_eq!(
+            result,
+            Ok(false),
+            "should return false when chunk producer DB lookup fails for unknown prev_block_hash"
+        );
+
+        // Process a partial chunk first to insert the header into the cache. Without this,
+        // request_chunk_single returns early ("already complete and GC-ed").
+        let partial_encoded_chunk = fixture.make_partial_encoded_chunk(&[0]);
+        let result = shards_manager
+            .process_partial_encoded_chunk(
+                MaybeValidated::from(partial_encoded_chunk),
+                Some(&fixture.mock_shard_tracker),
+            )
+            .unwrap();
+        assert_matches!(result, ProcessPartialEncodedChunkResult::NeedBlock);
+
+        // Request chunks for orphan — exercises request_partial_encoded_chunk with unknown
+        // prev_block_hash. The function should fall back to a random shard-tracking target
+        // instead of the chunk producer.
+        shards_manager.request_chunks_for_orphan(
+            vec![fixture.mock_chunk_header.clone()],
+            &EpochId::default(),
+            ancestor_hash,
+            Some(&fixture.mock_shard_tracker),
+        );
+
+        // Verify requests were actually sent (didn't error out or get suppressed).
+        let collect_request_parts = |fixture: &mut ChunkTestFixture| -> HashSet<u64> {
+            let mut parts = HashSet::new();
+            while let Some(r) = fixture.mock_network.pop() {
+                match r.as_network_requests_ref() {
+                    NetworkRequests::PartialEncodedChunkRequest { request, .. } => {
+                        for part_ord in &request.part_ords {
+                            parts.insert(*part_ord);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            parts
+        };
+        let requested_parts = collect_request_parts(&mut fixture);
+        assert!(
+            !requested_parts.is_empty(),
+            "chunk part requests should be sent despite unknown prev_block_hash"
+        );
+
+        // Verify resend also works — the stored ChunkRequestInfo has the unknown
+        // prev_block_hash, and request_partial_encoded_chunk should degrade gracefully again.
+        clock.advance(CHUNK_REQUEST_RETRY * 2);
+        shards_manager.resend_chunk_requests();
+        let resent_parts = collect_request_parts(&mut fixture);
+        assert!(
+            !resent_parts.is_empty(),
+            "resent chunk requests should also work with unknown prev_block_hash"
+        );
+    }
 }
