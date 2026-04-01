@@ -1934,7 +1934,6 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-
     /// Merge another StoreUpdate into this one
     pub fn merge(&mut self, store_update: StoreUpdate) {
         self.store_updates.push(store_update);
