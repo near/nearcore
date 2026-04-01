@@ -17,17 +17,30 @@ from transaction import sign_deploy_contract_tx
 from configured_logger import logger
 
 
+def to_config_duration(seconds):
+    secs = int(seconds)
+    nanos = int(1e9 * (seconds - secs))
+    return {"secs": secs, "nanos": nanos}
+
+
 def test_slow_compilation_real_contract():
+    # Use mainnet-like 600ms block times (localnet defaults to 120ms).
+    mainnet_consensus = {
+        "consensus.min_block_production_delay": to_config_duration(0.6),
+        "consensus.max_block_production_delay": to_config_duration(1.8),
+        "consensus.max_block_wait_delay": to_config_duration(1.8),
+    }
+    num_nodes = 4
     nodes = start_cluster(
-        4, 0, 2, None,
+        num_nodes, 0, 2, None,
         [["epoch_length", 100], ["block_producer_kickout_threshold", 0]],
-        {},
+        {i: mainnet_consensus for i in range(num_nodes)},
     )
 
     # Wait for enough blocks so the network is stable.
     height_before = nodes[0].get_latest_block().height
     while nodes[0].get_latest_block().height < height_before + 8:
-        time.sleep(0.5)
+        time.sleep(1)
 
     height_before = nodes[0].get_latest_block().height
     logger.info(f"height before deploy: {height_before}")
