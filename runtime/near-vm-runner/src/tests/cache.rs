@@ -351,8 +351,12 @@ fn test_no_duplicate_compilation() {
         h.join().unwrap().unwrap().unwrap();
     }
 
-    // The cache should have exactly one entry (one compilation, not two).
-    assert_eq!(cache.len(), 1, "expected exactly one cache entry from two concurrent precompiles");
+    // Only one compilation should have occurred (one put), not two.
+    assert_eq!(
+        cache.put_count(),
+        1,
+        "expected exactly one compilation from two concurrent precompiles"
+    );
 
     // The global lock map should be empty (no leaked entries).
     assert!(

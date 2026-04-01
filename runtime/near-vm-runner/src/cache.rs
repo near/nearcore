@@ -185,16 +185,22 @@ impl ContractRuntimeCache for NoContractRuntimeCache {
 #[derive(Default, Clone)]
 pub struct MockContractRuntimeCache {
     store: Arc<Mutex<HashMap<CryptoHash, CompiledContractInfo>>>,
+    put_count: Arc<std::sync::atomic::AtomicU32>,
 }
 
 impl MockContractRuntimeCache {
     pub fn len(&self) -> usize {
         self.store.lock().len()
     }
+
+    pub fn put_count(&self) -> u32 {
+        self.put_count.load(std::sync::atomic::Ordering::Relaxed)
+    }
 }
 
 impl ContractRuntimeCache for MockContractRuntimeCache {
     fn put(&self, key: &CryptoHash, value: CompiledContractInfo) -> std::io::Result<()> {
+        self.put_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.store.lock().insert(*key, value);
         Ok(())
     }
