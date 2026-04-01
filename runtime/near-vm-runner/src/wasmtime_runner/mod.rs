@@ -522,9 +522,10 @@ impl WasmtimeVM {
         let key = get_contract_cache_key(*code.hash(), &self.config, self.vm_hash());
 
         // Acquire a per-key lock so only one thread compiles a given contract.
-        // The cleanup guard removes the lock entry on all exit paths.
+        // Cleanup is declared before guard so that on drop, the per-key mutex
+        // is released first (_guard drops), then the map entry is removed
+        // (_cleanup drops). Locals drop in reverse declaration order.
         let lock = compilation_locks().lock().entry(key).or_default().clone();
-        let _guard = lock.lock();
         struct Cleanup(CryptoHash);
         impl Drop for Cleanup {
             fn drop(&mut self) {
@@ -532,6 +533,7 @@ impl WasmtimeVM {
             }
         }
         let _cleanup = Cleanup(key);
+        let _guard = lock.lock();
 
         // Check the disk cache: another thread may have compiled while we waited.
         if let Some(info) = cache.get(&key).map_err(CacheError::ReadError)? {
