@@ -4,11 +4,15 @@ use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::types::Balance;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicI32, Ordering};
 
 /// Demonstrates that slow contract compilation causes stale chunks on the
-/// affected shard. Simulates a 3-second compilation delay using the test-loop
-/// artificial delay mechanism.
+/// affected shard.
+///
+/// Uses atomic counters to simulate a one-shot 3-second compilation delay:
+/// when the signal is set, each node's apply_chunks and stateless_validation
+/// get one slow invocation (simulating a cache-miss compile), then subsequent
+/// invocations return to normal (simulating a cache hit).
 #[cfg_attr(not(feature = "test_features"), ignore)]
 #[test]
 fn test_slow_compilation_causes_stale_chunks() {
@@ -18,10 +22,18 @@ fn test_slow_compilation_causes_stale_chunks() {
 
     let num_block_and_chunk_producers = 2;
     let num_chunk_validators_only = 2;
+    let total_nodes = num_block_and_chunk_producers + num_chunk_validators_only + 1; // +1 for rpc
 
-    // Flag to enable slow compilation only after baseline is established.
-    let slow_mode = Arc::new(AtomicBool::new(false));
-    let slow_mode_clone = slow_mode.clone();
+    // Counters for one-shot delays. When > 0, the next invocation gets a 3s
+    // delay and decrements the counter. When 0, normal 80ms delay.
+    // Start at 0 (no delay). We'll set them right before deploying.
+    let slow_apply = Arc::new(AtomicI32::new(0));
+    let slow_validation = Arc::new(AtomicI32::new(0));
+    let slow_precompile = Arc::new(AtomicI32::new(0));
+
+    let slow_apply_clone = slow_apply.clone();
+    let slow_validation_clone = slow_validation.clone();
+    let slow_precompile_clone = slow_precompile.clone();
 
     let mut env = TestLoopBuilder::new()
         .validators(num_block_and_chunk_producers, num_chunk_validators_only)
@@ -29,14 +41,19 @@ fn test_slow_compilation_causes_stale_chunks() {
         .enable_rpc()
         .add_user_account(&user, Balance::from_near(100))
         .async_computation_delay(move |name| {
-            if slow_mode_clone.load(Ordering::Relaxed) {
-                match name {
-                    "apply_chunks" | "stateless_validation" | "precompile_deployed_contracts" => {
-                        Duration::seconds(3)
-                    }
-                    _ => Duration::milliseconds(80),
-                }
+            let counter = match name {
+                "apply_chunks" => &slow_apply_clone,
+                "stateless_validation" => &slow_validation_clone,
+                "precompile_deployed_contracts" => &slow_precompile_clone,
+                _ => return Duration::milliseconds(80),
+            };
+            // Try to decrement. If we were > 0, this invocation gets the big delay.
+            let prev = counter.fetch_sub(1, Ordering::Relaxed);
+            if prev > 0 {
+                Duration::seconds(3)
             } else {
+                // We went below 0, restore to 0 and return normal delay.
+                counter.fetch_max(0, Ordering::Relaxed);
                 Duration::milliseconds(80)
             }
         })
@@ -45,19 +62,25 @@ fn test_slow_compilation_causes_stale_chunks() {
     // Run a baseline of healthy blocks.
     env.rpc_runner().run_for_number_of_blocks(5);
     let baseline_height = env.rpc_node().head().height;
+    tracing::info!(baseline_height, "baseline established");
 
-    // Enable slow compilation and deploy a contract.
-    slow_mode.store(true, Ordering::Relaxed);
+    // Arm the one-shot delays: each node gets one slow apply_chunks,
+    // one slow stateless_validation, and one slow precompile.
+    slow_apply.store(total_nodes as i32, Ordering::Relaxed);
+    slow_validation.store(total_nodes as i32, Ordering::Relaxed);
+    slow_precompile.store(total_nodes as i32, Ordering::Relaxed);
+
+    // Deploy a contract — this will trigger compilation on all nodes.
     let deploy_tx = env.rpc_node().tx_deploy_test_contract(&user);
-    env.rpc_node().client().process_tx(deploy_tx, false, false);
+    env.rpc_runner().run_tx(deploy_tx, Duration::seconds(30));
 
-    // Run for enough virtual time to cover the deploy + several blocks of recovery.
-    // With 3s delay per apply_chunks, we need ~30s for 10 blocks.
-    env.rpc_runner().run_for_number_of_blocks(15);
+    // Run for more blocks to see recovery.
+    env.rpc_runner().run_for_number_of_blocks(5);
     let end_height = env.rpc_node().head().height;
 
     // Inspect blocks for stale chunks.
-    let mut stale_chunks_found = false;
+    let mut stale_count = 0;
+    tracing::info!("block-by-block chunk inclusion:");
     for height in baseline_height..=end_height {
         let block_hash =
             match env.rpc_node().client().chain.chain_store().get_block_hash_by_height(height) {
@@ -76,10 +99,11 @@ fn test_slow_compilation_causes_stale_chunks() {
                     lag,
                     "stale chunk"
                 );
-                stale_chunks_found = true;
+                stale_count += 1;
             }
         }
     }
 
-    assert!(stale_chunks_found, "expected at least one stale chunk due to slow compilation delay");
+    tracing::info!(stale_count, "total stale chunks found");
+    assert!(stale_count > 0, "expected at least one stale chunk due to slow compilation delay");
 }
