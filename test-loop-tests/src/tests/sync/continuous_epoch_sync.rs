@@ -1,6 +1,7 @@
 use crate::setup::builder::TestLoopBuilder;
 use near_epoch_manager::epoch_sync::derive_epoch_sync_proof_from_last_block;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::AccountId;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -213,6 +214,62 @@ fn test_epoch_sync_bootstrap_fresh_node() {
         .map(|s| s.to_string())
         .collect::<Vec<_>>()
     );
+}
+
+// Scenario: update_epoch_sync_proof is called when the stored proof is 2 epochs
+// behind the target. This happens when a node misses epoch boundaries — e.g. after
+// epoch sync + slow header sync where the network advances multiple epochs before
+// the node processes its first epoch boundary.
+//
+// Setup:
+//   - 1 validator, epoch_length=10
+//   - Run 5 epochs so a proof exists, then save it
+//   - Run 2 more epochs (proof auto-updates ahead), then overwrite with the saved proof
+//   - Run 1 more epoch — update_epoch_sync_proof must bridge a 2-epoch gap
+//
+// Assertions:
+//   - Proof advances past the old (stale) proof
+//   - Updated proof matches a from-scratch derivation
+#[test]
+fn test_epoch_sync_proof_update_after_multi_epoch_gap() {
+    if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+
+    init_test_logger();
+    let epoch_length = 10;
+    // Keep enough epochs for from-scratch proof derivation in validate_epoch_sync_proof.
+    let mut env =
+        TestLoopBuilder::new().epoch_length(epoch_length).gc_num_epochs_to_keep(10).build();
+
+    // Run for 5 epochs so a proof exists.
+    for _ in 0..5 {
+        env.validator_runner().run_until_new_epoch();
+    }
+    let epoch_store = env.validator().client().chain.chain_store.epoch_store();
+    let stale_proof = epoch_store.get_epoch_sync_proof().unwrap().expect("proof should exist");
+    let stale_proof_height = stale_proof.current_epoch.first_block_header_in_epoch.height();
+
+    // Run 2 more epochs, then overwrite the proof with the stale one.
+    for _ in 0..2 {
+        env.validator_runner().run_until_new_epoch();
+    }
+    let mut store_update = epoch_store.store_update();
+    store_update.set_epoch_sync_proof(&EpochSyncProof::V1(stale_proof));
+    store_update.commit();
+
+    // Run one more epoch. At the epoch boundary, update_epoch_sync_proof must
+    // extend the stale proof by 2+ epochs. On the old code, this panics with
+    // debug_assert_eq in validate_existing_proof.
+    env.validator_runner().run_until_new_epoch();
+
+    // Verify the proof advanced and matches a from-scratch derivation.
+    let proof = epoch_store.get_epoch_sync_proof().unwrap().expect("proof should exist");
+    assert!(
+        proof.current_epoch.first_block_header_in_epoch.height() > stale_proof_height,
+        "proof should have advanced past the stale proof",
+    );
+    validate_epoch_sync_proof(&epoch_store, &env.validator().head().last_block_hash);
 }
 
 // Validate that the epoch sync proof stored in epoch_store matches the one derived
