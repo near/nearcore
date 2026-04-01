@@ -383,6 +383,10 @@ pub enum ProtocolFeature {
     StrictNonce,
     /// Upgrade to wasmtime 42.
     Wasmtime42,
+    /// Pre-compute and persist chunk producer assignments in `DBCol::ChunkProducers`
+    /// during header sync and block processing. Foundation for early chunk producer
+    /// kickout without epoch manager recomputation.
+    EarlyKickout,
 }
 
 impl ProtocolFeature {
@@ -503,7 +507,8 @@ impl ProtocolFeature {
             ProtocolFeature::GasKeys => 149,
             ProtocolFeature::DynamicResharding => 150,
             ProtocolFeature::StrictNonce => 151,
-            ProtocolFeature::Wasmtime42 => 152,
+            ProtocolFeature::Wasmtime42 => 153,
+            ProtocolFeature::EarlyKickout => 152,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.

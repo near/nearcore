@@ -1,15 +1,22 @@
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::mocks::mock_memory::MockedMemory;
-use crate::logic::{Config, ExecutionResultState, MemSlice, VMContext, VMLogic};
+use crate::logic::{Config, VMContext};
+#[cfg(not(feature = "wasmtime_vm"))]
+use crate::logic::{ExecutionResultState, MemSlice, VMLogic};
 use crate::tests::test_vm_config;
+#[cfg(feature = "wasmtime_vm")]
+pub(super) use crate::wasmtime_runner::test_logic::WasmtimeTestLogic as TestVMLogic;
 use near_parameters::RuntimeFeesConfig;
 use near_primitives_core::types::{Balance, Gas};
+#[cfg(not(feature = "wasmtime_vm"))]
 use std::sync::Arc;
 
 pub(super) struct VMLogicBuilder {
     pub ext: MockedExternal,
     pub config: Config,
     pub fees_config: RuntimeFeesConfig,
+    // TODO(wasmtime): only needed for legacy build path.
+    #[allow(dead_code)]
     pub memory: MockedMemory,
     pub context: VMContext,
 }
@@ -31,10 +38,22 @@ impl VMLogicBuilder {
         let mut builder = Self::default();
         let max_gas_burnt = builder.config.limit_config.max_gas_burnt;
         builder.context.view_config =
-            Some(near_primitives_core::config::ViewConfig { max_gas_burnt: max_gas_burnt });
+            Some(near_primitives_core::config::ViewConfig { max_gas_burnt });
         builder
     }
 
+    #[cfg(feature = "wasmtime_vm")]
+    pub fn build(&mut self) -> TestVMLogic<'_> {
+        TestVMLogic::new(
+            &mut self.ext,
+            &self.context,
+            self.fees_config.clone(),
+            self.config.clone(),
+        )
+    }
+
+    // TODO(wasmtime): remove once legacy VMLogic path is fully retired.
+    #[cfg(not(feature = "wasmtime_vm"))]
     pub fn build(&mut self) -> TestVMLogic<'_> {
         let result_state = ExecutionResultState::new(
             &self.context,
@@ -90,18 +109,22 @@ fn get_context() -> VMContext {
 }
 
 /// Wrapper around `VMLogic` which adds helper test methods.
+/// TODO(wasmtime): remove once legacy VMLogic path is fully retired.
+#[cfg(not(feature = "wasmtime_vm"))]
 pub(super) struct TestVMLogic<'a> {
     logic: VMLogic<'a>,
     /// Offset at which `internal_memory_write` will write next.
     mem_write_offset: u64,
 }
 
+#[cfg(not(feature = "wasmtime_vm"))]
 impl<'a> std::convert::From<VMLogic<'a>> for TestVMLogic<'a> {
     fn from(logic: VMLogic<'a>) -> Self {
         Self { logic, mem_write_offset: 0 }
     }
 }
 
+#[cfg(not(feature = "wasmtime_vm"))]
 impl<'a> std::ops::Deref for TestVMLogic<'a> {
     type Target = VMLogic<'a>;
     fn deref(&self) -> &Self::Target {
@@ -109,13 +132,19 @@ impl<'a> std::ops::Deref for TestVMLogic<'a> {
     }
 }
 
+#[cfg(not(feature = "wasmtime_vm"))]
 impl std::ops::DerefMut for TestVMLogic<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.logic
     }
 }
 
+#[cfg(not(feature = "wasmtime_vm"))]
 impl TestVMLogic<'_> {
+    pub(super) fn result_state(&self) -> &ExecutionResultState {
+        &self.logic.result_state
+    }
+
     /// Writes data into guest memory and returns pointer at its location.
     ///
     /// Subsequent calls to the method write buffers one after the other.  It

@@ -1523,6 +1523,11 @@ impl Chain {
                 *header.random_value(),
             )?;
             chain_store_update.merge(epoch_manager_update.into());
+            chain_store_update.save_chunk_producers_for_header(
+                self.epoch_manager.as_ref(),
+                header,
+                current_protocol_version,
+            )?;
             chain_store_update.commit()?;
         }
 

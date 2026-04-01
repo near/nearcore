@@ -137,6 +137,11 @@ impl Chain {
                 .add_validator_proposals(block_info, *genesis.header().random_value())?
                 .into(),
         );
+        store_update.save_chunk_producers_for_header(
+            epoch_manager,
+            genesis.header(),
+            genesis_protocol_version,
+        )?;
         store_update.save_block_header(genesis.header().clone())?;
         store_update.save_block(genesis.clone().into());
         Self::save_genesis_chunk_extras(&genesis, &state_roots, epoch_manager, &mut store_update)?;
