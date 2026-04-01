@@ -491,7 +491,6 @@ def redownload_neard(nodes, binary_url):
             .format(binary_url)), nodes)
 
 
-
 def create_and_upload_genesis_file_from_empty_genesis(
     validator_node_and_stakes,
     rpc_nodes,
@@ -866,9 +865,6 @@ def reset_data(node, retries=0):
             raise Exception(
                 f'ERROR: Could not clear data directory for {node.machine.name}'
             )
-
-
-
 
 
 # Waits until the node becomes responsive to RPC requests. It works the same as
