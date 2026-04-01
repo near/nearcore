@@ -125,7 +125,7 @@ impl<'a> PrepareContext<'a> {
                     self.validator
                         .memory_section(&reader)
                         .map_err(|_| PrepareError::Deserialization)?;
-                    if self.config.vm_kind == VMKind::Wasmtime {
+                    if matches!(self.config.vm_kind, VMKind::Wasmtime | VMKind::Wasmtime42) {
                         wasm_encoder::MemorySection::new()
                             .memory(self.memory_type())
                             .append_to(&mut self.output_code);
@@ -148,9 +148,10 @@ impl<'a> PrepareContext<'a> {
                     for res in reader {
                         let wp::Export { name, kind, index } =
                             res.map_err(|_| PrepareError::Deserialization)?;
-                        let prefix = (self.config.vm_kind == VMKind::Wasmtime)
-                            .then_some(EXPORT_PREFIX)
-                            .unwrap_or_default();
+                        let prefix =
+                            (matches!(self.config.vm_kind, VMKind::Wasmtime | VMKind::Wasmtime42))
+                                .then_some(EXPORT_PREFIX)
+                                .unwrap_or_default();
                         match kind {
                             wp::ExternalKind::Func => {
                                 new_section.export(
@@ -183,7 +184,7 @@ impl<'a> PrepareContext<'a> {
                             }
                         }
                     }
-                    if self.config.vm_kind == VMKind::Wasmtime {
+                    if matches!(self.config.vm_kind, VMKind::Wasmtime | VMKind::Wasmtime42) {
                         new_section.export(MEMORY_EXPORT, wasm_encoder::ExportKind::Memory, 0);
                     }
                     new_section.append_to(&mut self.output_code)
@@ -318,7 +319,7 @@ impl<'a> PrepareContext<'a> {
             };
             new_section.import(import.module, import.name, new_type);
         }
-        if self.config.vm_kind != VMKind::Wasmtime {
+        if !matches!(self.config.vm_kind, VMKind::Wasmtime | VMKind::Wasmtime42) {
             new_section.import("env", "memory", self.memory_type());
         }
         // wasm_encoder a section with all imports and the imported standardized memory.
@@ -329,7 +330,7 @@ impl<'a> PrepareContext<'a> {
     fn ensure_import_section(&mut self) {
         if self.before_import_section {
             self.before_import_section = false;
-            if self.config.vm_kind != VMKind::Wasmtime {
+            if !matches!(self.config.vm_kind, VMKind::Wasmtime | VMKind::Wasmtime42) {
                 // wasm_encoder a section with all imports and the imported standardized memory.
                 wasm_encoder::ImportSection::new()
                     .import("env", "memory", self.memory_type())
@@ -342,7 +343,7 @@ impl<'a> PrepareContext<'a> {
         self.ensure_import_section();
         if self.before_memory_section {
             self.before_memory_section = false;
-            if self.config.vm_kind == VMKind::Wasmtime {
+            if matches!(self.config.vm_kind, VMKind::Wasmtime | VMKind::Wasmtime42) {
                 wasm_encoder::MemorySection::new()
                     .memory(self.memory_type())
                     .append_to(&mut self.output_code);
@@ -354,7 +355,7 @@ impl<'a> PrepareContext<'a> {
         self.ensure_memory_section();
         if self.before_export_section {
             self.before_export_section = false;
-            if self.config.vm_kind == VMKind::Wasmtime {
+            if matches!(self.config.vm_kind, VMKind::Wasmtime | VMKind::Wasmtime42) {
                 wasm_encoder::ExportSection::new()
                     .export(MEMORY_EXPORT, wasm_encoder::ExportKind::Memory, 0)
                     .append_to(&mut self.output_code);
@@ -406,7 +407,7 @@ pub(crate) fn prepare_contract(
             }
             return Ok(lightly_steamed);
         }
-        VMKind::Wasmer0 | VMKind::Wasmtime | VMKind::Wasmer2 => {}
+        VMKind::Wasmer0 | VMKind::Wasmtime | VMKind::Wasmtime42 | VMKind::Wasmer2 => {}
     }
 
     let analysis = finite_wasm_6::Analysis::new()

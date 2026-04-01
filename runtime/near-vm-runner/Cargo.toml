@@ -48,6 +48,12 @@ wasmtime = { workspace = true, features = [
     "pooling-allocator",
     "runtime",
 ], optional = true }
+wasmtime42 = { workspace = true, features = [
+    "call-hook",
+    "parallel-compilation",
+    "pooling-allocator",
+    "runtime",
+], optional = true }
 
 near-crypto.workspace = true
 near-o11y = { workspace = true, optional = true }
@@ -84,8 +90,9 @@ wasm-smith.workspace = true
 wat.workspace = true
 
 [features]
-default = ["wasmtime_vm"]
+default = ["wasmtime_vm", "wasmtime42_vm"]
 wasmtime_vm = ["wasmtime", "anyhow", "prepare"]
+wasmtime42_vm = ["wasmtime42", "prepare"]
 near_vm = [
     "near-vm-compiler",
     "near-vm-compiler-singlepass",

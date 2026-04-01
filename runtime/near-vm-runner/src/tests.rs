@@ -40,6 +40,9 @@ pub(crate) fn with_vm_variants(runner: impl Fn(VMKind) -> ()) {
     #[cfg(feature = "wasmtime_vm")]
     run(VMKind::Wasmtime);
 
+    #[cfg(feature = "wasmtime42_vm")]
+    run(VMKind::Wasmtime42);
+
     #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
     run(VMKind::NearVm);
 }

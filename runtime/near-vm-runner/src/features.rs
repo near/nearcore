@@ -136,3 +136,12 @@ impl From<WasmFeatures> for wasmtime::Config {
         wasmtime::Config::default()
     }
 }
+
+#[cfg(feature = "wasmtime42_vm")]
+impl From<WasmFeatures> for wasmtime42::Config {
+    fn from(_: WasmFeatures) -> Self {
+        // preparation code did all the filtering necessary already. Default configuration supports
+        // all the necessary features (and, yes, enables more of them.)
+        wasmtime42::Config::default()
+    }
+}

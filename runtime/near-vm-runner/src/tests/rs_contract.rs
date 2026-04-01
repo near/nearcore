@@ -27,7 +27,9 @@ fn test_contract(vm_kind: VMKind) -> ContractCode {
         VMKind::Wasmer0 => unreachable!(),
         VMKind::Wasmer2 => unreachable!(),
         // production and developer environment, use a cutting-edge WASM
-        VMKind::Wasmtime | VMKind::NearVm => near_test_contracts::rs_contract(),
+        VMKind::Wasmtime | VMKind::Wasmtime42 | VMKind::NearVm => {
+            near_test_contracts::rs_contract()
+        }
     };
     ContractCode::new(code.to_vec(), None)
 }
@@ -232,7 +234,7 @@ pub fn test_out_of_memory() {
         assert_eq!(
             result.aborted,
             match vm_kind {
-                VMKind::NearVm | VMKind::Wasmtime =>
+                VMKind::NearVm | VMKind::Wasmtime | VMKind::Wasmtime42 =>
                     Some(FunctionCallError::WasmTrap(WasmTrap::Unreachable)),
                 VMKind::Wasmer2 | VMKind::Wasmer0 => unreachable!(),
             }

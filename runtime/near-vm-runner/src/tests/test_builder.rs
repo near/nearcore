@@ -32,7 +32,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         output_data_receivers: vec![],
     };
     let mut skip = HashSet::new();
-    for kind in [VMKind::NearVm, VMKind::Wasmtime] {
+    for kind in [VMKind::NearVm, VMKind::Wasmtime, VMKind::Wasmtime42] {
         if !kind.is_available() {
             skip.insert(kind);
         }
@@ -194,15 +194,14 @@ impl TestBuilder {
 
         for (want, &protocol_version) in wants.zip(&self.protocol_versions) {
             let mut results = vec![];
-            for vm_kind in [VMKind::NearVm, VMKind::Wasmtime] {
+            for vm_kind in [VMKind::NearVm, VMKind::Wasmtime, VMKind::Wasmtime42] {
                 if self.skip.contains(&vm_kind) {
                     println!("Skipping {:?}", vm_kind);
                     continue;
                 }
 
                 let runtime_config = runtime_config_store.get_config_mut(protocol_version);
-                let config =
-                    Arc::get_mut(&mut Arc::get_mut(runtime_config).unwrap().wasm_config).unwrap();
+                let config = Arc::make_mut(&mut Arc::make_mut(runtime_config).wasm_config);
                 config.vm_kind = vm_kind;
                 if let Some(max_gas_burnt) = self.max_gas_burnt {
                     config.limit_config.max_gas_burnt = max_gas_burnt;

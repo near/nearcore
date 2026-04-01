@@ -19,6 +19,8 @@ mod runner;
 #[cfg(test)]
 mod tests;
 mod utils;
+#[cfg(feature = "wasmtime42_vm")]
+mod wasmtime42_runner;
 #[cfg(feature = "wasmtime_vm")]
 mod wasmtime_runner;
 
@@ -35,16 +37,16 @@ pub use near_primitives_core::code::ContractCode;
 pub use profile::ProfileDataV3;
 pub use runner::{Contract, PreparedContract, VM, contract_cached, prepare, run};
 
-#[cfg(any(feature = "prepare", feature = "wasmtime_vm"))]
+#[cfg(any(feature = "prepare", feature = "wasmtime_vm", feature = "wasmtime42_vm"))]
 pub(crate) const MEMORY_EXPORT: &str = "memory";
 
-#[cfg(any(feature = "prepare", feature = "wasmtime_vm"))]
+#[cfg(any(feature = "prepare", feature = "wasmtime_vm", feature = "wasmtime42_vm"))]
 pub(crate) const REMAINING_GAS_EXPORT: &str = "remaining_gas";
 
-#[cfg(any(feature = "prepare", feature = "wasmtime_vm"))]
+#[cfg(any(feature = "prepare", feature = "wasmtime_vm", feature = "wasmtime42_vm"))]
 pub(crate) const START_EXPORT: &str = "start";
 
-#[cfg(any(feature = "prepare", feature = "wasmtime_vm"))]
+#[cfg(any(feature = "prepare", feature = "wasmtime_vm", feature = "wasmtime42_vm"))]
 pub(crate) const EXPORT_PREFIX: &str = "\0";
 
 /// This is public for internal experimentation use only, and should otherwise be considered an

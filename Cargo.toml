@@ -410,6 +410,9 @@ wasm-smith = "0.236"
 wasmtime = { version = "36", default-features = false, features = [
     "cranelift",
 ] }
+wasmtime42 = { package = "wasmtime", version = "42", default-features = false, features = [
+    "cranelift",
+] }
 wast = "40.0"
 wat = "1.0.40"
 webrtc-util = "0.10"
