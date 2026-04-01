@@ -278,14 +278,14 @@ impl Handler<StateRequestHeader, Option<StatePartOrHeader>> for StateRequestActo
 
         let header = self.state_sync_adapter.get_state_response_header(shard_id, sync_hash);
         let Ok(header) = header else {
-            tracing::debug!(target: "sync", "cannot build state sync header");
+            tracing::warn!(target: "sync", "cannot build state sync header");
             metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL
                 .with_label_values(&["header", "failed"])
                 .inc();
             return Some(new_header_response_empty(shard_id, sync_hash, protocol_version));
         };
         let ShardStateSyncResponseHeader::V2(header) = header else {
-            tracing::debug!(target: "sync", "invalid state sync header format");
+            tracing::warn!(target: "sync", "invalid state sync header format");
             metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL
                 .with_label_values(&["header", "failed"])
                 .inc();
@@ -347,7 +347,7 @@ impl Handler<StateRequestPart, Option<StatePartOrHeader>> for StateRequestActor 
 
         let part = self.state_sync_adapter.get_state_response_part(shard_id, part_id, sync_hash);
         let Ok(part) = part else {
-            tracing::debug!(target: "sync", ?part, "cannot build state part");
+            tracing::warn!(target: "sync", ?part, "cannot build state part");
             metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL.with_label_values(&["part", "failed"]).inc();
             return Some(new_part_response_empty(shard_id, sync_hash, protocol_version));
         };
