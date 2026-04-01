@@ -941,7 +941,7 @@ def register_base_commands(subparsers):
     new_test_parser = subparsers.add_parser('new-test',
                                             help='''
     Sets up new state from the prepared records and genesis files with the number
-    of validators specified. This calls neard amend-genesis to create the new genesis
+    of validators specified. This calls neard fork-network to create the new genesis
     and records files, and then starts the neard nodes and waits for them to be online
     after computing the genesis state roots. This step takes a long time (a few hours).
     ''')

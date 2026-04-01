@@ -1,6 +1,5 @@
 #[cfg(unix)]
 use anyhow::Context;
-use near_amend_genesis::AmendGenesisCommand;
 use near_async::ActorSystem;
 use near_chain_configs::{GenesisValidationMode, TrackedShardsConfig};
 use near_client::ConfigUpdater;
@@ -131,9 +130,6 @@ impl NeardCmd {
             NeardSubCommand::Mirror(cmd) => {
                 cmd.run()?;
             }
-            NeardSubCommand::AmendGenesis(cmd) => {
-                cmd.run()?;
-            }
             NeardSubCommand::CloudArchive(cmd) => {
                 cmd.run(&home_dir, genesis_validation)?;
             }
@@ -253,9 +249,6 @@ pub(super) enum NeardSubCommand {
     /// Mirror transactions from a source chain to a test chain with state forked
     /// from it, reproducing traffic and state as closely as possible.
     Mirror(MirrorCommand),
-
-    /// Amend a genesis/records file created by `dump-state`.
-    AmendGenesis(AmendGenesisCommand),
 
     /// Cloud archive reader tools.
     #[clap(name = "cloud-archive")]

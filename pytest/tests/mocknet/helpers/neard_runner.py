@@ -487,7 +487,7 @@ class NeardRunner:
         self.save_config()
 
     # This RPC method tells to stop neard and re-initialize its home dir. This returns the
-    # validator and node key that resulted from the initialization. We can't yet call amend-genesis
+    # validator and node key that resulted from the initialization. We can't yet call fork-network
     # and compute state roots, because the caller of this method needs to hear back from
     # each node before it can build the list of initial validators. So after this RPC method returns,
     # we'll be waiting for the network_init RPC.
@@ -575,7 +575,7 @@ class NeardRunner:
             }
 
     # After the new_test RPC, we wait to get this RPC that gives us the list of validators
-    # and boot nodes for the test network. After this RPC call, we run amend-genesis and
+    # and boot nodes for the test network. After this RPC call, we run fork-network and
     # start neard to compute genesis state roots.
     def do_network_init(self,
                         validators,
