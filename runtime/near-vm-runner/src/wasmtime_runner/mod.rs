@@ -540,9 +540,11 @@ impl WasmtimeVM {
                 Err(err) => CompiledContract::CompileModuleError(err.clone()),
             },
         };
-        let put_result = cache.put(&key, record).map_err(CacheError::WriteError);
+        if let Err(err) = cache.put(&key, record) {
+            compilation_locks().lock().remove(&key);
+            return Err(CacheError::WriteError(err));
+        }
         compilation_locks().lock().remove(&key);
-        put_result?;
         Ok(serialized_or_error)
     }
 
