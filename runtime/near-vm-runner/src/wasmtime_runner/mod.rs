@@ -525,6 +525,7 @@ impl WasmtimeVM {
 
         // Check the disk cache: another thread may have compiled while we waited.
         if let Some(info) = cache.get(&key).map_err(CacheError::ReadError)? {
+            compilation_locks().lock().remove(&key);
             match info.compiled {
                 CompiledContract::Code(module) => return Ok(Ok(module)),
                 CompiledContract::CompileModuleError(err) => return Ok(Err(err)),
@@ -539,10 +540,9 @@ impl WasmtimeVM {
                 Err(err) => CompiledContract::CompileModuleError(err.clone()),
             },
         };
-        cache.put(&key, record).map_err(CacheError::WriteError)?;
-
-        // Clean up the lock entry now that the result is cached.
+        let put_result = cache.put(&key, record).map_err(CacheError::WriteError);
         compilation_locks().lock().remove(&key);
+        put_result?;
         Ok(serialized_or_error)
     }
 
