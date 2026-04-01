@@ -43,6 +43,7 @@ mod reject_outdated_blocks;
 mod resharding_v3;
 mod sharded_rpc;
 mod shutdown_signal;
+mod slow_compilation;
 mod single_shard_tracking;
 mod spice;
 mod spice_resharding;
