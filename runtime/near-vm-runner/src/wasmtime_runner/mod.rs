@@ -80,7 +80,7 @@ static VMS: LazyLock<parking_lot::RwLock<HashMap<VMKey, WasmtimeVM>>> =
 /// dropped.
 type CompilationLocks = parking_lot::Mutex<HashMap<CryptoHash, Arc<parking_lot::Mutex<()>>>>;
 
-fn compilation_locks() -> &'static CompilationLocks {
+pub(crate) fn compilation_locks() -> &'static CompilationLocks {
     static LOCKS: OnceLock<CompilationLocks> = OnceLock::new();
     LOCKS.get_or_init(|| parking_lot::Mutex::new(HashMap::new()))
 }

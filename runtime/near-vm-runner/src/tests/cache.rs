@@ -327,3 +327,40 @@ impl ContractRuntimeCache for FaultingContractRuntimeCache {
         Box::new(self.clone())
     }
 }
+
+/// Verify that two threads racing to compile the same contract only produce one
+/// compilation, and that no lock entries leak in the global map.
+#[test]
+fn test_no_duplicate_compilation() {
+    use crate::runner::VM;
+    use crate::wasmtime_runner::{WasmtimeVM, compilation_locks};
+    use std::sync::Arc;
+
+    let config = test_vm_config(Some(near_parameters::vm::VMKind::Wasmtime));
+    let cache = MockContractRuntimeCache::default();
+    let wasm = wat::parse_str(r#"(module (func (export "main")))"#).unwrap();
+    let code = ContractCode::new(wasm, None);
+    let vm = Arc::new(WasmtimeVM::new_for_target(Arc::new(config), None).unwrap());
+
+    // Spawn two threads that both try to precompile the same contract.
+    let handles: Vec<_> = (0..2)
+        .map(|_| {
+            let vm = vm.clone();
+            let code = code.clone();
+            let cache = cache.handle();
+            std::thread::spawn(move || vm.precompile(&code, cache.as_ref()))
+        })
+        .collect();
+    for h in handles {
+        h.join().unwrap().unwrap().unwrap();
+    }
+
+    // The cache should have exactly one entry (one compilation, not two).
+    assert_eq!(cache.len(), 1, "expected exactly one cache entry from two concurrent precompiles");
+
+    // The global lock map should be empty (no leaked entries).
+    assert!(
+        compilation_locks().lock().is_empty(),
+        "compilation lock map should be empty after all compilations complete"
+    );
+}
