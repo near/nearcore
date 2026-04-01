@@ -1503,10 +1503,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         let epoch_config = self.epoch_manager.get_epoch_config(epoch_id)?;
         genesis_config.epoch_length = epoch_config.epoch_length;
         genesis_config.num_block_producer_seats = epoch_config.num_block_producer_seats;
-        genesis_config.num_block_producer_seats_per_shard =
-            epoch_config.num_block_producer_seats_per_shard;
-        genesis_config.avg_hidden_validator_seats_per_shard =
-            epoch_config.avg_hidden_validator_seats_per_shard;
         genesis_config.block_producer_kickout_threshold =
             epoch_config.block_producer_kickout_threshold;
         genesis_config.chunk_producer_kickout_threshold =
@@ -1523,7 +1519,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         genesis_config.protocol_upgrade_stake_threshold =
             epoch_config.protocol_upgrade_stake_threshold;
         genesis_config.shard_layout = shard_layout;
-        genesis_config.num_chunk_only_producer_seats = epoch_config.num_chunk_only_producer_seats;
         genesis_config.minimum_validators_per_shard = epoch_config.minimum_validators_per_shard;
         genesis_config.minimum_stake_ratio = epoch_config.minimum_stake_ratio;
         genesis_config.shuffle_shard_assignment_for_chunk_producers =

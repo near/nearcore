@@ -1102,13 +1102,10 @@ mod tests {
         num_chunk_validator_seats: Option<NumSeats>,
         minimum_stake_ratio: Option<Ratio<i32>>,
     ) -> EpochConfig {
-        let num_shards = shard_layout.num_shards() as usize;
         let mut config_builder = EpochConfig::minimal();
         config_builder
             .epoch_length(10)
             .num_block_producer_seats(num_block_producer_seats)
-            .num_block_producer_seats_per_shard(vec![num_block_producer_seats; num_shards])
-            .avg_hidden_validator_seats_per_shard(vec![0; num_shards])
             .target_validator_mandates_per_shard(68)
             .validator_max_kickout_stake_perc(100)
             .shard_layout(shard_layout);

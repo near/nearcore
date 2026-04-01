@@ -1307,6 +1307,9 @@ impl<'a> ChainStoreUpdate<'a> {
             // because we remove unneeded keys as we add new ones.
             | DBCol::StateSyncHashes
             => unreachable!(),
+            // TODO(early-kickout): Implement garbage collection for ChunkProducers before
+            // stabilizing EarlyKickout.
+            DBCol::ChunkProducers => unreachable!(),
         }
         self.merge(store_update);
     }

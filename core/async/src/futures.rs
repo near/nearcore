@@ -150,10 +150,12 @@ impl AsyncComputationSpawnerExt for dyn AsyncComputationSpawner + '_ {
     }
 }
 
-pub struct StdThreadAsyncComputationSpawnerForTest;
+/// Spawns each computation on a new OS thread. Suitable for infrequent,
+/// long-running tasks (e.g. memtrie loading).
+pub struct StdThreadAsyncComputationSpawner;
 
-impl AsyncComputationSpawner for StdThreadAsyncComputationSpawnerForTest {
-    fn spawn_boxed(&self, _name: &str, f: Box<dyn FnOnce() + Send>) {
-        std::thread::spawn(f);
+impl AsyncComputationSpawner for StdThreadAsyncComputationSpawner {
+    fn spawn_boxed(&self, name: &str, f: Box<dyn FnOnce() + Send>) {
+        std::thread::Builder::new().name(name.to_owned()).spawn(f).expect("failed to spawn thread");
     }
 }

@@ -34,16 +34,15 @@ node_config["consensus.block_fetch_horizon"] = 1
 node_config["gc_step_period"] = {"secs": 0, "nanos": 100000000}
 
 nodes = start_cluster(
-    4, 0, 1,
-    None, [["epoch_length", EPOCH_LENGTH],
-           ["num_block_producer_seats_per_shard", [5]],
-           ["validators", 0, "amount", "60000000000000000000000000000000"],
-           ["block_producer_kickout_threshold", 50],
-           ["chunk_producer_kickout_threshold", 50],
-           [
-               "records", 0, "Account", "account", "locked",
-               "60000000000000000000000000000000"
-           ], ["total_supply", "5010000000000000000000000000000000"]],
+    4, 0, 1, None,
+    [["epoch_length", EPOCH_LENGTH],
+     ["validators", 0, "amount", "60000000000000000000000000000000"],
+     ["block_producer_kickout_threshold", 50],
+     ["chunk_producer_kickout_threshold", 50],
+     [
+         "records", 0, "Account", "account", "locked",
+         "60000000000000000000000000000000"
+     ], ["total_supply", "5010000000000000000000000000000000"]],
     {x: node_config for x in range(4)})
 
 node0_height, _ = utils.wait_for_blocks(nodes[0], target=TARGET_HEIGHT)

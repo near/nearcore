@@ -40,12 +40,6 @@ impl AdversarialBehaviorTestData {
             config.epoch_length = epoch_length;
             config.transaction_validity_period = epoch_length * 2;
             config.shard_layout = ShardLayout::multi_shard(4, 3);
-            config.num_block_producer_seats_per_shard = vec![
-                num_block_producers as u64,
-                num_block_producers as u64,
-                num_block_producers as u64,
-                num_block_producers as u64,
-            ];
             config.num_block_producer_seats = num_block_producers as u64;
             // Configure kickout threshold at 50%.
             config.block_producer_kickout_threshold = 50;

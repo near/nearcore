@@ -21,9 +21,9 @@ use near_primitives::types::{AccountId, BlockHeight};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::flat_store::{FlatStoreAdapter, FlatStoreUpdateAdapter};
 use near_store::flat::{
-    BlockInfo, FlatStateChanges, FlatStorageReadyStatus, FlatStorageReshardingShardCatchUpMetrics,
-    FlatStorageReshardingShardSplitMetrics, FlatStorageReshardingStatus, FlatStorageStatus,
-    ParentSplitParameters,
+    BlockInfo, FlatHeadHold, FlatStateChanges, FlatStorageReadyStatus,
+    FlatStorageReshardingShardCatchUpMetrics, FlatStorageReshardingShardSplitMetrics,
+    FlatStorageReshardingStatus, FlatStorageStatus, ParentSplitParameters,
 };
 use near_store::{ShardUId, StorageError};
 use std::collections::VecDeque;
@@ -229,12 +229,15 @@ impl FlatStorageResharder {
     }
 
     /// The preprocessing step sets the appropriate flat storage status for the parent and children shards.
+    /// Returns a guard that holds the parent's flat head frozen for the
+    /// duration of resharding. The caller must keep it alive until the
+    /// resharding completes or is cancelled.
     fn split_shard_task_preprocessing(
         &self,
         parent_shard: ShardUId,
         split_params: &ParentSplitParameters,
         metrics: &FlatStorageReshardingShardSplitMetrics,
-    ) {
+    ) -> FlatHeadHold {
         // Change parent and children shards flat storage status.
         let mut store_update = self.runtime.store().flat_store().store_update();
         store_update.set_flat_storage_status(
@@ -245,11 +248,12 @@ impl FlatStorageResharder {
         );
         // Do not update parent flat head, to avoid overriding the resharding status.
         // In any case, at the end of resharding the parent shard will completely disappear.
-        self.runtime
+        let hold = self
+            .runtime
             .get_flat_storage_manager()
             .get_flat_storage_for_shard(parent_shard)
             .expect("flat storage of the parent shard must exist!")
-            .set_flat_head_update_mode(false);
+            .hold_flat_head();
         store_update.set_flat_storage_status(
             split_params.left_child_shard,
             FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CreatingChild),
@@ -261,6 +265,7 @@ impl FlatStorageResharder {
         store_update.commit();
 
         metrics.update_shards_status(&self.runtime.get_flat_storage_manager());
+        hold
     }
 
     /// Cleans up children shards flat storage's content (status and deltas are excluded).
@@ -299,11 +304,13 @@ impl FlatStorageResharder {
             split_params.right_child_shard,
         );
 
-        self.split_shard_task_preprocessing(parent_shard, &split_params, &metrics);
+        let _flat_head_hold =
+            self.split_shard_task_preprocessing(parent_shard, &split_params, &metrics);
 
         let task_status =
             self.split_shard_task_blocking_impl(parent_shard, &split_params, &metrics);
         self.split_shard_task_postprocessing(parent_shard, split_params, &metrics, task_status);
+        // _flat_head_hold is dropped here, releasing the parent's flat head hold.
         tracing::info!(target: "resharding", ?task_status, "flat storage shard split task finished");
         task_status
     }
@@ -459,14 +466,12 @@ impl FlatStorageResharder {
                     parent_shard,
                     FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }),
                 );
-                self.runtime
-                    .get_flat_storage_manager()
-                    .get_flat_storage_for_shard(parent_shard)
-                    .map(|flat_storage| flat_storage.set_flat_head_update_mode(true));
                 // Remove children shards entirely.
                 for child_shard in [left_child_shard, right_child_shard] {
                     store_update.remove_flat_storage(child_shard);
                 }
+                // The flat head hold is released by the caller dropping
+                // the FlatHeadHold guard returned from preprocessing.
             }
             FlatStorageReshardingTaskResult::Cancelled => {
                 // Remove children shards leftovers, but keep intact their current status and deltas
@@ -1051,6 +1056,7 @@ mod tests {
             DoomslugThresholdMode::NoApprovals,
             ChainConfig::test(),
             None,
+            Default::default(),
             Default::default(),
             Default::default(),
             validator_signer,

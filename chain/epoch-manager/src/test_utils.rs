@@ -19,7 +19,6 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, NumSeats, NumShards,
     ValidatorId, ValidatorKickoutReason,
 };
-use near_primitives::utils::get_num_seats_per_shard;
 use near_primitives::validator_mandates::{ValidatorMandates, ValidatorMandatesConfig};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
@@ -145,11 +144,6 @@ pub fn epoch_config(
     let epoch_config = EpochConfigBuilder::default()
         .epoch_length(epoch_length)
         .num_block_producer_seats(num_block_producer_seats)
-        .num_block_producer_seats_per_shard(get_num_seats_per_shard(
-            num_shards,
-            num_block_producer_seats,
-        ))
-        .avg_hidden_validator_seats_per_shard(vec![])
         .block_producer_kickout_threshold(block_producer_kickout_threshold)
         .chunk_producer_kickout_threshold(chunk_producer_kickout_threshold)
         .chunk_validator_only_kickout_threshold(chunk_validator_only_kickout_threshold)
@@ -161,7 +155,6 @@ pub fn epoch_config(
         .minimum_stake_divisor(1)
         .num_chunk_producer_seats(num_chunk_producer_seats)
         .num_chunk_validator_seats(300)
-        .num_chunk_only_producer_seats(300)
         .minimum_validators_per_shard(1)
         .minimum_stake_ratio(Ratio::new(160i32, 1_000_000i32))
         .chunk_producer_assignment_changes_limit(5)

@@ -273,17 +273,21 @@ impl<'a> VMLogic<'a> {
         &self.result_state.logs
     }
 
+    // TODO(wasmtime): remove once legacy VMLogic test path is fully retired.
     #[cfg(test)]
+    #[allow(dead_code)]
     pub(super) fn config(&self) -> &Config {
         &self.config
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     pub(super) fn memory(&mut self) -> &mut super::vmstate::Memory<'a> {
         &mut self.memory
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     pub(super) fn registers(&mut self) -> &mut super::vmstate::Registers {
         &mut self.registers
     }
@@ -4134,7 +4138,9 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     ///
     /// This is meant for use in tests and implementation of VMs only. Implementations of host
     /// functions should be using `pay_*` functions instead.
+    // TODO(wasmtime): remove once legacy VMLogic test path is fully retired.
     #[cfg(any(test, all(feature = "near_vm", target_arch = "x86_64")))]
+    #[allow(dead_code)]
     pub(crate) fn gas_counter(&mut self) -> &mut GasCounter {
         &mut self.result_state.gas_counter
     }

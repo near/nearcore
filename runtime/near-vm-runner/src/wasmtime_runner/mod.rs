@@ -31,6 +31,8 @@ use wasmtime::{
 };
 
 mod logic;
+#[cfg(test)]
+pub(crate) mod test_logic;
 
 /// The maximum amount of concurrent calls this engine can handle.
 /// If this limit is reached, invocations will block until an execution slot is available.
@@ -830,6 +832,23 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
                 return Ok(VMOutcome::abort(result_state, err));
             }
         };
+        // Pre-resolve the memory export so that host functions don't need to
+        // resolve it lazily via Caller::get_module_export (which can fail when
+        // the Caller's instance is a host-side trampoline for re-exported
+        // host functions). It may already be resolved if a start function
+        // triggered a host import during instantiation.
+        //
+        // Uses string-based instance.get_memory instead of
+        // instance.get_module_export due to a wasmtime issue: for modules
+        // whose only compiled functions are trampolines (no user-defined
+        // function bodies), LoadedCode::push_module stores the module in
+        // modules_with_only_trampolines, but LoadedCode::module() only
+        // searches self.modules, causing module_for_instance to panic.
+        if let Export::Unresolved(_) = store.data().memory {
+            if let Some(memory) = instance.get_memory(&mut store, MEMORY_EXPORT) {
+                store.data_mut().memory = Export::Resolved(memory);
+            }
+        }
         if let Some(global) = remaining_gas {
             let Some(Extern::Global(global)) = instance.get_module_export(&mut store, &global)
             else {
@@ -901,6 +920,20 @@ impl std::fmt::Display for ErrorContainer {
     }
 }
 
+fn get_memory(caller: &mut wasmtime::Caller<'_, Ctx>) -> Result<Memory, VMLogicError> {
+    use crate::logic::HostError;
+    match caller.data().memory {
+        Export::Unresolved(memory) => {
+            let Some(Extern::Memory(memory)) = caller.get_module_export(&memory) else {
+                return Err(HostError::MemoryAccessViolation.into());
+            };
+            caller.data_mut().memory = Export::Resolved(memory);
+            Ok(memory)
+        }
+        Export::Resolved(memory) => Ok(memory),
+    }
+}
+
 fn link(linker: &mut wasmtime::Linker<Ctx>, config: &Config) {
     macro_rules! add_import {
         (
@@ -912,7 +945,12 @@ fn link(linker: &mut wasmtime::Linker<Ctx>, config: &Config) {
                 let _span = TRACE.then(|| {
                     tracing::trace_span!(target: "vm::host_function", stringify!($name)).entered()
                 });
-                match logic::$func(&mut caller, $( $arg_name as $arg_type, )*) {
+                let memory = match get_memory(&mut caller) {
+                    Ok(m) => m,
+                    Err(err) => return Err(ErrorContainer(parking_lot::Mutex::new(Some(err))).into()),
+                };
+                let (memory, ctx) = memory.data_and_store_mut(&mut caller);
+                match logic::$func(ctx, memory, $( $arg_name as $arg_type, )*) {
                     Ok(result) => Ok(result as ($( $returns ),* ) ),
                     Err(err) => {
                         Err(ErrorContainer(parking_lot::Mutex::new(Some(err))).into())

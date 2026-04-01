@@ -52,7 +52,7 @@ pub fn get_chain_with_epoch_length_and_num_shards(
         clock.clone(),
         vec!["test1".parse::<AccountId>().unwrap()],
         1,
-        vec![1; num_shards as usize],
+        num_shards,
     );
     genesis.config.epoch_length = epoch_length;
     genesis.config.transaction_validity_period = epoch_length * 2;
@@ -79,6 +79,7 @@ pub fn get_chain_with_genesis(clock: Clock, genesis: Genesis) -> Chain {
         None,
         ApplyChunksSpawner::Custom(Arc::new(RayonAsyncComputationSpawner)),
         ApplyChunksIterationMode::Sequential,
+        Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
         None,
@@ -138,12 +139,8 @@ pub fn setup_with_tx_validity_period(
     epoch_length: u64,
 ) -> (Chain, Arc<EpochManagerHandle>, Arc<NightshadeRuntime>, Arc<ValidatorSigner>) {
     let store = create_test_store();
-    let mut genesis = Genesis::test_sharded(
-        clock.clone(),
-        vec!["test".parse::<AccountId>().unwrap()],
-        1,
-        vec![1; 1],
-    );
+    let mut genesis =
+        Genesis::test_sharded(clock.clone(), vec!["test".parse::<AccountId>().unwrap()], 1, 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.transaction_validity_period = tx_validity_period;
     genesis.config.gas_limit = Gas::from_gas(1_000_000);
@@ -169,6 +166,7 @@ pub fn setup_with_tx_validity_period(
         None,
         ApplyChunksSpawner::Custom(Arc::new(RayonAsyncComputationSpawner)),
         ApplyChunksIterationMode::Sequential,
+        Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
         None,

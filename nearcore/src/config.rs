@@ -49,7 +49,7 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{
     AccountId, AccountInfo, BlockHeight, BlockHeightDelta, Gas, NumSeats, NumShards, ShardId,
 };
-use near_primitives::utils::{from_timestamp, get_num_seats_per_shard};
+use near_primitives::utils::from_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
@@ -1189,11 +1189,6 @@ pub fn init_configs(
                 chain_id,
                 genesis_height: 0,
                 num_block_producer_seats: NUM_BLOCK_PRODUCER_SEATS,
-                num_block_producer_seats_per_shard: get_num_seats_per_shard(
-                    num_shards,
-                    NUM_BLOCK_PRODUCER_SEATS,
-                ),
-                avg_hidden_validator_seats_per_shard: (0..num_shards).map(|_| 0).collect(),
                 dynamic_resharding: false,
                 protocol_upgrade_stake_threshold: PROTOCOL_UPGRADE_STAKE_THRESHOLD,
                 epoch_length: if fast { FAST_EPOCH_LENGTH } else { EXPECTED_EPOCH_LENGTH },

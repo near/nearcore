@@ -79,14 +79,6 @@ def append_shard_layout_config_changes(
             "shard_layout",
             V2_SHARD_LAYOUT,
         ])
-        genesis_config_changes.append([
-            "num_block_producer_seats_per_shard",
-            [1, 1, 1, 1],
-        ])
-        genesis_config_changes.append([
-            "avg_hidden_validator_seats_per_shard",
-            [0, 0, 0, 0],
-        ])
         return
 
     if binary_protocol_version >= V2_PROTOCOL_VERSION:
@@ -101,14 +93,6 @@ def append_shard_layout_config_changes(
             "shard_layout",
             V1_SHARD_LAYOUT,
         ])
-        genesis_config_changes.append([
-            "num_block_producer_seats_per_shard",
-            [1, 1, 1, 1],
-        ])
-        genesis_config_changes.append([
-            "avg_hidden_validator_seats_per_shard",
-            [0, 0, 0, 0],
-        ])
         return
 
     if binary_protocol_version >= V1_PROTOCOL_VERSION:
@@ -122,14 +106,6 @@ def append_shard_layout_config_changes(
         genesis_config_changes.append([
             "shard_layout",
             V0_SHARD_LAYOUT,
-        ])
-        genesis_config_changes.append([
-            "num_block_producer_seats_per_shard",
-            [100],
-        ])
-        genesis_config_changes.append([
-            "avg_hidden_validator_seats_per_shard",
-            [0],
         ])
         return
 

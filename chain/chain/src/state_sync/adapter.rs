@@ -342,11 +342,18 @@ impl ChainStateSyncAdapter {
         self.requested_state_parts
             .save_state_part_elapsed(&sync_hash, &shard_id, &part_id, elapsed_ms);
 
-        // Saving the part data
-        let mut store_update = self.chain_store.store().store_update();
-        let bytes = state_part.to_bytes(protocol_version);
-        store_update.set(DBCol::StateParts, &key, &bytes);
-        store_update.commit();
+        // Cache the part data, but only if the corresponding header is also cached.
+        // At epoch boundaries, clear_all_downloaded_parts() deletes all cached headers
+        // and parts. Since serving runs on a separate actor, a part request can arrive
+        // after the clear and re-create a StatePartKey without its StateHeaderKey,
+        // which the storage validator treats as an inconsistency.
+        let header_key = borsh::to_vec(&StateHeaderKey(shard_id, sync_hash)).unwrap();
+        if self.chain_store.store_ref().exists(DBCol::StateHeaders, &header_key) {
+            let mut store_update = self.chain_store.store().store_update();
+            let bytes = state_part.to_bytes(protocol_version);
+            store_update.set(DBCol::StateParts, &key, &bytes);
+            store_update.commit();
+        }
 
         Ok(state_part)
     }

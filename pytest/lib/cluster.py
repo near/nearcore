@@ -43,7 +43,6 @@ cleanup_remote_nodes_atexit_registered = False
 Config = typing.Dict[str, typing.Any]
 
 # Example value: [
-#   ("num_block_producer_seats_per_shard", [100]),
 #   ("epoch_length", 100)
 # ]
 # Note that we also support using list instead of a tuple here, but that
@@ -1113,10 +1112,6 @@ def configure_cold_storage_for_archival_node(node_dir: str):
     if "split_storage" not in config_json:
         config_json["split_storage"] = {
             "enable_split_storage_view_client": True,
-            "cold_store_initial_migration_loop_sleep_duration": {
-                "secs": 0,
-                "nanos": 100000000
-            },
             "cold_store_loop_sleep_duration": {
                 "secs": 0,
                 "nanos": 100000000

@@ -33,7 +33,7 @@ async fn ultra_slow_test_sync_state_dump() {
     let mut genesis = Genesis::test_sharded_new_version(
         vec!["test1".parse().unwrap(), "test2".parse().unwrap()],
         1,
-        vec![1],
+        1,
     );
     // Needs to be long enough to give enough time to the second node to
     // start, sync headers and find a dump of state.
