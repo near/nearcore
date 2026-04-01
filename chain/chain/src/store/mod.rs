@@ -1904,6 +1904,37 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
+    /// Save chunk producers for genesis chunks (height 0) which have
+    /// prev_block_hash = CryptoHash::default(). This is called once during
+    /// genesis init so that get_chunk_producer_info_db works for genesis chunks.
+    ///
+    /// Gated behind `EarlyKickout` protocol feature. No-op when disabled.
+    pub fn save_genesis_chunk_producers(
+        &mut self,
+        epoch_manager: &dyn EpochManagerAdapter,
+        protocol_version: ProtocolVersion,
+    ) -> Result<(), Error> {
+        if !ProtocolFeature::EarlyKickout.enabled(protocol_version) {
+            return Ok(());
+        }
+        let default_hash = CryptoHash::default();
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&default_hash)?;
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+        let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
+
+        for shard_id in shard_layout.shard_ids() {
+            if let Some(validator_id) = epoch_info.sample_chunk_producer(&shard_layout, shard_id, 0)
+            {
+                let validator_stake = epoch_info.get_validator(validator_id);
+                self.chain_store_cache_update
+                    .chunk_producers
+                    .insert((default_hash, shard_id), validator_stake);
+            }
+        }
+        Ok(())
+    }
+
+
     /// Merge another StoreUpdate into this one
     pub fn merge(&mut self, store_update: StoreUpdate) {
         self.store_updates.push(store_update);
