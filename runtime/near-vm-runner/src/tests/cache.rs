@@ -4,8 +4,7 @@ use crate::logic::Config;
 use crate::logic::errors::VMRunnerError;
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::runner::{VMKindExt, VMResult};
-use crate::wasmtime_runner::{WasmtimeVM, compilation_locks};
-use crate::{ContractCode, MockContractRuntimeCache, VM};
+use crate::{ContractCode, MockContractRuntimeCache};
 use assert_matches::assert_matches;
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::VMKind;
@@ -330,8 +329,12 @@ impl ContractRuntimeCache for FaultingContractRuntimeCache {
 
 /// Verify that two threads racing to compile the same contract only produce one
 /// compilation, and that no lock entries leak in the global map.
+#[cfg(feature = "wasmtime_vm")]
 #[test]
 fn test_no_duplicate_compilation() {
+    use crate::runner::VM;
+    use crate::wasmtime_runner::{WasmtimeVM, compilation_locks};
+
     let config = test_vm_config(Some(VMKind::Wasmtime));
     let cache = MockContractRuntimeCache::default();
     let wasm = wat::parse_str(r#"(module (func (export "main")))"#).unwrap();
