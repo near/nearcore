@@ -136,7 +136,7 @@ required-features = ["wasmtime_vm"]
 [[test]]
 name = "bench_vms"
 harness = false
-required-features = ["near_vm", "wasmtime_vm"]
+required-features = ["wasmtime_vm"]
 
 [package.metadata.cargo-machete]
 ignored = ["prometheus"]

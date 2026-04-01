@@ -24,17 +24,20 @@ def to_config_duration(seconds):
 
 
 def test_slow_compilation_real_contract():
-    # Use mainnet-like 600ms block times (localnet defaults to 120ms).
-    mainnet_consensus = {
-        "consensus.min_block_production_delay": to_config_duration(0.6),
-        "consensus.max_block_production_delay": to_config_duration(1.8),
-        "consensus.max_block_wait_delay": to_config_duration(1.8),
+    # Set block times so that a ~316ms compilation causes missed chunks.
+    # min=400ms so the block producer doesn't produce too fast,
+    # max=600ms so the block producer gives up waiting for endorsements
+    # before compilation finishes.
+    consensus = {
+        "consensus.min_block_production_delay": to_config_duration(0.4),
+        "consensus.max_block_production_delay": to_config_duration(0.6),
+        "consensus.max_block_wait_delay": to_config_duration(0.6),
     }
     num_nodes = 4
     nodes = start_cluster(
         num_nodes, 0, 2, None,
         [["epoch_length", 100], ["block_producer_kickout_threshold", 0]],
-        {i: mainnet_consensus for i in range(num_nodes)},
+        {i: consensus for i in range(num_nodes)},
     )
 
     # Wait for enough blocks so the network is stable.
@@ -47,7 +50,7 @@ def test_slow_compilation_real_contract():
 
     # Load the real contract.
     contract_path = os.path.join(os.path.expanduser("~/Downloads/contracts-unique"),
-                                 "nft.aniljester.near.wasm")
+                                 "fast.bridge.near.wasm")
     if not os.path.exists(contract_path):
         logger.error(f"contract not found at {contract_path}")
         return

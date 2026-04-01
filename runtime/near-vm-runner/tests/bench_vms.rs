@@ -17,7 +17,10 @@ fn bench_contract(path: &str) {
     let code_bytes = std::fs::read(path).unwrap();
     let name = std::path::Path::new(path).file_name().unwrap().to_string_lossy();
 
-    for vm_kind in [VMKind::NearVm, VMKind::Wasmtime] {
+    let mut vm_kinds = vec![VMKind::Wasmtime];
+    #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
+    vm_kinds.insert(0, VMKind::NearVm);
+    for vm_kind in vm_kinds {
         let config = near_parameters::vm::Config {
             vm_kind,
             ..near_parameters::vm::Config::clone(&runtime_config.wasm_config)
