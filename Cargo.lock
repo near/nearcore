@@ -8094,24 +8094,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "speedy_sync"
-version = "0.0.0"
-dependencies = [
- "borsh",
- "clap",
- "near-async",
- "near-chain",
- "near-chain-configs",
- "near-epoch-manager",
- "near-primitives",
- "near-store",
- "near-time",
- "nearcore",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "spin"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -87,7 +87,6 @@ members = [
     "tools/ping",
     "tools/protocol-schema-check",
     "tools/restaked",
-    "tools/speedy_sync",
     "tools/state-parts",
     "tools/state-parts-dump-check",
     "tools/state-viewer",
