@@ -5,6 +5,7 @@ mod tests {
     use near_async::time::{Duration, FakeClock, Utc};
     use near_epoch_manager::EpochManagerAdapter;
     use near_o11y::testonly::init_test_logger;
+    use near_primitives::errors::EpochError;
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::stateless_validation::ChunkProductionKey;
     use near_primitives::test_utils::TestBlockBuilder;
@@ -227,11 +228,12 @@ mod tests {
             store_update.commit();
         }
 
-        // Should error on miss when EarlyKickout is enabled.
+        // Should return ChunkProducerNotInDB on miss when EarlyKickout is enabled.
         for shard_id in shard_layout.shard_ids() {
+            let err = epoch_manager.get_chunk_producer_info_db(&block_hash, shard_id).unwrap_err();
             assert!(
-                epoch_manager.get_chunk_producer_info_db(&block_hash, shard_id).is_err(),
-                "should error on DB miss, shard {shard_id}"
+                matches!(err, EpochError::ChunkProducerNotInDB(_, _)),
+                "expected ChunkProducerNotInDB, got {err:?}"
             );
         }
     }

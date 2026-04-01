@@ -1179,6 +1179,10 @@ pub enum EpochError {
     ChunkValidatorSelectionError(String),
     /// Error selecting chunk producer for a shard.
     ChunkProducerSelectionError(String),
+    /// Chunk producer entry not found in the ChunkProducers DB column.
+    /// This is transient during initial sync — the entry is populated when
+    /// the parent block is processed.
+    ChunkProducerNotInDB(CryptoHash, ShardId),
 }
 
 impl std::error::Error for EpochError {}
@@ -1213,6 +1217,9 @@ impl Display for EpochError {
             EpochError::ChunkProducerSelectionError(err) => {
                 write!(f, "Error selecting chunk producer: {}", err)
             }
+            EpochError::ChunkProducerNotInDB(hash, shard_id) => {
+                write!(f, "chunk producer not in DB for block {} shard {}", hash, shard_id)
+            }
         }
     }
 }
@@ -1238,6 +1245,9 @@ impl Debug for EpochError {
             }
             EpochError::ChunkProducerSelectionError(err) => {
                 write!(f, "ChunkProducerSelectionError({})", err)
+            }
+            EpochError::ChunkProducerNotInDB(hash, shard_id) => {
+                write!(f, "ChunkProducerNotInDB({}, {})", hash, shard_id)
             }
         }
     }

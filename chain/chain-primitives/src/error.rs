@@ -468,6 +468,9 @@ impl From<EpochError> for Error {
             EpochError::NotAValidator(account_id, epoch_id) => {
                 Error::NotAValidator(format!("account_id: {account_id}, epoch_id: {epoch_id:?}"))
             }
+            EpochError::ChunkProducerNotInDB(h, s) => {
+                Error::DBNotFoundErr(format!("chunk producer for block {h} shard {s}"))
+            }
             err => Error::ValidatorError(err.to_string()),
         }
     }
