@@ -85,6 +85,17 @@ pub(crate) fn compilation_locks() -> &'static CompilationLocks {
     LOCKS.get_or_init(|| parking_lot::Mutex::new(HashMap::new()))
 }
 
+/// Removes the compilation lock entry from the global map on drop, ensuring
+/// cleanup on all exit paths (success, cache hit, and error) without requiring
+/// manual `remove` calls at each return site.
+struct CompilationLockCleanup(CryptoHash);
+
+impl Drop for CompilationLockCleanup {
+    fn drop(&mut self) {
+        compilation_locks().lock().remove(&self.0);
+    }
+}
+
 fn guest_memory_size(pages: u32) -> Option<usize> {
     let pages = usize::try_from(pages).ok()?;
     pages.checked_mul(GUEST_PAGE_SIZE)
@@ -510,9 +521,10 @@ impl WasmtimeVM {
         name = "Wasmtime::compile_and_cache",
         skip_all
     )]
-    /// Compile a contract and store the result in the cache. Uses a per-code-hash
-    /// lock to prevent duplicate compilations when multiple threads race on the
-    /// same contract (e.g. precompile_contracts vs validate_chunk_state_witness).
+    /// Compile a contract and store the result in the cache. Uses a
+    /// per-contract-cache-key lock to prevent duplicate compilations when
+    /// multiple threads race on the same contract (e.g. precompile_contracts
+    /// vs validate_chunk_state_witness).
     fn compile_and_cache(
         &self,
         code: &ContractCode,
@@ -523,10 +535,10 @@ impl WasmtimeVM {
         // Acquire a per-key lock so only one thread compiles a given contract.
         let lock = compilation_locks().lock().entry(key).or_default().clone();
         let _guard = lock.lock();
+        let _cleanup = CompilationLockCleanup(key);
 
         // Check the disk cache: another thread may have compiled while we waited.
         if let Some(info) = cache.get(&key).map_err(CacheError::ReadError)? {
-            compilation_locks().lock().remove(&key);
             match info.compiled {
                 CompiledContract::Code(module) => return Ok(Ok(module)),
                 CompiledContract::CompileModuleError(err) => return Ok(Err(err)),
@@ -541,11 +553,7 @@ impl WasmtimeVM {
                 Err(err) => CompiledContract::CompileModuleError(err.clone()),
             },
         };
-        if let Err(err) = cache.put(&key, record) {
-            compilation_locks().lock().remove(&key);
-            return Err(CacheError::WriteError(err));
-        }
-        compilation_locks().lock().remove(&key);
+        cache.put(&key, record).map_err(CacheError::WriteError)?;
         Ok(serialized_or_error)
     }
 

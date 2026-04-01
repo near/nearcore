@@ -332,6 +332,7 @@ impl ContractRuntimeCache for FaultingContractRuntimeCache {
 #[cfg(feature = "wasmtime_vm")]
 #[test]
 fn test_no_duplicate_compilation() {
+    use crate::cache::get_contract_cache_key;
     use crate::runner::VM;
     use crate::wasmtime_runner::{WasmtimeVM, compilation_locks};
 
@@ -339,7 +340,8 @@ fn test_no_duplicate_compilation() {
     let cache = MockContractRuntimeCache::default();
     let wasm = wat::parse_str(r#"(module (func (export "main")))"#).unwrap();
     let code = ContractCode::new(wasm, None);
-    let vm = Arc::new(WasmtimeVM::new_for_target(Arc::new(config), None).unwrap());
+    let vm = Arc::new(WasmtimeVM::new_for_target(Arc::new(config.clone()), None).unwrap());
+    let cache_key = get_contract_cache_key(*code.hash(), &config, vm.vm_hash());
 
     // Spawn two threads that both try to precompile the same contract.
     let handles: Vec<_> = (0..2)
@@ -355,5 +357,8 @@ fn test_no_duplicate_compilation() {
     }
 
     assert_eq!(cache.put_count(), 1, "should have compiled only once");
-    assert!(compilation_locks().lock().is_empty(), "global lock map should be empty");
+    assert!(
+        !compilation_locks().lock().contains_key(&cache_key),
+        "lock entry for this contract should be cleaned up"
+    );
 }
