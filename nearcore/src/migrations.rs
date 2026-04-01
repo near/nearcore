@@ -29,6 +29,8 @@ const BATCH_SIZE: u64 = 100_000;
 const MAX_SST_FILE_SIZE: u64 = 256 * 1024 * 1024; // 256 MB
 /// Number of parallel SST writer threads.
 const NUM_SST_WRITERS: usize = 4;
+/// Number of SST files to ingest per batch during cold store ingestion.
+const SST_INGEST_BATCH_SIZE: usize = 100;
 
 pub(super) struct Migrator<'a> {
     config: &'a NearConfig,
@@ -71,7 +73,7 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
                 cold_db,
                 self.config.genesis.config.transaction_validity_period,
                 self.home_dir,
-                &self.config.config.store,
+                self.config.config.cold_store.as_ref().unwrap_or(&self.config.config.store),
             ),
             DB_VERSION.. => unreachable!(),
         }
@@ -205,10 +207,22 @@ fn copy_block_headers_to_cold_db(
     tracing::info!(target: "migrations", "copying block headers to cold db via SST ingestion");
     let sst_paths = write_block_headers_to_sst_files(hot_store, &sst_dir)?;
 
+    // Ingest SST files in batches for progress visibility and safer crash recovery.
     // move_files=true: SST dir is on the same filesystem as cold store, so
     // ingest renames instead of copying.
-    tracing::info!(target: "migrations", sst_files = sst_paths.len(), "ingesting SST files into cold db");
-    cold_db.ingest_external_sst_files(DBCol::BlockHeader, &sst_paths, true)?;
+    let total_sst = sst_paths.len();
+    tracing::info!(target: "migrations", total_sst, "ingesting SST files into cold db");
+    for (batch_idx, chunk) in sst_paths.chunks(SST_INGEST_BATCH_SIZE).enumerate() {
+        let ingested = batch_idx * SST_INGEST_BATCH_SIZE + chunk.len();
+        cold_db.ingest_external_sst_files(DBCol::BlockHeader, &chunk.to_vec(), true)?;
+        tracing::info!(
+            target: "migrations",
+            batch = batch_idx + 1,
+            ingested,
+            total_sst,
+            "ingested SST batch into cold db"
+        );
+    }
     tracing::info!(target: "migrations", "SST ingestion into cold db complete");
 
     // Files were moved by ingest; clean up the empty directory.
