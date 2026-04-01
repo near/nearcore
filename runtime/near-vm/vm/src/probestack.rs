@@ -55,10 +55,12 @@ cfg_if::cfg_if! {
         /// A default probestack for other architectures
         pub const PROBESTACK: unsafe extern "C" fn() = empty_probestack;
     } else {
-        unsafe extern "C" {
-            pub fn __rust_probestack();
-        }
-        /// The probestack based on the Rust probestack
-        pub static PROBESTACK: unsafe extern "C" fn() = __rust_probestack;
+        // Starting with Rust 1.89, LLVM emits inline stack probes on x86/x86_64
+        // and __rust_probestack is no longer provided by compiler-builtins.
+        // NearVM is a legacy VM used only for replaying pre-protocol-84 blocks,
+        // so an empty probestack is sufficient here.
+        unsafe extern "C" fn empty_probestack() {}
+        /// The probestack for x86/x86_64 Linux (noop, inline probes used instead)
+        pub const PROBESTACK: unsafe extern "C" fn() = empty_probestack;
     }
 }
