@@ -132,5 +132,10 @@ name = "compiler_daemon"
 harness = false
 required-features = ["wasmtime_vm"]
 
+[[test]]
+name = "bench_vms"
+harness = false
+required-features = ["near_vm", "wasmtime_vm"]
+
 [package.metadata.cargo-machete]
 ignored = ["prometheus"]
