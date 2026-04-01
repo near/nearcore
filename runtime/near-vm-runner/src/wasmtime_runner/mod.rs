@@ -73,10 +73,10 @@ struct VMKey {
 static VMS: LazyLock<parking_lot::RwLock<HashMap<VMKey, WasmtimeVM>>> =
     LazyLock::new(parking_lot::RwLock::default);
 
-/// Per-code-hash compilation lock. Prevents duplicate compilations when
-/// multiple threads (e.g. precompile_contracts and validate_chunk_state_witness)
-/// race to compile the same contract simultaneously. Entries are removed after
-/// compilation completes.
+/// Per-contract-cache-key compilation lock. Prevents duplicate compilations
+/// when multiple threads (e.g. precompile_contracts and
+/// validate_chunk_state_witness) race to compile the same contract
+/// simultaneously. Entries are removed after compilation completes.
 type CompilationLocks = parking_lot::Mutex<HashMap<CryptoHash, Arc<parking_lot::Mutex<()>>>>;
 
 fn compilation_locks() -> &'static CompilationLocks {
