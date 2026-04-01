@@ -458,6 +458,7 @@ impl ShardsManagerActor {
     fn request_partial_encoded_chunk(
         &self,
         height: BlockHeight,
+        prev_block_hash: &CryptoHash,
         ancestor_hash: &CryptoHash,
         shard_id: ShardId,
         chunk_hash: &ChunkHash,
@@ -481,10 +482,20 @@ impl ShardsManagerActor {
         let request_full = force_request_full
             || self.shard_tracker.cares_about_shard_this_or_next_epoch(ancestor_hash, shard_id);
 
-        let chunk_producer_account_id = self
-            .epoch_manager
-            .get_chunk_producer_info_db(ancestor_hash, shard_id)?
-            .take_account_id();
+        let chunk_producer_account_id =
+            match self.epoch_manager.get_chunk_producer_info_db(prev_block_hash, shard_id) {
+                Ok(info) => Some(info.take_account_id()),
+                Err(EpochError::MissingBlock(_) | EpochError::ChunkProducerSelectionError(_)) => {
+                    tracing::debug!(
+                        target: "chunks",
+                        ?prev_block_hash,
+                        %shard_id,
+                        "chunk producer not in DB, skipping producer routing preference"
+                    );
+                    None
+                }
+                Err(err) => return Err(err.into()),
+            };
 
         // In the following we compute which target accounts we should request parts and receipts from
         // First we choose a shard representative target which is either the original chunk producer
@@ -503,13 +514,13 @@ impl ShardsManagerActor {
 
         // A account that is either the original chunk producer or a random block producer tracking
         // the shard
-        let shard_representative_target = if !request_own_parts_from_others
-            && !request_from_archival
-            && Some(&chunk_producer_account_id) != me
-        {
-            Some(chunk_producer_account_id)
-        } else {
-            self.get_random_target_tracking_shard(ancestor_hash, shard_id, me)?
+        let shard_representative_target = match chunk_producer_account_id {
+            Some(ref cp)
+                if !request_own_parts_from_others && !request_from_archival && Some(cp) != me =>
+            {
+                Some(cp.clone())
+            }
+            _ => self.get_random_target_tracking_shard(ancestor_hash, shard_id, me)?,
         };
 
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(ancestor_hash)?;
@@ -648,10 +659,12 @@ impl ShardsManagerActor {
     /// Check whether the node should wait for chunk parts being forwarded to it
     /// The node will wait if it's a block producer or a chunk producer that is responsible
     /// for producing the next chunk in this shard.
-    /// `prev_hash`: previous block hash of the chunk that we are requesting
+    /// `prev_block_hash`: the chunk's prev_block_hash (for DB lookup, may be unprocessed for orphans)
+    /// `ancestor_hash`: a processed ancestor block hash (for epoch resolution)
     fn should_wait_for_chunk_forwarding(
         &self,
-        prev_hash: &CryptoHash,
+        prev_block_hash: &CryptoHash,
+        ancestor_hash: &CryptoHash,
         shard_id: ShardId,
         me: Option<&AccountId>,
     ) -> Result<bool, EpochError> {
@@ -660,7 +673,7 @@ impl ShardsManagerActor {
             None => return Ok(false),
             Some(it) => it,
         };
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(ancestor_hash)?;
         let block_producers = self.epoch_manager.get_epoch_block_producers_ordered(&epoch_id)?;
         for bp in block_producers {
             if bp.account_id() == me {
@@ -668,7 +681,13 @@ impl ShardsManagerActor {
             }
         }
         let chunk_producer =
-            self.epoch_manager.get_chunk_producer_info_db(prev_hash, shard_id)?.take_account_id();
+            match self.epoch_manager.get_chunk_producer_info_db(prev_block_hash, shard_id) {
+                Ok(info) => info.take_account_id(),
+                Err(EpochError::MissingBlock(_) | EpochError::ChunkProducerSelectionError(_)) => {
+                    return Ok(false);
+                }
+                Err(err) => return Err(err),
+            };
         if &chunk_producer == me {
             return Ok(true);
         }
@@ -757,14 +776,23 @@ impl ShardsManagerActor {
         let old_block = self.chain_header_head.last_block_hash != prev_block_hash
             && self.chain_header_head.prev_block_hash != prev_block_hash;
 
-        let should_wait_for_chunk_forwarding =
-                self.should_wait_for_chunk_forwarding(&ancestor_hash, chunk_header.shard_id(), me).unwrap_or_else(|_| {
-                    // ancestor_hash must be accepted because we don't request missing chunks through this
-                    // this function for orphans
-                    debug_assert!(false, "{:?} must be accepted", ancestor_hash);
-                    tracing::error!(target: "chunks", ?ancestor_hash, "requesting chunk whose ancestor_hash is not accepted");
-                    false
-                });
+        let should_wait_for_chunk_forwarding = self
+            .should_wait_for_chunk_forwarding(
+                &prev_block_hash,
+                &ancestor_hash,
+                chunk_header.shard_id(),
+                me,
+            )
+            .unwrap_or_else(|err| {
+                tracing::warn!(
+                    target: "chunks",
+                    ?err,
+                    ?ancestor_hash,
+                    ?prev_block_hash,
+                    "failed to determine chunk forwarding, defaulting to no wait"
+                );
+                false
+            });
 
         // If chunks forwarding is enabled,
         // we purposely do not send chunk request messages right away for new blocks. Such requests
@@ -775,6 +803,7 @@ impl ShardsManagerActor {
             tracing::debug!(target: "chunks", height, %shard_id, ?chunk_hash, "requesting");
             let request_result = self.request_partial_encoded_chunk(
                 height,
+                &prev_block_hash,
                 &ancestor_hash,
                 shard_id,
                 &chunk_hash,
@@ -869,6 +898,7 @@ impl ShardsManagerActor {
 
             match self.request_partial_encoded_chunk(
                 chunk_request.height,
+                &chunk_request.prev_block_hash,
                 &chunk_request.ancestor_hash,
                 chunk_request.shard_id,
                 &chunk_hash,
