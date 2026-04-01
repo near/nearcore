@@ -21,7 +21,6 @@ use near_primitives::views::EpochValidatorInfo;
 use near_store::ShardUId;
 use near_store::adapter::epoch_store::EpochStoreUpdateAdapter;
 use std::cmp::Ordering;
-use std::collections::HashSet;
 use std::sync::Arc;
 
 /// A trait that abstracts the interface of the EpochManager. The two
@@ -746,60 +745,26 @@ pub trait EpochManagerAdapter: Send + Sync {
         Ok(vec![])
     }
 
-    // TODO(dynamic_resharding): remove this method when dynamic trie loading is implemented
-    /// Returns the list of ShardUIds in the current shard layout that will be
-    /// resharded in the future within this client. Those shards should be
-    /// loaded into memory on node startup.
+    /// Returns the parent shard UID that will be split in the next epoch, if any.
     ///
-    /// Please note that this method returns all shard uids that will be
-    /// resharded in the future, regardless of whether the client tracks them.
-    ///
-    /// e.g. In the following resharding tree shards 0 and 1 would be returned.
-    ///
-    ///  0      1       2
-    ///  |     / \      |
-    ///  0    3   4     2
-    ///  |\   |   |     |
-    ///  5 6  3   4     2
-    ///  | |  |   |\    |
-    ///  5 6  3   7 8   2
-    ///
-    /// Please note that shard 4 is not returned even though it is split later
-    /// on. That is because it is a child of another parent and it should
-    /// already be loaded into memory after the first resharding.
-    fn get_shard_uids_pending_resharding(
+    /// Compares the shard layout of `epoch_id` with the next epoch's layout (derived from
+    /// `last_block_hash`). If they differ, returns the parent shard being split. Returns `None`
+    /// if no resharding is pending.
+    fn get_resharding_parent_shard_uid(
         &self,
-        head_protocol_version: ProtocolVersion,
-        client_protocol_version: ProtocolVersion,
-    ) -> Result<HashSet<ShardUId>, Error> {
-        let Some(head_shard_layout) =
-            self.get_static_shard_layout_for_protocol_version(head_protocol_version)
-        else {
-            // With dynamic resharding enabled, there is no point in trying to preload shards
-            // pending resharding, as they cannot be known upfront.
-            return Ok(Default::default());
-        };
-        let mut shard_layouts =
-            self.get_shard_layout_history(client_protocol_version, Some(head_protocol_version + 1));
-        // Loop below expects layouts to be ordered oldest-to-newest
-        shard_layouts.reverse();
-
-        let mut result = HashSet::new();
-        for shard_uid in head_shard_layout.shard_uids() {
-            let shard_id = shard_uid.shard_id();
-            for shard_layout in &shard_layouts {
-                let children = shard_layout.get_children_shards_uids(shard_id);
-                let Some(children) = children else {
-                    break;
-                };
-                if children.len() > 1 {
-                    result.insert(shard_uid);
-                    break;
-                }
-            }
+        epoch_id: &EpochId,
+        last_block_hash: &CryptoHash,
+    ) -> Result<Option<ShardUId>, EpochError> {
+        let next_epoch_id = self.get_next_epoch_id(last_block_hash)?;
+        let current_layout = self.get_shard_layout(epoch_id)?;
+        let next_layout = self.get_shard_layout(&next_epoch_id)?;
+        if current_layout == next_layout {
+            return Ok(None);
         }
-
-        Ok(result)
+        let split_parent_shard_uids = next_layout.get_split_parent_shard_uids();
+        // There should be exactly one shard split when layout changes
+        debug_assert!(split_parent_shard_uids.len() == 1);
+        Ok(split_parent_shard_uids.into_iter().next())
     }
 
     /// Get all static shard layouts from the given `latest_protocol_version` (inclusive) back to

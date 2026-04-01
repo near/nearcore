@@ -723,7 +723,7 @@ fn test_one_yocto_on_promise_enabled() {
         .expect_err("transfer should still fail with zero balance");
 
     assert_eq!(
-        logic.result_state.subsidized_amount,
+        logic.result_state().subsidized_amount,
         Balance::from_yoctonear(1),
         "subsidized_amount should track the skipped deduction"
     );
@@ -744,11 +744,11 @@ fn test_one_yocto_on_promise_deducts_with_nonzero_balance() {
     promise_batch_action_function_call_weight(&mut logic, index, 1, Gas::ZERO, 0)
         .expect("should succeed with sufficient balance");
     assert!(
-        logic.result_state.current_account_balance.is_zero(),
+        logic.result_state().current_account_balance.is_zero(),
         "balance should be zero after deduction"
     );
     assert_eq!(
-        logic.result_state.subsidized_amount,
+        logic.result_state().subsidized_amount,
         Balance::ZERO,
         "the first call should not be subsidized"
     );
@@ -758,7 +758,7 @@ fn test_one_yocto_on_promise_deducts_with_nonzero_balance() {
         .expect("should succeed via zero-balance exemption");
 
     assert_eq!(
-        logic.result_state.subsidized_amount,
+        logic.result_state().subsidized_amount,
         Balance::from_yoctonear(1),
         "subsidized balance should be tracked correctly"
     );

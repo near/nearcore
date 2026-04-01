@@ -10,7 +10,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state::FlatStateValue;
 use near_primitives::types::{AccountId, EpochId, NumShards};
-use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::db::refcount::decode_value_with_rc;
@@ -54,11 +53,9 @@ impl TrieSanityCheck {
         tip: &Tip,
         new_num_shards: NumShards,
     ) -> &mut EpochTrieCheck {
-        let protocol_version =
-            client.epoch_manager.get_epoch_protocol_version(&tip.epoch_id).unwrap();
-        let shards_pending_resharding = client
+        let shard_pending_resharding = client
             .epoch_manager
-            .get_shard_uids_pending_resharding(protocol_version, PROTOCOL_VERSION)
+            .get_resharding_parent_shard_uid(&tip.epoch_id, &tip.last_block_hash)
             .unwrap();
         let shard_layout = client.epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
         let is_resharded = shard_layout.num_shards() == new_num_shards;
@@ -73,7 +70,7 @@ impl TrieSanityCheck {
                 client,
                 tip,
                 is_resharded,
-                &shards_pending_resharding,
+                shard_pending_resharding.as_ref(),
                 &shard_layout,
                 account_id,
             );
@@ -90,7 +87,7 @@ impl TrieSanityCheck {
         client: &Client,
         tip: &Tip,
         is_resharded: bool,
-        shards_pending_resharding: &HashSet<ShardUId>,
+        shard_pending_resharding: Option<&ShardUId>,
         shard_layout: &ShardLayout,
         account_id: &AccountId,
     ) -> HashMap<ShardUId, bool> {
@@ -99,7 +96,7 @@ impl TrieSanityCheck {
             if !should_assert_state_sanity(
                 self.load_memtries_for_tracked_shards,
                 is_resharded,
-                shards_pending_resharding,
+                shard_pending_resharding,
                 shard_layout,
                 &shard_uid,
             ) {
@@ -211,18 +208,16 @@ fn assert_state_sanity(
     let is_resharded = shard_layout.num_shards() == new_num_shards;
     let mut checked_shards = Vec::new();
 
-    let protocol_version =
-        client.epoch_manager.get_epoch_protocol_version(&final_head.epoch_id).unwrap();
-    let shards_pending_resharding = client
+    let shard_pending_resharding = client
         .epoch_manager
-        .get_shard_uids_pending_resharding(protocol_version, PROTOCOL_VERSION)
+        .get_resharding_parent_shard_uid(&final_head.epoch_id, &final_head.last_block_hash)
         .unwrap();
 
     for shard_uid in shard_layout.shard_uids() {
         if !should_assert_state_sanity(
             load_memtries_for_tracked_shards,
             is_resharded,
-            &shards_pending_resharding,
+            shard_pending_resharding.as_ref(),
             &shard_layout,
             &shard_uid,
         ) {
@@ -321,7 +316,7 @@ fn assert_state_equal(
 fn should_assert_state_sanity(
     load_memtries_for_tracked_shards: bool,
     is_resharded: bool,
-    shards_pending_resharding: &HashSet<ShardUId>,
+    shard_pending_resharding: Option<&ShardUId>,
     shard_layout: &ShardLayout,
     shard_uid: &ShardUId,
 ) -> bool {
@@ -331,7 +326,7 @@ fn should_assert_state_sanity(
     }
 
     // In the old layout do not enforce except for shards pending resharding.
-    if !is_resharded && !shards_pending_resharding.contains(&shard_uid) {
+    if !is_resharded && shard_pending_resharding != Some(shard_uid) {
         return false;
     }
 
