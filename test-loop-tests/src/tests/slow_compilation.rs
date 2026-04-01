@@ -6,7 +6,7 @@ use near_primitives::types::Balance;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, Ordering};
 
-/// Demonstrates that slow contract compilation causes stale chunks on the
+/// Demonstrates that slow contract compilation causes missing chunks on the
 /// affected shard.
 ///
 /// Uses atomic counters to simulate a one-shot 3-second compilation delay:
@@ -61,7 +61,7 @@ fn test_slow_compilation_causes_stale_chunks() {
     // Run a baseline of healthy blocks.
     env.rpc_runner().run_for_number_of_blocks(5);
     let baseline_height = env.rpc_node().head().height;
-    tracing::info!(baseline_height, "baseline established");
+    tracing::warn!(baseline_height, "baseline established");
 
     // Arm the one-shot delays: each node gets one slow apply_chunks,
     // one slow stateless_validation, and one slow precompile.
@@ -77,9 +77,9 @@ fn test_slow_compilation_causes_stale_chunks() {
     env.rpc_runner().run_for_number_of_blocks(5);
     let end_height = env.rpc_node().head().height;
 
-    // Inspect blocks for stale chunks.
-    let mut stale_count = 0;
-    tracing::info!("block-by-block chunk inclusion:");
+    // Inspect blocks for missing chunks.
+    let mut missing_count = 0;
+    tracing::warn!("block-by-block chunk inclusion:");
     for height in baseline_height..=end_height {
         let block_hash =
             match env.rpc_node().client().chain.chain_store().get_block_hash_by_height(height) {
@@ -91,18 +91,18 @@ fn test_slow_compilation_causes_stale_chunks() {
             let height_included = chunk_header.height_included();
             if height_included < height {
                 let lag = height - height_included;
-                tracing::info!(
+                tracing::warn!(
                     height,
                     shard_id = %chunk_header.shard_id(),
                     height_included,
                     lag,
-                    "stale chunk"
+                    "missing chunk"
                 );
-                stale_count += 1;
+                missing_count += 1;
             }
         }
     }
 
-    tracing::info!(stale_count, "total stale chunks found");
-    assert!(stale_count > 0, "expected at least one stale chunk due to slow compilation delay");
+    tracing::warn!(missing_count, "total missing chunks found");
+    assert!(missing_count > 0, "expected at least one missing chunk due to slow compilation delay");
 }
