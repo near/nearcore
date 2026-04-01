@@ -125,15 +125,9 @@ impl EntityDebugHandlerImpl {
                 let chunk = store
                     .get_ser::<ShardChunk>(DBCol::Chunks, &borsh::to_vec(&chunk_hash).unwrap())
                     .ok_or_else(|| anyhow!("Chunk not found"))?;
-                let epoch_id =
-                    self.epoch_manager.get_epoch_id_from_prev_block(chunk.prev_block())?;
                 let author = self
                     .epoch_manager
-                    .get_chunk_producer_info(&ChunkProductionKey {
-                        epoch_id,
-                        height_created: chunk.height_created(),
-                        shard_id: chunk.shard_id(),
-                    })?
+                    .get_chunk_producer_info_db(chunk.prev_block(), chunk.shard_id())?
                     .take_account_id();
                 Ok(serialize_entity(&ChunkView::from_author_chunk(author, chunk)))
             }
