@@ -728,10 +728,14 @@ impl NightshadeRuntime {
 
                 let result_label = if is_serious {
                     "serious_mismatch"
-                } else if gas_diff_pct.abs() > SHADOW_GAS_DIFF_WARN_THRESHOLD {
-                    "gas_above_threshold"
-                } else if canonical_gas != shadow_gas {
-                    "gas_below_threshold"
+                } else if gas_diff_pct > SHADOW_GAS_DIFF_WARN_THRESHOLD {
+                    "shadow_gas_higher_above_threshold"
+                } else if gas_diff_pct < -SHADOW_GAS_DIFF_WARN_THRESHOLD {
+                    "shadow_gas_lower_above_threshold"
+                } else if shadow_gas > canonical_gas {
+                    "shadow_gas_higher"
+                } else if shadow_gas < canonical_gas {
+                    "shadow_gas_lower"
                 } else {
                     "match"
                 };
@@ -739,19 +743,30 @@ impl NightshadeRuntime {
                     .with_label_values(&[&shard_label, result_label])
                     .inc();
 
-                // Summary line with every chunk's stats log
-                tracing::info!(
-                    target: "runtime",
-                    %shard_id,
-                    ?shadow_vm_kind,
-                    receipts = canonical_outcomes.len(),
-                    gas_diff_pct = format_args!("{:.4}%", gas_diff_pct),
-                    status_mismatches,
-                    outcomes_match,
-                    outgoing_match,
-                    result_label,
-                    "shadow: chunk summary"
-                );
+                if canonical_gas == shadow_gas && !is_serious {
+                    tracing::debug!(
+                        target: "runtime",
+                        %shard_id,
+                        ?shadow_vm_kind,
+                        receipts = canonical_outcomes.len(),
+                        "shadow: exact match"
+                    );
+                } else {
+                    tracing::info!(
+                        target: "runtime",
+                        %shard_id,
+                        ?shadow_vm_kind,
+                        receipts = canonical_outcomes.len(),
+                        canonical_gas,
+                        shadow_gas,
+                        gas_diff_pct = format_args!("{:+.4}%", gas_diff_pct),
+                        status_mismatches,
+                        outcomes_match,
+                        outgoing_match,
+                        result_label,
+                        "shadow: chunk summary"
+                    );
+                }
 
                 // Log per-receipt details for serious mismatches or gas above threshold.
                 if is_serious || gas_diff_pct.abs() > SHADOW_GAS_DIFF_WARN_THRESHOLD {
