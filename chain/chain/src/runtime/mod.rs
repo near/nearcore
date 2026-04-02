@@ -944,13 +944,13 @@ impl NightshadeRuntime {
                                                 "account_balance_only_diff",
                                             ])
                                             .inc();
-                                        let diff = c_acct
+                                        let diff_yocto = c_acct
                                             .amount()
                                             .as_yoctonear()
                                             .abs_diff(s_acct.amount().as_yoctonear());
                                         metrics::SHADOW_BALANCE_DIFF
                                             .with_label_values(&[&shard_label])
-                                            .observe(diff as f64);
+                                            .observe(diff_yocto as f64 / 1e21);
                                     } else {
                                         metrics::SHADOW_STATE_CHANGES
                                             .with_label_values(&[

@@ -101,10 +101,10 @@ pub(crate) static SHADOW_GAS_DIFF_PCT: LazyLock<HistogramVec> = LazyLock::new(||
 
 pub(crate) static SHADOW_BALANCE_DIFF: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
-        "near_shadow_balance_diff_yoctonear",
-        "Balance difference per account between canonical and shadow VM (in yoctoNEAR)",
+        "near_shadow_balance_diff_millinear",
+        "Balance difference per account between canonical and shadow VM (in milliNEAR)",
         &["shard_id"],
-        Some(near_o11y::metrics::exponential_buckets(1e15, 10.0, 15).unwrap()),
+        Some(vec![0.0, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 100.0]),
     )
     .unwrap()
 });
