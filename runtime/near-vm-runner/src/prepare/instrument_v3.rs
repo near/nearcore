@@ -634,8 +634,9 @@ impl<'a> InstrumentContext<'a> {
             }
             tracing::debug!(
                 target: "vm",
-                function_index = code_idx,
+                code_index = code_idx,
                 block_count,
+                body_size = reader.range().len(),
                 "wasm function block count"
             );
         }
