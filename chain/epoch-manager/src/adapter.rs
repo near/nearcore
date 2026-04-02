@@ -16,12 +16,9 @@ use near_primitives::types::{
     AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, ShardId, ShardIndex,
     ValidatorInfoIdentifier,
 };
-use near_primitives::utils::get_block_shard_id;
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives::version::ProtocolVersion;
 use near_primitives::views::EpochValidatorInfo;
-use near_store::DBCol;
 use near_store::ShardUId;
-use near_store::adapter::StoreAdapter;
 use near_store::adapter::epoch_store::EpochStoreUpdateAdapter;
 use std::cmp::Ordering;
 use std::sync::Arc;
@@ -956,6 +953,11 @@ impl EpochManagerAdapter for EpochManagerHandle {
         // ChunkProducers DB column (strict — errors on miss).
         #[cfg(feature = "nightly")]
         {
+            use near_primitives::utils::get_block_shard_id;
+            use near_primitives::version::ProtocolFeature;
+            use near_store::DBCol;
+            use near_store::adapter::StoreAdapter;
+
             let block_epoch_id = self.get_epoch_id(prev_block_hash)?;
             let block_protocol_version = self.get_epoch_protocol_version(&block_epoch_id)?;
             if ProtocolFeature::EarlyKickout.enabled(block_protocol_version) {
