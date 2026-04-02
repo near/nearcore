@@ -2,18 +2,55 @@ use super::single_thread::STArenaMemory;
 use super::{Arena, ArenaMemory, ArenaPos};
 use std::sync::Arc;
 
-/// FrozenArenaMemory holds a cloneable read-only shared memory instance.
-/// This can later be converted to HybridArenaMemory.
+/// FrozenArenaMemory holds cloneable read-only shared memory as one or more
+/// layers. Each layer is an `Arc<STArenaMemory>` that can be shared across
+/// multiple arenas (e.g. parent and child shards after resharding).
+///
+/// Chunks are addressed contiguously across layers: layer 0 owns chunks
+/// `0..N0`, layer 1 owns `N0..N0+N1`, etc. The total number of chunks is
+/// precomputed in `total_chunk_count` for faster offset calculations.
 #[derive(Clone)]
 pub struct FrozenArenaMemory {
-    pub(super) shared_memory: Arc<STArenaMemory>,
+    pub(super) shared_layers: Vec<Arc<STArenaMemory>>,
+    pub(super) total_chunk_count: u32,
+}
+
+impl FrozenArenaMemory {
+    /// Creates an empty `FrozenArenaMemory` with no shared layers.
+    pub(super) fn empty() -> Self {
+        Self { shared_layers: Vec::new(), total_chunk_count: 0 }
+    }
+
+    /// Total number of chunks across all shared layers.
+    #[inline]
+    pub(super) fn total_chunk_count(&self) -> u32 {
+        self.total_chunk_count
+    }
+
+    /// Appends a new layer on top of the existing shared layers.
+    pub(super) fn push_layer(&mut self, layer: Arc<STArenaMemory>) {
+        self.total_chunk_count += layer.chunks.len() as u32;
+        self.shared_layers.push(layer);
+    }
 }
 
 /// We only implement the ArenaMemory interface for FrozenArena, as it is read-only.
 /// ArenaMemoryMut is not implemented.
 impl ArenaMemory for FrozenArenaMemory {
     fn raw_slice(&self, pos: ArenaPos, len: usize) -> &[u8] {
-        self.shared_memory.raw_slice(pos, len)
+        let mut remaining_chunk = pos.chunk;
+        for layer in &self.shared_layers {
+            let layer_chunks = layer.chunks.len() as u32;
+            if remaining_chunk < layer_chunks {
+                let adjusted = ArenaPos { chunk: remaining_chunk, pos: pos.pos };
+                return layer.raw_slice(adjusted, len);
+            }
+            remaining_chunk -= layer_chunks;
+        }
+        panic!(
+            "FrozenArenaMemory::raw_slice: chunk {} out of bounds (total {})",
+            pos.chunk, self.total_chunk_count
+        );
     }
 }
 
