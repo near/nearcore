@@ -47,7 +47,7 @@ pub fn verify_chunk_header_signature_with_epoch_manager(
     )
 }
 
-// TODO(#chunk_producer_lookups): migrate to get_chunk_producer_info_db
+// TODO(early-kickout): migrate to get_chunk_producer_info_db
 // once the ShardsManager's validate_chunk_header is refactored to separate
 // preliminary (epoch_id-based) and full (prev_block_hash-based) validation.
 pub fn verify_chunk_header_signature_with_epoch_manager_and_parts(
@@ -64,8 +64,9 @@ pub fn verify_chunk_header_signature_with_epoch_manager_and_parts(
 }
 
 /// Verify chunk header signature using hash-based chunk producer lookup.
-/// Uses get_chunk_producer_info(prev_block_hash, shard_id) which reads from
-/// the ChunkProducers DB column when EarlyKickout is enabled.
+/// Uses get_chunk_producer_info_db(prev_block_hash, shard_id) which reads from
+/// the ChunkProducers DB column when EarlyKickout is enabled, and errors on
+/// a missing DB entry.
 pub fn verify_chunk_header_signature_by_hash(
     epoch_manager: &dyn EpochManagerAdapter,
     chunk_header: &ShardChunkHeader,

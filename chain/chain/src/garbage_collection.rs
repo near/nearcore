@@ -1312,6 +1312,7 @@ impl<'a> ChainStoreUpdate<'a> {
             // TODO(early-kickout): before moving to stable, add a GC strategy
             // (e.g. retain only canonical-chain entries or entries within a sliding window)
             // to prevent unbounded disk growth on long-running nodes.
+            #[cfg(feature = "nightly")]
             DBCol::ChunkProducers => unreachable!(),
         }
         self.merge(store_update);

@@ -396,6 +396,7 @@ pub enum DBCol {
     // TODO(early-kickout): bump DB_VERSION before moving to stable so that
     // older databases get a proper migration and read-only opens don't fail on the
     // missing column family.
+    #[cfg(feature = "nightly")]
     ChunkProducers,
 }
 
@@ -467,6 +468,7 @@ impl DBCol {
             DBCol::UncertifiedChunks
             | DBCol::ExecutionResults
             | DBCol::UncertifiedExecutionResults => true,
+            #[cfg(feature = "nightly")]
             DBCol::ChunkProducers => true,
             _ => false,
         }
@@ -635,7 +637,9 @@ impl DBCol {
             | DBCol::StateSyncHashes
             | DBCol::StateSyncNewChunks
             // TODO(early-kickout): Make ChunkProducers a cold column when GC is implemented.
-            | DBCol::ChunkProducers => false,
+            => false,
+            #[cfg(feature = "nightly")]
+            DBCol::ChunkProducers => false,
         }
     }
 
@@ -734,6 +738,7 @@ impl DBCol {
             DBCol::UncertifiedChunks => &[DBKeyType::BlockHash],
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::ContractAccesses => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            #[cfg(feature = "nightly")]
             DBCol::ChunkProducers => &[DBKeyType::BlockHash, DBKeyType::ShardId],
         }
     }

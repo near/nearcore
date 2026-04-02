@@ -178,7 +178,7 @@ mod tests {
         let height = block_info.height() + 1;
 
         for shard_id in shard_layout.shard_ids() {
-            // get_chunk_producer_info_db reads from DB with fallback.
+            // get_chunk_producer_info_db reads from DB (strict when EarlyKickout enabled).
             let from_db = epoch_manager.get_chunk_producer_info_db(&block_hash, shard_id).unwrap();
             // get_chunk_producer_info uses CPK-based computation.
             let cpk = ChunkProductionKey { epoch_id, height_created: height, shard_id };
