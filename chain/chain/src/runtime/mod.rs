@@ -301,6 +301,12 @@ impl NightshadeRuntime {
             on_post_state_ready,
         };
 
+        let shadow_transactions = if self.shadow_runtime_config_store.is_some() {
+            Some(transactions.clone())
+        } else {
+            None
+        };
+
         let instant = Instant::now();
         let apply_result = self
             .runtime
@@ -362,7 +368,7 @@ impl NightshadeRuntime {
                     &validator_accounts_update,
                     &shadow_apply_state,
                     receipts,
-                    SignedValidPeriodTransactions::empty(),
+                    shadow_transactions.unwrap(),
                     self.epoch_manager.as_ref(),
                     Default::default(),
                 );
