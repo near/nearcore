@@ -1,42 +1,28 @@
 import json
 import os
-import random
 import os.path
 import shlex
-import subprocess
 import tempfile
 import time
-import functools
 
-import base58
 import requests
 from rc import run, pmap
 
 import data
-import os
 from cluster import GCloudNode
 from configured_logger import logger
 from key import Key
 from metrics import Metrics
-from transaction import sign_payment_tx_and_get_hash, sign_staking_tx_and_get_hash
 
-# cspell:ignore tmpl zxcv gmtime loadtester pkeys
-DEFAULT_KEY_TARGET = '/tmp/mocknet'
-KEY_TARGET_ENV_VAR = 'NEAR_PYTEST_KEY_TARGET'
-# NODE_SSH_KEY_PATH = '~/.ssh/near_ops'
+# cspell:ignore loadtester
 NODE_SSH_KEY_PATH = None
 NODE_USERNAME = 'ubuntu'
-NUM_ACCOUNTS = 26 * 2
 PROJECT = os.getenv('MOCKNET_PROJECT', 'nearone-mocknet')
 PUBLIC_KEY = 'ed25519:76NVkDErhbP1LGrSAf5Db6BsFJ6LBw6YVA4BsfTBohmN'
-SECRET_KEY = 'ed25519:3cCk8KUWBySGCxBcn1syMoY5u73wx5eaPLRbQcMi23LwBA3aLsqEbA33Ww1bsJaFrchmDciGe9otdn45SrDSkow2'
-TX_OUT_FILE = '/home/ubuntu/tx_events'
-WASM_FILENAME = 'simple_contract.wasm'
 
 TREASURY_ACCOUNT = 'test.near'
 MASTER_ACCOUNT = 'near'
 SKYWARD_ACCOUNT = 'skyward.near'
-SKYWARD_TOKEN_ACCOUNT = 'token.skyward.near'
 TOKEN1_ACCOUNT = 'token1.near'
 TOKEN2_ACCOUNT = 'token2.near'
 TOKEN2_OWNER_ACCOUNT = 'account.token2.near'
@@ -48,36 +34,8 @@ tmux kill-session -t near || true
 done
 '''
 
-PYTHON_DIR = '/home/ubuntu/.near/pytest/'
-
-PYTHON_SETUP_SCRIPT = f'''
-rm -rf {PYTHON_DIR}
-mkdir -p {PYTHON_DIR}
-python3 -m pip install pip --upgrade
-python3 -m pip install virtualenv --upgrade
-cd {PYTHON_DIR}
-python3 -m virtualenv venv -p $(which python3)
-'''
-
-INSTALL_PYTHON_REQUIREMENTS = f'''
-cd {PYTHON_DIR}
-./venv/bin/pip install -r requirements.txt
-'''
-
 ONE_NEAR = 10**24
 MIN_STAKE = 64 * (10**3)
-STAKE_STEP = 15 * (10**3)
-OTHER_STAKE = 10**6
-MAINNET_STAKES = [
-    43566361, 20091202, 19783811, 18990335, 18196731, 12284685, 10770734,
-    10769428, 9858038, 9704977, 8871933, 8296476, 7731153, 7499051, 7322703,
-    7307458, 6477856, 6293083, 6242196, 6093107, 6085802, 5553788, 5508664,
-    5286843, 5056137, 4944414, 4859235, 4732286, 4615542, 4565243, 4468179,
-    4451510, 4444888, 4412264, 4221909, 4219451, 4210541, 4161553, 4116102,
-    4085627, 4075090, 3988387, 3932601, 3923842, 3921959, 3915353, 3907857,
-    3905980, 3898791, 3886957, 3851553, 3831536, 3790646, 3784485, 3777647,
-    3760931, 3746129, 3741225, 3727313, 3699201, 3620341
-]
 
 
 def get_node(hostname, project=PROJECT):
@@ -100,149 +58,9 @@ def get_nodes(pattern=None, project=PROJECT):
     )
 
 
-# Needs to be in-sync with init.sh.tmpl in terraform.
-def node_account_name(node_name):
-    # Assuming node_name is a hostname and looks like
-    # 'mocknet-betanet-spoon-abcd' or 'mocknet-zxcv'.
-    parts = node_name.split('-')
-    return f'{parts[-1]}-load-test.near'
-
-
-# Constructs an account name given the basic account name.
-# Accounts are generated in this order:
-# `a00.base`, `b00.base`, .., `z00.base`, `a01.base`, ...
-def load_testing_account_id(node_account_id, i):
-    NUM_LETTERS = 26
-    letter = i % NUM_LETTERS
-    num = i // NUM_LETTERS
-    return '%s%02d.%s' % (chr(ord('a') + letter), num, node_account_id)
-
-
 def get_validator_account(node):
     return Key.from_json(
         download_and_read_json(node, '/home/ubuntu/.near/validator_key.json'))
-
-
-def list_validators(node):
-    validators = node.get_validators()['result']
-    validator_accounts = set(
-        map(lambda v: v['account_id'], validators['current_validators']))
-    return validator_accounts
-
-
-def setup_python_environment(node, wasm_contract):
-    m = node.machine
-    logger.info(f'Setting up python environment on {m.name}')
-    m.run('bash', input=PYTHON_SETUP_SCRIPT)
-    m.upload('lib', PYTHON_DIR, switch_user='ubuntu')
-    m.upload('requirements.txt', PYTHON_DIR, switch_user='ubuntu')
-    m.upload(wasm_contract,
-             os.path.join(PYTHON_DIR, WASM_FILENAME),
-             switch_user='ubuntu')
-    m.upload('tests/mocknet/helpers/*.py', PYTHON_DIR, switch_user='ubuntu')
-    m.run('bash', input=INSTALL_PYTHON_REQUIREMENTS)
-    logger.info(f'{m.name} python setup complete')
-
-
-def setup_python_environments(nodes, wasm_contract):
-    pmap(lambda n: setup_python_environment(n, wasm_contract), nodes)
-
-
-def start_load_test_helper_script(
-    script,
-    node_account_id,
-    rpc_nodes,
-    num_nodes,
-    max_tps,
-    test_timeout,
-    contract_deploy_time,
-):
-    s = '''
-        cd {dir}
-        nohup ./venv/bin/python {script} \\
-            --node-account-id {node_account_id} \\
-            --rpc-nodes {rpc_nodes} \\
-            --num-nodes {num_nodes} \\
-            --max-tps {max_tps} \\
-            --test-timeout {test_timeout} \\
-            --contract-deploy-time {contract_deploy_time} \\
-            1>load_test.out 2>load_test.err < /dev/null &
-    '''.format(
-        dir=shlex.quote(PYTHON_DIR),
-        script=shlex.quote(script),
-        node_account_id=shlex.quote(node_account_id),
-        rpc_nodes=shlex.quote(rpc_nodes),
-        num_nodes=shlex.quote(str(num_nodes)),
-        max_tps=shlex.quote(str(max_tps)),
-        test_timeout=shlex.quote(str(test_timeout)),
-        contract_deploy_time=shlex.quote(str(contract_deploy_time)),
-    )
-    logger.info(
-        f'Starting load test helper. Node account id: {node_account_id}.')
-    logger.debug(f'The load test helper script is:{s}')
-    return s
-
-
-def start_load_test_helper(
-    script,
-    node,
-    rpc_nodes,
-    num_nodes,
-    max_tps,
-    test_timeout,
-    contract_deploy_time,
-):
-    logger.info(f'Starting load_test_helper on {node.instance_name}')
-    rpc_node_ips = ','.join([rpc_node.ip for rpc_node in rpc_nodes])
-    node.machine.run(
-        'bash',
-        input=start_load_test_helper_script(
-            script,
-            node_account_name(node.instance_name),
-            rpc_node_ips,
-            num_nodes,
-            max_tps,
-            test_timeout,
-            contract_deploy_time,
-        ),
-    )
-
-
-def start_load_test_helpers(
-    script,
-    validator_nodes,
-    rpc_nodes,
-    max_tps,
-    test_timeout,
-    contract_deploy_time,
-):
-    pmap(
-        lambda node: start_load_test_helper(
-            script,
-            node,
-            rpc_nodes,
-            len(validator_nodes),
-            max_tps,
-            test_timeout,
-            contract_deploy_time,
-        ),
-        validator_nodes,
-    )
-
-
-def get_log(node):
-    target_file = f'./logs/{node.instance_name}.log'
-    node.machine.download('/home/ubuntu/near.log', target_file)
-
-
-def get_logs(nodes):
-    pmap(get_log, nodes)
-
-
-def get_epoch_length_in_blocks(node):
-    config = download_and_read_json(node, '/home/ubuntu/.near/genesis.json')
-    epoch_length_in_blocks = config['epoch_length']
-    return epoch_length_in_blocks
 
 
 def get_metrics(node):
@@ -338,101 +156,6 @@ def get_tx_events(nodes, tx_filename):
     return sorted(data.flatten(all_events))
 
 
-# Sends the transaction to the network via `node` and checks for success.
-# Some retrying is done when the node returns a Timeout error.
-def send_transaction(node, tx, tx_hash, account_id, timeout=120):
-    response = node.send_tx_and_wait(tx, timeout)
-    loop_start = time.time()
-    missing_count = 0
-    while 'error' in response.keys():
-        error_data = response['error']['data']
-        if 'timeout' in error_data.lower():
-            logger.warning(
-                f'transaction {tx_hash} returned Timeout, checking status again.'
-            )
-            time.sleep(5)
-            response = node.get_tx(tx_hash, account_id)
-        elif 'does not exist' in error_data:
-            missing_count += 1
-            logger.warning(
-                f'transaction {tx_hash} failed to be received by the node, checking again.'
-            )
-            if missing_count < 20:
-                time.sleep(5)
-                response = node.get_tx(tx_hash, account_id)
-            else:
-                logger.warning(f're-sending transaction {tx_hash}.')
-                response = node.send_tx_and_wait(tx, timeout)
-                missing_count = 0
-        else:
-            raise RuntimeError(
-                f'Error in processing transaction {tx_hash}: {response}')
-        if time.time() - loop_start > timeout:
-            raise TimeoutError(
-                f'Transaction {tx_hash} did not complete successfully within the timeout'
-            )
-
-    if 'SuccessValue' not in response['result']['status']:
-        raise RuntimeError(
-            f'ERROR: Failed transaction {tx_hash}. Response: {response}')
-
-
-def transfer_between_nodes(nodes):
-    logger.info('Testing transfer between mocknet validators')
-    node = nodes[0]
-    alice = get_validator_account(nodes[1])
-    bob = get_validator_account(nodes[0])
-    transfer_amount = 100
-    get_balance = lambda account: int(
-        node.get_account(account.account_id)['result']['amount'])
-
-    alice_initial_balance = get_balance(alice)
-    alice_nonce = node.get_nonce_for_pk(alice.account_id, alice.pk)
-    bob_initial_balance = get_balance(bob)
-    logger.info(f'Alice initial balance: {alice_initial_balance}')
-    logger.info(f'Bob initial balance: {bob_initial_balance}')
-
-    last_block_hash = node.get_latest_block().hash_bytes
-
-    tx, tx_hash = sign_payment_tx_and_get_hash(alice, bob.account_id,
-                                               transfer_amount, alice_nonce + 1,
-                                               last_block_hash)
-    send_transaction(node, tx, tx_hash, alice.account_id)
-
-    alice_final_balance = get_balance(alice)
-    bob_final_balance = get_balance(bob)
-    logger.info(f'Alice final balance: {alice_final_balance}')
-    logger.info(f'Bob final balance: {bob_final_balance}')
-
-    # Check mod 1000 to ignore the cost of the transaction itself
-    assert (alice_initial_balance -
-            alice_final_balance) % 1000 == transfer_amount
-    assert bob_final_balance - bob_initial_balance == transfer_amount
-
-
-def stake_node(node):
-    account = get_validator_account(node)
-    logger.info(f'Staking {account.account_id}.')
-    nonce = node.get_nonce_for_pk(account.account_id, account.pk)
-
-    validators = node.get_validators(timeout=None)['result']
-    if account.account_id in validators['current_validators']:
-        return
-    stake_amount = max(
-        map(lambda v: int(v['stake']), validators['current_validators']))
-
-    latest_block_hash = node.get_status()['sync_info']['latest_block_hash']
-    last_block_hash_decoded = base58.b58decode(latest_block_hash.encode('utf8'))
-
-    staking_tx, staking_tx_hash = sign_staking_tx_and_get_hash(
-        account, account, stake_amount, nonce + 1, last_block_hash_decoded)
-    send_transaction(node, staking_tx, staking_tx_hash, account.account_id)
-
-
-def accounts_from_nodes(nodes):
-    return pmap(get_validator_account, nodes)
-
-
 def kill_process_script(pid):
     return f'''
         sudo kill {pid}
@@ -453,10 +176,6 @@ def is_binary_running(binary_name: str, node) -> bool:
     return result.returncode == 0
 
 
-def is_binary_running_all_nodes(binary_name: str, all_nodes) -> bool:
-    return pmap(functools.partial(is_binary_running, binary_name), all_nodes)
-
-
 def stop_node(node):
     m = node.machine
     logger.info(f'Stopping node {m.name}')
@@ -465,21 +184,6 @@ def stop_node(node):
     for pid in pids:
         m.run('bash', input=kill_process_script(pid))
         m.run('sudo -u ubuntu -i', input=TMUX_STOP_SCRIPT)
-
-
-def upload_and_extract(node, src_filename, dst_filename):
-    node.machine.upload(f'{src_filename}.gz',
-                        f'{dst_filename}.gz',
-                        switch_user='ubuntu')
-    node.machine.run('gunzip -f {dst_filename}.gz'.format(
-        dst_filename=shlex.quote(dst_filename)))
-
-
-def compress_and_upload(nodes, src_filename, dst_filename):
-    res = run(f'gzip {src_filename}')
-    assert res.returncode == 0
-    pmap(lambda node: upload_and_extract(node, src_filename, dst_filename),
-         nodes)
 
 
 # cspell:ignore redownload
@@ -686,62 +390,6 @@ def get_node_addr(node, port):
     return f'{node_key_json["public_key"]}@{node.ip}:{port}'
 
 
-def get_validator_account_id(node):
-    node_key_json = download_and_read_json(
-        node, '/home/ubuntu/.near/validator_key.json')
-    return node_key_json["account_id"]
-
-
-def get_validator_key(node):
-    node_key_json = download_and_read_json(
-        node, '/home/ubuntu/.near/validator_key.json')
-    return node_key_json["account_id"], node_key_json["public_key"]
-
-
-def get_node_keys(node):
-    logger.info(f'get_node_keys from {node.instance_name}')
-    node_key_json = download_and_read_json(
-        node,
-        '/home/ubuntu/.near/node_key.json',
-    )
-    return node_key_json['public_key'], node_key_json['secret_key']
-
-
-def init_validator_key(node):
-    account_id = node_account_name(node.instance_name)
-    node.machine.run(
-        f'dir=$(mktemp -d) && /home/ubuntu/neard --home $dir init --account-id {account_id} && mv $dir/validator_key.json /home/ubuntu/.near/validator_key.json'
-    )
-
-
-def update_config_file(
-    config_filename_in,
-    config_filename_out,
-    all_node_pks,
-    node_ips,
-):
-    with open(config_filename_in) as f:
-        config_json = json.load(f)
-
-    # Usually the port is 24567
-    port = config_json['network']['addr'].split(':')[1]
-    node_addresses = [
-        f'{node_key}@{node_ip}:{port}'
-        for node_key, node_ip in zip(all_node_pks, node_ips)
-    ]
-
-    config_json['tracked_shards_config'] = 'AllShards'
-    config_json['archive'] = True
-    config_json['archival_peer_connections_lower_bound'] = 1
-    config_json['network']['boot_nodes'] = ','.join(node_addresses)
-    config_json['rpc']['addr'] = '0.0.0.0:3030'
-    if 'telemetry' in config_json:
-        config_json['telemetry']['endpoints'] = []
-
-    with open(config_filename_out, 'w') as f:
-        json.dump(config_json, f, indent=2)
-
-
 def upload_config(node, config_json, override_fn):
     copied_config = json.loads(json.dumps(config_json))
     if override_fn:
@@ -867,9 +515,8 @@ def reset_data(node, retries=0):
             )
 
 
-# Waits until the node becomes responsive to RPC requests. It works the same as
-# list_validators but assumes that the node can still be starting and expects
-# connection errors and the data not being available.
+# Waits until the node becomes responsive to RPC requests. Assumes the node can
+# still be starting and expects connection errors and the data not being available.
 def wait_node_up(node):
     msg = f'Waiting for node {node.instance_name} to start'
     logger.info(msg)
@@ -902,79 +549,6 @@ def wait_all_nodes_up(all_nodes):
     pmap(lambda node: wait_node_up(node), all_nodes)
 
 
-def create_upgrade_schedule(
-    rpc_nodes,
-    validator_nodes,
-    progressive_upgrade,
-    increasing_stakes,
-    num_block_producer_seats,
-):
-    schedule = {}
-    if progressive_upgrade:
-        # Re-create stakes assignment.
-        stakes = []
-        if increasing_stakes:
-            prev_stake = None
-            for i, node in enumerate(validator_nodes):
-                if (i * 5 < num_block_producer_seats * 3 and
-                        i < len(MAINNET_STAKES)):
-                    staked = MAINNET_STAKES[i] * ONE_NEAR
-                elif prev_stake is None:
-                    prev_stake = MIN_STAKE - STAKE_STEP
-                    staked = prev_stake * ONE_NEAR
-                else:
-                    prev_stake = prev_stake + STAKE_STEP
-                    staked = prev_stake * ONE_NEAR
-                stakes.append((staked, node.instance_name))
-
-        else:
-            for node in validator_nodes:
-                stakes.append((MIN_STAKE, node.instance_name))
-        logger.info(f'create_upgrade_schedule')
-        for stake, instance_name in stakes:
-            logger.debug(f'instance_name: {instance_name} - stake: {stake}')
-
-        # Compute seat assignments.
-        seats = compute_seats(stakes, num_block_producer_seats)
-
-        seats_upgraded = 0
-        for seat, stake, instance_name in seats:
-            # As the protocol upgrade takes place after 80% of the nodes are
-            # upgraded, stop a bit earlier to start in a non-upgraded state.
-            if (seats_upgraded + seat) * 100 > 75 * num_block_producer_seats:
-                break
-            schedule[instance_name] = 0
-            logger.info(
-                f'validator node {node.instance_name} will start upgraded')
-            seats_upgraded += seat
-
-        # Upgrade the remaining validators during 4 epochs.
-        for node in validator_nodes:
-            if node.instance_name not in schedule:
-                schedule[node.instance_name] = random.randint(1, 4)
-                logger.info(
-                    f'validator node {node.instance_name} will upgrade at {schedule[node.instance_name]}'
-                )
-
-        for node in rpc_nodes:
-            schedule[node.instance_name] = random.randint(0, 4)
-            if not schedule[node.instance_name]:
-                logger.info(
-                    f'rpc node {node.instance_name} will start upgraded')
-            else:
-                logger.info(
-                    f'rpc node {node.instance_name} will upgrade at {schedule[node.instance_name]}'
-                )
-    else:
-        # Start all nodes upgraded.
-        for node in rpc_nodes:
-            schedule[node.instance_name] = 0
-        for node in validator_nodes:
-            schedule[node.instance_name] = 0
-
-    return schedule
-
-
 def compute_seats(stakes, num_block_producer_seats):
     max_stake = 0
     for i in stakes:
@@ -1001,95 +575,3 @@ def compute_seats(stakes, num_block_producer_seats):
         seats.append((stake // seat_price, stake, item))
     seats.sort(reverse=True)
     return seats
-
-
-def upgrade_nodes(epoch_height, upgrade_schedule, all_nodes):
-    logger.info(f'Upgrading nodes for epoch height {epoch_height}')
-    for node in all_nodes:
-        if upgrade_schedule.get(node.instance_name, 0) == epoch_height:
-            upgrade_node(node)
-
-
-def get_epoch_height(rpc_nodes, prev_epoch_height):
-    nodes = rpc_nodes.copy()
-    random.shuffle(nodes)
-    max_height = prev_epoch_height
-    for node in nodes:
-        (addr, port) = node.rpc_addr()
-        j = {
-            'method': 'validators',
-            'params': [None],
-            'id': 'dontcare',
-            'jsonrpc': '2.0'
-        }
-        try:
-            r = requests.post('http://%s:%s' % (addr, port), json=j, timeout=15)
-            if r.ok:
-                response = r.json()
-                max_height = max(
-                    max_height,
-                    int(response.get('result', {}).get('epoch_height', 0)),
-                )
-        except Exception as e:
-            continue
-    return max_height
-
-
-def neard_restart_script(node):
-    neard_binary = '/home/ubuntu/neard.upgrade'
-    return '''
-        tmux send-keys -t near C-c
-        sudo mv /home/ubuntu/near.log /home/ubuntu/near.log.1 2>/dev/null
-        sudo mv /home/ubuntu/near.upgrade.log /home/ubuntu/near.upgrade.log.1 2>/dev/null
-        tmux send-keys -t near 'RUST_BACKTRACE=full RUST_LOG=debug {neard_binary} run 2>&1 | tee -a {neard_binary}.log' C-m
-    '''.format(neard_binary=shlex.quote(neard_binary))
-
-
-def upgrade_node(node):
-    logger.info(f'Upgrading node {node.instance_name}')
-    attempt = 0
-    success = False
-    while attempt < 3:
-        start_process = node.machine.run(
-            'sudo -u ubuntu -i',
-            input=neard_restart_script(node),
-        )
-        if start_process.returncode == 0:
-            success = True
-            break
-        logger.warn(
-            f'Failed to upgrade neard, return code: {start_process.returncode}\n{node.instance_name}\n{start_process.stderr}'
-        )
-        attempt += 1
-        time.sleep(1)
-    if not success:
-        raise Exception(f'Could not upgrade node {node.instance_name}')
-
-
-STAKING_TIMEOUT = 60
-
-
-# If the available amount of whole NEAR tokens is above 10**3, then stakes all available amount.
-# Runs only if `last_staking` is at least `STAKING_TIMEOUT` seconds in the past.
-def stake_available_amount(node_account, last_staking):
-    # Repeat the staking transactions in case the validator selection algorithm changes.
-    # Don't query the balance too often, avoid overloading the RPC node.
-    if time.time() - last_staking > STAKING_TIMEOUT:
-        # Make several attempts just in case the RPC node doesn't respond.
-        for attempt in range(3):
-            try:
-                stake_amount = node_account.get_amount_yoctonear()
-                logger.info(
-                    f'Amount of {node_account.key.account_id} is {stake_amount}'
-                )
-                if stake_amount > (10**3) * ONE_NEAR:
-                    logger.info(
-                        f'Staking {stake_amount} for {node_account.key.account_id}'
-                    )
-                    node_account.send_stake_tx(stake_amount)
-                logger.info(
-                    f'Staked {stake_amount} for {node_account.key.account_id}')
-                return time.time()
-            except Exception as e:
-                logger.info('Failed to stake')
-    return None
