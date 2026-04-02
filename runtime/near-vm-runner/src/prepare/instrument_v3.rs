@@ -552,9 +552,18 @@ impl<'a> InstrumentContext<'a> {
                     local_idx,
                 )?;
             }
+            let mut block_count: u64 = 0;
             while !operators.eof() {
                 let (op, offset) = operators.read_with_offset().map_err(Error::ParseOperator)?;
                 let end_offset = operators.original_position();
+                match op {
+                    wp::Operator::Block { .. }
+                    | wp::Operator::Loop { .. }
+                    | wp::Operator::If { .. } => {
+                        block_count += 1;
+                    }
+                    _ => {}
+                }
                 while instrumentation_points.peek().map(|((o, _), _)| **o) == Some(offset) {
                     let ((_, g), k) = instrumentation_points.next().expect("we just peeked");
                     if !matches!(k, InstrumentationKind::Unreachable) {
@@ -623,6 +632,12 @@ impl<'a> InstrumentContext<'a> {
                     }
                 };
             }
+            tracing::debug!(
+                target: "vm",
+                function_index = code_idx,
+                block_count,
+                "wasm function block count"
+            );
         }
 
         self.code_section.function(&new_function);

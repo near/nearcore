@@ -479,15 +479,17 @@ impl WasmtimeVM {
             CompilationError::WasmtimeCompileError { msg: err.to_string() }
         })?;
 
+        let elapsed = start.elapsed();
         tracing::debug!(
             target: "vm",
             original_size = %code.code().len(),
             prepared_size = %prepared_code.len(),
             compiled_size = %serialized.len(),
+            elapsed_ms = %elapsed.as_millis(),
             "wasmtime compiled contract",
         );
 
-        crate::metrics::compilation_duration(VMKind::Wasmtime, start.elapsed());
+        crate::metrics::compilation_duration(VMKind::Wasmtime, elapsed);
         Ok(serialized)
     }
 
