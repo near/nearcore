@@ -342,6 +342,7 @@ impl ClientConfig {
             save_invalid_witnesses: false,
             transaction_request_handler_threads: default_rpc_handler_thread_count(),
             protocol_version_check: Default::default(),
+            vm_kind_override: false,
             enable_early_prepare_transactions: default_enable_early_prepare_transactions(),
             chunks_cache_height_horizon: default_chunks_cache_height_horizon(),
             disable_tx_routing: false,

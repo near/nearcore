@@ -338,6 +338,7 @@ pub struct Chain {
     /// Determines whether client should exit if the protocol version is not supported
     /// in the next or next next epoch.
     protocol_version_check: ProtocolVersionCheckConfig,
+    vm_kind_override: bool,
     /// Used to receive `PostStateReady` messages from the runtime.
     on_post_state_ready_sender: Option<PostStateReadySender>,
 }
@@ -476,6 +477,7 @@ impl Chain {
             validator_signer,
             spice_core_reader,
             protocol_version_check: Default::default(),
+            vm_kind_override: false,
             on_post_state_ready_sender: None,
         })
     }
@@ -658,6 +660,7 @@ impl Chain {
             validator_signer,
             spice_core_reader,
             protocol_version_check: chain_config.protocol_version_check,
+            vm_kind_override: chain_config.vm_kind_override,
             on_post_state_ready_sender,
         })
     }
@@ -3385,7 +3388,7 @@ impl Chain {
             let prev_chunk_height_included = prev_chunk_header.height_included();
 
             // Validate that all next chunk information matches previous chunk extra.
-            validate_chunk_with_chunk_extra(
+            if let Err(err) = validate_chunk_with_chunk_extra(
                 // It's safe here to use ChainStore instead of ChainStoreUpdate
                 // because we're asking prev_chunk_header for already committed block
                 self.chain_store(),
@@ -3394,20 +3397,28 @@ impl Chain {
                 prev_chunk_extra.as_ref(),
                 prev_chunk_height_included,
                 chunk_header,
-            )
-            .map_err(|err| {
-                tracing::warn!(
-                    target: "chain",
-                    ?err,
-                    %shard_id,
-                    prev_chunk_height_included,
-                    ?prev_chunk_extra,
-                    ?chunk_header,
-                    "failed to validate chunk extra"
-                );
-                byzantine_assert!(false);
-                err
-            })?;
+            ) {
+                if self.vm_kind_override {
+                    tracing::warn!(
+                        target: "chain",
+                        ?err,
+                        %shard_id,
+                        "chunk extra validation mismatch (expected with vm_kind_override)"
+                    );
+                } else {
+                    tracing::warn!(
+                        target: "chain",
+                        ?err,
+                        %shard_id,
+                        prev_chunk_height_included,
+                        ?prev_chunk_extra,
+                        ?chunk_header,
+                        "failed to validate chunk extra"
+                    );
+                    byzantine_assert!(false);
+                    return Err(err);
+                }
+            }
 
             let tx_valid_list = self.validate_chunk_transactions(prev_block.header(), &chunk);
 

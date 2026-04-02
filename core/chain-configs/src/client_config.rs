@@ -875,6 +875,8 @@ pub struct ClientConfig {
     /// Determines whether client should exit if the protocol version is not supported
     /// for the next or next next epoch.
     pub protocol_version_check: ProtocolVersionCheckConfig,
+    /// Whether this node is using a non-standard VM for benchmarking.
+    pub vm_kind_override: bool,
     /// If true, transactions for the next chunk will be prepared early, right after the previous chunk's
     /// post-state is ready. This can help produce chunks faster, for high-throughput chains.
     /// The current implementation increases latency on low-load chains, which will be fixed in the future.

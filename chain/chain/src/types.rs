@@ -258,6 +258,10 @@ pub struct ChainConfig {
     pub resharding_config: MutableConfigValue<ReshardingConfig>,
     /// The epoch to check for protocol version compatibility.
     pub protocol_version_check: ProtocolVersionCheckConfig,
+    /// When set, the node is using a non-standard VM for benchmarking.
+    /// State root and gas validation mismatches are logged instead of
+    /// causing errors.
+    pub vm_kind_override: bool,
 }
 
 impl ChainConfig {
@@ -268,6 +272,7 @@ impl ChainConfig {
             save_receipt_to_tx: true,
             save_state_changes: true,
             background_migration_threads: 1,
+            vm_kind_override: false,
             resharding_config: MutableConfigValue::new(
                 ReshardingConfig::test(),
                 "resharding_config",

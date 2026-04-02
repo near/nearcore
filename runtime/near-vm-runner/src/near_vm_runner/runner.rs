@@ -721,10 +721,15 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
         let vmmemory = memory.vm();
         let mut logic = VMLogic::new(ext, context, fees_config, result_state, &mut memory);
         let import = build_imports(vmmemory, &mut logic, config, artifact.engine());
+        let execution_start = std::time::Instant::now();
         let result = match vm.run_method(&artifact, import, entrypoint)? {
             Ok(()) => Ok(VMOutcome::ok(logic.result_state)),
             Err(err) => Ok(VMOutcome::abort(logic.result_state, err)),
         };
+        crate::metrics::execution_duration(
+            near_parameters::vm::VMKind::NearVm,
+            execution_start.elapsed(),
+        );
         lazy_drop(Box::new(memory));
         result
     }

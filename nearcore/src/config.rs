@@ -271,6 +271,13 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) tracked_shard_schedule: Option<Vec<Vec<ShardId>>>,
 
+    /// Override the VM kind used for contract execution. When set, the node
+    /// will use this VM instead of the protocol-specified one. This will cause
+    /// state root divergence, so validation mismatches are logged rather than
+    /// treated as errors. Only for benchmarking.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vm_kind_override: Option<near_parameters::vm::VMKind>,
+
     #[serde(skip_serializing_if = "is_false")]
     pub archive: bool,
     /// Configuration for a cloud-based archival node.
@@ -468,6 +475,7 @@ impl Default for Config {
             tracked_shadow_validator: None,
             tracked_shards: None,
             tracked_shard_schedule: None,
+            vm_kind_override: None,
             archive: false,
             cloud_archival: None,
             cloud_archival_writer: None,
@@ -793,6 +801,7 @@ impl NearConfig {
                 protocol_version_check: config
                     .protocol_version_check_config_override
                     .unwrap_or(ProtocolVersionCheckConfig::NextNext),
+                vm_kind_override: config.vm_kind_override.is_some(),
                 enable_early_prepare_transactions: config
                     .enable_early_prepare_transactions
                     .unwrap_or_else(default_enable_early_prepare_transactions),
@@ -893,6 +902,14 @@ impl NightshadeRuntime {
             config.config.max_loaded_contracts,
             Some("filesystem".to_string()),
         )?;
+        let runtime_config_store = config.config.vm_kind_override.map(|vm_kind| {
+            tracing::warn!(target: "neard", ?vm_kind, "overriding VM kind for benchmarking");
+            let mut store = near_parameters::RuntimeConfigStore::for_chain_id(
+                &config.genesis.config.chain_id,
+            );
+            store.override_vm_kind(vm_kind);
+            store
+        });
         Ok(NightshadeRuntime::new(
             store,
             ContractRuntimeCache::handle(&contract_cache),
@@ -900,7 +917,7 @@ impl NightshadeRuntime {
             epoch_manager,
             config.client_config.trie_viewer_state_size_limit,
             config.client_config.max_gas_burnt_view,
-            None,
+            runtime_config_store,
             config.config.gc.gc_num_epochs_to_keep(),
             TrieConfig::from_store_config(&config.config.store),
             state_snapshot_config,

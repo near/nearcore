@@ -891,7 +891,9 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
             }
         }
 
+        let execution_start = std::time::Instant::now();
         let res = call(&mut store, instance, &method);
+        crate::metrics::execution_duration(VMKind::Wasmtime, execution_start.elapsed());
         let Ctx { result_state, .. } = store.into_data();
         match res? {
             RunOutcome::Ok => Ok(VMOutcome::ok(result_state)),

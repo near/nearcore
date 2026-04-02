@@ -9,6 +9,8 @@ thread_local! {
     static METRICS: RefCell<Metrics> = const { RefCell::new(Metrics {
         near_vm_compilation_time: Duration::new(0, 0),
         wasmtime_compilation_time: Duration::new(0, 0),
+        near_vm_execution_time: Duration::new(0, 0),
+        wasmtime_execution_time: Duration::new(0, 0),
         compiled_contract_cache_lookups: 0,
         compiled_contract_cache_hits: 0,
     }) };
@@ -18,6 +20,16 @@ static COMPILATION_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_vm_runner_compilation_seconds",
         "Histogram of how long it takes to compile things",
+        &["vm_kind", "shard_id"],
+        None,
+    )
+    .unwrap()
+});
+
+static EXECUTION_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_vm_runner_execution_seconds",
+        "Histogram of WASM contract execution time",
         &["vm_kind", "shard_id"],
         None,
     )
@@ -60,6 +72,8 @@ static COMPILED_CONTRACT_CACHE_HITS_TOTAL: LazyLock<IntCounterVec> = LazyLock::n
 struct Metrics {
     near_vm_compilation_time: Duration,
     wasmtime_compilation_time: Duration,
+    near_vm_execution_time: Duration,
+    wasmtime_execution_time: Duration,
     /// Number of lookups from the compiled contract cache.
     compiled_contract_cache_lookups: u64,
     /// Number of times the lookup from the compiled contract cache finds a match.
@@ -74,6 +88,16 @@ pub(crate) fn compilation_duration(kind: near_parameters::vm::VMKind, duration: 
         VMKind::Wasmtime => m.wasmtime_compilation_time += duration,
         VMKind::Wasmer2 => unreachable!(),
         VMKind::NearVm => m.near_vm_compilation_time += duration,
+    });
+}
+
+pub(crate) fn execution_duration(kind: near_parameters::vm::VMKind, duration: Duration) {
+    use near_parameters::vm::VMKind;
+    METRICS.with_borrow_mut(|m| match kind {
+        VMKind::Wasmer0 => unreachable!(),
+        VMKind::Wasmtime => m.wasmtime_execution_time += duration,
+        VMKind::Wasmer2 => unreachable!(),
+        VMKind::NearVm => m.near_vm_execution_time += duration,
     });
 }
 
@@ -110,6 +134,16 @@ pub fn report_metrics(shard_id: &str, caller_context: &str) {
             COMPILATION_TIME
                 .with_label_values(&["wasmtime", shard_id])
                 .observe(m.wasmtime_compilation_time.as_secs_f64());
+        }
+        if !m.near_vm_execution_time.is_zero() {
+            EXECUTION_TIME
+                .with_label_values(&["near_vm", shard_id])
+                .observe(m.near_vm_execution_time.as_secs_f64());
+        }
+        if !m.wasmtime_execution_time.is_zero() {
+            EXECUTION_TIME
+                .with_label_values(&["wasmtime", shard_id])
+                .observe(m.wasmtime_execution_time.as_secs_f64());
         }
         if m.compiled_contract_cache_lookups > 0 {
             COMPILED_CONTRACT_CACHE_LOOKUPS_TOTAL

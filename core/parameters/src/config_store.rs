@@ -260,6 +260,16 @@ impl RuntimeConfigStore {
             .1
     }
 
+    /// Override the VM kind for all protocol versions. Used for benchmarking
+    /// different VM backends on mainnet.
+    pub fn override_vm_kind(&mut self, vm_kind: crate::vm::VMKind) {
+        for config in self.store.values_mut() {
+            let mut wasm_config = crate::vm::Config::clone(config.wasm_config.as_ref());
+            wasm_config.vm_kind = vm_kind;
+            Arc::make_mut(config).wasm_config = Arc::new(wasm_config);
+        }
+    }
+
     /// Returns a mutable borrow of `RuntimeConfig` for the corresponding protocol version.
     pub fn get_config_mut(&mut self, protocol_version: ProtocolVersion) -> &mut Arc<RuntimeConfig> {
         self.store
