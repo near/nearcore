@@ -91,7 +91,10 @@ pub(crate) static SHADOW_GAS_DIFF_PCT: LazyLock<HistogramVec> = LazyLock::new(||
         "near_shadow_gas_diff_percent",
         "Percentage gas difference between canonical and shadow VM",
         &["shard_id"],
-        Some(linear_buckets(-50.0, 5.0, 21).unwrap()),
+        Some(vec![
+            -1.0, -0.1, -0.01, -0.005, -0.002, -0.001, -0.0005, 0.0, 0.0005, 0.001, 0.002, 0.005,
+            0.01, 0.1, 1.0,
+        ]),
     )
     .unwrap()
 });
