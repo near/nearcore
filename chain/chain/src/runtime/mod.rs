@@ -670,6 +670,9 @@ fn format_total_gas_burnt(gas: Gas) -> String {
     format!("{:.0}", ((gas.as_gas() as f64) / 1e14).ceil() * 100.0)
 }
 
+/// Gas difference threshold (percentage) above which per-receipt details are logged.
+const SHADOW_GAS_DIFF_WARN_THRESHOLD: f64 = 1.0;
+
 impl NightshadeRuntime {
     fn log_shadow_comparison(
         &self,
@@ -688,10 +691,8 @@ impl NightshadeRuntime {
                     .outcomes
                     .iter()
                     .fold(0u64, |a, r| a.saturating_add(r.outcome.gas_burnt.as_gas()));
-                let mut has_mismatch = false;
                 let shard_label = shard_id.to_string();
 
-                // Record gas diff metric
                 let gas_diff_pct = if canonical_gas > 0 {
                     ((shadow_gas as f64 - canonical_gas as f64) / canonical_gas as f64) * 100.0
                 } else {
@@ -701,112 +702,110 @@ impl NightshadeRuntime {
                     .with_label_values(&[&shard_label])
                     .observe(gas_diff_pct);
 
-                if canonical_result.state_root != shadow_apply.state_root {
-                    has_mismatch = true;
-                    tracing::warn!(
-                        target: "runtime",
-                        %shard_id,
-                        ?shadow_vm_kind,
-                        canonical_state_root = ?canonical_result.state_root,
-                        shadow_state_root = ?shadow_apply.state_root,
-                        "shadow: state root mismatch"
-                    );
-                }
-                if canonical_gas != shadow_gas {
-                    has_mismatch = true;
-                    let pct = if canonical_gas > 0 {
-                        ((shadow_gas as f64 - canonical_gas as f64) / canonical_gas as f64) * 100.0
-                    } else {
-                        0.0
-                    };
-                    tracing::warn!(
-                        target: "runtime",
-                        %shard_id,
-                        ?shadow_vm_kind,
-                        canonical_gas,
-                        shadow_gas,
-                        gas_diff_pct = format_args!("{:.4}%", pct),
-                        "shadow: gas mismatch"
-                    );
-                }
-
-                // Compare outcome counts
                 let canonical_outcomes = &canonical_result.outcomes;
                 let shadow_outcomes = &shadow_apply.outcomes;
-                if canonical_outcomes.len() != shadow_outcomes.len() {
-                    has_mismatch = true;
-                    tracing::warn!(
-                        target: "runtime",
-                        %shard_id,
-                        ?shadow_vm_kind,
-                        canonical_count = canonical_outcomes.len(),
-                        shadow_count = shadow_outcomes.len(),
-                        "shadow: outcome count mismatch"
-                    );
-                }
+                let outcomes_match = canonical_outcomes.len() == shadow_outcomes.len();
+                let ids_match = canonical_outcomes
+                    .iter()
+                    .zip(shadow_outcomes.iter())
+                    .all(|(c, s)| c.id == s.id);
 
-                // Compare per-receipt outcomes
-                for (canonical, shadow) in canonical_outcomes.iter().zip(shadow_outcomes.iter()) {
-                    if canonical.id != shadow.id {
-                        has_mismatch = true;
-                        tracing::warn!(
-                            target: "runtime",
-                            %shard_id,
-                            ?shadow_vm_kind,
-                            canonical_id = ?canonical.id,
-                            shadow_id = ?shadow.id,
-                            "shadow: outcome id mismatch (results misaligned)"
-                        );
-                        break;
-                    }
-                    let c_gas = canonical.outcome.gas_burnt.as_gas();
-                    let s_gas = shadow.outcome.gas_burnt.as_gas();
-                    let c_status = std::mem::discriminant(&canonical.outcome.status);
-                    let s_status = std::mem::discriminant(&shadow.outcome.status);
-                    let c_logs = &canonical.outcome.logs;
-                    let s_logs = &shadow.outcome.logs;
-                    if c_gas != s_gas || c_status != s_status || c_logs != s_logs {
-                        has_mismatch = true;
-                        tracing::warn!(
-                            target: "runtime",
-                            %shard_id,
-                            ?shadow_vm_kind,
-                            receipt_id = ?canonical.id,
-                            canonical_gas = c_gas,
-                            shadow_gas = s_gas,
-                            canonical_status = ?canonical.outcome.status,
-                            shadow_status = ?shadow.outcome.status,
-                            logs_match = (c_logs == s_logs),
-                            "shadow: per-receipt mismatch"
-                        );
-                    }
-                }
+                // Count receipts with status or log mismatches (not just gas).
+                let status_mismatches = canonical_outcomes
+                    .iter()
+                    .zip(shadow_outcomes.iter())
+                    .filter(|(c, s)| {
+                        std::mem::discriminant(&c.outcome.status)
+                            != std::mem::discriminant(&s.outcome.status)
+                            || c.outcome.logs != s.outcome.logs
+                    })
+                    .count();
+                let outgoing_match = canonical_result.outgoing_receipts.len()
+                    == shadow_apply.outgoing_receipts.len();
 
-                // Compare outgoing receipts
-                if canonical_result.outgoing_receipts.len() != shadow_apply.outgoing_receipts.len()
-                {
-                    has_mismatch = true;
-                    tracing::warn!(
-                        target: "runtime",
-                        %shard_id,
-                        ?shadow_vm_kind,
-                        canonical_count = canonical_result.outgoing_receipts.len(),
-                        shadow_count = shadow_apply.outgoing_receipts.len(),
-                        "shadow: outgoing receipts count mismatch"
-                    );
-                }
+                let is_serious = !outcomes_match
+                    || !ids_match
+                    || status_mismatches > 0
+                    || !outgoing_match
+                    || gas_diff_pct.abs() > SHADOW_GAS_DIFF_WARN_THRESHOLD;
 
-                let result_label = if has_mismatch { "mismatch" } else { "match" };
+                let result_label = if is_serious {
+                    "serious_mismatch"
+                } else if canonical_gas != shadow_gas {
+                    "gas_only_mismatch"
+                } else {
+                    "match"
+                };
                 metrics::SHADOW_CHUNK_COMPARISON
                     .with_label_values(&[&shard_label, result_label])
                     .inc();
-                if !has_mismatch {
-                    tracing::debug!(
-                        target: "runtime",
-                        %shard_id,
-                        ?shadow_vm_kind,
-                        "shadow: results match"
-                    );
+
+                // Summary line with every chunk's stats log
+                tracing::info!(
+                    target: "runtime",
+                    %shard_id,
+                    ?shadow_vm_kind,
+                    receipts = canonical_outcomes.len(),
+                    gas_diff_pct = format_args!("{:.4}%", gas_diff_pct),
+                    status_mismatches,
+                    outcomes_match,
+                    outgoing_match,
+                    result_label,
+                    "shadow: chunk summary"
+                );
+
+                // Log per-receipt details only for serious mismatches.
+                if is_serious {
+                    if !outcomes_match {
+                        tracing::warn!(
+                            target: "runtime",
+                            %shard_id,
+                            canonical_count = canonical_outcomes.len(),
+                            shadow_count = shadow_outcomes.len(),
+                            "shadow: outcome count mismatch"
+                        );
+                    }
+                    for (canonical, shadow) in canonical_outcomes.iter().zip(shadow_outcomes.iter())
+                    {
+                        if canonical.id != shadow.id {
+                            tracing::warn!(
+                                target: "runtime",
+                                %shard_id,
+                                canonical_id = ?canonical.id,
+                                shadow_id = ?shadow.id,
+                                "shadow: outcome id mismatch (results misaligned)"
+                            );
+                            break;
+                        }
+                        let c_gas = canonical.outcome.gas_burnt.as_gas();
+                        let s_gas = shadow.outcome.gas_burnt.as_gas();
+                        let c_status = std::mem::discriminant(&canonical.outcome.status);
+                        let s_status = std::mem::discriminant(&shadow.outcome.status);
+                        let c_logs = &canonical.outcome.logs;
+                        let s_logs = &shadow.outcome.logs;
+                        if c_gas != s_gas || c_status != s_status || c_logs != s_logs {
+                            tracing::warn!(
+                                target: "runtime",
+                                %shard_id,
+                                receipt_id = ?canonical.id,
+                                canonical_gas = c_gas,
+                                shadow_gas = s_gas,
+                                canonical_status = ?canonical.outcome.status,
+                                shadow_status = ?shadow.outcome.status,
+                                logs_match = (c_logs == s_logs),
+                                "shadow: per-receipt mismatch"
+                            );
+                        }
+                    }
+                    if !outgoing_match {
+                        tracing::warn!(
+                            target: "runtime",
+                            %shard_id,
+                            canonical_count = canonical_result.outgoing_receipts.len(),
+                            shadow_count = shadow_apply.outgoing_receipts.len(),
+                            "shadow: outgoing receipts count mismatch"
+                        );
+                    }
                 }
             }
             Err(err) => {
