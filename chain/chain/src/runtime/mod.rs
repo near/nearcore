@@ -77,6 +77,9 @@ mod trie_update_wrapper;
 pub struct NightshadeRuntime {
     genesis_config: GenesisConfig,
     runtime_config_store: RuntimeConfigStore,
+    /// When set, chunks are also executed with this config for comparison.
+    /// Results are logged but not used for state.
+    shadow_runtime_config_store: Option<RuntimeConfigStore>,
     store: Store,
     compiled_contract_cache: Box<dyn ContractRuntimeCache>,
     tries: ShardTries,
@@ -98,6 +101,7 @@ impl NightshadeRuntime {
         trie_viewer_state_size_limit: Option<u64>,
         max_gas_burnt_view: Option<Gas>,
         runtime_config_store: Option<RuntimeConfigStore>,
+        shadow_runtime_config_store: Option<RuntimeConfigStore>,
         gc_num_epochs_to_keep: u64,
         trie_config: TrieConfig,
         state_snapshot_config: StateSnapshotConfig,
@@ -136,6 +140,7 @@ impl NightshadeRuntime {
             genesis_config: genesis_config.clone(),
             compiled_contract_cache,
             runtime_config_store,
+            shadow_runtime_config_store,
             store,
             tries,
             runtime,
@@ -614,6 +619,131 @@ fn format_total_gas_burnt(gas: Gas) -> String {
     // Rounds up the amount of teragas to hundreds of Tgas.
     // For example 123 Tgas gets rounded up to "200".
     format!("{:.0}", ((gas.as_gas() as f64) / 1e14).ceil() * 100.0)
+}
+
+impl NightshadeRuntime {
+    /// Re-execute a chunk with a different VM config (shadow execution).
+    /// Compares state root and gas with the canonical result and logs differences.
+    fn shadow_apply_chunk(
+        &self,
+        shadow_config_store: &RuntimeConfigStore,
+        proof: &near_store::PartialStorage,
+        state_root: StateRoot,
+        use_flat_storage: bool,
+        block: ApplyChunkBlockContext,
+        receipts: &[Receipt],
+        canonical_result: &ApplyChunkResult,
+        shard_id: ShardId,
+    ) {
+        let epoch_id = match self.epoch_manager.get_epoch_id_from_prev_block(&block.prev_block_hash)
+        {
+            Ok(id) => id,
+            Err(err) => {
+                tracing::warn!(target: "runtime", ?err, "shadow: failed to get epoch id");
+                return;
+            }
+        };
+        let protocol_version = match self.epoch_manager.get_epoch_protocol_version(&epoch_id) {
+            Ok(v) => v,
+            Err(err) => {
+                tracing::warn!(target: "runtime", ?err, "shadow: failed to get protocol version");
+                return;
+            }
+        };
+        let shadow_config = shadow_config_store.get_config(protocol_version);
+        let shadow_vm_kind = shadow_config.wasm_config.vm_kind;
+
+        let trie = Trie::from_recorded_storage(
+            near_store::PartialStorage { nodes: proof.nodes.clone() },
+            state_root,
+            use_flat_storage,
+        );
+
+        let apply_state = ApplyState {
+            apply_reason: ApplyChunkReason::UpdateTrackedShard,
+            block_height: block.height,
+            prev_block_hash: block.prev_block_hash,
+            shard_id,
+            epoch_id,
+            epoch_height: self
+                .epoch_manager
+                .get_epoch_height_from_prev_block(&block.prev_block_hash)
+                .unwrap_or(0),
+            gas_price: block.gas_price,
+            block_timestamp: block.block_timestamp,
+            gas_limit: None,
+            random_seed: block.random_seed,
+            current_protocol_version: protocol_version,
+            config: shadow_config.clone(),
+            cache: Some(self.compiled_contract_cache.handle()),
+            is_new_chunk: true,
+            save_receipt_to_tx: false,
+            congestion_info: block.congestion_info,
+            bandwidth_requests: block.bandwidth_requests,
+            trie_access_tracker_state: Default::default(),
+            on_post_state_ready: None,
+        };
+
+        let shadow_result = self.runtime.apply(
+            trie,
+            &None,
+            &apply_state,
+            receipts,
+            SignedValidPeriodTransactions::empty(),
+            self.epoch_manager.as_ref(),
+            Default::default(),
+        );
+
+        match shadow_result {
+            Ok(shadow_apply) => {
+                let canonical_gas = canonical_result.total_gas_burnt.as_gas();
+                let shadow_gas = shadow_apply
+                    .outcomes
+                    .iter()
+                    .fold(0u64, |a, r| a.saturating_add(r.outcome.gas_burnt.as_gas()));
+
+                if canonical_result.new_root != shadow_apply.state_root {
+                    tracing::warn!(
+                        target: "runtime",
+                        %shard_id,
+                        ?shadow_vm_kind,
+                        canonical_state_root = ?canonical_result.new_root,
+                        shadow_state_root = ?shadow_apply.state_root,
+                        "shadow: state root mismatch"
+                    );
+                }
+                if canonical_gas != shadow_gas {
+                    tracing::warn!(
+                        target: "runtime",
+                        %shard_id,
+                        ?shadow_vm_kind,
+                        canonical_gas,
+                        shadow_gas,
+                        "shadow: gas mismatch"
+                    );
+                }
+                if canonical_result.new_root == shadow_apply.state_root
+                    && canonical_gas == shadow_gas
+                {
+                    tracing::debug!(
+                        target: "runtime",
+                        %shard_id,
+                        ?shadow_vm_kind,
+                        "shadow: results match"
+                    );
+                }
+            }
+            Err(err) => {
+                tracing::warn!(
+                    target: "runtime",
+                    %shard_id,
+                    ?shadow_vm_kind,
+                    ?err,
+                    "shadow: execution failed"
+                );
+            }
+        }
+    }
 }
 
 impl RuntimeAdapter for NightshadeRuntime {
@@ -1174,7 +1304,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         let proof_limit = config.witness_config.main_storage_proof_size_soft_limit;
         trie = trie.recording_reads_with_proof_size_limit(proof_limit);
 
-        match self.process_state_update(
+        // Save values needed for shadow execution before they are moved.
+        let shadow_block = if self.shadow_runtime_config_store.is_some() {
+            Some((block.clone(), storage_config.state_root, storage_config.use_flat_storage))
+        } else {
+            None
+        };
+
+        let result = match self.process_state_update(
             trie,
             apply_reason,
             chunk,
@@ -1192,7 +1329,27 @@ impl RuntimeAdapter for NightshadeRuntime {
                 },
                 _ => Err(e),
             },
+        }?;
+
+        // Shadow execution: re-run with the override VM using recorded storage.
+        if let (Some(shadow_config_store), Some((shadow_block, state_root, use_flat_storage))) =
+            (&self.shadow_runtime_config_store, shadow_block)
+        {
+            if let Some(ref proof) = result.proof {
+                self.shadow_apply_chunk(
+                    shadow_config_store,
+                    proof,
+                    state_root,
+                    use_flat_storage,
+                    shadow_block,
+                    receipts,
+                    &result,
+                    shard_id,
+                );
+            }
         }
+
+        Ok(result)
     }
 
     fn query(

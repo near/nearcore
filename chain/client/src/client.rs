@@ -341,7 +341,6 @@ impl Client {
             background_migration_threads: config.client_background_migration_threads,
             resharding_config: config.resharding_config.clone(),
             protocol_version_check: config.protocol_version_check,
-            vm_kind_override: config.vm_kind_override,
         };
         let chain = Chain::new(
             clock.clone(),

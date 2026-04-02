@@ -801,7 +801,6 @@ impl NearConfig {
                 protocol_version_check: config
                     .protocol_version_check_config_override
                     .unwrap_or(ProtocolVersionCheckConfig::NextNext),
-                vm_kind_override: config.vm_kind_override.is_some(),
                 enable_early_prepare_transactions: config
                     .enable_early_prepare_transactions
                     .unwrap_or_else(default_enable_early_prepare_transactions),
@@ -902,11 +901,10 @@ impl NightshadeRuntime {
             config.config.max_loaded_contracts,
             Some("filesystem".to_string()),
         )?;
-        let runtime_config_store = config.config.vm_kind_override.map(|vm_kind| {
-            tracing::warn!(target: "neard", ?vm_kind, "overriding VM kind for benchmarking");
-            let mut store = near_parameters::RuntimeConfigStore::for_chain_id(
-                &config.genesis.config.chain_id,
-            );
+        let shadow_runtime_config_store = config.config.vm_kind_override.map(|vm_kind| {
+            tracing::warn!(target: "neard", ?vm_kind, "shadow VM for benchmarking comparison");
+            let mut store =
+                near_parameters::RuntimeConfigStore::for_chain_id(&config.genesis.config.chain_id);
             store.override_vm_kind(vm_kind);
             store
         });
@@ -917,7 +915,8 @@ impl NightshadeRuntime {
             epoch_manager,
             config.client_config.trie_viewer_state_size_limit,
             config.client_config.max_gas_burnt_view,
-            runtime_config_store,
+            None,
+            shadow_runtime_config_store,
             config.config.gc.gc_num_epochs_to_keep(),
             TrieConfig::from_store_config(&config.config.store),
             state_snapshot_config,

@@ -566,7 +566,6 @@ pub fn setup_synchronous_shards_manager(
                 "resharding_config",
             ),
             protocol_version_check: Default::default(),
-            vm_kind_override: false,
         }, // irrelevant
         None,
         Default::default(),
