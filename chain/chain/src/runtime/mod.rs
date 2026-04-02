@@ -710,16 +710,28 @@ impl NightshadeRuntime {
                     .zip(shadow_outcomes.iter())
                     .all(|(c, s)| c.id == s.id);
 
-                // Count receipts with status or log mismatches (not just gas).
-                let status_mismatches = canonical_outcomes
-                    .iter()
-                    .zip(shadow_outcomes.iter())
-                    .filter(|(c, s)| {
-                        std::mem::discriminant(&c.outcome.status)
-                            != std::mem::discriminant(&s.outcome.status)
-                            || c.outcome.logs != s.outcome.logs
-                    })
-                    .count();
+                // Per-receipt gas direction and status comparison.
+                let mut receipts_gas_higher = 0u32;
+                let mut receipts_gas_lower = 0u32;
+                let mut receipts_gas_equal = 0u32;
+                let mut status_mismatches = 0u32;
+                for (c, s) in canonical_outcomes.iter().zip(shadow_outcomes.iter()) {
+                    let c_gas = c.outcome.gas_burnt.as_gas();
+                    let s_gas = s.outcome.gas_burnt.as_gas();
+                    if s_gas > c_gas {
+                        receipts_gas_higher += 1;
+                    } else if s_gas < c_gas {
+                        receipts_gas_lower += 1;
+                    } else {
+                        receipts_gas_equal += 1;
+                    }
+                    if std::mem::discriminant(&c.outcome.status)
+                        != std::mem::discriminant(&s.outcome.status)
+                        || c.outcome.logs != s.outcome.logs
+                    {
+                        status_mismatches += 1;
+                    }
+                }
                 let outgoing_match = canonical_result.outgoing_receipts.len()
                     == shadow_apply.outgoing_receipts.len();
 
@@ -760,6 +772,9 @@ impl NightshadeRuntime {
                         canonical_gas,
                         shadow_gas,
                         gas_diff_pct = format_args!("{:+.4}%", gas_diff_pct),
+                        receipts_gas_higher,
+                        receipts_gas_lower,
+                        receipts_gas_equal,
                         status_mismatches,
                         outcomes_match,
                         outgoing_match,
