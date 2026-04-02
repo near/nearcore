@@ -322,7 +322,6 @@ impl ShardLayoutV3 {
             return Some(shard_id);
         }
         let children = self.shards_split_map.get(&shard_id)?;
-        // Any child is fine
         self.resolve_to_current_shard(children[0])
     }
 
