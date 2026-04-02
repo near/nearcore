@@ -1,3 +1,4 @@
+use super::alloc::CHUNK_SIZE;
 use super::single_thread::STArenaMemory;
 use super::{Arena, ArenaMemory, ArenaPos};
 use smallvec::SmallVec;
@@ -29,6 +30,11 @@ impl FrozenArenaMemory {
     #[inline]
     pub(super) fn total_chunk_count(&self) -> u32 {
         self.chunk_lookup.len() as u32
+    }
+
+    /// Total memory usage across all shared layers in bytes.
+    pub(super) fn memory_usage_bytes(&self) -> usize {
+        self.total_chunk_count() as usize * CHUNK_SIZE
     }
 
     /// Appends a new layer on top of the existing shared layers.

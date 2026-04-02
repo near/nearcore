@@ -99,12 +99,15 @@ impl From<STArena> for HybridArena {
 impl HybridArena {
     /// Function to create a new HybridArena from an existing instance of shared memory in FrozenArena.
     pub fn from_frozen(name: String, frozen_arena: FrozenArena) -> Self {
+        let memory: HybridArenaMemory = frozen_arena.memory.into();
         let allocator = Allocator::new_with_initial_stats(
             name,
             frozen_arena.active_allocs_bytes,
             frozen_arena.active_allocs_count,
+            memory.shared_memory.memory_usage_bytes(),
         );
-        Self { memory: frozen_arena.memory.into(), allocator }
+        allocator.update_memory_usage_gauge(&memory.owned_memory);
+        Self { memory, allocator }
     }
 
     /// Freezes this arena's owned memory and combines it with any existing
