@@ -31,7 +31,9 @@ static EXECUTION_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
         "near_vm_runner_execution_seconds",
         "Histogram of WASM contract execution time",
         &["vm_kind", "shard_id"],
-        None,
+        Some(vec![
+            0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.25, 0.5, 1.0,
+        ]),
     )
     .unwrap()
 });
