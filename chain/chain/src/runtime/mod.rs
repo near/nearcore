@@ -723,16 +723,15 @@ impl NightshadeRuntime {
                 let outgoing_match = canonical_result.outgoing_receipts.len()
                     == shadow_apply.outgoing_receipts.len();
 
-                let is_serious = !outcomes_match
-                    || !ids_match
-                    || status_mismatches > 0
-                    || !outgoing_match
-                    || gas_diff_pct.abs() > SHADOW_GAS_DIFF_WARN_THRESHOLD;
+                let is_serious =
+                    !outcomes_match || !ids_match || status_mismatches > 0 || !outgoing_match;
 
                 let result_label = if is_serious {
                     "serious_mismatch"
+                } else if gas_diff_pct.abs() > SHADOW_GAS_DIFF_WARN_THRESHOLD {
+                    "gas_above_threshold"
                 } else if canonical_gas != shadow_gas {
-                    "gas_only_mismatch"
+                    "gas_below_threshold"
                 } else {
                     "match"
                 };
@@ -754,8 +753,8 @@ impl NightshadeRuntime {
                     "shadow: chunk summary"
                 );
 
-                // Log per-receipt details only for serious mismatches.
-                if is_serious {
+                // Log per-receipt details for serious mismatches or gas above threshold.
+                if is_serious || gas_diff_pct.abs() > SHADOW_GAS_DIFF_WARN_THRESHOLD {
                     if !outcomes_match {
                         tracing::warn!(
                             target: "runtime",
