@@ -336,11 +336,12 @@ impl NightshadeRuntime {
         let elapsed = instant.elapsed();
 
         // Shadow execution: re-run with the shadow VM using a fresh trie from DB.
+        // Use u32::MAX to get the latest config with correct gas costs for the shadow VM.
         if let Some(shadow_config_store) = &self.shadow_runtime_config_store {
             if let Ok(shadow_trie) =
                 self.get_trie_for_shard(shard_id, prev_block_hash, state_root, true)
             {
-                let shadow_config = shadow_config_store.get_config(current_protocol_version);
+                let shadow_config = shadow_config_store.get_config(u32::MAX);
                 let shadow_vm_kind = shadow_config.wasm_config.vm_kind;
                 let shadow_apply_state = ApplyState {
                     apply_reason: apply_state.apply_reason,
