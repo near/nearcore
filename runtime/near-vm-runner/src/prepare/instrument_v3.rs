@@ -89,6 +89,8 @@ pub enum Error {
     TooManyGlobals,
     #[error("function contains too many locals")]
     TooManyLocals,
+    #[error("too many basic blocks in a function or contract")]
+    TooManyBlocks,
 }
 
 pub(crate) struct InstrumentContext<'a> {
@@ -98,6 +100,8 @@ pub(crate) struct InstrumentContext<'a> {
     globals: u32,
     op_cost: u32,
     max_stack_height: u32,
+    max_blocks_per_function: u64,
+    contract_block_limit: u64,
 
     type_section: we::TypeSection,
     import_section: we::ImportSection,
@@ -222,6 +226,8 @@ impl<'a> InstrumentContext<'a> {
         analysis: &'a AnalysisOutcome,
         op_cost: u32,
         max_stack_height: u32,
+        max_blocks_per_function: u64,
+        max_blocks_per_contract: u64,
     ) -> Self {
         Self {
             analysis,
@@ -230,6 +236,8 @@ impl<'a> InstrumentContext<'a> {
             globals: 0,
             op_cost,
             max_stack_height,
+            max_blocks_per_function,
+            contract_block_limit: max_blocks_per_contract,
 
             type_section: we::TypeSection::new(),
             import_section: we::ImportSection::new(),
@@ -561,6 +569,9 @@ impl<'a> InstrumentContext<'a> {
                     | wp::Operator::Loop { .. }
                     | wp::Operator::If { .. } => {
                         block_count += 1;
+                        if block_count > self.max_blocks_per_function {
+                            return Err(Error::TooManyBlocks);
+                        }
                     }
                     _ => {}
                 }
@@ -639,6 +650,8 @@ impl<'a> InstrumentContext<'a> {
                 body_size = reader.range().len(),
                 "wasm function block count"
             );
+            self.contract_block_limit =
+                self.contract_block_limit.checked_sub(block_count).ok_or(Error::TooManyBlocks)?;
         }
 
         self.code_section.function(&new_function);

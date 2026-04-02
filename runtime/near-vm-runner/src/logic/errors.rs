@@ -187,6 +187,8 @@ pub enum PrepareError {
     FunctionBodyTooLarge = 11,
     /// The instrumented code exceeds the size limit.
     InstrumentedCodeTooLarge = 12,
+    /// A function or contract contains too many basic blocks.
+    TooManyBlocks = 13,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, strum::IntoStaticStr)]
@@ -413,6 +415,7 @@ impl fmt::Display for PrepareError {
             TooManyTableElements => "Too many table elements declared in the contract.",
             FunctionBodyTooLarge => "A function body in the contract exceeds the size limit.",
             InstrumentedCodeTooLarge => "The instrumented code exceeds the size limit.",
+            TooManyBlocks => "Too many basic blocks in a function or contract.",
         })
     }
 }

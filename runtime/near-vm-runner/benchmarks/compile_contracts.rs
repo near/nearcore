@@ -5,8 +5,7 @@ use near_vm_runner::{ContractCode, MockContractRuntimeCache, precompile_contract
 use std::sync::Arc;
 
 fn main() -> anyhow::Result<()> {
-    let env_filter =
-        near_o11y::EnvFilterBuilder::from_env().verbose(Some("vm")).finish()?;
+    let env_filter = near_o11y::EnvFilterBuilder::from_env().verbose(Some("vm")).finish()?;
     let _subscriber = near_o11y::default_subscriber(env_filter, &Default::default()).global();
 
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -27,10 +26,7 @@ fn main() -> anyhow::Result<()> {
     for path in &args {
         let wasm = std::fs::read(path)?;
         let code = ContractCode::new(wasm, None);
-        let name = std::path::Path::new(path)
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy();
+        let name = std::path::Path::new(path).file_name().unwrap_or_default().to_string_lossy();
         match precompile_contract(&code, Arc::clone(&wasm_config), Some(&cache)) {
             Ok(Ok(_)) => {
                 eprintln!("{name}: ok");
