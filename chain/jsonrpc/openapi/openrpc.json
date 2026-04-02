@@ -6467,6 +6467,24 @@
             "minimum": 0,
             "type": "integer"
           },
+          "max_blocks_per_contract": {
+            "description": "If present, stores max total number of basic blocks across all functions in a contract.\nThis caps total compilation time for a contract.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "max_blocks_per_function": {
+            "description": "If present, stores max number of basic blocks (block/loop/if) in a single function.\nThis caps per-function compilation time in Cranelift.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "max_contract_size": {
             "description": "Max contract size",
             "format": "uint64",
@@ -7227,6 +7245,11 @@
           {
             "const": "InstrumentedCodeTooLarge",
             "description": "The instrumented code exceeds the size limit.",
+            "type": "string"
+          },
+          {
+            "const": "TooManyBlocks",
+            "description": "A function or contract contains too many basic blocks.",
             "type": "string"
           }
         ],
