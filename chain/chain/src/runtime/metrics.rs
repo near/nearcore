@@ -92,9 +92,19 @@ pub(crate) static SHADOW_GAS_DIFF_PCT: LazyLock<HistogramVec> = LazyLock::new(||
         "Percentage gas difference between canonical and shadow VM",
         &["shard_id"],
         Some(vec![
-            -1.0, -0.1, -0.01, -0.005, -0.002, -0.001, -0.0005, 0.0, 0.0005, 0.001, 0.002, 0.005,
-            0.01, 0.1, 1.0,
+            0.0, 0.0002, 0.0005, 0.0008, 0.001, 0.0015, 0.002, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0,
+            5.0, 10.0,
         ]),
+    )
+    .unwrap()
+});
+
+pub(crate) static SHADOW_BALANCE_DIFF: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_shadow_balance_diff_yoctonear",
+        "Balance difference per account between canonical and shadow VM (in yoctoNEAR)",
+        &["shard_id"],
+        Some(near_o11y::metrics::exponential_buckets(1e15, 10.0, 15).unwrap()),
     )
     .unwrap()
 });
