@@ -833,9 +833,7 @@ impl NightshadeRuntime {
                     }
                 }
 
-                // Compare state changes.
-                // For non-Account keys: compare everything.
-                // For Account keys: compare all fields except amount (balance differs due to gas).
+                // Compare state changes with metrics.
                 let canonical_non_account: Vec<_> = canonical_result
                     .state_changes
                     .iter()
@@ -851,6 +849,9 @@ impl NightshadeRuntime {
                     })
                     .collect();
                 if canonical_non_account.len() != shadow_non_account.len() {
+                    metrics::SHADOW_STATE_CHANGES
+                        .with_label_values(&[&shard_label, "non_account_count_mismatch"])
+                        .inc();
                     tracing::warn!(
                         target: "runtime",
                         %shard_id,
@@ -859,24 +860,33 @@ impl NightshadeRuntime {
                         "shadow: non-account state change count mismatch"
                     );
                 } else {
-                    let mut data_mismatches = 0u32;
+                    let mut matched = 0u64;
+                    let mut mismatched = 0u64;
                     for (c, s) in canonical_non_account.iter().zip(shadow_non_account.iter()) {
-                        if c.trie_key != s.trie_key {
-                            data_mismatches += 1;
+                        if c.trie_key == s.trie_key {
+                            matched += 1;
+                        } else {
+                            mismatched += 1;
                         }
                     }
-                    if data_mismatches > 0 {
+                    metrics::SHADOW_STATE_CHANGES
+                        .with_label_values(&[&shard_label, "non_account_match"])
+                        .inc_by(matched);
+                    if mismatched > 0 {
+                        metrics::SHADOW_STATE_CHANGES
+                            .with_label_values(&[&shard_label, "non_account_mismatch"])
+                            .inc_by(mismatched);
                         tracing::warn!(
                             target: "runtime",
                             %shard_id,
-                            data_mismatches,
+                            mismatched,
                             total = canonical_non_account.len(),
                             "shadow: non-account state change key mismatch"
                         );
                     }
                 }
 
-                // For Account changes: compare locked, storage_usage, contract (skip amount).
+                // Account changes: compare all fields except amount.
                 let canonical_accounts: Vec<_> = canonical_result
                     .state_changes
                     .iter()
@@ -892,6 +902,9 @@ impl NightshadeRuntime {
                     })
                     .collect();
                 if canonical_accounts.len() != shadow_accounts.len() {
+                    metrics::SHADOW_STATE_CHANGES
+                        .with_label_values(&[&shard_label, "account_count_mismatch"])
+                        .inc();
                     tracing::warn!(
                         target: "runtime",
                         %shard_id,
@@ -902,6 +915,9 @@ impl NightshadeRuntime {
                 }
                 for (c, s) in canonical_accounts.iter().zip(shadow_accounts.iter()) {
                     if c.trie_key != s.trie_key {
+                        metrics::SHADOW_STATE_CHANGES
+                            .with_label_values(&[&shard_label, "account_key_mismatch"])
+                            .inc();
                         tracing::warn!(
                             target: "runtime",
                             %shard_id,
@@ -918,10 +934,23 @@ impl NightshadeRuntime {
                                     borsh::from_slice::<near_primitives::account::Account>(c_bytes),
                                     borsh::from_slice::<near_primitives::account::Account>(s_bytes),
                                 ) {
-                                    if c_acct.locked() != s_acct.locked()
-                                        || c_acct.storage_usage() != s_acct.storage_usage()
-                                        || c_acct.contract() != s_acct.contract()
-                                    {
+                                    let fields_match = c_acct.locked() == s_acct.locked()
+                                        && c_acct.storage_usage() == s_acct.storage_usage()
+                                        && c_acct.contract() == s_acct.contract();
+                                    if fields_match {
+                                        metrics::SHADOW_STATE_CHANGES
+                                            .with_label_values(&[
+                                                &shard_label,
+                                                "account_balance_only_diff",
+                                            ])
+                                            .inc();
+                                    } else {
+                                        metrics::SHADOW_STATE_CHANGES
+                                            .with_label_values(&[
+                                                &shard_label,
+                                                "account_field_mismatch",
+                                            ])
+                                            .inc();
                                         tracing::warn!(
                                             target: "runtime",
                                             %shard_id,
@@ -935,8 +964,15 @@ impl NightshadeRuntime {
                                     }
                                 }
                             }
-                            (None, None) => {} // both deletions, fine
+                            (None, None) => {
+                                metrics::SHADOW_STATE_CHANGES
+                                    .with_label_values(&[&shard_label, "account_match"])
+                                    .inc();
+                            }
                             _ => {
+                                metrics::SHADOW_STATE_CHANGES
+                                    .with_label_values(&[&shard_label, "account_delete_vs_update"])
+                                    .inc();
                                 tracing::warn!(
                                     target: "runtime",
                                     %shard_id,

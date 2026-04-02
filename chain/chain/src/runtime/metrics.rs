@@ -96,6 +96,15 @@ pub(crate) static SHADOW_GAS_DIFF_PCT: LazyLock<HistogramVec> = LazyLock::new(||
     .unwrap()
 });
 
+pub(crate) static SHADOW_STATE_CHANGES: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_shadow_state_changes_total",
+        "Shadow VM state change comparison results",
+        &["shard_id", "result"],
+    )
+    .unwrap()
+});
+
 pub static APPLYING_CHUNKS_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_applying_chunks_time",
