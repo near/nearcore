@@ -744,7 +744,7 @@ impl NightshadeRuntime {
                     .inc();
 
                 if canonical_gas == shadow_gas && !is_serious {
-                    tracing::debug!(
+                    tracing::info!(
                         target: "runtime",
                         %shard_id,
                         ?shadow_vm_kind,
