@@ -725,10 +725,7 @@ impl NightshadeRuntime {
                     } else {
                         receipts_gas_equal += 1;
                     }
-                    if std::mem::discriminant(&c.outcome.status)
-                        != std::mem::discriminant(&s.outcome.status)
-                        || c.outcome.logs != s.outcome.logs
-                    {
+                    if c.outcome.status != s.outcome.status || c.outcome.logs != s.outcome.logs {
                         status_mismatches += 1;
                     }
                 }
@@ -808,11 +805,10 @@ impl NightshadeRuntime {
                         }
                         let c_gas = canonical.outcome.gas_burnt.as_gas();
                         let s_gas = shadow.outcome.gas_burnt.as_gas();
-                        let c_status = std::mem::discriminant(&canonical.outcome.status);
-                        let s_status = std::mem::discriminant(&shadow.outcome.status);
                         let c_logs = &canonical.outcome.logs;
                         let s_logs = &shadow.outcome.logs;
-                        if c_gas != s_gas || c_status != s_status || c_logs != s_logs {
+                        let status_match = canonical.outcome.status == shadow.outcome.status;
+                        if c_gas != s_gas || !status_match || c_logs != s_logs {
                             tracing::warn!(
                                 target: "runtime",
                                 %shard_id,
