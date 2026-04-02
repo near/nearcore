@@ -832,6 +832,47 @@ impl NightshadeRuntime {
                         );
                     }
                 }
+
+                // Compare state changes, skipping Account keys (balances differ due to gas).
+                let canonical_data_changes: Vec<_> = canonical_result
+                    .state_changes
+                    .iter()
+                    .filter(|c| {
+                        !matches!(c.trie_key, near_primitives::trie_key::TrieKey::Account { .. })
+                    })
+                    .collect();
+                let shadow_data_changes: Vec<_> = shadow_apply
+                    .state_changes
+                    .iter()
+                    .filter(|c| {
+                        !matches!(c.trie_key, near_primitives::trie_key::TrieKey::Account { .. })
+                    })
+                    .collect();
+                if canonical_data_changes.len() != shadow_data_changes.len() {
+                    tracing::warn!(
+                        target: "runtime",
+                        %shard_id,
+                        canonical_count = canonical_data_changes.len(),
+                        shadow_count = shadow_data_changes.len(),
+                        "shadow: non-account state change count mismatch"
+                    );
+                } else {
+                    let mut data_mismatches = 0u32;
+                    for (c, s) in canonical_data_changes.iter().zip(shadow_data_changes.iter()) {
+                        if c.trie_key != s.trie_key {
+                            data_mismatches += 1;
+                        }
+                    }
+                    if data_mismatches > 0 {
+                        tracing::warn!(
+                            target: "runtime",
+                            %shard_id,
+                            data_mismatches,
+                            total = canonical_data_changes.len(),
+                            "shadow: non-account state change key mismatch"
+                        );
+                    }
+                }
             }
             Err(err) => {
                 let shard_label = shard_id.to_string();
