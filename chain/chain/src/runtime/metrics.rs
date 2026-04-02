@@ -1,6 +1,6 @@
 use near_o11y::metrics::{
-    HistogramVec, IntGaugeVec, exponential_buckets, linear_buckets, try_create_histogram_vec,
-    try_create_int_gauge_vec,
+    HistogramVec, IntCounterVec, IntGaugeVec, exponential_buckets, linear_buckets,
+    try_create_histogram_vec, try_create_int_counter_vec, try_create_int_gauge_vec,
 };
 use std::sync::LazyLock;
 
@@ -73,6 +73,25 @@ pub(crate) static CONGESTION_PREPARE_TX_GAS_LIMIT: LazyLock<IntGaugeVec> = LazyL
         "near_congestion_prepare_tx_gas_limit",
         "How much gas the shard spends at most per chunk to convert new transactions to receipts.",
         &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub(crate) static SHADOW_CHUNK_COMPARISON: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_shadow_chunk_comparison_total",
+        "Shadow VM chunk comparison results",
+        &["shard_id", "result"],
+    )
+    .unwrap()
+});
+
+pub(crate) static SHADOW_GAS_DIFF_PCT: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_shadow_gas_diff_percent",
+        "Percentage gas difference between canonical and shadow VM",
+        &["shard_id"],
+        Some(linear_buckets(-50.0, 5.0, 21).unwrap()),
     )
     .unwrap()
 });

@@ -688,6 +688,17 @@ impl NightshadeRuntime {
                     .iter()
                     .fold(0u64, |a, r| a.saturating_add(r.outcome.gas_burnt.as_gas()));
                 let mut has_mismatch = false;
+                let shard_label = shard_id.to_string();
+
+                // Record gas diff metric
+                let gas_diff_pct = if canonical_gas > 0 {
+                    ((shadow_gas as f64 - canonical_gas as f64) / canonical_gas as f64) * 100.0
+                } else {
+                    0.0
+                };
+                metrics::SHADOW_GAS_DIFF_PCT
+                    .with_label_values(&[&shard_label])
+                    .observe(gas_diff_pct);
 
                 if canonical_result.state_root != shadow_apply.state_root {
                     has_mismatch = true;
@@ -784,6 +795,10 @@ impl NightshadeRuntime {
                     );
                 }
 
+                let result_label = if has_mismatch { "mismatch" } else { "match" };
+                metrics::SHADOW_CHUNK_COMPARISON
+                    .with_label_values(&[&shard_label, result_label])
+                    .inc();
                 if !has_mismatch {
                     tracing::debug!(
                         target: "runtime",
@@ -794,6 +809,8 @@ impl NightshadeRuntime {
                 }
             }
             Err(err) => {
+                let shard_label = shard_id.to_string();
+                metrics::SHADOW_CHUNK_COMPARISON.with_label_values(&[&shard_label, "error"]).inc();
                 tracing::warn!(
                     target: "runtime",
                     %shard_id,
