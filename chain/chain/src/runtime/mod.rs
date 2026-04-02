@@ -329,16 +329,13 @@ impl NightshadeRuntime {
             })?;
         let elapsed = instant.elapsed();
 
-        // Shadow execution: re-run with the shadow VM using recorded storage proof.
+        // Shadow execution: re-run with the shadow VM using a fresh trie from DB.
         if let Some(shadow_config_store) = &self.shadow_runtime_config_store {
-            if let Some(ref proof) = apply_result.proof {
+            if let Ok(shadow_trie) =
+                self.get_trie_for_shard(shard_id, prev_block_hash, state_root, true)
+            {
                 let shadow_config = shadow_config_store.get_config(current_protocol_version);
                 let shadow_vm_kind = shadow_config.wasm_config.vm_kind;
-                let shadow_trie = Trie::from_recorded_storage(
-                    near_store::PartialStorage { nodes: proof.nodes.clone() },
-                    state_root,
-                    true,
-                );
                 let shadow_apply_state = ApplyState {
                     apply_reason: apply_state.apply_reason,
                     block_height: apply_state.block_height,
