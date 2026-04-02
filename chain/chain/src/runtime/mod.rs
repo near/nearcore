@@ -833,32 +833,34 @@ impl NightshadeRuntime {
                     }
                 }
 
-                // Compare state changes, skipping Account keys (balances differ due to gas).
-                let canonical_data_changes: Vec<_> = canonical_result
+                // Compare state changes.
+                // For non-Account keys: compare everything.
+                // For Account keys: compare all fields except amount (balance differs due to gas).
+                let canonical_non_account: Vec<_> = canonical_result
                     .state_changes
                     .iter()
                     .filter(|c| {
                         !matches!(c.trie_key, near_primitives::trie_key::TrieKey::Account { .. })
                     })
                     .collect();
-                let shadow_data_changes: Vec<_> = shadow_apply
+                let shadow_non_account: Vec<_> = shadow_apply
                     .state_changes
                     .iter()
                     .filter(|c| {
                         !matches!(c.trie_key, near_primitives::trie_key::TrieKey::Account { .. })
                     })
                     .collect();
-                if canonical_data_changes.len() != shadow_data_changes.len() {
+                if canonical_non_account.len() != shadow_non_account.len() {
                     tracing::warn!(
                         target: "runtime",
                         %shard_id,
-                        canonical_count = canonical_data_changes.len(),
-                        shadow_count = shadow_data_changes.len(),
+                        canonical_count = canonical_non_account.len(),
+                        shadow_count = shadow_non_account.len(),
                         "shadow: non-account state change count mismatch"
                     );
                 } else {
                     let mut data_mismatches = 0u32;
-                    for (c, s) in canonical_data_changes.iter().zip(shadow_data_changes.iter()) {
+                    for (c, s) in canonical_non_account.iter().zip(shadow_non_account.iter()) {
                         if c.trie_key != s.trie_key {
                             data_mismatches += 1;
                         }
@@ -868,9 +870,81 @@ impl NightshadeRuntime {
                             target: "runtime",
                             %shard_id,
                             data_mismatches,
-                            total = canonical_data_changes.len(),
+                            total = canonical_non_account.len(),
                             "shadow: non-account state change key mismatch"
                         );
+                    }
+                }
+
+                // For Account changes: compare locked, storage_usage, contract (skip amount).
+                let canonical_accounts: Vec<_> = canonical_result
+                    .state_changes
+                    .iter()
+                    .filter(|c| {
+                        matches!(c.trie_key, near_primitives::trie_key::TrieKey::Account { .. })
+                    })
+                    .collect();
+                let shadow_accounts: Vec<_> = shadow_apply
+                    .state_changes
+                    .iter()
+                    .filter(|c| {
+                        matches!(c.trie_key, near_primitives::trie_key::TrieKey::Account { .. })
+                    })
+                    .collect();
+                if canonical_accounts.len() != shadow_accounts.len() {
+                    tracing::warn!(
+                        target: "runtime",
+                        %shard_id,
+                        canonical_count = canonical_accounts.len(),
+                        shadow_count = shadow_accounts.len(),
+                        "shadow: account state change count mismatch"
+                    );
+                }
+                for (c, s) in canonical_accounts.iter().zip(shadow_accounts.iter()) {
+                    if c.trie_key != s.trie_key {
+                        tracing::warn!(
+                            target: "runtime",
+                            %shard_id,
+                            canonical_key = ?c.trie_key,
+                            shadow_key = ?s.trie_key,
+                            "shadow: account state change key mismatch"
+                        );
+                        continue;
+                    }
+                    for (cc, sc) in c.changes.iter().zip(s.changes.iter()) {
+                        match (&cc.data, &sc.data) {
+                            (Some(c_bytes), Some(s_bytes)) => {
+                                if let (Ok(c_acct), Ok(s_acct)) = (
+                                    borsh::from_slice::<near_primitives::account::Account>(c_bytes),
+                                    borsh::from_slice::<near_primitives::account::Account>(s_bytes),
+                                ) {
+                                    if c_acct.locked() != s_acct.locked()
+                                        || c_acct.storage_usage() != s_acct.storage_usage()
+                                        || c_acct.contract() != s_acct.contract()
+                                    {
+                                        tracing::warn!(
+                                            target: "runtime",
+                                            %shard_id,
+                                            account = ?c.trie_key,
+                                            canonical_locked = %c_acct.locked(),
+                                            shadow_locked = %s_acct.locked(),
+                                            canonical_storage = c_acct.storage_usage(),
+                                            shadow_storage = s_acct.storage_usage(),
+                                            "shadow: account field mismatch (excluding balance)"
+                                        );
+                                    }
+                                }
+                            }
+                            (None, None) => {} // both deletions, fine
+                            _ => {
+                                tracing::warn!(
+                                    target: "runtime",
+                                    %shard_id,
+                                    account = ?c.trie_key,
+                                    "shadow: account change type mismatch (delete vs update)"
+                                );
+                            }
+                        }
                     }
                 }
             }
