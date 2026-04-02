@@ -1071,6 +1071,7 @@ mod tests {
     /// 3. Freeze again -> create another hybrid arena grandchild, do more operations.
     /// 4. Verify the full memtrie state at every generation.
     /// 5. GC old heights across freeze boundaries to test deallocation.
+    // cspell:ignore aabb ccdd ccdde ccddff
     #[test]
     fn test_memtrie_consecutive_freeze() {
         let shard_uid = ShardUId::single_shard();
