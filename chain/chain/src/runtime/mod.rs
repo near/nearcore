@@ -343,18 +343,26 @@ impl NightshadeRuntime {
             if let Ok(shadow_trie) =
                 self.get_trie_for_shard(shard_id, prev_block_hash, state_root, true)
             {
-                // Use the Wasmtime protocol version config for correct gas costs,
-                // but patch fields that changed in later protocol versions to
-                // match canonical behavior.
+                // Start from canonical config, only swap VM-related wasm fields
+                // from the Wasmtime protocol version. This ensures non-VM params
+                // (max_gas_burnt, fix_contract_loading_cost, etc.) match canonical.
                 let shadow_config = {
                     let wasmtime_version =
                         near_primitives::version::ProtocolFeature::Wasmtime.protocol_version();
-                    let base = shadow_config_store.get_config(wasmtime_version);
+                    let wasmtime_cfg = shadow_config_store.get_config(wasmtime_version);
                     let canonical = self.runtime_config_store.get_config(current_protocol_version);
-                    let mut patched = near_parameters::RuntimeConfig::clone(base);
-                    let mut wasm = near_parameters::vm::Config::clone(&patched.wasm_config);
-                    wasm.fix_contract_loading_cost =
-                        canonical.wasm_config.fix_contract_loading_cost;
+                    let mut patched = near_parameters::RuntimeConfig::clone(canonical);
+                    let wasmtime_wasm = &wasmtime_cfg.wasm_config;
+                    let mut wasm = near_parameters::vm::Config::clone(&canonical.wasm_config);
+                    // Swap only the VM-specific fields from the Wasmtime config.
+                    wasm.vm_kind = wasmtime_wasm.vm_kind;
+                    wasm.reftypes_bulk_memory = wasmtime_wasm.reftypes_bulk_memory;
+                    wasm.linear_op_base_cost = wasmtime_wasm.linear_op_base_cost;
+                    wasm.linear_op_unit_cost = wasmtime_wasm.linear_op_unit_cost;
+                    wasm.limit_config.max_function_body_size =
+                        wasmtime_wasm.limit_config.max_function_body_size;
+                    wasm.limit_config.max_instrumented_code_size =
+                        wasmtime_wasm.limit_config.max_instrumented_code_size;
                     patched.wasm_config = std::sync::Arc::new(wasm);
                     std::sync::Arc::new(patched)
                 };
