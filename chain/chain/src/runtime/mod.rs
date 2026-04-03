@@ -809,17 +809,33 @@ impl NightshadeRuntime {
                         let s_logs = &shadow.outcome.logs;
                         let status_match = canonical.outcome.status == shadow.outcome.status;
                         if c_gas != s_gas || !status_match || c_logs != s_logs {
+                            let gas_pct = if c_gas > 0 {
+                                ((s_gas as f64 - c_gas as f64) / c_gas as f64) * 100.0
+                            } else {
+                                0.0
+                            };
                             tracing::warn!(
                                 target: "runtime",
                                 %shard_id,
                                 receipt_id = ?canonical.id,
                                 canonical_gas = c_gas,
                                 shadow_gas = s_gas,
+                                gas_diff_pct = format_args!("{:+.4}%", gas_pct),
                                 canonical_status = ?canonical.outcome.status,
                                 shadow_status = ?shadow.outcome.status,
                                 logs_match = (c_logs == s_logs),
                                 "shadow: per-receipt mismatch"
                             );
+                            if c_logs != s_logs {
+                                tracing::warn!(
+                                    target: "runtime",
+                                    %shard_id,
+                                    receipt_id = ?canonical.id,
+                                    canonical_logs = ?c_logs,
+                                    shadow_logs = ?s_logs,
+                                    "shadow: log content diff"
+                                );
+                            }
                         }
                     }
                     if !outgoing_match {
