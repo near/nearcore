@@ -715,6 +715,8 @@ impl NightshadeRuntime {
                 let mut receipts_gas_lower = 0u32;
                 let mut receipts_gas_equal = 0u32;
                 let mut status_mismatches = 0u32;
+                let mut logs_gas_balance_diffs = 0u32;
+                let mut logs_other_diffs = 0u32;
                 for (c, s) in canonical_outcomes.iter().zip(shadow_outcomes.iter()) {
                     let c_gas = c.outcome.gas_burnt.as_gas();
                     let s_gas = s.outcome.gas_burnt.as_gas();
@@ -725,8 +727,23 @@ impl NightshadeRuntime {
                     } else {
                         receipts_gas_equal += 1;
                     }
-                    if c.outcome.status != s.outcome.status || c.outcome.logs != s.outcome.logs {
+                    if c.outcome.status != s.outcome.status {
                         status_mismatches += 1;
+                    } else if c.outcome.logs != s.outcome.logs {
+                        // Check if log diffs are in known gas/balance patterns.
+                        let is_known_diff =
+                            c.outcome.logs.iter().zip(s.outcome.logs.iter()).all(|(cl, sl)| {
+                                cl == sl
+                                    || cl.contains("account_balance")
+                                    || cl.contains("Gas info")
+                                    || cl.contains("used_gas")
+                                    || cl.contains("yoctoGas")
+                            }) && c.outcome.logs.len() == s.outcome.logs.len();
+                        if is_known_diff {
+                            logs_gas_balance_diffs += 1;
+                        } else {
+                            logs_other_diffs += 1;
+                        }
                     }
                 }
                 let outgoing_match = canonical_result.outgoing_receipts.len()
@@ -737,6 +754,10 @@ impl NightshadeRuntime {
 
                 let result_label = if is_serious {
                     "serious_mismatch"
+                } else if logs_other_diffs > 0 {
+                    "logs_other_mismatch"
+                } else if logs_gas_balance_diffs > 0 {
+                    "logs_numeric_only"
                 } else if gas_diff_pct > SHADOW_GAS_DIFF_WARN_THRESHOLD {
                     "shadow_gas_higher_above_threshold"
                 } else if gas_diff_pct < -SHADOW_GAS_DIFF_WARN_THRESHOLD {
@@ -773,6 +794,8 @@ impl NightshadeRuntime {
                         receipts_gas_lower,
                         receipts_gas_equal,
                         status_mismatches,
+                        logs_gas_balance_diffs,
+                        logs_other_diffs,
                         outcomes_match,
                         outgoing_match,
                         result_label,
