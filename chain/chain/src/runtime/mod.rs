@@ -845,8 +845,11 @@ impl NightshadeRuntime {
                     );
                 }
 
-                // Log per-receipt details for serious mismatches or gas above threshold.
-                if is_serious || gas_diff_pct.abs() > SHADOW_GAS_DIFF_WARN_THRESHOLD {
+                // Log per-receipt details for serious mismatches, log diffs, or gas above threshold.
+                if is_serious
+                    || logs_other_diffs > 0
+                    || gas_diff_pct.abs() > SHADOW_GAS_DIFF_WARN_THRESHOLD
+                {
                     if !outcomes_match {
                         tracing::warn!(
                             target: "runtime",
