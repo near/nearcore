@@ -336,12 +336,28 @@ impl NightshadeRuntime {
         let elapsed = instant.elapsed();
 
         // Shadow execution: re-run with the shadow VM using a fresh trie from DB.
-        // Use u32::MAX to get the latest config with correct gas costs for the shadow VM.
+        // Use the same protocol version as canonical, but from the shadow config store
+        // which has vm_kind overridden. This ensures gas parameters like
+        // fix_contract_loading_cost match the canonical config.
         if let Some(shadow_config_store) = &self.shadow_runtime_config_store {
             if let Ok(shadow_trie) =
                 self.get_trie_for_shard(shard_id, prev_block_hash, state_root, true)
             {
-                let shadow_config = shadow_config_store.get_config(u32::MAX);
+                // Use the Wasmtime protocol version config for correct gas costs,
+                // but patch fields that changed in later protocol versions to
+                // match canonical behavior.
+                let shadow_config = {
+                    let wasmtime_version =
+                        near_primitives::version::ProtocolFeature::Wasmtime.protocol_version();
+                    let base = shadow_config_store.get_config(wasmtime_version);
+                    let canonical = self.runtime_config_store.get_config(current_protocol_version);
+                    let mut patched = near_parameters::RuntimeConfig::clone(base);
+                    let mut wasm = near_parameters::vm::Config::clone(&patched.wasm_config);
+                    wasm.fix_contract_loading_cost =
+                        canonical.wasm_config.fix_contract_loading_cost;
+                    patched.wasm_config = std::sync::Arc::new(wasm);
+                    std::sync::Arc::new(patched)
+                };
                 let shadow_vm_kind = shadow_config.wasm_config.vm_kind;
                 let shadow_apply_state = ApplyState {
                     apply_reason: apply_state.apply_reason,
