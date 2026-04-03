@@ -797,6 +797,24 @@ impl NightshadeRuntime {
                     .with_label_values(&[&shard_label, result_label])
                     .inc();
 
+                if is_serious {
+                    tracing::warn!(
+                        target: "runtime",
+                        %shard_id,
+                        ?shadow_vm_kind,
+                        receipts = canonical_outcomes.len(),
+                        canonical_gas,
+                        shadow_gas,
+                        gas_diff_pct = format_args!("{:+.4}%", gas_diff_pct),
+                        status_mismatches,
+                        logs_gas_balance_diffs,
+                        logs_other_diffs,
+                        outcomes_match,
+                        outgoing_match,
+                        result_label,
+                        "shadow: SERIOUS chunk mismatch"
+                    );
+                }
                 if canonical_gas == shadow_gas && !is_serious {
                     tracing::info!(
                         target: "runtime",
