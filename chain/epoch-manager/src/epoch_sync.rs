@@ -1,5 +1,6 @@
 use near_chain_primitives::Error;
 use near_crypto::Signature;
+use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_sync::{
@@ -47,20 +48,19 @@ fn get_epoch_sync_proof_epoch_data(
     last_block_hash: &CryptoHash,
 ) -> Result<EpochSyncProofEpochData, Error> {
     let chain_store = store.chain_store();
-    let last_block_info = store.get_block_info(last_block_hash)?;
-    let epoch_info = store.get_epoch_info(last_block_info.epoch_id())?;
+    let last_block_header = chain_store.get_block_header(last_block_hash)?;
+    let epoch_info = store.get_epoch_info(last_block_header.epoch_id())?;
     let block_producers = get_epoch_info_block_producers(&epoch_info);
 
-    let first_block_info = store.get_block_info(last_block_info.epoch_first_block())?;
-    let prev_epoch_last_block_info = store.get_block_info(first_block_info.prev_hash())?;
-    let prev_epoch_info = store.get_epoch_info(prev_epoch_last_block_info.epoch_id())?;
+    let prev_epoch_last_block_header =
+        chain_store.get_block_header(&prev_epoch_last_block_hash(&last_block_header))?;
+    let prev_epoch_info = store.get_epoch_info(prev_epoch_last_block_header.epoch_id())?;
     let use_versioned_bp_hash_format =
         should_use_versioned_bp_hash_format(prev_epoch_info.protocol_version());
 
-    let second_last_block_hash = last_block_info.prev_hash();
-    let second_last_block_header = chain_store.get_block_header(second_last_block_hash)?;
-    let third_last_block_hash = second_last_block_header.prev_hash();
-    let third_last_block_header = chain_store.get_block_header(third_last_block_hash)?;
+    let second_last_block_header = chain_store.get_block_header(last_block_header.prev_hash())?;
+    let third_last_block_header =
+        chain_store.get_block_header(second_last_block_header.prev_hash())?;
 
     let next_epoch_info = store.get_epoch_info(second_last_block_header.next_epoch_id())?;
     let next_epoch_block_producers = get_epoch_info_block_producers(&next_epoch_info);
@@ -153,9 +153,7 @@ pub fn derive_epoch_sync_proof_from_last_block(
     }
 
     let last_block_info = store.get_block_info(&last_block_hash)?;
-    let first_block_hash = last_block_info.epoch_first_block();
-    let first_block_info = store.get_block_info(&first_block_hash)?;
-    let last_block_hash_in_prev_epoch = first_block_info.prev_hash();
+    let last_block_hash_in_prev_epoch = prev_epoch_last_block_hash(&last_block_header);
 
     let all_epochs = derive_all_epochs_data(store, last_block_hash, existing_epoch_sync_proof)?;
     let last_epoch = get_epoch_sync_proof_last_epoch_data(store, &last_block_hash_in_prev_epoch)?;
@@ -173,6 +171,7 @@ fn derive_all_epochs_data(
     last_block_hash: &CryptoHash,
     existing_epoch_sync_proof: Option<EpochSyncProofV1>,
 ) -> Result<Vec<EpochSyncProofEpochData>, Error> {
+    let chain_store = store.chain_store();
     let existing_all_epochs =
         existing_epoch_sync_proof.map(|proof| proof.all_epochs).unwrap_or_default();
 
@@ -182,18 +181,17 @@ fn derive_all_epochs_data(
         .map(|e| *e.last_final_block_header.epoch_id())
         .unwrap_or_else(EpochId::default);
 
-    // Walk backward from the target epoch, collecting last-block hashes for each
+    // Walk backward from the target epoch, collecting the last block hash of each
     // epoch that needs to be added to the proof.
     let mut epochs_to_add = vec![];
-    let mut current_hash = *last_block_hash;
+    let mut epoch_last_block_hash = *last_block_hash;
     loop {
-        let block_info = store.get_block_info(&current_hash)?;
-        if *block_info.epoch_id() == stop_epoch_id || *block_info.epoch_id() == EpochId::default() {
+        let header = chain_store.get_block_header(&epoch_last_block_hash)?;
+        if *header.epoch_id() == stop_epoch_id || *header.epoch_id() == EpochId::default() {
             break;
         }
-        epochs_to_add.push(current_hash);
-        let first_block_info = store.get_block_info(block_info.epoch_first_block())?;
-        current_hash = *first_block_info.prev_hash();
+        epochs_to_add.push(epoch_last_block_hash);
+        epoch_last_block_hash = prev_epoch_last_block_hash(&header);
     }
     epochs_to_add.reverse();
     tracing::debug!(num_epochs = epochs_to_add.len(), "deriving epoch sync proof data");
@@ -347,4 +345,15 @@ fn get_dual_epoch_block_approvers_ordered(
         };
     }
     result
+}
+
+/// Returns the hash of the last block in the previous epoch, given a block header.
+///
+/// Near's epoch_id convention: epoch_id(T) = EpochId(last_block_hash(T-2)), set in
+/// `finalize_epoch`. For a block in epoch T, its `next_epoch_id` field is epoch_id(T+1) =
+/// EpochId(last_block_hash(T-1)). Extracting the inner hash gives us the last block hash
+/// of the previous epoch without needing block_info (which may have been GC'd).
+#[inline]
+fn prev_epoch_last_block_hash(header: &BlockHeader) -> CryptoHash {
+    header.next_epoch_id().0
 }
