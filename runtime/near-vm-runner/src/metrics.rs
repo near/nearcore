@@ -103,6 +103,13 @@ pub(crate) fn execution_duration(kind: near_parameters::vm::VMKind, duration: Du
     });
 }
 
+pub(crate) fn execution_duration_labeled(vm_label: &str, duration: Duration) {
+    // Record directly to the histogram with a custom label, bypassing thread-local.
+    // Used for Winch which doesn't have a dedicated thread-local slot.
+    // The shard_id will be "0" as a placeholder since we don't have it here.
+    EXECUTION_TIME.with_label_values(&[vm_label, "all"]).observe(duration.as_secs_f64());
+}
+
 /// Updates metrics to record a compiled-contract cache lookup,
 /// where is_hit=true indicates that we found an entry in the cache.
 #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]

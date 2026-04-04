@@ -895,8 +895,12 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
 
         let execution_start = std::time::Instant::now();
         let res = call(&mut store, instance, &method);
-        crate::metrics::execution_duration(VMKind::Wasmtime, execution_start.elapsed());
         let Ctx { result_state, .. } = store.into_data();
+        let vm_label = match result_state.config.wasmtime_strategy {
+            Some(near_parameters::vm::WasmtimeStrategy::Winch) => "wasmtime_winch",
+            _ => "wasmtime_cranelift",
+        };
+        crate::metrics::execution_duration_labeled(vm_label, execution_start.elapsed());
         match res? {
             RunOutcome::Ok => Ok(VMOutcome::ok(result_state)),
             RunOutcome::AbortNop(error) => {

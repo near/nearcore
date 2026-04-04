@@ -726,10 +726,7 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
             Ok(()) => Ok(VMOutcome::ok(logic.result_state)),
             Err(err) => Ok(VMOutcome::abort(logic.result_state, err)),
         };
-        crate::metrics::execution_duration(
-            near_parameters::vm::VMKind::NearVm,
-            execution_start.elapsed(),
-        );
+        crate::metrics::execution_duration_labeled("near_vm", execution_start.elapsed());
         lazy_drop(Box::new(memory));
         result
     }
