@@ -728,7 +728,7 @@ impl NightshadeRuntime {
                     0.0
                 };
                 metrics::SHADOW_GAS_DIFF_PCT
-                    .with_label_values(&[&shard_label])
+                    .with_label_values(&[&shard_label, shadow_vm_label])
                     .observe(gas_diff_pct);
 
                 let canonical_outcomes = &canonical_result.outcomes;
@@ -799,7 +799,7 @@ impl NightshadeRuntime {
                     "match"
                 };
                 metrics::SHADOW_CHUNK_COMPARISON
-                    .with_label_values(&[&shard_label, result_label])
+                    .with_label_values(&[&shard_label, shadow_vm_label, result_label])
                     .inc();
 
                 if is_serious {
@@ -939,7 +939,11 @@ impl NightshadeRuntime {
                     .collect();
                 if canonical_non_account.len() != shadow_non_account.len() {
                     metrics::SHADOW_STATE_CHANGES
-                        .with_label_values(&[&shard_label, "non_account_count_mismatch"])
+                        .with_label_values(&[
+                            &shard_label,
+                            shadow_vm_label,
+                            "non_account_count_mismatch",
+                        ])
                         .inc();
                     tracing::warn!(
                         target: "runtime",
@@ -959,11 +963,15 @@ impl NightshadeRuntime {
                         }
                     }
                     metrics::SHADOW_STATE_CHANGES
-                        .with_label_values(&[&shard_label, "non_account_match"])
+                        .with_label_values(&[&shard_label, shadow_vm_label, "non_account_match"])
                         .inc_by(matched);
                     if mismatched > 0 {
                         metrics::SHADOW_STATE_CHANGES
-                            .with_label_values(&[&shard_label, "non_account_mismatch"])
+                            .with_label_values(&[
+                                &shard_label,
+                                shadow_vm_label,
+                                "non_account_mismatch",
+                            ])
                             .inc_by(mismatched);
                         tracing::warn!(
                             target: "runtime",
@@ -992,7 +1000,11 @@ impl NightshadeRuntime {
                     .collect();
                 if canonical_accounts.len() != shadow_accounts.len() {
                     metrics::SHADOW_STATE_CHANGES
-                        .with_label_values(&[&shard_label, "account_count_mismatch"])
+                        .with_label_values(&[
+                            &shard_label,
+                            shadow_vm_label,
+                            "account_count_mismatch",
+                        ])
                         .inc();
                     tracing::warn!(
                         target: "runtime",
@@ -1005,7 +1017,11 @@ impl NightshadeRuntime {
                 for (c, s) in canonical_accounts.iter().zip(shadow_accounts.iter()) {
                     if c.trie_key != s.trie_key {
                         metrics::SHADOW_STATE_CHANGES
-                            .with_label_values(&[&shard_label, "account_key_mismatch"])
+                            .with_label_values(&[
+                                &shard_label,
+                                shadow_vm_label,
+                                "account_key_mismatch",
+                            ])
                             .inc();
                         tracing::warn!(
                             target: "runtime",
@@ -1030,6 +1046,7 @@ impl NightshadeRuntime {
                                         metrics::SHADOW_STATE_CHANGES
                                             .with_label_values(&[
                                                 &shard_label,
+                                                shadow_vm_label,
                                                 "account_balance_only_diff",
                                             ])
                                             .inc();
@@ -1038,12 +1055,13 @@ impl NightshadeRuntime {
                                             .as_yoctonear()
                                             .abs_diff(s_acct.amount().as_yoctonear());
                                         metrics::SHADOW_BALANCE_DIFF
-                                            .with_label_values(&[&shard_label])
+                                            .with_label_values(&[&shard_label, shadow_vm_label])
                                             .observe(diff_yocto as f64 / 1e21);
                                     } else {
                                         metrics::SHADOW_STATE_CHANGES
                                             .with_label_values(&[
                                                 &shard_label,
+                                                shadow_vm_label,
                                                 "account_field_mismatch",
                                             ])
                                             .inc();
@@ -1062,12 +1080,20 @@ impl NightshadeRuntime {
                             }
                             (None, None) => {
                                 metrics::SHADOW_STATE_CHANGES
-                                    .with_label_values(&[&shard_label, "account_match"])
+                                    .with_label_values(&[
+                                        &shard_label,
+                                        shadow_vm_label,
+                                        "account_match",
+                                    ])
                                     .inc();
                             }
                             _ => {
                                 metrics::SHADOW_STATE_CHANGES
-                                    .with_label_values(&[&shard_label, "account_delete_vs_update"])
+                                    .with_label_values(&[
+                                        &shard_label,
+                                        shadow_vm_label,
+                                        "account_delete_vs_update",
+                                    ])
                                     .inc();
                                 tracing::warn!(
                                     target: "runtime",
@@ -1082,7 +1108,9 @@ impl NightshadeRuntime {
             }
             Err(err) => {
                 let shard_label = shard_id.to_string();
-                metrics::SHADOW_CHUNK_COMPARISON.with_label_values(&[&shard_label, "error"]).inc();
+                metrics::SHADOW_CHUNK_COMPARISON
+                    .with_label_values(&[&shard_label, shadow_vm_label, "error"])
+                    .inc();
                 tracing::warn!(
                     target: "runtime",
                     %shard_id,

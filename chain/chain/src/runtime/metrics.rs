@@ -81,7 +81,7 @@ pub(crate) static SHADOW_CHUNK_COMPARISON: LazyLock<IntCounterVec> = LazyLock::n
     try_create_int_counter_vec(
         "near_shadow_chunk_comparison_total",
         "Shadow VM chunk comparison results",
-        &["shard_id", "result"],
+        &["shard_id", "vm", "result"],
     )
     .unwrap()
 });
@@ -90,7 +90,7 @@ pub(crate) static SHADOW_GAS_DIFF_PCT: LazyLock<HistogramVec> = LazyLock::new(||
     try_create_histogram_vec(
         "near_shadow_gas_diff_percent",
         "Percentage gas difference between canonical and shadow VM",
-        &["shard_id"],
+        &["shard_id", "vm"],
         Some(vec![
             -10.0, -1.0, -0.01, -0.001, 0.0, 0.0002, 0.0005, 0.0008, 0.001, 0.0015, 0.002, 0.005,
             0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0,
@@ -103,7 +103,7 @@ pub(crate) static SHADOW_BALANCE_DIFF: LazyLock<HistogramVec> = LazyLock::new(||
     try_create_histogram_vec(
         "near_shadow_balance_diff_millinear",
         "Balance difference per account between canonical and shadow VM (in milliNEAR)",
-        &["shard_id"],
+        &["shard_id", "vm"],
         Some(vec![0.0, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 100.0]),
     )
     .unwrap()
@@ -113,7 +113,7 @@ pub(crate) static SHADOW_STATE_CHANGES: LazyLock<IntCounterVec> = LazyLock::new(
     try_create_int_counter_vec(
         "near_shadow_state_changes_total",
         "Shadow VM state change comparison results",
-        &["shard_id", "result"],
+        &["shard_id", "vm", "result"],
     )
     .unwrap()
 });
