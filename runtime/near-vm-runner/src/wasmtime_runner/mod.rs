@@ -31,6 +31,8 @@ use wasmtime::{
 };
 
 mod logic;
+#[cfg(test)]
+pub(crate) mod test_logic;
 
 /// The maximum amount of concurrent calls this engine can handle.
 /// If this limit is reached, invocations will block until an execution slot is available.

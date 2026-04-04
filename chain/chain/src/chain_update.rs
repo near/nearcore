@@ -300,6 +300,11 @@ impl<'a> ChainUpdate<'a> {
             *block.header().random_value(),
         )?;
         self.chain_store_update.merge(epoch_manager_update.into());
+        self.chain_store_update.save_chunk_producers_for_header(
+            self.epoch_manager.as_ref(),
+            block.header(),
+            current_protocol_version,
+        )?;
 
         if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
             // If this is the first block of the epoch, update epoch sync proof.
@@ -314,7 +319,8 @@ impl<'a> ChainUpdate<'a> {
             if self.epoch_manager.is_next_block_epoch_start(prev_hash)? {
                 tracing::debug!(block_hash = ?block.hash(), "updating epoch sync proof");
                 let epoch_store = self.chain_store_update.store().epoch_store();
-                let epoch_manager_update = update_epoch_sync_proof(&epoch_store, prev_hash)?;
+                let epoch_manager_update =
+                    update_epoch_sync_proof(&epoch_store, block.header().epoch_id())?;
                 self.chain_store_update.merge(epoch_manager_update.into());
             }
         }

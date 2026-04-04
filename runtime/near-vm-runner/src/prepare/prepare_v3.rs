@@ -507,6 +507,8 @@ macro_rules! gas_cost {
     (@@$self:ident visit_table_init) => { Fee { linear: $self.linear_unit, constant: $self.linear_base } };
     (@@$self:ident visit_table_copy) => { Fee { linear: $self.linear_unit, constant: $self.linear_base } };
     (@@$self:ident visit_table_fill) => { Fee { linear: $self.linear_unit, constant: $self.linear_base } };
+    (@@$self:ident visit_memory_grow) => { Fee { linear: $self.linear_unit, constant: $self.linear_base } };
+    (@@$self:ident visit_table_grow) => { Fee { linear: $self.linear_unit, constant: $self.linear_base } };
     (@@$self:ident $visit:ident) => { Fee::constant($self.regular) };
 }
 
