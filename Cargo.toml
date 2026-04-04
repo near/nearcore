@@ -408,6 +408,7 @@ wasmprinter = "0.236"
 wasm-smith = "0.236"
 wasmtime = { version = "36", default-features = false, features = [
     "cranelift",
+    "winch",
 ] }
 wast = "40.0"
 wat = "1.0.40"

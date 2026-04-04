@@ -303,6 +303,7 @@ impl From<VMConfigView> for crate::vm::Config {
             deterministic_account_ids: view.deterministic_account_ids,
             gas_key_host_fns: view.gas_key_host_fns,
             one_yocto_on_promise: view.one_yocto_on_promise,
+            wasmtime_strategy: None,
         }
     }
 }

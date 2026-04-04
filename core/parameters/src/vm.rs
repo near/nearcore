@@ -207,6 +207,17 @@ pub struct Config {
 
     /// Describes limits for VM and Runtime.
     pub limit_config: LimitConfig,
+
+    /// Override the wasmtime compiler strategy. When set, uses Winch instead of Cranelift.
+    /// Only used for shadow execution benchmarking.
+    pub wasmtime_strategy: Option<WasmtimeStrategy>,
+}
+
+/// Wasmtime compiler strategy selection.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum WasmtimeStrategy {
+    Cranelift,
+    Winch,
 }
 
 impl Config {

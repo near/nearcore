@@ -335,17 +335,19 @@ impl NightshadeRuntime {
             })?;
         let elapsed = instant.elapsed();
 
-        // Shadow execution: re-run with the shadow VM using a fresh trie from DB.
-        // Use the same protocol version as canonical, but from the shadow config store
-        // which has vm_kind overridden. This ensures gas parameters like
-        // fix_contract_loading_cost match the canonical config.
+        // Shadow execution: re-run with shadow VMs using fresh tries from DB.
+        // Start from canonical config, only swap VM-specific wasm fields.
         if let Some(shadow_config_store) = &self.shadow_runtime_config_store {
-            if let Ok(shadow_trie) =
-                self.get_trie_for_shard(shard_id, prev_block_hash, state_root, true)
-            {
-                // Start from canonical config, only swap VM-related wasm fields
-                // from the Wasmtime protocol version. This ensures non-VM params
-                // (max_gas_burnt, fix_contract_loading_cost, etc.) match canonical.
+            use near_parameters::vm::WasmtimeStrategy;
+            let strategies = [None, Some(WasmtimeStrategy::Winch)];
+            let shadow_txs = shadow_transactions.unwrap();
+
+            for strategy in &strategies {
+                let Some(shadow_trie) =
+                    self.get_trie_for_shard(shard_id, prev_block_hash, state_root, true).ok()
+                else {
+                    continue;
+                };
                 let shadow_config = {
                     let wasmtime_version =
                         near_primitives::version::ProtocolFeature::Wasmtime.protocol_version();
@@ -354,7 +356,6 @@ impl NightshadeRuntime {
                     let mut patched = near_parameters::RuntimeConfig::clone(canonical);
                     let wasmtime_wasm = &wasmtime_cfg.wasm_config;
                     let mut wasm = near_parameters::vm::Config::clone(&canonical.wasm_config);
-                    // Swap only the VM-specific fields from the Wasmtime config.
                     wasm.vm_kind = wasmtime_wasm.vm_kind;
                     wasm.reftypes_bulk_memory = wasmtime_wasm.reftypes_bulk_memory;
                     wasm.linear_op_base_cost = wasmtime_wasm.linear_op_base_cost;
@@ -363,12 +364,16 @@ impl NightshadeRuntime {
                         wasmtime_wasm.limit_config.max_function_body_size;
                     wasm.limit_config.max_instrumented_code_size =
                         wasmtime_wasm.limit_config.max_instrumented_code_size;
+                    wasm.wasmtime_strategy = *strategy;
                     patched.wasm_config = std::sync::Arc::new(wasm);
                     std::sync::Arc::new(patched)
                 };
-                let shadow_vm_kind = shadow_config.wasm_config.vm_kind;
+                let shadow_label = match strategy {
+                    Some(WasmtimeStrategy::Winch) => "wasmtime_winch",
+                    _ => "wasmtime_cranelift",
+                };
                 let shadow_apply_state = ApplyState {
-                    apply_reason: apply_state.apply_reason,
+                    apply_reason: apply_state.apply_reason.clone(),
                     block_height: apply_state.block_height,
                     prev_block_hash: apply_state.prev_block_hash,
                     shard_id: apply_state.shard_id,
@@ -393,11 +398,11 @@ impl NightshadeRuntime {
                     &validator_accounts_update,
                     &shadow_apply_state,
                     receipts,
-                    shadow_transactions.unwrap(),
+                    shadow_txs.clone(),
                     self.epoch_manager.as_ref(),
                     Default::default(),
                 );
-                self.log_shadow_comparison(shadow_result, &apply_result, shard_id, shadow_vm_kind);
+                self.log_shadow_comparison(shadow_result, &apply_result, shard_id, shadow_label);
             }
         }
 
@@ -703,7 +708,7 @@ impl NightshadeRuntime {
         shadow_result: Result<node_runtime::ApplyResult, RuntimeError>,
         canonical_result: &node_runtime::ApplyResult,
         shard_id: ShardId,
-        shadow_vm_kind: near_parameters::vm::VMKind,
+        shadow_vm_label: &str,
     ) {
         match shadow_result {
             Ok(shadow_apply) => {
@@ -801,7 +806,7 @@ impl NightshadeRuntime {
                     tracing::warn!(
                         target: "runtime",
                         %shard_id,
-                        ?shadow_vm_kind,
+                        shadow_vm_label,
                         receipts = canonical_outcomes.len(),
                         canonical_gas,
                         shadow_gas,
@@ -819,7 +824,7 @@ impl NightshadeRuntime {
                     tracing::info!(
                         target: "runtime",
                         %shard_id,
-                        ?shadow_vm_kind,
+                        shadow_vm_label,
                         receipts = canonical_outcomes.len(),
                         "shadow: exact match"
                     );
@@ -827,7 +832,7 @@ impl NightshadeRuntime {
                     tracing::info!(
                         target: "runtime",
                         %shard_id,
-                        ?shadow_vm_kind,
+                        shadow_vm_label,
                         receipts = canonical_outcomes.len(),
                         canonical_gas,
                         shadow_gas,
@@ -1081,7 +1086,7 @@ impl NightshadeRuntime {
                 tracing::warn!(
                     target: "runtime",
                     %shard_id,
-                    ?shadow_vm_kind,
+                    shadow_vm_label,
                     ?err,
                     "shadow: execution failed"
                 );
