@@ -16,19 +16,16 @@ use near_store::adapter::epoch_store::{EpochStoreAdapter, EpochStoreUpdateAdapte
 use near_store::merkle_proof::MerkleProofAccess;
 use std::collections::{HashMap, HashSet};
 
-/// Called on the first block of epoch T with the last block hash of epoch T-1.
+/// Called on the first block of epoch T with T's epoch_id.
 /// Derives the epoch sync proof up to epoch T-2, because a syncing node needs at least
 /// `transaction_validity_period` worth of block headers (currently ~2 epochs).
 pub fn update_epoch_sync_proof(
     store: &EpochStoreAdapter,
-    last_block_hash_in_pe: &CryptoHash,
+    epoch_id: &EpochId,
 ) -> Result<EpochStoreUpdateAdapter<'static>, Error> {
-    // pe -> previous_epoch
-    // ppe -> previous_previous_epoch
-    let last_block_info_in_pe = store.get_block_info(last_block_hash_in_pe)?;
-    let first_block_hash_in_ppe = last_block_info_in_pe.epoch_first_block();
-    let first_block_info_in_ppe = store.get_block_info(first_block_hash_in_ppe)?;
-    let last_block_hash_in_ppe = first_block_info_in_ppe.prev_hash();
+    // epoch_id(T) is the hash of the last block of epoch T-2 (set in finalize_epoch),
+    // so we can obtain last_block_hash_in_ppe without navigating through T-1.
+    let last_block_hash_in_ppe = &epoch_id.0;
     let last_block_info_in_ppe = store.get_block_info(last_block_hash_in_ppe)?;
 
     if last_block_info_in_ppe.epoch_id() == &EpochId::default() {
