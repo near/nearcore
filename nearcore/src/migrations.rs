@@ -222,7 +222,10 @@ fn copy_block_headers_to_cold_db(
     tracing::info!(target: "migrations", "SST ingestion into cold db complete");
 
     // Files were moved by ingest; clean up the empty directory.
-    std::fs::remove_dir_all(&sst_dir)?;
+    // Best-effort: don't fail the migration if cleanup fails.
+    if let Err(err) = std::fs::remove_dir_all(&sst_dir) {
+        tracing::warn!(target: "migrations", ?sst_dir, ?err, "failed to remove temporary SST directory");
+    }
 
     tracing::info!(target: "migrations", "completed copying block headers to cold db");
     Ok(())
@@ -241,7 +244,7 @@ fn write_block_headers_to_sst_files(store: &Store, sst_dir: &Path) -> anyhow::Re
     let genesis_height = get_genesis_height(store).unwrap();
     let head_height = store.chain_store().head().unwrap().height;
     let approx_total = head_height - genesis_height;
-    let approx_per_partition = approx_total / 4;
+    let approx_per_partition = (approx_total / 4).max(1);
     tracing::info!(target: "migrations", ?sst_dir, approx_total, "starting parallel SST file creation for block headers");
 
     // 4 partitions by first byte: [..0x40), [0x40..0x80), [0x80..0xC0), [0xC0..).
