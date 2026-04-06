@@ -341,6 +341,7 @@ impl NightshadeRuntime {
             use near_parameters::vm::WasmtimeStrategy;
             let strategies = [None, Some(WasmtimeStrategy::Winch)];
             let shadow_txs = shadow_transactions.unwrap();
+            let mut cranelift_result: Option<node_runtime::ApplyResult> = None;
 
             for strategy in &strategies {
                 let Some(shadow_trie) =
@@ -402,7 +403,46 @@ impl NightshadeRuntime {
                     self.epoch_manager.as_ref(),
                     Default::default(),
                 );
-                self.log_shadow_comparison(shadow_result, &apply_result, shard_id, shadow_label);
+
+                match shadow_result {
+                    Ok(shadow_ok) => {
+                        // Compare against canonical
+                        self.log_shadow_comparison(
+                            Ok(&shadow_ok),
+                            &apply_result,
+                            shard_id,
+                            shadow_label,
+                        );
+                        // Compare Winch against Cranelift directly
+                        if strategy.is_some() {
+                            if let Some(cl) = &cranelift_result {
+                                self.log_shadow_comparison(
+                                    Ok(&shadow_ok),
+                                    cl,
+                                    shard_id,
+                                    "winch_vs_cranelift",
+                                );
+                            }
+                        }
+                        // Save Cranelift result for Winch comparison
+                        if strategy.is_none() {
+                            cranelift_result = Some(shadow_ok);
+                        }
+                    }
+                    Err(err) => {
+                        let shard_label_str = shard_id.to_string();
+                        metrics::SHADOW_CHUNK_COMPARISON
+                            .with_label_values(&[&shard_label_str, shadow_label, "error"])
+                            .inc();
+                        tracing::warn!(
+                            target: "runtime",
+                            %shard_id,
+                            shadow_vm_label = shadow_label,
+                            ?err,
+                            "shadow: execution failed"
+                        );
+                    }
+                }
             }
         }
 
@@ -705,7 +745,7 @@ const SHADOW_GAS_DIFF_WARN_THRESHOLD: f64 = 1.0;
 impl NightshadeRuntime {
     fn log_shadow_comparison(
         &self,
-        shadow_result: Result<node_runtime::ApplyResult, RuntimeError>,
+        shadow_result: Result<&node_runtime::ApplyResult, &RuntimeError>,
         canonical_result: &node_runtime::ApplyResult,
         shard_id: ShardId,
         shadow_vm_label: &str,
