@@ -1122,20 +1122,30 @@ impl NightshadeRuntime {
                                         && c_acct.storage_usage() == s_acct.storage_usage()
                                         && c_acct.contract() == s_acct.contract();
                                     if fields_match {
-                                        metrics::SHADOW_STATE_CHANGES
-                                            .with_label_values(&[
-                                                &shard_label,
-                                                shadow_vm_label,
-                                                "account_balance_only_diff",
-                                            ])
-                                            .inc();
                                         let diff_yocto = c_acct
                                             .amount()
                                             .as_yoctonear()
                                             .abs_diff(s_acct.amount().as_yoctonear());
-                                        metrics::SHADOW_BALANCE_DIFF
-                                            .with_label_values(&[&shard_label, shadow_vm_label])
-                                            .observe(diff_yocto as f64 / 1e21);
+                                        if diff_yocto > 0 {
+                                            metrics::SHADOW_STATE_CHANGES
+                                                .with_label_values(&[
+                                                    &shard_label,
+                                                    shadow_vm_label,
+                                                    "account_balance_only_diff",
+                                                ])
+                                                .inc();
+                                            metrics::SHADOW_BALANCE_DIFF
+                                                .with_label_values(&[&shard_label, shadow_vm_label])
+                                                .observe(diff_yocto as f64 / 1e21);
+                                        } else {
+                                            metrics::SHADOW_STATE_CHANGES
+                                                .with_label_values(&[
+                                                    &shard_label,
+                                                    shadow_vm_label,
+                                                    "account_match",
+                                                ])
+                                                .inc();
+                                        }
                                     } else {
                                         metrics::SHADOW_STATE_CHANGES
                                             .with_label_values(&[
