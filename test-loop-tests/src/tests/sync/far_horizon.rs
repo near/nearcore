@@ -756,14 +756,14 @@ fn test_far_horizon_tx_during_sync() {
 }
 
 // Scenario: A fresh node enters StateSync but state part downloads always
-// fail (P2P-only config, testloop drops P2P state requests). The chain
+// fail (an override handler drops StateRequestPart messages). The chain
 // advances to a new epoch, making the sync hash stale. The node should
 // detect this and trigger recovery.
 //
 // Setup:
 //   - 4 validators, epoch_length=10, 4 shards
 //   - Network runs past the epoch sync horizon
-//   - Add a fresh node with P2P-only state sync (no external storage)
+//   - Add a fresh node, install override handler that drops state part requests
 //   - Node enters StateSync (parts blocked), record the sync hash
 //   - Advance the chain until validators have a different sync hash
 //
@@ -775,8 +775,9 @@ fn test_far_horizon_tx_during_sync() {
 #[test]
 #[cfg(feature = "test_features")]
 fn test_far_horizon_stale_sync_hash_detection() {
-    use near_chain_configs::SyncConfig;
+    use crate::setup::peer_manager_actor::HandlerResult;
     use near_client::sync::state::STALE_SYNC_HASH_THRESHOLD;
+    use near_network::types::{NetworkRequests, NetworkResponses};
 
     init_test_logger();
 
@@ -799,14 +800,21 @@ fn test_far_horizon_stale_sync_hash_detection() {
         .config_modifier(|config| {
             config.tracked_shards_config = TrackedShardsConfig::AllShards;
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
-            // Use P2P-only state sync. The testloop's default peer manager
-            // handler drops P2P state part requests, so state sync will never
-            // make progress — the node stays stuck in StateSync.
-            config.state_sync.sync = SyncConfig::Peers;
         })
         .build();
     env.add_node("new_node", node_state);
     let new_node_idx = env.node_datas.len() - 1;
+
+    // Drop state part requests so state sync never completes.
+    env.node_datas[new_node_idx].register_override_handler(
+        &mut env.test_loop.data,
+        Box::new(|request| match &request {
+            NetworkRequests::StateRequestPart { .. } => {
+                HandlerResult::Handled(NetworkResponses::NoResponse)
+            }
+            _ => HandlerResult::Unhandled(request),
+        }),
+    );
 
     // Run until new node enters StateSync and record its sync hash.
     let mut node_sync_hash = None;
