@@ -80,6 +80,8 @@ pub struct NightshadeRuntime {
     /// When set, chunks are also executed with this config for comparison.
     /// Results are logged but not used for state.
     shadow_runtime_config_store: Option<RuntimeConfigStore>,
+    /// Whether to also run Winch as a second shadow alongside Cranelift.
+    enable_winch_shadow: bool,
     store: Store,
     compiled_contract_cache: Box<dyn ContractRuntimeCache>,
     tries: ShardTries,
@@ -102,6 +104,7 @@ impl NightshadeRuntime {
         max_gas_burnt_view: Option<Gas>,
         runtime_config_store: Option<RuntimeConfigStore>,
         shadow_runtime_config_store: Option<RuntimeConfigStore>,
+        enable_winch_shadow: bool,
         gc_num_epochs_to_keep: u64,
         trie_config: TrieConfig,
         state_snapshot_config: StateSnapshotConfig,
@@ -141,6 +144,7 @@ impl NightshadeRuntime {
             compiled_contract_cache,
             runtime_config_store,
             shadow_runtime_config_store,
+            enable_winch_shadow,
             store,
             tries,
             runtime,
@@ -339,7 +343,11 @@ impl NightshadeRuntime {
         // Start from canonical config, only swap VM-specific wasm fields.
         if let Some(shadow_config_store) = &self.shadow_runtime_config_store {
             use near_parameters::vm::WasmtimeStrategy;
-            let strategies = [None, Some(WasmtimeStrategy::Winch)];
+            let strategies: Vec<Option<WasmtimeStrategy>> = if self.enable_winch_shadow {
+                vec![None, Some(WasmtimeStrategy::Winch)]
+            } else {
+                vec![None]
+            };
             let shadow_txs = shadow_transactions.unwrap();
             let mut cranelift_result: Option<node_runtime::ApplyResult> = None;
 

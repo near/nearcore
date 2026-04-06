@@ -278,6 +278,11 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vm_kind_override: Option<near_parameters::vm::VMKind>,
 
+    /// Enable Winch baseline compiler as an additional shadow VM.
+    /// Only used on nodes that also have vm_kind_override set.
+    #[serde(default)]
+    pub enable_winch_shadow: bool,
+
     #[serde(skip_serializing_if = "is_false")]
     pub archive: bool,
     /// Configuration for a cloud-based archival node.
@@ -470,12 +475,13 @@ impl Default for Config {
             telemetry: TelemetryConfig::default(),
             network: Default::default(),
             consensus: Consensus::default(),
+            vm_kind_override: None,
+            enable_winch_shadow: false,
             tracked_shards_config: None,
             tracked_accounts: None,
             tracked_shadow_validator: None,
             tracked_shards: None,
             tracked_shard_schedule: None,
-            vm_kind_override: None,
             archive: false,
             cloud_archival: None,
             cloud_archival_writer: None,
@@ -917,6 +923,7 @@ impl NightshadeRuntime {
             config.client_config.max_gas_burnt_view,
             None,
             shadow_runtime_config_store,
+            config.config.enable_winch_shadow,
             config.config.gc.gc_num_epochs_to_keep(),
             TrieConfig::from_store_config(&config.config.store),
             state_snapshot_config,

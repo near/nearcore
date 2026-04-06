@@ -148,6 +148,7 @@ impl TestEnv {
             None,
             Some(runtime_config_store),
             None,
+            false,
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             Default::default(),
             StateSnapshotConfig::enabled(dir.path().join("data")),
