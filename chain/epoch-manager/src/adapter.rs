@@ -951,6 +951,8 @@ impl EpochManagerAdapter for EpochManagerHandle {
         // the genesis epoch — the DB entry is saved during genesis init.
         // When EarlyKickout is enabled for the block's epoch, read from the
         // ChunkProducers DB column (strict — errors on miss).
+        // TODO(early-kickout): add a cache layer to avoid hitting the DB on every lookup.
+        // One option is a large RocksDB memtable for this column.
         #[cfg(feature = "nightly")]
         {
             use near_primitives::utils::get_block_shard_id;
