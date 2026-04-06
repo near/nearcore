@@ -449,13 +449,12 @@ fn test_yield_then_resume_two_actions_failure() {
 // Protocol upgrade setup was taken from `fn test_protocol_upgrade`.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 // On non-x86_64 (e.g. macOS ARM), Wasmtime is always used, which runs V3
 // instrumentation that charges linear gas for memory.grow/table.grow. This test
 // runs at protocol 82-83 where linear_op costs are 300 Tgas sentinel values
 // (only calibrated in protocol 84+), making any contract with memory.grow
 // immediately exceed max_gas_burnt.
-#[cfg_attr(not(target_arch = "x86_64"), ignore)]
+#[cfg_attr(any(feature = "protocol_feature_spice", not(target_arch = "x86_64")), ignore)]
 fn test_yield_resume_across_protocol_upgrade() {
     init_test_logger();
 
