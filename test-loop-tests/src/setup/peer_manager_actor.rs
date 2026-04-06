@@ -106,20 +106,18 @@ pub type NetworkRequestHandler = Box<dyn Fn(NetworkRequests) -> HandlerResult>;
 /// It is possible to override these handlers by registering a new handler using the
 /// `register_override_handler()` method.
 ///
-/// The signature of the handler is `dyn Fn(NetworkRequests) -> Option<NetworkRequests>`.
-/// If the handler returns None, it means that the message was handled and no further processing is
-/// required. If the handler returns Some(request), it means that the message was not handled and
-/// the request should be passed to the next handler in the chain.
+/// Each handler is a `dyn Fn(NetworkRequests) -> HandlerResult`:
+/// - `HandlerResult::Handled(response)` — message was handled, return the given
+///   `NetworkResponses` to the caller. No further handlers are tried.
+/// - `HandlerResult::Unhandled(request)` — message was not handled (or was modified),
+///   pass to the next handler in the chain.
 ///
-/// It's possible for a handler to modify the data in request and return it. This can be useful for
-/// simulating things like malicious actors where we can modify the data in the request.
+/// Returning `Unhandled` with a modified request is useful for simulating malicious actors.
 ///
-/// In case no handler is able to handle the request, the actor will panic.
+/// Handlers are tried in reverse registration order so that overrides take priority over defaults.
+/// If no handler handles the request, the actor panics.
 ///
-/// NOTE: To make the override functionality work with the default handlers, the handlers are tried in
-/// reverse order.
-///
-/// Examples of custom handlers
+/// Examples of custom handlers:
 /// - Override handler to skip sending messages to or from a specific client.
 /// - Override handler to simulate more network delays.
 /// - Override handler to modify data and simulate malicious behavior.
