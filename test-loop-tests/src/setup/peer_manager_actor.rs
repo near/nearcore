@@ -87,7 +87,16 @@ pub struct TestLoopNetworkBlockInfo {
     pub block_header: BlockHeader,
 }
 
-pub type NetworkRequestHandler = Box<dyn Fn(NetworkRequests) -> Option<NetworkRequests>>;
+/// Result of a network request handler.
+#[allow(clippy::large_enum_variant)]
+pub enum HandlerResult {
+    /// Message was not handled, pass to next handler in the chain.
+    Unhandled(NetworkRequests),
+    /// Message was handled, return this response to the caller.
+    Handled(NetworkResponses),
+}
+
+pub type NetworkRequestHandler = Box<dyn Fn(NetworkRequests) -> HandlerResult>;
 
 /// A custom actor for the TestLoop framework that can be used to send network messages across clients
 /// in a multi-node test.
@@ -442,11 +451,13 @@ impl Handler<PeerManagerMessageRequest, PeerManagerMessageResponse> for TestLoop
         // Iterate over the handlers in reverse order to allow for overriding the default handlers.
         let mut request = Some(request);
         for handler in self.handlers.iter().rev() {
-            if let Some(new_request) = handler(request.take().unwrap()) {
-                request = Some(new_request);
-            } else {
-                // Some handler was successfully able to handle the request.
-                return PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse);
+            match handler(request.take().unwrap()) {
+                HandlerResult::Unhandled(req) => {
+                    request = Some(req);
+                }
+                HandlerResult::Handled(response) => {
+                    return PeerManagerMessageResponse::NetworkResponses(response);
+                }
             }
         }
         // If no handler was able to handle the request, panic.
@@ -488,7 +499,7 @@ fn network_message_to_client_handler(
                     block_header: block.header().clone(),
                 });
             }
-            None
+            HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::OptimisticBlock { chunk_producers, optimistic_block } => {
             let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
@@ -506,7 +517,7 @@ fn network_message_to_client_handler(
                     .client_sender
                     .send(msg);
             }
-            None
+            HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::Approval { approval_message } => {
             assert_ne!(
@@ -518,7 +529,7 @@ fn network_message_to_client_handler(
                 .client_sender
                 .send_async(BlockApproval(approval_message.approval, PeerId::random()).span_wrap());
             drop(future);
-            None
+            HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::ForwardTx(account, transaction) => {
             assert_ne!(account, my_account_id, "Sending message to self not supported.");
@@ -531,7 +542,7 @@ fn network_message_to_client_handler(
                     check_only: false,
                 });
             drop(future);
-            None
+            HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::ChunkEndorsement(target, endorsement) => {
             let future = shared_state
@@ -539,14 +550,14 @@ fn network_message_to_client_handler(
                 .chunk_endorsement_handler_sender
                 .send_async(ChunkEndorsementMessage(endorsement));
             drop(future);
-            None
+            HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::SpiceChunkEndorsement(target, endorsement) => {
             shared_state
                 .senders_for_account(&my_account_id, &target)
                 .spice_core_writer_sender
                 .send(SpiceChunkEndorsementMessage(endorsement));
-            None
+            HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::EpochSyncRequest { peer_id } => {
             let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
@@ -555,7 +566,7 @@ fn network_message_to_client_handler(
                 .senders_for_peer(&my_peer_id, &peer_id)
                 .client_sender
                 .send(EpochSyncRequestMessage { from_peer: my_peer_id });
-            None
+            HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::EpochSyncResponse { peer_id, proof } => {
             let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
@@ -563,7 +574,7 @@ fn network_message_to_client_handler(
                 .senders_for_peer(&my_peer_id, &peer_id)
                 .client_sender
                 .send(EpochSyncResponseMessage { from_peer: my_peer_id, proof });
-            None
+            HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::BanPeer { peer_id, ban_reason } => {
             let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
@@ -576,11 +587,15 @@ fn network_message_to_client_handler(
             );
             shared_state.disallow_requests(my_peer_id.clone(), peer_id.clone());
             shared_state.disallow_requests(peer_id, my_peer_id);
-            None
+            HandlerResult::Handled(NetworkResponses::NoResponse)
         }
-        NetworkRequests::StateRequestHeader { .. } => None,
-        NetworkRequests::StateRequestPart { .. } => None,
-        _ => Some(request),
+        NetworkRequests::StateRequestHeader { .. } => {
+            HandlerResult::Handled(NetworkResponses::NoResponse)
+        }
+        NetworkRequests::StateRequestPart { .. } => {
+            HandlerResult::Handled(NetworkResponses::NoResponse)
+        }
+        _ => HandlerResult::Unhandled(request),
     })
 }
 
@@ -604,7 +619,7 @@ fn network_message_to_view_client_handler(
                     responder.send_async(BlockHeadersResponse(response, peer_id).span_wrap());
                 drop(future);
             });
-            None
+            HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::BlockRequest { hash, peer_id } => {
             let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
@@ -626,9 +641,9 @@ fn network_message_to_view_client_handler(
                 );
                 drop(future);
             });
-            None
+            HandlerResult::Handled(NetworkResponses::NoResponse)
         }
-        _ => Some(request),
+        _ => HandlerResult::Unhandled(request),
     })
 }
 
@@ -644,7 +659,7 @@ fn network_message_to_partial_witness_handler(
                 .senders_for_account(&my_account_id, &target)
                 .partial_witness_sender
                 .send(ChunkStateWitnessAckMessage(witness_ack));
-            None
+            HandlerResult::Handled(NetworkResponses::NoResponse)
         }
 
         NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple) => {
@@ -654,7 +669,7 @@ fn network_message_to_partial_witness_handler(
                     .partial_witness_sender
                     .send(PartialEncodedStateWitnessMessage(partial_witness));
             }
-            None
+            HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::PartialEncodedStateWitnessForward(chunk_validators, partial_witness) => {
             for target in chunk_validators {
@@ -663,7 +678,7 @@ fn network_message_to_partial_witness_handler(
                     .partial_witness_sender
                     .send(PartialEncodedStateWitnessForwardMessage(partial_witness.clone()));
             }
-            None
+            HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::ChunkContractAccesses(chunk_validators, accesses) => {
             for target in chunk_validators {
@@ -672,21 +687,21 @@ fn network_message_to_partial_witness_handler(
                     .partial_witness_sender
                     .send(ChunkContractAccessesMessage(accesses.clone()));
             }
-            None
+            HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::ContractCodeRequest(target, request) => {
             shared_state
                 .senders_for_account(&my_account_id, &target)
                 .partial_witness_sender
                 .send(ContractCodeRequestMessage(request));
-            None
+            HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::ContractCodeResponse(target, response) => {
             shared_state
                 .senders_for_account(&my_account_id, &target)
                 .partial_witness_sender
                 .send(ContractCodeResponseMessage(response));
-            None
+            HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::PartialEncodedContractDeploys(accounts, deploys) => {
             for account in accounts {
@@ -695,16 +710,18 @@ fn network_message_to_partial_witness_handler(
                     .partial_witness_sender
                     .send(PartialEncodedContractDeploysMessage(deploys.clone()));
             }
-            None
+            HandlerResult::Handled(NetworkResponses::NoResponse)
         }
-        _ => Some(request),
+        _ => HandlerResult::Unhandled(request),
     })
 }
 
 fn network_message_to_state_snapshot_handler() -> NetworkRequestHandler {
     Box::new(move |request| match request {
-        NetworkRequests::SnapshotHostEvent { .. } => None,
-        _ => Some(request),
+        NetworkRequests::SnapshotHostEvent { .. } => {
+            HandlerResult::Handled(NetworkResponses::NoResponse)
+        }
+        _ => HandlerResult::Unhandled(request),
     })
 }
 
@@ -726,7 +743,7 @@ fn network_message_to_shards_manager_handler(
                     route_back,
                 },
             );
-            None
+            HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
             // Use route_back information to send the response back to the correct client.
@@ -737,7 +754,7 @@ fn network_message_to_shards_manager_handler(
                     partial_encoded_chunk_response: response,
                     received_time: clock.now(),
                 });
-            None
+            HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
             assert!(account_id != my_account_id, "Sending message to self not supported.");
@@ -747,7 +764,7 @@ fn network_message_to_shards_manager_handler(
                 .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
                     partial_encoded_chunk.into(),
                 ));
-            None
+            HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
             assert!(account_id != my_account_id, "Sending message to self not supported.");
@@ -755,9 +772,9 @@ fn network_message_to_shards_manager_handler(
                 .senders_for_account(&my_account_id, &account_id)
                 .shards_manager_sender
                 .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(forward));
-            None
+            HandlerResult::Handled(NetworkResponses::NoResponse)
         }
-        _ => Some(request),
+        _ => HandlerResult::Unhandled(request),
     })
 }
 
@@ -775,7 +792,7 @@ fn network_message_to_spice_data_distributor_handler(
                     .spice_data_distributor_actor
                     .send(SpiceIncomingPartialData { data: partial_data.clone() });
             }
-            None
+            HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::SpicePartialDataRequest { producer, request } => {
             assert!(producer != my_account_id, "Sending message to self not supported.");
@@ -783,7 +800,7 @@ fn network_message_to_spice_data_distributor_handler(
                 .senders_for_account(&my_account_id, &producer)
                 .spice_data_distributor_actor
                 .send(request);
-            None
+            HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::SpiceChunkContractAccesses(targets, accesses) => {
             for target in targets {
@@ -792,22 +809,22 @@ fn network_message_to_spice_data_distributor_handler(
                     .spice_data_distributor_actor
                     .send(SpiceChunkContractAccessesMessage(accesses.clone()));
             }
-            None
+            HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::SpiceContractCodeRequest(target, request) => {
             shared_state
                 .senders_for_account(&my_account_id, &target)
                 .spice_data_distributor_actor
                 .send(SpiceContractCodeRequestMessage(request));
-            None
+            HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::SpiceContractCodeResponse(target, response) => {
             shared_state
                 .senders_for_account(&my_account_id, &target)
                 .spice_data_distributor_actor
                 .send(SpiceContractCodeResponseMessage(response));
-            None
+            HandlerResult::Handled(NetworkResponses::NoResponse)
         }
-        _ => Some(request),
+        _ => HandlerResult::Unhandled(request),
     })
 }
