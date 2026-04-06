@@ -422,6 +422,16 @@ impl NightshadeRuntime {
                                     shard_id,
                                     "winch_vs_cranelift",
                                 );
+                            } else {
+                                // Winch succeeded but Cranelift failed
+                                let shard_label_str = shard_id.to_string();
+                                metrics::SHADOW_CHUNK_COMPARISON
+                                    .with_label_values(&[
+                                        &shard_label_str,
+                                        "winch_vs_cranelift",
+                                        "cranelift_error_winch_ok",
+                                    ])
+                                    .inc();
                             }
                         }
                         // Save Cranelift result for Winch comparison
@@ -441,6 +451,22 @@ impl NightshadeRuntime {
                             ?err,
                             "shadow: execution failed"
                         );
+                        // Track Winch failures where Cranelift succeeded
+                        if strategy.is_some() && cranelift_result.is_some() {
+                            metrics::SHADOW_CHUNK_COMPARISON
+                                .with_label_values(&[
+                                    &shard_label_str,
+                                    "winch_vs_cranelift",
+                                    "winch_compile_error",
+                                ])
+                                .inc();
+                            tracing::warn!(
+                                target: "runtime",
+                                %shard_id,
+                                ?err,
+                                "shadow: winch failed where cranelift succeeded"
+                            );
+                        }
                     }
                 }
             }
