@@ -744,6 +744,7 @@ impl NightshadeRuntime {
                 let mut receipts_gas_lower = 0u32;
                 let mut receipts_gas_equal = 0u32;
                 let mut status_mismatches = 0u32;
+                let mut prepare_error_diffs = 0u32;
                 let mut logs_gas_balance_diffs = 0u32;
                 let mut logs_other_diffs = 0u32;
                 for (c, s) in canonical_outcomes.iter().zip(shadow_outcomes.iter()) {
@@ -757,7 +758,13 @@ impl NightshadeRuntime {
                         receipts_gas_equal += 1;
                     }
                     if c.outcome.status != s.outcome.status {
-                        status_mismatches += 1;
+                        let c_dbg = format!("{:?}", c.outcome.status);
+                        // PrepareError: prepare_v2 rejects what prepare_v3 accepts (bulk memory)
+                        if c_dbg.contains("PrepareError") || c_dbg.contains("CodeDoesNotExist") {
+                            prepare_error_diffs += 1;
+                        } else {
+                            status_mismatches += 1;
+                        }
                     } else if c.outcome.logs != s.outcome.logs {
                         // Check if log diffs are in known gas/balance patterns.
                         let is_known_diff =
@@ -778,11 +785,15 @@ impl NightshadeRuntime {
                 let outgoing_match = canonical_result.outgoing_receipts.len()
                     == shadow_apply.outgoing_receipts.len();
 
+                // Outgoing mismatch is only serious if not caused by prepare errors
+                let outgoing_serious = !outgoing_match && prepare_error_diffs == 0;
                 let is_serious =
-                    !outcomes_match || !ids_match || status_mismatches > 0 || !outgoing_match;
+                    !outcomes_match || !ids_match || status_mismatches > 0 || outgoing_serious;
 
                 let result_label = if is_serious {
                     "serious_mismatch"
+                } else if prepare_error_diffs > 0 {
+                    "prepare_error_diff"
                 } else if logs_other_diffs > 0 {
                     "logs_other_mismatch"
                 } else if logs_gas_balance_diffs > 0 {
@@ -812,6 +823,7 @@ impl NightshadeRuntime {
                         shadow_gas,
                         gas_diff_pct = format_args!("{:+.4}%", gas_diff_pct),
                         status_mismatches,
+                        prepare_error_diffs,
                         logs_gas_balance_diffs,
                         logs_other_diffs,
                         outcomes_match,
@@ -841,6 +853,7 @@ impl NightshadeRuntime {
                         receipts_gas_lower,
                         receipts_gas_equal,
                         status_mismatches,
+                        prepare_error_diffs,
                         logs_gas_balance_diffs,
                         logs_other_diffs,
                         outcomes_match,
