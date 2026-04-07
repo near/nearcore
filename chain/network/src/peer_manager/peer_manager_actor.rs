@@ -200,10 +200,11 @@ impl messaging::Actor for PeerManagerActor {
                     }
                 });
             }
-
-            // Periodically prints bandwidth stats for each peer.
-            self.report_bandwidth_stats_trigger(REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL);
         }
+
+        // Periodically prints bandwidth stats for each peer.
+        // This runs in both production and testloop modes.
+        self.report_bandwidth_stats_trigger(ctx, REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL);
 
         #[cfg(test)]
         self.state.config.event_sink.send(Event::PeerManagerStarted);
@@ -411,7 +412,11 @@ impl PeerManagerActor {
     }
 
     /// Periodically prints bandwidth stats for each peer.
-    fn report_bandwidth_stats_trigger(&self, every: time::Duration) {
+    fn report_bandwidth_stats_trigger(
+        &self,
+        ctx: &mut dyn DelayedActionRunner<Self>,
+        every: time::Duration,
+    ) {
         let _timer = metrics::PEER_MANAGER_TRIGGER_TIME
             .with_label_values(&["report_bandwidth_stats"])
             .start_timer();
@@ -440,15 +445,13 @@ impl PeerManagerActor {
             total_msg_received_count
         );
 
-        if let Some(mut handle) = self.handle.clone() {
-            handle.run_later(
-                "report_bandwidth_stats_trigger",
-                every.try_into().unwrap(),
-                move |act, _ctx| {
-                    act.report_bandwidth_stats_trigger(every);
-                },
-            );
-        }
+        ctx.run_later(
+            "report_bandwidth_stats_trigger",
+            every.try_into().unwrap(),
+            move |act, ctx| {
+                act.report_bandwidth_stats_trigger(ctx, every);
+            },
+        );
     }
 
     /// Check if it is needed to create a new outbound connection.
