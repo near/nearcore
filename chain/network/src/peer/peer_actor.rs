@@ -341,6 +341,120 @@ async fn dispatch_incoming_peer_message(
     })
 }
 
+/// Build a PeersResponse for an incoming PeersRequest.
+/// Returns `Some(PeersResponse)` if there are any peers to send, `None` otherwise.
+fn handle_peers_request(
+    network_state: &Arc<NetworkState>,
+    max_peers: Option<u32>,
+    max_direct_peers: Option<u32>,
+) -> Option<PeerMessage> {
+    let mut num_peers = network_state.config.max_send_peers;
+    if let Some(max_peers) = max_peers {
+        num_peers = min(num_peers, max_peers);
+    }
+    let peers = network_state.peer_store.healthy_peers(num_peers as usize);
+
+    let mut direct_peers = network_state.get_direct_peers();
+    if let Some(max_direct_peers) = max_direct_peers {
+        if direct_peers.len() > max_direct_peers as usize {
+            direct_peers = direct_peers
+                .into_iter()
+                .choose_multiple(&mut thread_rng(), max_direct_peers as usize);
+        }
+    }
+
+    if peers.is_empty() && direct_peers.is_empty() {
+        return None;
+    }
+    Some(PeerMessage::PeersResponse(PeersResponse { peers, direct_peers }))
+}
+
+/// Process an incoming PeersResponse: validate limits and add peers to the store.
+/// Returns `Err(ReasonForBan)` if the response is abusive. The peer store is still
+/// updated even for abusive responses (matching the original inline behavior where
+/// `self.stop()` did not short-circuit the function).
+fn handle_peers_response(
+    clock: &time::Clock,
+    network_state: &NetworkState,
+    peers: Vec<PeerInfo>,
+    direct_peers: Vec<PeerInfo>,
+) -> Result<(), ReasonForBan> {
+    let mut ban_reason = None;
+
+    // Check for abusive behavior (sending too many peers).
+    if peers.len() > PEERS_RESPONSE_MAX_PEERS.try_into().unwrap() {
+        ban_reason = Some(ReasonForBan::Abusive);
+    }
+    // Check for abusive behavior (sending too many direct peers).
+    if direct_peers.len() > MAX_TIER2_PEERS {
+        ban_reason = Some(ReasonForBan::Abusive);
+    }
+
+    let node_id = network_state.config.node_id();
+
+    // Record our own IP address as observed by the peer.
+    if network_state.my_public_addr.read().is_none() {
+        if let Some(my_peer_info) = direct_peers.iter().find(|peer_info| peer_info.id == node_id) {
+            if let Some(addr) = my_peer_info.addr {
+                let mut my_public_addr = network_state.my_public_addr.write();
+                *my_public_addr = Some(addr);
+                tracing::info!(target: "network", %addr, "discovered own public address for tier3 state sync");
+                metrics::TIER3_PUBLIC_ADDR.with_label_values(&[&addr.to_string()]).set(1);
+            }
+        }
+    }
+    // Add received indirect peers to the peer store.
+    network_state
+        .peer_store
+        .add_indirect_peers(clock, peers.into_iter().filter(|peer_info| peer_info.id != node_id));
+    // Direct peers of the responding peer are still indirect peers for this node.
+    network_state.peer_store.add_indirect_peers(
+        clock,
+        direct_peers.into_iter().filter(|peer_info| peer_info.id != node_id),
+    );
+
+    match ban_reason {
+        Some(reason) => Err(reason),
+        None => Ok(()),
+    }
+}
+
+/// Handle an incoming SyncRoutingTable message: validate edges and announce accounts.
+#[tracing::instrument(level = "trace", target = "network", "handle_sync_routing_table", skip_all)]
+async fn handle_sync_routing_table(
+    clock: &time::Clock,
+    network_state: &Arc<NetworkState>,
+    conn: Arc<connection::Connection>,
+    rtu: RoutingTableUpdate,
+) {
+    if let Err(ban_reason) =
+        network_state.add_edges(clock, EdgesWithSource::Remote(rtu.edges.clone())).await
+    {
+        conn.stop(Some(ban_reason));
+    }
+
+    // For every announce we received, we fetch the last announce with the same account_id
+    // that we already broadcasted. Client actor will both verify signatures of the received announces
+    // as well as filter out those which are older than the fetched ones (to avoid overriding
+    // a newer announce with an older one).
+    let old = network_state
+        .account_announcements
+        .get_broadcasted_announcements(rtu.accounts.iter().map(|a| &a.account_id));
+    let accounts: Vec<(AnnounceAccount, Option<EpochId>)> = rtu
+        .accounts
+        .into_iter()
+        .map(|aa| {
+            let id = aa.account_id.clone();
+            (aa, old.get(&id).map(|old| old.epoch_id))
+        })
+        .collect();
+    match network_state.client.send_async(AnnounceAccountRequest(accounts)).await {
+        Ok(Err(ban_reason)) => conn.stop(Some(ban_reason)),
+        Ok(Ok(accounts)) => network_state.add_accounts(accounts).await,
+        Err(_) => {}
+    }
+}
+
 impl PeerActor {
     /// Spawns a PeerActor on a separate tokio runtime and awaits for the
     /// handshake to succeed/fail. The actual result is not returned because we do not yet
@@ -1165,71 +1279,22 @@ impl PeerActor {
                 tracing::debug!(target: "network", peer_info = %self.peer_info, "duplicate handshake");
             }
             PeerMessage::PeersRequest(PeersRequest { max_peers, max_direct_peers }) => {
-                let mut num_peers = self.network_state.config.max_send_peers;
-                if let Some(max_peers) = max_peers {
-                    num_peers = min(num_peers, max_peers);
-                }
-                let peers = self.network_state.peer_store.healthy_peers(num_peers as usize);
-
-                let mut direct_peers = self.network_state.get_direct_peers();
-                if let Some(max_direct_peers) = max_direct_peers {
-                    if direct_peers.len() > max_direct_peers as usize {
-                        direct_peers = direct_peers
-                            .into_iter()
-                            .choose_multiple(&mut thread_rng(), max_direct_peers as usize);
-                    }
-                }
-
-                if !peers.is_empty() || !direct_peers.is_empty() {
-                    tracing::debug!(target: "network", peer_info = %self.peer_info, peers_count = %peers.len(), direct_peers_count = %direct_peers.len(), "peers request, sending peers and direct peers");
-                    self.send_message(&PeerMessage::PeersResponse(PeersResponse {
-                        peers,
-                        direct_peers,
-                    }));
+                if let Some(resp) =
+                    handle_peers_request(&self.network_state, max_peers, max_direct_peers)
+                {
+                    tracing::debug!(target: "network", peer_info = %self.peer_info, "peers request, sending peers and direct peers");
+                    self.send_message(&resp);
                 }
                 #[cfg(test)]
                 message_processed_event();
             }
             PeerMessage::PeersResponse(PeersResponse { peers, direct_peers }) => {
                 tracing::debug!(target: "network", peer_info = %self.peer_info, peers_count = %peers.len(), direct_peers_count = %direct_peers.len(), "received peers and direct peers");
-
-                // Check for abusive behavior (sending too many peers)
-                if peers.len() > PEERS_RESPONSE_MAX_PEERS.try_into().unwrap() {
-                    self.stop(ClosingReason::Ban(ReasonForBan::Abusive));
+                if let Err(ban_reason) =
+                    handle_peers_response(&self.clock, &self.network_state, peers, direct_peers)
+                {
+                    self.stop(ClosingReason::Ban(ban_reason));
                 }
-                // Check for abusive behavior (sending too many direct peers)
-                if direct_peers.len() > MAX_TIER2_PEERS {
-                    self.stop(ClosingReason::Ban(ReasonForBan::Abusive));
-                }
-
-                let node_id = self.network_state.config.node_id();
-
-                // Record our own IP address as observed by the peer.
-                if self.network_state.my_public_addr.read().is_none() {
-                    if let Some(my_peer_info) =
-                        direct_peers.iter().find(|peer_info| peer_info.id == node_id)
-                    {
-                        if let Some(addr) = my_peer_info.addr {
-                            let mut my_public_addr = self.network_state.my_public_addr.write();
-                            *my_public_addr = Some(addr);
-                            tracing::info!(target: "network", %addr, "discovered own public address for tier3 state sync");
-                            metrics::TIER3_PUBLIC_ADDR
-                                .with_label_values(&[&addr.to_string()])
-                                .set(1);
-                        }
-                    }
-                }
-                // Add received indirect peers to the peer store
-                self.network_state.peer_store.add_indirect_peers(
-                    &self.clock,
-                    peers.into_iter().filter(|peer_info| peer_info.id != node_id),
-                );
-                // Direct peers of the responding peer are still indirect peers for this node.
-                // However, we may treat them with more trust in the future.
-                self.network_state.peer_store.add_indirect_peers(
-                    &self.clock,
-                    direct_peers.into_iter().filter(|peer_info| peer_info.id != node_id),
-                );
                 #[cfg(test)]
                 message_processed_event();
             }
@@ -1277,8 +1342,7 @@ impl PeerActor {
                 let clock = self.clock.clone();
                 let network_state = self.network_state.clone();
                 self.handle.spawn("handle sync routing table", async move {
-                    Self::handle_sync_routing_table(&clock, &network_state, conn.clone(), rtu)
-                        .await;
+                    handle_sync_routing_table(&clock, &network_state, conn.clone(), rtu).await;
                     #[cfg(test)]
                     message_processed_event();
                 });
@@ -1463,46 +1527,6 @@ impl PeerActor {
                 }
             }
             msg => self.receive_message(&conn, msg),
-        }
-    }
-
-    #[tracing::instrument(
-        level = "trace",
-        target = "network",
-        "handle_sync_routing_table",
-        skip_all
-    )]
-    async fn handle_sync_routing_table(
-        clock: &time::Clock,
-        network_state: &Arc<NetworkState>,
-        conn: Arc<connection::Connection>,
-        rtu: RoutingTableUpdate,
-    ) {
-        if let Err(ban_reason) =
-            network_state.add_edges(&clock, EdgesWithSource::Remote(rtu.edges.clone())).await
-        {
-            conn.stop(Some(ban_reason));
-        }
-
-        // For every announce we received, we fetch the last announce with the same account_id
-        // that we already broadcasted. Client actor will both verify signatures of the received announces
-        // as well as filter out those which are older than the fetched ones (to avoid overriding
-        // a newer announce with an older one).
-        let old = network_state
-            .account_announcements
-            .get_broadcasted_announcements(rtu.accounts.iter().map(|a| &a.account_id));
-        let accounts: Vec<(AnnounceAccount, Option<EpochId>)> = rtu
-            .accounts
-            .into_iter()
-            .map(|aa| {
-                let id = aa.account_id.clone();
-                (aa, old.get(&id).map(|old| old.epoch_id))
-            })
-            .collect();
-        match network_state.client.send_async(AnnounceAccountRequest(accounts)).await {
-            Ok(Err(ban_reason)) => conn.stop(Some(ban_reason)),
-            Ok(Ok(accounts)) => network_state.add_accounts(accounts).await,
-            Err(_) => {}
         }
     }
 }
