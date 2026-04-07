@@ -1,9 +1,10 @@
 use crate::accounts_data::{AccountDataCache, AccountDataError};
 use crate::announce_accounts::AnnounceAccountCache;
 use crate::client::{
-    BlockApproval, ChunkEndorsementMessage, ClientSenderForNetwork, ProcessTxRequest,
-    SpiceChunkEndorsementMessage, StateResponse, StateResponseReceived, TxStatusRequest,
-    TxStatusResponse,
+    BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage,
+    ClientSenderForNetwork, EpochSyncRequestMessage, EpochSyncResponseMessage,
+    OptimisticBlockMessage, ProcessTxRequest, SpiceChunkEndorsementMessage, StateResponse,
+    StateResponseReceived, TxStatusRequest, TxStatusResponse,
 };
 use crate::concurrency::demux;
 use crate::config;
@@ -331,6 +332,109 @@ impl MessageDispatcher {
                     None
                 }
             },
+        }
+    }
+
+    /// Dispatches a `PeerMessage` to the appropriate actor sender. This is used
+    /// by testloop's `TestLoopTransport` to deliver messages without duplicating
+    /// the dispatch logic in both production and test paths.
+    ///
+    /// Handles:
+    /// - Fire-and-forget non-routed messages (Block, BlockHeaders, Transaction,
+    ///   EpochSync*, OptimisticBlock)
+    /// - Routed messages (delegated to `receive_routed_message`)
+    ///
+    /// Does NOT handle:
+    /// - BlockRequest/BlockHeadersRequest (these require response routing that
+    ///   the caller must handle separately)
+    /// - Protocol-level messages (handshake, sync routing, etc.) — logged as warnings
+    pub async fn dispatch_peer_message(
+        &self,
+        clock: &time::Clock,
+        from_peer: PeerId,
+        msg: PeerMessage,
+    ) {
+        match msg {
+            PeerMessage::Block(block) => {
+                self.client
+                    .send_async(
+                        BlockResponse { block, peer_id: from_peer, was_requested: false }
+                            .span_wrap(),
+                    )
+                    .await
+                    .ok();
+            }
+            PeerMessage::BlockHeaders(headers) => {
+                self.client
+                    .send_async(BlockHeadersResponse(headers, from_peer).span_wrap())
+                    .await
+                    .ok();
+            }
+            PeerMessage::Transaction(transaction) => {
+                self.client
+                    .send_async(ProcessTxRequest {
+                        transaction,
+                        is_forwarded: false,
+                        check_only: false,
+                    })
+                    .await
+                    .ok();
+            }
+            PeerMessage::EpochSyncRequest => {
+                self.client.send(EpochSyncRequestMessage { from_peer });
+            }
+            PeerMessage::EpochSyncResponse(proof) => {
+                self.client.send(EpochSyncResponseMessage { from_peer, proof });
+            }
+            PeerMessage::OptimisticBlock(ob) => {
+                self.client
+                    .send(OptimisticBlockMessage { from_peer, optimistic_block: ob }.span_wrap());
+            }
+            PeerMessage::Routed(routed_msg) => {
+                let msg_hash = routed_msg.hash();
+                let msg_author = routed_msg.author().clone();
+                self.receive_routed_message(
+                    clock,
+                    msg_author,
+                    from_peer,
+                    msg_hash,
+                    routed_msg.body_owned(),
+                )
+                .await;
+            }
+
+            // BlockRequest/BlockHeadersRequest require response routing and must
+            // be handled by the caller (e.g. TestLoopTransport).
+            PeerMessage::BlockRequest(_) | PeerMessage::BlockHeadersRequest(_) => {
+                tracing::warn!(
+                    target: "network",
+                    "dispatch_peer_message called with request/response message; \
+                     caller should handle BlockRequest/BlockHeadersRequest separately"
+                );
+            }
+
+            // Protocol-level messages not relevant for testloop dispatch.
+            PeerMessage::SyncSnapshotHosts(_)
+            | PeerMessage::Challenge(_)
+            | PeerMessage::Tier1Handshake(_)
+            | PeerMessage::Tier2Handshake(_)
+            | PeerMessage::Tier3Handshake(_)
+            | PeerMessage::HandshakeFailure(_, _)
+            | PeerMessage::LastEdge(_)
+            | PeerMessage::SyncRoutingTable(_)
+            | PeerMessage::RequestUpdateNonce(_)
+            | PeerMessage::SyncAccountsData(_)
+            | PeerMessage::PeersRequest(_)
+            | PeerMessage::PeersResponse(_)
+            | PeerMessage::Disconnect(_)
+            | PeerMessage::StateRequestHeader(_, _)
+            | PeerMessage::StateRequestPart(_, _, _)
+            | PeerMessage::VersionedStateResponse(_) => {
+                tracing::warn!(
+                    target: "network",
+                    "unhandled PeerMessage variant in dispatch_peer_message"
+                );
+            }
         }
     }
 }

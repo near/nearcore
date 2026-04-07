@@ -354,6 +354,12 @@ impl TestLoopNetworkSharedState {
     ) -> bool {
         guard.disallowed_peer_links.get(from).and_then(|blocklist| blocklist.get(to)).is_some()
     }
+
+    /// Returns `true` if messages are allowed from `from` to `to`.
+    pub(crate) fn is_link_allowed(&self, from: &PeerId, to: &PeerId) -> bool {
+        let guard = self.0.lock();
+        !Self::is_peer_link_disallowed(&guard, from, to)
+    }
     fn senders_for_account(
         &self,
         origin: &AccountId,
