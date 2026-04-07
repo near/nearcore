@@ -1,5 +1,6 @@
 use super::drop_condition::ClientToShardsManagerSender;
 use super::network_dispatch::TestLoopTransport;
+use super::peer_manager_actor::TestLoopPeerManagerActor;
 use super::rpc::{TestLoopRpcTransport, create_testloop_jsonrpc_router};
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 use near_async::futures::FutureSpawnerExt;
@@ -405,7 +406,7 @@ pub fn setup_client(
         &test_loop.clock(),
         TestDB::new() as Arc<dyn near_store::db::Database>,
         verified_config,
-        genesis_id,
+        genesis_id.clone(),
         client_sender_for_network,
         noop().into_multi_sender(),
         network_adapter.as_multi_sender(),
@@ -417,16 +418,18 @@ pub fn setup_client(
         transport.clone(),
         transport,
     ));
-    let archival_checker = {
-        let shared = network_shared_state.clone();
-        Arc::new(move |peer_id: &PeerId| shared.is_peer_archival(peer_id))
-            as near_network::ArchivalChecker
-    };
-    let peer_manager_actor = PeerManagerActor::new_for_testloop(
-        test_loop.clock(),
-        network_state.clone(),
-        archival_checker,
+    let network_state_for_shared = network_state.clone();
+    let production_peer_manager =
+        PeerManagerActor::new_for_testloop(test_loop.clock(), network_state.clone());
+
+    let peer_manager_actor = TestLoopPeerManagerActor::new(
+        production_peer_manager,
+        network_state,
+        network_shared_state,
+        client_adapter.as_multi_sender(),
+        genesis_id,
     );
+    let network_state = network_state_for_shared;
 
     let gc_actor = GCActor::new(
         runtime_adapter.store().clone(),

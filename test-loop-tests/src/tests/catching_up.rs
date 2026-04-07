@@ -14,10 +14,10 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, BlockReference, NumSeats, ShardId};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
-use parking_lot::Mutex;
+use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::rc::Rc;
 
 /// Verifies that fetching of random parts works properly by issuing transactions during the
 /// third epoch, and then making sure that the balances are correct for the next three epochs.
@@ -323,11 +323,11 @@ fn slow_test_catchup_sanity_blocks_produced() {
         })
         .build();
 
-    let heights = Arc::new(Mutex::new(HashMap::new()));
+    let heights = Rc::new(RefCell::new(HashMap::new()));
     for node_datas in &env.node_datas {
         let check_height = {
             let heights = heights.clone();
-            move |hash: CryptoHash, height| match heights.lock().entry(hash) {
+            move |hash: CryptoHash, height| match heights.borrow_mut().entry(hash) {
                 Entry::Occupied(entry) => {
                     assert_eq!(*entry.get(), height);
                 }
@@ -410,7 +410,7 @@ fn slow_test_all_chunks_accepted() {
         .epoch_config_store(epoch_config_store)
         .build();
 
-    let seen_chunk_same_sender = Arc::new(Mutex::new(HashSet::<(AccountId, u64, ShardId)>::new()));
+    let seen_chunk_same_sender = Rc::new(RefCell::new(HashSet::<(AccountId, u64, ShardId)>::new()));
     for node_datas in &env.node_datas {
         let seen_chunk_same_sender = seen_chunk_same_sender.clone();
         let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
@@ -422,7 +422,7 @@ fn slow_test_all_chunks_accepted() {
                     ref partial_encoded_chunk,
                 } => {
                     let header = &partial_encoded_chunk.header;
-                    if seen_chunk_same_sender.lock().contains(&(
+                    if seen_chunk_same_sender.borrow().contains(&(
                         account_id.clone(),
                         header.height_created(),
                         header.shard_id(),
@@ -430,7 +430,7 @@ fn slow_test_all_chunks_accepted() {
                         println!("=== SAME CHUNK AGAIN!");
                         assert!(false);
                     };
-                    seen_chunk_same_sender.lock().insert((
+                    seen_chunk_same_sender.borrow_mut().insert((
                         account_id.clone(),
                         header.height_created(),
                         header.shard_id(),

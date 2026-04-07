@@ -79,7 +79,15 @@ pub struct SpiceDataDistributorSenderForTestLoopNetwork {
     pub contract_code_response: Sender<SpiceContractCodeResponseMessage>,
 }
 
-pub use near_network::{NetworkRequestHandler, TestLoopNetworkBlockInfo};
+/// This message is used to allow TestLoopPeerManagerActor to construct NetworkInfo for each
+/// client.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TestLoopNetworkBlockInfo {
+    pub peer: PeerInfo,
+    pub block_header: BlockHeader,
+}
+
+pub type NetworkRequestHandler = Box<dyn Fn(NetworkRequests) -> Option<NetworkRequests>>;
 
 /// A custom actor for the TestLoop framework that can be used to send network messages across clients
 /// in a multi-node test.
@@ -106,10 +114,6 @@ pub use near_network::{NetworkRequestHandler, TestLoopNetworkBlockInfo};
 /// - Override handler to skip sending messages to or from a specific client.
 /// - Override handler to simulate more network delays.
 /// - Override handler to modify data and simulate malicious behavior.
-///
-/// NOTE: This wrapper is now dead code — PeerManagerActor is registered directly
-/// in testloop (iteration 22). It will be removed in iteration 23.
-#[allow(dead_code)]
 pub struct TestLoopPeerManagerActor {
     handlers: Vec<NetworkRequestHandler>,
 
@@ -149,7 +153,6 @@ impl Handler<TestLoopNetworkBlockInfo> for TestLoopPeerManagerActor {
     }
 }
 
-#[allow(dead_code)]
 impl TestLoopPeerManagerActor {
     /// Create a new TestLoopPeerManagerActor that delegates to a production
     /// PeerManagerActor for routing. Override handlers run first; unhandled
@@ -421,7 +424,7 @@ impl TestLoopNetworkSharedState {
         self.0.lock().network_states.get(peer_id).cloned()
     }
 
-    pub fn is_peer_archival(&self, peer_id: &PeerId) -> bool {
+    fn is_peer_archival(&self, peer_id: &PeerId) -> bool {
         self.0.lock().archival_peer_ids.contains(peer_id)
     }
 

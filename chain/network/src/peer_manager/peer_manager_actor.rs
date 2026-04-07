@@ -34,7 +34,6 @@ use near_async::messaging::{self, CanSendAsync, Sender};
 use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, time};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
-use near_primitives::block::BlockHeader;
 use near_primitives::genesis::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::state_sync::{PartIdOrHeader, StateRequestAckBody};
@@ -47,7 +46,7 @@ use rand::Rng;
 use rand::seq::{IteratorRandom, SliceRandom};
 use rand::thread_rng;
 use std::cmp::min;
-use std::collections::{HashMap, HashSet, hash_map};
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use tracing::Instrument as _;
@@ -97,24 +96,6 @@ pub(crate) const POLL_CONNECTION_STORE_INTERVAL: time::Duration = time::Duration
 /// The length of time that a Tier3 connection is allowed to idle before it is stopped
 const TIER3_IDLE_TIMEOUT: time::Duration = time::Duration::seconds(15);
 
-/// Handler function for intercepting/overriding network requests in testloop tests.
-/// Returns `None` if the request was handled (no further processing needed),
-/// or `Some(request)` (possibly modified) to pass to the next handler.
-pub type NetworkRequestHandler = Box<dyn Fn(NetworkRequests) -> Option<NetworkRequests> + Send>;
-
-/// Message used to track block info from peers in testloop mode, so that
-/// `push_network_info` can report `highest_height_peers` even without real
-/// TCP connections. Sent by `dispatch_peer_message` when receiving a `PeerMessage::Block`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TestLoopNetworkBlockInfo {
-    pub peer: PeerInfo,
-    pub block_header: BlockHeader,
-}
-
-/// Tracks archival status of peers in testloop mode. Accepts a callback so
-/// the network crate does not depend on test-loop-tests types.
-pub type ArchivalChecker = Arc<dyn Fn(&PeerId) -> bool + Send + Sync>;
-
 /// Actor that manages peers connections.
 pub struct PeerManagerActor {
     pub(crate) clock: time::Clock,
@@ -130,24 +111,6 @@ pub struct PeerManagerActor {
 
     /// State that is shared between multiple threads (including PeerActors).
     pub(crate) state: Arc<NetworkState>,
-
-    /// Override handlers for intercepting network requests in testloop mode.
-    /// When a `PeerManagerMessageRequest::NetworkRequests` is received, these
-    /// handlers are tried in reverse order. If a handler returns `None`, the
-    /// request is considered handled. If all return `Some`, the request is
-    /// forwarded to the production `handle_msg_network_requests`.
-    override_handlers: Vec<NetworkRequestHandler>,
-
-    /// Block info tracker for testloop mode. When present, `push_network_info`
-    /// builds `highest_height_peers` from this data instead of from the empty
-    /// `tier2` connection pool. Updated via `Handler<TestLoopNetworkBlockInfo>`.
-    testloop_block_info: Option<TestLoopBlockInfo>,
-}
-
-/// Testloop-only block info tracking for building `highest_height_peers`.
-struct TestLoopBlockInfo {
-    last_block_headers: HashMap<PeerInfo, BlockHeader>,
-    archival_checker: ArchivalChecker,
 }
 
 /// TEST-ONLY
@@ -237,13 +200,11 @@ impl messaging::Actor for PeerManagerActor {
                     }
                 });
             }
-
-            // Periodically prints bandwidth stats for each peer.
-            // Only in production mode — in testloop there are no TCP connections,
-            // so this just logs zeros. The 60-second interval also causes test
-            // cleanup issues (pending delayed action at test end).
-            self.report_bandwidth_stats_trigger(ctx, REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL);
         }
+
+        // Periodically prints bandwidth stats for each peer.
+        // This runs in both production and testloop modes.
+        self.report_bandwidth_stats_trigger(ctx, REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL);
 
         #[cfg(test)]
         self.state.config.event_sink.send(Event::PeerManagerStarted);
@@ -428,8 +389,6 @@ impl PeerManagerActor {
             clock,
             actor_system: Some(actor_system),
             handle: Some(handle.clone()),
-            override_handlers: vec![],
-            testloop_block_info: None,
         });
         Ok(handle)
     }
@@ -440,14 +399,7 @@ impl PeerManagerActor {
     /// TCP listeners, or any background tasks. The actor relies on the
     /// testloop event loop for scheduling and on `TestLoopTransport` for
     /// message delivery.
-    ///
-    /// The `archival_checker` callback is used to determine if a peer is
-    /// archival when building `highest_height_peers` in `push_network_info`.
-    pub fn new_for_testloop(
-        clock: time::Clock,
-        state: Arc<NetworkState>,
-        archival_checker: ArchivalChecker,
-    ) -> Self {
+    pub fn new_for_testloop(clock: time::Clock, state: Arc<NetworkState>) -> Self {
         let my_peer_id = state.config.node_id();
         Self {
             clock,
@@ -456,27 +408,7 @@ impl PeerManagerActor {
             actor_system: None,
             state,
             started_connect_attempts: false,
-            override_handlers: vec![],
-            testloop_block_info: Some(TestLoopBlockInfo {
-                last_block_headers: HashMap::new(),
-                archival_checker,
-            }),
         }
-    }
-
-    /// Register a handler to intercept/override network requests.
-    /// Handlers are tried in reverse order (last registered = first tried).
-    /// If a handler returns `None`, the request is considered handled.
-    /// If a handler returns `Some(request)`, the (possibly modified) request
-    /// is passed to the next handler, and ultimately to the production routing.
-    pub fn register_override_handler(&mut self, handler: NetworkRequestHandler) {
-        self.override_handlers.push(handler);
-    }
-
-    /// Returns a reference to the actor's NetworkState. Used by testloop setup
-    /// code to pre-populate account announcements and access routing state.
-    pub fn network_state(&self) -> &Arc<NetworkState> {
-        &self.state
     }
 
     /// Periodically prints bandwidth stats for each peer.
@@ -540,33 +472,16 @@ impl PeerManagerActor {
             && !self.state.config.outbound_disabled
     }
 
-    /// Returns peers close to the highest height.
-    /// In testloop mode, uses `testloop_block_info` to build the list since
-    /// there are no real TCP connections in `tier2.ready`.
+    /// Returns peers close to the highest height
     fn highest_height_peers(&self) -> Vec<HighestHeightPeerInfo> {
-        let infos: Vec<HighestHeightPeerInfo> =
-            if let Some(ref block_info) = self.testloop_block_info {
-                block_info
-                    .last_block_headers
-                    .iter()
-                    .map(|(peer_info, header)| HighestHeightPeerInfo {
-                        archival: (block_info.archival_checker)(&peer_info.id),
-                        genesis_id: self.state.genesis_id.clone(),
-                        highest_block_hash: *header.hash(),
-                        highest_block_height: header.height(),
-                        tracked_shards: vec![],
-                        peer_info: peer_info.clone(),
-                    })
-                    .collect()
-            } else {
-                self.state
-                    .tier2
-                    .load()
-                    .ready
-                    .values()
-                    .filter_map(|p| p.full_peer_info().into())
-                    .collect()
-            };
+        let infos: Vec<HighestHeightPeerInfo> = self
+            .state
+            .tier2
+            .load()
+            .ready
+            .values()
+            .filter_map(|p| p.full_peer_info().into())
+            .collect();
 
         // This finds max height among peers, and returns one peer close to such height.
         let max_height = match infos.iter().map(|i| i.highest_block_height).max() {
@@ -1481,23 +1396,8 @@ impl PeerManagerActor {
         msg: PeerManagerMessageRequest,
     ) -> PeerManagerMessageResponse {
         match msg {
-            PeerManagerMessageRequest::NetworkRequests(request) => {
-                // Check override handlers in reverse order (last registered = first tried).
-                let mut request = Some(request);
-                for handler in self.override_handlers.iter().rev() {
-                    if let Some(new_request) = handler(request.take().unwrap()) {
-                        request = Some(new_request);
-                    } else {
-                        // Handler consumed the request.
-                        return PeerManagerMessageResponse::NetworkResponses(
-                            NetworkResponses::NoResponse,
-                        );
-                    }
-                }
-                let request = request.unwrap();
-                PeerManagerMessageResponse::NetworkResponses(
-                    self.handle_msg_network_requests(request),
-                )
+            PeerManagerMessageRequest::NetworkRequests(msg) => {
+                PeerManagerMessageResponse::NetworkResponses(self.handle_msg_network_requests(msg))
             }
             PeerManagerMessageRequest::AdvertiseTier1Proxies => {
                 if let Some((handle, actor_system)) =
@@ -1585,23 +1485,6 @@ impl messaging::Handler<PeerManagerMessageRequest> for PeerManagerActor {
         messaging::Handler::<PeerManagerMessageRequest, PeerManagerMessageResponse>::handle(
             self, msg,
         );
-    }
-}
-
-impl messaging::Handler<TestLoopNetworkBlockInfo> for PeerManagerActor {
-    fn handle(&mut self, msg: TestLoopNetworkBlockInfo) {
-        if let Some(ref mut block_info) = self.testloop_block_info {
-            match block_info.last_block_headers.entry(msg.peer) {
-                hash_map::Entry::Occupied(entry) => {
-                    if entry.get().height() <= msg.block_header.height() {
-                        *entry.into_mut() = msg.block_header;
-                    }
-                }
-                hash_map::Entry::Vacant(entry) => {
-                    entry.insert(msg.block_header);
-                }
-            }
-        }
     }
 }
 

@@ -1,8 +1,9 @@
 use super::drop_condition::{DropCondition, TestLoopChunksStorage};
 use super::peer_manager_actor::{
     ChunkEndorsementSenderForTestLoopNetwork, ClientSenderForTestLoopNetwork,
-    SpiceDataDistributorSenderForTestLoopNetwork, TestLoopNetworkSharedState,
-    TxRequestHandleSenderForTestLoopNetwork, ViewClientSenderForTestLoopNetwork,
+    SpiceDataDistributorSenderForTestLoopNetwork, TestLoopNetworkBlockInfo,
+    TestLoopNetworkSharedState, TestLoopPeerManagerActor, TxRequestHandleSenderForTestLoopNetwork,
+    ViewClientSenderForTestLoopNetwork,
 };
 use near_async::messaging::{IntoMultiSender, IntoSender, Sender};
 use near_async::test_loop::data::TestLoopDataHandle;
@@ -27,7 +28,6 @@ use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::PartialWitnessSenderForNetwork;
 use near_network::types::StateRequestSenderForNetwork;
-use near_network::{PeerManagerActor, TestLoopNetworkBlockInfo};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
@@ -92,7 +92,7 @@ pub struct NodeExecutionData {
     pub chunk_endorsement_handler_sender: TestLoopSender<ChunkEndorsementHandlerActor>,
     pub shards_manager_sender: TestLoopSender<ShardsManagerActor>,
     pub partial_witness_sender: TestLoopSender<PartialWitnessActor>,
-    pub peer_manager_sender: TestLoopSender<PeerManagerActor>,
+    pub peer_manager_sender: TestLoopSender<TestLoopPeerManagerActor>,
     pub resharding_sender: TestLoopSender<ReshardingActor>,
     pub state_sync_dumper_handle: TestLoopDataHandle<Arc<StateSyncDumpHandle>>,
     pub spice_data_distributor_sender: TestLoopSender<SpiceDataDistributorActor>,

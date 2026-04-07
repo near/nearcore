@@ -1,5 +1,7 @@
 use super::env::TestLoopEnv;
-use super::peer_manager_actor::{TestLoopNetworkSharedState, UnreachableActor};
+use super::peer_manager_actor::{
+    TestLoopNetworkSharedState, TestLoopPeerManagerActor, UnreachableActor,
+};
 use super::setup::setup_client;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 use crate::utils::account::{
@@ -19,7 +21,6 @@ use near_chain_configs::{
 };
 use near_jsonrpc::client::JsonRpcClient;
 use near_jsonrpc::sharded_rpc::ShardedRpcNode;
-use near_network::PeerManagerActor;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::gas::Gas;
@@ -849,8 +850,9 @@ pub(crate) fn populate_account_announcements(test_loop: &TestLoopV2, datas: &[No
 
     // Add the announcements to each node's NetworkState.
     for data in datas {
-        let actor: &PeerManagerActor = test_loop.data.get(&data.peer_manager_sender.actor_handle());
-        actor.network_state().add_announce_accounts(announcements.clone());
+        let actor: &TestLoopPeerManagerActor =
+            test_loop.data.get(&data.peer_manager_sender.actor_handle());
+        actor.network_state.add_announce_accounts(announcements.clone());
     }
 }
 
