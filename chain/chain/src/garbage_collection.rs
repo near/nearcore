@@ -1307,8 +1307,12 @@ impl<'a> ChainStoreUpdate<'a> {
             // because we remove unneeded keys as we add new ones.
             | DBCol::StateSyncHashes
             => unreachable!(),
-            // TODO(early-kickout): Implement garbage collection for ChunkProducers before
-            // stabilizing EarlyKickout.
+            // ChunkProducers is not garbage collected. Once dynamic chunk producer
+            // sampling ships, historical assignments cannot be recomputed.
+            // TODO(early-kickout): before moving to stable, add a GC strategy
+            // (e.g. retain only canonical-chain entries or entries within a sliding window)
+            // to prevent unbounded disk growth on long-running nodes.
+            #[cfg(feature = "nightly")]
             DBCol::ChunkProducers => unreachable!(),
         }
         self.merge(store_update);

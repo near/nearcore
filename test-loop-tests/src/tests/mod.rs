@@ -3,6 +3,7 @@ mod bandwidth_scheduler;
 mod block_chunk_signature;
 mod bug_repro;
 mod catching_up;
+mod chunk_producers;
 mod chunk_validator_failover;
 mod chunk_validator_kickout;
 mod chunks_management;
