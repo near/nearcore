@@ -1,5 +1,7 @@
 use super::env::TestLoopEnv;
-use super::peer_manager_actor::{TestLoopNetworkSharedState, UnreachableActor};
+use super::peer_manager_actor::{
+    TestLoopNetworkSharedState, TestLoopPeerManagerActor, UnreachableActor,
+};
 use super::setup::setup_client;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 use crate::utils::account::{
@@ -22,8 +24,10 @@ use near_jsonrpc::sharded_rpc::ShardedRpcNode;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::gas::Gas;
+use near_primitives::network::AnnounceAccount;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, Balance, BlockHeight, NumBlocks, NumShards};
+use near_primitives::test_utils::create_test_signer;
+use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumBlocks, NumShards};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::{ProtocolVersion, get_protocol_upgrade_schedule};
 use near_primitives_core::num_rational::Rational32;
@@ -416,8 +420,35 @@ impl TestLoopBuilder {
             .collect_vec();
 
         Self::setup_sharded_rpc_pools(&datas, rpc_pool.as_deref());
+        Self::populate_account_announcements(&test_loop, &datas, &shared_state.genesis);
 
         TestLoopEnv { test_loop, node_datas: datas, shared_state }
+    }
+
+    /// Pre-populate account→peer mappings in each node's NetworkState so that
+    /// production `send_message_to_account` routing works. Each node needs
+    /// mappings for ALL other nodes.
+    fn populate_account_announcements(
+        test_loop: &TestLoopV2,
+        datas: &[NodeExecutionData],
+        _genesis: &Genesis,
+    ) {
+        // Build AnnounceAccount entries for all nodes using the default epoch_id.
+        let epoch_id = EpochId::default();
+        let announcements: Vec<AnnounceAccount> = datas
+            .iter()
+            .map(|data| {
+                let signer = Arc::new(create_test_signer(data.account_id.as_str()));
+                AnnounceAccount::new(&signer, data.peer_id.clone(), epoch_id)
+            })
+            .collect();
+
+        // Add the announcements to each node's NetworkState.
+        for data in datas {
+            let actor: &TestLoopPeerManagerActor =
+                test_loop.data.get(&data.peer_manager_sender.actor_handle());
+            actor.network_state.add_announce_accounts(announcements.clone());
+        }
     }
 
     /// Wire each node's sharded RPC pool with clients pointing to other nodes.

@@ -48,6 +48,7 @@ use near_async::{ActorSystem, new_owned_future_spawner, time};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
+use near_primitives::network::AnnounceAccount;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use parking_lot::{Mutex, RwLock};
@@ -97,7 +98,7 @@ pub(crate) struct WhitelistNode {
     account_id: Option<AccountId>,
 }
 
-pub(crate) struct NetworkState {
+pub struct NetworkState {
     /// Single-threaded tokio runtime for NetworkState operations
     ops_spawner: Box<dyn FutureSpawner>,
     /// PeerManager config.
@@ -197,10 +198,9 @@ impl NetworkState {
     /// - Creates empty connection pools (transport handles delivery)
     /// - Sets inbound handshake permits to 0 (unused in testloop)
     /// - No whitelist nodes (not needed in testloop)
-    #[allow(dead_code)] // Will be used when wiring up testloop setup (iteration 10)
     pub fn new_for_testloop(
         clock: &time::Clock,
-        store: store::Store,
+        db: Arc<dyn near_store::db::Database>,
         config: config::VerifiedConfig,
         genesis_id: GenesisId,
         client: ClientSenderForNetwork,
@@ -214,6 +214,7 @@ impl NetworkState {
         tier2_transport: Arc<dyn NetworkTransport>,
         tier3_transport: Arc<dyn NetworkTransport>,
     ) -> Self {
+        let store = store::Store::from(db);
         let peer_store = peer_store::PeerStore::new(clock, config.peer_store.clone()).unwrap();
         let ops_spawner = new_owned_future_spawner("NetworkState testloop ops");
         let add_edges_demux =
@@ -1199,5 +1200,12 @@ impl NetworkState {
             self.tier1_request_full_sync();
         }
         has_changed
+    }
+
+    /// Pre-populate account→peer mappings in the announce account cache.
+    /// Used in testloop to enable `send_message_to_account` routing without
+    /// waiting for production AnnounceAccount protocol messages.
+    pub fn add_announce_accounts(&self, accounts: Vec<AnnounceAccount>) {
+        self.account_announcements.add_accounts(accounts);
     }
 }

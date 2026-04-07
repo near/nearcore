@@ -399,8 +399,7 @@ impl PeerManagerActor {
     /// TCP listeners, or any background tasks. The actor relies on the
     /// testloop event loop for scheduling and on `TestLoopTransport` for
     /// message delivery.
-    #[allow(dead_code)] // Will be used in iteration 10 (testloop setup wiring).
-    pub(crate) fn new_for_testloop(clock: time::Clock, state: Arc<NetworkState>) -> Self {
+    pub fn new_for_testloop(clock: time::Clock, state: Arc<NetworkState>) -> Self {
         let my_peer_id = state.config.node_id();
         Self {
             clock,

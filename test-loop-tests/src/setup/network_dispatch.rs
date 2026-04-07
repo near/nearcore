@@ -28,7 +28,11 @@ use near_network::types::{
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::network::PeerId;
 
-use super::peer_manager_actor::{OneClientSenders, TestLoopNetworkSharedState};
+use near_network::types::PeerInfo;
+
+use super::peer_manager_actor::{
+    OneClientSenders, TestLoopNetworkBlockInfo, TestLoopNetworkSharedState,
+};
 
 /// Dispatches an incoming `PeerMessage` to the appropriate actor sender on the
 /// receiving node. This is the testloop equivalent of the production receive path
@@ -45,6 +49,12 @@ pub(crate) fn dispatch_peer_message(
     match msg {
         // --- Non-routed messages ---
         PeerMessage::Block(block) => {
+            // Track block headers per peer so push_network_info can report
+            // highest_height_peers. This is needed by sync tests.
+            senders.peer_manager_sender.send(TestLoopNetworkBlockInfo {
+                peer: PeerInfo { id: from_peer.clone(), addr: None, account_id: None },
+                block_header: block.header().clone(),
+            });
             let future = senders.client_sender.send_async(
                 BlockResponse { block, peer_id: from_peer, was_requested: false }.span_wrap(),
             );
@@ -290,6 +300,23 @@ impl NetworkTransport for TestLoopTransport {
     fn send_message(&self, peer_id: PeerId, msg: Arc<PeerMessage>) -> bool {
         let senders = self.shared_state.senders_for_peer(&self.my_peer_id, &peer_id);
         let msg = Arc::try_unwrap(msg).unwrap_or_else(|arc| (*arc).clone());
+
+        // For routed messages that expect a response, record the route_back on
+        // the receiving node so it can route the response back to the sender.
+        // In production, intermediate routers do this; in testloop with direct
+        // delivery there are no intermediaries.
+        if let PeerMessage::Routed(ref routed_msg) = msg {
+            if routed_msg.expect_response() {
+                if let Some(target_state) = self.shared_state.network_state_for_peer(&peer_id) {
+                    target_state.tier2_route_back.lock().insert(
+                        &near_async::time::Clock::real(),
+                        routed_msg.hash(),
+                        self.my_peer_id.clone(),
+                    );
+                }
+            }
+        }
+
         dispatch_peer_message(self.my_peer_id.clone(), msg, &senders);
         true
     }

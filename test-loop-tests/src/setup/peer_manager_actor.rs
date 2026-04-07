@@ -9,6 +9,7 @@ use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::{Block, BlockHeader};
 use near_client::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use near_client::{BlockApproval, BlockResponse, SetNetworkInfo};
+use near_network::PeerManagerActor;
 use near_network::client::{
     BlockHeadersRequest, BlockHeadersResponse, BlockRequest, ChunkEndorsementMessage,
     EpochSyncRequestMessage, EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
@@ -17,9 +18,8 @@ use near_network::client::{
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::spice_data_distribution::{
     SpiceChunkContractAccessesMessage, SpiceContractCodeRequestMessage,
-    SpiceContractCodeResponseMessage,
+    SpiceContractCodeResponseMessage, SpiceIncomingPartialData, SpicePartialDataRequest,
 };
-use near_network::spice_data_distribution::{SpiceIncomingPartialData, SpicePartialDataRequest};
 use near_network::state_witness::{
     ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
     ContractCodeResponseMessage, PartialEncodedContractDeploysMessage,
@@ -117,6 +117,14 @@ pub type NetworkRequestHandler = Box<dyn Fn(NetworkRequests) -> Option<NetworkRe
 pub struct TestLoopPeerManagerActor {
     handlers: Vec<NetworkRequestHandler>,
 
+    /// Production PeerManagerActor for routing via real handle_msg_network_requests.
+    /// Override handlers run first; unhandled requests fall through to this actor.
+    production_actor: PeerManagerActor,
+
+    /// NetworkState from the production actor, stored separately for access
+    /// to account_announcements (pre-population with account→peer mappings).
+    pub(crate) network_state: Arc<near_network::types::NetworkState>,
+
     client_sender: ClientSenderForTestLoopNetwork,
     shared_state: TestLoopNetworkSharedState,
     genesis_id: GenesisId,
@@ -146,30 +154,21 @@ impl Handler<TestLoopNetworkBlockInfo> for TestLoopPeerManagerActor {
 }
 
 impl TestLoopPeerManagerActor {
-    /// Create a new TestLoopPeerManagerActor with default handlers for client, partial_witness, and shards_manager.
-    /// Note that we should be able to access the senders for these actors from the data type.
+    /// Create a new TestLoopPeerManagerActor that delegates to a production
+    /// PeerManagerActor for routing. Override handlers run first; unhandled
+    /// requests are forwarded to the production actor's
+    /// `handle_msg_network_requests`.
     pub fn new(
-        clock: Clock,
-        account_id: &AccountId,
+        production_actor: PeerManagerActor,
+        network_state: Arc<near_network::types::NetworkState>,
         shared_state: &TestLoopNetworkSharedState,
         client_sender: ClientSenderForTestLoopNetwork,
         genesis_id: GenesisId,
-        future_spawner: Arc<dyn FutureSpawner>,
     ) -> Self {
-        let handlers = vec![
-            network_message_to_client_handler(&account_id, shared_state.clone()),
-            network_message_to_view_client_handler(
-                account_id.clone(),
-                shared_state.clone(),
-                future_spawner,
-            ),
-            network_message_to_partial_witness_handler(&account_id, shared_state.clone()),
-            network_message_to_shards_manager_handler(clock, &account_id, shared_state.clone()),
-            network_message_to_state_snapshot_handler(),
-            network_message_to_spice_data_distributor_handler(&account_id, shared_state.clone()),
-        ];
         Self {
-            handlers,
+            handlers: vec![],
+            production_actor,
+            network_state,
             client_sender,
             shared_state: shared_state.clone(),
             genesis_id,
@@ -231,6 +230,9 @@ struct TestLoopNetworkSharedStateInner {
     route_back: HashMap<CryptoHash, PeerId>,
     disallowed_peer_links: HashMap<PeerId, HashSet<PeerId>>,
     archival_peer_ids: HashSet<PeerId>,
+    /// Per-node NetworkState instances, used by TestLoopTransport to record
+    /// route_back entries when forwarding routed messages between nodes.
+    network_states: HashMap<PeerId, Arc<near_network::types::NetworkState>>,
 }
 
 /// Senders available for the networking layer, for one node in the test loop.
@@ -286,6 +288,7 @@ impl TestLoopNetworkSharedState {
             route_back: HashMap::new(),
             disallowed_peer_links: HashMap::new(),
             archival_peer_ids: HashSet::new(),
+            network_states: HashMap::new(),
         };
         Self(Arc::new(Mutex::new(inner)))
     }
@@ -404,6 +407,23 @@ impl TestLoopNetworkSharedState {
         self.0.lock().archival_peer_ids.insert(peer_id.clone());
     }
 
+    /// Register a node's NetworkState for route_back recording in TestLoopTransport.
+    pub(crate) fn register_network_state(
+        &self,
+        peer_id: &PeerId,
+        state: Arc<near_network::types::NetworkState>,
+    ) {
+        self.0.lock().network_states.insert(peer_id.clone(), state);
+    }
+
+    /// Get a node's NetworkState by peer_id.
+    pub(crate) fn network_state_for_peer(
+        &self,
+        peer_id: &PeerId,
+    ) -> Option<Arc<near_network::types::NetworkState>> {
+        self.0.lock().network_states.get(peer_id).cloned()
+    }
+
     fn is_peer_archival(&self, peer_id: &PeerId) -> bool {
         self.0.lock().archival_peer_ids.contains(peer_id)
     }
@@ -441,10 +461,15 @@ impl Handler<PeerManagerMessageRequest> for TestLoopPeerManagerActor {
 impl Handler<PeerManagerMessageRequest, PeerManagerMessageResponse> for TestLoopPeerManagerActor {
     fn handle(&mut self, msg: PeerManagerMessageRequest) -> PeerManagerMessageResponse {
         let PeerManagerMessageRequest::NetworkRequests(request) = msg else {
-            panic!("Unexpected message: {:?}", msg);
+            // Non-NetworkRequests variants (AdvertiseTier1Proxies, OutboundTcpConnect, etc.)
+            // are irrelevant in testloop. Delegate to the production actor.
+            return Handler::<PeerManagerMessageRequest, PeerManagerMessageResponse>::handle(
+                &mut self.production_actor,
+                msg,
+            );
         };
 
-        // Iterate over the handlers in reverse order to allow for overriding the default handlers.
+        // Iterate over the override handlers in reverse order.
         let mut request = Some(request);
         for handler in self.handlers.iter().rev() {
             if let Some(new_request) = handler(request.take().unwrap()) {
@@ -454,11 +479,18 @@ impl Handler<PeerManagerMessageRequest, PeerManagerMessageResponse> for TestLoop
                 return PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse);
             }
         }
-        // If no handler was able to handle the request, panic.
-        panic!("Unhandled request: {:?}", request);
+
+        // No override handler handled the request — delegate to the production
+        // PeerManagerActor which uses real routing via NetworkState.
+        let request = request.unwrap();
+        Handler::<PeerManagerMessageRequest, PeerManagerMessageResponse>::handle(
+            &mut self.production_actor,
+            PeerManagerMessageRequest::NetworkRequests(request),
+        )
     }
 }
 
+#[allow(dead_code)] // Will be removed in iteration 13 (old mock cleanup)
 fn network_message_to_client_handler(
     my_account_id: &AccountId,
     shared_state: TestLoopNetworkSharedState,
@@ -589,6 +621,7 @@ fn network_message_to_client_handler(
     })
 }
 
+#[allow(dead_code)] // Will be removed in iteration 13 (old mock cleanup)
 fn network_message_to_view_client_handler(
     my_account_id: AccountId,
     shared_state: TestLoopNetworkSharedState,
@@ -637,6 +670,7 @@ fn network_message_to_view_client_handler(
     })
 }
 
+#[allow(dead_code)] // Will be removed in iteration 13 (old mock cleanup)
 fn network_message_to_partial_witness_handler(
     my_account_id: &AccountId,
     shared_state: TestLoopNetworkSharedState,
@@ -706,6 +740,7 @@ fn network_message_to_partial_witness_handler(
     })
 }
 
+#[allow(dead_code)] // Will be removed in iteration 13 (old mock cleanup)
 fn network_message_to_state_snapshot_handler() -> NetworkRequestHandler {
     Box::new(move |request| match request {
         NetworkRequests::SnapshotHostEvent { .. } => None,
@@ -713,6 +748,7 @@ fn network_message_to_state_snapshot_handler() -> NetworkRequestHandler {
     })
 }
 
+#[allow(dead_code)] // Will be removed in iteration 13 (old mock cleanup)
 fn network_message_to_shards_manager_handler(
     clock: Clock,
     my_account_id: &AccountId,
@@ -766,6 +802,7 @@ fn network_message_to_shards_manager_handler(
     })
 }
 
+#[allow(dead_code)] // Will be removed in iteration 13 (old mock cleanup)
 fn network_message_to_spice_data_distributor_handler(
     my_account_id: &AccountId,
     shared_state: TestLoopNetworkSharedState,
