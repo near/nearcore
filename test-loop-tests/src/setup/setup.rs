@@ -363,7 +363,11 @@ pub fn setup_client(
     // Create the production PeerManagerActor with real routing via NetworkState.
     // This uses TestLoopTransport for message delivery instead of TCP.
     let transport: Arc<dyn near_network::types::NetworkTransport> =
-        Arc::new(TestLoopTransport::new(peer_id.clone(), network_shared_state.clone()));
+        Arc::new(TestLoopTransport::new(
+            peer_id.clone(),
+            network_shared_state.clone(),
+            Arc::new(test_loop.future_spawner(identifier)),
+        ));
     let network_config =
         NetworkConfig::from_seed(account_id.as_str(), ListenerAddr::reserve_for_test());
     let verified_config = network_config.verify().unwrap();

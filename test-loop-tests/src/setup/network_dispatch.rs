@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{CanSend, CanSendAsync};
 use near_client::{BlockApproval, BlockResponse};
 use near_network::client::{
@@ -31,7 +32,8 @@ use near_primitives::network::PeerId;
 use near_network::types::PeerInfo;
 
 use super::peer_manager_actor::{
-    OneClientSenders, TestLoopNetworkBlockInfo, TestLoopNetworkSharedState,
+    ClientSenderForTestLoopNetwork, OneClientSenders, TestLoopNetworkBlockInfo,
+    TestLoopNetworkSharedState, ViewClientSenderForTestLoopNetwork,
 };
 
 /// Dispatches an incoming `PeerMessage` to the appropriate actor sender on the
@@ -39,12 +41,16 @@ use super::peer_manager_actor::{
 /// (`PeerActor::receive_message` for non-routed messages and
 /// `NetworkState::receive_routed_message` for routed messages).
 ///
-/// Uses fire-and-forget `.send()` or `.send_async()` (with the future dropped)
-/// for all dispatches — no responses are routed back through this function.
+/// Most dispatches are fire-and-forget. For request/response patterns like
+/// `BlockRequest` and `BlockHeadersRequest`, this function spawns an async task
+/// to await the view_client response and route it back to the requesting node.
 pub(crate) fn dispatch_peer_message(
     from_peer: PeerId,
     msg: PeerMessage,
     senders: &OneClientSenders,
+    future_spawner: &dyn FutureSpawner,
+    requester_client_sender: &ClientSenderForTestLoopNetwork,
+    target_view_client_sender: &ViewClientSenderForTestLoopNetwork,
 ) {
     match msg {
         // --- Non-routed messages ---
@@ -67,16 +73,39 @@ pub(crate) fn dispatch_peer_message(
             drop(future);
         }
         PeerMessage::BlockRequest(hash) => {
-            // In production, the response is sent back as PeerMessage::Block.
-            // Here we only dispatch the request; response routing is not implemented.
-            let future = senders.view_client_sender.send_async(BlockRequest(hash));
-            drop(future);
+            // Send request to the target's view_client, spawn a task to await
+            // the response and route it back to the requesting node's client.
+            let response_future = target_view_client_sender.send_async(BlockRequest(hash));
+            let responder = requester_client_sender.clone();
+            let peer_id = from_peer;
+            future_spawner.spawn("dispatch: route BlockResponse back to requester", async move {
+                let Ok(Some(block)) = response_future.await else {
+                    // The peer may have GC'd this block. Mimic production
+                    // behavior: the requester simply doesn't get a response.
+                    return;
+                };
+                let future = responder
+                    .send_async(BlockResponse { block, peer_id, was_requested: true }.span_wrap());
+                drop(future);
+            });
         }
         PeerMessage::BlockHeadersRequest(hashes) => {
-            // In production, the response is sent back as PeerMessage::BlockHeaders.
-            // Here we only dispatch the request; response routing is not implemented.
-            let future = senders.view_client_sender.send_async(BlockHeadersRequest(hashes));
-            drop(future);
+            // Send request to the target's view_client, spawn a task to await
+            // the response and route it back to the requesting node's client.
+            let response_future = target_view_client_sender.send_async(BlockHeadersRequest(hashes));
+            let responder = requester_client_sender.clone();
+            let peer_id = from_peer;
+            future_spawner.spawn(
+                "dispatch: route BlockHeadersResponse back to requester",
+                async move {
+                    let Ok(Some(headers)) = response_future.await else {
+                        return;
+                    };
+                    let future =
+                        responder.send_async(BlockHeadersResponse(headers, peer_id).span_wrap());
+                    drop(future);
+                },
+            );
         }
         PeerMessage::Transaction(transaction) => {
             let future = senders.rpc_handler_sender.send_async(ProcessTxRequest {
@@ -288,17 +317,23 @@ fn dispatch_t2(
 pub(crate) struct TestLoopTransport {
     my_peer_id: PeerId,
     shared_state: TestLoopNetworkSharedState,
+    future_spawner: Arc<dyn FutureSpawner>,
 }
 
 impl TestLoopTransport {
-    pub fn new(my_peer_id: PeerId, shared_state: TestLoopNetworkSharedState) -> Self {
-        Self { my_peer_id, shared_state }
+    pub fn new(
+        my_peer_id: PeerId,
+        shared_state: TestLoopNetworkSharedState,
+        future_spawner: Arc<dyn FutureSpawner>,
+    ) -> Self {
+        Self { my_peer_id, shared_state, future_spawner }
     }
 }
 
 impl NetworkTransport for TestLoopTransport {
     fn send_message(&self, peer_id: PeerId, msg: Arc<PeerMessage>) -> bool {
-        let senders = self.shared_state.senders_for_peer(&self.my_peer_id, &peer_id);
+        let target_senders = self.shared_state.senders_for_peer(&self.my_peer_id, &peer_id);
+        let requester_senders = self.shared_state.senders_for_peer(&peer_id, &self.my_peer_id);
         let msg = Arc::try_unwrap(msg).unwrap_or_else(|arc| (*arc).clone());
 
         // For routed messages that expect a response, record the route_back on
@@ -317,7 +352,14 @@ impl NetworkTransport for TestLoopTransport {
             }
         }
 
-        dispatch_peer_message(self.my_peer_id.clone(), msg, &senders);
+        dispatch_peer_message(
+            self.my_peer_id.clone(),
+            msg,
+            &target_senders,
+            &*self.future_spawner,
+            &requester_senders.client_sender,
+            &target_senders.view_client_sender,
+        );
         true
     }
 
@@ -326,9 +368,17 @@ impl NetworkTransport for TestLoopTransport {
             if peer_id == self.my_peer_id {
                 continue;
             }
-            let senders = self.shared_state.senders_for_peer(&self.my_peer_id, &peer_id);
+            let target_senders = self.shared_state.senders_for_peer(&self.my_peer_id, &peer_id);
+            let requester_senders = self.shared_state.senders_for_peer(&peer_id, &self.my_peer_id);
             let msg = (*msg).clone();
-            dispatch_peer_message(self.my_peer_id.clone(), msg, &senders);
+            dispatch_peer_message(
+                self.my_peer_id.clone(),
+                msg,
+                &target_senders,
+                &*self.future_spawner,
+                &requester_senders.client_sender,
+                &target_senders.view_client_sender,
+            );
         }
     }
 }

@@ -756,13 +756,23 @@ impl NetworkState {
         if self.config.validator.account_id().is_some_and(|id| &id == account_id) {
             // For now, we don't allow some types of messages to be sent to self.
             debug_assert!(msg.allow_sending_to_self());
-            let this = self.clone();
-            let clock = clock.clone();
             let my_peer_id = self.config.node_id();
             let msg = self.sign_message(
-                &clock,
+                clock,
                 RawRoutedMessage { target: PeerIdOrHash::PeerId(my_peer_id.clone()), body: msg },
             );
+            // Try delivering via the transport first. In testloop, this routes
+            // through TestLoopTransport on the correct thread. In production,
+            // the pool has no loopback entry so this returns false and we fall
+            // back to spawning on the ops_spawner runtime.
+            if self
+                .tier2_transport
+                .send_message(my_peer_id.clone(), Arc::new(PeerMessage::Routed(msg.clone())))
+            {
+                return true;
+            }
+            let this = self.clone();
+            let clock = clock.clone();
             self.spawn("send_message_to_account", async move {
                 let hash = msg.hash();
                 this.receive_routed_message(
