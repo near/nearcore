@@ -245,7 +245,7 @@ fn write_block_headers_to_sst_files(store: &Store, sst_dir: &Path) -> anyhow::Re
     let head_height = store.chain_store().head().unwrap().height;
     let approx_total = head_height - genesis_height;
     let approx_per_partition = (approx_total / 4).max(1);
-    tracing::info!(target: "migrations", ?sst_dir, approx_total, "starting parallel SST file creation for block headers");
+    tracing::info!(target: "migrations", ?sst_dir, approx_total, "starting parallel SST file creation for block headers, this may take ~1 hr");
 
     // 4 partitions by first byte: [..0x40), [0x40..0x80), [0x80..0xC0), [0xC0..).
     let boundaries: [(Option<Vec<u8>>, Option<Vec<u8>>); 4] = [
