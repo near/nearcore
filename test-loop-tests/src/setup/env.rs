@@ -1,4 +1,4 @@
-use super::builder::NodeStateBuilder;
+use super::builder::{NodeStateBuilder, populate_account_announcements};
 use super::drop_condition::DropCondition;
 use super::setup::setup_client;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
@@ -142,6 +142,11 @@ impl TestLoopEnv {
         let node_data =
             setup_client(new_identifier, &mut self.test_loop, node_state, &self.shared_state);
         self.node_datas.push(node_data);
+
+        // Re-populate account→peer announcements so that all nodes (including
+        // existing ones) learn the new/restarted node's PeerId, and the new
+        // node learns about all existing nodes.
+        populate_account_announcements(&self.test_loop, &self.node_datas);
     }
 
     /// Function to add a new node in test loop environment. This function takes in the identifier

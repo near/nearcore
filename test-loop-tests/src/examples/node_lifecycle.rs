@@ -1,5 +1,6 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_account_id;
+use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
 
 #[test]
@@ -33,10 +34,18 @@ fn test_restart_node() {
 
     assert_eq!(env.node_for_account(&restart_account).head().height, kill_height);
 
-    // Give a few blocks for the restarted node to catch up
-    env.node_runner(stable_node_idx).run_for_number_of_blocks(5);
-
-    assert_eq!(env.node_for_account(&restart_account).head().height, env.node(1).head().height);
+    // Wait for the restarted node to catch up to the stable node.
+    let restart_idx = env.account_data_idx(&restart_account);
+    let restart_handle = env.node_datas[restart_idx].client_sender.actor_handle();
+    let stable_handle = env.node_datas[stable_node_idx].client_sender.actor_handle();
+    env.test_loop.run_until(
+        |data| {
+            let restart_h = data.get(&restart_handle).client.chain.head().unwrap().height;
+            let stable_h = data.get(&stable_handle).client.chain.head().unwrap().height;
+            restart_h >= stable_h
+        },
+        Duration::seconds(30),
+    );
 }
 
 #[test]
@@ -54,9 +63,16 @@ fn test_add_node() {
     let new_node_state = env.node_state_builder().account_id(&new_account_id).build();
     env.add_node(identifier, new_node_state);
 
-    // Let the network run so the new node can catch up
-    env.node_runner(0).run_for_number_of_blocks(5);
-
-    // Verify the new node synced to the same height as a validator
-    assert_eq!(env.node_for_account(&new_account_id).head().height, env.node(0).head().height);
+    // Wait for the new node to catch up to a validator.
+    let new_idx = env.account_data_idx(&new_account_id);
+    let new_handle = env.node_datas[new_idx].client_sender.actor_handle();
+    let validator_handle = env.node_datas[0].client_sender.actor_handle();
+    env.test_loop.run_until(
+        |data| {
+            let new_h = data.get(&new_handle).client.chain.head().unwrap().height;
+            let val_h = data.get(&validator_handle).client.chain.head().unwrap().height;
+            new_h >= val_h
+        },
+        Duration::seconds(30),
+    );
 }

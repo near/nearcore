@@ -433,22 +433,7 @@ impl TestLoopBuilder {
         datas: &[NodeExecutionData],
         _genesis: &Genesis,
     ) {
-        // Build AnnounceAccount entries for all nodes using the default epoch_id.
-        let epoch_id = EpochId::default();
-        let announcements: Vec<AnnounceAccount> = datas
-            .iter()
-            .map(|data| {
-                let signer = Arc::new(create_test_signer(data.account_id.as_str()));
-                AnnounceAccount::new(&signer, data.peer_id.clone(), epoch_id)
-            })
-            .collect();
-
-        // Add the announcements to each node's NetworkState.
-        for data in datas {
-            let actor: &TestLoopPeerManagerActor =
-                test_loop.data.get(&data.peer_manager_sender.actor_handle());
-            actor.network_state.add_announce_accounts(announcements.clone());
-        }
+        populate_account_announcements(test_loop, datas);
     }
 
     /// Wire each node's sharded RPC pool with clients pointing to other nodes.
@@ -846,6 +831,29 @@ enum WarmupMode {
     Skip,
     /// Do not auto-warmup, but the caller is expected to call `warmup()` manually.
     Manual,
+}
+
+/// Pre-populate account→peer mappings in each node's NetworkState so that
+/// production `send_message_to_account` routing works. Each node needs
+/// mappings for ALL other nodes. This is called both during initial build
+/// and when nodes are added/restarted.
+pub(crate) fn populate_account_announcements(test_loop: &TestLoopV2, datas: &[NodeExecutionData]) {
+    // Build AnnounceAccount entries for all nodes using the default epoch_id.
+    let epoch_id = EpochId::default();
+    let announcements: Vec<AnnounceAccount> = datas
+        .iter()
+        .map(|data| {
+            let signer = Arc::new(create_test_signer(data.account_id.as_str()));
+            AnnounceAccount::new(&signer, data.peer_id.clone(), epoch_id)
+        })
+        .collect();
+
+    // Add the announcements to each node's NetworkState.
+    for data in datas {
+        let actor: &TestLoopPeerManagerActor =
+            test_loop.data.get(&data.peer_manager_sender.actor_handle());
+        actor.network_state.add_announce_accounts(announcements.clone());
+    }
 }
 
 fn default_testloop_state_sync_config(tempdir: &PathBuf) -> StateSyncConfig {
