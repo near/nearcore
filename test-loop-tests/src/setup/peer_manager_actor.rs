@@ -28,7 +28,7 @@ use near_network::state_witness::{
 };
 use near_network::types::{
     HighestHeightPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses, PeerInfo,
-    PeerManagerMessageRequest, PeerManagerMessageResponse, ReasonForBan, SetChainInfo,
+    PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, ReasonForBan, SetChainInfo,
     StateSyncEvent, Tier3Request,
 };
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
@@ -224,6 +224,13 @@ impl TestLoopPeerManagerActor {
 #[derive(Clone)]
 pub struct TestLoopNetworkSharedState(Arc<Mutex<TestLoopNetworkSharedStateInner>>);
 
+/// Filter function type for transport-level message interception.
+/// Receives (from_peer, to_peer, message) and returns:
+/// - `Some(msg)` to continue delivery (possibly with a modified message)
+/// - `None` to drop the message silently
+pub type TransportMessageFilter =
+    Arc<dyn Fn(&PeerId, &PeerId, &PeerMessage) -> Option<PeerMessage> + Send + Sync>;
+
 struct TestLoopNetworkSharedStateInner {
     account_to_peer_id: HashMap<AccountId, PeerId>,
     senders: HashMap<PeerId, Arc<OneClientSenders>>,
@@ -235,6 +242,11 @@ struct TestLoopNetworkSharedStateInner {
     /// Per-node NetworkState instances, used by TestLoopTransport to record
     /// route_back entries when forwarding routed messages between nodes.
     network_states: HashMap<PeerId, Arc<near_network::types::NetworkState>>,
+    /// Transport-level message filters applied before delivery. Each filter
+    /// receives (from, to, msg) and returns `Some(msg)` to continue or `None`
+    /// to drop. Multiple filters are applied in registration order;
+    /// short-circuits on the first `None`.
+    message_filters: Vec<TransportMessageFilter>,
 }
 
 /// Senders available for the networking layer, for one node in the test loop.
@@ -289,8 +301,41 @@ impl TestLoopNetworkSharedState {
             disallowed_peer_links: HashMap::new(),
             archival_peer_ids: HashSet::new(),
             network_states: HashMap::new(),
+            message_filters: Vec::new(),
         };
         Self(Arc::new(Mutex::new(inner)))
+    }
+
+    /// Register a transport-level message filter. Filters are applied in
+    /// registration order before each message delivery. Each filter receives
+    /// `(from_peer, to_peer, &msg)` and returns `Some(msg)` to continue
+    /// (possibly with a modified message) or `None` to drop silently.
+    /// Short-circuits on the first `None`.
+    #[allow(dead_code)]
+    pub fn register_message_filter(
+        &self,
+        filter: impl Fn(&PeerId, &PeerId, &PeerMessage) -> Option<PeerMessage> + Send + Sync + 'static,
+    ) {
+        self.0.lock().message_filters.push(Arc::new(filter));
+    }
+
+    /// Apply all registered message filters to a message. Returns `Some(msg)`
+    /// if delivery should proceed, `None` if any filter dropped the message.
+    pub(crate) fn apply_message_filters(
+        &self,
+        from: &PeerId,
+        to: &PeerId,
+        msg: PeerMessage,
+    ) -> Option<PeerMessage> {
+        let guard = self.0.lock();
+        let mut msg = msg;
+        for filter in &guard.message_filters {
+            match filter(from, to, &msg) {
+                Some(new_msg) => msg = new_msg,
+                None => return None,
+            }
+        }
+        Some(msg)
     }
 
     pub fn add_client<'a, D>(&self, data: &'a D)

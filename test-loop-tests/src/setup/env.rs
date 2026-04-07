@@ -7,6 +7,8 @@ use crate::utils::node::{NodeRunner, TestLoopNode, TestLoopNodeMut};
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
+use near_network::types::PeerMessage;
+use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use near_store::Store;
 use near_store::adapter::StoreAdapter;
@@ -247,6 +249,19 @@ impl TestLoopEnv {
 
     pub fn archival_data_idx(&self) -> usize {
         self.account_data_idx(&archival_account_id())
+    }
+
+    /// Register a transport-level message filter that intercepts messages
+    /// before delivery. The filter receives (from_peer, to_peer, &msg) and
+    /// returns `Some(msg)` to continue delivery (possibly modified) or `None`
+    /// to drop silently. Multiple filters are applied in registration order;
+    /// short-circuits on the first `None`.
+    #[allow(dead_code)]
+    pub fn register_message_filter(
+        &self,
+        filter: impl Fn(&PeerId, &PeerId, &PeerMessage) -> Option<PeerMessage> + Send + Sync + 'static,
+    ) {
+        self.shared_state.network_shared_state.register_message_filter(filter);
     }
 
     pub fn node_state_builder(&self) -> NodeStateBuilder<'_> {
