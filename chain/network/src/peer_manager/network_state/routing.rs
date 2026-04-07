@@ -139,6 +139,7 @@ impl NetworkState {
                 self.graph.routing_table.find_next_hop_for_target(peer_id)
             }
             PeerIdOrHash::Hash(hash) => self
+                .dispatcher
                 .tier2_route_back
                 .lock()
                 .remove(clock, hash)
@@ -163,8 +164,12 @@ impl NetworkState {
         let from = &conn.peer_info.id;
 
         match conn.tier {
-            tcp::Tier::T1 => self.tier1_route_back.lock().insert(&clock, msg.hash(), from.clone()),
-            tcp::Tier::T2 => self.tier2_route_back.lock().insert(&clock, msg.hash(), from.clone()),
+            tcp::Tier::T1 => {
+                self.dispatcher.tier1_route_back.lock().insert(&clock, msg.hash(), from.clone())
+            }
+            tcp::Tier::T2 => {
+                self.dispatcher.tier2_route_back.lock().insert(&clock, msg.hash(), from.clone())
+            }
             tcp::Tier::T3 => {
                 // TIER3 connections are direct by design; no routing is performed
                 debug_assert!(false)
@@ -173,7 +178,7 @@ impl NetworkState {
     }
 
     pub(crate) fn compare_route_back(&self, hash: CryptoHash, peer_id: &PeerId) -> bool {
-        self.tier2_route_back.lock().get(&hash).is_some_and(|value| value == peer_id)
+        self.dispatcher.tier2_route_back.lock().get(&hash).is_some_and(|value| value == peer_id)
     }
 
     /// Update the routing protocols with a set of peers to avoid routing through.

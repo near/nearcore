@@ -382,7 +382,7 @@ impl NetworkTransport for TestLoopTransport {
         if let PeerMessage::Routed(ref routed_msg) = msg {
             if routed_msg.expect_response() {
                 if let Some(target_state) = self.shared_state.network_state_for_peer(&peer_id) {
-                    target_state.tier2_route_back.lock().insert(
+                    target_state.dispatcher.tier2_route_back.lock().insert(
                         &near_async::time::Clock::real(),
                         routed_msg.hash(),
                         self.my_peer_id.clone(),

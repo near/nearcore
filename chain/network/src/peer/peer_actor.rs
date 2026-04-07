@@ -232,6 +232,7 @@ async fn dispatch_incoming_peer_message(
         PeerMessage::Routed(msg) => {
             let msg_hash = msg.hash();
             network_state
+                .dispatcher
                 .receive_routed_message(
                     &clock,
                     msg.author().clone(),
@@ -248,6 +249,7 @@ async fn dispatch_incoming_peer_message(
                 })
         }
         PeerMessage::BlockRequest(hash) => network_state
+            .dispatcher
             .client
             .send_async(BlockRequest(hash))
             .await
@@ -255,6 +257,7 @@ async fn dispatch_incoming_peer_message(
             .flatten()
             .map(|block| PeerMessage::Block(block)),
         PeerMessage::BlockHeadersRequest(hashes) => network_state
+            .dispatcher
             .client
             .send_async(BlockHeadersRequest(hashes))
             .await
@@ -263,6 +266,7 @@ async fn dispatch_incoming_peer_message(
             .map(PeerMessage::BlockHeaders),
         PeerMessage::Block(block) => {
             network_state
+                .dispatcher
                 .client
                 .send_async(BlockResponse { block, peer_id, was_requested }.span_wrap())
                 .await
@@ -271,6 +275,7 @@ async fn dispatch_incoming_peer_message(
         }
         PeerMessage::Transaction(transaction) => {
             network_state
+                .dispatcher
                 .client
                 .send_async(ProcessTxRequest {
                     transaction,
@@ -283,6 +288,7 @@ async fn dispatch_incoming_peer_message(
         }
         PeerMessage::BlockHeaders(headers) => {
             if let Ok(Err(ban_reason)) = network_state
+                .dispatcher
                 .client
                 .send_async(BlockHeadersResponse(headers, peer_id).span_wrap())
                 .await
@@ -293,6 +299,7 @@ async fn dispatch_incoming_peer_message(
         }
         PeerMessage::Challenge(_) => None,
         PeerMessage::StateRequestHeader(shard_id, sync_hash) => network_state
+            .dispatcher
             .state_request_adapter
             .send_async(StateRequestHeader { shard_id, sync_hash })
             .await
@@ -300,6 +307,7 @@ async fn dispatch_incoming_peer_message(
             .flatten()
             .map(|response| PeerMessage::VersionedStateResponse(*response.0)),
         PeerMessage::StateRequestPart(shard_id, sync_hash, part_id) => network_state
+            .dispatcher
             .state_request_adapter
             .send_async(StateRequestPart { shard_id, sync_hash, part_id })
             .await
@@ -308,6 +316,7 @@ async fn dispatch_incoming_peer_message(
             .map(|response| PeerMessage::VersionedStateResponse(*response.0)),
         PeerMessage::VersionedStateResponse(info) => {
             network_state
+                .dispatcher
                 .client
                 .send_async(
                     StateResponseReceived {
@@ -321,15 +330,18 @@ async fn dispatch_incoming_peer_message(
             None
         }
         PeerMessage::EpochSyncRequest => {
-            network_state.client.send(EpochSyncRequestMessage { from_peer: peer_id });
+            network_state.dispatcher.client.send(EpochSyncRequestMessage { from_peer: peer_id });
             None
         }
         PeerMessage::EpochSyncResponse(proof) => {
-            network_state.client.send(EpochSyncResponseMessage { from_peer: peer_id, proof });
+            network_state
+                .dispatcher
+                .client
+                .send(EpochSyncResponseMessage { from_peer: peer_id, proof });
             None
         }
         PeerMessage::OptimisticBlock(ob) => {
-            network_state.client.send(
+            network_state.dispatcher.client.send(
                 OptimisticBlockMessage { from_peer: peer_id, optimistic_block: ob }.span_wrap(),
             );
             None
@@ -448,7 +460,7 @@ async fn handle_sync_routing_table(
             (aa, old.get(&id).map(|old| old.epoch_id))
         })
         .collect();
-    match network_state.client.send_async(AnnounceAccountRequest(accounts)).await {
+    match network_state.dispatcher.client.send_async(AnnounceAccountRequest(accounts)).await {
         Ok(Err(ban_reason)) => conn.stop(Some(ban_reason)),
         Ok(Ok(accounts)) => network_state.add_accounts(accounts).await,
         Err(_) => {}
@@ -1515,6 +1527,7 @@ impl PeerActor {
                     let new_hash = CryptoHash::hash_borsh(msg.body());
                     let fastest = self
                         .network_state
+                        .dispatcher
                         .recent_routed_messages
                         .lock()
                         .put(new_hash, ())

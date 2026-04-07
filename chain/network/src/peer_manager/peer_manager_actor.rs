@@ -283,7 +283,7 @@ impl PeerManagerActor {
             let clock = clock.clone();
             let actor_system = actor_system.clone();
             async move {
-                if let Ok(Some(epoch_height)) = state.client.current_epoch_height_request.send_async(GetCurrentEpochHeight).await {
+                if let Ok(Some(epoch_height)) = state.dispatcher.client.current_epoch_height_request.send_async(GetCurrentEpochHeight).await {
                     state.snapshot_hosts.set_current_epoch_height(epoch_height);
                 }
                 // Start server if address provided.
@@ -826,7 +826,7 @@ impl PeerManagerActor {
         // Send network info to client. The send_async() call enqueues the message
         // synchronously; we explicitly drop the response future since the response
         // type is () and was already ignored.
-        drop(self.state.client.send_async(SetNetworkInfo(network_info).span_wrap()));
+        drop(self.state.dispatcher.client.send_async(SetNetworkInfo(network_info).span_wrap()));
 
         ctx.run_later(
             "push_network_info_trigger",
@@ -1529,7 +1529,7 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                 // Optionally produce a response to be sent over tier3.
                 let (tier2_ack, maybe_tier3_response) = match request.body {
                     Tier3RequestBody::StateHeader(StateHeaderRequestBody { shard_id, sync_hash }) => {
-                        let (ack, response) = match state.state_request_adapter.send_async(StateRequestHeader { shard_id, sync_hash }).await {
+                        let (ack, response) = match state.dispatcher.state_request_adapter.send_async(StateRequestHeader { shard_id, sync_hash }).await {
                             Ok(Some(client_response)) => {
                                 (StateRequestAckBody::WillRespond, Some(PeerMessage::VersionedStateResponse(*client_response.0)))
                             }
@@ -1554,7 +1554,7 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                         )
                     }
                     Tier3RequestBody::StatePart(StatePartRequestBody { shard_id, sync_hash, part_id }) => {
-                        let (ack, response) = match state.state_request_adapter.send_async(StateRequestPart { shard_id, sync_hash, part_id }).await {
+                        let (ack, response) = match state.dispatcher.state_request_adapter.send_async(StateRequestPart { shard_id, sync_hash, part_id }).await {
                             Ok(Some(client_response)) => {
                                 (StateRequestAckBody::WillRespond, Some(PeerMessage::VersionedStateResponse(*client_response.0)))
                             }

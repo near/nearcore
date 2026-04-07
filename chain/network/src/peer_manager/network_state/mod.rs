@@ -98,16 +98,11 @@ pub(crate) struct WhitelistNode {
     account_id: Option<AccountId>,
 }
 
-pub struct NetworkState {
-    // === Configuration ===
-    /// PeerManager config.
-    pub config: config::VerifiedConfig,
-    /// When network state has been constructed.
-    pub created_at: time::Instant,
-    /// GenesisId of the chain.
-    pub genesis_id: GenesisId,
-
-    // === Actor senders (dispatch layer) ===
+/// Encapsulates the dispatch-related fields: actor senders, route-back caches,
+/// and dedup cache. This struct is the target for testloop to provide its own
+/// dispatch wiring without duplicating routing/transport logic.
+pub struct MessageDispatcher {
+    // === Actor senders ===
     pub client: ClientSenderForNetwork,
     pub state_request_adapter: StateRequestSenderForNetwork,
     pub peer_manager_adapter: PeerManagerSenderForNetwork,
@@ -116,15 +111,7 @@ pub struct NetworkState {
     pub spice_data_distributor_adapter: SpiceDataDistributorSenderForNetwork,
     pub spice_core_writer_adapter: Sender<SpiceChunkEndorsementMessage>,
 
-    // === Routing state (routing layer) ===
-    /// AccountsData for TIER1 accounts.
-    pub accounts_data: Arc<AccountDataCache>,
-    /// AnnounceAccounts mapping TIER1 account ids to peer ids.
-    pub account_announcements: Arc<AnnounceAccountCache>,
-    /// A graph of the whole NEAR network.
-    pub graph: Arc<crate::routing::Graph>,
-    /// Information about state snapshots hosted by network peers.
-    pub snapshot_hosts: Arc<SnapshotHostsCache>,
+    // === Dispatch state ===
     /// Hash of messages that requires routing back to respective previous hop.
     pub tier2_route_back: Mutex<RouteBackCache>,
     /// Currently unused, as TIER1 messages do not require a response.
@@ -135,6 +122,241 @@ pub struct NetworkState {
     /// Hashes of the body of recently received routed messages.
     /// It allows us to determine whether messages arrived faster over TIER1 or TIER2 network.
     pub recent_routed_messages: Mutex<lru::LruCache<CryptoHash, ()>>,
+}
+
+impl MessageDispatcher {
+    pub fn new(
+        client: ClientSenderForNetwork,
+        state_request_adapter: StateRequestSenderForNetwork,
+        peer_manager_adapter: PeerManagerSenderForNetwork,
+        shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
+        partial_witness_adapter: PartialWitnessSenderForNetwork,
+        spice_data_distributor_adapter: SpiceDataDistributorSenderForNetwork,
+        spice_core_writer_adapter: Sender<SpiceChunkEndorsementMessage>,
+    ) -> Self {
+        Self {
+            client,
+            state_request_adapter,
+            peer_manager_adapter,
+            shards_manager_adapter,
+            partial_witness_adapter,
+            spice_data_distributor_adapter,
+            spice_core_writer_adapter,
+            tier2_route_back: Mutex::new(RouteBackCache::default()),
+            tier1_route_back: Mutex::new(RouteBackCache::default()),
+            recent_routed_messages: Mutex::new(lru::LruCache::new(
+                NonZeroUsize::new(RECENT_ROUTED_MESSAGES_CACHE_SIZE).unwrap(),
+            )),
+        }
+    }
+
+    pub async fn receive_routed_message(
+        &self,
+        clock: &time::Clock,
+        msg_author: PeerId,
+        prev_hop: PeerId,
+        msg_hash: CryptoHash,
+        body: TieredMessageBody,
+    ) -> Option<TieredMessageBody> {
+        match body {
+            TieredMessageBody::T1(body) => match *body {
+                T1MessageBody::BlockApproval(approval) => {
+                    self.client
+                        .send_async(BlockApproval(approval, prev_hop).span_wrap())
+                        .await
+                        .ok();
+                    None
+                }
+                T1MessageBody::VersionedPartialEncodedChunk(chunk) => {
+                    self.shards_manager_adapter
+                        .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(*chunk));
+                    None
+                }
+                T1MessageBody::PartialEncodedChunkForward(msg) => {
+                    self.shards_manager_adapter.send(
+                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg),
+                    );
+                    None
+                }
+                T1MessageBody::PartialEncodedStateWitness(witness) => {
+                    self.partial_witness_adapter.send(PartialEncodedStateWitnessMessage(witness));
+                    None
+                }
+                T1MessageBody::PartialEncodedStateWitnessForward(witness) => {
+                    self.partial_witness_adapter
+                        .send(PartialEncodedStateWitnessForwardMessage(witness));
+                    None
+                }
+                T1MessageBody::VersionedChunkEndorsement(endorsement) => {
+                    self.client.send_async(ChunkEndorsementMessage(endorsement)).await.ok();
+                    None
+                }
+                T1MessageBody::ChunkContractAccesses(accesses) => {
+                    self.partial_witness_adapter.send(ChunkContractAccessesMessage(accesses));
+                    None
+                }
+                T1MessageBody::ContractCodeRequest(request) => {
+                    self.partial_witness_adapter.send(ContractCodeRequestMessage(request));
+                    None
+                }
+                T1MessageBody::ContractCodeResponse(response) => {
+                    self.partial_witness_adapter.send(ContractCodeResponseMessage(response));
+                    None
+                }
+                T1MessageBody::SpicePartialData(spice_partial_data) => {
+                    self.spice_data_distributor_adapter
+                        .send(SpiceIncomingPartialData { data: spice_partial_data });
+                    None
+                }
+                T1MessageBody::SpiceChunkEndorsement(endorsement) => {
+                    self.spice_core_writer_adapter.send(SpiceChunkEndorsementMessage(endorsement));
+                    None
+                }
+                T1MessageBody::SpicePartialDataRequest(request) => {
+                    self.spice_data_distributor_adapter.send(request);
+                    None
+                }
+                T1MessageBody::SpiceChunkContractAccesses(accesses) => {
+                    self.spice_data_distributor_adapter
+                        .send(SpiceChunkContractAccessesMessage(accesses));
+                    None
+                }
+                T1MessageBody::SpiceContractCodeRequest(request) => {
+                    self.spice_data_distributor_adapter
+                        .send(SpiceContractCodeRequestMessage(request));
+                    None
+                }
+                T1MessageBody::SpiceContractCodeResponse(response) => {
+                    self.spice_data_distributor_adapter
+                        .send(SpiceContractCodeResponseMessage(response));
+                    None
+                }
+            },
+            TieredMessageBody::T2(body) => match *body {
+                T2MessageBody::TxStatusRequest(account_id, tx_hash) => self
+                    .client
+                    .send_async(TxStatusRequest { tx_hash, signer_account_id: account_id })
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|response| {
+                        TieredMessageBody::T2(Box::new(T2MessageBody::TxStatusResponse(response)))
+                    }),
+                T2MessageBody::TxStatusResponse(tx_result) => {
+                    self.client.send_async(TxStatusResponse(tx_result.into())).await.ok();
+                    None
+                }
+                T2MessageBody::ForwardTx(transaction) => {
+                    self.client
+                        .send_async(ProcessTxRequest {
+                            transaction,
+                            is_forwarded: true,
+                            check_only: false,
+                        })
+                        .await
+                        .ok();
+                    None
+                }
+                T2MessageBody::PartialEncodedChunkRequest(request) => {
+                    self.shards_manager_adapter.send(
+                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
+                            partial_encoded_chunk_request: request,
+                            route_back: msg_hash,
+                        },
+                    );
+                    None
+                }
+                T2MessageBody::PartialEncodedChunkResponse(response) => {
+                    self.shards_manager_adapter.send(
+                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
+                            partial_encoded_chunk_response: response,
+                            received_time: clock.now().into(),
+                        },
+                    );
+                    None
+                }
+                T2MessageBody::ChunkStateWitnessAck(ack) => {
+                    self.partial_witness_adapter.send(ChunkStateWitnessAckMessage(ack));
+                    None
+                }
+                T2MessageBody::StateHeaderRequest(request) => {
+                    self.peer_manager_adapter.send(Tier3Request {
+                        peer_info: PeerInfo {
+                            id: msg_author,
+                            addr: Some(request.addr),
+                            account_id: None,
+                        },
+                        body: Tier3RequestBody::StateHeader(StateHeaderRequestBody {
+                            shard_id: request.shard_id,
+                            sync_hash: request.sync_hash,
+                        }),
+                    });
+                    None
+                }
+                T2MessageBody::StatePartRequest(request) => {
+                    self.peer_manager_adapter.send(Tier3Request {
+                        peer_info: PeerInfo {
+                            id: msg_author,
+                            addr: Some(request.addr),
+                            account_id: None,
+                        },
+                        body: Tier3RequestBody::StatePart(StatePartRequestBody {
+                            shard_id: request.shard_id,
+                            sync_hash: request.sync_hash,
+                            part_id: request.part_id,
+                        }),
+                    });
+                    None
+                }
+                T2MessageBody::PartialEncodedContractDeploys(deploys) => {
+                    self.partial_witness_adapter
+                        .send(PartialEncodedContractDeploysMessage(deploys));
+                    None
+                }
+                T2MessageBody::StateRequestAck(ack) => {
+                    self.client
+                        .send_async(
+                            StateResponseReceived {
+                                peer_id: msg_author,
+                                state_response: StateResponse::Ack(ack),
+                            }
+                            .span_wrap(),
+                        )
+                        .await
+                        .ok();
+                    None
+                }
+                body => {
+                    tracing::error!(target: "network", ?body, "peer received unexpected message type");
+                    None
+                }
+            },
+        }
+    }
+}
+
+pub struct NetworkState {
+    // === Configuration ===
+    /// PeerManager config.
+    pub config: config::VerifiedConfig,
+    /// When network state has been constructed.
+    pub created_at: time::Instant,
+    /// GenesisId of the chain.
+    pub genesis_id: GenesisId,
+
+    // === Dispatch layer ===
+    /// Actor senders, route-back caches, and dedup cache, grouped for testloop compatibility.
+    pub dispatcher: Arc<MessageDispatcher>,
+
+    // === Routing state (routing layer) ===
+    /// AccountsData for TIER1 accounts.
+    pub accounts_data: Arc<AccountDataCache>,
+    /// AnnounceAccounts mapping TIER1 account ids to peer ids.
+    pub account_announcements: Arc<AnnounceAccountCache>,
+    /// A graph of the whole NEAR network.
+    pub graph: Arc<crate::routing::Graph>,
+    /// Information about state snapshots hosted by network peers.
+    pub snapshot_hosts: Arc<SnapshotHostsCache>,
     /// Network-related info about the chain.
     pub chain_info: ArcSwap<Option<ChainInfo>>,
     /// Peer store that provides read/write access to peers.
@@ -223,13 +445,7 @@ impl NetworkState {
         let ops_spawner = new_owned_future_spawner("NetworkState testloop ops");
         let add_edges_demux =
             demux::Demux::new(config.routing_table_update_rate_limit, &*ops_spawner);
-        Self {
-            // === Configuration ===
-            // NOTE: `config` is moved last because several fields below borrow from it.
-            created_at: clock.now(),
-            genesis_id,
-
-            // === Actor senders (dispatch layer) ===
+        let dispatcher = Arc::new(MessageDispatcher::new(
             client,
             state_request_adapter,
             peer_manager_adapter,
@@ -237,6 +453,15 @@ impl NetworkState {
             partial_witness_adapter,
             spice_data_distributor_adapter,
             spice_core_writer_adapter,
+        ));
+        Self {
+            // === Configuration ===
+            // NOTE: `config` is moved last because several fields below borrow from it.
+            created_at: clock.now(),
+            genesis_id,
+
+            // === Dispatch layer ===
+            dispatcher,
 
             // === Routing state (routing layer) ===
             accounts_data: Arc::new(AccountDataCache::new()),
@@ -253,11 +478,6 @@ impl NetworkState {
                 },
             ),
             snapshot_hosts: Arc::new(SnapshotHostsCache::new(config.snapshot_hosts.clone())),
-            tier2_route_back: Mutex::new(RouteBackCache::default()),
-            tier1_route_back: Mutex::new(RouteBackCache::default()),
-            recent_routed_messages: Mutex::new(lru::LruCache::new(
-                NonZeroUsize::new(RECENT_ROUTED_MESSAGES_CACHE_SIZE).unwrap(),
-            )),
             chain_info: Default::default(),
             peer_store,
 
@@ -304,13 +524,7 @@ impl NetworkState {
         let tier1 = connection::Pool::new(config.node_id());
         let tier2 = connection::Pool::new(config.node_id());
         let tier3 = connection::Pool::new(config.node_id());
-        Self {
-            // === Configuration ===
-            // NOTE: `config` is moved last because several fields below borrow from it.
-            created_at: clock.now(),
-            genesis_id,
-
-            // === Actor senders (dispatch layer) ===
+        let dispatcher = Arc::new(MessageDispatcher::new(
             client,
             state_request_adapter,
             peer_manager_adapter,
@@ -318,6 +532,15 @@ impl NetworkState {
             partial_witness_adapter,
             spice_data_distributor_adapter,
             spice_core_writer_adapter,
+        ));
+        Self {
+            // === Configuration ===
+            // NOTE: `config` is moved last because several fields below borrow from it.
+            created_at: clock.now(),
+            genesis_id,
+
+            // === Dispatch layer ===
+            dispatcher,
 
             // === Routing state (routing layer) ===
             accounts_data: Arc::new(AccountDataCache::new()),
@@ -334,11 +557,6 @@ impl NetworkState {
                 },
             ),
             snapshot_hosts: Arc::new(SnapshotHostsCache::new(config.snapshot_hosts.clone())),
-            tier2_route_back: Mutex::new(RouteBackCache::default()),
-            tier1_route_back: Mutex::new(RouteBackCache::default()),
-            recent_routed_messages: Mutex::new(lru::LruCache::new(
-                NonZeroUsize::new(RECENT_ROUTED_MESSAGES_CACHE_SIZE).unwrap(),
-            )),
             chain_info: Default::default(),
             peer_store,
 
@@ -701,7 +919,7 @@ impl NetworkState {
                     // If a message is a response, we try to load the target from the route back
                     // cache.
                     PeerIdOrHash::Hash(hash) => {
-                        match self.tier1_route_back.lock().remove(clock, &hash) {
+                        match self.dispatcher.tier1_route_back.lock().remove(clock, &hash) {
                             Some(peer_id) => peer_id,
                             None => return false,
                         }
@@ -718,7 +936,11 @@ impl NetworkState {
                         // Remember if we expect a response for this message.
                         if *msg.author() == my_peer_id && msg.expect_response() {
                             tracing::trace!(target: "network", ?msg, "initiate route back");
-                            self.tier2_route_back.lock().insert(clock, msg.hash(), my_peer_id);
+                            self.dispatcher.tier2_route_back.lock().insert(
+                                clock,
+                                msg.hash(),
+                                my_peer_id,
+                            );
                         }
                         return self
                             .tier2_transport
@@ -741,7 +963,11 @@ impl NetworkState {
                             );
                             if *msg.author() == my_peer_id && msg.expect_response() {
                                 tracing::trace!(target: "network", ?msg, "initiate route back");
-                                self.tier2_route_back.lock().insert(clock, msg.hash(), my_peer_id);
+                                self.dispatcher.tier2_route_back.lock().insert(
+                                    clock,
+                                    msg.hash(),
+                                    my_peer_id,
+                                );
                             }
                             return self
                                 .tier2_transport
@@ -805,18 +1031,19 @@ impl NetworkState {
             {
                 return true;
             }
-            let this = self.clone();
+            let dispatcher = self.dispatcher.clone();
             let clock = clock.clone();
             self.spawn("send_message_to_account", async move {
                 let hash = msg.hash();
-                this.receive_routed_message(
-                    &clock,
-                    msg.author().clone(),
-                    my_peer_id,
-                    hash,
-                    msg.body_owned(),
-                )
-                .await;
+                dispatcher
+                    .receive_routed_message(
+                        &clock,
+                        msg.author().clone(),
+                        my_peer_id,
+                        hash,
+                        msg.body_owned(),
+                    )
+                    .await;
             });
             return true;
         }
@@ -883,190 +1110,6 @@ impl NetworkState {
             success |= self.send_message_to_peer(clock, tcp::Tier::T2, msg.clone());
         }
         success
-    }
-
-    pub async fn receive_routed_message(
-        self: &Arc<Self>,
-        clock: &time::Clock,
-        msg_author: PeerId,
-        prev_hop: PeerId,
-        msg_hash: CryptoHash,
-        body: TieredMessageBody,
-    ) -> Option<TieredMessageBody> {
-        match body {
-            TieredMessageBody::T1(body) => match *body {
-                T1MessageBody::BlockApproval(approval) => {
-                    self.client
-                        .send_async(BlockApproval(approval, prev_hop).span_wrap())
-                        .await
-                        .ok();
-                    None
-                }
-                T1MessageBody::VersionedPartialEncodedChunk(chunk) => {
-                    self.shards_manager_adapter
-                        .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(*chunk));
-                    None
-                }
-                T1MessageBody::PartialEncodedChunkForward(msg) => {
-                    self.shards_manager_adapter.send(
-                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg),
-                    );
-                    None
-                }
-                T1MessageBody::PartialEncodedStateWitness(witness) => {
-                    self.partial_witness_adapter.send(PartialEncodedStateWitnessMessage(witness));
-                    None
-                }
-                T1MessageBody::PartialEncodedStateWitnessForward(witness) => {
-                    self.partial_witness_adapter
-                        .send(PartialEncodedStateWitnessForwardMessage(witness));
-                    None
-                }
-                T1MessageBody::VersionedChunkEndorsement(endorsement) => {
-                    self.client.send_async(ChunkEndorsementMessage(endorsement)).await.ok();
-                    None
-                }
-                T1MessageBody::ChunkContractAccesses(accesses) => {
-                    self.partial_witness_adapter.send(ChunkContractAccessesMessage(accesses));
-                    None
-                }
-                T1MessageBody::ContractCodeRequest(request) => {
-                    self.partial_witness_adapter.send(ContractCodeRequestMessage(request));
-                    None
-                }
-                T1MessageBody::ContractCodeResponse(response) => {
-                    self.partial_witness_adapter.send(ContractCodeResponseMessage(response));
-                    None
-                }
-                T1MessageBody::SpicePartialData(spice_partial_data) => {
-                    self.spice_data_distributor_adapter
-                        .send(SpiceIncomingPartialData { data: spice_partial_data });
-                    None
-                }
-                T1MessageBody::SpiceChunkEndorsement(endorsement) => {
-                    self.spice_core_writer_adapter.send(SpiceChunkEndorsementMessage(endorsement));
-                    None
-                }
-                T1MessageBody::SpicePartialDataRequest(request) => {
-                    self.spice_data_distributor_adapter.send(request);
-                    None
-                }
-                T1MessageBody::SpiceChunkContractAccesses(accesses) => {
-                    self.spice_data_distributor_adapter
-                        .send(SpiceChunkContractAccessesMessage(accesses));
-                    None
-                }
-                T1MessageBody::SpiceContractCodeRequest(request) => {
-                    self.spice_data_distributor_adapter
-                        .send(SpiceContractCodeRequestMessage(request));
-                    None
-                }
-                T1MessageBody::SpiceContractCodeResponse(response) => {
-                    self.spice_data_distributor_adapter
-                        .send(SpiceContractCodeResponseMessage(response));
-                    None
-                }
-            },
-            TieredMessageBody::T2(body) => match *body {
-                T2MessageBody::TxStatusRequest(account_id, tx_hash) => self
-                    .client
-                    .send_async(TxStatusRequest { tx_hash, signer_account_id: account_id })
-                    .await
-                    .ok()
-                    .flatten()
-                    .map(|response| {
-                        TieredMessageBody::T2(Box::new(T2MessageBody::TxStatusResponse(response)))
-                    }),
-                T2MessageBody::TxStatusResponse(tx_result) => {
-                    self.client.send_async(TxStatusResponse(tx_result.into())).await.ok();
-                    None
-                }
-                T2MessageBody::ForwardTx(transaction) => {
-                    self.client
-                        .send_async(ProcessTxRequest {
-                            transaction,
-                            is_forwarded: true,
-                            check_only: false,
-                        })
-                        .await
-                        .ok();
-                    None
-                }
-                T2MessageBody::PartialEncodedChunkRequest(request) => {
-                    self.shards_manager_adapter.send(
-                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
-                            partial_encoded_chunk_request: request,
-                            route_back: msg_hash,
-                        },
-                    );
-                    None
-                }
-                T2MessageBody::PartialEncodedChunkResponse(response) => {
-                    self.shards_manager_adapter.send(
-                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
-                            partial_encoded_chunk_response: response,
-                            received_time: clock.now().into(),
-                        },
-                    );
-                    None
-                }
-                T2MessageBody::ChunkStateWitnessAck(ack) => {
-                    self.partial_witness_adapter.send(ChunkStateWitnessAckMessage(ack));
-                    None
-                }
-                T2MessageBody::StateHeaderRequest(request) => {
-                    self.peer_manager_adapter.send(Tier3Request {
-                        peer_info: PeerInfo {
-                            id: msg_author,
-                            addr: Some(request.addr),
-                            account_id: None,
-                        },
-                        body: Tier3RequestBody::StateHeader(StateHeaderRequestBody {
-                            shard_id: request.shard_id,
-                            sync_hash: request.sync_hash,
-                        }),
-                    });
-                    None
-                }
-                T2MessageBody::StatePartRequest(request) => {
-                    self.peer_manager_adapter.send(Tier3Request {
-                        peer_info: PeerInfo {
-                            id: msg_author,
-                            addr: Some(request.addr),
-                            account_id: None,
-                        },
-                        body: Tier3RequestBody::StatePart(StatePartRequestBody {
-                            shard_id: request.shard_id,
-                            sync_hash: request.sync_hash,
-                            part_id: request.part_id,
-                        }),
-                    });
-                    None
-                }
-                T2MessageBody::PartialEncodedContractDeploys(deploys) => {
-                    self.partial_witness_adapter
-                        .send(PartialEncodedContractDeploysMessage(deploys));
-                    None
-                }
-                T2MessageBody::StateRequestAck(ack) => {
-                    self.client
-                        .send_async(
-                            StateResponseReceived {
-                                peer_id: msg_author,
-                                state_response: StateResponse::Ack(ack),
-                            }
-                            .span_wrap(),
-                        )
-                        .await
-                        .ok();
-                    None
-                }
-                body => {
-                    tracing::error!(target: "network", ?body, "peer received unexpected message type");
-                    None
-                }
-            },
-        }
     }
 
     pub async fn add_accounts_data(
