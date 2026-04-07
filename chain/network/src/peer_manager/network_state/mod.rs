@@ -613,9 +613,30 @@ impl NetworkState {
                             .send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
                     }
                     Err(find_route_error) => {
-                        // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
+                        // Fallback: try direct delivery for PeerId targets.
+                        // This supports testloop where the routing graph has no edges
+                        // (no TCP handshakes), but all peers are reachable via transport.
+                        // In production, tier2_find_route always succeeds for connected
+                        // peers, so this fallback is never hit.
+                        if let PeerIdOrHash::PeerId(target) = msg.target() {
+                            tracing::debug!(target: "network",
+                                  account_id = ?self.config.validator.account_id(),
+                                  to = ?msg.target(),
+                                  reason = ?find_route_error,
+                                  known_peers = ?self.graph.routing_table.reachable_peers(),
+                                  msg = ?msg.body(),
+                                "no graph route, attempting direct delivery"
+                            );
+                            if *msg.author() == my_peer_id && msg.expect_response() {
+                                tracing::trace!(target: "network", ?msg, "initiate route back");
+                                self.tier2_route_back.lock().insert(clock, msg.hash(), my_peer_id);
+                            }
+                            return self
+                                .tier2_transport
+                                .send_message(target.clone(), Arc::new(PeerMessage::Routed(msg)));
+                        }
+                        // For Hash targets, route_back lookup failed — nothing we can do.
                         metrics::MessageDropped::NoRouteFound.inc(msg.body());
-
                         tracing::debug!(target: "network",
                               account_id = ?self.config.validator.account_id(),
                               to = ?msg.target(),
