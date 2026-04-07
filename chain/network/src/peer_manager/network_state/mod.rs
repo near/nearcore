@@ -15,6 +15,7 @@ use crate::network_protocol::{
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
+use crate::peer_manager::connection::transport::{NetworkTransport, PoolTransport};
 use crate::peer_manager::connection_store;
 use crate::peer_manager::peer_store;
 use crate::private_messages::RegisterPeerError;
@@ -123,6 +124,15 @@ pub(crate) struct NetworkState {
     pub tier2: connection::Pool,
     pub tier1: connection::Pool,
     pub tier3: connection::Pool,
+    /// Transport abstractions for each tier, used for message delivery.
+    /// Production wraps Pool; testloop can substitute direct actor delivery.
+    // TODO: remove allow once call sites switch from Pool to transport (iteration 3).
+    #[allow(dead_code)]
+    pub tier1_transport: Arc<dyn NetworkTransport>,
+    #[allow(dead_code)]
+    pub tier2_transport: Arc<dyn NetworkTransport>,
+    #[allow(dead_code)]
+    pub tier3_transport: Arc<dyn NetworkTransport>,
     /// Semaphore limiting inflight inbound handshakes.
     pub inbound_handshake_permits: Arc<tokio::sync::Semaphore>,
     /// The public IP of this node; available after connecting to any one peer.
@@ -199,6 +209,9 @@ impl NetworkState {
         spice_data_distributor_adapter: SpiceDataDistributorSenderForNetwork,
         spice_core_writer_adapter: Sender<SpiceChunkEndorsementMessage>,
     ) -> Self {
+        let tier1 = connection::Pool::new(config.node_id());
+        let tier2 = connection::Pool::new(config.node_id());
+        let tier3 = connection::Pool::new(config.node_id());
         Self {
             ops_spawner: new_owned_future_spawner("NetworkState ops"),
             graph: crate::routing::Graph::new(
@@ -216,9 +229,12 @@ impl NetworkState {
             shards_manager_adapter,
             partial_witness_adapter,
             chain_info: Default::default(),
-            tier2: connection::Pool::new(config.node_id()),
-            tier1: connection::Pool::new(config.node_id()),
-            tier3: connection::Pool::new(config.node_id()),
+            tier1_transport: Arc::new(PoolTransport::new(tier1.clone())),
+            tier2_transport: Arc::new(PoolTransport::new(tier2.clone())),
+            tier3_transport: Arc::new(PoolTransport::new(tier3.clone())),
+            tier2: tier2,
+            tier1: tier1,
+            tier3: tier3,
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             my_public_addr: Arc::new(RwLock::new(config.tier3_public_addr)),
             peer_store,
