@@ -4163,25 +4163,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-amend-genesis"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "borsh",
- "clap",
- "near-chain-configs",
- "near-crypto",
- "near-primitives",
- "near-primitives-core",
- "near-time",
- "num-rational 0.3.2",
- "serde",
- "serde_json",
- "tempfile",
- "tracing",
-]
-
-[[package]]
 name = "near-async"
 version = "0.0.0"
 dependencies = [
@@ -4549,7 +4530,6 @@ dependencies = [
  "primitive-types 0.10.1",
  "rand 0.8.5",
  "rand_hc 0.3.1",
- "rayon",
  "serde",
  "tracing",
 ]
@@ -5605,7 +5585,6 @@ dependencies = [
  "anyhow",
  "clap",
  "cold-store-tool",
- "near-amend-genesis",
  "near-async",
  "near-chain-configs",
  "near-client",
@@ -8091,24 +8070,6 @@ checksum = "233504af464074f9d066d7b5416c5f9b894a5862a6506e306f7b816cdd6f1807"
 dependencies = [
  "libc",
  "windows-sys 0.59.0",
-]
-
-[[package]]
-name = "speedy_sync"
-version = "0.0.0"
-dependencies = [
- "borsh",
- "clap",
- "near-async",
- "near-chain",
- "near-chain-configs",
- "near-epoch-manager",
- "near-primitives",
- "near-store",
- "near-time",
- "nearcore",
- "serde",
- "serde_json",
 ]
 
 [[package]]

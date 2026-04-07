@@ -48,6 +48,7 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
         hot_store: &Store,
         cold_db: Option<&ColdDB>,
         version: DbVersion,
+        is_snapshot: bool,
     ) -> anyhow::Result<()> {
         match version {
             0..MIN_SUPPORTED_DB_VERSION => unreachable!(),
@@ -63,6 +64,7 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
                 hot_store,
                 cold_db,
                 self.config.genesis.config.transaction_validity_period,
+                is_snapshot,
             ),
             DB_VERSION.. => unreachable!(),
         }
@@ -163,8 +165,16 @@ fn migrate_48_to_49(
     hot_store: &Store,
     cold_db: Option<&ColdDB>,
     transaction_validity_period: BlockHeightDelta,
+    is_snapshot: bool,
 ) -> anyhow::Result<()> {
     tracing::info!(target: "migrations", "starting migration from DB version 48 to 49");
+
+    // State snapshot DBs only contain flat storage columns and lack the
+    // epoch/chain data that every step of this migration requires. Skip them.
+    if is_snapshot {
+        tracing::info!(target: "migrations", "state snapshot DB, skipping chain-dependent migration steps");
+        return Ok(());
+    }
 
     if let Some(cold_db) = cold_db {
         copy_block_headers_to_cold_db(hot_store, cold_db)?;
