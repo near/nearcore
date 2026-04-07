@@ -36,7 +36,7 @@ impl From<FrozenArenaMemory> for HybridArenaMemory {
 
 impl HybridArenaMemory {
     #[inline]
-    pub(super) fn chunks_offset(&self) -> u32 {
+    fn chunks_offset(&self) -> u32 {
         self.shared_memory.total_chunk_count()
     }
 }
@@ -44,9 +44,8 @@ impl HybridArenaMemory {
 impl ArenaMemory for HybridArenaMemory {
     fn raw_slice(&self, mut pos: ArenaPos, len: usize) -> &[u8] {
         debug_assert!(!pos.is_invalid());
-        let shared_chunks = self.shared_memory.total_chunk_count();
-        if pos.chunk >= shared_chunks {
-            pos.chunk -= shared_chunks;
+        if pos.chunk >= self.chunks_offset() {
+            pos.chunk -= self.chunks_offset();
             self.owned_memory.raw_slice(pos, len)
         } else {
             self.shared_memory.raw_slice(pos, len)
@@ -56,14 +55,13 @@ impl ArenaMemory for HybridArenaMemory {
 
 impl ArenaMemoryMut for HybridArenaMemory {
     fn is_mutable(&self, pos: ArenaPos) -> bool {
-        pos.chunk >= self.shared_memory.total_chunk_count()
+        pos.chunk >= self.chunks_offset()
     }
 
     fn raw_slice_mut(&mut self, mut pos: ArenaPos, len: usize) -> &mut [u8] {
         debug_assert!(!pos.is_invalid());
-        let shared_chunks = self.shared_memory.total_chunk_count();
-        assert!(pos.chunk >= shared_chunks, "cannot mutate shared memory");
-        pos.chunk -= shared_chunks;
+        assert!(pos.chunk >= self.chunks_offset(), "cannot mutate shared memory");
+        pos.chunk -= self.chunks_offset();
         self.owned_memory.raw_slice_mut(pos, len)
     }
 }
@@ -173,7 +171,7 @@ impl ArenaMut for HybridArena {
 impl ArenaWithDealloc for HybridArena {
     fn dealloc(&mut self, mut pos: ArenaPos, len: usize) {
         assert!(pos.chunk >= self.memory.chunks_offset(), "Cannot deallocate shared memory");
-        pos.chunk = pos.chunk - self.memory.chunks_offset();
+        pos.chunk -= self.memory.chunks_offset();
         self.allocator.deallocate(&mut self.memory.owned_memory, pos, len);
     }
 }
