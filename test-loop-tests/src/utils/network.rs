@@ -7,7 +7,7 @@ use parking_lot::Mutex;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-type DropChunkCondition = Box<dyn Fn(ShardChunkHeader) -> bool>;
+pub type DropChunkCondition = Box<dyn Fn(ShardChunkHeader) -> bool + Send>;
 
 /// Handler to drop all endorsement messages relevant to chunk body, based on
 /// `drop_chunks_condition` result.
@@ -15,7 +15,7 @@ pub fn chunk_endorsement_dropper_by_hash(
     chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
     epoch_manager_adapter: Arc<dyn EpochManagerAdapter>,
     drop_chunk_condition: DropChunkCondition,
-) -> Box<dyn Fn(NetworkRequests) -> Option<NetworkRequests>> {
+) -> Box<dyn Fn(NetworkRequests) -> Option<NetworkRequests> + Send> {
     Box::new(move |request| {
         // Filter out only messages related to distributing chunk in the
         // network; extract `chunk_hash` from the message.
@@ -60,7 +60,7 @@ pub fn chunk_endorsement_dropper_by_hash(
 /// from a given chunk-validator account.
 pub fn chunk_endorsement_dropper(
     validator: AccountId,
-) -> Box<dyn Fn(NetworkRequests) -> Option<NetworkRequests>> {
+) -> Box<dyn Fn(NetworkRequests) -> Option<NetworkRequests> + Send> {
     Box::new(move |request| {
         if let NetworkRequests::ChunkEndorsement(_target, endorsement) = &request {
             if endorsement.validator_account() == &validator {
@@ -87,7 +87,7 @@ pub fn chunk_endorsement_dropper(
 /// descendants of the same block on one node. This could be improved, though.
 pub fn block_dropper_by_height(
     heights: HashSet<BlockHeight>,
-) -> Box<dyn Fn(NetworkRequests) -> Option<NetworkRequests>> {
+) -> Box<dyn Fn(NetworkRequests) -> Option<NetworkRequests> + Send> {
     Box::new(move |request| match &request {
         NetworkRequests::Block { block } => {
             if !heights.contains(&block.header().height()) {

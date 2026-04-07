@@ -31,9 +31,11 @@ use near_primitives::network::PeerId;
 
 use near_network::types::PeerInfo;
 
+use near_network::TestLoopNetworkBlockInfo;
+
 use super::peer_manager_actor::{
-    ClientSenderForTestLoopNetwork, OneClientSenders, TestLoopNetworkBlockInfo,
-    TestLoopNetworkSharedState, ViewClientSenderForTestLoopNetwork,
+    ClientSenderForTestLoopNetwork, OneClientSenders, TestLoopNetworkSharedState,
+    ViewClientSenderForTestLoopNetwork,
 };
 
 /// Dispatches an incoming `PeerMessage` to the appropriate actor sender on the

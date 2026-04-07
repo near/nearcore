@@ -1,4 +1,3 @@
-use super::peer_manager_actor::NetworkRequestHandler;
 use super::state::NodeExecutionData;
 use crate::utils::network::{
     block_dropper_by_height, chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash,
@@ -9,6 +8,7 @@ use near_async::test_loop::sender::TestLoopSender;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_epoch_manager::EpochManagerAdapter;
+use near_network::NetworkRequestHandler;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::{AccountId, BlockHeight, ShardId, ShardIndex};
 use near_vm_runner::logic::ProtocolVersion;
