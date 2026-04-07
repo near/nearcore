@@ -197,9 +197,10 @@ impl NetworkState {
     /// - Creates empty connection pools (transport handles delivery)
     /// - Sets inbound handshake permits to 0 (unused in testloop)
     /// - No whitelist nodes (not needed in testloop)
-    #[allow(dead_code)] // Will be used in PeerManagerActor::new_for_testloop (iteration 9)
+    #[allow(dead_code)] // Will be used when wiring up testloop setup (iteration 10)
     pub fn new_for_testloop(
         clock: &time::Clock,
+        store: store::Store,
         config: config::VerifiedConfig,
         genesis_id: GenesisId,
         client: ClientSenderForNetwork,
@@ -213,8 +214,6 @@ impl NetworkState {
         tier2_transport: Arc<dyn NetworkTransport>,
         tier3_transport: Arc<dyn NetworkTransport>,
     ) -> Self {
-        let db: Arc<dyn near_store::db::Database> = near_store::db::TestDB::new();
-        let store = store::Store::from(db);
         let peer_store = peer_store::PeerStore::new(clock, config.peer_store.clone()).unwrap();
         let ops_spawner = new_owned_future_spawner("NetworkState testloop ops");
         let add_edges_demux =

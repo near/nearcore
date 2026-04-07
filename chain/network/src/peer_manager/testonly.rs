@@ -63,7 +63,10 @@ impl Debug for WithNetworkState {
 
 impl Handler<WithNetworkState> for PeerManagerActor {
     fn handle(&mut self, WithNetworkState(f): WithNetworkState) {
-        self.handle.spawn("with_network_state", f(self.state.clone()));
+        self.handle
+            .as_ref()
+            .expect("WithNetworkState requires a tokio runtime handle")
+            .spawn("with_network_state", f(self.state.clone()));
     }
 }
 

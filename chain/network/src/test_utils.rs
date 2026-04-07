@@ -130,7 +130,9 @@ impl Handler<StopSignal> for PeerManagerActor {
         if msg.should_panic {
             panic!("Node crashed");
         } else {
-            self.handle.stop();
+            if let Some(handle) = &self.handle {
+                handle.stop();
+            }
         }
     }
 }
