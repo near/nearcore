@@ -1321,14 +1321,13 @@ fn slow_test_resharding_v3_shard_shuffling_intense() {
 /// storage resharding.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 // TODO: re-enable on non-x86_64 once this test runs at protocol version 84+.
 // On non-x86_64 (e.g. macOS ARM), Wasmtime is always used, which runs V3
 // instrumentation that charges linear gas for memory.grow/table.grow. This test
 // runs at a protocol version where linear_op costs are 300 Tgas sentinel values
 // (only calibrated in protocol 84+), making any contract with memory.grow
 // immediately exceed max_gas_burnt.
-#[cfg_attr(not(target_arch = "x86_64"), ignore)]
+#[cfg_attr(any(feature = "protocol_feature_spice", not(target_arch = "x86_64")), ignore)]
 fn slow_test_resharding_v3_storage_operations() {
     let sender_account: AccountId = "account1".parse().unwrap();
     let account_in_parent: AccountId = "account4".parse().unwrap();
@@ -1511,14 +1510,13 @@ fn slow_test_resharding_v3_buffered_receipts_towards_splitted_shard() {
 /// otherwise there will be no bandwidth grants to send them.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 // TODO: re-enable on non-x86_64 once this test runs at protocol version 84+.
 // On non-x86_64 (e.g. macOS ARM), Wasmtime is always used, which runs V3
 // instrumentation that charges linear gas for memory.grow/table.grow. This test
 // runs at a protocol version where linear_op costs are 300 Tgas sentinel values
 // (only calibrated in protocol 84+), making any contract with memory.grow
 // immediately exceed max_gas_burnt.
-#[cfg_attr(not(target_arch = "x86_64"), ignore)]
+#[cfg_attr(any(feature = "protocol_feature_spice", not(target_arch = "x86_64")), ignore)]
 fn slow_test_resharding_v3_large_receipts_towards_splitted_shard() {
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
@@ -1627,14 +1625,13 @@ fn slow_test_resharding_v3_shard_shuffling_slower_post_processing_tasks() {
 
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 // TODO: re-enable on non-x86_64 once this test runs at protocol version 84+.
 // On non-x86_64 (e.g. macOS ARM), Wasmtime is always used, which runs V3
 // instrumentation that charges linear gas for memory.grow/table.grow. This test
 // runs at a protocol version where linear_op costs are 300 Tgas sentinel values
 // (only calibrated in protocol 84+), making any contract with memory.grow
 // immediately exceed max_gas_burnt.
-#[cfg_attr(not(target_arch = "x86_64"), ignore)]
+#[cfg_attr(any(feature = "protocol_feature_spice", not(target_arch = "x86_64")), ignore)]
 fn slow_test_resharding_v3_yield_resume() {
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();

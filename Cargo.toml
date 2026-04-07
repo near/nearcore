@@ -234,7 +234,6 @@ near-account-id = { version = "2.0.0", features = [
 ] }
 near-gas = { version = "0.3.2" }
 near-token = { version = "0.3.2" }
-near-amend-genesis = { path = "tools/amend-genesis" }
 near-database-tool = { path = "tools/database" }
 near-async = { path = "core/async" }
 near-async-derive = { path = "core/async-derive" }

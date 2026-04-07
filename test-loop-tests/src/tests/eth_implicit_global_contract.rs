@@ -48,14 +48,13 @@ const MAINNET_ETH_CHAIN_ID: u64 = 397;
 /// - verify new account works via rlp_execute
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 // TODO: re-enable on non-x86_64 once this test runs at protocol version 84+.
 // On non-x86_64 (e.g. macOS ARM), Wasmtime is always used, which runs V3
 // instrumentation that charges linear gas for memory.grow/table.grow. This test
 // runs at a protocol version where linear_op costs are 300 Tgas sentinel values
 // (only calibrated in protocol 84+), making any contract with memory.grow
 // immediately exceed max_gas_burnt.
-#[cfg_attr(not(target_arch = "x86_64"), ignore)]
+#[cfg_attr(any(feature = "protocol_feature_spice", not(target_arch = "x86_64")), ignore)]
 fn test_eth_implicit_global_contract_mainnet_upgrade() {
     init_test_logger();
 
