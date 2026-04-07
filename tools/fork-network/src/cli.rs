@@ -932,8 +932,10 @@ impl ForkNetworkCommand {
                 config.num_chunk_validator_seats = *num_seats;
             }
             if let Some(shard_layout) = shard_layout_override {
-                config.shard_layout_config =
-                    ShardLayoutConfig::Static { shard_layout: shard_layout.clone() };
+                if config.static_shard_layout().is_some() {
+                    config.shard_layout_config =
+                        ShardLayoutConfig::Static { shard_layout: shard_layout.clone() };
+                }
             }
             new_epoch_configs.insert(version, Arc::new(config));
         }

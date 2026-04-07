@@ -165,7 +165,7 @@ impl StateRequestActor {
                 SyncHashValidationResult::Invalid
             }
             Err(err) => {
-                tracing::error!(target: "sync", ?err, "failed to verify sync_hash validity");
+                tracing::debug!(target: "sync", ?err, "failed to verify sync_hash validity");
                 SyncHashValidationResult::Invalid
             }
         }
@@ -249,7 +249,10 @@ impl Handler<StateRequestHeader, Option<StatePartOrHeader>> for StateRequestActo
         let protocol_version = self
             .get_protocol_version_from_sync_hash(&sync_hash)
             .inspect_err(|err| {
-                tracing::error!(target: "sync", ?err, "failed to get sync_hash protocol version");
+                tracing::debug!(target: "sync", ?err, "failed to get sync_hash protocol version");
+                metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL
+                    .with_label_values(&["header", "failed"])
+                    .inc();
             })
             .ok()?;
 
@@ -259,24 +262,37 @@ impl Handler<StateRequestHeader, Option<StatePartOrHeader>> for StateRequestActo
             }
             SyncHashValidationResult::Invalid => {
                 // The request is invalid - could not be validated - return empty response.
+                metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL
+                    .with_label_values(&["header", "failed"])
+                    .inc();
                 return Some(new_header_response_empty(shard_id, sync_hash, protocol_version));
             }
             SyncHashValidationResult::BadRequest => {
                 // The request is malformed - do not respond.
+                metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL
+                    .with_label_values(&["header", "failed"])
+                    .inc();
                 return None;
             }
         };
 
         let header = self.state_sync_adapter.get_state_response_header(shard_id, sync_hash);
         let Ok(header) = header else {
-            tracing::error!(target: "sync", "cannot build state sync header");
+            tracing::warn!(target: "sync", "cannot build state sync header");
+            metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL
+                .with_label_values(&["header", "failed"])
+                .inc();
             return Some(new_header_response_empty(shard_id, sync_hash, protocol_version));
         };
         let ShardStateSyncResponseHeader::V2(header) = header else {
-            tracing::error!(target: "sync", "invalid state sync header format");
+            tracing::warn!(target: "sync", "invalid state sync header format");
+            metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL
+                .with_label_values(&["header", "failed"])
+                .inc();
             return None;
         };
 
+        metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL.with_label_values(&["header", "success"]).inc();
         let response = new_header_response(shard_id, sync_hash, header, protocol_version);
         Some(response)
     }
@@ -301,7 +317,10 @@ impl Handler<StateRequestPart, Option<StatePartOrHeader>> for StateRequestActor 
         let protocol_version = self
             .get_protocol_version_from_sync_hash(&sync_hash)
             .inspect_err(|err| {
-                tracing::error!(target: "sync", ?err, "failed to get sync_hash protocol version");
+                tracing::debug!(target: "sync", ?err, "failed to get sync_hash protocol version");
+                metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL
+                    .with_label_values(&["part", "failed"])
+                    .inc();
             })
             .ok()?;
 
@@ -312,21 +331,29 @@ impl Handler<StateRequestPart, Option<StatePartOrHeader>> for StateRequestActor 
             }
             SyncHashValidationResult::BadRequest => {
                 // Do not respond; likely too old.
+                metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL
+                    .with_label_values(&["part", "failed"])
+                    .inc();
                 return None;
             }
             SyncHashValidationResult::Invalid => {
                 // The request is invalid - could not be validated - return empty response.
+                metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL
+                    .with_label_values(&["part", "failed"])
+                    .inc();
                 return Some(new_part_response_empty(shard_id, sync_hash, protocol_version));
             }
         };
 
         let part = self.state_sync_adapter.get_state_response_part(shard_id, part_id, sync_hash);
         let Ok(part) = part else {
-            tracing::error!(target: "sync", ?part, "cannot build state part");
+            tracing::warn!(target: "sync", ?part, "cannot build state part");
+            metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL.with_label_values(&["part", "failed"]).inc();
             return Some(new_part_response_empty(shard_id, sync_hash, protocol_version));
         };
         tracing::trace!(target: "sync", "finished computation for state request part");
 
+        metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL.with_label_values(&["part", "success"]).inc();
         let response =
             new_part_response(shard_id, sync_hash, part_id, Some(part), protocol_version);
         Some(response)
