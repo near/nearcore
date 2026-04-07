@@ -450,7 +450,14 @@ message SyncSnapshotHosts {
   repeated SnapshotHostInfo hosts = 1;
 }
 
-message EpochSyncRequest {}
+message EpochSyncRequest {
+  // EpochId (CryptoHash) of the last validated epoch.
+  // Empty = legacy V1 request (respond with full proof).
+  CryptoHash epoch_id = 1;
+  // Height of the last validated epoch.
+  // 0 = legacy V1 request (respond with full proof).
+  uint64 epoch_height = 2;
+}
 
 message EpochSyncResponse {
   bytes compressed_proof = 1;

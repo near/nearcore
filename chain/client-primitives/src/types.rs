@@ -4,8 +4,8 @@ use near_primitives::merkle::MerklePath;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockReference, EpochId, EpochReference, MaybeBlockId, ShardId,
-    TransactionOrReceiptId,
+    AccountId, BlockHeight, BlockReference, EpochHeight, EpochId, EpochReference, MaybeBlockId,
+    ShardId, TransactionOrReceiptId,
 };
 use near_primitives::views::{
     EpochSyncStatusView, ExecutionOutcomeWithIdView, LightClientBlockLiteView, QueryRequest,
@@ -119,6 +119,13 @@ pub enum EpochSyncStatus {
         source_peer_height: BlockHeight,
         source_peer_id: PeerId,
         attempt_time: near_time::Utc,
+        /// EpochId of the last validated epoch. EpochId::default() = genesis start.
+        validated_epoch_id: EpochId,
+        /// Height of the last validated epoch. 1 = genesis start.
+        validated_epoch_height: EpochHeight,
+        /// next_bp_hash from the last validated epoch's final block header.
+        /// None = genesis start (use epoch_manager to verify first epoch).
+        last_next_bp_hash: Option<CryptoHash>,
     },
     /// Epoch sync proof applied successfully.
     Done,
@@ -211,13 +218,16 @@ impl From<EpochSyncStatus> for EpochSyncStatusView {
     fn from(status: EpochSyncStatus) -> Self {
         match status {
             EpochSyncStatus::NotStarted => EpochSyncStatusView::NotStarted,
-            EpochSyncStatus::InProgress { source_peer_height, source_peer_id, attempt_time } => {
-                EpochSyncStatusView::InProgress {
-                    source_peer_height,
-                    source_peer_id: source_peer_id.to_string(),
-                    attempt_time: attempt_time.to_string(),
-                }
-            }
+            EpochSyncStatus::InProgress {
+                source_peer_height,
+                source_peer_id,
+                attempt_time,
+                ..
+            } => EpochSyncStatusView::InProgress {
+                source_peer_height,
+                source_peer_id: source_peer_id.to_string(),
+                attempt_time: attempt_time.to_string(),
+            },
             EpochSyncStatus::Done => EpochSyncStatusView::Done,
         }
     }

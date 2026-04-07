@@ -35,7 +35,7 @@ use near_primitives::stateless_validation::partial_witness::PartialEncodedStateW
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeight, EpochHeight, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, EpochHeight, EpochId, ShardId};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::net::SocketAddr;
@@ -301,7 +301,7 @@ pub enum NetworkRequests {
     /// Message from chunk validator to all other chunk validators to forward state witness part.
     PartialEncodedStateWitnessForward(Vec<AccountId>, PartialEncodedStateWitness),
     /// Requests an epoch sync
-    EpochSyncRequest { peer_id: PeerId },
+    EpochSyncRequest { peer_id: PeerId, epoch_id: EpochId, epoch_height: EpochHeight },
     /// Response to an epoch sync request
     EpochSyncResponse { peer_id: PeerId, proof: CompressedEpochSyncProof },
     /// Message from chunk producer to chunk validators containing the code-hashes of contracts

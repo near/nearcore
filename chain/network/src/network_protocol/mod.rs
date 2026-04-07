@@ -59,6 +59,7 @@ use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponse
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::{EpochHeight, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::views::FinalExecutionOutcomeView;
 use near_schema_checker_lib::ProtocolSchema;
@@ -429,8 +430,19 @@ pub enum PeerMessage {
     StateRequestPart(ShardId, CryptoHash, u64),
     VersionedStateResponse(StateResponseInfo),
 
-    EpochSyncRequest,
+    EpochSyncRequest(EpochSyncRequestData),
     EpochSyncResponse(CompressedEpochSyncProof),
+}
+
+/// Data carried in an EpochSyncRequest message.
+/// Identifies the requester's current validated epoch head.
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct EpochSyncRequestData {
+    /// EpochId of the last validated epoch. EpochId::default() with
+    /// epoch_height == 0 indicates a legacy V1 request.
+    pub epoch_id: EpochId,
+    /// Height of the last validated epoch. 0 = legacy V1 request.
+    pub epoch_height: EpochHeight,
 }
 
 impl fmt::Display for PeerMessage {

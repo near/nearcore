@@ -6,8 +6,8 @@ use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol::{self, T2MessageBody};
 use crate::network_protocol::{
-    Disconnect, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage, StateHeaderRequest,
-    StatePartRequest, StateRequestAck,
+    Disconnect, Edge, EpochSyncRequestData, PeerIdOrHash, PeerMessage, Ping, Pong,
+    RawRoutedMessage, StateHeaderRequest, StatePartRequest, StateRequestAck,
 };
 use crate::network_protocol::{SyncSnapshotHosts, T1MessageBody};
 use crate::peer::peer_actor::PeerActor;
@@ -1221,8 +1221,13 @@ impl PeerManagerActor {
                 }
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::EpochSyncRequest { peer_id } => {
-                if self.state.tier2.send_message(peer_id, PeerMessage::EpochSyncRequest.into()) {
+            NetworkRequests::EpochSyncRequest { peer_id, epoch_id, epoch_height } => {
+                let data = EpochSyncRequestData { epoch_id, epoch_height };
+                if self
+                    .state
+                    .tier2
+                    .send_message(peer_id, PeerMessage::EpochSyncRequest(data).into())
+                {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound

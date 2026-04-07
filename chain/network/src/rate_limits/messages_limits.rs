@@ -105,18 +105,16 @@ impl Config {
     pub fn standard_preset() -> Self {
         // TODO(trisfald): make presets for other message types
         let mut config = Self::default();
-        // EpochSyncRequest is a very simple amplification attack vector, as it requires no arguments
-        // and the response is large. So we rate limit it to 1 request per 30 seconds. In practice,
-        // a peer should not need to epoch sync except when bootstrapping a node, so a request
-        // should be rarely received. We still set it to a reasonable rate limit so a bootstrapping
-        // node can retry without waiting for too long.
+        // EpochSyncRequest is an amplification attack vector. With incremental epoch sync,
+        // messages are smaller (~15MB per chunk vs 300MB full) but more frequent.
+        // Allow 5 requests per 30 seconds to support ~20 round trips in ~2 minutes.
         config.rate_limits.insert(
             RateLimitedPeerMessageKey::EpochSyncRequest,
-            SingleMessageConfig::new(1, 1.0 / 30.0, None),
+            SingleMessageConfig::new(5, 5.0 / 30.0, None),
         );
         config.rate_limits.insert(
             RateLimitedPeerMessageKey::EpochSyncResponse,
-            SingleMessageConfig::new(1, 1.0 / 30.0, None),
+            SingleMessageConfig::new(5, 5.0 / 30.0, None),
         );
         config
     }
@@ -263,7 +261,7 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
         PeerMessage::StateRequestHeader(_, _) => Some((StateRequestHeader, 1)),
         PeerMessage::StateRequestPart(_, _, _) => Some((StateRequestPart, 1)),
         PeerMessage::VersionedStateResponse(_) => Some((VersionedStateResponse, 1)),
-        PeerMessage::EpochSyncRequest => Some((EpochSyncRequest, 1)),
+        PeerMessage::EpochSyncRequest(_) => Some((EpochSyncRequest, 1)),
         PeerMessage::EpochSyncResponse(_) => Some((EpochSyncResponse, 1)),
         PeerMessage::Tier1Handshake(_)
         | PeerMessage::Tier2Handshake(_)
@@ -478,15 +476,22 @@ mod tests {
 
     #[test]
     fn test_epoch_sync_rate_limit() {
+        use crate::network_protocol::EpochSyncRequestData;
+        use near_primitives::types::EpochId;
+        let dummy_req = PeerMessage::EpochSyncRequest(EpochSyncRequestData {
+            epoch_id: EpochId::default(),
+            epoch_height: 0,
+        });
         let config = Config::standard_preset();
         let clock = FakeClock::default();
         let mut rate_limits = RateLimits::from_config(&config, clock.now());
-        assert!(rate_limits.is_allowed(&PeerMessage::EpochSyncRequest, clock.now()));
-        assert!(!rate_limits.is_allowed(&PeerMessage::EpochSyncRequest, clock.now()));
-        clock.advance(Duration::seconds(1));
-        assert!(!rate_limits.is_allowed(&PeerMessage::EpochSyncRequest, clock.now()));
-        clock.advance(Duration::seconds(30));
-        assert!(rate_limits.is_allowed(&PeerMessage::EpochSyncRequest, clock.now()));
+        // With burst size 5, the first 5 should be allowed.
+        for _ in 0..5 {
+            assert!(rate_limits.is_allowed(&dummy_req, clock.now()));
+        }
+        assert!(!rate_limits.is_allowed(&dummy_req, clock.now()));
+        clock.advance(Duration::seconds(6));
+        assert!(rate_limits.is_allowed(&dummy_req, clock.now()));
     }
 
     #[test]

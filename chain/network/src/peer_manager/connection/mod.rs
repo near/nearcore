@@ -61,7 +61,7 @@ impl tcp::Tier {
             | PeerMessage::SyncSnapshotHosts(..)
             | PeerMessage::StateRequestHeader(..)
             | PeerMessage::StateRequestPart(..)
-            | PeerMessage::EpochSyncRequest
+            | PeerMessage::EpochSyncRequest(..)
             | PeerMessage::EpochSyncResponse(..) => self == tcp::Tier::T2,
         }
     }
