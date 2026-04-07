@@ -200,11 +200,13 @@ impl messaging::Actor for PeerManagerActor {
                     }
                 });
             }
-        }
 
-        // Periodically prints bandwidth stats for each peer.
-        // This runs in both production and testloop modes.
-        self.report_bandwidth_stats_trigger(ctx, REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL);
+            // Periodically prints bandwidth stats for each peer.
+            // Only in production mode — in testloop there are no TCP connections,
+            // so this just logs zeros. The 60-second interval also causes test
+            // cleanup issues (pending delayed action at test end).
+            self.report_bandwidth_stats_trigger(ctx, REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL);
+        }
 
         #[cfg(test)]
         self.state.config.event_sink.send(Event::PeerManagerStarted);
@@ -409,6 +411,11 @@ impl PeerManagerActor {
             state,
             started_connect_attempts: false,
         }
+    }
+
+    /// Returns a reference to the actor's NetworkState.
+    pub fn network_state(&self) -> &Arc<NetworkState> {
+        &self.state
     }
 
     /// Periodically prints bandwidth stats for each peer.

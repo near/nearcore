@@ -29,11 +29,9 @@ use near_network::types::{
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::network::PeerId;
 
-use near_network::types::PeerInfo;
-
 use super::peer_manager_actor::{
-    ClientSenderForTestLoopNetwork, OneClientSenders, TestLoopNetworkBlockInfo,
-    TestLoopNetworkSharedState, ViewClientSenderForTestLoopNetwork,
+    ClientSenderForTestLoopNetwork, OneClientSenders, TestLoopNetworkSharedState,
+    ViewClientSenderForTestLoopNetwork,
 };
 
 /// Dispatches an incoming `PeerMessage` to the appropriate actor sender on the
@@ -55,12 +53,6 @@ pub(crate) fn dispatch_peer_message(
     match msg {
         // --- Non-routed messages ---
         PeerMessage::Block(block) => {
-            // Track block headers per peer so push_network_info can report
-            // highest_height_peers. This is needed by sync tests.
-            senders.peer_manager_sender.send(TestLoopNetworkBlockInfo {
-                peer: PeerInfo { id: from_peer.clone(), addr: None, account_id: None },
-                block_header: block.header().clone(),
-            });
             let future = senders.client_sender.send_async(
                 BlockResponse { block, peer_id: from_peer, was_requested: false }.span_wrap(),
             );
@@ -308,16 +300,47 @@ fn dispatch_t2(
     }
 }
 
+/// Optional filter for `TestLoopTransport` that inspects outgoing messages
+/// at the transport level (after routing, before delivery). The filter
+/// receives the target `PeerId` and the `PeerMessage` being sent. Return
+/// `true` to allow delivery, `false` to drop the message silently.
+///
+/// This operates at a different layer than the `NetworkRequestHandler`
+/// override handlers on `TestLoopPeerManagerActor`:
+/// - Override handlers intercept `NetworkRequests` on the SEND side, before
+///   routing converts them to `PeerMessage`s. They can see high-level intent
+///   (e.g. "send block to account X") and can modify or drop the request.
+/// - Transport filters intercept `PeerMessage`s AFTER routing, at the
+///   delivery layer. They see the wire-level message and target peer.
+///
+/// Transport filters are useful for:
+/// - Dropping messages by type at the transport layer (e.g. drop all blocks)
+/// - Simulating network-level message loss (random drop by peer/message type)
+/// - Counting messages delivered between specific peers
+///
+/// Transport filters cannot:
+/// - See the original `NetworkRequests` variant (already converted to PeerMessage)
+/// - Modify message contents (only allow/drop)
+/// - Access account-level routing info (only peer IDs)
+pub type TransportMessageFilter = Arc<dyn Fn(&PeerId, &PeerMessage) -> bool + Send + Sync>;
+
 /// TestLoop transport that implements `NetworkTransport` by dispatching
 /// `PeerMessage`s directly to target node actors via `dispatch_peer_message`.
 ///
 /// Uses `TestLoopNetworkSharedState` for peer lookup and network partition
 /// support: `senders_for_peer()` returns drop-event senders when a link is
 /// blocked via `disallowed_peer_links`.
+///
+/// Optionally applies a `message_filter` before delivery. When set, each
+/// outgoing message is checked against the filter; messages that don't pass
+/// are silently dropped (return `false` from send_message).
 pub(crate) struct TestLoopTransport {
     my_peer_id: PeerId,
     shared_state: TestLoopNetworkSharedState,
     future_spawner: Arc<dyn FutureSpawner>,
+    /// Optional filter applied before delivery. Returns `true` to allow,
+    /// `false` to drop. When `None`, all messages are delivered.
+    message_filter: Option<TransportMessageFilter>,
 }
 
 impl TestLoopTransport {
@@ -326,12 +349,28 @@ impl TestLoopTransport {
         shared_state: TestLoopNetworkSharedState,
         future_spawner: Arc<dyn FutureSpawner>,
     ) -> Self {
-        Self { my_peer_id, shared_state, future_spawner }
+        Self { my_peer_id, shared_state, future_spawner, message_filter: None }
+    }
+
+    /// Set a message filter that is checked before delivering each message.
+    /// The filter receives the target peer ID and the message. Return `true`
+    /// to allow delivery, `false` to drop silently.
+    #[allow(dead_code)]
+    pub fn with_message_filter(mut self, filter: TransportMessageFilter) -> Self {
+        self.message_filter = Some(filter);
+        self
     }
 }
 
 impl NetworkTransport for TestLoopTransport {
     fn send_message(&self, peer_id: PeerId, msg: Arc<PeerMessage>) -> bool {
+        // Apply message filter if set. Drop the message if the filter rejects it.
+        if let Some(ref filter) = self.message_filter {
+            if !filter(&peer_id, &msg) {
+                return false;
+            }
+        }
+
         let target_senders = self.shared_state.senders_for_peer(&self.my_peer_id, &peer_id);
         let requester_senders = self.shared_state.senders_for_peer(&peer_id, &self.my_peer_id);
         let msg = Arc::try_unwrap(msg).unwrap_or_else(|arc| (*arc).clone());
@@ -368,6 +407,14 @@ impl NetworkTransport for TestLoopTransport {
             if peer_id == self.my_peer_id {
                 continue;
             }
+
+            // Apply message filter if set. Skip this peer if filter rejects.
+            if let Some(ref filter) = self.message_filter {
+                if !filter(&peer_id, &msg) {
+                    continue;
+                }
+            }
+
             let target_senders = self.shared_state.senders_for_peer(&self.my_peer_id, &peer_id);
             let requester_senders = self.shared_state.senders_for_peer(&peer_id, &self.my_peer_id);
             let msg = (*msg).clone();

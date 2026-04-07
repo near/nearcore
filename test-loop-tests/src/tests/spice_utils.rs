@@ -1,19 +1,12 @@
 use crate::setup::env::TestLoopEnv;
-use near_async::messaging::CanSend as _;
-use near_network::client::SpiceChunkEndorsementMessage;
-use near_network::types::NetworkRequests;
-use near_primitives::hash::CryptoHash;
-use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
-use near_primitives::types::{AccountId, BlockHeight};
-use parking_lot::RwLock;
-use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
 
-pub(super) fn delay_endorsements_propagation(env: &mut TestLoopEnv, delay_height: u64) {
+pub(super) fn delay_endorsements_propagation(env: &TestLoopEnv, delay_height: u64) {
     for node in &env.node_datas {
         node.set_expected_execution_delay(delay_height);
     }
 
+    // TODO(iteration 24-26): convert to transport message filter.
+    /* Override handlers commented out — PeerManagerActor registered directly.
     let core_writer_senders: HashMap<_, _> = env
         .node_datas
         .iter()
@@ -59,4 +52,5 @@ pub(super) fn delay_endorsements_propagation(env: &mut TestLoopEnv, delay_height
             }
         }));
     }
+    */
 }

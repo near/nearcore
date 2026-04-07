@@ -114,6 +114,7 @@ pub type NetworkRequestHandler = Box<dyn Fn(NetworkRequests) -> Option<NetworkRe
 /// - Override handler to skip sending messages to or from a specific client.
 /// - Override handler to simulate more network delays.
 /// - Override handler to modify data and simulate malicious behavior.
+#[allow(dead_code)]
 pub struct TestLoopPeerManagerActor {
     handlers: Vec<NetworkRequestHandler>,
 
@@ -153,6 +154,7 @@ impl Handler<TestLoopNetworkBlockInfo> for TestLoopPeerManagerActor {
     }
 }
 
+#[allow(dead_code)]
 impl TestLoopPeerManagerActor {
     /// Create a new TestLoopPeerManagerActor that delegates to a production
     /// PeerManagerActor for routing. Override handlers run first; unhandled
@@ -243,7 +245,6 @@ pub(crate) struct OneClientSenders {
     pub(crate) chunk_endorsement_handler_sender: ChunkEndorsementSenderForTestLoopNetwork,
     pub(crate) partial_witness_sender: PartialWitnessSenderForNetwork,
     pub(crate) shards_manager_sender: Sender<ShardsManagerRequestFromNetwork>,
-    pub(crate) peer_manager_sender: Sender<TestLoopNetworkBlockInfo>,
     pub(crate) spice_data_distributor_actor: SpiceDataDistributorSenderForTestLoopNetwork,
     pub(crate) spice_core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
 }
@@ -273,7 +274,6 @@ fn to_drop_events_senders(s: TestLoopSender<UnreachableActor>) -> Arc<OneClientS
         chunk_endorsement_handler_sender: s.clone().into_multi_sender(),
         partial_witness_sender: s.clone().into_multi_sender(),
         shards_manager_sender: s.clone().into_sender(),
-        peer_manager_sender: s.clone().into_sender(),
         spice_data_distributor_actor: s.clone().into_multi_sender(),
         spice_core_writer_sender: s.into_sender(),
     })
@@ -303,7 +303,6 @@ impl TestLoopNetworkSharedState {
         ChunkEndorsementSenderForTestLoopNetwork: From<&'a D>,
         PartialWitnessSenderForNetwork: From<&'a D>,
         Sender<ShardsManagerRequestFromNetwork>: From<&'a D>,
-        Sender<TestLoopNetworkBlockInfo>: From<&'a D>,
         SpiceDataDistributorSenderForTestLoopNetwork: From<&'a D>,
         Sender<SpiceChunkEndorsementMessage>: From<&'a D>,
     {
@@ -323,7 +322,6 @@ impl TestLoopNetworkSharedState {
                 ),
                 partial_witness_sender: PartialWitnessSenderForNetwork::from(data),
                 shards_manager_sender: Sender::<ShardsManagerRequestFromNetwork>::from(data),
-                peer_manager_sender: Sender::<TestLoopNetworkBlockInfo>::from(data),
                 spice_data_distributor_actor: SpiceDataDistributorSenderForTestLoopNetwork::from(
                     data,
                 ),
@@ -515,15 +513,6 @@ fn network_message_to_client_handler(
                     .span_wrap(),
                 );
                 drop(future);
-
-                senders.peer_manager_sender.send(TestLoopNetworkBlockInfo {
-                    peer: PeerInfo {
-                        id: my_peer_id.clone(),
-                        addr: None,
-                        account_id: Some(my_account_id.clone()),
-                    },
-                    block_header: block.header().clone(),
-                });
             }
             None
         }

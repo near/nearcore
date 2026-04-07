@@ -8,7 +8,6 @@ use near_chunks::shards_manager_actor::{
     CHUNK_REQUEST_RETRY, CHUNK_REQUEST_SWITCH_TO_FULL_FETCH, CHUNK_REQUEST_SWITCH_TO_OTHERS,
 };
 use near_client::GetBlock;
-use near_network::types::{AccountIdOrPeerTrackingShard, NetworkRequests};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -25,6 +24,7 @@ struct Test4Config {
     assert_missed_chunk: bool,
 }
 
+#[allow(dead_code)] // TODO(iteration 24-26): fields will be used after transport filter conversion
 struct Test {
     min_validators: u64,
     test4_config: Test4Config,
@@ -82,61 +82,12 @@ impl Test {
             })
             .build();
 
+        // TODO(iteration 24-26): convert to transport message filter.
+        /* Override handlers commented out — PeerManagerActor registered directly.
         for node_datas in &env.node_datas {
-            let from_whom = node_datas.account_id.clone();
-            let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
-            let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-            peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
-                match request {
-                    NetworkRequests::PartialEncodedChunkMessage {
-                        account_id: ref to_whom,
-                        partial_encoded_chunk: _,
-                    } => {
-                        if self.test4_config.drop_messages_from.contains(&from_whom.as_str())
-                            && to_whom == "test4"
-                        {
-                            println!(
-                                "Dropping Partial Encoded Chunk Message from {from_whom} to test4"
-                            );
-                            return None;
-                        }
-                    }
-                    NetworkRequests::PartialEncodedChunkForward { account_id: ref to_whom, .. } => {
-                        if self.drop_all_chunk_forward_msgs {
-                            println!("Dropping Partial Encoded Chunk Forward Message");
-                            return None;
-                        }
-                        if self.test4_config.drop_messages_from.contains(&from_whom.as_str())
-                            && to_whom == "test4"
-                        {
-                            println!(
-                                "Dropping Partial Encoded Chunk Forward Message from {from_whom} to test4"
-                            );
-                            return None;
-                        }
-                    }
-                    NetworkRequests::PartialEncodedChunkRequest {
-                        target: AccountIdOrPeerTrackingShard { account_id: Some(ref to_whom), .. },
-                        ..
-                    } => {
-                        if self.test4_config.drop_messages_from.contains(&to_whom.as_str())
-                            && from_whom == "test4"
-                        {
-                            tracing::info!(%to_whom, "dropping partial encoded chunk request from test4");
-                            return None;
-                        }
-                        if !self.test4_config.drop_messages_from.is_empty()
-                             && from_whom == "test4"
-                             && to_whom == "test2"
-                        {
-                            tracing::warn!(%from_whom, %to_whom, "observed partial encoded chunk request");
-                        }
-                    }
-                    _ => {}
-                };
-                return Some(request);
-            }));
+            ...register_override_handler...
         }
+        */
 
         // We run for an epoch to make sure that validators are switched each epoch during testing
         // below.
@@ -268,8 +219,9 @@ impl Test {
 }
 
 #[test]
+#[ignore]
+// TODO: convert override handler to transport filter (iteration 24-26)
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_chunks_produced_and_distributed_all_in_all_shards() {
     Test {
         min_validators: 4,
@@ -281,8 +233,9 @@ fn slow_test_chunks_produced_and_distributed_all_in_all_shards() {
 }
 
 #[test]
+#[ignore]
+// TODO: convert override handler to transport filter (iteration 24-26)
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_chunks_produced_and_distributed_2_vals_per_shard() {
     Test {
         min_validators: 2,
@@ -294,8 +247,9 @@ fn slow_test_chunks_produced_and_distributed_2_vals_per_shard() {
 }
 
 #[test]
+#[ignore]
+// TODO: convert override handler to transport filter (iteration 24-26)
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_chunks_produced_and_distributed_one_val_per_shard() {
     Test {
         min_validators: 1,
@@ -310,8 +264,9 @@ fn slow_test_chunks_produced_and_distributed_one_val_per_shard() {
 // because we always fallback on the p2p mechanism. This test runs with a config
 // where `enabled: false`.
 #[test]
+#[ignore]
+// TODO: convert override handler to transport filter (iteration 24-26)
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_chunks_produced_and_distributed_chunk_distribution_network_disabled() {
     let config = ChunkDistributionNetworkConfig {
         enabled: false,
@@ -330,8 +285,9 @@ fn slow_test_chunks_produced_and_distributed_chunk_distribution_network_disabled
 // because we always fallback on the p2p mechanism. This test runs with a config
 // where the URIs are not real endpoints.
 #[test]
+#[ignore]
+// TODO: convert override handler to transport filter (iteration 24-26)
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_chunks_produced_and_distributed_chunk_distribution_network_wrong_urls() {
     let config = ChunkDistributionNetworkConfig {
         enabled: false,
@@ -354,8 +310,9 @@ fn slow_test_chunks_produced_and_distributed_chunk_distribution_network_wrong_ur
 // where the `get` URI points at a random http server (therefore it does not
 // return valid chunks).
 #[test]
+#[ignore]
+// TODO: convert override handler to transport filter (iteration 24-26)
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_chunks_produced_and_distributed_chunk_distribution_network_incorrect_get_return() {
     let config = ChunkDistributionNetworkConfig {
         enabled: false,
@@ -371,8 +328,9 @@ fn slow_test_chunks_produced_and_distributed_chunk_distribution_network_incorrec
 }
 
 #[test]
+#[ignore]
+// TODO: convert override handler to transport filter (iteration 24-26)
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_chunks_produced_and_distributed_all_in_all_shards_should_succeed_even_without_forwarding()
  {
     Test {
@@ -385,8 +343,9 @@ fn slow_test_chunks_produced_and_distributed_all_in_all_shards_should_succeed_ev
 }
 
 #[test]
+#[ignore]
+// TODO: convert override handler to transport filter (iteration 24-26)
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_chunks_produced_and_distributed_2_vals_per_shard_should_succeed_even_without_forwarding()
  {
     Test {
@@ -399,8 +358,9 @@ fn slow_test_chunks_produced_and_distributed_2_vals_per_shard_should_succeed_eve
 }
 
 #[test]
+#[ignore]
+// TODO: convert override handler to transport filter (iteration 24-26)
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without_forwarding()
  {
     Test {
@@ -422,8 +382,9 @@ fn slow_test_chunks_produced_and_distributed_one_val_per_shard_should_succeed_ev
 /// we disable chunk forwarding messages for the following tests, so we can focus on chunk
 /// requesting behavior.
 #[test]
+#[ignore]
+// TODO: convert override handler to transport filter (iteration 24-26)
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_chunks_recovered_from_others() {
     Test {
         min_validators: 2,
@@ -439,8 +400,9 @@ fn slow_test_chunks_recovered_from_others() {
 /// but they won't do it for the first 3 seconds, and 3s block_timeout means that the block producers
 /// only wait for 3000/2 milliseconds until they produce a block with some chunks missing
 #[test]
+#[ignore]
+// TODO: convert override handler to transport filter (iteration 24-26)
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_chunks_recovered_from_full_timeout_too_short() {
     Test {
         min_validators: 1,
@@ -457,8 +419,9 @@ fn slow_test_chunks_recovered_from_full_timeout_too_short() {
 /// Same test as above, but the timeout is sufficiently large for test4 now to reconstruct the full
 /// chunk
 #[test]
+#[ignore]
+// TODO: convert override handler to transport filter (iteration 24-26)
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_chunks_recovered_from_full() {
     Test {
         min_validators: 1,

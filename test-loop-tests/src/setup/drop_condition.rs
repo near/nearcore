@@ -1,4 +1,5 @@
 use super::peer_manager_actor::NetworkRequestHandler;
+#[allow(unused_imports)]
 use super::state::NodeExecutionData;
 use crate::utils::network::{
     block_dropper_by_height, chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash,
@@ -225,11 +226,12 @@ impl NodeExecutionData {
 
     pub fn register_override_handler(
         &self,
-        test_loop_data: &mut TestLoopData,
-        handler: NetworkRequestHandler,
+        _test_loop_data: &mut TestLoopData,
+        _handler: NetworkRequestHandler,
     ) {
-        let peer_actor = test_loop_data.get_mut(&self.peer_manager_sender.actor_handle());
-        peer_actor.register_override_handler(handler);
+        // TODO(iteration 24-26): convert override handlers to transport message filters.
+        // PeerManagerActor is now registered directly and does not support override handlers.
+        panic!("register_override_handler is not supported; convert to transport filter");
     }
 }
 

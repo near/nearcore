@@ -1,9 +1,8 @@
 use super::drop_condition::{DropCondition, TestLoopChunksStorage};
 use super::peer_manager_actor::{
     ChunkEndorsementSenderForTestLoopNetwork, ClientSenderForTestLoopNetwork,
-    SpiceDataDistributorSenderForTestLoopNetwork, TestLoopNetworkBlockInfo,
-    TestLoopNetworkSharedState, TestLoopPeerManagerActor, TxRequestHandleSenderForTestLoopNetwork,
-    ViewClientSenderForTestLoopNetwork,
+    SpiceDataDistributorSenderForTestLoopNetwork, TestLoopNetworkSharedState,
+    TxRequestHandleSenderForTestLoopNetwork, ViewClientSenderForTestLoopNetwork,
 };
 use near_async::messaging::{IntoMultiSender, IntoSender, Sender};
 use near_async::test_loop::data::TestLoopDataHandle;
@@ -24,6 +23,7 @@ use near_client::{
 use near_jsonrpc::ViewClientSenderForRpc;
 use near_jsonrpc::client::{JsonRpcClient, RpcTransport};
 use near_jsonrpc::sharded_rpc::ShardedRpcPool;
+use near_network::PeerManagerActor;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::PartialWitnessSenderForNetwork;
@@ -92,7 +92,7 @@ pub struct NodeExecutionData {
     pub chunk_endorsement_handler_sender: TestLoopSender<ChunkEndorsementHandlerActor>,
     pub shards_manager_sender: TestLoopSender<ShardsManagerActor>,
     pub partial_witness_sender: TestLoopSender<PartialWitnessActor>,
-    pub peer_manager_sender: TestLoopSender<TestLoopPeerManagerActor>,
+    pub peer_manager_sender: TestLoopSender<PeerManagerActor>,
     pub resharding_sender: TestLoopSender<ReshardingActor>,
     pub state_sync_dumper_handle: TestLoopDataHandle<Arc<StateSyncDumpHandle>>,
     pub spice_data_distributor_sender: TestLoopSender<SpiceDataDistributorActor>,
@@ -182,12 +182,6 @@ impl From<&NodeExecutionData> for TxRequestHandleSenderForTestLoopNetwork {
 impl From<&NodeExecutionData> for ChunkEndorsementSenderForTestLoopNetwork {
     fn from(data: &NodeExecutionData) -> ChunkEndorsementSenderForTestLoopNetwork {
         data.chunk_endorsement_handler_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
-    }
-}
-
-impl From<&NodeExecutionData> for Sender<TestLoopNetworkBlockInfo> {
-    fn from(data: &NodeExecutionData) -> Sender<TestLoopNetworkBlockInfo> {
-        data.peer_manager_sender.clone().with_delay(NETWORK_DELAY).into_sender()
     }
 }
 
