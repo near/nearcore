@@ -189,6 +189,84 @@ impl EdgesWithSource {
 }
 
 impl NetworkState {
+    /// Creates a NetworkState for use in testloop tests.
+    ///
+    /// Unlike `new()`, this constructor:
+    /// - Uses provided transport implementations instead of PoolTransport wrappers
+    /// - Creates an in-memory test store (no disk persistence)
+    /// - Creates empty connection pools (transport handles delivery)
+    /// - Sets inbound handshake permits to 0 (unused in testloop)
+    /// - No whitelist nodes (not needed in testloop)
+    #[allow(dead_code)] // Will be used in PeerManagerActor::new_for_testloop (iteration 9)
+    pub fn new_for_testloop(
+        clock: &time::Clock,
+        config: config::VerifiedConfig,
+        genesis_id: GenesisId,
+        client: ClientSenderForNetwork,
+        state_request_adapter: StateRequestSenderForNetwork,
+        peer_manager_adapter: PeerManagerSenderForNetwork,
+        shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
+        partial_witness_adapter: PartialWitnessSenderForNetwork,
+        spice_data_distributor_adapter: SpiceDataDistributorSenderForNetwork,
+        spice_core_writer_adapter: Sender<SpiceChunkEndorsementMessage>,
+        tier1_transport: Arc<dyn NetworkTransport>,
+        tier2_transport: Arc<dyn NetworkTransport>,
+        tier3_transport: Arc<dyn NetworkTransport>,
+    ) -> Self {
+        let db: Arc<dyn near_store::db::Database> = near_store::db::TestDB::new();
+        let store = store::Store::from(db);
+        let peer_store = peer_store::PeerStore::new(clock, config.peer_store.clone()).unwrap();
+        let ops_spawner = new_owned_future_spawner("NetworkState testloop ops");
+        let add_edges_demux =
+            demux::Demux::new(config.routing_table_update_rate_limit, &*ops_spawner);
+        Self {
+            ops_spawner,
+            graph: crate::routing::Graph::new(
+                clock.clone(),
+                crate::routing::GraphConfig {
+                    node_id: config.node_id(),
+                    prune_unreachable_peers_after: PRUNE_UNREACHABLE_PEERS_AFTER,
+                    prune_edges_after: Some(PRUNE_EDGES_AFTER),
+                },
+            ),
+            genesis_id,
+            client,
+            state_request_adapter,
+            peer_manager_adapter,
+            shards_manager_adapter,
+            partial_witness_adapter,
+            chain_info: Default::default(),
+            tier1_transport,
+            tier2_transport,
+            tier3_transport,
+            tier1: connection::Pool::new(config.node_id()),
+            tier2: connection::Pool::new(config.node_id()),
+            tier3: connection::Pool::new(config.node_id()),
+            inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(0)),
+            my_public_addr: Arc::new(RwLock::new(None)),
+            peer_store,
+            snapshot_hosts: Arc::new(SnapshotHostsCache::new(config.snapshot_hosts.clone())),
+            connection_store: connection_store::ConnectionStore::new(store.clone()).unwrap(),
+            pending_reconnect: Mutex::new(Vec::new()),
+            accounts_data: Arc::new(AccountDataCache::new()),
+            account_announcements: Arc::new(AnnounceAccountCache::new(store)),
+            tier2_route_back: Mutex::new(RouteBackCache::default()),
+            tier1_route_back: Mutex::new(RouteBackCache::default()),
+            recent_routed_messages: Mutex::new(lru::LruCache::new(
+                NonZeroUsize::new(RECENT_ROUTED_MESSAGES_CACHE_SIZE).unwrap(),
+            )),
+            txns_since_last_block: AtomicUsize::new(0),
+            whitelist_nodes: vec![],
+            add_edges_demux,
+            set_chain_info_mutex: Mutex::new(()),
+            config,
+            created_at: clock.now(),
+            tier1_advertise_proxies_mutex: tokio::sync::Mutex::new(()),
+            spice_data_distributor_adapter,
+            spice_core_writer_adapter,
+        }
+    }
+
     pub fn new(
         clock: &time::Clock,
         future_spawner: &dyn FutureSpawner,
