@@ -12,8 +12,6 @@ pub trait NetworkTransport: Send + Sync + 'static {
     /// Send a message to a connected peer. Returns true if delivered.
     fn send_message(&self, peer_id: PeerId, msg: Arc<PeerMessage>) -> bool;
     /// Broadcast a message to all connected peers.
-    // TODO: remove allow once broadcast call sites switch to transport (iteration 4).
-    #[allow(dead_code)]
     fn broadcast_message(&self, msg: Arc<PeerMessage>);
 }
 
