@@ -503,11 +503,12 @@ mod tests {
             vec![0u8; 10].into_boxed_slice(),
         );
         let msg = PeerMessage::EpochSyncResponse(dummy_proof);
-        assert!(rate_limits.is_allowed(&msg, clock.now()));
+        // With burst size 5, the first 5 should be allowed.
+        for _ in 0..5 {
+            assert!(rate_limits.is_allowed(&msg, clock.now()));
+        }
         assert!(!rate_limits.is_allowed(&msg, clock.now()));
-        clock.advance(Duration::seconds(1));
-        assert!(!rate_limits.is_allowed(&msg, clock.now()));
-        clock.advance(Duration::seconds(30));
+        clock.advance(Duration::seconds(6));
         assert!(rate_limits.is_allowed(&msg, clock.now()));
     }
 }
