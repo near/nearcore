@@ -151,15 +151,14 @@ pub enum Event {
 }
 
 impl messaging::Actor for PeerManagerActor {
-    fn start_actor(&mut self, _ctx: &mut dyn DelayedActionRunner<Self>) {
-        // In testloop mode (handle is None), skip all background tasks.
-        // Transport-specific tasks (TCP connections, edge fixing, etc.) are not
-        // needed, and periodic tasks (push_network_info, bandwidth stats) are
-        // handled at the testloop integration level.
-        if self.handle.is_some() {
-            // Periodically push network information to client.
-            self.push_network_info_trigger(self.state.config.push_info_period);
+    fn start_actor(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
+        // Periodically push network information to client.
+        // This runs in both production and testloop modes.
+        self.push_network_info_trigger(ctx, self.state.config.push_info_period);
 
+        // In testloop mode (handle is None), skip transport-specific background tasks.
+        // TCP connections, edge fixing, bandwidth stats, etc. are not needed in testloop.
+        if self.handle.is_some() {
             // Attempt to reconnect to recent outbound connections from storage
             if self.state.config.connect_to_reliable_peers_on_startup {
                 tracing::debug!(target: "network", "reconnecting to reliable peers from storage");
@@ -803,33 +802,29 @@ impl PeerManagerActor {
         }
     }
 
-    fn push_network_info_trigger(&self, interval: time::Duration) {
+    fn push_network_info_trigger(
+        &self,
+        ctx: &mut dyn DelayedActionRunner<Self>,
+        interval: time::Duration,
+    ) {
         let _span = tracing::trace_span!(target: "network", "push_network_info_trigger").entered();
         let network_info = self.get_network_info();
         let _timer = metrics::PEER_MANAGER_TRIGGER_TIME
             .with_label_values(&["push_network_info"])
             .start_timer();
-        if let Some(mut handle) = self.handle.clone() {
-            // TODO(gprusak): just spawn a loop.
-            let state = self.state.clone();
-            handle.spawn(
-                "push_network_info_trigger_future",
-                async move {
-                    state.client.send_async(SetNetworkInfo(network_info).span_wrap()).await.ok();
-                }
-                .instrument(
-                    tracing::trace_span!(target: "network", "push_network_info_trigger_future"),
-                ),
-            );
 
-            handle.run_later(
-                "push_network_info_trigger",
-                interval.try_into().unwrap(),
-                move |act, _| {
-                    act.push_network_info_trigger(interval);
-                },
-            );
-        }
+        // Send network info to client. The send_async() call enqueues the message
+        // synchronously; we explicitly drop the response future since the response
+        // type is () and was already ignored.
+        drop(self.state.client.send_async(SetNetworkInfo(network_info).span_wrap()));
+
+        ctx.run_later(
+            "push_network_info_trigger",
+            interval.try_into().unwrap(),
+            move |act, ctx| {
+                act.push_network_info_trigger(ctx, interval);
+            },
+        );
     }
 
     fn handle_msg_network_requests(&self, msg: NetworkRequests) -> NetworkResponses {
