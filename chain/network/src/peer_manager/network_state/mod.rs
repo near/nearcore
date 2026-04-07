@@ -99,14 +99,15 @@ pub(crate) struct WhitelistNode {
 }
 
 pub struct NetworkState {
-    /// Single-threaded tokio runtime for NetworkState operations
-    ops_spawner: Box<dyn FutureSpawner>,
+    // === Configuration ===
     /// PeerManager config.
     pub config: config::VerifiedConfig,
     /// When network state has been constructed.
     pub created_at: time::Instant,
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
+
+    // === Actor senders (dispatch layer) ===
     pub client: ClientSenderForNetwork,
     pub state_request_adapter: StateRequestSenderForNetwork,
     pub peer_manager_adapter: PeerManagerSenderForNetwork,
@@ -115,15 +116,36 @@ pub struct NetworkState {
     pub spice_data_distributor_adapter: SpiceDataDistributorSenderForNetwork,
     pub spice_core_writer_adapter: Sender<SpiceChunkEndorsementMessage>,
 
-    /// Network-related info about the chain.
-    pub chain_info: ArcSwap<Option<ChainInfo>>,
+    // === Routing state (routing layer) ===
     /// AccountsData for TIER1 accounts.
     pub accounts_data: Arc<AccountDataCache>,
     /// AnnounceAccounts mapping TIER1 account ids to peer ids.
     pub account_announcements: Arc<AnnounceAccountCache>,
+    /// A graph of the whole NEAR network.
+    pub graph: Arc<crate::routing::Graph>,
+    /// Information about state snapshots hosted by network peers.
+    pub snapshot_hosts: Arc<SnapshotHostsCache>,
+    /// Hash of messages that requires routing back to respective previous hop.
+    pub tier2_route_back: Mutex<RouteBackCache>,
+    /// Currently unused, as TIER1 messages do not require a response.
+    /// Also TIER1 connections are direct by design (except for proxies),
+    /// so routing shouldn't really be needed.
+    /// TODO(gprusak): consider removing it altogether.
+    pub tier1_route_back: Mutex<RouteBackCache>,
+    /// Hashes of the body of recently received routed messages.
+    /// It allows us to determine whether messages arrived faster over TIER1 or TIER2 network.
+    pub recent_routed_messages: Mutex<lru::LruCache<CryptoHash, ()>>,
+    /// Network-related info about the chain.
+    pub chain_info: ArcSwap<Option<ChainInfo>>,
+    /// Peer store that provides read/write access to peers.
+    pub peer_store: peer_store::PeerStore,
+    /// Connection store that provides read/write access to stored connections.
+    pub connection_store: connection_store::ConnectionStore,
+
+    // === Transport (delivery layer) ===
     /// Connected peers (inbound and outbound) with their full peer information.
-    pub tier2: connection::Pool,
     pub tier1: connection::Pool,
+    pub tier2: connection::Pool,
     pub tier3: connection::Pool,
     /// Transport abstractions for each tier, used for message delivery.
     /// Production wraps Pool; testloop can substitute direct actor delivery.
@@ -134,36 +156,15 @@ pub struct NetworkState {
     pub inbound_handshake_permits: Arc<tokio::sync::Semaphore>,
     /// The public IP of this node; available after connecting to any one peer.
     pub my_public_addr: Arc<RwLock<Option<std::net::SocketAddr>>>,
-    /// Peer store that provides read/write access to peers.
-    pub peer_store: peer_store::PeerStore,
-    /// Information about state snapshots hosted by network peers.
-    pub snapshot_hosts: Arc<SnapshotHostsCache>,
-    /// Connection store that provides read/write access to stored connections.
-    pub connection_store: connection_store::ConnectionStore,
     /// List of peers to which we should re-establish a connection
     pub pending_reconnect: Mutex<Vec<PeerInfo>>,
-    /// A graph of the whole NEAR network.
-    pub graph: Arc<crate::routing::Graph>,
-    /// Hashes of the body of recently received routed messages.
-    /// It allows us to determine whether messages arrived faster over TIER1 or TIER2 network.
-    pub recent_routed_messages: Mutex<lru::LruCache<CryptoHash, ()>>,
 
-    /// Hash of messages that requires routing back to respective previous hop.
-    pub tier2_route_back: Mutex<RouteBackCache>,
-    /// Currently unused, as TIER1 messages do not require a response.
-    /// Also TIER1 connections are direct by design (except for proxies),
-    /// so routing shouldn't really be needed.
-    /// TODO(gprusak): consider removing it altogether.
-    pub tier1_route_back: Mutex<RouteBackCache>,
-
-    /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
-    /// messages since last block.
-    pub txns_since_last_block: AtomicUsize,
-
+    // === Internal synchronization ===
+    /// Single-threaded tokio runtime for NetworkState operations
+    ops_spawner: Box<dyn FutureSpawner>,
     /// Whitelisted nodes, which are allowed to connect even if the connection limit has been
     /// reached.
     whitelist_nodes: Vec<WhitelistNode>,
-
     /// Mutex which prevents overlapping calls to tier1_advertise_proxies.
     tier1_advertise_proxies_mutex: tokio::sync::Mutex<()>,
     /// Demultiplexer aggregating calls to add_edges(), for V1 routing protocol
@@ -171,6 +172,9 @@ pub struct NetworkState {
     /// Mutex serializing calls to set_chain_info(), which mutates a bunch of stuff non-atomically.
     /// TODO(gprusak): make it use synchronization primitives in some more canonical way.
     set_chain_info_mutex: Mutex<()>,
+    /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
+    /// messages since last block.
+    pub txns_since_last_block: AtomicUsize,
 }
 
 #[derive(Debug)]
@@ -220,7 +224,26 @@ impl NetworkState {
         let add_edges_demux =
             demux::Demux::new(config.routing_table_update_rate_limit, &*ops_spawner);
         Self {
-            ops_spawner,
+            // === Configuration ===
+            // NOTE: `config` is moved last because several fields below borrow from it.
+            created_at: clock.now(),
+            genesis_id,
+
+            // === Actor senders (dispatch layer) ===
+            client,
+            state_request_adapter,
+            peer_manager_adapter,
+            shards_manager_adapter,
+            partial_witness_adapter,
+            spice_data_distributor_adapter,
+            spice_core_writer_adapter,
+
+            // === Routing state (routing layer) ===
+            accounts_data: Arc::new(AccountDataCache::new()),
+            // NOTE: `connection_store` must precede `account_announcements` because the
+            // latter consumes `store`.
+            connection_store: connection_store::ConnectionStore::new(store.clone()).unwrap(),
+            account_announcements: Arc::new(AnnounceAccountCache::new(store)),
             graph: crate::routing::Graph::new(
                 clock.clone(),
                 crate::routing::GraphConfig {
@@ -229,41 +252,36 @@ impl NetworkState {
                     prune_edges_after: Some(PRUNE_EDGES_AFTER),
                 },
             ),
-            genesis_id,
-            client,
-            state_request_adapter,
-            peer_manager_adapter,
-            shards_manager_adapter,
-            partial_witness_adapter,
-            chain_info: Default::default(),
-            tier1_transport,
-            tier2_transport,
-            tier3_transport,
-            tier1: connection::Pool::new(config.node_id()),
-            tier2: connection::Pool::new(config.node_id()),
-            tier3: connection::Pool::new(config.node_id()),
-            inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(0)),
-            my_public_addr: Arc::new(RwLock::new(None)),
-            peer_store,
             snapshot_hosts: Arc::new(SnapshotHostsCache::new(config.snapshot_hosts.clone())),
-            connection_store: connection_store::ConnectionStore::new(store.clone()).unwrap(),
-            pending_reconnect: Mutex::new(Vec::new()),
-            accounts_data: Arc::new(AccountDataCache::new()),
-            account_announcements: Arc::new(AnnounceAccountCache::new(store)),
             tier2_route_back: Mutex::new(RouteBackCache::default()),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
             recent_routed_messages: Mutex::new(lru::LruCache::new(
                 NonZeroUsize::new(RECENT_ROUTED_MESSAGES_CACHE_SIZE).unwrap(),
             )),
-            txns_since_last_block: AtomicUsize::new(0),
+            chain_info: Default::default(),
+            peer_store,
+
+            // === Transport (delivery layer) ===
+            tier1: connection::Pool::new(config.node_id()),
+            tier2: connection::Pool::new(config.node_id()),
+            tier3: connection::Pool::new(config.node_id()),
+            tier1_transport,
+            tier2_transport,
+            tier3_transport,
+            inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(0)),
+            my_public_addr: Arc::new(RwLock::new(None)),
+            pending_reconnect: Mutex::new(Vec::new()),
+
+            // === Internal synchronization ===
+            ops_spawner,
             whitelist_nodes: vec![],
+            tier1_advertise_proxies_mutex: tokio::sync::Mutex::new(()),
             add_edges_demux,
             set_chain_info_mutex: Mutex::new(()),
+            txns_since_last_block: AtomicUsize::new(0),
+
+            // `config` must be last — it is moved here after all borrows above.
             config,
-            created_at: clock.now(),
-            tier1_advertise_proxies_mutex: tokio::sync::Mutex::new(()),
-            spice_data_distributor_adapter,
-            spice_core_writer_adapter,
         }
     }
 
@@ -287,7 +305,26 @@ impl NetworkState {
         let tier2 = connection::Pool::new(config.node_id());
         let tier3 = connection::Pool::new(config.node_id());
         Self {
-            ops_spawner: new_owned_future_spawner("NetworkState ops"),
+            // === Configuration ===
+            // NOTE: `config` is moved last because several fields below borrow from it.
+            created_at: clock.now(),
+            genesis_id,
+
+            // === Actor senders (dispatch layer) ===
+            client,
+            state_request_adapter,
+            peer_manager_adapter,
+            shards_manager_adapter,
+            partial_witness_adapter,
+            spice_data_distributor_adapter,
+            spice_core_writer_adapter,
+
+            // === Routing state (routing layer) ===
+            accounts_data: Arc::new(AccountDataCache::new()),
+            // NOTE: `connection_store` must precede `account_announcements` because the
+            // latter consumes `store`.
+            connection_store: connection_store::ConnectionStore::new(store.clone()).unwrap(),
+            account_announcements: Arc::new(AnnounceAccountCache::new(store)),
             graph: crate::routing::Graph::new(
                 clock.clone(),
                 crate::routing::GraphConfig {
@@ -296,44 +333,41 @@ impl NetworkState {
                     prune_edges_after: Some(PRUNE_EDGES_AFTER),
                 },
             ),
-            genesis_id,
-            client,
-            state_request_adapter,
-            peer_manager_adapter,
-            shards_manager_adapter,
-            partial_witness_adapter,
-            chain_info: Default::default(),
-            tier1_transport: Arc::new(PoolTransport::new(tier1.clone())),
-            tier2_transport: Arc::new(PoolTransport::new(tier2.clone())),
-            tier3_transport: Arc::new(PoolTransport::new(tier3.clone())),
-            tier2,
-            tier1,
-            tier3,
-            inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
-            my_public_addr: Arc::new(RwLock::new(config.tier3_public_addr)),
-            peer_store,
             snapshot_hosts: Arc::new(SnapshotHostsCache::new(config.snapshot_hosts.clone())),
-            connection_store: connection_store::ConnectionStore::new(store.clone()).unwrap(),
-            pending_reconnect: Mutex::new(Vec::<PeerInfo>::new()),
-            accounts_data: Arc::new(AccountDataCache::new()),
-            account_announcements: Arc::new(AnnounceAccountCache::new(store)),
             tier2_route_back: Mutex::new(RouteBackCache::default()),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
             recent_routed_messages: Mutex::new(lru::LruCache::new(
                 NonZeroUsize::new(RECENT_ROUTED_MESSAGES_CACHE_SIZE).unwrap(),
             )),
-            txns_since_last_block: AtomicUsize::new(0),
+            chain_info: Default::default(),
+            peer_store,
+
+            // === Transport (delivery layer) ===
+            // NOTE: transports must precede pools because `PoolTransport::new` clones the
+            // pool, while the pool field itself consumes the local variable.
+            tier1_transport: Arc::new(PoolTransport::new(tier1.clone())),
+            tier2_transport: Arc::new(PoolTransport::new(tier2.clone())),
+            tier3_transport: Arc::new(PoolTransport::new(tier3.clone())),
+            tier1,
+            tier2,
+            tier3,
+            inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
+            my_public_addr: Arc::new(RwLock::new(config.tier3_public_addr)),
+            pending_reconnect: Mutex::new(Vec::<PeerInfo>::new()),
+
+            // === Internal synchronization ===
+            ops_spawner: new_owned_future_spawner("NetworkState ops"),
             whitelist_nodes,
+            tier1_advertise_proxies_mutex: tokio::sync::Mutex::new(()),
             add_edges_demux: demux::Demux::new(
                 config.routing_table_update_rate_limit,
                 future_spawner,
             ),
             set_chain_info_mutex: Mutex::new(()),
+            txns_since_last_block: AtomicUsize::new(0),
+
+            // `config` must be last — it is moved here after all borrows above.
             config,
-            created_at: clock.now(),
-            tier1_advertise_proxies_mutex: tokio::sync::Mutex::new(()),
-            spice_data_distributor_adapter,
-            spice_core_writer_adapter,
         }
     }
 
