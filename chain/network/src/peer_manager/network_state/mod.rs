@@ -126,12 +126,8 @@ pub(crate) struct NetworkState {
     pub tier3: connection::Pool,
     /// Transport abstractions for each tier, used for message delivery.
     /// Production wraps Pool; testloop can substitute direct actor delivery.
-    // TODO: remove allow once call sites switch from Pool to transport (iteration 3).
-    #[allow(dead_code)]
     pub tier1_transport: Arc<dyn NetworkTransport>,
-    #[allow(dead_code)]
     pub tier2_transport: Arc<dyn NetworkTransport>,
-    #[allow(dead_code)]
     pub tier3_transport: Arc<dyn NetworkTransport>,
     /// Semaphore limiting inflight inbound handshakes.
     pub inbound_handshake_permits: Arc<tokio::sync::Semaphore>,
@@ -232,9 +228,9 @@ impl NetworkState {
             tier1_transport: Arc::new(PoolTransport::new(tier1.clone())),
             tier2_transport: Arc::new(PoolTransport::new(tier2.clone())),
             tier3_transport: Arc::new(PoolTransport::new(tier3.clone())),
-            tier2: tier2,
-            tier1: tier1,
-            tier3: tier3,
+            tier2,
+            tier1,
+            tier3,
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             my_public_addr: Arc::new(RwLock::new(config.tier3_public_addr)),
             peer_store,
@@ -600,7 +596,9 @@ impl NetworkState {
                     }
                     PeerIdOrHash::PeerId(peer_id) => peer_id.clone(),
                 };
-                return self.tier1.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
+                return self
+                    .tier1_transport
+                    .send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
             }
             tcp::Tier::T2 => {
                 match self.tier2_find_route(&clock, msg.target()) {
@@ -611,7 +609,7 @@ impl NetworkState {
                             self.tier2_route_back.lock().insert(clock, msg.hash(), my_peer_id);
                         }
                         return self
-                            .tier2
+                            .tier2_transport
                             .send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
                     }
                     Err(find_route_error) => {
@@ -639,7 +637,9 @@ impl NetworkState {
                     }
                     PeerIdOrHash::PeerId(peer_id) => peer_id.clone(),
                 };
-                return self.tier3.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
+                return self
+                    .tier3_transport
+                    .send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
             }
         }
     }

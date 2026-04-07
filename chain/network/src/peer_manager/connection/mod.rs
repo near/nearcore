@@ -26,8 +26,6 @@ use std::future::Future;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Weak};
 
-// TODO: remove allow once call sites switch from Pool to transport (iteration 3).
-#[allow(dead_code)]
 pub(crate) mod transport;
 
 #[cfg(test)]
