@@ -9,9 +9,9 @@ use crate::concurrency::demux;
 use crate::config::PEERS_RESPONSE_MAX_PEERS;
 use crate::network_protocol::{
     Edge, EdgeState, OwnedAccount, PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo,
-    PeersRequest, PeersResponse, RawRoutedMessage, RoutingTableUpdate,
-    SnapshotHostInfoVerificationError, SyncAccountsData, SyncSnapshotHosts, T2MessageBody,
-    TieredMessageBody,
+    PeersRequest, PeersResponse, RawRoutedMessage, RoutingTableUpdate, SignedAccountData,
+    SnapshotHostInfo, SnapshotHostInfoVerificationError, SyncAccountsData, SyncSnapshotHosts,
+    T2MessageBody, TieredMessageBody,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -452,6 +452,84 @@ async fn handle_sync_routing_table(
         Ok(Err(ban_reason)) => conn.stop(Some(ban_reason)),
         Ok(Ok(accounts)) => network_state.add_accounts(accounts).await,
         Err(_) => {}
+    }
+}
+
+/// Handle an incoming RequestUpdateNonce: verify the nonce, then either send back a
+/// newer local edge or finalize the new edge via `network_state.finalize_edge()`.
+/// Calls `conn.stop()` if the nonce is invalid or edge finalization fails.
+async fn handle_request_update_nonce(
+    clock: &time::Clock,
+    network_state: &Arc<NetworkState>,
+    conn: &Arc<connection::Connection>,
+    edge_info: PartialEdgeInfo,
+) {
+    if let Err(err) = verify_nonce(clock, edge_info.nonce) {
+        tracing::debug!(
+            target: "network",
+            nonce = ?edge_info.nonce,
+            peer_id = ?conn.peer_info.id,
+            %err,
+            "bad nonce, disconnecting"
+        );
+        conn.stop(Some(ReasonForBan::InvalidEdge));
+        return;
+    }
+    let peer_id = &conn.peer_info.id;
+    match network_state.graph.load().local_edges.get(peer_id) {
+        Some(cur_edge)
+            if cur_edge.edge_type() == EdgeState::Active && cur_edge.nonce() >= edge_info.nonce =>
+        {
+            // Found a newer local edge, so just send it to the peer.
+            conn.send_message(Arc::new(PeerMessage::SyncRoutingTable(
+                RoutingTableUpdate::from_edges(vec![cur_edge.clone()]),
+            )));
+        }
+        // Sign the edge and broadcast it to everyone (finalize_edge does both).
+        _ => {
+            if let Err(ban_reason) =
+                network_state.finalize_edge(clock, peer_id.clone(), edge_info).await
+            {
+                conn.stop(Some(ban_reason));
+            }
+        }
+    };
+}
+
+/// Handle the async portion of an incoming SyncAccountsData message: call
+/// `network_state.add_accounts_data()` and stop the connection on error.
+async fn handle_sync_accounts_data(
+    clock: &time::Clock,
+    network_state: &Arc<NetworkState>,
+    conn: &Arc<connection::Connection>,
+    accounts_data: Vec<Arc<SignedAccountData>>,
+) {
+    if let Some(err) = network_state.add_accounts_data(clock, accounts_data).await {
+        conn.stop(Some(match err {
+            AccountDataError::InvalidSignature => ReasonForBan::InvalidSignature,
+            AccountDataError::DataTooLarge => ReasonForBan::Abusive,
+            AccountDataError::SingleAccountMultipleData => ReasonForBan::Abusive,
+        }));
+    }
+}
+
+/// Handle the async portion of an incoming SyncSnapshotHosts message: call
+/// `network_state.add_snapshot_hosts()` and stop the connection on error.
+async fn handle_sync_snapshot_hosts(
+    network_state: &Arc<NetworkState>,
+    conn: &Arc<connection::Connection>,
+    hosts: Vec<Arc<SnapshotHostInfo>>,
+) {
+    if let Some(err) = network_state.add_snapshot_hosts(hosts).await {
+        conn.stop(Some(match err {
+            SnapshotHostInfoError::VerificationError(
+                SnapshotHostInfoVerificationError::InvalidSignature,
+            ) => ReasonForBan::InvalidSignature,
+            SnapshotHostInfoError::VerificationError(
+                SnapshotHostInfoVerificationError::TooManyShards(_),
+            )
+            | SnapshotHostInfoError::DuplicatePeerId => ReasonForBan::Abusive,
+        }));
     }
 }
 
@@ -1358,38 +1436,7 @@ impl PeerActor {
                 let clock = self.clock.clone();
                 let network_state = self.network_state.clone();
                 self.handle.spawn("handle request update nonce", async move {
-                    if let Err(err) = verify_nonce(&clock, edge_info.nonce) {
-                        tracing::debug!(
-                            target: "network",
-                            nonce = ?edge_info.nonce,
-                            peer_id = ?conn.peer_info.id,
-                            %err,
-                            "bad nonce, disconnecting"
-                        );
-                        conn.stop(Some(ReasonForBan::InvalidEdge));
-                        return;
-                    }
-                    let peer_id = &conn.peer_info.id;
-                    match network_state.graph.load().local_edges.get(peer_id) {
-                        Some(cur_edge)
-                            if cur_edge.edge_type() == EdgeState::Active
-                                && cur_edge.nonce() >= edge_info.nonce =>
-                        {
-                            // Found a newer local edge, so just send it to the peer.
-                            conn.send_message(Arc::new(PeerMessage::SyncRoutingTable(
-                                RoutingTableUpdate::from_edges(vec![cur_edge.clone()]),
-                            )));
-                        }
-                        // Sign the edge and broadcast it to everyone (finalize_edge does both).
-                        _ => {
-                            if let Err(ban_reason) = network_state
-                                .finalize_edge(&clock, peer_id.clone(), edge_info)
-                                .await
-                            {
-                                conn.stop(Some(ban_reason));
-                            }
-                        }
-                    };
+                    handle_request_update_nonce(&clock, &network_state, &conn, edge_info).await;
                     #[cfg(test)]
                     message_processed_event();
                 });
@@ -1433,18 +1480,10 @@ impl PeerActor {
                     message_processed_event();
                     return;
                 }
-                let network_state = self.network_state.clone();
                 let clock = self.clock.clone();
                 self.handle.spawn("handle sync accounts data", async move {
-                    if let Some(err) =
-                        network_state.add_accounts_data(&clock, msg.accounts_data).await
-                    {
-                        conn.stop(Some(match err {
-                            AccountDataError::InvalidSignature => ReasonForBan::InvalidSignature,
-                            AccountDataError::DataTooLarge => ReasonForBan::Abusive,
-                            AccountDataError::SingleAccountMultipleData => ReasonForBan::Abusive,
-                        }));
-                    }
+                    handle_sync_accounts_data(&clock, &network_state, &conn, msg.accounts_data)
+                        .await;
                     #[cfg(test)]
                     message_processed_event();
                 });
@@ -1459,17 +1498,7 @@ impl PeerActor {
                 }
                 let network_state = self.network_state.clone();
                 self.handle.spawn("handle sync snapshot hosts", async move {
-                    if let Some(err) = network_state.add_snapshot_hosts(msg.hosts).await {
-                        conn.stop(Some(match err {
-                            SnapshotHostInfoError::VerificationError(
-                                SnapshotHostInfoVerificationError::InvalidSignature,
-                            ) => ReasonForBan::InvalidSignature,
-                            SnapshotHostInfoError::VerificationError(
-                                SnapshotHostInfoVerificationError::TooManyShards(_),
-                            )
-                            | SnapshotHostInfoError::DuplicatePeerId => ReasonForBan::Abusive,
-                        }));
-                    }
+                    handle_sync_snapshot_hosts(&network_state, &conn, msg.hosts).await;
                     #[cfg(test)]
                     message_processed_event();
                 });
@@ -1588,12 +1617,12 @@ impl PeerActor {
 }
 
 impl messaging::Actor for PeerActor {
-    fn start_actor(&mut self, _ctx: &mut dyn DelayedActionRunner<Self>) {
+    fn start_actor(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
         metrics::PEER_CONNECTIONS_TOTAL.inc();
         tracing::debug!(target: "network", my_node_id = ?self.my_node_info.id, peer_addr = %self.peer_addr, peer_type = ?self.peer_type, "peer started");
         // Set Handshake timeout for stopping actor if peer is not ready after given period of time.
 
-        self.handle.run_later("handshake_timeout",
+        ctx.run_later("handshake_timeout",
             self.network_state.config.handshake_timeout.try_into().unwrap(),
             move |act, _| match act.peer_status {
                 PeerStatus::Connecting { .. } => {
