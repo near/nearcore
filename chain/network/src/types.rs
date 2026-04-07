@@ -8,7 +8,7 @@ pub use crate::network_protocol::{
 pub use crate::network_protocol::{
     Edge, PartialEdgeInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
     PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, SnapshotHostInfo, StateResponseInfo,
-    StateResponseInfoV1, StateResponseInfoV2,
+    StateResponseInfoV1, StateResponseInfoV2, T1MessageBody, T2MessageBody, TieredMessageBody,
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
 use crate::spice_data_distribution::SpicePartialDataRequest;

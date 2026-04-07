@@ -237,13 +237,13 @@ struct TestLoopNetworkSharedStateInner {
 pub(crate) struct OneClientSenders {
     pub(crate) client_sender: ClientSenderForTestLoopNetwork,
     pub(crate) view_client_sender: ViewClientSenderForTestLoopNetwork,
-    rpc_handler_sender: TxRequestHandleSenderForTestLoopNetwork,
-    chunk_endorsement_handler_sender: ChunkEndorsementSenderForTestLoopNetwork,
-    partial_witness_sender: PartialWitnessSenderForNetwork,
-    shards_manager_sender: Sender<ShardsManagerRequestFromNetwork>,
-    peer_manager_sender: Sender<TestLoopNetworkBlockInfo>,
-    spice_data_distributor_actor: SpiceDataDistributorSenderForTestLoopNetwork,
-    spice_core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
+    pub(crate) rpc_handler_sender: TxRequestHandleSenderForTestLoopNetwork,
+    pub(crate) chunk_endorsement_handler_sender: ChunkEndorsementSenderForTestLoopNetwork,
+    pub(crate) partial_witness_sender: PartialWitnessSenderForNetwork,
+    pub(crate) shards_manager_sender: Sender<ShardsManagerRequestFromNetwork>,
+    pub(crate) peer_manager_sender: Sender<TestLoopNetworkBlockInfo>,
+    pub(crate) spice_data_distributor_actor: SpiceDataDistributorSenderForTestLoopNetwork,
+    pub(crate) spice_core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
 }
 
 /// This actor can be used in situations when we don't expect any events to reach it.
