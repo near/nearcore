@@ -1242,6 +1242,62 @@ impl PeerActor {
         );
     }
 
+    /// Entry point for already-deserialized peer messages.
+    ///
+    /// This is the boundary between transport (TCP framing, deserialization, raw-byte metrics)
+    /// and business logic (rate limiting, per-message-type metrics, dispatch). In testloop,
+    /// messages can be delivered as `PeerMessage` directly without TCP serialization.
+    fn handle_peer_message(&mut self, mut peer_msg: PeerMessage) {
+        tracing::trace!(target: "network", %peer_msg, "received message");
+
+        let now = self.clock.now();
+        {
+            let labels = [peer_msg.msg_variant()];
+            metrics::PEER_MESSAGE_RECEIVED_BY_TYPE_TOTAL.with_label_values(&labels).inc();
+            if !self.received_messages_rate_limits.is_allowed(&peer_msg, now) {
+                metrics::PEER_MESSAGE_RATE_LIMITED_BY_TYPE_TOTAL.with_label_values(&labels).inc();
+                tracing::debug!(target: "network", peer_info = %self.peer_info, msg_variant = %peer_msg.msg_variant(), "peer is being rate limited for message");
+                return;
+            }
+        }
+        match &self.peer_status {
+            PeerStatus::Connecting { .. } => self.handle_msg_connecting(peer_msg),
+            PeerStatus::Ready(conn) => {
+                if self.closing_reason.is_some() {
+                    tracing::warn!(target: "network", %peer_msg, peer_type = ?self.peer_type, "received message from closing connection, ignoring");
+                    return;
+                }
+                conn.last_time_received_message.store(now);
+                // Check if the message type is allowed given the TIER of the connection:
+                // TIER1 connections are reserved exclusively for BFT consensus messages.
+                if !conn.tier.is_allowed_receive(&peer_msg) {
+                    tracing::warn!(target: "network", msg_variant = %peer_msg.msg_variant(), tier = ?conn.tier, "received message on connection, disconnecting");
+                    // TODO(gprusak): this is abusive behavior. Consider banning for it.
+                    self.stop(ClosingReason::DisallowedMessage);
+                    return;
+                }
+
+                // Optionally, ignore any received tombstones after startup. This is to
+                // prevent overload from too much accumulated deleted edges.
+                //
+                // We have similar code to skip sending tombstones, here we handle the
+                // case when our peer doesn't use that logic yet.
+                if let Some(skip_tombstones) = self.network_state.config.skip_tombstones {
+                    if let PeerMessage::SyncRoutingTable(routing_table) = &mut peer_msg {
+                        if conn.established_time + skip_tombstones > now {
+                            routing_table
+                                .edges
+                                .retain(|edge| edge.edge_type() == EdgeState::Active);
+                            metrics::EDGE_TOMBSTONE_RECEIVING_SKIPPED.inc();
+                        }
+                    }
+                }
+                // Handle the message.
+                self.handle_msg_ready(conn.clone(), peer_msg);
+            }
+        }
+    }
+
     #[tracing::instrument(
         level = "trace",
         target = "network",
@@ -1657,7 +1713,8 @@ impl messaging::Handler<stream::Frame> for PeerActor {
                 this.tracker.lock().increment_received(&this.clock, msg.len() as u64);
             }
 
-            let mut peer_msg = match PeerMessage::deserialize(&msg) {
+            // --- Transport boundary: deserialize raw bytes into PeerMessage ---
+            let peer_msg = match PeerMessage::deserialize(&msg) {
                 Ok(msg) => msg,
                 Err(err) => {
                     tracing::debug!(target: "network", data = %near_fmt::AbbrBytes(&msg), peer_info = %this.peer_info, %err, "received invalid data");
@@ -1665,57 +1722,16 @@ impl messaging::Handler<stream::Frame> for PeerActor {
                 }
             };
 
-            tracing::trace!(target: "network", %peer_msg, "received message");
-
-            let now = this.clock.now();
+            // Per-message-type byte count (transport metric, requires raw byte length).
             {
                 let labels = [peer_msg.msg_variant()];
-                metrics::PEER_MESSAGE_RECEIVED_BY_TYPE_TOTAL.with_label_values(&labels).inc();
                 metrics::PEER_MESSAGE_RECEIVED_BY_TYPE_BYTES
                     .with_label_values(&labels)
                     .inc_by(msg.len() as u64);
-                if !this.received_messages_rate_limits.is_allowed(&peer_msg, now) {
-                    metrics::PEER_MESSAGE_RATE_LIMITED_BY_TYPE_TOTAL.with_label_values(&labels).inc();
-                    tracing::debug!(target: "network", peer_info = %this.peer_info, msg_variant = %peer_msg.msg_variant(), "peer is being rate limited for message");
-                    return;
-                }
             }
-            match &this.peer_status {
-                PeerStatus::Connecting { .. } => this.handle_msg_connecting(peer_msg),
-                PeerStatus::Ready(conn) => {
-                    if this.closing_reason.is_some() {
-                        tracing::warn!(target: "network", %peer_msg, peer_type = ?this.peer_type, "received message from closing connection, ignoring");
-                        return;
-                    }
-                    conn.last_time_received_message.store(now);
-                    // Check if the message type is allowed given the TIER of the connection:
-                    // TIER1 connections are reserved exclusively for BFT consensus messages.
-                    if !conn.tier.is_allowed_receive(&peer_msg) {
-                        tracing::warn!(target: "network", msg_variant = %peer_msg.msg_variant(), tier = ?conn.tier, "received message on connection, disconnecting");
-                        // TODO(gprusak): this is abusive behavior. Consider banning for it.
-                        this.stop(ClosingReason::DisallowedMessage);
-                        return;
-                    }
 
-                    // Optionally, ignore any received tombstones after startup. This is to
-                    // prevent overload from too much accumulated deleted edges.
-                    //
-                    // We have similar code to skip sending tombstones, here we handle the
-                    // case when our peer doesn't use that logic yet.
-                    if let Some(skip_tombstones) = this.network_state.config.skip_tombstones {
-                        if let PeerMessage::SyncRoutingTable(routing_table) = &mut peer_msg {
-                            if conn.established_time + skip_tombstones > now {
-                                routing_table
-                                    .edges
-                                    .retain(|edge| edge.edge_type() == EdgeState::Active);
-                                metrics::EDGE_TOMBSTONE_RECEIVING_SKIPPED.inc();
-                            }
-                        }
-                    }
-                    // Handle the message.
-                    this.handle_msg_ready(conn.clone(), peer_msg);
-                }
-            }
+            // --- Dispatch deserialized message (business logic) ---
+            this.handle_peer_message(peer_msg);
         });
     }
 }
