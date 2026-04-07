@@ -408,6 +408,11 @@ impl TestLoopNetworkSharedState {
         self.0.lock().archival_peer_ids.contains(peer_id)
     }
 
+    pub(crate) fn all_peer_ids(&self) -> Vec<PeerId> {
+        let guard = self.0.lock();
+        guard.senders.keys().cloned().collect_vec()
+    }
+
     fn accounts(&self) -> Vec<AccountId> {
         let guard = self.0.lock();
         let account_ids = guard.account_to_peer_id.keys().cloned().collect_vec();

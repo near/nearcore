@@ -3,6 +3,8 @@
 //! and `NetworkState::receive_routed_message` do in production, but using
 //! synchronous testloop senders instead of async network channels.
 
+use std::sync::Arc;
+
 use near_async::messaging::{CanSend, CanSendAsync};
 use near_client::{BlockApproval, BlockResponse};
 use near_network::client::{
@@ -20,11 +22,13 @@ use near_network::state_witness::{
     ContractCodeResponseMessage, PartialEncodedContractDeploysMessage,
     PartialEncodedStateWitnessForwardMessage, PartialEncodedStateWitnessMessage,
 };
-use near_network::types::{PeerMessage, T1MessageBody, T2MessageBody, TieredMessageBody};
+use near_network::types::{
+    NetworkTransport, PeerMessage, T1MessageBody, T2MessageBody, TieredMessageBody,
+};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::network::PeerId;
 
-use super::peer_manager_actor::OneClientSenders;
+use super::peer_manager_actor::{OneClientSenders, TestLoopNetworkSharedState};
 
 /// Dispatches an incoming `PeerMessage` to the appropriate actor sender on the
 /// receiving node. This is the testloop equivalent of the production receive path
@@ -261,6 +265,43 @@ fn dispatch_t2(
         }
         T2MessageBody::Ping(_) | T2MessageBody::Pong(_) => {
             // Test-only networking diagnostics, not relevant for testloop.
+        }
+    }
+}
+
+/// TestLoop transport that implements `NetworkTransport` by dispatching
+/// `PeerMessage`s directly to target node actors via `dispatch_peer_message`.
+///
+/// Uses `TestLoopNetworkSharedState` for peer lookup and network partition
+/// support: `senders_for_peer()` returns drop-event senders when a link is
+/// blocked via `disallowed_peer_links`.
+pub(crate) struct TestLoopTransport {
+    my_peer_id: PeerId,
+    shared_state: TestLoopNetworkSharedState,
+}
+
+impl TestLoopTransport {
+    pub fn new(my_peer_id: PeerId, shared_state: TestLoopNetworkSharedState) -> Self {
+        Self { my_peer_id, shared_state }
+    }
+}
+
+impl NetworkTransport for TestLoopTransport {
+    fn send_message(&self, peer_id: PeerId, msg: Arc<PeerMessage>) -> bool {
+        let senders = self.shared_state.senders_for_peer(&self.my_peer_id, &peer_id);
+        let msg = Arc::try_unwrap(msg).unwrap_or_else(|arc| (*arc).clone());
+        dispatch_peer_message(self.my_peer_id.clone(), msg, &senders);
+        true
+    }
+
+    fn broadcast_message(&self, msg: Arc<PeerMessage>) {
+        for peer_id in self.shared_state.all_peer_ids() {
+            if peer_id == self.my_peer_id {
+                continue;
+            }
+            let senders = self.shared_state.senders_for_peer(&self.my_peer_id, &peer_id);
+            let msg = (*msg).clone();
+            dispatch_peer_message(self.my_peer_id.clone(), msg, &senders);
         }
     }
 }

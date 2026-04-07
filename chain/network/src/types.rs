@@ -10,6 +10,7 @@ pub use crate::network_protocol::{
     PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, SnapshotHostInfo, StateResponseInfo,
     StateResponseInfoV1, StateResponseInfoV2, T1MessageBody, T2MessageBody, TieredMessageBody,
 };
+pub use crate::peer_manager::connection::transport::NetworkTransport;
 use crate::routing::routing_table_view::RoutingTableInfo;
 use crate::spice_data_distribution::SpicePartialDataRequest;
 pub use crate::state_sync::StateSyncResponse;
