@@ -26,7 +26,11 @@ fn test_restart_node() {
 
     let killed_node_state = env.kill_node(&restart_identifier);
 
-    let restart_height = kill_height + 2 * epoch_length;
+    // Advance by 1 epoch. Keep the gap small enough that the restarted node
+    // stays within the epoch sync horizon (default: 2 epochs) so it enters
+    // BlockSync instead of EpochSync. EpochSync for a node with existing
+    // data triggers a data-reset shutdown, which is not supported in testloop.
+    let restart_height = kill_height + epoch_length;
     env.node_runner(stable_node_idx).run_until_head_height(restart_height);
 
     let new_node_identifier = format!("{}-restart", restart_identifier);

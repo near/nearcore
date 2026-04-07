@@ -301,7 +301,18 @@ pub fn setup_client(
     let pending_denylist = test_loop.event_denylist();
     let id = identifier.to_string();
     test_loop.future_spawner(identifier).spawn("ShutdownWatcher", async move {
-        let _ = shutdown_rx.recv().await;
+        let Ok(reason) = shutdown_rx.recv().await else { return };
+        // EpochSyncDataReset requests a full data wipe + restart, which testloop
+        // cannot simulate. Ignore it so the node stays alive and falls back to
+        // block sync after the epoch sync timeout expires.
+        if matches!(reason, ShutdownReason::EpochSyncDataReset) {
+            tracing::info!(
+                target: "test_loop",
+                id = %id,
+                "ignoring EpochSyncDataReset shutdown in testloop"
+            );
+            return;
+        }
         pending_denylist.lock().push(id);
     });
 
