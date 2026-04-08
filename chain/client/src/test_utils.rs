@@ -121,7 +121,6 @@ impl Client {
         .unwrap();
         shard_chunk
     }
-
 }
 
 fn create_chunk_on_height_for_shard(
