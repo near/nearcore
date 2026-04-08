@@ -1942,7 +1942,7 @@ fn test_validate_chunk_extra() {
     // to try to produce chunks on top of block1, so we force the reorg case
     // using `capture`
 
-    env.clients[0].chain.test_paused_blocks.pause(block2.hash());
+    env.clients[0].pause_block_processing(block2.hash());
     let mut chain_store = ChainStore::new(
         env.clients[0].chain.chain_store().store(),
         true,
@@ -1959,7 +1959,7 @@ fn test_validate_chunk_extra() {
     env.clients[0].process_blocks_with_missing_chunks(None);
     let accepted_blocks = env.clients[0].finish_block_in_processing(block1.hash());
     assert_eq!(accepted_blocks.len(), 1);
-    env.clients[0].chain.test_paused_blocks.resume(block2.hash());
+    env.clients[0].resume_block_processing(block2.hash());
     let accepted_blocks = env.clients[0].finish_block_in_processing(block2.hash());
     env.propagate_chunk_state_witnesses_and_endorsements(false);
     assert_eq!(accepted_blocks.len(), 1);
