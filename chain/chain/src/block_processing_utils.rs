@@ -39,6 +39,7 @@ pub(crate) struct BlockPreprocessInfo {
     /// The sandbox patch generation observed when this block was preprocessed.
     /// Used after `chain_update.commit()` to advance `sandbox_patch_committed_gen`
     /// only if no newer sandbox patch generation arrived while this block was in-flight.
+    #[cfg(feature = "sandbox")]
     pub(crate) sandbox_patch_generation: u64,
 }
 
