@@ -4,15 +4,29 @@ use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{CanSend, CanSendAsync};
 use near_async::time::Clock;
 use near_network::client::{
-    BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
-    EpochSyncRequestMessage, EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
-    StateResponse, StateResponseReceived,
+    BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
+    ChunkEndorsementMessage, EpochSyncRequestMessage, EpochSyncResponseMessage,
+    OptimisticBlockMessage, ProcessTxRequest, SpiceChunkEndorsementMessage, StateResponse,
+    StateResponseReceived, TxStatusResponse,
 };
 use near_network::peer_manager_exports::connection::transport::NetworkTransport;
 use near_network::peer_manager_exports::network_state::NetworkState;
+use near_network::shards_manager::ShardsManagerRequestFromNetwork;
+use near_network::spice_data_distribution::{
+    SpiceChunkContractAccessesMessage, SpiceContractCodeRequestMessage,
+    SpiceContractCodeResponseMessage, SpiceIncomingPartialData,
+};
+use near_network::state_witness::{
+    ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
+    ContractCodeResponseMessage, PartialEncodedContractDeploysMessage,
+    PartialEncodedStateWitnessForwardMessage, PartialEncodedStateWitnessMessage,
+};
 use near_network::types::PeerMessage;
-use near_network::{PeerIdOrHash, RawRoutedMessage};
+use near_network::{
+    PeerIdOrHash, RawRoutedMessage, T1MessageBody, T2MessageBody, TieredMessageBody,
+};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
+use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -155,14 +169,11 @@ impl TestLoopTransport {
                         }
                     });
                 } else {
-                    // Non-response messages: dispatch by spawning on the
-                    // testloop future_spawner (same as response path but
-                    // without awaiting the result).
-                    self.future_spawner.spawn("testloop_routed_dispatch", async move {
-                        target_state
-                            .receive_routed_message(&clock, msg_author, my_peer_id, msg_hash, body)
-                            .await;
-                    });
+                    // Non-response messages: dispatch directly to target's actor
+                    // senders (single-hop). This matches the old mock's behavior
+                    // where messages were delivered in the same event, avoiding
+                    // the extra event cycle from future_spawner.spawn().
+                    dispatch_routed_message_directly(&target_state, my_peer_id, msg_hash, body);
                 }
                 true
             }
@@ -306,5 +317,142 @@ impl NetworkTransport for TestLoopTransport {
         for peer_id in all_peers {
             self.dispatch_to_target(&peer_id, msg.clone());
         }
+    }
+}
+
+/// Dispatch a routed message body directly to the target node's actor senders.
+/// This is a single-hop delivery (matching the old mock's behavior) instead of
+/// going through future_spawner.spawn() + receive_routed_message (two hops).
+///
+/// For non-response messages only — response messages need the async path to
+/// await the response and route it back.
+///
+/// `send_async()` enqueues the message immediately when called (before `.await`),
+/// so we can call it and drop the returned future — the message is already queued.
+/// `send()` is synchronous fire-and-forget.
+fn dispatch_routed_message_directly(
+    target_state: &Arc<NetworkState>,
+    from_peer: PeerId,
+    msg_hash: CryptoHash,
+    body: TieredMessageBody,
+) {
+    match body {
+        TieredMessageBody::T1(body) => match *body {
+            T1MessageBody::BlockApproval(approval) => {
+                target_state.client.send_async(BlockApproval(approval, from_peer).span_wrap());
+            }
+            T1MessageBody::VersionedPartialEncodedChunk(chunk) => {
+                target_state
+                    .shards_manager_adapter
+                    .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(*chunk));
+            }
+            T1MessageBody::PartialEncodedChunkForward(msg) => {
+                target_state
+                    .shards_manager_adapter
+                    .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg));
+            }
+            T1MessageBody::PartialEncodedStateWitness(witness) => {
+                target_state
+                    .partial_witness_adapter
+                    .send(PartialEncodedStateWitnessMessage(witness));
+            }
+            T1MessageBody::PartialEncodedStateWitnessForward(witness) => {
+                target_state
+                    .partial_witness_adapter
+                    .send(PartialEncodedStateWitnessForwardMessage(witness));
+            }
+            T1MessageBody::VersionedChunkEndorsement(endorsement) => {
+                target_state.client.send_async(ChunkEndorsementMessage(endorsement));
+            }
+            T1MessageBody::ChunkContractAccesses(accesses) => {
+                target_state.partial_witness_adapter.send(ChunkContractAccessesMessage(accesses));
+            }
+            T1MessageBody::ContractCodeRequest(request) => {
+                target_state.partial_witness_adapter.send(ContractCodeRequestMessage(request));
+            }
+            T1MessageBody::ContractCodeResponse(response) => {
+                target_state.partial_witness_adapter.send(ContractCodeResponseMessage(response));
+            }
+            T1MessageBody::SpicePartialData(spice_partial_data) => {
+                target_state
+                    .spice_data_distributor_adapter
+                    .send(SpiceIncomingPartialData { data: spice_partial_data });
+            }
+            T1MessageBody::SpiceChunkEndorsement(endorsement) => {
+                target_state
+                    .spice_core_writer_adapter
+                    .send(SpiceChunkEndorsementMessage(endorsement));
+            }
+            T1MessageBody::SpicePartialDataRequest(request) => {
+                target_state.spice_data_distributor_adapter.send(request);
+            }
+            T1MessageBody::SpiceChunkContractAccesses(accesses) => {
+                target_state
+                    .spice_data_distributor_adapter
+                    .send(SpiceChunkContractAccessesMessage(accesses));
+            }
+            T1MessageBody::SpiceContractCodeRequest(request) => {
+                target_state
+                    .spice_data_distributor_adapter
+                    .send(SpiceContractCodeRequestMessage(request));
+            }
+            T1MessageBody::SpiceContractCodeResponse(response) => {
+                target_state
+                    .spice_data_distributor_adapter
+                    .send(SpiceContractCodeResponseMessage(response));
+            }
+        },
+        TieredMessageBody::T2(body) => match *body {
+            T2MessageBody::TxStatusResponse(tx_result) => {
+                target_state.client.send_async(TxStatusResponse(tx_result.into()));
+            }
+            T2MessageBody::ForwardTx(transaction) => {
+                target_state.client.send_async(ProcessTxRequest {
+                    transaction,
+                    is_forwarded: true,
+                    check_only: false,
+                });
+            }
+            T2MessageBody::PartialEncodedChunkRequest(request) => {
+                target_state.shards_manager_adapter.send(
+                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
+                        partial_encoded_chunk_request: request,
+                        route_back: msg_hash,
+                    },
+                );
+            }
+            T2MessageBody::PartialEncodedChunkResponse(response) => {
+                target_state.shards_manager_adapter.send(
+                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
+                        partial_encoded_chunk_response: response,
+                        received_time: near_async::time::Instant::now().into(),
+                    },
+                );
+            }
+            T2MessageBody::ChunkStateWitnessAck(ack) => {
+                target_state.partial_witness_adapter.send(ChunkStateWitnessAckMessage(ack));
+            }
+            T2MessageBody::PartialEncodedContractDeploys(deploys) => {
+                target_state
+                    .partial_witness_adapter
+                    .send(PartialEncodedContractDeploysMessage(deploys));
+            }
+            T2MessageBody::StateRequestAck(ack) => {
+                target_state.client.send_async(
+                    StateResponseReceived {
+                        peer_id: from_peer,
+                        state_response: StateResponse::Ack(ack),
+                    }
+                    .span_wrap(),
+                );
+            }
+            body => {
+                tracing::warn!(
+                    target: "network",
+                    ?body,
+                    "testloop direct dispatch: unhandled routed message type, dropping"
+                );
+            }
+        },
     }
 }
