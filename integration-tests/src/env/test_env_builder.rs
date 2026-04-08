@@ -10,7 +10,7 @@ use near_async::messaging::{IntoMultiSender, IntoSender, noop};
 use near_async::time::Clock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::RuntimeAdapter;
-use near_chain::{ApplyChunksIterationMode, Block, ChainGenesis};
+use near_chain::{Block, ChainGenesis};
 use near_chain_configs::{
     Genesis, GenesisConfig, MutableConfigValue, ProtocolVersionCheckConfig, TrackedShardsConfig,
 };
@@ -608,7 +608,6 @@ impl TestEnvBuilder {
                     clients[i].shard_tracker.clone(),
                     network_adapters[i].as_multi_sender(),
                     validator_signers[i].clone(),
-                    ApplyChunksIterationMode::default(),
                     ChunkExecutorConfig {
                         save_trie_changes: self.save_trie_changes,
                         save_tx_outcomes: self.save_tx_outcomes,

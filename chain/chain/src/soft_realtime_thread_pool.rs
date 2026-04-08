@@ -173,7 +173,8 @@ impl ThreadPool {
 
 impl AsyncComputationSpawner for ThreadPool {
     fn spawn_boxed(&self, _name: &str, job: Box<dyn FnOnce() + Send>) {
-        self.spawn_boxed(job)
+        let dispatcher = tracing::dispatcher::get_default(|it| it.clone());
+        self.spawn_boxed(Box::new(move || tracing::dispatcher::with_default(&dispatcher, job)))
     }
 }
 

@@ -314,7 +314,6 @@ fn spawn_spice_actors(
             let thread_limit = runtime.get_shard_limit(PROTOCOL_VERSION) as usize * 3;
             ApplyChunksSpawner::default().into_spawner(thread_limit)
         },
-        Default::default(),
         chunk_executor_adapter.as_sender(),
         spice_core_writer_adapter.as_sender(),
         spice_data_distributor_adapter.as_multi_sender(),

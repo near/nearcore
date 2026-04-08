@@ -98,7 +98,6 @@ use near_store::get_genesis_state_roots;
 use near_store::merkle_proof::MerkleProofAccess;
 use near_store::{DBCol, StateSnapshotConfig};
 use node_runtime::{PostState, PostStateReadyCallback, SignedValidPeriodTransactions};
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
@@ -245,15 +244,6 @@ impl ApplyChunksResultCache {
 type BlockApplyChunksResult =
     (BlockToApply, Vec<(ShardId, CachedShardUpdateKey, Result<ShardUpdateResult, Error>)>);
 
-/// Parallel or sequential applying of chunks for tracked shards.
-/// Default behavior uses Rayon, but can be configured to use sequential processing for testing.
-#[derive(Clone, Copy, Debug, Default)]
-pub enum ApplyChunksIterationMode {
-    #[default]
-    Rayon,
-    Sequential,
-}
-
 /// Async computation spawner to be used for background memtrie loading tasks.
 #[derive(Default)]
 pub enum MemtrieLoadingSpawner {
@@ -305,8 +295,6 @@ pub struct Chain {
     apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
     /// Used to spawn background memtrie loading tasks.
     memtrie_loading_spawner: Arc<dyn AsyncComputationSpawner>,
-    /// Used to decide whether to parallelize shard updates when applying chunks.
-    apply_chunks_iteration_mode: ApplyChunksIterationMode,
     pub apply_chunk_results_cache: ApplyChunksResultCache,
     /// Time when head was updated most recently.
     last_time_head_updated: Instant,
@@ -466,7 +454,6 @@ impl Chain {
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
             apply_chunks_spawner: ApplyChunksSpawner::default().into_spawner(thread_limit),
-            apply_chunks_iteration_mode: ApplyChunksIterationMode::default(),
             memtrie_loading_spawner: MemtrieLoadingSpawner::default().into_spawner(),
             apply_chunk_results_cache: ApplyChunksResultCache::new(APPLY_CHUNK_RESULTS_CACHE_SIZE),
             last_time_head_updated: clock.now(),
@@ -494,7 +481,6 @@ impl Chain {
         chain_config: ChainConfig,
         snapshot_callbacks: Option<SnapshotCallbacks>,
         apply_chunks_spawner: ApplyChunksSpawner,
-        apply_chunks_iteration_mode: ApplyChunksIterationMode,
         memtrie_loading_spawner: MemtrieLoadingSpawner,
         validator_signer: MutableValidatorSigner,
         resharding_sender: ReshardingSender,
@@ -652,7 +638,6 @@ impl Chain {
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
             apply_chunks_spawner,
-            apply_chunks_iteration_mode,
             memtrie_loading_spawner: memtrie_loading_spawner.into_spawner(),
             apply_chunk_results_cache: ApplyChunksResultCache::new(APPLY_CHUNK_RESULTS_CACHE_SIZE),
             last_time_head_updated: clock.now(),
@@ -1209,7 +1194,7 @@ impl Chain {
     /// `block_processing_artifacts`: Callers can pass an empty object or an existing BlockProcessingArtifact.
     ///              This function will add the effect from processing this block to there.
     /// `apply_chunks_done_sender`: An ApplyChunksDoneMessage message will be sent via this sender after apply_chunks is finished
-    ///              (so it also happens asynchronously in the rayon thread pool). Callers can
+    ///              (so it also happens asynchronously on the apply_chunks_spawner thread pool). Callers can
     ///              use this sender as a way to receive notifications when apply chunks are done
     ///              so it can call postprocess_ready_blocks.
     #[instrument(
@@ -1414,7 +1399,7 @@ impl Chain {
             },
         )?;
 
-        // 3) schedule apply chunks, which will be executed in the rayon thread pool.
+        // 3) schedule apply chunks, which will be executed on the apply_chunks_spawner thread pool.
         self.schedule_apply_chunks(
             BlockToApply::Optimistic(block_height),
             block_height,
@@ -1770,7 +1755,7 @@ impl Chain {
         let block_height = block.header().height();
         self.blocks_in_processing.add(block, block_preprocess_info)?;
 
-        // 3) schedule apply chunks, which will be executed in the rayon thread pool.
+        // 3) schedule apply chunks, which will be executed on the apply_chunks_spawner thread pool.
         self.schedule_apply_chunks(
             BlockToApply::Normal(block_hash),
             block_height,
@@ -1782,9 +1767,9 @@ impl Chain {
         Ok(())
     }
 
-    /// Applying chunks async by starting the work at the rayon thread pool
-    /// `apply_chunks_done_tracker`: notifies the threads that wait for applying chunks is finished
-    /// `apply_chunks_done_sender`: a sender to send a ApplyChunksDoneMessage message once applying chunks is finished
+    /// Schedule chunk application by spawning each shard job on the
+    /// `apply_chunks_spawner`. The last shard to complete sends the aggregated
+    /// results back on `apply_chunks_sender`.
     fn schedule_apply_chunks(
         &self,
         block: BlockToApply,
@@ -1793,35 +1778,89 @@ impl Chain {
         apply_chunks_still_applying: ApplyChunksStillApplying,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) {
-        let sc = self.apply_chunks_sender.clone();
-        let clock = self.clock.clone();
-        let iteration_mode = self.apply_chunks_iteration_mode;
+        let count = work.len();
+        let parent_span = Span::current();
         #[cfg(feature = "test_features")]
         let test_pause_gate = match &block {
             BlockToApply::Normal(hash) => self.test_paused_blocks.get_gate(hash),
             _ => None,
         };
-        self.apply_chunks_spawner.spawn("apply_chunks", move || {
+        let pending = Arc::new(PendingApplyChunks {
+            block,
+            block_height,
+            remaining: std::sync::atomic::AtomicUsize::new(count),
+            results: std::sync::Mutex::new(Vec::with_capacity(count)),
+            sender: self.apply_chunks_sender.clone(),
+            clock: self.clock.clone(),
+            start_time: self.clock.now(),
             #[cfg(feature = "test_features")]
-            if let Some(gate) = test_pause_gate {
-                gate.wait();
-            }
-            let apply_all_chunks_start_time = clock.now();
-            // do_apply_chunks runs `work` in parallel, but still waits for all of them to finish
-            let res = do_apply_chunks(iteration_mode, block.clone(), block_height, work);
-            // If we encounter an error here, that means the receiver is deallocated and the client
-            // thread is already shut down. The node is already crashed, so we can unwrap here
-            metrics::APPLY_ALL_CHUNKS_TIME.with_label_values(&[block.as_ref()]).observe(
-                (clock.now().signed_duration_since(apply_all_chunks_start_time)).as_seconds_f64(),
-            );
-            sc.send((block, res)).unwrap();
-            drop(apply_chunks_still_applying);
-            if let Some(sender) = apply_chunks_done_sender {
-                sender.send(ApplyChunksDoneMessage {}.span_wrap());
-            }
+            test_pause_gate,
+            still_applying: std::sync::Mutex::new(Some(apply_chunks_still_applying)),
+            done_sender: std::sync::Mutex::new(apply_chunks_done_sender),
         });
+        if count == 0 {
+            self.apply_chunks_spawner.spawn("apply_chunks", move || {
+                pending.finish();
+            });
+            return;
+        }
+        for (shard_id, cached_shard_update_key, task) in work {
+            let pending = pending.clone();
+            let parent_span = parent_span.clone();
+            self.apply_chunks_spawner.spawn("apply_chunks", move || {
+                let result = task(&parent_span);
+                pending.on_shard_done(shard_id, cached_shard_update_key, result);
+            });
+        }
+    }
+}
+
+struct PendingApplyChunks {
+    block: BlockToApply,
+    block_height: BlockHeight,
+    remaining: std::sync::atomic::AtomicUsize,
+    results:
+        std::sync::Mutex<Vec<(ShardId, CachedShardUpdateKey, Result<ShardUpdateResult, Error>)>>,
+    sender: Sender<BlockApplyChunksResult>,
+    clock: Clock,
+    start_time: Instant,
+    #[cfg(feature = "test_features")]
+    test_pause_gate: Option<Arc<std::sync::OnceLock<()>>>,
+    still_applying: std::sync::Mutex<Option<ApplyChunksStillApplying>>,
+    done_sender: std::sync::Mutex<Option<ApplyChunksDoneSender>>,
+}
+
+impl PendingApplyChunks {
+    fn on_shard_done(
+        &self,
+        shard_id: ShardId,
+        cached_shard_update_key: CachedShardUpdateKey,
+        result: Result<ShardUpdateResult, Error>,
+    ) {
+        self.results.lock().unwrap().push((shard_id, cached_shard_update_key, result));
+        if self.remaining.fetch_sub(1, std::sync::atomic::Ordering::AcqRel) == 1 {
+            self.finish();
+        }
     }
 
+    fn finish(&self) {
+        #[cfg(feature = "test_features")]
+        if let Some(gate) = &self.test_pause_gate {
+            gate.wait();
+        }
+        let results = std::mem::take(&mut *self.results.lock().unwrap());
+        metrics::APPLY_ALL_CHUNKS_TIME
+            .with_label_values(&[self.block.as_ref()])
+            .observe((self.clock.now().signed_duration_since(self.start_time)).as_seconds_f64());
+        self.sender.send((self.block.clone(), results)).unwrap();
+        drop(self.still_applying.lock().unwrap().take());
+        if let Some(sender) = self.done_sender.lock().unwrap().take() {
+            sender.send(ApplyChunksDoneMessage {}.span_wrap());
+        }
+    }
+}
+
+impl Chain {
     #[instrument(level = "debug", target = "chain", skip_all)]
     fn postprocess_block_only(
         &mut self,
@@ -4048,28 +4087,18 @@ impl Chain {
     skip_all,
     fields(%block_height, ?block)
 )]
-pub fn do_apply_chunks(
-    iteration_mode: ApplyChunksIterationMode,
+/// Apply chunks sequentially on the current thread.
+pub fn do_apply_chunks_sequential(
     block: BlockToApply,
     block_height: BlockHeight,
     work: Vec<UpdateShardJob>,
 ) -> Vec<(ShardId, CachedShardUpdateKey, Result<ShardUpdateResult, Error>)> {
-    // Track all children using `parent_span`, as they may be processed in parallel.
     let parent_span = Span::current();
-    match iteration_mode {
-        ApplyChunksIterationMode::Sequential => work
-            .into_iter()
-            .map(|(shard_id, cached_shard_update_key, task)| {
-                (shard_id, cached_shard_update_key, task(&parent_span))
-            })
-            .collect(),
-        ApplyChunksIterationMode::Rayon => work
-            .into_par_iter()
-            .map(|(shard_id, cached_shard_update_key, task)| {
-                (shard_id, cached_shard_update_key, task(&parent_span))
-            })
-            .collect(),
-    }
+    work.into_iter()
+        .map(|(shard_id, cached_shard_update_key, task)| {
+            (shard_id, cached_shard_update_key, task(&parent_span))
+        })
+        .collect()
 }
 
 pub fn collect_receipts<'a, T>(receipt_proofs: T) -> Vec<Receipt>

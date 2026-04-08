@@ -8,7 +8,6 @@ use near_async::messaging::CanSend;
 use near_async::messaging::Handler;
 use near_async::messaging::IntoSender;
 use near_async::messaging::Sender;
-use near_chain::ApplyChunksIterationMode;
 use near_chain::BlockHeader;
 use near_chain::ChainStoreAccess;
 use near_chain::chain::{NewChunkData, NewChunkResult, ShardContext, StorageContext};
@@ -46,7 +45,6 @@ use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateT
 use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness;
 use near_primitives::stateless_validation::spice_state_witness::compute_contract_accesses_hash;
 use near_primitives::types::BlockExecutionResults;
-use near_primitives::types::BlockHeight;
 use near_primitives::types::ChunkExecutionResult;
 use near_primitives::types::ChunkExecutionResultHash;
 use near_primitives::types::SpiceChunkId;
@@ -64,8 +62,6 @@ use near_store::StoreUpdate;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use node_runtime::SignedValidPeriodTransactions;
-use rayon::iter::IntoParallelIterator as _;
-use rayon::iter::ParallelIterator as _;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
@@ -104,7 +100,6 @@ pub struct ChunkExecutorActor {
     pub(crate) shard_tracker: ShardTracker,
     network_adapter: PeerManagerAdapter,
     apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
-    apply_chunks_iteration_mode: ApplyChunksIterationMode,
     myself_sender: Sender<ExecutorApplyChunksDone>,
     pub(crate) core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
     data_distributor_adapter: SpiceDataDistributorAdapter,
@@ -126,7 +121,6 @@ impl ChunkExecutorActor {
         network_adapter: PeerManagerAdapter,
         validator_signer: MutableValidatorSigner,
         apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
-        apply_chunks_iteration_mode: ApplyChunksIterationMode,
         myself_sender: Sender<ExecutorApplyChunksDone>,
         core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
         data_distributor_adapter: SpiceDataDistributorAdapter,
@@ -146,7 +140,6 @@ impl ChunkExecutorActor {
             shard_tracker,
             network_adapter,
             apply_chunks_spawner,
-            apply_chunks_iteration_mode,
             myself_sender,
             blocks_in_execution: HashSet::new(),
             validator_signer,
@@ -553,7 +546,7 @@ impl ChunkExecutorActor {
             std::iter::repeat_n(block_context, chunk_contexts.len())
         };
         // TODO(spice-resharding): Make sure shard logic is correct with resharding.
-        let jobs = chunk_contexts
+        let jobs: Vec<UpdateShardJob> = chunk_contexts
             .into_iter()
             .zip(block_contexts)
             .map(|(mut chunk_context, block_context)| {
@@ -575,19 +568,32 @@ impl ChunkExecutorActor {
             })
             .collect::<Result<_, _>>()?;
 
-        let apply_done_sender = self.myself_sender.clone();
-        let iteration_mode = self.apply_chunks_iteration_mode;
         let block_hash = *block.hash();
         let block_height = block.header().height();
-        self.apply_chunks_spawner.spawn("apply_chunks", move || {
-            let apply_results = do_apply_chunks(iteration_mode, &block_hash, block_height, jobs)
-                .into_iter()
-                .map(|(shard_id, result)| {
-                    result.map_err(|err| FailedToApplyChunkError { shard_id, err })
-                })
-                .collect();
-            apply_done_sender.send(ExecutorApplyChunksDone { block_hash, apply_results });
+        let count = jobs.len();
+        let parent_span = tracing::debug_span!(
+            target: "chunk_executor", "apply_chunks", %block_height, ?block_hash
+        );
+        let pending = Arc::new(PendingExecutorApplyChunks {
+            block_hash,
+            remaining: std::sync::atomic::AtomicUsize::new(count),
+            results: std::sync::Mutex::new(Ok(Vec::with_capacity(count))),
+            sender: self.myself_sender.clone(),
         });
+        if count == 0 {
+            self.apply_chunks_spawner.spawn("apply_chunks", move || {
+                pending.finish();
+            });
+            return Ok(());
+        }
+        for (shard_id, task) in jobs {
+            let pending = pending.clone();
+            let parent_span = parent_span.clone();
+            self.apply_chunks_spawner.spawn("apply_chunks", move || {
+                let result = task(&parent_span);
+                pending.on_shard_done(shard_id, result);
+            });
+        }
         Ok(())
     }
 
@@ -1141,29 +1147,36 @@ pub fn receipt_proof_exists(
 type UpdateShardJob =
     (ShardId, Box<dyn FnOnce(&tracing::Span) -> Result<ShardUpdateResult, Error> + Send + 'static>);
 
-#[instrument(
-    level = "debug",
-    target = "chunk_executor",
-    skip_all,
-    fields(%block_height, ?block_hash)
-)]
-// We don't reuse chain's do_apply_chunks because we don't need CachedShardUpdateKey which is used
-// for optimistic blocks.
-fn do_apply_chunks(
-    iteration_mode: ApplyChunksIterationMode,
-    block_hash: &CryptoHash,
-    block_height: BlockHeight,
-    work: Vec<UpdateShardJob>,
-) -> Vec<(ShardId, Result<ShardUpdateResult, Error>)> {
-    // Track all children using `parent_span`, as they may be processed in parallel.
-    let parent_span = tracing::Span::current();
-    match iteration_mode {
-        ApplyChunksIterationMode::Sequential => {
-            work.into_iter().map(|(shard_id, task)| (shard_id, task(&parent_span))).collect()
+struct PendingExecutorApplyChunks {
+    block_hash: CryptoHash,
+    remaining: std::sync::atomic::AtomicUsize,
+    results: std::sync::Mutex<Result<Vec<ShardUpdateResult>, FailedToApplyChunkError>>,
+    sender: Sender<ExecutorApplyChunksDone>,
+}
+
+impl PendingExecutorApplyChunks {
+    fn on_shard_done(&self, shard_id: ShardId, result: Result<ShardUpdateResult, Error>) {
+        let mut results = self.results.lock().unwrap();
+        match result {
+            Ok(update) => {
+                if let Ok(vec) = results.as_mut() {
+                    vec.push(update);
+                }
+            }
+            Err(err) => {
+                *results = Err(FailedToApplyChunkError { shard_id, err });
+            }
         }
-        ApplyChunksIterationMode::Rayon => {
-            work.into_par_iter().map(|(shard_id, task)| (shard_id, task(&parent_span))).collect()
+        drop(results);
+        if self.remaining.fetch_sub(1, std::sync::atomic::Ordering::AcqRel) == 1 {
+            self.finish();
         }
+    }
+
+    fn finish(&self) {
+        let results = std::mem::replace(&mut *self.results.lock().unwrap(), Ok(Vec::new()));
+        self.sender
+            .send(ExecutorApplyChunksDone { block_hash: self.block_hash, apply_results: results });
     }
 }
 
@@ -1237,7 +1250,6 @@ pub mod testonly {
             shard_tracker: ShardTracker,
             network_adapter: PeerManagerAdapter,
             validator_signer: MutableValidatorSigner,
-            apply_chunks_iteration_mode: ApplyChunksIterationMode,
             chunk_executor_config: ChunkExecutorConfig,
         ) -> Self {
             let (actor_sc, actor_rc) = unbounded();
@@ -1281,7 +1293,6 @@ pub mod testonly {
                     network_adapter,
                     validator_signer,
                     Arc::new(spawner),
-                    apply_chunks_iteration_mode,
                     myself_sender,
                     core_writer_sender,
                     data_distributor_adapter,
