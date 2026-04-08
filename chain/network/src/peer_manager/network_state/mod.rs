@@ -268,7 +268,7 @@ impl NetworkState {
     /// It should be used to make the public methods cancellable: you spawn the
     /// noncancellable logic on self.runtime and just await it: in case the call is cancelled,
     /// the noncancellable logic will be run in the background anyway.
-    fn spawn<R: 'static + Send>(
+    pub(crate) fn spawn<R: 'static + Send>(
         &self,
         description: &'static str,
         fut: impl std::future::Future<Output = R> + 'static + Send,

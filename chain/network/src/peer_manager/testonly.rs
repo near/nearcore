@@ -63,7 +63,7 @@ impl Debug for WithNetworkState {
 
 impl Handler<WithNetworkState> for PeerManagerActor {
     fn handle(&mut self, WithNetworkState(f): WithNetworkState) {
-        self.handle.spawn("with_network_state", f(self.state.clone()));
+        self.handle.as_ref().unwrap().spawn("with_network_state", f(self.state.clone()));
     }
 }
 
