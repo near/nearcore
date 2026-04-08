@@ -4,13 +4,14 @@ use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue, 
 use crate::metrics::{ROCKS_CURRENT_ITERATORS, ROCKS_ITERATOR_TIME_HISTOGRAM};
 use crate::{DBCol, StoreConfig, StoreStatistics, Temperature, deserialized_column, metrics};
 use ::rocksdb::{
-    BlockBasedOptions, Cache, ColumnFamily, DB, Env, IteratorMode, Options, ReadOptions, WriteBatch,
+    BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor, DB, Env, IteratorMode, Options,
+    ReadOptions, WriteBatch,
 };
 use anyhow::Context;
 use itertools::Itertools;
 use near_time::Instant;
 use parking_lot::Mutex;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
@@ -141,7 +142,20 @@ impl RocksDB {
         columns: &[DBCol],
     ) -> io::Result<(DB, Options)> {
         let options = rocksdb_options(store_config, mode);
-        let cfs = cf_descriptors(columns, store_config, temp);
+        let mut cfs = cf_descriptors(columns, store_config, temp);
+
+        // In read/write mode, discover any column families on disk that we don't
+        // know about (e.g. from a previous nightly build) and include them with
+        // default options so RocksDB can open successfully.
+        if mode.read_write() {
+            match unknown_cf_descriptors(path, &options, columns) {
+                Ok(extra) => cfs.extend(extra),
+                // DB doesn't exist yet — nothing to discover.
+                Err(_) if !path.exists() => {}
+                Err(err) => return Err(err),
+            }
+        }
+
         let db = if mode.read_only() {
             DB::open_cf_descriptors_read_only(&options, path, cfs, false)
         } else {
@@ -506,10 +520,32 @@ impl Database for RocksDB {
         // For this operation (drop CF) we use the default RocksDB configuration.
         let default_store_config = StoreConfig::default();
         let opts = common_rocksdb_options(&default_store_config.rocksdb);
-        let cfs =
-            cf_descriptors(&DBCol::iter().collect_vec(), &default_store_config, Temperature::Hot);
+        let all_columns: Vec<DBCol> = DBCol::iter().collect();
+        let mut cfs = cf_descriptors(&all_columns, &default_store_config, Temperature::Hot);
+
+        // Include unknown CFs so the checkpoint can be opened, then drop them.
+        let unknown_names: Vec<String> = match unknown_cf_descriptors(path, &opts, &all_columns) {
+            Ok(extra) => {
+                let names: Vec<String> = extra.iter().map(|cf| cf.name().to_string()).collect();
+                cfs.extend(extra);
+                names
+            }
+            Err(_) => vec![],
+        };
+
         let mut db = DB::open_cf_descriptors(&opts, path, cfs)
             .with_context(|| format!("failed to open checkpoint at {}", path.display()))?;
+
+        // Drop unknown CFs from checkpoint.
+        for name in &unknown_names {
+            db.drop_cf(name).with_context(|| {
+                format!(
+                    "failed to drop unknown column family {name:?} from checkpoint at {}",
+                    path.display()
+                )
+            })?;
+        }
+
         for col in DBCol::iter() {
             if !columns_to_keep.contains(&col) {
                 if col == DBCol::DbVersion {
@@ -553,6 +589,32 @@ impl Database for RocksDB {
             .ingest_external_file_cf_opts(&cf, &opts, paths.to_vec())
             .with_context(|| format!("failed to ingest SST files into {col:?}"))
     }
+}
+
+/// Discovers column families on disk that aren't in `known_columns` and
+/// returns descriptors with default options so RocksDB can open them.
+/// This handles stray CFs left by previous nightly or feature-gated builds.
+fn unknown_cf_descriptors(
+    path: &Path,
+    options: &Options,
+    known_columns: &[DBCol],
+) -> io::Result<Vec<ColumnFamilyDescriptor>> {
+    let known: HashSet<&str> = known_columns.iter().map(|c| col_name(*c)).collect();
+    let existing = DB::list_cf(options, path).map_err(io::Error::other)?;
+    let mut extra = Vec::new();
+    for name in existing {
+        if name == "default" || known.contains(name.as_str()) {
+            continue;
+        }
+        tracing::warn!(
+            target: "store::db::rocksdb",
+            cf_name = %name,
+            "opening unrecognized column family with default options \
+             (likely from a previous nightly build)",
+        );
+        extra.push(ColumnFamilyDescriptor::new(name, Options::default()));
+    }
+    Ok(extra)
 }
 
 fn cf_descriptors(
@@ -1023,5 +1085,91 @@ mod tests {
         assert_matches!(store.exists(column, &keys[1]), false);
         assert_matches!(store.exists(column, &keys[2]), false);
         assert_matches!(store.exists(column, &keys[3]), true);
+    }
+
+    /// Verifies that a database containing an unknown column family (e.g.
+    /// from a previous nightly build) can still be opened successfully.
+    #[test]
+    fn test_open_db_with_unknown_column_family() {
+        let (tmp_dir, opener) = NodeStorage::test_opener();
+        let db_path = opener.path().to_path_buf();
+
+        // Create the database normally and close it.
+        {
+            let _store = opener.open().unwrap();
+        }
+
+        // Re-open with raw RocksDB and inject an extra column family
+        // named "ChunkProducers" — the actual CF leaked by the nightly build.
+        {
+            let opts = Options::default();
+            let existing = DB::list_cf(&opts, &db_path).unwrap();
+            let cfs: Vec<ColumnFamilyDescriptor> = existing
+                .iter()
+                .map(|name| ColumnFamilyDescriptor::new(name, Options::default()))
+                .collect();
+            let mut raw_db = DB::open_cf_descriptors(&opts, &db_path, cfs).unwrap();
+            raw_db.create_cf("ChunkProducers", &Options::default()).unwrap();
+        }
+
+        // Re-open via the normal path — this would crash without the fix.
+        let store = opener.open().unwrap().get_hot_store();
+
+        // Verify known columns still work.
+        let mut update = store.store_update();
+        update.insert(DBCol::Block, vec![42], vec![1, 2, 3]);
+        update.commit();
+        assert_eq!(store.get(DBCol::Block, &[42]).as_deref(), Some(&[1, 2, 3][..]));
+
+        drop(store);
+        drop(tmp_dir);
+    }
+
+    /// Verifies that `create_checkpoint` drops unknown column families
+    /// from the checkpoint so they don't leak into derived databases.
+    #[test]
+    fn test_create_checkpoint_drops_unknown_column_family() {
+        let (tmp_dir, opener) = NodeStorage::test_opener();
+        let db_path = opener.path().to_path_buf();
+
+        // Create the database normally and close it.
+        {
+            let _store = opener.open().unwrap();
+        }
+
+        // Inject an extra column family.
+        {
+            let opts = Options::default();
+            let existing = DB::list_cf(&opts, &db_path).unwrap();
+            let cfs: Vec<ColumnFamilyDescriptor> = existing
+                .iter()
+                .map(|name| ColumnFamilyDescriptor::new(name, Options::default()))
+                .collect();
+            let mut raw_db = DB::open_cf_descriptors(&opts, &db_path, cfs).unwrap();
+            raw_db.create_cf("ChunkProducers", &Options::default()).unwrap();
+        }
+
+        // Re-open via normal path (uses the fix).
+        let storage = opener.open().unwrap();
+        let store = storage.get_hot_store();
+        let db = unsafe { convert_db_to_rocksdb(store.database()) };
+
+        // Create a checkpoint with a subset of columns.
+        let checkpoint_path = tmp_dir.path().join("checkpoint");
+        let columns_to_keep = &[DBCol::DbVersion, DBCol::Block];
+        db.create_checkpoint(&checkpoint_path, Some(columns_to_keep)).unwrap();
+
+        // Open the checkpoint and verify the unknown CF was dropped.
+        let checkpoint_opts = Options::default();
+        let checkpoint_cfs = DB::list_cf(&checkpoint_opts, &checkpoint_path).unwrap();
+        assert!(
+            !checkpoint_cfs.contains(&"ChunkProducers".to_string()),
+            "unknown CF 'ChunkProducers' should have been dropped from checkpoint, \
+             but found: {checkpoint_cfs:?}",
+        );
+
+        drop(store);
+        drop(storage);
+        drop(tmp_dir);
     }
 }
