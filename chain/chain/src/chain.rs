@@ -328,6 +328,14 @@ pub struct Chain {
     /// was empty and could not hold any records (which it cannot).  It's
     /// impossible to have non-empty state patch on non-sandbox builds.
     pending_state_patch: SandboxStatePatch,
+    /// Generation counter for sandbox patch_state tracking.
+    /// Incremented each time `patch_state()` is called, and
+    /// `sandbox_patch_committed_gen` is set to match after the block
+    /// containing the patch is committed to DB.  This lets
+    /// `patch_state_in_progress()` return the correct answer even while
+    /// the patch is in-flight through block processing.
+    sandbox_patch_generation: u64,
+    sandbox_patch_committed_gen: u64,
     /// A callback to initiate state snapshot.
     snapshot_callbacks: Option<SnapshotCallbacks>,
     /// Manages all tasks related to resharding.
@@ -471,6 +479,8 @@ impl Chain {
             processed_hashes: LruCache::new(NonZeroUsize::new(PROCESSED_HASHES_POOL_SIZE).unwrap()),
             invalid_blocks: LruCache::new(NonZeroUsize::new(INVALID_CHUNKS_POOL_SIZE).unwrap()),
             pending_state_patch: Default::default(),
+            sandbox_patch_generation: 0,
+            sandbox_patch_committed_gen: 0,
             snapshot_callbacks: None,
             resharding_manager,
             validator_signer,
@@ -653,6 +663,8 @@ impl Chain {
             apply_chunk_results_cache: ApplyChunksResultCache::new(APPLY_CHUNK_RESULTS_CACHE_SIZE),
             last_time_head_updated: clock.now(),
             pending_state_patch: Default::default(),
+            sandbox_patch_generation: 0,
+            sandbox_patch_committed_gen: 0,
             snapshot_callbacks,
             resharding_manager,
             validator_signer,
@@ -1659,7 +1671,24 @@ impl Chain {
 
         // 1) preprocess the block where we verify that the block is valid and ready to be processed
         //    No chain updates are applied at this step.
-        let state_patch = self.pending_state_patch.take();
+        //
+        // Only take the pending state patch if the block has at least one new
+        // chunk.  When a block has no new chunks (e.g. block 1 at startup), the
+        // runtime's apply() early-returns and silently drops any state_patch,
+        // causing permanent patch loss.  By leaving the patch in
+        // pending_state_patch, the next block (which should have new chunks)
+        // will pick it up.
+        let block_has_new_chunk = block.chunks().iter().any(|ch| ch.is_new_chunk());
+        let state_patch = if block_has_new_chunk {
+            self.pending_state_patch.take()
+        } else {
+            SandboxStatePatch::default()
+        };
+        let has_patch = !state_patch.is_empty();
+        // Keep a backup so we can restore the patch if preprocessing fails.
+        // Without this, patches are permanently lost on block deferral or
+        // other transient errors.
+        let state_patch_backup = if has_patch { Some(state_patch.clone()) } else { None };
         let preprocess_timer = metrics::BLOCK_PREPROCESSING_TIME.start_timer();
         let preprocess_res = self.preprocess_block(
             &block,
@@ -1674,6 +1703,10 @@ impl Chain {
                 preprocess_res
             }
             Err(e) => {
+                // Restore the state patch so the next block can pick it up.
+                if let Some(backup) = state_patch_backup {
+                    self.pending_state_patch.merge(backup);
+                }
                 self.maybe_mark_block_invalid(*block.hash(), &e);
                 preprocess_timer.stop_and_discard();
                 match &e {
@@ -1747,7 +1780,15 @@ impl Chain {
                 return Err(e);
             }
         };
-        let (apply_chunk_work, block_preprocess_info, apply_chunks_still_applying) = preprocess_res;
+        let (apply_chunk_work, mut block_preprocess_info, apply_chunks_still_applying) =
+            preprocess_res;
+
+        // If this block didn't actually take a state patch (no new chunks, or
+        // the pending patch was empty), don't let its commit advance
+        // committed_gen — the patch is still waiting for a future block.
+        if !has_patch {
+            block_preprocess_info.sandbox_patch_generation = self.sandbox_patch_committed_gen;
+        }
 
         if self.epoch_manager.is_next_block_epoch_start(block.header().prev_hash())? {
             // This is the end of the epoch. Next epoch we will generate new state parts. We can drop the old ones.
@@ -1819,6 +1860,7 @@ impl Chain {
         let should_save_state_transition_data =
             self.should_produce_state_witness_for_this_or_next_epoch(block.header())?;
         let epoch_to_check = self.protocol_version_check;
+        let sandbox_patch_gen = block_preprocess_info.sandbox_patch_generation;
         let mut chain_update = self.chain_update();
         let block_hash = *block.hash();
         let new_head = chain_update.postprocess_block(
@@ -1831,6 +1873,13 @@ impl Chain {
             chain_update.check_protocol_version(&block_hash, epoch_to_check)?;
         }
         chain_update.commit()?;
+        // If this block carried a sandbox state patch, mark its generation as
+        // committed so the RPC poll sees "finished".  We compare against
+        // committed_gen (not current generation) to avoid prematurely marking
+        // a newer, still-in-flight patch as done.
+        if sandbox_patch_gen > self.sandbox_patch_committed_gen {
+            self.sandbox_patch_committed_gen = sandbox_patch_gen;
+        }
         Ok(new_head)
     }
 
@@ -2536,6 +2585,7 @@ impl Chain {
                 provenance: provenance.clone(),
                 apply_chunks_done_waiter,
                 block_start_processing_time: block_received_time,
+                sandbox_patch_generation: self.sandbox_patch_generation,
             },
             apply_chunks_still_applying,
         ))
@@ -3239,7 +3289,19 @@ impl Chain {
         {
             // XXX: This is a bit questionable -- sandbox state patching works
             // only for a single shard. This so far has been enough.
-            let state_patch = state_patch.take();
+            // Only take the patch if this shard has a new chunk. If the chunk
+            // is not new, the runtime's apply() will early-return and silently
+            // drop the patch, causing permanent patch loss (e.g. at startup
+            // when block 1 has no new chunks).
+            let block_height = block.header().height();
+            let state_patch = if chunk_headers
+                .get(shard_index)
+                .map_or(false, |h| h.is_new_chunk(block_height))
+            {
+                state_patch.take()
+            } else {
+                SandboxStatePatch::default()
+            };
 
             let shard_id = shard_layout.get_shard_id(shard_index)?;
             let prev_chunk_header =
@@ -4020,10 +4082,11 @@ impl Chain {
     // "sandbox")]`, so we don't need extra cfg-gating here.
     pub fn patch_state(&mut self, patch: SandboxStatePatch) {
         self.pending_state_patch.merge(patch);
+        self.sandbox_patch_generation += 1;
     }
 
     pub fn patch_state_in_progress(&self) -> bool {
-        !self.pending_state_patch.is_empty()
+        self.sandbox_patch_generation != self.sandbox_patch_committed_gen
     }
 }
 
