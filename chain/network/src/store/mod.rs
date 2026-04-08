@@ -23,7 +23,7 @@ pub(crate) struct Error(schema::Error);
 /// In particular it doesn't implement Clone and requires &mut self for
 /// methods writing to the DB.
 #[derive(Clone)]
-pub(crate) struct Store(schema::Store);
+pub struct Store(schema::Store);
 
 impl Store {
     /// Inserts (account_id,aa) to the AccountAnnouncements column.
@@ -41,6 +41,7 @@ impl Store {
     }
 
     /// Fetches row with key account_id from the AccountAnnouncements column.
+    #[allow(private_interfaces)]
     pub fn get_account_announcement(
         &self,
         account_id: &AccountId,

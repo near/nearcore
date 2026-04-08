@@ -3,6 +3,13 @@
 pub use crate::peer_manager::peer_manager_actor::{Event, PeerManagerActor};
 pub use crate::rate_limits::messages_limits::OverrideConfig as MessagesLimitsOverrideConfig;
 
+#[allow(private_interfaces)]
+pub mod peer_manager_exports {
+    pub use crate::peer_manager::connection;
+    pub use crate::peer_manager::network_state;
+    pub use crate::peer_manager::peer_store;
+}
+
 mod accounts_data;
 mod announce_accounts;
 mod network_protocol;
@@ -12,7 +19,7 @@ mod private_messages;
 mod rate_limits;
 mod snapshot_hosts;
 mod stats;
-mod store;
+pub mod store;
 mod stun;
 
 pub mod auto_stop;
@@ -40,3 +47,4 @@ pub mod broadcast;
 pub mod sink;
 
 pub use network_protocol::PeerAddr;
+pub use network_protocol::{PeerIdOrHash, RawRoutedMessage};

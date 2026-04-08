@@ -1495,7 +1495,7 @@ impl StateResponseInfo {
     }
 }
 
-pub(crate) struct RawRoutedMessage {
+pub struct RawRoutedMessage {
     pub target: PeerIdOrHash,
     pub body: TieredMessageBody,
 }

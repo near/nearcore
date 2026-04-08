@@ -216,6 +216,19 @@ impl messaging::Actor for PeerManagerActor {
 }
 
 impl PeerManagerActor {
+    /// Testloop constructor. Creates a PeerManagerActor without TCP infrastructure.
+    pub fn new_for_testloop(clock: time::Clock, state: Arc<NetworkState>) -> Self {
+        let my_peer_id = state.config.node_id();
+        Self {
+            clock,
+            actor_system: None,
+            handle: None,
+            my_peer_id,
+            started_connect_attempts: false,
+            state,
+        }
+    }
+
     pub fn spawn(
         clock: time::Clock,
         actor_system: ActorSystem,

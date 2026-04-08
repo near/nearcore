@@ -97,7 +97,7 @@ pub(crate) struct WhitelistNode {
     account_id: Option<AccountId>,
 }
 
-pub(crate) struct NetworkState {
+pub struct NetworkState {
     /// Single-threaded tokio runtime for NetworkState operations
     ops_spawner: Box<dyn FutureSpawner>,
     /// PeerManager config.
@@ -255,6 +255,81 @@ impl NetworkState {
             config,
             created_at: clock.now(),
             tier1_advertise_proxies_mutex: tokio::sync::Mutex::new(()),
+            spice_data_distributor_adapter,
+            spice_core_writer_adapter,
+        }
+    }
+
+    /// Testloop constructor. Creates a NetworkState for use in test-loop tests.
+    /// Takes transports and spawner directly instead of creating them internally.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_for_testloop(
+        clock: &time::Clock,
+        ops_spawner: Box<dyn FutureSpawner>,
+        store: store::Store,
+        peer_store: peer_store::PeerStore,
+        config: config::VerifiedConfig,
+        genesis_id: GenesisId,
+        client: ClientSenderForNetwork,
+        state_request_adapter: StateRequestSenderForNetwork,
+        peer_manager_adapter: PeerManagerSenderForNetwork,
+        shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
+        partial_witness_adapter: PartialWitnessSenderForNetwork,
+        spice_data_distributor_adapter: SpiceDataDistributorSenderForNetwork,
+        spice_core_writer_adapter: Sender<SpiceChunkEndorsementMessage>,
+        tier1_transport: Arc<dyn NetworkTransport>,
+        tier2_transport: Arc<dyn NetworkTransport>,
+        tier3_transport: Arc<dyn NetworkTransport>,
+    ) -> Self {
+        let tier1 = connection::Pool::new(config.node_id());
+        let tier2 = connection::Pool::new(config.node_id());
+        let tier3 = connection::Pool::new(config.node_id());
+        Self {
+            graph: crate::routing::Graph::new(
+                clock.clone(),
+                crate::routing::GraphConfig {
+                    node_id: config.node_id(),
+                    prune_unreachable_peers_after: PRUNE_UNREACHABLE_PEERS_AFTER,
+                    prune_edges_after: Some(PRUNE_EDGES_AFTER),
+                },
+            ),
+            genesis_id,
+            client,
+            state_request_adapter,
+            peer_manager_adapter,
+            shards_manager_adapter,
+            partial_witness_adapter,
+            chain_info: Default::default(),
+            tier1_transport,
+            tier2_transport,
+            tier3_transport,
+            tier1,
+            tier2,
+            tier3,
+            inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
+            my_public_addr: Arc::new(RwLock::new(None)),
+            peer_store,
+            snapshot_hosts: Arc::new(SnapshotHostsCache::new(config.snapshot_hosts.clone())),
+            connection_store: connection_store::ConnectionStore::new(store.clone()).unwrap(),
+            pending_reconnect: Mutex::new(Vec::<PeerInfo>::new()),
+            accounts_data: Arc::new(AccountDataCache::new()),
+            account_announcements: Arc::new(AnnounceAccountCache::new(store)),
+            tier2_route_back: Mutex::new(RouteBackCache::default()),
+            tier1_route_back: Mutex::new(RouteBackCache::default()),
+            recent_routed_messages: Mutex::new(lru::LruCache::new(
+                NonZeroUsize::new(RECENT_ROUTED_MESSAGES_CACHE_SIZE).unwrap(),
+            )),
+            txns_since_last_block: AtomicUsize::new(0),
+            whitelist_nodes: vec![],
+            add_edges_demux: demux::Demux::new(
+                config.routing_table_update_rate_limit,
+                &*ops_spawner,
+            ),
+            set_chain_info_mutex: Mutex::new(()),
+            config,
+            created_at: clock.now(),
+            tier1_advertise_proxies_mutex: tokio::sync::Mutex::new(()),
+            ops_spawner,
             spice_data_distributor_adapter,
             spice_core_writer_adapter,
         }

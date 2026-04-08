@@ -407,6 +407,12 @@ impl TestLoopNetworkSharedState {
         guard.senders.get(peer_id).unwrap().clone()
     }
 
+    /// Returns true if the link from `from` to `to` is allowed (not partitioned).
+    pub fn is_link_allowed(&self, from: &PeerId, to: &PeerId) -> bool {
+        let guard = self.0.lock();
+        !Self::is_peer_link_disallowed(&guard, from, to)
+    }
+
     pub fn mark_archival(&self, peer_id: &PeerId) {
         self.0.lock().archival_peer_ids.insert(peer_id.clone());
     }

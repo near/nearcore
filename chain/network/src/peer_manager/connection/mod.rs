@@ -26,7 +26,7 @@ use std::future::Future;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Weak};
 
-pub(crate) mod transport;
+pub mod transport;
 
 #[cfg(test)]
 mod tests;
