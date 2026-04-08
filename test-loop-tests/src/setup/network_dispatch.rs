@@ -107,54 +107,63 @@ impl TestLoopTransport {
                     }
                 }
 
-                // Dispatch asynchronously via future_spawner.
-                let node_states = self.node_network_states.clone();
-                let shared_state = self.shared_state.clone();
-                let spawner_my_peer_id = self.my_peer_id.clone();
-                self.future_spawner.spawn("testloop_routed_dispatch", async move {
-                    let response = target_state
-                        .receive_routed_message(
-                            &clock,
-                            msg_author.clone(),
-                            my_peer_id,
-                            msg_hash,
-                            body,
-                        )
-                        .await;
+                if expects_response {
+                    // Messages expecting a response must be dispatched async
+                    // so we can await the response and send it back.
+                    let node_states = self.node_network_states.clone();
+                    let shared_state = self.shared_state.clone();
+                    self.future_spawner.spawn("testloop_routed_dispatch", async move {
+                        let response = target_state
+                            .receive_routed_message(
+                                &clock,
+                                msg_author.clone(),
+                                my_peer_id,
+                                msg_hash,
+                                body,
+                            )
+                            .await;
 
-                    // If there's a response, send it back to the author.
-                    if let Some(response_body) = response {
-                        let response_msg = target_state.sign_message(
-                            &clock,
-                            RawRoutedMessage {
-                                target: PeerIdOrHash::Hash(msg_hash),
-                                body: response_body,
-                            },
-                        );
-                        // Find the author's state to deliver the response.
-                        let author_state = {
-                            let states = node_states.lock();
-                            states.get(&msg_author).cloned()
-                        };
-                        if let Some(author_state) = author_state {
-                            if shared_state
-                                .is_link_allowed(&target_state.config.node_id(), &msg_author)
-                            {
-                                let response_hash = response_msg.hash();
-                                let response_body = response_msg.body_owned();
-                                author_state
-                                    .receive_routed_message(
-                                        &clock,
-                                        target_state.config.node_id(),
-                                        target_state.config.node_id(),
-                                        response_hash,
-                                        response_body,
-                                    )
-                                    .await;
+                        if let Some(response_body) = response {
+                            let response_msg = target_state.sign_message(
+                                &clock,
+                                RawRoutedMessage {
+                                    target: PeerIdOrHash::Hash(msg_hash),
+                                    body: response_body,
+                                },
+                            );
+                            let author_state = {
+                                let states = node_states.lock();
+                                states.get(&msg_author).cloned()
+                            };
+                            if let Some(author_state) = author_state {
+                                if shared_state
+                                    .is_link_allowed(&target_state.config.node_id(), &msg_author)
+                                {
+                                    let response_hash = response_msg.hash();
+                                    let response_body = response_msg.body_owned();
+                                    author_state
+                                        .receive_routed_message(
+                                            &clock,
+                                            target_state.config.node_id(),
+                                            target_state.config.node_id(),
+                                            response_hash,
+                                            response_body,
+                                        )
+                                        .await;
+                                }
                             }
                         }
-                    }
-                });
+                    });
+                } else {
+                    // Non-response messages: dispatch by spawning on the
+                    // testloop future_spawner (same as response path but
+                    // without awaiting the result).
+                    self.future_spawner.spawn("testloop_routed_dispatch", async move {
+                        target_state
+                            .receive_routed_message(&clock, msg_author, my_peer_id, msg_hash, body)
+                            .await;
+                    });
+                }
                 true
             }
 

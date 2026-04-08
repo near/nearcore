@@ -48,7 +48,7 @@ fn test_indexer_local_receipt() {
 
     let mut env = setup();
     let tx = create_local_tx(&env);
-    let submit_tx_height = env.rpc_node().head().height;
+    let _submit_tx_height = env.rpc_node().head().height;
     let outcome = env.rpc_runner().execute_tx(tx, Duration::seconds(5)).unwrap();
     let tx_outcome_status = outcome.transaction_outcome.outcome.status;
     let ExecutionStatusView::SuccessReceiptId(receipt_id) = tx_outcome_status else {
@@ -57,7 +57,11 @@ fn test_indexer_local_receipt() {
     assert_eq!(outcome.receipts_outcome.len(), 1);
     let receipt_outcome = &outcome.receipts_outcome[0];
 
-    let tx_included_height = submit_tx_height + 3;
+    // Use the block hash from the transaction outcome to find the actual inclusion height.
+    // With real PeerManagerActor, transaction routing timing can differ, so the tx may
+    // land in a different block than a hardcoded offset would predict.
+    let tx_included_block = env.rpc_node().block(outcome.transaction_outcome.block_hash);
+    let tx_included_height = tx_included_block.header().height();
     let mut indexer_receiver = start_indexer(&env, SyncModeEnum::BlockHeight(tx_included_height));
     let msg = receive_indexer_message(&mut env, &mut indexer_receiver);
     let indexer_shard = &msg.shards[0];

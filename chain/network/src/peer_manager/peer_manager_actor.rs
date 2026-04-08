@@ -846,6 +846,11 @@ impl PeerManagerActor {
                 for target_account in &*chunk_producers {
                     if let Some(conn) = self.state.get_tier1_proxy_for_account_id(&target_account) {
                         conn.send_message(msg.clone());
+                    } else if let Some(peer_id) =
+                        self.state.account_announcements.get_account_owner(&target_account)
+                    {
+                        // Fallback: no TIER1 proxy (e.g. testloop). Use tier2 transport.
+                        self.state.tier2_transport.send_message(peer_id, msg.clone());
                     }
                 }
                 NetworkResponses::NoResponse

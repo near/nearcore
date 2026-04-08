@@ -1,5 +1,4 @@
 use crate::setup::builder::TestLoopBuilder;
-use crate::setup::peer_manager_actor::HandlerResult;
 use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 use near_async::messaging::Handler as _;
 use near_async::time::Duration;
@@ -9,14 +8,15 @@ use near_chunks::shards_manager_actor::{
     CHUNK_REQUEST_RETRY, CHUNK_REQUEST_SWITCH_TO_FULL_FETCH, CHUNK_REQUEST_SWITCH_TO_OTHERS,
 };
 use near_client::GetBlock;
-use near_network::types::NetworkResponses;
-use near_network::types::{AccountIdOrPeerTrackingShard, NetworkRequests};
+use near_network::types::PeerMessage;
+use near_network::{T1MessageBody, T2MessageBody, TieredMessageBody};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
+use near_primitives::network::PeerId;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockId, BlockReference, EpochId, NumSeats};
 use parking_lot::RwLock;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// Configuration for `test4` validator in tests.
@@ -84,60 +84,60 @@ impl Test {
             })
             .build();
 
-        for node_datas in &env.node_datas {
-            let from_whom = node_datas.account_id.clone();
-            let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
-            let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-            peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
-                match request {
-                    NetworkRequests::PartialEncodedChunkMessage {
-                        account_id: ref to_whom,
-                        partial_encoded_chunk: _,
-                    } => {
-                        if self.test4_config.drop_messages_from.contains(&from_whom.as_str())
-                            && to_whom == "test4"
-                        {
-                            println!(
-                                "Dropping Partial Encoded Chunk Message from {from_whom} to test4"
-                            );
-                            return HandlerResult::Handled(NetworkResponses::NoResponse);
+        // Register a transport-level message filter to drop chunk-related messages.
+        // This replaces the old register_override_handler approach. The filter operates
+        // on PeerId, so we resolve AccountId -> PeerId at registration time.
+        {
+            let network_shared_state = &env.shared_state.network_shared_state;
+            let test4_peer_id: PeerId =
+                network_shared_state.account_to_peer_id(&"test4".parse().unwrap());
+            let drop_peer_ids: HashSet<PeerId> = self
+                .test4_config
+                .drop_messages_from
+                .iter()
+                .map(|a| network_shared_state.account_to_peer_id(&a.parse().unwrap()))
+                .collect();
+            let drop_all_forwards = self.drop_all_chunk_forward_msgs;
+
+            network_shared_state.register_message_filter(move |from, to, msg| {
+                if let PeerMessage::Routed(routed_msg) = msg {
+                    match routed_msg.body() {
+                        TieredMessageBody::T1(body) => match body.as_ref() {
+                            // Drop PartialEncodedChunk from drop_messages_from nodes to test4.
+                            T1MessageBody::VersionedPartialEncodedChunk(_) => {
+                                if drop_peer_ids.contains(from) && *to == test4_peer_id {
+                                    println!("Dropping Partial Encoded Chunk Message");
+                                    return None;
+                                }
+                            }
+                            // Drop all forwards if configured, or drop from specific nodes to test4.
+                            T1MessageBody::PartialEncodedChunkForward(_) => {
+                                if drop_all_forwards {
+                                    println!("Dropping Partial Encoded Chunk Forward Message");
+                                    return None;
+                                }
+                                if drop_peer_ids.contains(from) && *to == test4_peer_id {
+                                    println!("Dropping Partial Encoded Chunk Forward Message");
+                                    return None;
+                                }
+                            }
+                            _ => {}
+                        },
+                        TieredMessageBody::T2(body) => {
+                            // Drop PartialEncodedChunkRequest from test4 to drop_messages_from nodes.
+                            if let T2MessageBody::PartialEncodedChunkRequest(_) = body.as_ref() {
+                                if *from == test4_peer_id && drop_peer_ids.contains(to) {
+                                    tracing::info!(
+                                        "dropping partial encoded chunk request from test4"
+                                    );
+                                    return None;
+                                }
+                            }
                         }
                     }
-                    NetworkRequests::PartialEncodedChunkForward { account_id: ref to_whom, .. } => {
-                        if self.drop_all_chunk_forward_msgs {
-                            println!("Dropping Partial Encoded Chunk Forward Message");
-                            return HandlerResult::Handled(NetworkResponses::NoResponse);
-                        }
-                        if self.test4_config.drop_messages_from.contains(&from_whom.as_str())
-                            && to_whom == "test4"
-                        {
-                            println!(
-                                "Dropping Partial Encoded Chunk Forward Message from {from_whom} to test4"
-                            );
-                            return HandlerResult::Handled(NetworkResponses::NoResponse);
-                        }
-                    }
-                    NetworkRequests::PartialEncodedChunkRequest {
-                        target: AccountIdOrPeerTrackingShard { account_id: Some(ref to_whom), .. },
-                        ..
-                    } => {
-                        if self.test4_config.drop_messages_from.contains(&to_whom.as_str())
-                            && from_whom == "test4"
-                        {
-                            tracing::info!(%to_whom, "dropping partial encoded chunk request from test4");
-                            return HandlerResult::Handled(NetworkResponses::NoResponse);
-                        }
-                        if !self.test4_config.drop_messages_from.is_empty()
-                             && from_whom == "test4"
-                             && to_whom == "test2"
-                        {
-                            tracing::warn!(%from_whom, %to_whom, "observed partial encoded chunk request");
-                        }
-                    }
-                    _ => {}
-                };
-                return HandlerResult::Unhandled(request);
-            }));
+                }
+                Some(msg.clone())
+            });
         }
 
         // We run for an epoch to make sure that validators are switched each epoch during testing

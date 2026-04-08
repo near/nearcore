@@ -6,8 +6,9 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::BlockResponse;
 use near_crypto::{KeyType, PublicKey};
+use near_network::types::NetworkRequests;
 use near_network::types::NetworkResponses;
-use near_network::types::{NetworkRequests, ReasonForBan};
+use near_network::types::PeerMessage;
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::hash;
@@ -54,71 +55,58 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
     let client = &env.test_loop.data.get(&client_actor_handle).client;
     let epoch_manager = client.epoch_manager.clone();
 
-    let ban_counter: Arc<RwLock<usize>> = Arc::new(RwLock::new(0));
     let bad_block_send_height = 8;
-    for node in &env.node_datas {
-        let ban_counter = ban_counter.clone();
+
+    // Determine the block producer for the target height so we can check ban status later.
+    let epoch_id = client.chain.head().unwrap().epoch_id;
+    let (bad_block_producer, _) = epoch_manager
+        .get_block_producer_info(&epoch_id, bad_block_send_height)
+        .unwrap()
+        .account_and_stake();
+    let bad_block_producer_peer_id =
+        env.shared_state.network_shared_state.account_to_peer_id(&bad_block_producer);
+
+    // Register a transport filter that corrupts blocks at the target height.
+    // This replaces the old register_override_handler approach. The filter modifies
+    // outgoing PeerMessage::Block messages, simulating a malicious block producer.
+    {
         let epoch_manager = epoch_manager.clone();
         let mode = mode.clone();
-
-        let peer_actor_handle = node.peer_manager_sender.actor_handle();
-        let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
-            let mut ban_counter = ban_counter.write();
-            match request {
-                NetworkRequests::Block { mut block } => {
+        env.shared_state.network_shared_state.register_message_filter(move |_from, _to, msg| {
+            if let PeerMessage::Block(block) = msg {
+                let height = block.header().height();
+                if height == bad_block_send_height {
                     let epoch_id = block.header().epoch_id();
-                    let height = block.header().height();
-                    if height == bad_block_send_height {
-                        let (bp, _) = epoch_manager
-                            .get_block_producer_info(&epoch_id, height)
-                            .unwrap()
-                            .account_and_stake();
-                        let validator_signer = create_test_signer(bp.as_str());
-                        let mut_block = Arc::make_mut(&mut block);
-                        match mode {
-                            InvalidBlockMode::InvalidHeader => {
-                                // produce an invalid block with invalid header.
-                                mut_block.mut_header().set_chunk_mask(vec![]);
-                                mut_block.mut_header().resign(&validator_signer);
-                            }
-                            InvalidBlockMode::IllFormed => {
-                                // produce an ill-formed block
-                                mut_block.mut_header().set_chunk_headers_root(hash(&[1]));
-                                mut_block.mut_header().resign(&validator_signer);
-                            }
-                            InvalidBlockMode::InvalidBlock => {
-                                // produce an invalid block whose invalidity cannot be verified by just
-                                // having its header.
-                                let proposals = vec![ValidatorStake::new(
-                                    bp,
-                                    PublicKey::empty(KeyType::ED25519),
-                                    Balance::ZERO,
-                                )];
-
-                                mut_block.mut_header().set_prev_validator_proposals(proposals);
-                                mut_block.mut_header().resign(&validator_signer);
-                            }
+                    let (bp, _) = epoch_manager
+                        .get_block_producer_info(&epoch_id, height)
+                        .unwrap()
+                        .account_and_stake();
+                    let validator_signer = create_test_signer(bp.as_str());
+                    let mut block_clone = (**block).clone();
+                    match mode {
+                        InvalidBlockMode::InvalidHeader => {
+                            block_clone.mut_header().set_chunk_mask(vec![]);
+                            block_clone.mut_header().resign(&validator_signer);
+                        }
+                        InvalidBlockMode::IllFormed => {
+                            block_clone.mut_header().set_chunk_headers_root(hash(&[1]));
+                            block_clone.mut_header().resign(&validator_signer);
+                        }
+                        InvalidBlockMode::InvalidBlock => {
+                            let proposals = vec![ValidatorStake::new(
+                                bp,
+                                PublicKey::empty(KeyType::ED25519),
+                                Balance::ZERO,
+                            )];
+                            block_clone.mut_header().set_prev_validator_proposals(proposals);
+                            block_clone.mut_header().resign(&validator_signer);
                         }
                     }
-                    HandlerResult::Unhandled(NetworkRequests::Block { block })
+                    return Some(PeerMessage::Block(Arc::new(block_clone)));
                 }
-                NetworkRequests::BanPeer { ref peer_id, ref ban_reason } => match mode {
-                    InvalidBlockMode::InvalidHeader | InvalidBlockMode::IllFormed => {
-                        assert_eq!(ban_reason, &ReasonForBan::BadBlockHeader);
-                        *ban_counter += 1;
-                        if *ban_counter > 3 {
-                            panic!("more bans than expected");
-                        }
-                        HandlerResult::Handled(NetworkResponses::NoResponse)
-                    }
-                    InvalidBlockMode::InvalidBlock => {
-                        panic!("banning peer {:?} unexpectedly for {:?}", peer_id, ban_reason);
-                    }
-                },
-                _ => HandlerResult::Unhandled(request),
             }
-        }));
+            Some(msg.clone())
+        });
     }
 
     env.test_loop.run_until(
@@ -130,13 +118,28 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
         Duration::seconds(60),
     );
 
-    let ban_counter = *ban_counter.read();
+    // Verify ban status by checking each node's peer store. With real PeerManagerActor,
+    // nodes that detect a corrupt block call disconnect_and_ban(), which updates the peer store.
+    // The block producer for height 8 should be banned by the 3 other nodes for
+    // InvalidHeader/IllFormed, and by 0 nodes for InvalidBlock.
+    let node_network_states = env.shared_state.node_network_states.lock();
+    let ban_count: usize = env
+        .node_datas
+        .iter()
+        .filter(|data| data.peer_id != bad_block_producer_peer_id)
+        .filter(|data| {
+            node_network_states
+                .get(&data.peer_id)
+                .map_or(false, |state| state.peer_store.is_banned(&bad_block_producer_peer_id))
+        })
+        .count();
+
     match mode {
         InvalidBlockMode::InvalidHeader | InvalidBlockMode::IllFormed => {
-            assert_eq!(ban_counter, 3);
+            assert_eq!(ban_count, 3, "expected 3 nodes to ban the corrupt block producer");
         }
         InvalidBlockMode::InvalidBlock => {
-            assert_eq!(ban_counter, 0);
+            assert_eq!(ban_count, 0, "no node should ban for InvalidBlock mode");
         }
     }
 }
