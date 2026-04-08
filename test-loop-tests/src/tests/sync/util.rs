@@ -8,7 +8,7 @@ use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_client::QueryError;
 use near_network::client::{BlockHeadersRequest, BlockHeadersResponse};
-use near_network::types::NetworkRequests;
+use near_network::types::{NetworkRequests, NetworkResponses};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::types::AccountId;
 use std::cell::RefCell;
@@ -210,7 +210,7 @@ pub fn throttle_header_sync(
                         responder.send_async(BlockHeadersResponse(truncated, peer_id).span_wrap());
                     drop(future);
                 });
-                HandlerResult::Handled(near_network::types::NetworkResponses::NoResponse)
+                HandlerResult::Handled(NetworkResponses::NoResponse)
             }
             other => HandlerResult::Unhandled(other),
         }),
