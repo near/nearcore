@@ -15,6 +15,8 @@ use near_network::client::{BlockApproval, BlockResponse};
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::NetworkRequests;
 use near_network::types::NetworkResponses;
+use near_network::types::PeerMessage;
+use near_network::{T2MessageBody, TieredMessageBody};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
@@ -23,10 +25,8 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
 use parking_lot::RwLock;
 use rand::{Rng as _, thread_rng};
-use std::cell::RefCell;
 use std::cmp::max;
 use std::collections::HashMap;
-use std::rc::Rc;
 use std::sync::Arc;
 
 #[test]
@@ -379,20 +379,25 @@ fn test_rpc_forwards_retried_transaction() {
     assert!(env.rpc_node().client().validator_signer.get().is_some());
 
     // Record ForwardTx messages sent by the RPC node
-    let forward_tx_requests = Rc::new(RefCell::new(Vec::new()));
-    let forward_tx_requests_clone = forward_tx_requests.clone();
-    env.node_datas[rpc_data_idx].register_override_handler(
-        &mut env.test_loop.data,
-        Box::new(move |nr| {
-            match &nr {
-                NetworkRequests::ForwardTx(account, transaction) => forward_tx_requests_clone
-                    .borrow_mut()
-                    .push((account.clone(), transaction.get_hash())),
-                _ => {}
+    let forward_tx_requests = Arc::new(parking_lot::Mutex::new(Vec::new()));
+    let rpc_peer_id = env.node_datas[rpc_data_idx].peer_id.clone();
+    {
+        let forward_tx_requests_clone = forward_tx_requests.clone();
+        env.shared_state.network_shared_state.register_message_filter(move |from, _to, msg| {
+            if from == &rpc_peer_id {
+                if let PeerMessage::Routed(routed_msg) = msg {
+                    if let TieredMessageBody::T2(body) = routed_msg.body() {
+                        if let T2MessageBody::ForwardTx(tx) = body.as_ref() {
+                            forward_tx_requests_clone
+                                .lock()
+                                .push(("validator0".parse::<AccountId>().unwrap(), tx.get_hash()));
+                        }
+                    }
+                }
             }
-            HandlerResult::Unhandled(nr)
-        }),
-    );
+            Some(msg.clone())
+        });
+    }
 
     // Submit tx1 twice
     let tx1 = SignedTransaction::send_money(
@@ -420,10 +425,10 @@ fn test_rpc_forwards_retried_transaction() {
     // There should be two ForwardTx(validator0, tx1) messages recorded.
     let validator_acc: AccountId = "validator0".parse().unwrap();
     assert_eq!(
-        forward_tx_requests.borrow_mut().as_slice(),
+        forward_tx_requests.lock().as_slice(),
         &[(validator_acc.clone(), tx1.get_hash()), (validator_acc.clone(), tx1.get_hash())]
     );
-    forward_tx_requests.borrow_mut().clear();
+    forward_tx_requests.lock().clear();
 
     // Now set validator_signer to None.
     env.rpc_node().client().validator_signer.update(None);
@@ -453,7 +458,7 @@ fn test_rpc_forwards_retried_transaction() {
 
     // There should be two ForwardTx(validator0, tx2) messages recorded.
     assert_eq!(
-        forward_tx_requests.borrow_mut().as_slice(),
+        forward_tx_requests.lock().as_slice(),
         &[(validator_acc.clone(), tx2.get_hash()), (validator_acc, tx2.get_hash())]
     );
 }

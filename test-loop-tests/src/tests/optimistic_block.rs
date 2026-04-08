@@ -1,12 +1,9 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
-use crate::setup::peer_manager_actor::HandlerResult;
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-#[cfg(feature = "test_features")]
-use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
 #[cfg(feature = "test_features")]
 use near_primitives::optimistic_block::{OptimisticBlock, OptimisticBlockAdvType};
@@ -235,38 +232,27 @@ fn test_optimistic_block_after_missing_block() {
 
 #[cfg(feature = "test_features")]
 fn alter_optimistic_block_at_height(
-    env: &mut TestLoopEnv,
+    env: &TestLoopEnv,
     height: BlockHeight,
     signer: Arc<ValidatorSigner>,
 ) {
+    use near_network::types::PeerMessage;
     use near_primitives::optimistic_block;
 
-    for data in &env.node_datas {
-        let peer_actor = env.test_loop.data.get_mut(&data.peer_manager_sender.actor_handle());
-        peer_actor.register_override_handler(Box::new({
-            let validator_signer = signer.clone();
-            move |request: NetworkRequests| {
-                if let NetworkRequests::OptimisticBlock { chunk_producers, optimistic_block } =
-                    &request
-                {
-                    if optimistic_block.height() == height {
-                        let altered_ob = optimistic_block::OptimisticBlock::alter(
-                            optimistic_block,
-                            &validator_signer,
-                            OptimisticBlockAdvType::InvalidTimestamp(
-                                optimistic_block.block_timestamp() - 15000000,
-                            ),
-                        );
-                        return HandlerResult::Unhandled(NetworkRequests::OptimisticBlock {
-                            chunk_producers: chunk_producers.clone(),
-                            optimistic_block: altered_ob,
-                        });
-                    }
-                };
-                HandlerResult::Unhandled(request)
+    let validator_signer = signer;
+    env.shared_state.network_shared_state.register_message_filter(move |_from, _to, msg| {
+        if let PeerMessage::OptimisticBlock(ob) = msg {
+            if ob.height() == height {
+                let altered_ob = optimistic_block::OptimisticBlock::alter(
+                    ob,
+                    &validator_signer,
+                    OptimisticBlockAdvType::InvalidTimestamp(ob.block_timestamp() - 15000000),
+                );
+                return Some(PeerMessage::OptimisticBlock(altered_ob));
             }
-        }));
-    }
+        }
+        Some(msg.clone())
+    });
 }
 
 fn get_hit_count_and_height(env: &TestLoopEnv, producer: &ValidatorStake) -> (usize, BlockHeight) {
@@ -301,7 +287,7 @@ fn test_optimistic_block_with_invalidated_outcome() {
 
     let client = &env.test_loop.data.get(&producer_client_handle).client;
     let signer = client.validator_signer.get().unwrap();
-    alter_optimistic_block_at_height(&mut env, height_to_skip, signer);
+    alter_optimistic_block_at_height(&env, height_to_skip, signer);
 
     // Wait for a few blocks after the invalid OB to confirm the miss.
     let (producer_node_ob_hit_count_before, producer_node_height_before) =

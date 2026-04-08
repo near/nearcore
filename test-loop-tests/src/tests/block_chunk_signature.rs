@@ -1,8 +1,7 @@
 use crate::setup::builder::TestLoopBuilder;
-use crate::setup::peer_manager_actor::HandlerResult;
 use near_async::time::Duration;
 use near_crypto::Signature;
-use near_network::types::NetworkRequests;
+use near_network::types::PeerMessage;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Block;
 use near_primitives::block_body::BlockBody;
@@ -20,29 +19,23 @@ fn block_chunk_signature_rejection() {
 
     let mutated_blocks = Arc::new(AtomicUsize::new(0));
 
-    for node_data in &env.node_datas {
-        let mutated_blocks = mutated_blocks.clone();
-        let peer_actor_handle = node_data.peer_manager_sender.actor_handle();
-        let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| match request {
-            NetworkRequests::Block { block } => {
-                let mut block_clone = (*block).clone();
+    {
+        env.shared_state.network_shared_state.register_message_filter(move |_from, _to, msg| {
+            if let PeerMessage::Block(block) = msg {
+                let mut block_clone = (**block).clone();
                 if let Some(chunk) = first_chunk_mut(&mut block_clone) {
                     if zero_chunk_signature(chunk) {
                         let previous = mutated_blocks.fetch_add(1, Ordering::SeqCst);
                         assert!(
                             previous < 2,
-                            "Expected at most two mutated blocks before a ban kicks in"
+                            "expected at most two mutated blocks before a ban kicks in"
                         );
-                        return HandlerResult::Unhandled(NetworkRequests::Block {
-                            block: Arc::new(block_clone),
-                        });
+                        return Some(PeerMessage::Block(Arc::new(block_clone)));
                     }
                 }
-                HandlerResult::Unhandled(NetworkRequests::Block { block })
             }
-            other => HandlerResult::Unhandled(other),
-        }));
+            Some(msg.clone())
+        });
     }
 
     env.test_loop.run_for(Duration::seconds(TIMEOUT_SECONDS));

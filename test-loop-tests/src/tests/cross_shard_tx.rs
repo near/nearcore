@@ -1,6 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::setup::peer_manager_actor::HandlerResult;
 use crate::setup::state::NodeExecutionData;
 use crate::utils::get_node_data;
 use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
@@ -11,8 +10,8 @@ use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::{ProcessTxRequest, Query};
-use near_network::types::NetworkRequests;
-use near_network::types::NetworkResponses;
+use near_network::types::PeerMessage;
+use near_network::{T1MessageBody, T2MessageBody, TieredMessageBody};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
@@ -120,25 +119,30 @@ fn test_cross_shard_tx_common(Params { num_transfers, rotate_validators, drop_ch
         .epoch_config_store(epoch_config_store)
         .build();
 
-    for node_datas in &env.node_datas {
-        let rng = rng.clone();
-        let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
-        let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
-            let mut rng = rng.write();
-            match &request {
-                NetworkRequests::PartialEncodedChunkRequest { .. }
-                | NetworkRequests::PartialEncodedChunkResponse { .. }
-                | NetworkRequests::PartialEncodedChunkMessage { .. }
-                | NetworkRequests::PartialEncodedChunkForward { .. } => {
-                    if drop_chunks && rng.gen_ratio(1, 5) {
-                        return HandlerResult::Handled(NetworkResponses::NoResponse);
-                    }
+    {
+        env.shared_state.network_shared_state.register_message_filter(move |_from, _to, msg| {
+            if drop_chunks {
+                let is_chunk_message = match msg {
+                    PeerMessage::Routed(routed_msg) => match routed_msg.body() {
+                        TieredMessageBody::T1(body) => matches!(
+                            body.as_ref(),
+                            T1MessageBody::VersionedPartialEncodedChunk(..)
+                                | T1MessageBody::PartialEncodedChunkForward(..)
+                        ),
+                        TieredMessageBody::T2(body) => matches!(
+                            body.as_ref(),
+                            T2MessageBody::PartialEncodedChunkRequest(..)
+                                | T2MessageBody::PartialEncodedChunkResponse(..)
+                        ),
+                    },
+                    _ => false,
+                };
+                if is_chunk_message && rng.write().gen_ratio(1, 5) {
+                    return None;
                 }
-                _ => (),
             }
-            HandlerResult::Unhandled(request)
-        }));
+            Some(msg.clone())
+        });
     }
 
     let mut finished_transfers = 0;
