@@ -1,43 +1,17 @@
-use itertools::Itertools;
-use near_async::futures::{DelayedActionRunnerExt as _, FutureSpawner, FutureSpawnerExt};
-use near_async::messaging::{
-    Actor, AsyncSender, CanSend, CanSendAsync, Handler, IntoMultiSender, IntoSender, Sender,
-};
-use near_async::test_loop::sender::TestLoopSender;
-use near_async::time::{Clock, Duration};
+use near_async::messaging::{AsyncSender, IntoMultiSender, Sender, noop};
 use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::{Block, BlockHeader};
-use near_client::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use near_client::{BlockApproval, BlockResponse, SetNetworkInfo};
 use near_network::client::{
-    BlockHeadersRequest, BlockHeadersResponse, BlockRequest, ChunkEndorsementMessage,
-    EpochSyncRequestMessage, EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
-    ProcessTxResponse, SpiceChunkEndorsementMessage,
+    BlockHeadersRequest, BlockHeadersResponse, BlockRequest, EpochSyncRequestMessage,
+    EpochSyncResponseMessage, OptimisticBlockMessage,
 };
-use near_network::shards_manager::ShardsManagerRequestFromNetwork;
-use near_network::spice_data_distribution::{
-    SpiceChunkContractAccessesMessage, SpiceContractCodeRequestMessage,
-    SpiceContractCodeResponseMessage,
-};
-use near_network::spice_data_distribution::{SpiceIncomingPartialData, SpicePartialDataRequest};
-use near_network::state_witness::{
-    ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
-    ContractCodeResponseMessage, PartialEncodedContractDeploysMessage,
-    PartialEncodedStateWitnessForwardMessage, PartialEncodedStateWitnessMessage,
-    PartialWitnessSenderForNetwork,
-};
-use near_network::types::{
-    HighestHeightPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses, PeerInfo,
-    PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, ReasonForBan, SetChainInfo,
-    StateSyncEvent, Tier3Request,
-};
-use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
-use near_primitives::genesis::GenesisId;
-use near_primitives::hash::CryptoHash;
+use near_network::types::{NetworkRequests, NetworkResponses, PeerMessage, ReasonForBan};
+use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use parking_lot::{Mutex, MutexGuard};
-use std::collections::{HashMap, HashSet, hash_map};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// Subset of ClientSenderForNetwork required for the TestLoop network.
@@ -54,37 +28,9 @@ pub struct ClientSenderForTestLoopNetwork {
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
-pub struct TxRequestHandleSenderForTestLoopNetwork {
-    pub transaction: AsyncSender<ProcessTxRequest, ProcessTxResponse>,
-}
-
-#[derive(Clone, MultiSend, MultiSenderFrom)]
-pub struct ChunkEndorsementSenderForTestLoopNetwork {
-    pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
-}
-
-#[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct ViewClientSenderForTestLoopNetwork {
     pub block_headers_request: AsyncSender<BlockHeadersRequest, Option<Vec<Arc<BlockHeader>>>>,
     pub block_request: AsyncSender<BlockRequest, Option<Arc<Block>>>,
-}
-
-#[derive(Clone, MultiSend, MultiSenderFrom)]
-pub struct SpiceDataDistributorSenderForTestLoopNetwork {
-    pub receipts: Sender<SpiceDistributorOutgoingReceipts>,
-    pub incoming_data: Sender<SpiceIncomingPartialData>,
-    pub data_requests: Sender<SpicePartialDataRequest>,
-    pub contract_accesses: Sender<SpiceChunkContractAccessesMessage>,
-    pub contract_code_request: Sender<SpiceContractCodeRequestMessage>,
-    pub contract_code_response: Sender<SpiceContractCodeResponseMessage>,
-}
-
-/// This message is used to allow TestLoopPeerManagerActor to construct NetworkInfo for each
-/// client.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TestLoopNetworkBlockInfo {
-    pub peer: PeerInfo,
-    pub block_header: BlockHeader,
 }
 
 /// Result of a network request handler.
@@ -97,132 +43,6 @@ pub enum HandlerResult {
 }
 
 pub type NetworkRequestHandler = Box<dyn Fn(NetworkRequests) -> HandlerResult>;
-
-/// A custom actor for the TestLoop framework that can be used to send network messages across clients
-/// in a multi-node test.
-///
-/// This actor has a set of handlers to handle PeerManagerMessageRequest messages. We have a set of
-/// default handlers that handle messages sent to client, partial_witness actor, and shards_manager.
-/// It is possible to override these handlers by registering a new handler using the
-/// `register_override_handler()` method.
-///
-/// Each handler is a `dyn Fn(NetworkRequests) -> HandlerResult`:
-/// - `HandlerResult::Handled(response)` — message was handled, return the given
-///   `NetworkResponses` to the caller. No further handlers are tried.
-/// - `HandlerResult::Unhandled(request)` — message was not handled (or was modified),
-///   pass to the next handler in the chain.
-///
-/// Returning `Unhandled` with a modified request is useful for simulating malicious actors.
-///
-/// Handlers are tried in reverse registration order so that overrides take priority over defaults.
-/// If no handler handles the request, the actor panics.
-///
-/// Examples of custom handlers:
-/// - Override handler to skip sending messages to or from a specific client.
-/// - Override handler to simulate more network delays.
-/// - Override handler to modify data and simulate malicious behavior.
-pub struct TestLoopPeerManagerActor {
-    handlers: Vec<NetworkRequestHandler>,
-
-    client_sender: ClientSenderForTestLoopNetwork,
-    shared_state: TestLoopNetworkSharedState,
-    genesis_id: GenesisId,
-    last_block_headers: HashMap<PeerInfo, BlockHeader>,
-}
-
-impl Actor for TestLoopPeerManagerActor {
-    fn start_actor(&mut self, ctx: &mut dyn near_async::futures::DelayedActionRunner<Self>) {
-        const PUSH_NETWORK_INFO_PERIOD: Duration = Duration::milliseconds(100);
-        self.push_network_info(ctx, PUSH_NETWORK_INFO_PERIOD);
-    }
-}
-
-impl Handler<TestLoopNetworkBlockInfo> for TestLoopPeerManagerActor {
-    fn handle(&mut self, msg: TestLoopNetworkBlockInfo) {
-        match self.last_block_headers.entry(msg.peer) {
-            hash_map::Entry::Occupied(entry) => {
-                if entry.get().height() <= msg.block_header.height() {
-                    *entry.into_mut() = msg.block_header;
-                }
-            }
-            hash_map::Entry::Vacant(entry) => {
-                entry.insert(msg.block_header);
-            }
-        }
-    }
-}
-
-impl TestLoopPeerManagerActor {
-    /// Create a new TestLoopPeerManagerActor with default handlers for client, partial_witness, and shards_manager.
-    /// Note that we should be able to access the senders for these actors from the data type.
-    pub fn new(
-        clock: Clock,
-        account_id: &AccountId,
-        shared_state: &TestLoopNetworkSharedState,
-        client_sender: ClientSenderForTestLoopNetwork,
-        genesis_id: GenesisId,
-        future_spawner: Arc<dyn FutureSpawner>,
-    ) -> Self {
-        let handlers = vec![
-            network_message_to_client_handler(&account_id, shared_state.clone()),
-            network_message_to_view_client_handler(
-                account_id.clone(),
-                shared_state.clone(),
-                future_spawner,
-            ),
-            network_message_to_partial_witness_handler(&account_id, shared_state.clone()),
-            network_message_to_shards_manager_handler(clock, &account_id, shared_state.clone()),
-            network_message_to_state_snapshot_handler(),
-            network_message_to_spice_data_distributor_handler(&account_id, shared_state.clone()),
-        ];
-        Self {
-            handlers,
-            client_sender,
-            shared_state: shared_state.clone(),
-            genesis_id,
-            last_block_headers: HashMap::new(),
-        }
-    }
-
-    /// Register a new handler to override the default handlers.
-    pub fn register_override_handler(&mut self, handler: NetworkRequestHandler) {
-        // We add the handler to the end of the list and while processing the request, we iterate
-        // over the handlers in reverse order.
-        self.handlers.push(handler);
-    }
-
-    fn push_network_info(
-        &self,
-        ctx: &mut dyn near_async::futures::DelayedActionRunner<Self>,
-        interval: Duration,
-    ) {
-        // Some tests (especially the ones having to do with sync) need NetworkInfo to be up to
-        // date to work properly. That's why we're sending it periodically here.
-        let future = self.client_sender.send_async(
-            SetNetworkInfo(NetworkInfo {
-                highest_height_peers: self
-                    .last_block_headers
-                    .iter()
-                    .map(|(peer_info, header)| HighestHeightPeerInfo {
-                        archival: self.shared_state.is_peer_archival(&peer_info.id),
-                        genesis_id: self.genesis_id.clone(),
-                        highest_block_hash: *header.hash(),
-                        highest_block_height: header.height(),
-                        tracked_shards: vec![],
-                        peer_info: peer_info.clone(),
-                    })
-                    .collect(),
-                ..NetworkInfo::default()
-            })
-            .span_wrap(),
-        );
-        drop(future);
-
-        ctx.run_later("TestLoopPeerManagerActor::push_network_info", interval, move |act, ctx| {
-            act.push_network_info(ctx, interval);
-        });
-    }
-}
 
 /// Filter function for transport-level message interception.
 /// Receives (from_peer, to_peer, message) and returns:
@@ -242,7 +62,6 @@ struct TestLoopNetworkSharedStateInner {
     senders: HashMap<PeerId, Arc<OneClientSenders>>,
     // Everything sent using these senders should be dropped.
     drop_events_senders: Arc<OneClientSenders>,
-    route_back: HashMap<CryptoHash, PeerId>,
     disallowed_peer_links: HashMap<PeerId, HashSet<PeerId>>,
     archival_peer_ids: HashSet<PeerId>,
     message_filters: Vec<TransportMessageFilter>,
@@ -252,53 +71,18 @@ struct TestLoopNetworkSharedStateInner {
 pub(crate) struct OneClientSenders {
     pub(crate) client_sender: ClientSenderForTestLoopNetwork,
     pub(crate) view_client_sender: ViewClientSenderForTestLoopNetwork,
-    rpc_handler_sender: TxRequestHandleSenderForTestLoopNetwork,
-    chunk_endorsement_handler_sender: ChunkEndorsementSenderForTestLoopNetwork,
-    partial_witness_sender: PartialWitnessSenderForNetwork,
-    shards_manager_sender: Sender<ShardsManagerRequestFromNetwork>,
-    peer_manager_sender: Sender<TestLoopNetworkBlockInfo>,
-    spice_data_distributor_actor: SpiceDataDistributorSenderForTestLoopNetwork,
-    spice_core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
-}
-
-/// This actor can be used in situations when we don't expect any events to reach it.
-/// For example when we want to simulate broken link between peers and drop all events sent
-/// between.
-pub struct UnreachableActor {}
-
-impl<M, R> Handler<M, R> for UnreachableActor
-where
-    M: Send + 'static,
-    R: Send,
-{
-    fn handle(&mut self, _msg: M) -> R {
-        unreachable!("All events for this actor shouldn't be processed");
-    }
-}
-
-impl Actor for UnreachableActor {}
-
-fn to_drop_events_senders(s: TestLoopSender<UnreachableActor>) -> Arc<OneClientSenders> {
-    Arc::new(OneClientSenders {
-        client_sender: s.clone().into_multi_sender(),
-        view_client_sender: s.clone().into_multi_sender(),
-        rpc_handler_sender: s.clone().into_multi_sender(),
-        chunk_endorsement_handler_sender: s.clone().into_multi_sender(),
-        partial_witness_sender: s.clone().into_multi_sender(),
-        shards_manager_sender: s.clone().into_sender(),
-        peer_manager_sender: s.clone().into_sender(),
-        spice_data_distributor_actor: s.clone().into_multi_sender(),
-        spice_core_writer_sender: s.into_sender(),
-    })
 }
 
 impl TestLoopNetworkSharedState {
-    pub fn new(unreachable_actor_sender: TestLoopSender<UnreachableActor>) -> Self {
+    pub fn new() -> Self {
+        let drop_senders = Arc::new(OneClientSenders {
+            client_sender: noop().into_multi_sender(),
+            view_client_sender: noop().into_multi_sender(),
+        });
         let inner = TestLoopNetworkSharedStateInner {
             account_to_peer_id: HashMap::new(),
             senders: HashMap::new(),
-            drop_events_senders: to_drop_events_senders(unreachable_actor_sender),
-            route_back: HashMap::new(),
+            drop_events_senders: drop_senders,
             disallowed_peer_links: HashMap::new(),
             archival_peer_ids: HashSet::new(),
             message_filters: Vec::new(),
@@ -312,13 +96,6 @@ impl TestLoopNetworkSharedState {
         PeerId: From<&'a D>,
         ClientSenderForTestLoopNetwork: From<&'a D>,
         ViewClientSenderForTestLoopNetwork: From<&'a D>,
-        TxRequestHandleSenderForTestLoopNetwork: From<&'a D>,
-        ChunkEndorsementSenderForTestLoopNetwork: From<&'a D>,
-        PartialWitnessSenderForNetwork: From<&'a D>,
-        Sender<ShardsManagerRequestFromNetwork>: From<&'a D>,
-        Sender<TestLoopNetworkBlockInfo>: From<&'a D>,
-        SpiceDataDistributorSenderForTestLoopNetwork: From<&'a D>,
-        Sender<SpiceChunkEndorsementMessage>: From<&'a D>,
     {
         let account_id = AccountId::from(data);
         let peer_id = PeerId::from(data);
@@ -330,17 +107,6 @@ impl TestLoopNetworkSharedState {
             Arc::new(OneClientSenders {
                 client_sender: ClientSenderForTestLoopNetwork::from(data),
                 view_client_sender: ViewClientSenderForTestLoopNetwork::from(data),
-                rpc_handler_sender: TxRequestHandleSenderForTestLoopNetwork::from(data),
-                chunk_endorsement_handler_sender: ChunkEndorsementSenderForTestLoopNetwork::from(
-                    data,
-                ),
-                partial_witness_sender: PartialWitnessSenderForNetwork::from(data),
-                shards_manager_sender: Sender::<ShardsManagerRequestFromNetwork>::from(data),
-                peer_manager_sender: Sender::<TestLoopNetworkBlockInfo>::from(data),
-                spice_data_distributor_actor: SpiceDataDistributorSenderForTestLoopNetwork::from(
-                    data,
-                ),
-                spice_core_writer_sender: Sender::<SpiceChunkEndorsementMessage>::from(data),
             }),
         );
     }
@@ -369,19 +135,6 @@ impl TestLoopNetworkSharedState {
     ) -> bool {
         guard.disallowed_peer_links.get(from).and_then(|blocklist| blocklist.get(to)).is_some()
     }
-    fn senders_for_account(
-        &self,
-        origin: &AccountId,
-        account_id: &AccountId,
-    ) -> Arc<OneClientSenders> {
-        let guard = self.0.lock();
-        let origin_peer_id = &guard.account_to_peer_id[origin];
-        let peer_id = &guard.account_to_peer_id[account_id];
-        if Self::is_peer_link_disallowed(&guard, origin_peer_id, peer_id) {
-            return guard.drop_events_senders.clone();
-        }
-        guard.senders.get(peer_id).unwrap().clone()
-    }
 
     pub(crate) fn senders_for_peer(
         &self,
@@ -395,27 +148,6 @@ impl TestLoopNetworkSharedState {
         guard.senders.get(peer_id).unwrap().clone()
     }
 
-    fn generate_route_back(&self, peer_id: &PeerId) -> CryptoHash {
-        let mut guard = self.0.lock();
-        let route_id = CryptoHash::hash_borsh(guard.route_back.len());
-        guard.route_back.insert(route_id, peer_id.clone());
-        route_id
-    }
-
-    fn senders_for_route_back(
-        &self,
-        origin: &AccountId,
-        route_back: &CryptoHash,
-    ) -> Arc<OneClientSenders> {
-        let guard = self.0.lock();
-        let origin_peer_id = &guard.account_to_peer_id[origin];
-        let peer_id = guard.route_back.get(route_back).unwrap();
-        if Self::is_peer_link_disallowed(&guard, origin_peer_id, peer_id) {
-            return guard.drop_events_senders.clone();
-        }
-        guard.senders.get(peer_id).unwrap().clone()
-    }
-
     /// Returns true if the link from `from` to `to` is allowed (not partitioned).
     pub fn is_link_allowed(&self, from: &PeerId, to: &PeerId) -> bool {
         let guard = self.0.lock();
@@ -424,16 +156,6 @@ impl TestLoopNetworkSharedState {
 
     pub fn mark_archival(&self, peer_id: &PeerId) {
         self.0.lock().archival_peer_ids.insert(peer_id.clone());
-    }
-
-    fn is_peer_archival(&self, peer_id: &PeerId) -> bool {
-        self.0.lock().archival_peer_ids.contains(peer_id)
-    }
-
-    fn accounts(&self) -> Vec<AccountId> {
-        let guard = self.0.lock();
-        let account_ids = guard.account_to_peer_id.keys().cloned().collect_vec();
-        account_ids
     }
 
     /// Register a transport-level message filter.
@@ -467,409 +189,4 @@ impl TestLoopNetworkSharedState {
         }
         Some(current)
     }
-}
-
-impl Handler<SetChainInfo> for TestLoopPeerManagerActor {
-    fn handle(&mut self, _msg: SetChainInfo) {}
-}
-
-impl Handler<StateSyncEvent> for TestLoopPeerManagerActor {
-    fn handle(&mut self, _msg: StateSyncEvent) {}
-}
-
-impl Handler<Tier3Request> for TestLoopPeerManagerActor {
-    fn handle(&mut self, _msg: Tier3Request) {}
-}
-
-impl Handler<PeerManagerMessageRequest> for TestLoopPeerManagerActor {
-    fn handle(&mut self, msg: PeerManagerMessageRequest) {
-        Handler::<PeerManagerMessageRequest, PeerManagerMessageResponse>::handle(self, msg);
-    }
-}
-
-impl Handler<PeerManagerMessageRequest, PeerManagerMessageResponse> for TestLoopPeerManagerActor {
-    fn handle(&mut self, msg: PeerManagerMessageRequest) -> PeerManagerMessageResponse {
-        let PeerManagerMessageRequest::NetworkRequests(request) = msg else {
-            panic!("Unexpected message: {:?}", msg);
-        };
-
-        // Iterate over the handlers in reverse order to allow for overriding the default handlers.
-        let mut request = Some(request);
-        for handler in self.handlers.iter().rev() {
-            match handler(request.take().unwrap()) {
-                HandlerResult::Unhandled(req) => {
-                    request = Some(req);
-                }
-                HandlerResult::Handled(response) => {
-                    return PeerManagerMessageResponse::NetworkResponses(response);
-                }
-            }
-        }
-        // If no handler was able to handle the request, panic.
-        panic!("Unhandled request: {:?}", request);
-    }
-}
-
-fn network_message_to_client_handler(
-    my_account_id: &AccountId,
-    shared_state: TestLoopNetworkSharedState,
-) -> NetworkRequestHandler {
-    let my_account_id = my_account_id.clone();
-    Box::new(move |request| match request {
-        NetworkRequests::Block { block } => {
-            let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
-            for account_id in shared_state.accounts() {
-                if account_id == my_account_id {
-                    continue;
-                }
-
-                let senders = shared_state.senders_for_account(&my_account_id, &account_id);
-
-                let future = senders.client_sender.send_async(
-                    BlockResponse {
-                        block: block.clone(),
-                        peer_id: my_peer_id.clone(),
-                        was_requested: false,
-                    }
-                    .span_wrap(),
-                );
-                drop(future);
-
-                senders.peer_manager_sender.send(TestLoopNetworkBlockInfo {
-                    peer: PeerInfo {
-                        id: my_peer_id.clone(),
-                        addr: None,
-                        account_id: Some(my_account_id.clone()),
-                    },
-                    block_header: block.header().clone(),
-                });
-            }
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        NetworkRequests::OptimisticBlock { chunk_producers, optimistic_block } => {
-            let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
-            for account_id in shared_state.accounts() {
-                if !chunk_producers.contains(&account_id) {
-                    continue;
-                }
-                let msg = OptimisticBlockMessage {
-                    optimistic_block: optimistic_block.clone(),
-                    from_peer: my_peer_id.clone(),
-                }
-                .span_wrap();
-                let _ = shared_state
-                    .senders_for_account(&my_account_id, &account_id)
-                    .client_sender
-                    .send(msg);
-            }
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        NetworkRequests::Approval { approval_message } => {
-            assert_ne!(
-                approval_message.target, my_account_id,
-                "Sending message to self not supported."
-            );
-            let future = shared_state
-                .senders_for_account(&my_account_id, &approval_message.target)
-                .client_sender
-                .send_async(BlockApproval(approval_message.approval, PeerId::random()).span_wrap());
-            drop(future);
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        NetworkRequests::ForwardTx(account, transaction) => {
-            assert_ne!(account, my_account_id, "Sending message to self not supported.");
-            let future = shared_state
-                .senders_for_account(&my_account_id, &account)
-                .rpc_handler_sender
-                .send_async(ProcessTxRequest {
-                    transaction,
-                    is_forwarded: true,
-                    check_only: false,
-                });
-            drop(future);
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        NetworkRequests::ChunkEndorsement(target, endorsement) => {
-            let future = shared_state
-                .senders_for_account(&my_account_id, &target)
-                .chunk_endorsement_handler_sender
-                .send_async(ChunkEndorsementMessage(endorsement));
-            drop(future);
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        NetworkRequests::SpiceChunkEndorsement(target, endorsement) => {
-            shared_state
-                .senders_for_account(&my_account_id, &target)
-                .spice_core_writer_sender
-                .send(SpiceChunkEndorsementMessage(endorsement));
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        NetworkRequests::EpochSyncRequest { peer_id } => {
-            let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
-            assert_ne!(peer_id, my_peer_id, "Sending message to self not supported.");
-            shared_state
-                .senders_for_peer(&my_peer_id, &peer_id)
-                .client_sender
-                .send(EpochSyncRequestMessage { from_peer: my_peer_id });
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        NetworkRequests::EpochSyncResponse { peer_id, proof } => {
-            let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
-            shared_state
-                .senders_for_peer(&my_peer_id, &peer_id)
-                .client_sender
-                .send(EpochSyncResponseMessage { from_peer: my_peer_id, proof });
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        NetworkRequests::BanPeer { peer_id, ban_reason } => {
-            let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
-            tracing::debug!(
-                target: "test_loop",
-                account = %my_account_id,
-                ?peer_id,
-                ?ban_reason,
-                "test loop banning peer"
-            );
-            shared_state.disallow_requests(my_peer_id.clone(), peer_id.clone());
-            shared_state.disallow_requests(peer_id, my_peer_id);
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        NetworkRequests::StateRequestHeader { .. } => {
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        NetworkRequests::StateRequestPart { .. } => {
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        _ => HandlerResult::Unhandled(request),
-    })
-}
-
-fn network_message_to_view_client_handler(
-    my_account_id: AccountId,
-    shared_state: TestLoopNetworkSharedState,
-    future_spawner: Arc<dyn FutureSpawner>,
-) -> NetworkRequestHandler {
-    Box::new(move |request| match request {
-        NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
-            let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
-            let responder =
-                shared_state.senders_for_peer(&peer_id, &my_peer_id).client_sender.clone();
-            let future = shared_state
-                .senders_for_peer(&my_peer_id, &peer_id)
-                .view_client_sender
-                .send_async(BlockHeadersRequest(hashes));
-            future_spawner.spawn("wait for ViewClient to handle BlockHeadersRequest", async move {
-                let response = future.await.unwrap().unwrap();
-                let future =
-                    responder.send_async(BlockHeadersResponse(response, peer_id).span_wrap());
-                drop(future);
-            });
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        NetworkRequests::BlockRequest { hash, peer_id } => {
-            let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
-            let responder =
-                shared_state.senders_for_peer(&peer_id, &my_peer_id).client_sender.clone();
-            let future = shared_state
-                .senders_for_peer(&my_peer_id, &peer_id)
-                .view_client_sender
-                .send_async(BlockRequest(hash));
-            future_spawner.spawn("wait for ViewClient to handle BlockRequest", async move {
-                let Some(response) = future.await.unwrap() else {
-                    // The peer may have GC'd this block. In production, the
-                    // requester would simply not receive a response and retry
-                    // with another peer. Mimic that by silently dropping.
-                    return;
-                };
-                let future = responder.send_async(
-                    BlockResponse { block: response, peer_id, was_requested: true }.span_wrap(),
-                );
-                drop(future);
-            });
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        _ => HandlerResult::Unhandled(request),
-    })
-}
-
-fn network_message_to_partial_witness_handler(
-    my_account_id: &AccountId,
-    shared_state: TestLoopNetworkSharedState,
-) -> NetworkRequestHandler {
-    let my_account_id = my_account_id.clone();
-    Box::new(move |request| match request {
-        NetworkRequests::ChunkStateWitnessAck(target, witness_ack) => {
-            assert_ne!(target, my_account_id, "Sending message to self not supported.");
-            shared_state
-                .senders_for_account(&my_account_id, &target)
-                .partial_witness_sender
-                .send(ChunkStateWitnessAckMessage(witness_ack));
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-
-        NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple) => {
-            for (target, partial_witness) in validator_witness_tuple {
-                shared_state
-                    .senders_for_account(&my_account_id, &target)
-                    .partial_witness_sender
-                    .send(PartialEncodedStateWitnessMessage(partial_witness));
-            }
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        NetworkRequests::PartialEncodedStateWitnessForward(chunk_validators, partial_witness) => {
-            for target in chunk_validators {
-                shared_state
-                    .senders_for_account(&my_account_id, &target)
-                    .partial_witness_sender
-                    .send(PartialEncodedStateWitnessForwardMessage(partial_witness.clone()));
-            }
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        NetworkRequests::ChunkContractAccesses(chunk_validators, accesses) => {
-            for target in chunk_validators {
-                shared_state
-                    .senders_for_account(&my_account_id, &target)
-                    .partial_witness_sender
-                    .send(ChunkContractAccessesMessage(accesses.clone()));
-            }
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        NetworkRequests::ContractCodeRequest(target, request) => {
-            shared_state
-                .senders_for_account(&my_account_id, &target)
-                .partial_witness_sender
-                .send(ContractCodeRequestMessage(request));
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        NetworkRequests::ContractCodeResponse(target, response) => {
-            shared_state
-                .senders_for_account(&my_account_id, &target)
-                .partial_witness_sender
-                .send(ContractCodeResponseMessage(response));
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        NetworkRequests::PartialEncodedContractDeploys(accounts, deploys) => {
-            for account in accounts {
-                shared_state
-                    .senders_for_account(&my_account_id, &account)
-                    .partial_witness_sender
-                    .send(PartialEncodedContractDeploysMessage(deploys.clone()));
-            }
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        _ => HandlerResult::Unhandled(request),
-    })
-}
-
-fn network_message_to_state_snapshot_handler() -> NetworkRequestHandler {
-    Box::new(move |request| match request {
-        NetworkRequests::SnapshotHostEvent { .. } => {
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        _ => HandlerResult::Unhandled(request),
-    })
-}
-
-fn network_message_to_shards_manager_handler(
-    clock: Clock,
-    my_account_id: &AccountId,
-    shared_state: TestLoopNetworkSharedState,
-) -> NetworkRequestHandler {
-    let my_account_id = my_account_id.clone();
-    Box::new(move |request| match request {
-        NetworkRequests::PartialEncodedChunkRequest { target, request, .. } => {
-            let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
-            let route_back = shared_state.generate_route_back(&my_peer_id);
-            let target = target.account_id.unwrap();
-            assert!(target != my_account_id, "Sending message to self not supported.");
-            shared_state.senders_for_account(&my_account_id, &target).shards_manager_sender.send(
-                ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
-                    partial_encoded_chunk_request: request,
-                    route_back,
-                },
-            );
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
-            // Use route_back information to send the response back to the correct client.
-            shared_state
-                .senders_for_route_back(&my_account_id, &route_back)
-                .shards_manager_sender
-                .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
-                    partial_encoded_chunk_response: response,
-                    received_time: clock.now(),
-                });
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
-            assert!(account_id != my_account_id, "Sending message to self not supported.");
-            shared_state
-                .senders_for_account(&my_account_id, &account_id)
-                .shards_manager_sender
-                .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
-                    partial_encoded_chunk.into(),
-                ));
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
-            assert!(account_id != my_account_id, "Sending message to self not supported.");
-            shared_state
-                .senders_for_account(&my_account_id, &account_id)
-                .shards_manager_sender
-                .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(forward));
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        _ => HandlerResult::Unhandled(request),
-    })
-}
-
-fn network_message_to_spice_data_distributor_handler(
-    my_account_id: &AccountId,
-    shared_state: TestLoopNetworkSharedState,
-) -> NetworkRequestHandler {
-    let my_account_id = my_account_id.clone();
-    Box::new(move |request| match request {
-        NetworkRequests::SpicePartialData { partial_data, recipients } => {
-            for account_id in recipients {
-                assert!(account_id != my_account_id, "Sending message to self not supported.");
-                shared_state
-                    .senders_for_account(&my_account_id, &account_id)
-                    .spice_data_distributor_actor
-                    .send(SpiceIncomingPartialData { data: partial_data.clone() });
-            }
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        NetworkRequests::SpicePartialDataRequest { producer, request } => {
-            assert!(producer != my_account_id, "Sending message to self not supported.");
-            shared_state
-                .senders_for_account(&my_account_id, &producer)
-                .spice_data_distributor_actor
-                .send(request);
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        NetworkRequests::SpiceChunkContractAccesses(targets, accesses) => {
-            for target in targets {
-                shared_state
-                    .senders_for_account(&my_account_id, &target)
-                    .spice_data_distributor_actor
-                    .send(SpiceChunkContractAccessesMessage(accesses.clone()));
-            }
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        NetworkRequests::SpiceContractCodeRequest(target, request) => {
-            shared_state
-                .senders_for_account(&my_account_id, &target)
-                .spice_data_distributor_actor
-                .send(SpiceContractCodeRequestMessage(request));
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        NetworkRequests::SpiceContractCodeResponse(target, response) => {
-            shared_state
-                .senders_for_account(&my_account_id, &target)
-                .spice_data_distributor_actor
-                .send(SpiceContractCodeResponseMessage(response));
-            HandlerResult::Handled(NetworkResponses::NoResponse)
-        }
-        _ => HandlerResult::Unhandled(request),
-    })
 }
