@@ -4079,6 +4079,9 @@ impl Chain {
     // NB: `SandboxStatePatch` can only be created in `#[cfg(feature =
     // "sandbox")]`, so we don't need extra cfg-gating here.
     pub fn patch_state(&mut self, patch: SandboxStatePatch) {
+        if patch.is_empty() {
+            return;
+        }
         self.pending_state_patch.merge(patch);
         self.sandbox_patch_generation += 1;
     }

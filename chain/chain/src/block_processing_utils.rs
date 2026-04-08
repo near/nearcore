@@ -36,9 +36,9 @@ pub(crate) struct BlockPreprocessInfo {
     pub(crate) apply_chunks_done_waiter: ApplyChunksDoneWaiter,
     /// Used to calculate block processing time metric.
     pub(crate) block_start_processing_time: Instant,
-    /// The sandbox patch generation at the time this block was preprocessed.
-    /// Used to clear `pending_state_patch` only if no new patches arrived
-    /// while this block was in-flight.
+    /// The sandbox patch generation observed when this block was preprocessed.
+    /// Used after `chain_update.commit()` to advance `sandbox_patch_committed_gen`
+    /// only if no newer sandbox patch generation arrived while this block was in-flight.
     pub(crate) sandbox_patch_generation: u64,
 }
 
