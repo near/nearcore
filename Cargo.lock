@@ -4878,7 +4878,6 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry-semantic-conventions",
  "opentelemetry_sdk",
- "parking_lot 0.12.1",
  "prometheus",
  "serde",
  "serde_json",
