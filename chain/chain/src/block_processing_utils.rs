@@ -10,8 +10,6 @@ use near_primitives::sharding::{ReceiptProof, ShardChunkHeader, StateSyncInfo};
 use near_primitives::types::{BlockHeight, ShardId};
 use std::collections::HashMap;
 use std::sync::Arc;
-#[cfg(feature = "test_features")]
-use std::sync::OnceLock;
 
 /// Max number of blocks that can be in the pool at once.
 /// This number will likely never be hit unless there are many forks in the chain.
@@ -50,12 +48,10 @@ pub(crate) struct OptimisticBlockInfo {
 }
 
 /// Blocks which finished pre-processing and are now being applied asynchronously
-pub struct BlocksInProcessing {
+pub(crate) struct BlocksInProcessing {
     // A map that stores all blocks in processing
     preprocessed_blocks: HashMap<CryptoHash, (Arc<Block>, BlockPreprocessInfo)>,
     optimistic_blocks: HashMap<BlockHeight, (OptimisticBlock, OptimisticBlockInfo)>,
-    #[cfg(feature = "test_features")]
-    test_paused_blocks: HashMap<CryptoHash, Arc<OnceLock<()>>>,
 }
 
 #[derive(Debug)]
@@ -95,8 +91,6 @@ impl BlocksInProcessing {
         BlocksInProcessing {
             preprocessed_blocks: HashMap::new(),
             optimistic_blocks: HashMap::new(),
-            #[cfg(feature = "test_features")]
-            test_paused_blocks: HashMap::new(),
         }
     }
 
@@ -190,9 +184,8 @@ impl BlocksInProcessing {
     /// This function waits until apply_chunks_done is marked as true for all blocks in the pool
     /// Returns true if new blocks are done applying chunks
     pub(crate) fn wait_for_all_blocks(&self) -> bool {
-        for (block_hash, (_, block_preprocess_info)) in &self.preprocessed_blocks {
+        for (_, (_, block_preprocess_info)) in &self.preprocessed_blocks {
             let _ = block_preprocess_info.apply_chunks_done_waiter.wait();
-            self.check_test_paused_block(block_hash);
         }
         for (_, (_, optimistic_block_info)) in &self.optimistic_blocks {
             let _ = optimistic_block_info.apply_chunks_done_waiter.wait();
@@ -212,45 +205,7 @@ impl BlocksInProcessing {
             .1
             .apply_chunks_done_waiter
             .wait();
-        self.check_test_paused_block(block_hash);
         Ok(())
-    }
-
-    /// Blocks the current thread if a test pause gate is set for the given block.
-    #[cfg(feature = "test_features")]
-    fn check_test_paused_block(&self, block_hash: &CryptoHash) {
-        if let Some(gate) = self.test_paused_blocks.get(block_hash) {
-            gate.wait();
-        }
-    }
-
-    #[cfg(not(feature = "test_features"))]
-    fn check_test_paused_block(&self, _block_hash: &CryptoHash) {}
-
-    /// Pauses processing of the given block. `wait_for_block` and
-    /// `wait_for_all_blocks` will block on this block until
-    /// `resume_block_processing` is called.
-    #[cfg(feature = "test_features")]
-    pub fn pause_block_processing(&mut self, block_hash: &CryptoHash) {
-        self.test_paused_blocks.insert(*block_hash, Arc::new(OnceLock::new()));
-    }
-
-    /// Resumes processing of a block previously paused with
-    /// `pause_block_processing`.
-    #[cfg(feature = "test_features")]
-    pub fn resume_block_processing(&mut self, block_hash: &CryptoHash) {
-        let gate = self.test_paused_blocks.remove(block_hash).expect("block was not paused");
-        let _ = gate.set(());
-    }
-
-    /// Resumes all paused blocks. Returns true if any blocks were paused.
-    #[cfg(feature = "test_features")]
-    pub fn resume_all_block_processing(&mut self) -> bool {
-        let had_paused = !self.test_paused_blocks.is_empty();
-        for (_, gate) in self.test_paused_blocks.drain() {
-            let _ = gate.set(());
-        }
-        had_paused
     }
 }
 
@@ -336,5 +291,41 @@ mod tests {
             let waiter_value = results_receiver.recv().unwrap();
             assert_eq!(waiter_value, true);
         }
+    }
+}
+
+/// Test-only gate to pause block processing in the spawned apply-chunks task.
+/// The gate blocks the task before `do_apply_chunks` runs, preventing results
+/// from reaching the channel until `resume` is called.
+#[cfg(feature = "test_features")]
+#[derive(Default)]
+pub struct TestPausedBlocks {
+    gates: HashMap<CryptoHash, Arc<std::sync::OnceLock<()>>>,
+}
+
+#[cfg(feature = "test_features")]
+impl TestPausedBlocks {
+    /// Returns the gate for a block, if one is set. The caller passes it into
+    /// the spawned task to block before applying chunks.
+    pub fn get_gate(&self, block_hash: &CryptoHash) -> Option<Arc<std::sync::OnceLock<()>>> {
+        self.gates.get(block_hash).cloned()
+    }
+
+    pub fn pause(&mut self, block_hash: &CryptoHash) {
+        self.gates.insert(*block_hash, Arc::new(std::sync::OnceLock::new()));
+    }
+
+    pub fn resume(&mut self, block_hash: &CryptoHash) {
+        let gate = self.gates.remove(block_hash).expect("block was not paused");
+        let _ = gate.set(());
+    }
+
+    /// Resumes all paused blocks. Returns true if any were paused.
+    pub fn resume_all(&mut self) -> bool {
+        let had_paused = !self.gates.is_empty();
+        for (_, gate) in self.gates.drain() {
+            let _ = gate.set(());
+        }
+        had_paused
     }
 }

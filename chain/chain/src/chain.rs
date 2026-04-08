@@ -296,7 +296,7 @@ pub struct Chain {
     /// postprocess_block. The async_apply_chunks is done asynchronously from the ClientActor thread.
     /// `blocks_in_processing` keeps track of all the blocks that have been preprocessed but are
     /// waiting for chunks being applied.
-    pub blocks_in_processing: BlocksInProcessing,
+    pub(crate) blocks_in_processing: BlocksInProcessing,
     /// Used by async_apply_chunks to send apply chunks results back to chain
     apply_chunks_sender: Sender<BlockApplyChunksResult>,
     /// Used to receive apply chunks results
@@ -340,6 +340,8 @@ pub struct Chain {
     protocol_version_check: ProtocolVersionCheckConfig,
     /// Used to receive `PostStateReady` messages from the runtime.
     on_post_state_ready_sender: Option<PostStateReadySender>,
+    #[cfg(feature = "test_features")]
+    pub test_paused_blocks: crate::block_processing_utils::TestPausedBlocks,
 }
 
 impl Drop for Chain {
@@ -477,6 +479,8 @@ impl Chain {
             spice_core_reader,
             protocol_version_check: Default::default(),
             on_post_state_ready_sender: None,
+            #[cfg(feature = "test_features")]
+            test_paused_blocks: Default::default(),
         })
     }
 
@@ -659,6 +663,8 @@ impl Chain {
             spice_core_reader,
             protocol_version_check: chain_config.protocol_version_check,
             on_post_state_ready_sender,
+            #[cfg(feature = "test_features")]
+            test_paused_blocks: Default::default(),
         })
     }
 
@@ -1790,7 +1796,16 @@ impl Chain {
         let sc = self.apply_chunks_sender.clone();
         let clock = self.clock.clone();
         let iteration_mode = self.apply_chunks_iteration_mode;
+        #[cfg(feature = "test_features")]
+        let test_pause_gate = match &block {
+            BlockToApply::Normal(hash) => self.test_paused_blocks.get_gate(hash),
+            _ => None,
+        };
         self.apply_chunks_spawner.spawn("apply_chunks", move || {
+            #[cfg(feature = "test_features")]
+            if let Some(gate) = test_pause_gate {
+                gate.wait();
+            }
             let apply_all_chunks_start_time = clock.now();
             // do_apply_chunks runs `work` in parallel, but still waits for all of them to finish
             let res = do_apply_chunks(iteration_mode, block.clone(), block_height, work);
