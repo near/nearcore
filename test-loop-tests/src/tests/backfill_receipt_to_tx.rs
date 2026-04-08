@@ -162,6 +162,7 @@ fn test_backfill_matches_normal_processing() {
         genesis_height,
         head_height,
         1000,
+        1,
         false,
         None,
     )
@@ -235,6 +236,7 @@ fn test_backfill_idempotent() {
         genesis_height,
         head_height,
         1000,
+        1,
         false,
         None,
     )
@@ -254,6 +256,7 @@ fn test_backfill_idempotent() {
         genesis_height,
         head_height,
         1000,
+        1,
         false,
         None,
     )
@@ -323,6 +326,7 @@ fn test_checkpoint_does_not_skip_mid_height_receipts() {
         genesis_height,
         head_height,
         1, // batch_size=1: commit after every entry
+        1,
         true,
         None,
     )
@@ -348,6 +352,7 @@ fn test_checkpoint_does_not_skip_mid_height_receipts() {
         &store,
         checkpoint_value + 1,
         head_height,
+        1,
         1,
         true,
         None,

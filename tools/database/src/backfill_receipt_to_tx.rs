@@ -13,6 +13,7 @@ use near_primitives::types::BlockHeight;
 use near_primitives::utils::get_block_shard_id_rev;
 use near_store::{DBCol, Store};
 use nearcore::open_storage;
+use rayon::prelude::*;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -38,6 +39,10 @@ pub(crate) struct BackfillReceiptToTxCommand {
     /// Number of entries to batch before committing a DB write.
     #[arg(long, default_value_t = 10_000)]
     batch_size: usize,
+
+    /// Number of parallel threads for reading block data.
+    #[arg(long, default_value_t = 8)]
+    num_threads: usize,
 }
 
 impl BackfillReceiptToTxCommand {
@@ -102,6 +107,7 @@ impl BackfillReceiptToTxCommand {
             from_height,
             to_height,
             self.batch_size,
+            self.num_threads,
             true,
             Some(&progress),
         )?;
@@ -121,14 +127,116 @@ impl BackfillReceiptToTxCommand {
     }
 }
 
+/// Process a single height: read all execution outcomes and build ReceiptToTxInfo entries.
+///
+/// Returns `Ok(None)` for skipped heights (no block at this height).
+/// Returns `Ok(Some(entries))` for processed heights.
+pub fn process_height(
+    chain_store: &ChainStore,
+    read_store: &Store,
+    height: BlockHeight,
+) -> anyhow::Result<Option<Vec<(CryptoHash, ReceiptToTxInfo)>>> {
+    let block_hash = match chain_store.get_block_hash_by_height(height) {
+        Ok(hash) => hash,
+        Err(Error::DBNotFoundErr(_)) => return Ok(None),
+        Err(e) => {
+            return Err(e).context(format!("failed to get block hash at height {height}"));
+        }
+    };
+
+    let mut entries = Vec::new();
+
+    for (key, outcome_ids) in
+        read_store.iter_prefix_ser::<Vec<CryptoHash>>(DBCol::OutcomeIds, block_hash.as_ref())
+    {
+        let (_, shard_id) = get_block_shard_id_rev(&key).expect("invalid OutcomeIds key");
+
+        for outcome_id in outcome_ids {
+            let outcome_with_proof =
+                match chain_store.get_outcome_by_id_and_block_hash(&outcome_id, &block_hash) {
+                    Some(o) => o,
+                    None => {
+                        tracing::warn!(
+                            %outcome_id,
+                            height,
+                            %shard_id,
+                            "missing execution outcome, skipping"
+                        );
+                        continue;
+                    }
+                };
+            let outcome = &outcome_with_proof.outcome;
+
+            if outcome.receipt_ids.is_empty() {
+                continue;
+            }
+
+            let is_tx = read_store.exists(DBCol::Transactions, outcome_id.as_ref());
+
+            // For receipt outcomes, look up the parent receipt once (not per child).
+            let parent_receipt = if !is_tx { chain_store.get_receipt(&outcome_id) } else { None };
+
+            for child_receipt_id in &outcome.receipt_ids {
+                let child_receipt = match chain_store.get_receipt(child_receipt_id) {
+                    Some(r) => r,
+                    None => {
+                        tracing::debug!(
+                            %child_receipt_id,
+                            %outcome_id,
+                            height,
+                            "missing child receipt, skipping"
+                        );
+                        continue;
+                    }
+                };
+
+                let info = if is_tx {
+                    ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+                        origin: ReceiptOrigin::FromTransaction(ReceiptOriginTransaction {
+                            tx_hash: outcome_id,
+                            sender_account_id: outcome.executor_id.clone(),
+                        }),
+                        receiver_account_id: child_receipt.receiver_id().clone(),
+                        shard_id,
+                    })
+                } else {
+                    let parent = match &parent_receipt {
+                        Some(r) => r,
+                        None => {
+                            tracing::debug!(
+                                %outcome_id,
+                                height,
+                                "missing parent receipt for receipt outcome, skipping"
+                            );
+                            continue;
+                        }
+                    };
+                    ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+                        origin: ReceiptOrigin::FromReceipt(ReceiptOriginReceipt {
+                            parent_receipt_id: outcome_id,
+                            parent_predecessor_id: parent.predecessor_id().clone(),
+                        }),
+                        receiver_account_id: child_receipt.receiver_id().clone(),
+                        shard_id,
+                    })
+                };
+
+                entries.push((*child_receipt_id, info));
+            }
+        }
+    }
+
+    Ok(Some(entries))
+}
+
 /// Core backfill logic. Extracted as a standalone function for testability.
 ///
-/// Iterates forward through block heights, reads execution outcomes for each
-/// block/shard, and reconstructs `ReceiptToTxInfo` entries by looking up
-/// transaction and receipt data from the DB.
+/// Processes heights in parallel chunks using rayon to hide HDD seek latency.
+/// Reads are parallelized across `num_threads`, while writes are sequential
+/// in height order to maintain deterministic checkpoint behavior.
 ///
 /// When `use_checkpoint` is true, the checkpoint is stored in `DBCol::Misc`
-/// atomically with the ReceiptToTx entries in the same write batch.
+/// atomically with the ReceiptToTx entries at chunk boundaries.
 pub fn backfill_receipt_to_tx(
     chain_store: &ChainStore,
     read_store: &Store,
@@ -136,154 +244,71 @@ pub fn backfill_receipt_to_tx(
     from_height: BlockHeight,
     to_height: BlockHeight,
     batch_size: usize,
+    num_threads: usize,
     use_checkpoint: bool,
     progress: Option<&ProgressBar>,
 ) -> anyhow::Result<BackfillStats> {
-    let mut store_update = write_store.store_update();
-    let mut batch_count: usize = 0;
     let mut stats = BackfillStats { blocks_processed: 0, entries_written: 0, heights_skipped: 0 };
-    let mut last_completed_height: Option<BlockHeight> = None;
 
-    for height in from_height..=to_height {
-        let block_hash = match chain_store.get_block_hash_by_height(height) {
-            Ok(hash) => hash,
-            Err(Error::DBNotFoundErr(_)) => {
-                stats.heights_skipped += 1;
-                if let Some(p) = progress {
-                    p.inc(1);
-                }
-                continue;
-            }
-            Err(e) => {
-                return Err(e).context(format!("failed to get block hash at height {height}"));
-            }
-        };
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(num_threads)
+        .build()
+        .context("failed to build thread pool")?;
 
-        for (key, outcome_ids) in
-            read_store.iter_prefix_ser::<Vec<CryptoHash>>(DBCol::OutcomeIds, block_hash.as_ref())
-        {
-            let (_, shard_id) = get_block_shard_id_rev(&key).expect("invalid OutcomeIds key");
+    let chunk_size = batch_size.max(1) as u64;
+    let mut height = from_height;
 
-            for outcome_id in outcome_ids {
-                let outcome_with_proof =
-                    match chain_store.get_outcome_by_id_and_block_hash(&outcome_id, &block_hash) {
-                        Some(o) => o,
-                        None => {
-                            tracing::warn!(
-                                %outcome_id,
-                                height,
-                                %shard_id,
-                                "missing execution outcome, skipping"
-                            );
-                            continue;
-                        }
-                    };
-                let outcome = &outcome_with_proof.outcome;
+    while height <= to_height {
+        let chunk_end = (height + chunk_size - 1).min(to_height);
+        let blocks_before = stats.blocks_processed;
 
-                if outcome.receipt_ids.is_empty() {
-                    continue;
-                }
+        // Parallel reads
+        let results: Vec<_> = pool.install(|| {
+            (height..=chunk_end)
+                .into_par_iter()
+                .map(|h| process_height(chain_store, read_store, h))
+                .collect()
+        });
 
-                let is_tx = read_store.exists(DBCol::Transactions, outcome_id.as_ref());
-
-                // For receipt outcomes, look up the parent receipt once (not per child).
-                let parent_receipt =
-                    if !is_tx { chain_store.get_receipt(&outcome_id) } else { None };
-
-                for child_receipt_id in &outcome.receipt_ids {
-                    let child_receipt = match chain_store.get_receipt(child_receipt_id) {
-                        Some(r) => r,
-                        None => {
-                            tracing::debug!(
-                                %child_receipt_id,
-                                %outcome_id,
-                                height,
-                                "missing child receipt, skipping"
-                            );
-                            continue;
-                        }
-                    };
-
-                    let info = if is_tx {
-                        ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
-                            origin: ReceiptOrigin::FromTransaction(ReceiptOriginTransaction {
-                                tx_hash: outcome_id,
-                                sender_account_id: outcome.executor_id.clone(),
-                            }),
-                            receiver_account_id: child_receipt.receiver_id().clone(),
-                            shard_id,
-                        })
-                    } else {
-                        let parent = match &parent_receipt {
-                            Some(r) => r,
-                            None => {
-                                tracing::debug!(
-                                    %outcome_id,
-                                    height,
-                                    "missing parent receipt for receipt outcome, skipping"
-                                );
-                                continue;
-                            }
-                        };
-                        ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
-                            origin: ReceiptOrigin::FromReceipt(ReceiptOriginReceipt {
-                                parent_receipt_id: outcome_id,
-                                parent_predecessor_id: parent.predecessor_id().clone(),
-                            }),
-                            receiver_account_id: child_receipt.receiver_id().clone(),
-                            shard_id,
-                        })
-                    };
-
-                    store_update.insert_ser(DBCol::ReceiptToTx, child_receipt_id.as_ref(), &info);
-                    batch_count += 1;
-                    stats.entries_written += 1;
-
-                    if batch_count >= batch_size {
-                        // Write checkpoint for last completed height atomically
-                        // with the data entries.
-                        if use_checkpoint {
-                            if let Some(completed) = last_completed_height {
-                                store_update.set_ser(
-                                    DBCol::Misc,
-                                    BACKFILL_CHECKPOINT_KEY,
-                                    &completed,
-                                );
-                            }
-                        }
-                        store_update.commit();
-                        store_update = write_store.store_update();
-                        batch_count = 0;
+        // Sequential writes in height order (par_iter preserves input order)
+        let mut store_update = write_store.store_update();
+        for result in results {
+            match result {
+                Ok(Some(entries)) => {
+                    for (receipt_id, info) in entries {
+                        store_update.insert_ser(DBCol::ReceiptToTx, receipt_id.as_ref(), &info);
+                        stats.entries_written += 1;
                     }
+                    stats.blocks_processed += 1;
                 }
+                Ok(None) => {
+                    stats.heights_skipped += 1;
+                }
+                Err(e) => return Err(e),
             }
         }
 
-        stats.blocks_processed += 1;
-        last_completed_height = Some(height);
+        // Checkpoint at chunk_end — all heights in chunk are done.
+        // On crash, the entire chunk is re-processed (safe, insert-only column).
+        if use_checkpoint {
+            store_update.set_ser(DBCol::Misc, BACKFILL_CHECKPOINT_KEY, &chunk_end);
+        }
+        store_update.commit();
 
         if let Some(p) = progress {
-            p.inc(1);
+            p.inc(chunk_end - height + 1);
         }
 
-        if stats.blocks_processed % 10_000 == 0 {
+        if stats.blocks_processed / 10_000 > blocks_before / 10_000 {
             tracing::info!(
-                height,
+                height = chunk_end,
                 blocks_processed = stats.blocks_processed,
                 entries_written = stats.entries_written,
                 "backfill progress"
             );
         }
-    }
 
-    // Flush remaining batch with final checkpoint.
-    if use_checkpoint {
-        if let Some(completed) = last_completed_height {
-            store_update.set_ser(DBCol::Misc, BACKFILL_CHECKPOINT_KEY, &completed);
-        }
-    }
-    if batch_count > 0 || use_checkpoint {
-        store_update.commit();
+        height = chunk_end + 1;
     }
 
     Ok(stats)
