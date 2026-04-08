@@ -126,14 +126,14 @@ impl Client {
     /// `wait_for_block` will block until `resume_block_processing` is called.
     #[cfg(feature = "test_features")]
     pub fn pause_block_processing(&mut self, block: &CryptoHash) {
-        self.chain.blocks_in_processing.pause_block_processing(block);
+        self.chain.test_paused_blocks.pause(block);
     }
 
     /// Resumes processing of a block previously paused with
     /// `pause_block_processing`.
     #[cfg(feature = "test_features")]
     pub fn resume_block_processing(&mut self, block: &CryptoHash) {
-        self.chain.blocks_in_processing.resume_block_processing(block);
+        self.chain.test_paused_blocks.resume(block);
     }
 }
 

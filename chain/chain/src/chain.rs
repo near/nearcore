@@ -296,7 +296,7 @@ pub struct Chain {
     /// postprocess_block. The async_apply_chunks is done asynchronously from the ClientActor thread.
     /// `blocks_in_processing` keeps track of all the blocks that have been preprocessed but are
     /// waiting for chunks being applied.
-    pub blocks_in_processing: BlocksInProcessing,
+    pub(crate) blocks_in_processing: BlocksInProcessing,
     /// Used by async_apply_chunks to send apply chunks results back to chain
     apply_chunks_sender: Sender<BlockApplyChunksResult>,
     /// Used to receive apply chunks results
