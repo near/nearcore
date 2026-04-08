@@ -15,10 +15,9 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use rand::{Rng as _, thread_rng};
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 #[test]
@@ -265,7 +264,6 @@ fn slow_test_long_gap_between_blocks() {
 /// Reproduces an issue where the RPC didn't forward retried transactions when
 /// the `validator_signer` was set. (See https://github.com/near/nearcore/pull/14958)
 #[test]
-#[ignore] // TODO: convert override handler to transport filter (iteration 24-26)
 fn test_rpc_forwards_retried_transaction() {
     init_test_logger();
 
@@ -289,19 +287,29 @@ fn test_rpc_forwards_retried_transaction() {
     // First test the case where `validator_signer` is set.
     assert!(env.rpc_node().client().validator_signer.get().is_some());
 
-    // TODO(iteration 24-26): convert to transport message filter.
-    // Record ForwardTx messages sent by the RPC node
-    let forward_tx_requests = Rc::new(RefCell::new(Vec::<(AccountId, _)>::new()));
-    /* Override handler commented out — PeerManagerActor registered directly.
-    let forward_tx_requests_clone = forward_tx_requests.clone();
-    env.node_datas[rpc_data_idx].register_override_handler(
-        &mut env.test_loop.data,
-        Box::new(move |nr| {
-            ...
-            Some(nr)
-        }),
-    );
-    */
+    // Build peer_id → account_id map for the filter to record target accounts.
+    let peer_to_account: HashMap<near_primitives::network::PeerId, AccountId> =
+        env.node_datas.iter().map(|d| (d.peer_id.clone(), d.account_id.clone())).collect();
+
+    // Transport filter that records ForwardTx messages sent by the RPC node.
+    let rpc_peer_id = env.node_datas[rpc_data_idx].peer_id.clone();
+    let forward_tx_requests =
+        Arc::new(Mutex::new(Vec::<(AccountId, near_primitives::hash::CryptoHash)>::new()));
+    let tracker = forward_tx_requests.clone();
+    env.register_message_filter(move |from, to, msg| {
+        if *from == rpc_peer_id {
+            if let near_network::types::PeerMessage::Routed(routed_msg) = msg {
+                if let near_network::types::TieredMessageBody::T2(body) = routed_msg.body() {
+                    if let near_network::types::T2MessageBody::ForwardTx(tx) = &**body {
+                        if let Some(account) = peer_to_account.get(to) {
+                            tracker.lock().push((account.clone(), tx.get_hash()));
+                        }
+                    }
+                }
+            }
+        }
+        Some(msg.clone())
+    });
 
     // Submit tx1 twice
     let tx1 = SignedTransaction::send_money(
@@ -329,10 +337,10 @@ fn test_rpc_forwards_retried_transaction() {
     // There should be two ForwardTx(validator0, tx1) messages recorded.
     let validator_acc: AccountId = "validator0".parse().unwrap();
     assert_eq!(
-        forward_tx_requests.borrow_mut().as_slice(),
+        forward_tx_requests.lock().as_slice(),
         &[(validator_acc.clone(), tx1.get_hash()), (validator_acc.clone(), tx1.get_hash())]
     );
-    forward_tx_requests.borrow_mut().clear();
+    forward_tx_requests.lock().clear();
 
     // Now set validator_signer to None.
     env.rpc_node().client().validator_signer.update(None);
@@ -362,7 +370,7 @@ fn test_rpc_forwards_retried_transaction() {
 
     // There should be two ForwardTx(validator0, tx2) messages recorded.
     assert_eq!(
-        forward_tx_requests.borrow_mut().as_slice(),
+        forward_tx_requests.lock().as_slice(),
         &[(validator_acc.clone(), tx2.get_hash()), (validator_acc, tx2.get_hash())]
     );
 }
