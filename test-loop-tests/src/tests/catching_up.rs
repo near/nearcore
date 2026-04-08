@@ -21,8 +21,6 @@ use std::collections::hash_map::Entry;
 /// assigned to were to have incorrect receipts, the balances in the fourth epoch would have
 /// been incorrect due to wrong receipts applied during the third epoch.
 #[test]
-#[ignore]
-// TODO: convert override handler to transport filter (iteration 24-26)
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 fn ultra_slow_test_catchup_random_single_part_sync() {
     test_catchup_random_single_part_sync_common(RandomSinglePartTest {
@@ -36,8 +34,6 @@ fn ultra_slow_test_catchup_random_single_part_sync() {
 // It causes all the receipts to be applied only on height 25, which is the next epoch.
 // It tests that the incoming receipts are property synced through epochs
 #[test]
-#[ignore]
-// TODO: convert override handler to transport filter (iteration 24-26)
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 fn ultra_slow_test_catchup_random_single_part_sync_skip_24() {
     test_catchup_random_single_part_sync_common(RandomSinglePartTest {
@@ -48,8 +44,6 @@ fn ultra_slow_test_catchup_random_single_part_sync_skip_24() {
 }
 
 #[test]
-#[ignore]
-// TODO: convert override handler to transport filter (iteration 24-26)
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 fn ultra_slow_test_catchup_random_single_part_sync_send_24() {
     test_catchup_random_single_part_sync_common(RandomSinglePartTest {
@@ -61,8 +55,6 @@ fn ultra_slow_test_catchup_random_single_part_sync_send_24() {
 
 // Make sure that transactions are at least applied.
 #[test]
-#[ignore]
-// TODO: convert override handler to transport filter (iteration 24-26)
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 fn ultra_slow_test_catchup_random_single_part_sync_non_zero_amounts() {
     test_catchup_random_single_part_sync_common(RandomSinglePartTest {
@@ -74,8 +66,6 @@ fn ultra_slow_test_catchup_random_single_part_sync_non_zero_amounts() {
 
 // Use another height to send txs.
 #[test]
-#[ignore]
-// TODO: convert override handler to transport filter (iteration 24-26)
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 fn ultra_slow_test_catchup_random_single_part_sync_height_9() {
     test_catchup_random_single_part_sync_common(RandomSinglePartTest {
@@ -270,8 +260,6 @@ fn test_catchup_random_single_part_sync_common(
 /// This test would fail if at any point validators got stuck with state sync, or block
 /// production stalled for any other reason.
 #[test]
-#[ignore]
-// TODO: convert override handler to transport filter (iteration 24-26)
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 fn slow_test_catchup_sanity_blocks_produced() {
     let validators: Vec<Vec<AccountId>> = [
@@ -334,8 +322,6 @@ fn slow_test_catchup_sanity_blocks_produced() {
 }
 
 #[test]
-#[ignore]
-// TODO: convert override handler to transport filter (iteration 24-26)
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 fn slow_test_all_chunks_accepted() {
     init_test_logger();

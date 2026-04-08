@@ -26,8 +26,6 @@ use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::PROTOCOL_VERSION;
 
 #[test]
-#[ignore]
-// TODO: convert override handler to transport filter (iteration 24-26)
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 fn test_producer_with_expired_transactions() {
     init_test_logger();
@@ -149,8 +147,6 @@ fn test_producer_with_expired_transactions() {
 }
 
 #[test]
-#[ignore]
-// TODO: convert override handler to transport filter (iteration 24-26)
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 fn test_producer_sending_large_encoded_length_chunks() {
     init_test_logger();
@@ -221,7 +217,6 @@ fn test_producer_sending_large_encoded_length_chunks() {
 /// Tests chain behavior when a malicious chunk producer withholds chunk parts
 /// from nodes other than the block producer.
 #[test]
-#[ignore] // TODO: convert override handler to transport filter (iteration 24-26)
 fn test_chunk_parts_withholding_attack() {
     init_test_logger();
 
