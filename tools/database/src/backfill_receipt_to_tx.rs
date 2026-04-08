@@ -286,6 +286,9 @@ pub fn backfill_receipt_to_tx(
                 }
                 Err(e) => return Err(e),
             }
+            if let Some(p) = progress {
+                p.inc(1);
+            }
         }
 
         // Checkpoint at chunk_end — all heights in chunk are done.
@@ -294,10 +297,6 @@ pub fn backfill_receipt_to_tx(
             store_update.set_ser(DBCol::Misc, BACKFILL_CHECKPOINT_KEY, &chunk_end);
         }
         store_update.commit();
-
-        if let Some(p) = progress {
-            p.inc(chunk_end - height + 1);
-        }
 
         if stats.blocks_processed / 10_000 > blocks_before / 10_000 {
             tracing::info!(
