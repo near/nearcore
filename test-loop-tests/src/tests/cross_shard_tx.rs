@@ -254,7 +254,6 @@ fn get_balances(
 }
 
 #[test]
-#[ignore] // TODO: convert override handler to transport filter (iteration 24-26)
 fn ultra_slow_test_cross_shard_tx() {
     test_cross_shard_tx_common(Params {
         num_transfers: 64,
@@ -264,8 +263,6 @@ fn ultra_slow_test_cross_shard_tx() {
 }
 
 #[test]
-#[ignore]
-// TODO: convert override handler to transport filter (iteration 24-26)
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 fn ultra_slow_test_cross_shard_tx_drop_chunks() {
     test_cross_shard_tx_common(Params {
@@ -276,8 +273,6 @@ fn ultra_slow_test_cross_shard_tx_drop_chunks() {
 }
 
 #[test]
-#[ignore]
-// TODO: convert override handler to transport filter (iteration 24-26)
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 fn ultra_slow_test_cross_shard_tx_with_validator_rotation() {
     test_cross_shard_tx_common(Params {
@@ -288,8 +283,6 @@ fn ultra_slow_test_cross_shard_tx_with_validator_rotation() {
 }
 
 #[test]
-#[ignore]
-// TODO: convert override handler to transport filter (iteration 24-26)
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 fn ultra_slow_test_cross_shard_tx_with_validator_rotation_drop_chunks() {
     test_cross_shard_tx_common(Params {
