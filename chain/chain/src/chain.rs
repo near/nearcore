@@ -3294,14 +3294,12 @@ impl Chain {
             // drop the patch, causing permanent patch loss (e.g. at startup
             // when block 1 has no new chunks).
             let block_height = block.header().height();
-            let state_patch = if chunk_headers
-                .get(shard_index)
-                .map_or(false, |h| h.is_new_chunk(block_height))
-            {
-                state_patch.take()
-            } else {
-                SandboxStatePatch::default()
-            };
+            let state_patch =
+                if chunk_headers.get(shard_index).map_or(false, |h| h.is_new_chunk(block_height)) {
+                    state_patch.take()
+                } else {
+                    SandboxStatePatch::default()
+                };
 
             let shard_id = shard_layout.get_shard_id(shard_index)?;
             let prev_chunk_header =
