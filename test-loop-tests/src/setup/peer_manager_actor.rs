@@ -28,7 +28,7 @@ use near_network::state_witness::{
 };
 use near_network::types::{
     HighestHeightPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses, PeerInfo,
-    PeerManagerMessageRequest, PeerManagerMessageResponse, ReasonForBan, SetChainInfo,
+    PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, ReasonForBan, SetChainInfo,
     StateSyncEvent, Tier3Request,
 };
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
@@ -224,6 +224,13 @@ impl TestLoopPeerManagerActor {
     }
 }
 
+/// Filter function for transport-level message interception.
+/// Receives (from_peer, to_peer, message) and returns:
+/// - `Some(msg)` to continue delivery (possibly modified)
+/// - `None` to drop the message silently
+pub type TransportMessageFilter =
+    Arc<dyn Fn(&PeerId, &PeerId, &PeerMessage) -> Option<PeerMessage> + Send + Sync>;
+
 /// Shared state across all the network actors. It handles the mapping between AccountId,
 /// PeerId, and the route back CryptoHash, so that individual network actors can do
 /// routing.
@@ -238,6 +245,7 @@ struct TestLoopNetworkSharedStateInner {
     route_back: HashMap<CryptoHash, PeerId>,
     disallowed_peer_links: HashMap<PeerId, HashSet<PeerId>>,
     archival_peer_ids: HashSet<PeerId>,
+    message_filters: Vec<TransportMessageFilter>,
 }
 
 /// Senders available for the networking layer, for one node in the test loop.
@@ -293,6 +301,7 @@ impl TestLoopNetworkSharedState {
             route_back: HashMap::new(),
             disallowed_peer_links: HashMap::new(),
             archival_peer_ids: HashSet::new(),
+            message_filters: Vec::new(),
         };
         Self(Arc::new(Mutex::new(inner)))
     }
@@ -425,6 +434,38 @@ impl TestLoopNetworkSharedState {
         let guard = self.0.lock();
         let account_ids = guard.account_to_peer_id.keys().cloned().collect_vec();
         account_ids
+    }
+
+    /// Register a transport-level message filter.
+    pub fn register_message_filter(
+        &self,
+        filter: impl Fn(&PeerId, &PeerId, &PeerMessage) -> Option<PeerMessage> + Send + Sync + 'static,
+    ) {
+        self.0.lock().message_filters.push(Arc::new(filter));
+    }
+
+    /// Register a pre-built Arc filter.
+    #[allow(dead_code)]
+    pub fn register_message_filter_arc(&self, filter: TransportMessageFilter) {
+        self.0.lock().message_filters.push(filter);
+    }
+
+    /// Apply all filters in order. Returns None if any filter drops the message.
+    pub fn apply_message_filters(
+        &self,
+        from: &PeerId,
+        to: &PeerId,
+        msg: PeerMessage,
+    ) -> Option<PeerMessage> {
+        let guard = self.0.lock();
+        let mut current = msg;
+        for filter in &guard.message_filters {
+            match filter(from, to, &current) {
+                Some(m) => current = m,
+                None => return None,
+            }
+        }
+        Some(current)
     }
 }
 

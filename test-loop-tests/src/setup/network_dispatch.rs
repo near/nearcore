@@ -54,6 +54,16 @@ impl TestLoopTransport {
             return false;
         }
 
+        // Apply message filters (transport-level interception).
+        let msg = match self.shared_state.apply_message_filters(
+            &self.my_peer_id,
+            target_peer_id,
+            msg.as_ref().clone(),
+        ) {
+            Some(msg) => msg,
+            None => return false, // dropped by filter
+        };
+
         let target_state = {
             let states = self.node_network_states.lock();
             match states.get(target_peer_id) {
@@ -72,7 +82,7 @@ impl TestLoopTransport {
         let my_peer_id = self.my_peer_id.clone();
         let clock = self.clock.clone();
 
-        match msg.as_ref().clone() {
+        match msg {
             PeerMessage::Routed(msg) => {
                 let msg_hash = msg.hash();
                 let msg_author = msg.author().clone();

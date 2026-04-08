@@ -49,3 +49,4 @@ pub mod sink;
 
 pub use network_protocol::PeerAddr;
 pub use network_protocol::{PeerIdOrHash, RawRoutedMessage};
+pub use network_protocol::{T1MessageBody, T2MessageBody, TieredMessageBody};

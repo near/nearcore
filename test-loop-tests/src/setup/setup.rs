@@ -679,9 +679,14 @@ pub fn setup_client(
         network_shared_state.mark_archival(&node_data.peer_id);
     }
 
-    // Register all accumulated drop conditions
+    // Register all accumulated drop conditions as transport-level message filters.
     for condition in drop_conditions {
-        node_data.register_drop_condition(&test_loop.data, chunks_storage.clone(), condition);
+        node_data.register_drop_condition(
+            &test_loop.data,
+            chunks_storage.clone(),
+            condition,
+            network_shared_state,
+        );
     }
 
     node_data

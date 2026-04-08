@@ -1,5 +1,7 @@
-use super::peer_manager_actor::NetworkRequestHandler;
+#[allow(unused_imports)]
+use super::peer_manager_actor::{NetworkRequestHandler, TestLoopNetworkSharedState};
 use super::state::NodeExecutionData;
+#[allow(unused_imports)]
 use crate::utils::network::{
     block_dropper_by_height, chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash,
 };
@@ -9,6 +11,8 @@ use near_async::test_loop::sender::TestLoopSender;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_epoch_manager::EpochManagerAdapter;
+use near_network::types::PeerMessage;
+use near_network::{T1MessageBody, TieredMessageBody};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::{AccountId, BlockHeight, ShardId, ShardIndex};
 use near_vm_runner::logic::ProtocolVersion;
@@ -100,13 +104,17 @@ impl NodeExecutionData {
         test_loop_data: &TestLoopData,
         chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
         drop_condition: &DropCondition,
+        network_shared_state: &TestLoopNetworkSharedState,
     ) {
         match drop_condition {
-            DropCondition::ChunksValidatedBy(account_id) => {
-                self.register_drop_chunks_validated_by(test_loop_data, chunks_storage, account_id)
-            }
+            DropCondition::ChunksValidatedBy(account_id) => self.register_drop_chunks_validated_by(
+                test_loop_data,
+                chunks_storage,
+                account_id,
+                network_shared_state,
+            ),
             DropCondition::EndorsementsFrom(account_id) => {
-                self.register_drop_endorsements_from(test_loop_data, account_id);
+                self.register_drop_endorsements_from(account_id, network_shared_state);
             }
             DropCondition::ProtocolUpgradeChunkRange(protocol_version, chunk_ranges) => {
                 self.register_drop_protocol_upgrade_chunks(
@@ -114,6 +122,7 @@ impl NodeExecutionData {
                     chunks_storage,
                     *protocol_version,
                     chunk_ranges.clone(),
+                    network_shared_state,
                 );
             }
             DropCondition::ChunksProducedByHeight(chunks_produced) => {
@@ -121,10 +130,11 @@ impl NodeExecutionData {
                     test_loop_data,
                     chunks_storage,
                     chunks_produced.clone(),
+                    network_shared_state,
                 );
             }
             DropCondition::BlocksByHeight(heights) => {
-                self.register_drop_blocks_by_height(test_loop_data, heights);
+                self.register_drop_blocks_by_height(heights, network_shared_state);
             }
         }
     }
@@ -134,31 +144,60 @@ impl NodeExecutionData {
         test_loop_data: &TestLoopData,
         chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
         account_id: &AccountId,
+        network_shared_state: &TestLoopNetworkSharedState,
     ) {
         let client_actor = test_loop_data.get(&self.client_sender.actor_handle());
         let epoch_manager = client_actor.client.chain.epoch_manager.clone();
-
-        let inner_epoch_manager = epoch_manager.clone();
         let account_id = account_id.clone();
-        let drop_chunks_condition = Box::new(move |chunk: ShardChunkHeader| -> bool {
-            is_chunk_validated_by(inner_epoch_manager.as_ref(), chunk, account_id.clone())
-        });
 
-        self.register_override_handler(
-            test_loop_data,
-            chunk_endorsement_dropper_by_hash(chunks_storage, epoch_manager, drop_chunks_condition),
-        );
+        network_shared_state.register_message_filter(move |_from, _to, msg| {
+            if let PeerMessage::Routed(routed_msg) = msg {
+                if let TieredMessageBody::T1(body) = routed_msg.body() {
+                    if let T1MessageBody::VersionedChunkEndorsement(endorsement) = body.as_ref() {
+                        let chunk_hash = endorsement.chunk_hash();
+                        let chunks = chunks_storage.lock();
+                        if let Some(chunk) = chunks.get(&chunk_hash) {
+                            if chunks.can_drop_chunk(chunk) {
+                                if epoch_manager
+                                    .get_epoch_id_from_prev_block(chunk.prev_block_hash())
+                                    .is_err()
+                                {
+                                    return Some(msg.clone());
+                                }
+                                if is_chunk_validated_by(
+                                    epoch_manager.as_ref(),
+                                    chunk.clone(),
+                                    account_id.clone(),
+                                ) {
+                                    return None;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Some(msg.clone())
+        });
     }
 
     fn register_drop_endorsements_from(
         &self,
-        test_loop_data: &TestLoopData,
         account_id: &AccountId,
+        network_shared_state: &TestLoopNetworkSharedState,
     ) {
-        self.register_override_handler(
-            test_loop_data,
-            chunk_endorsement_dropper(account_id.clone()),
-        );
+        let account_id = account_id.clone();
+        network_shared_state.register_message_filter(move |_from, _to, msg| {
+            if let PeerMessage::Routed(routed_msg) = msg {
+                if let TieredMessageBody::T1(body) = routed_msg.body() {
+                    if let T1MessageBody::VersionedChunkEndorsement(endorsement) = body.as_ref() {
+                        if endorsement.validator_account() == &account_id {
+                            return None;
+                        }
+                    }
+                }
+            }
+            Some(msg.clone())
+        });
     }
 
     fn register_drop_protocol_upgrade_chunks(
@@ -167,24 +206,40 @@ impl NodeExecutionData {
         chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
         protocol_version: ProtocolVersion,
         chunk_ranges: HashMap<ShardIndex, Range<i64>>,
+        network_shared_state: &TestLoopNetworkSharedState,
     ) {
         let client_actor = test_loop_data.get(&self.client_sender.actor_handle());
         let epoch_manager = client_actor.client.chain.epoch_manager.clone();
 
-        let inner_epoch_manager = epoch_manager.clone();
-        let drop_chunks_condition = Box::new(move |chunk: ShardChunkHeader| -> bool {
-            should_drop_chunk_for_protocol_upgrade(
-                inner_epoch_manager.as_ref(),
-                chunk,
-                protocol_version,
-                chunk_ranges.clone(),
-            )
+        network_shared_state.register_message_filter(move |_from, _to, msg| {
+            if let PeerMessage::Routed(routed_msg) = msg {
+                if let TieredMessageBody::T1(body) = routed_msg.body() {
+                    if let T1MessageBody::VersionedChunkEndorsement(endorsement) = body.as_ref() {
+                        let chunk_hash = endorsement.chunk_hash();
+                        let chunks = chunks_storage.lock();
+                        if let Some(chunk) = chunks.get(&chunk_hash) {
+                            if chunks.can_drop_chunk(chunk) {
+                                if epoch_manager
+                                    .get_epoch_id_from_prev_block(chunk.prev_block_hash())
+                                    .is_err()
+                                {
+                                    return Some(msg.clone());
+                                }
+                                if should_drop_chunk_for_protocol_upgrade(
+                                    epoch_manager.as_ref(),
+                                    chunk.clone(),
+                                    protocol_version,
+                                    chunk_ranges.clone(),
+                                ) {
+                                    return None;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Some(msg.clone())
         });
-
-        self.register_override_handler(
-            test_loop_data,
-            chunk_endorsement_dropper_by_hash(chunks_storage, epoch_manager, drop_chunks_condition),
-        );
     }
 
     fn register_drop_chunks_by_height(
@@ -192,35 +247,55 @@ impl NodeExecutionData {
         test_loop_data: &TestLoopData,
         chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
         chunks_produced: HashMap<ShardId, Vec<bool>>,
+        network_shared_state: &TestLoopNetworkSharedState,
     ) {
         let client_actor = test_loop_data.get(&self.client_sender.actor_handle());
         let epoch_manager = client_actor.client.chain.epoch_manager.clone();
 
-        let inner_epoch_manager = epoch_manager.clone();
-        let drop_chunks_condition = Box::new(move |chunk: ShardChunkHeader| -> bool {
-            should_drop_chunk_by_height(
-                inner_epoch_manager.as_ref(),
-                chunk,
-                chunks_produced.clone(),
-            )
+        network_shared_state.register_message_filter(move |_from, _to, msg| {
+            if let PeerMessage::Routed(routed_msg) = msg {
+                if let TieredMessageBody::T1(body) = routed_msg.body() {
+                    if let T1MessageBody::VersionedChunkEndorsement(endorsement) = body.as_ref() {
+                        let chunk_hash = endorsement.chunk_hash();
+                        let chunks = chunks_storage.lock();
+                        if let Some(chunk) = chunks.get(&chunk_hash) {
+                            if chunks.can_drop_chunk(chunk) {
+                                if epoch_manager
+                                    .get_epoch_id_from_prev_block(chunk.prev_block_hash())
+                                    .is_err()
+                                {
+                                    return Some(msg.clone());
+                                }
+                                if should_drop_chunk_by_height(
+                                    epoch_manager.as_ref(),
+                                    chunk.clone(),
+                                    chunks_produced.clone(),
+                                ) {
+                                    return None;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Some(msg.clone())
         });
-
-        self.register_override_handler(
-            test_loop_data,
-            chunk_endorsement_dropper_by_hash(
-                chunks_storage,
-                epoch_manager.clone(),
-                drop_chunks_condition.clone(),
-            ),
-        );
     }
 
     fn register_drop_blocks_by_height(
         &self,
-        test_loop_data: &TestLoopData,
         heights: &HashSet<BlockHeight>,
+        network_shared_state: &TestLoopNetworkSharedState,
     ) {
-        self.register_override_handler(test_loop_data, block_dropper_by_height(heights.clone()));
+        let heights = heights.clone();
+        network_shared_state.register_message_filter(move |_from, _to, msg| {
+            if let PeerMessage::Block(block) = msg {
+                if heights.contains(&block.header().height()) {
+                    return None;
+                }
+            }
+            Some(msg.clone())
+        });
     }
 
     #[allow(unused_variables)]
@@ -230,7 +305,7 @@ impl NodeExecutionData {
         handler: NetworkRequestHandler,
     ) {
         // TODO(peer-testloop): override handlers are not supported with real PeerManagerActor.
-        // This will be replaced by transport-level filters in Phase 3.
+        // This will be replaced by transport-level filters when each test is converted.
         // For now, silently skip — tests that depend on handlers may fail with wrong results
         // rather than panicking.
         tracing::warn!(target: "test", "register_override_handler is a no-op with real PeerManagerActor");
