@@ -548,13 +548,13 @@ fn network_message_to_client_handler(
                 .send(SpiceChunkEndorsementMessage(endorsement));
             None
         }
-        NetworkRequests::EpochSyncRequest { peer_id } => {
+        NetworkRequests::EpochSyncRequest { peer_id, epoch_id, epoch_height } => {
             let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
             assert_ne!(peer_id, my_peer_id, "Sending message to self not supported.");
             shared_state
                 .senders_for_peer(&my_peer_id, &peer_id)
                 .client_sender
-                .send(EpochSyncRequestMessage { from_peer: my_peer_id });
+                .send(EpochSyncRequestMessage { from_peer: my_peer_id, epoch_id, epoch_height });
             None
         }
         NetworkRequests::EpochSyncResponse { peer_id, proof } => {

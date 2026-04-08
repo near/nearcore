@@ -22,6 +22,7 @@ use std::sync::Arc;
 #[repr(u8)]
 pub enum EpochSyncProof {
     V1(EpochSyncProofV1) = 0,
+    V2(EpochSyncProofV2) = 1,
 }
 
 impl EpochSyncProof {
@@ -29,6 +30,7 @@ impl EpochSyncProof {
     pub fn into_v1(self) -> EpochSyncProofV1 {
         match self {
             EpochSyncProof::V1(v1) => v1,
+            _ => panic!("expected V1 epoch sync proof"),
         }
     }
 
@@ -36,6 +38,14 @@ impl EpochSyncProof {
     pub fn as_v1(&self) -> &EpochSyncProofV1 {
         match self {
             EpochSyncProof::V1(v1) => v1,
+            _ => panic!("expected V1 epoch sync proof"),
+        }
+    }
+
+    pub fn into_v2(self) -> EpochSyncProofV2 {
+        match self {
+            EpochSyncProof::V2(v2) => v2,
+            _ => panic!("expected V2 epoch sync proof"),
         }
     }
 }
@@ -62,6 +72,31 @@ pub struct EpochSyncProofV1 {
     pub last_epoch: EpochSyncProofLastEpochData,
     /// Extra information to initialize the current epoch we're syncing to.
     pub current_epoch: EpochSyncProofCurrentEpochData,
+}
+
+/// A partial epoch sync proof covering a contiguous range of epochs.
+/// Used for incremental epoch sync where the full proof is split into
+/// smaller chunks to avoid sending a single 300MB message.
+///
+/// The requester maintains a "validated epoch head" and requests proof
+/// starting from that head. Each chunk proves some number of epochs.
+/// The final chunk (where `last_epoch` and `current_epoch` are `Some`)
+/// includes the data needed to initialize the epoch manager.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct EpochSyncProofV2 {
+    /// Epoch data for a contiguous range of epochs. May be a subset of
+    /// all epochs from genesis to current.
+    ///
+    /// For the first chunk, the first entry is proven against genesis.
+    /// For subsequent chunks, the first entry is proven against the
+    /// last epoch of the previous chunk (via next_bp_hash).
+    pub all_epochs: Vec<EpochSyncProofEpochData>,
+    /// Present only in the final chunk. Contains data needed to
+    /// initialize the epoch sync boundary.
+    pub last_epoch: Option<EpochSyncProofLastEpochData>,
+    /// Present only in the final chunk. Contains data needed to
+    /// initialize the current epoch we're syncing to.
+    pub current_epoch: Option<EpochSyncProofCurrentEpochData>,
 }
 
 const MAX_UNCOMPRESSED_EPOCH_SYNC_PROOF_SIZE: u64 = ByteSize::mib(500).0;

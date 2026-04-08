@@ -149,6 +149,8 @@ pub struct SpiceChunkEndorsementMessage(pub SpiceChunkEndorsement);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EpochSyncRequestMessage {
     pub from_peer: PeerId,
+    pub epoch_id: EpochId,
+    pub epoch_height: EpochHeight,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

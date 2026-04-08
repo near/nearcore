@@ -1093,8 +1093,12 @@ impl PeerActor {
                         .ok();
                     None
                 }
-                PeerMessage::EpochSyncRequest => {
-                    network_state.client.send(EpochSyncRequestMessage { from_peer: peer_id });
+                PeerMessage::EpochSyncRequest(data) => {
+                    network_state.client.send(EpochSyncRequestMessage {
+                        from_peer: peer_id,
+                        epoch_id: data.epoch_id,
+                        epoch_height: data.epoch_height,
+                    });
                     None
                 }
                 PeerMessage::EpochSyncResponse(proof) => {
