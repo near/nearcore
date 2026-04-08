@@ -1,5 +1,7 @@
 mod cache;
 mod compile_errors;
+#[cfg(feature = "wasmtime_vm")]
+mod compiler_daemon;
 #[cfg(feature = "prepare")]
 mod fuzzers;
 mod regression_tests;

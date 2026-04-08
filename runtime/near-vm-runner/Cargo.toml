@@ -21,6 +21,7 @@ ed25519-dalek.workspace = true
 enum-map.workspace = true
 finite-wasm = { workspace = true, features = ["instrument"], optional = true }
 finite-wasm-6 = { workspace = true, optional = true }
+libc.workspace = true
 lru.workspace = true
 memoffset = { workspace = true, optional = true }
 num-rational.workspace = true
@@ -125,6 +126,11 @@ protocol_schema = [
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = []
+
+[[test]]
+name = "compiler_daemon"
+harness = false
+required-features = ["wasmtime_vm"]
 
 [package.metadata.cargo-machete]
 ignored = ["prometheus"]
