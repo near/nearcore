@@ -272,7 +272,7 @@ mod tests {
             // A function with blocks over the limit should be rejected.
             let wasm = contract_with_blocks_in_one_function(limit as u32 + 1);
             let r = prepare_contract(&wasm, &config, kind);
-            assert_matches!(r, Err(PrepareError::TooManyBlocks));
+            assert_matches!(r, Err(PrepareError::TooManyBlocksPerFunction));
 
             // A function with blocks at the limit should be accepted.
             let wasm = contract_with_blocks_in_one_function(limit as u32);
@@ -296,7 +296,7 @@ mod tests {
             // 100 functions x 1 block = 100 total blocks, should be rejected.
             let wasm = contract_with_many_blocks(100);
             let r = prepare_contract(&wasm, &config, kind);
-            assert_matches!(r, Err(PrepareError::TooManyBlocks));
+            assert_matches!(r, Err(PrepareError::TooManyBlocksPerContract));
 
             // 50 functions x 1 block = 50 total blocks, should be accepted.
             let wasm = contract_with_many_blocks(50);

@@ -89,8 +89,10 @@ pub enum Error {
     TooManyGlobals,
     #[error("function contains too many locals")]
     TooManyLocals,
-    #[error("too many basic blocks in a function or contract")]
-    TooManyBlocks,
+    #[error("too many basic blocks in a function")]
+    TooManyBlocksPerFunction,
+    #[error("too many basic blocks in a contract")]
+    TooManyBlocksPerContract,
 }
 
 pub(crate) struct InstrumentContext<'a> {
@@ -101,7 +103,7 @@ pub(crate) struct InstrumentContext<'a> {
     op_cost: u32,
     max_stack_height: u32,
     max_blocks_per_function: u64,
-    contract_block_limit: u64,
+    max_blocks_per_contract: u64,
 
     type_section: we::TypeSection,
     import_section: we::ImportSection,
@@ -237,7 +239,7 @@ impl<'a> InstrumentContext<'a> {
             op_cost,
             max_stack_height,
             max_blocks_per_function,
-            contract_block_limit: max_blocks_per_contract,
+            max_blocks_per_contract,
 
             type_section: we::TypeSection::new(),
             import_section: we::ImportSection::new(),
@@ -570,7 +572,7 @@ impl<'a> InstrumentContext<'a> {
                     | wp::Operator::If { .. } => {
                         block_count += 1;
                         if block_count > self.max_blocks_per_function {
-                            return Err(Error::TooManyBlocks);
+                            return Err(Error::TooManyBlocksPerFunction);
                         }
                     }
                     _ => {}
@@ -650,8 +652,10 @@ impl<'a> InstrumentContext<'a> {
                 body_size = reader.range().len(),
                 "wasm function block count"
             );
-            self.contract_block_limit =
-                self.contract_block_limit.checked_sub(block_count).ok_or(Error::TooManyBlocks)?;
+            self.max_blocks_per_contract = self
+                .max_blocks_per_contract
+                .checked_sub(block_count)
+                .ok_or(Error::TooManyBlocksPerContract)?;
         }
 
         self.code_section.function(&new_function);

@@ -11802,9 +11802,16 @@
             "type": "string"
           },
           {
-            "description": "A function or contract contains too many basic blocks.",
+            "description": "A function contains too many basic blocks.",
             "enum": [
-              "TooManyBlocks"
+              "TooManyBlocksPerFunction"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "A contract contains too many basic blocks.",
+            "enum": [
+              "TooManyBlocksPerContract"
             ],
             "type": "string"
           }

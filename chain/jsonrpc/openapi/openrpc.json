@@ -7248,8 +7248,13 @@
             "type": "string"
           },
           {
-            "const": "TooManyBlocks",
-            "description": "A function or contract contains too many basic blocks.",
+            "const": "TooManyBlocksPerFunction",
+            "description": "A function contains too many basic blocks.",
+            "type": "string"
+          },
+          {
+            "const": "TooManyBlocksPerContract",
+            "description": "A contract contains too many basic blocks.",
             "type": "string"
           }
         ],

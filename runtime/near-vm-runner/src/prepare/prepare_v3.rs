@@ -435,7 +435,8 @@ pub(crate) fn prepare_contract(
     .map_err(|err| {
         use super::instrument_v3::Error;
         match err {
-            Error::TooManyBlocks => PrepareError::TooManyBlocks,
+            Error::TooManyBlocksPerFunction => PrepareError::TooManyBlocksPerFunction,
+            Error::TooManyBlocksPerContract => PrepareError::TooManyBlocksPerContract,
             err => {
                 tracing::error!(target: "vm", ?err, ?kind, "instrumentation failed");
                 PrepareError::Serialization
