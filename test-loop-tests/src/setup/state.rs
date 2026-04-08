@@ -1,9 +1,5 @@
 use super::drop_condition::{DropCondition, TestLoopChunksStorage};
-use super::peer_manager_actor::{
-    ChunkEndorsementSenderForTestLoopNetwork, ClientSenderForTestLoopNetwork,
-    SpiceDataDistributorSenderForTestLoopNetwork, TestLoopNetworkSharedState,
-    TxRequestHandleSenderForTestLoopNetwork, ViewClientSenderForTestLoopNetwork,
-};
+use super::peer_manager_actor::TestLoopNetworkSharedState;
 use near_async::messaging::{IntoMultiSender, IntoSender, Sender};
 use near_async::test_loop::data::TestLoopDataHandle;
 use near_async::test_loop::sender::TestLoopSender;
@@ -24,7 +20,6 @@ use near_jsonrpc::ViewClientSenderForRpc;
 use near_jsonrpc::client::{JsonRpcClient, RpcTransport};
 use near_jsonrpc::sharded_rpc::ShardedRpcPool;
 use near_network::PeerManagerActor;
-use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::PartialWitnessSenderForNetwork;
 use near_network::types::StateRequestSenderForNetwork;
@@ -137,20 +132,8 @@ impl From<&NodeExecutionData> for PeerId {
     }
 }
 
-impl From<&NodeExecutionData> for ClientSenderForTestLoopNetwork {
-    fn from(data: &NodeExecutionData) -> ClientSenderForTestLoopNetwork {
-        data.client_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
-    }
-}
-
 impl From<&NodeExecutionData> for ViewClientSenderForRpc {
     fn from(data: &NodeExecutionData) -> ViewClientSenderForRpc {
-        data.view_client_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
-    }
-}
-
-impl From<&NodeExecutionData> for ViewClientSenderForTestLoopNetwork {
-    fn from(data: &NodeExecutionData) -> ViewClientSenderForTestLoopNetwork {
         data.view_client_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
     }
 }
@@ -170,30 +153,6 @@ impl From<&NodeExecutionData> for PartialWitnessSenderForNetwork {
 impl From<&NodeExecutionData> for Sender<ShardsManagerRequestFromNetwork> {
     fn from(data: &NodeExecutionData) -> Sender<ShardsManagerRequestFromNetwork> {
         data.shards_manager_sender.clone().with_delay(NETWORK_DELAY).into_sender()
-    }
-}
-
-impl From<&NodeExecutionData> for TxRequestHandleSenderForTestLoopNetwork {
-    fn from(data: &NodeExecutionData) -> TxRequestHandleSenderForTestLoopNetwork {
-        data.rpc_handler_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
-    }
-}
-
-impl From<&NodeExecutionData> for ChunkEndorsementSenderForTestLoopNetwork {
-    fn from(data: &NodeExecutionData) -> ChunkEndorsementSenderForTestLoopNetwork {
-        data.chunk_endorsement_handler_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
-    }
-}
-
-impl From<&NodeExecutionData> for SpiceDataDistributorSenderForTestLoopNetwork {
-    fn from(data: &NodeExecutionData) -> SpiceDataDistributorSenderForTestLoopNetwork {
-        data.spice_data_distributor_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
-    }
-}
-
-impl From<&NodeExecutionData> for Sender<SpiceChunkEndorsementMessage> {
-    fn from(data: &NodeExecutionData) -> Sender<SpiceChunkEndorsementMessage> {
-        data.spice_core_writer_sender.clone().with_delay(NETWORK_DELAY).into_sender()
     }
 }
 

@@ -1,74 +1,13 @@
 use itertools::Itertools;
-use near_async::messaging::{AsyncSender, Handler, IntoMultiSender, IntoSender, Sender};
-use near_async::test_loop::sender::TestLoopSender;
-use near_async::{MultiSend, MultiSenderFrom};
-use near_client::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
-use near_client::{BlockApproval, BlockResponse, SetNetworkInfo};
-use near_network::client::{
-    BlockHeadersRequest, BlockHeadersResponse, BlockRequest, ChunkEndorsementMessage,
-    EpochSyncRequestMessage, EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
-    ProcessTxResponse, SpiceChunkEndorsementMessage,
-};
-use near_network::shards_manager::ShardsManagerRequestFromNetwork;
-use near_network::spice_data_distribution::{
-    SpiceChunkContractAccessesMessage, SpiceContractCodeRequestMessage,
-    SpiceContractCodeResponseMessage, SpiceIncomingPartialData, SpicePartialDataRequest,
-};
-use near_network::state_witness::PartialWitnessSenderForNetwork;
 use near_network::types::PeerMessage;
-use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use parking_lot::{Mutex, MutexGuard};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-/// Subset of ClientSenderForNetwork required for the TestLoop network.
-/// We skip over the message handlers from view client.
-#[derive(Clone, MultiSend, MultiSenderFrom)]
-pub struct ClientSenderForTestLoopNetwork {
-    pub block: AsyncSender<SpanWrapped<BlockResponse>, ()>,
-    pub block_headers: AsyncSender<
-        SpanWrapped<BlockHeadersResponse>,
-        Result<(), near_network::types::ReasonForBan>,
-    >,
-    pub block_approval: AsyncSender<SpanWrapped<BlockApproval>, ()>,
-    pub epoch_sync_request: Sender<EpochSyncRequestMessage>,
-    pub epoch_sync_response: Sender<EpochSyncResponseMessage>,
-    pub optimistic_block_receiver: Sender<SpanWrapped<OptimisticBlockMessage>>,
-    pub network_info: AsyncSender<SpanWrapped<SetNetworkInfo>, ()>,
-}
-
-#[derive(Clone, MultiSend, MultiSenderFrom)]
-pub struct TxRequestHandleSenderForTestLoopNetwork {
-    pub transaction: AsyncSender<ProcessTxRequest, ProcessTxResponse>,
-}
-
-#[derive(Clone, MultiSend, MultiSenderFrom)]
-pub struct ChunkEndorsementSenderForTestLoopNetwork {
-    pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
-}
-
-#[derive(Clone, MultiSend, MultiSenderFrom)]
-pub struct ViewClientSenderForTestLoopNetwork {
-    pub block_headers_request:
-        AsyncSender<BlockHeadersRequest, Option<Vec<Arc<near_chain::BlockHeader>>>>,
-    pub block_request: AsyncSender<BlockRequest, Option<Arc<near_chain::Block>>>,
-}
-
-#[derive(Clone, MultiSend, MultiSenderFrom)]
-pub struct SpiceDataDistributorSenderForTestLoopNetwork {
-    pub receipts: Sender<SpiceDistributorOutgoingReceipts>,
-    pub incoming_data: Sender<SpiceIncomingPartialData>,
-    pub data_requests: Sender<SpicePartialDataRequest>,
-    pub contract_accesses: Sender<SpiceChunkContractAccessesMessage>,
-    pub contract_code_request: Sender<SpiceContractCodeRequestMessage>,
-    pub contract_code_response: Sender<SpiceContractCodeResponseMessage>,
-}
-
 /// Shared state across all the network actors. It handles the mapping between AccountId,
-/// PeerId, and the route back CryptoHash, so that individual network actors can do
-/// routing.
+/// PeerId, and network state lookups so that TestLoopTransport can route messages.
 #[derive(Clone)]
 pub struct TestLoopNetworkSharedState(Arc<Mutex<TestLoopNetworkSharedStateInner>>);
 
@@ -81,9 +20,6 @@ pub type TransportMessageFilter =
 
 struct TestLoopNetworkSharedStateInner {
     account_to_peer_id: HashMap<AccountId, PeerId>,
-    senders: HashMap<PeerId, Arc<OneClientSenders>>,
-    // Everything sent using these senders should be dropped.
-    drop_events_senders: Arc<OneClientSenders>,
     disallowed_peer_links: HashMap<PeerId, HashSet<PeerId>>,
     archival_peer_ids: HashSet<PeerId>,
     /// Per-node NetworkState instances, used by TestLoopTransport to record
@@ -96,58 +32,10 @@ struct TestLoopNetworkSharedStateInner {
     message_filters: Vec<TransportMessageFilter>,
 }
 
-/// Senders available for the networking layer, for one node in the test loop.
-/// Most fields are used by drop_events_senders (UnreachableActor) for network
-/// partition simulation. The client_sender field is also read directly in
-/// network_dispatch.rs for BlockRequest/BlockHeadersRequest response routing.
-#[allow(dead_code)]
-pub(crate) struct OneClientSenders {
-    pub(crate) client_sender: ClientSenderForTestLoopNetwork,
-    pub(crate) view_client_sender: ViewClientSenderForTestLoopNetwork,
-    pub(crate) rpc_handler_sender: TxRequestHandleSenderForTestLoopNetwork,
-    pub(crate) chunk_endorsement_handler_sender: ChunkEndorsementSenderForTestLoopNetwork,
-    pub(crate) partial_witness_sender: PartialWitnessSenderForNetwork,
-    pub(crate) shards_manager_sender: Sender<ShardsManagerRequestFromNetwork>,
-    pub(crate) spice_data_distributor_actor: SpiceDataDistributorSenderForTestLoopNetwork,
-    pub(crate) spice_core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
-}
-
-/// This actor can be used in situations when we don't expect any events to reach it.
-/// For example when we want to simulate broken link between peers and drop all events sent
-/// between.
-pub struct UnreachableActor {}
-
-impl<M, R> Handler<M, R> for UnreachableActor
-where
-    M: Send + 'static,
-    R: Send,
-{
-    fn handle(&mut self, _msg: M) -> R {
-        unreachable!("All events for this actor shouldn't be processed");
-    }
-}
-
-impl near_async::messaging::Actor for UnreachableActor {}
-
-fn to_drop_events_senders(s: TestLoopSender<UnreachableActor>) -> Arc<OneClientSenders> {
-    Arc::new(OneClientSenders {
-        client_sender: s.clone().into_multi_sender(),
-        view_client_sender: s.clone().into_multi_sender(),
-        rpc_handler_sender: s.clone().into_multi_sender(),
-        chunk_endorsement_handler_sender: s.clone().into_multi_sender(),
-        partial_witness_sender: s.clone().into_multi_sender(),
-        shards_manager_sender: s.clone().into_sender(),
-        spice_data_distributor_actor: s.clone().into_multi_sender(),
-        spice_core_writer_sender: s.into_sender(),
-    })
-}
-
 impl TestLoopNetworkSharedState {
-    pub fn new(unreachable_actor_sender: TestLoopSender<UnreachableActor>) -> Self {
+    pub fn new() -> Self {
         let inner = TestLoopNetworkSharedStateInner {
             account_to_peer_id: HashMap::new(),
-            senders: HashMap::new(),
-            drop_events_senders: to_drop_events_senders(unreachable_actor_sender),
             disallowed_peer_links: HashMap::new(),
             archival_peer_ids: HashSet::new(),
             network_states: HashMap::new(),
@@ -192,41 +80,9 @@ impl TestLoopNetworkSharedState {
         Some(msg)
     }
 
-    pub fn add_client<'a, D>(&self, data: &'a D)
-    where
-        AccountId: From<&'a D>,
-        PeerId: From<&'a D>,
-        ClientSenderForTestLoopNetwork: From<&'a D>,
-        ViewClientSenderForTestLoopNetwork: From<&'a D>,
-        TxRequestHandleSenderForTestLoopNetwork: From<&'a D>,
-        ChunkEndorsementSenderForTestLoopNetwork: From<&'a D>,
-        PartialWitnessSenderForNetwork: From<&'a D>,
-        Sender<ShardsManagerRequestFromNetwork>: From<&'a D>,
-        SpiceDataDistributorSenderForTestLoopNetwork: From<&'a D>,
-        Sender<SpiceChunkEndorsementMessage>: From<&'a D>,
-    {
-        let account_id = AccountId::from(data);
-        let peer_id = PeerId::from(data);
-
-        let mut guard = self.0.lock();
-        guard.account_to_peer_id.insert(account_id, peer_id.clone());
-        guard.senders.insert(
-            peer_id,
-            Arc::new(OneClientSenders {
-                client_sender: ClientSenderForTestLoopNetwork::from(data),
-                view_client_sender: ViewClientSenderForTestLoopNetwork::from(data),
-                rpc_handler_sender: TxRequestHandleSenderForTestLoopNetwork::from(data),
-                chunk_endorsement_handler_sender: ChunkEndorsementSenderForTestLoopNetwork::from(
-                    data,
-                ),
-                partial_witness_sender: PartialWitnessSenderForNetwork::from(data),
-                shards_manager_sender: Sender::<ShardsManagerRequestFromNetwork>::from(data),
-                spice_data_distributor_actor: SpiceDataDistributorSenderForTestLoopNetwork::from(
-                    data,
-                ),
-                spice_core_writer_sender: Sender::<SpiceChunkEndorsementMessage>::from(data),
-            }),
-        );
+    /// Register a node's account→peer_id mapping.
+    pub fn add_peer(&self, account_id: AccountId, peer_id: PeerId) {
+        self.0.lock().account_to_peer_id.insert(account_id, peer_id);
     }
 
     /// Stops processing of requests from `from` peer to `to` peer.
@@ -255,18 +111,6 @@ impl TestLoopNetworkSharedState {
         !Self::is_peer_link_disallowed(&guard, from, to)
     }
 
-    pub(crate) fn senders_for_peer(
-        &self,
-        origin: &PeerId,
-        peer_id: &PeerId,
-    ) -> Arc<OneClientSenders> {
-        let guard = self.0.lock();
-        if Self::is_peer_link_disallowed(&guard, origin, peer_id) {
-            return guard.drop_events_senders.clone();
-        }
-        guard.senders.get(peer_id).unwrap().clone()
-    }
-
     pub fn mark_archival(&self, peer_id: &PeerId) {
         self.0.lock().archival_peer_ids.insert(peer_id.clone());
     }
@@ -290,6 +134,6 @@ impl TestLoopNetworkSharedState {
 
     pub(crate) fn all_peer_ids(&self) -> Vec<PeerId> {
         let guard = self.0.lock();
-        guard.senders.keys().cloned().collect_vec()
+        guard.account_to_peer_id.values().cloned().collect_vec()
     }
 }

@@ -83,20 +83,27 @@ impl TestLoopTransport {
         }
 
         // BlockRequest/BlockHeadersRequest need special handling: the response
-        // must be routed back to the REQUESTER's client sender.
+        // must be routed back to the REQUESTER's client sender (via its
+        // MessageDispatcher). Also check reverse link (target -> requester)
+        // for the response path.
         match msg {
             PeerMessage::BlockRequest(hash) => {
                 let response_future = target_state.dispatcher.client.send_async(BlockRequest(hash));
-                let requester_senders =
-                    self.shared_state.senders_for_peer(peer_id, &self.my_peer_id);
+                // Get requester's dispatcher for routing the response back.
+                let requester_state =
+                    self.shared_state.network_state_for_peer(&self.my_peer_id).unwrap();
+                let reverse_allowed = self.shared_state.is_link_allowed(peer_id, &self.my_peer_id);
                 let peer_id = self.my_peer_id.clone();
                 self.future_spawner.spawn(
                     "dispatch: route BlockResponse back to requester",
                     async move {
+                        if !reverse_allowed {
+                            return;
+                        }
                         let Ok(Some(block)) = response_future.await else {
                             return;
                         };
-                        let future = requester_senders.client_sender.send_async(
+                        let future = requester_state.dispatcher.client.send_async(
                             BlockResponse { block, peer_id, was_requested: true }.span_wrap(),
                         );
                         drop(future);
@@ -106,17 +113,22 @@ impl TestLoopTransport {
             PeerMessage::BlockHeadersRequest(hashes) => {
                 let response_future =
                     target_state.dispatcher.client.send_async(BlockHeadersRequest(hashes));
-                let requester_senders =
-                    self.shared_state.senders_for_peer(peer_id, &self.my_peer_id);
+                let requester_state =
+                    self.shared_state.network_state_for_peer(&self.my_peer_id).unwrap();
+                let reverse_allowed = self.shared_state.is_link_allowed(peer_id, &self.my_peer_id);
                 let peer_id = self.my_peer_id.clone();
                 self.future_spawner.spawn(
                     "dispatch: route BlockHeadersResponse back to requester",
                     async move {
+                        if !reverse_allowed {
+                            return;
+                        }
                         let Ok(Some(headers)) = response_future.await else {
                             return;
                         };
-                        let future = requester_senders
-                            .client_sender
+                        let future = requester_state
+                            .dispatcher
+                            .client
                             .send_async(BlockHeadersResponse(headers, peer_id).span_wrap());
                         drop(future);
                     },

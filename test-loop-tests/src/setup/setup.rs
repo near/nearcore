@@ -661,7 +661,7 @@ pub fn setup_client(
     // Add the client to the network shared state before returning data
     // Note that this can potentially overwrite an existing client with the same account_id
     // and all new messages would be redirected to the new client.
-    network_shared_state.add_client(&node_data);
+    network_shared_state.add_peer(node_data.account_id.clone(), node_data.peer_id.clone());
     network_shared_state.register_network_state(&node_data.peer_id, network_state);
     if is_archival {
         network_shared_state.mark_archival(&node_data.peer_id);
