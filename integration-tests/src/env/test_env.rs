@@ -912,7 +912,7 @@ impl Drop for TestEnv {
             let had_paused =
                 self.clients.iter_mut().any(|c| c.chain.test_paused_blocks.resume_all());
             if had_paused && !std::thread::panicking() {
-                panic!("some blocks are still paused, did you call `resume_block_processing`?");
+                panic!("some blocks are still paused, did you call `test_paused_blocks.resume`?");
             }
         }
     }
