@@ -477,6 +477,7 @@ fn test_validator_reward_one_validator() {
         ("test1".parse().unwrap(), test1_stake_amount),
         ("test2".parse().unwrap(), stake_amount),
     ];
+    let num_validators = validators.len();
     let epoch_length = 2;
     let total_supply: Balance =
         validators.iter().fold(Balance::ZERO, |sum, (_, stake)| sum.checked_add(*stake).unwrap());
@@ -513,19 +514,20 @@ fn test_validator_reward_one_validator() {
                 h[0],
                 vec![true],
                 total_supply,
+                num_validators,
             ),
             rng_seed,
         )
         .unwrap();
     epoch_manager
         .record_block_info(
-            block_info(h[1], 1, 1, h[0], h[0], h[1], vec![true], total_supply),
+            block_info(h[1], 1, 1, h[0], h[0], h[1], vec![true], total_supply, num_validators),
             rng_seed,
         )
         .unwrap();
     epoch_manager
         .record_block_info(
-            block_info(h[2], 2, 2, h[1], h[1], h[1], vec![true], total_supply),
+            block_info(h[2], 2, 2, h[1], h[1], h[1], vec![true], total_supply, num_validators),
             rng_seed,
         )
         .unwrap();
@@ -577,6 +579,7 @@ fn test_validator_reward_weight_by_stake() {
     let stake_amount2 = Balance::from_yoctonear(500_000);
     let validators =
         vec![("test1".parse().unwrap(), stake_amount1), ("test2".parse().unwrap(), stake_amount2)];
+    let num_validators = validators.len();
     let epoch_length = 2;
     let total_supply = stake_amount1
         .checked_add(stake_amount2)
@@ -614,15 +617,16 @@ fn test_validator_reward_weight_by_stake() {
             h[0],
             vec![true],
             total_supply,
+            num_validators,
         ),
     );
     record_with_block_info(
         &mut epoch_manager,
-        block_info(h[1], 1, 1, h[0], h[0], h[1], vec![true], total_supply),
+        block_info(h[1], 1, 1, h[0], h[0], h[1], vec![true], total_supply, num_validators),
     );
     record_with_block_info(
         &mut epoch_manager,
-        block_info(h[2], 2, 2, h[1], h[1], h[1], vec![true], total_supply),
+        block_info(h[2], 2, 2, h[1], h[1], h[1], vec![true], total_supply, num_validators),
     );
     let mut validator_online_ratio = HashMap::new();
     validator_online_ratio.insert(
@@ -693,6 +697,7 @@ fn test_reward_multiple_shards() {
     let stake_amount = Balance::from_yoctonear(1_000_000);
     let validators =
         vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)];
+    let num_validators = validators.len();
     let epoch_length = 10;
     let total_supply = stake_amount.checked_mul(validators.len().try_into().unwrap()).unwrap();
     let reward_calculator = RewardCalculator {
@@ -717,6 +722,7 @@ fn test_reward_multiple_shards() {
     )
     .into_handle();
     let h = hash_range((2 * epoch_length + 1) as usize);
+    let init_epoch_id = epoch_manager.get_epoch_id_from_prev_block(&CryptoHash::default()).unwrap();
     record_with_block_info(
         &mut epoch_manager.write(),
         block_info(
@@ -728,16 +734,16 @@ fn test_reward_multiple_shards() {
             h[0],
             vec![true],
             total_supply,
+            num_validators,
         ),
     );
     let mut expected_chunks = 0;
-    let init_epoch_id = epoch_manager.get_epoch_id_from_prev_block(&h[0]).unwrap();
     for height in 1..(2 * epoch_length) {
         let i = height as usize;
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&h[i - 1]).unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
         // test1 skips its chunks in the first epoch
-        let chunk_mask = shard_layout
+        let chunk_mask: Vec<bool> = shard_layout
             .shard_ids()
             .map(|shard_id| {
                 let chunk_production_key =
@@ -754,7 +760,17 @@ fn test_reward_multiple_shards() {
             .collect();
         record_with_block_info(
             &mut epoch_manager.write(),
-            block_info(h[i], height, height, h[i - 1], h[i - 1], h[i], chunk_mask, total_supply),
+            block_info(
+                h[i],
+                height,
+                height,
+                h[i - 1],
+                h[i - 1],
+                h[i],
+                chunk_mask,
+                total_supply,
+                num_validators,
+            ),
         );
     }
     let mut validator_online_ratio = HashMap::new();
@@ -861,6 +877,7 @@ fn test_expected_chunks() {
         ("test3".parse().unwrap(), stake_amount),
         ("test4".parse().unwrap(), stake_amount),
     ];
+    let num_validators = validators.len();
     let epoch_length = 20;
     let num_shards = 3;
     let total_supply = stake_amount.checked_mul(validators.len().try_into().unwrap()).unwrap();
@@ -895,6 +912,7 @@ fn test_expected_chunks() {
             continue;
         }
 
+        let chunk_mask = vec![true, true, true];
         epoch_manager
             .write()
             .record_block_info(
@@ -905,8 +923,9 @@ fn test_expected_chunks() {
                     prev_block,
                     prev_block,
                     epoch_id.0,
-                    vec![true, true, true],
+                    chunk_mask,
                     total_supply,
+                    num_validators,
                 ),
                 rng_seed,
             )
@@ -939,6 +958,7 @@ fn test_expected_chunks_prev_block_not_produced() {
         ("test2".parse().unwrap(), stake_amount),
         ("test3".parse().unwrap(), stake_amount),
     ];
+    let num_validators = validators.len();
     let epoch_length = 50;
     let total_supply = stake_amount.checked_mul(validators.len().try_into().unwrap()).unwrap();
     let epoch_manager = setup_epoch_manager(
@@ -976,6 +996,7 @@ fn test_expected_chunks_prev_block_not_produced() {
         } else {
             // test1 also misses all their chunks
             let should_produce_chunk = expected_chunk_producer != 0;
+            let chunk_mask = vec![should_produce_chunk];
             epoch_manager
                 .write()
                 .record_block_info(
@@ -986,8 +1007,9 @@ fn test_expected_chunks_prev_block_not_produced() {
                         prev_block,
                         prev_block,
                         epoch_id.0,
-                        vec![should_produce_chunk],
+                        chunk_mask,
                         total_supply,
+                        num_validators,
                     ),
                     rng_seed,
                 )
@@ -1481,6 +1503,7 @@ fn test_chunk_producer_kickout() {
     let stake_amount = Balance::from_yoctonear(1_000_000);
     let validators =
         vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)];
+    let num_validators = validators.len();
     let epoch_length = 10;
     let total_supply = stake_amount.checked_mul(validators.len().try_into().unwrap()).unwrap();
     let em = setup_epoch_manager(
@@ -1520,7 +1543,7 @@ fn test_chunk_producer_kickout() {
                     true
                 }
             })
-            .collect();
+            .collect::<Vec<bool>>();
 
         em.write()
             .record_block_info(
@@ -1533,6 +1556,7 @@ fn test_chunk_producer_kickout() {
                     epoch_id.0,
                     chunk_mask,
                     total_supply,
+                    num_validators,
                 ),
                 rng_seed,
             )
@@ -1556,7 +1580,8 @@ fn test_chunk_producer_kickout() {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_chunk_validator_kickout_using_production_stats() {
     let stake_amount = Balance::from_yoctonear(1_000_000);
-    let validators: Vec<(AccountId, Balance)> = (0..3)
+    let num_validators = 3;
+    let validators: Vec<(AccountId, Balance)> = (0..num_validators)
         .map(|i| {
             (
                 format!("test{i}").parse().unwrap(),
@@ -1590,7 +1615,7 @@ fn test_chunk_validator_kickout_using_production_stats() {
     for (prev_block, (height, curr_block)) in hashes.iter().zip(hashes.iter().enumerate().skip(1)) {
         let height = height as u64;
         let epoch_id = em.get_epoch_id_from_prev_block(prev_block).unwrap();
-        let chunk_mask = if height < epoch_length {
+        let chunk_mask: Vec<bool> = if height < epoch_length {
             (0..num_shards).map(|i| (height + i) % 2 == 0).collect()
         } else {
             vec![true; num_shards as usize]
@@ -1606,6 +1631,7 @@ fn test_chunk_validator_kickout_using_production_stats() {
                     epoch_id.0,
                     chunk_mask,
                     total_supply,
+                    num_validators,
                 ),
                 rng_seed,
             )
@@ -2295,6 +2321,7 @@ fn test_final_block_consistency() {
     let amount_staked = Balance::from_yoctonear(1_000_000);
     let validators =
         vec![("test1".parse().unwrap(), amount_staked), ("test2".parse().unwrap(), amount_staked)];
+    let num_validators = validators.len();
     let mut epoch_manager = setup_default_epoch_manager(validators, 10, 1, 3, 90, 60);
 
     let h = hash_range(10);
@@ -2314,7 +2341,7 @@ fn test_final_block_consistency() {
 
     epoch_manager
         .record_block_info(
-            block_info(h[5], 5, 1, h[1], h[2], h[1], vec![], DEFAULT_TOTAL_SUPPLY),
+            block_info(h[5], 5, 1, h[1], h[2], h[1], vec![], DEFAULT_TOTAL_SUPPLY, num_validators),
             [0; 32],
         )
         .unwrap()
@@ -3251,6 +3278,7 @@ fn test_possible_epochs_of_height_around_tip() {
     let amount_staked = Balance::from_yoctonear(1_000_000);
     let account_id = AccountId::from_str("test1").unwrap();
     let validators = vec![(account_id, amount_staked)];
+    let num_validators = validators.len();
     let h = hash_range(50);
 
     let genesis_epoch = EpochId(CryptoHash::default());
@@ -3404,6 +3432,7 @@ fn test_possible_epochs_of_height_around_tip() {
             h[12],
             vec![],
             DEFAULT_TOTAL_SUPPLY,
+            num_validators,
         );
         epoch_manager.write().record_block_info(block_info, [0; 32]).unwrap().commit();
         let tip = Tip {
@@ -3467,6 +3496,7 @@ fn test_possible_epochs_of_height_around_tip() {
             h[12],
             vec![],
             DEFAULT_TOTAL_SUPPLY,
+            num_validators,
         );
         epoch_manager.write().record_block_info(block_info, [0; 32]).unwrap().commit();
         let tip = Tip {
