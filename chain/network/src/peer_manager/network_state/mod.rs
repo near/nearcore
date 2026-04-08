@@ -15,6 +15,7 @@ use crate::network_protocol::{
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
+use crate::peer_manager::connection::transport::{NetworkTransport, PoolTransport};
 use crate::peer_manager::connection_store;
 use crate::peer_manager::peer_store;
 use crate::private_messages::RegisterPeerError;
@@ -123,6 +124,12 @@ pub(crate) struct NetworkState {
     pub tier2: connection::Pool,
     pub tier1: connection::Pool,
     pub tier3: connection::Pool,
+    /// Transport layer for sending messages to peers.
+    /// In production, these are PoolTransport wrapping the connection pools.
+    /// In testloop, these will be replaced with TestLoopTransport.
+    pub tier1_transport: Arc<dyn NetworkTransport>,
+    pub tier2_transport: Arc<dyn NetworkTransport>,
+    pub tier3_transport: Arc<dyn NetworkTransport>,
     /// Semaphore limiting inflight inbound handshakes.
     pub inbound_handshake_permits: Arc<tokio::sync::Semaphore>,
     /// The public IP of this node; available after connecting to any one peer.
@@ -199,6 +206,9 @@ impl NetworkState {
         spice_data_distributor_adapter: SpiceDataDistributorSenderForNetwork,
         spice_core_writer_adapter: Sender<SpiceChunkEndorsementMessage>,
     ) -> Self {
+        let tier1 = connection::Pool::new(config.node_id());
+        let tier2 = connection::Pool::new(config.node_id());
+        let tier3 = connection::Pool::new(config.node_id());
         Self {
             ops_spawner: new_owned_future_spawner("NetworkState ops"),
             graph: crate::routing::Graph::new(
@@ -216,9 +226,12 @@ impl NetworkState {
             shards_manager_adapter,
             partial_witness_adapter,
             chain_info: Default::default(),
-            tier2: connection::Pool::new(config.node_id()),
-            tier1: connection::Pool::new(config.node_id()),
-            tier3: connection::Pool::new(config.node_id()),
+            tier1_transport: Arc::new(PoolTransport::new(tier1.clone())),
+            tier2_transport: Arc::new(PoolTransport::new(tier2.clone())),
+            tier3_transport: Arc::new(PoolTransport::new(tier3.clone())),
+            tier1,
+            tier2,
+            tier3,
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             my_public_addr: Arc::new(RwLock::new(config.tier3_public_addr)),
             peer_store,
@@ -563,10 +576,20 @@ impl NetworkState {
     ) -> bool {
         let my_peer_id = self.config.node_id();
 
-        // Check if the message is for myself and don't try to send it in that case.
+        // Check if the message is for myself.
+        // In testloop, transport handles self-delivery directly (in-memory dispatch).
+        // In production, transport returns false (not in pool), so we drop as before.
         if let PeerIdOrHash::PeerId(target) = msg.target() {
             if target == &my_peer_id {
-                tracing::debug!(target: "network", account_id = ?self.config.validator.account_id(), ?my_peer_id, ?msg, "drop signed message to myself");
+                let transport = match tier {
+                    tcp::Tier::T1 => &self.tier1_transport,
+                    tcp::Tier::T2 => &self.tier2_transport,
+                    tcp::Tier::T3 => &self.tier3_transport,
+                };
+                if transport.send_message(my_peer_id.clone(), Arc::new(PeerMessage::Routed(msg))) {
+                    return true;
+                }
+                tracing::debug!(target: "network", account_id = ?self.config.validator.account_id(), ?my_peer_id, "drop signed message to myself");
                 metrics::CONNECTED_TO_MYSELF.inc();
                 return false;
             }
@@ -584,35 +607,49 @@ impl NetworkState {
                     }
                     PeerIdOrHash::PeerId(peer_id) => peer_id.clone(),
                 };
-                return self.tier1.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
+                return self
+                    .tier1_transport
+                    .send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
             }
             tcp::Tier::T2 => {
-                match self.tier2_find_route(&clock, msg.target()) {
-                    Ok(peer_id) => {
-                        // Remember if we expect a response for this message.
-                        if *msg.author() == my_peer_id && msg.expect_response() {
-                            tracing::trace!(target: "network", ?msg, "initiate route back");
-                            self.tier2_route_back.lock().insert(clock, msg.hash(), my_peer_id);
-                        }
-                        return self
-                            .tier2
-                            .send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
-                    }
+                let peer_id = match self.tier2_find_route(&clock, msg.target()) {
+                    Ok(peer_id) => peer_id,
                     Err(find_route_error) => {
-                        // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-                        metrics::MessageDropped::NoRouteFound.inc(msg.body());
-
-                        tracing::debug!(target: "network",
-                              account_id = ?self.config.validator.account_id(),
-                              to = ?msg.target(),
-                              reason = ?find_route_error,
-                              known_peers = ?self.graph.routing_table.reachable_peers(),
-                              msg = ?msg.body(),
-                            "dropping signed message"
-                        );
-                        return false;
+                        // Graph route failed. For PeerId targets, try direct delivery
+                        // as a fallback (essential for testloop where the routing graph
+                        // is empty). For Hash targets (route-back), there's no fallback.
+                        match msg.target() {
+                            PeerIdOrHash::PeerId(peer_id) => {
+                                tracing::debug!(target: "network",
+                                    ?peer_id,
+                                    reason = ?find_route_error,
+                                    "graph route failed, trying direct delivery"
+                                );
+                                peer_id.clone()
+                            }
+                            PeerIdOrHash::Hash(_) => {
+                                metrics::MessageDropped::NoRouteFound.inc(msg.body());
+                                tracing::debug!(target: "network",
+                                    account_id = ?self.config.validator.account_id(),
+                                    to = ?msg.target(),
+                                    reason = ?find_route_error,
+                                    known_peers = ?self.graph.routing_table.reachable_peers(),
+                                    msg = ?msg.body(),
+                                    "dropping signed message"
+                                );
+                                return false;
+                            }
+                        }
                     }
+                };
+                // Remember if we expect a response for this message.
+                if *msg.author() == my_peer_id && msg.expect_response() {
+                    tracing::trace!(target: "network", ?msg, "initiate route back");
+                    self.tier2_route_back.lock().insert(clock, msg.hash(), my_peer_id);
                 }
+                return self
+                    .tier2_transport
+                    .send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
             }
             tcp::Tier::T3 => {
                 let peer_id = match msg.target() {
@@ -623,7 +660,9 @@ impl NetworkState {
                     }
                     PeerIdOrHash::PeerId(peer_id) => peer_id.clone(),
                 };
-                return self.tier3.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
+                return self
+                    .tier3_transport
+                    .send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
             }
         }
     }
@@ -638,16 +677,27 @@ impl NetworkState {
         msg: TieredMessageBody,
     ) -> bool {
         // If the message is allowed to be sent to self, we handle it directly.
+        // Try transport first (handles testloop in-memory dispatch without ops_spawner).
+        // Fall back to ops_spawner for production (transport returns false for self in pool).
         if self.config.validator.account_id().is_some_and(|id| &id == account_id) {
             // For now, we don't allow some types of messages to be sent to self.
             debug_assert!(msg.allow_sending_to_self());
-            let this = self.clone();
-            let clock = clock.clone();
             let my_peer_id = self.config.node_id();
             let msg = self.sign_message(
-                &clock,
+                clock,
                 RawRoutedMessage { target: PeerIdOrHash::PeerId(my_peer_id.clone()), body: msg },
             );
+            // Try transport first — in testloop this delivers directly, avoiding
+            // ops_spawner which runs on a different executor and panics.
+            if self
+                .tier2_transport
+                .send_message(my_peer_id.clone(), Arc::new(PeerMessage::Routed(msg.clone())))
+            {
+                return true;
+            }
+            // Production fallback: spawn on ops_spawner.
+            let this = self.clone();
+            let clock = clock.clone();
             self.spawn("send_message_to_account", async move {
                 let hash = msg.hash();
                 this.receive_routed_message(

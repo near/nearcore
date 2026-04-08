@@ -203,9 +203,9 @@ impl messaging::Actor for PeerManagerActor {
     /// Try to gracefully disconnect from connected peers.
     fn stop_actor(&mut self) {
         tracing::debug!(target: "network", "peer manager stopping");
-        self.state.tier2.broadcast_message(Arc::new(PeerMessage::Disconnect(Disconnect {
-            remove_from_connection_store: false,
-        })));
+        self.state.tier2_transport.broadcast_message(Arc::new(PeerMessage::Disconnect(
+            Disconnect { remove_from_connection_store: false },
+        )));
     }
 }
 
@@ -799,7 +799,7 @@ impl PeerManagerActor {
         metrics::REQUEST_COUNT_BY_TYPE_TOTAL.with_label_values(&[msg.as_ref()]).inc();
         match msg {
             NetworkRequests::Block { block } => {
-                self.state.tier2.broadcast_message(Arc::new(PeerMessage::Block(block)));
+                self.state.tier2_transport.broadcast_message(Arc::new(PeerMessage::Block(block)));
                 NetworkResponses::NoResponse
             }
             NetworkRequests::OptimisticBlock { chunk_producers, optimistic_block } => {
@@ -823,7 +823,10 @@ impl PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BlockRequest { hash, peer_id } => {
-                if self.state.tier2.send_message(peer_id, Arc::new(PeerMessage::BlockRequest(hash)))
+                if self
+                    .state
+                    .tier2_transport
+                    .send_message(peer_id, Arc::new(PeerMessage::BlockRequest(hash)))
                 {
                     NetworkResponses::NoResponse
                 } else {
@@ -833,7 +836,7 @@ impl PeerManagerActor {
             NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
                 if self
                     .state
-                    .tier2
+                    .tier2_transport
                     .send_message(peer_id, Arc::new(PeerMessage::BlockHeadersRequest(hashes)))
                 {
                     NetworkResponses::NoResponse
@@ -1015,9 +1018,11 @@ impl PeerManagerActor {
                 // Insert our info to our own cache.
                 self.state.snapshot_hosts.insert_skip_verify(snapshot_host_info.clone());
 
-                self.state.tier2.broadcast_message(Arc::new(PeerMessage::SyncSnapshotHosts(
-                    SyncSnapshotHosts { hosts: vec![snapshot_host_info] },
-                )));
+                self.state.tier2_transport.broadcast_message(Arc::new(
+                    PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts {
+                        hosts: vec![snapshot_host_info],
+                    }),
+                ));
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {
@@ -1222,7 +1227,11 @@ impl PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::EpochSyncRequest { peer_id } => {
-                if self.state.tier2.send_message(peer_id, PeerMessage::EpochSyncRequest.into()) {
+                if self
+                    .state
+                    .tier2_transport
+                    .send_message(peer_id, PeerMessage::EpochSyncRequest.into())
+                {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
@@ -1231,7 +1240,7 @@ impl PeerManagerActor {
             NetworkRequests::EpochSyncResponse { peer_id, proof } => {
                 if self
                     .state
-                    .tier2
+                    .tier2_transport
                     .send_message(peer_id, PeerMessage::EpochSyncResponse(proof).into())
                 {
                     NetworkResponses::NoResponse
@@ -1544,7 +1553,7 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                     }
                 }
 
-                state.tier3.send_message(sender, Arc::new(tier3_response));
+                state.tier3_transport.send_message(sender, Arc::new(tier3_response));
             }
         );
     }
