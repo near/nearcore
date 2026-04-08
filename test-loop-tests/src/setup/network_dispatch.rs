@@ -149,6 +149,20 @@ impl TestLoopTransport {
             }
 
             PeerMessage::Block(block) => {
+                // Record sender's block info so highest_height_peers is populated for sync.
+                let height = block.header().height();
+                let hash = *block.hash();
+                target_state.testloop_peer_block_info.lock().insert(
+                    my_peer_id.clone(),
+                    (
+                        near_network::types::PeerInfo {
+                            id: my_peer_id.clone(),
+                            addr: None,
+                            account_id: None,
+                        },
+                        near_network::types::BlockInfo { height, hash },
+                    ),
+                );
                 target_state.client.send_async(
                     BlockResponse { block, peer_id: my_peer_id, was_requested: false }.span_wrap(),
                 );

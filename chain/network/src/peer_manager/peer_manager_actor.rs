@@ -470,7 +470,7 @@ impl PeerManagerActor {
 
     /// Returns peers close to the highest height
     fn highest_height_peers(&self) -> Vec<HighestHeightPeerInfo> {
-        let infos: Vec<HighestHeightPeerInfo> = self
+        let mut infos: Vec<HighestHeightPeerInfo> = self
             .state
             .tier2
             .load()
@@ -478,6 +478,21 @@ impl PeerManagerActor {
             .values()
             .filter_map(|p| p.full_peer_info().into())
             .collect();
+
+        // In testloop, connection pools are empty. Use block info from transport dispatch.
+        {
+            let testloop_info = self.state.testloop_peer_block_info.lock();
+            for (_peer_id, (peer_info, block_info)) in testloop_info.iter() {
+                infos.push(HighestHeightPeerInfo {
+                    peer_info: peer_info.clone(),
+                    genesis_id: self.state.genesis_id.clone(),
+                    highest_block_height: block_info.height,
+                    highest_block_hash: block_info.hash,
+                    tracked_shards: vec![],
+                    archival: false,
+                });
+            }
+        }
 
         // This finds max height among peers, and returns one peer close to such height.
         let max_height = match infos.iter().map(|i| i.highest_block_height).max() {

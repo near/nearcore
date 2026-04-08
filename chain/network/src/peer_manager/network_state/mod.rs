@@ -171,6 +171,12 @@ pub struct NetworkState {
     /// Mutex serializing calls to set_chain_info(), which mutates a bunch of stuff non-atomically.
     /// TODO(gprusak): make it use synchronization primitives in some more canonical way.
     set_chain_info_mutex: Mutex<()>,
+
+    /// Testloop-only: block info per peer, populated by TestLoopTransport when
+    /// dispatching Block messages. Empty in production (zero-cost).
+    /// Used by PeerManagerActor::highest_height_peers() to provide sync info.
+    pub testloop_peer_block_info:
+        Mutex<std::collections::HashMap<PeerId, (crate::types::PeerInfo, crate::types::BlockInfo)>>,
 }
 
 #[derive(Debug)]
@@ -252,6 +258,7 @@ impl NetworkState {
                 future_spawner,
             ),
             set_chain_info_mutex: Mutex::new(()),
+            testloop_peer_block_info: Mutex::new(std::collections::HashMap::new()),
             config,
             created_at: clock.now(),
             tier1_advertise_proxies_mutex: tokio::sync::Mutex::new(()),
@@ -326,6 +333,7 @@ impl NetworkState {
                 &*ops_spawner,
             ),
             set_chain_info_mutex: Mutex::new(()),
+            testloop_peer_block_info: Mutex::new(std::collections::HashMap::new()),
             config,
             created_at: clock.now(),
             tier1_advertise_proxies_mutex: tokio::sync::Mutex::new(()),
