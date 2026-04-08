@@ -4,11 +4,13 @@ use indicatif::{ProgressBar, ProgressStyle};
 use near_chain::{ChainStore, Error};
 use near_chain_configs::GenesisValidationMode;
 use near_o11y::tracing;
+use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     ReceiptOrigin, ReceiptOriginReceipt, ReceiptOriginTransaction, ReceiptToTxInfo,
     ReceiptToTxInfoV1,
 };
 use near_primitives::types::BlockHeight;
+use near_primitives::utils::get_block_shard_id_rev;
 use near_store::{DBCol, Store};
 use nearcore::open_storage;
 use std::path::PathBuf;
@@ -157,14 +159,10 @@ pub fn backfill_receipt_to_tx(
             }
         };
 
-        let block = chain_store
-            .get_block(&block_hash)
-            .context(format!("failed to get block at height {height}"))?;
-
-        for chunk_header in block.chunks().iter() {
-            let shard_id = chunk_header.shard_id();
-            let outcome_ids =
-                chain_store.get_outcomes_by_block_hash_and_shard_id(&block_hash, shard_id);
+        for (key, outcome_ids) in
+            read_store.iter_prefix_ser::<Vec<CryptoHash>>(DBCol::OutcomeIds, block_hash.as_ref())
+        {
+            let (_, shard_id) = get_block_shard_id_rev(&key).expect("invalid OutcomeIds key");
 
             for outcome_id in outcome_ids {
                 let outcome_with_proof =
