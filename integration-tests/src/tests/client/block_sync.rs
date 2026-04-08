@@ -10,7 +10,6 @@ use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerInfo, PeerManagerMessageRequest,
 };
-use near_o11y::testonly::TracingCapture;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::utils::MaybeValidated;
@@ -69,7 +68,6 @@ fn test_env_with_epoch_length(epoch_length: u64) -> TestEnv {
 
 #[test]
 fn test_block_sync() {
-    let mut capture = TracingCapture::enable();
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let block_fetch_horizon = 10;
     let max_block_requests = 10;
@@ -130,7 +128,7 @@ fn test_block_sync() {
 
     // Receive all blocks. Should not request more. As an extra
     // complication, pause the processing of one block.
-    env.pause_block_processing(&mut capture, blocks[4 * max_block_requests - 1].hash());
+    env.clients[1].pause_block_processing(blocks[4 * max_block_requests - 1].hash());
     for i in 3 * max_block_requests..5 * max_block_requests {
         let _ = env.clients[1]
             .process_block_test(MaybeValidated::from(blocks[i].clone()), Provenance::NONE);
@@ -142,7 +140,7 @@ fn test_block_sync() {
 
     // Now finish paused processing and sanity check that we
     // still are fully synced.
-    env.resume_block_processing(blocks[4 * max_block_requests - 1].hash());
+    env.clients[1].resume_block_processing(blocks[4 * max_block_requests - 1].hash());
     wait_for_all_blocks_in_processing(&mut env.clients[1].chain);
     let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
     assert!(requested_block_hashes.is_empty(), "{:?}", requested_block_hashes);

@@ -639,7 +639,6 @@ impl TestEnvBuilder {
                     .map(|(index, client)| (client, index))
                     .collect(),
             ),
-            paused_blocks: Default::default(),
             seeds,
             enable_split_store: self.enable_split_store,
             save_tx_outcomes: self.save_tx_outcomes,
