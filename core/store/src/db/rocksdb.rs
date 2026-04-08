@@ -1106,8 +1106,9 @@ mod tests {
             let _store = opener.open().unwrap();
         }
 
-        // Re-open with raw RocksDB and inject an extra column family
-        // named "ChunkProducers" — the actual CF leaked by the nightly build.
+        // Re-open with raw RocksDB and inject an extra column family that
+        // doesn't correspond to any DBCol variant (simulates a stray CF from
+        // a previous nightly build).
         {
             let opts = Options::default();
             let existing = DB::list_cf(&opts, &db_path).unwrap();
@@ -1116,7 +1117,7 @@ mod tests {
                 .map(|name| ColumnFamilyDescriptor::new(name, Options::default()))
                 .collect();
             let mut raw_db = DB::open_cf_descriptors(&opts, &db_path, cfs).unwrap();
-            raw_db.create_cf("ChunkProducers", &Options::default()).unwrap();
+            raw_db.create_cf("UnknownTestColumn", &Options::default()).unwrap();
         }
 
         // Re-open via the normal path — this would crash without the fix.
@@ -1153,7 +1154,7 @@ mod tests {
                 .map(|name| ColumnFamilyDescriptor::new(name, Options::default()))
                 .collect();
             let mut raw_db = DB::open_cf_descriptors(&opts, &db_path, cfs).unwrap();
-            raw_db.create_cf("ChunkProducers", &Options::default()).unwrap();
+            raw_db.create_cf("UnknownTestColumn", &Options::default()).unwrap();
         }
 
         // Re-open via normal path (uses the fix).
@@ -1170,8 +1171,8 @@ mod tests {
         let checkpoint_opts = Options::default();
         let checkpoint_cfs = DB::list_cf(&checkpoint_opts, &checkpoint_path).unwrap();
         assert!(
-            !checkpoint_cfs.contains(&"ChunkProducers".to_string()),
-            "unknown CF 'ChunkProducers' should have been dropped from checkpoint, \
+            !checkpoint_cfs.contains(&"UnknownTestColumn".to_string()),
+            "unknown CF 'UnknownTestColumn' should have been dropped from checkpoint, \
              but found: {checkpoint_cfs:?}",
         );
 
