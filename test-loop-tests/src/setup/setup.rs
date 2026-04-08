@@ -1,9 +1,9 @@
 use super::drop_condition::ClientToShardsManagerSender;
-use super::peer_manager_actor::TestLoopPeerManagerActor;
+use super::network_dispatch::TestLoopTransport;
 use super::rpc::{TestLoopRpcTransport, create_testloop_jsonrpc_router};
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 use near_async::futures::FutureSpawnerExt;
-use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
+use near_async::messaging::{IntoAsyncSender, IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain::resharding::resharding_actor::ReshardingActor;
@@ -37,11 +37,20 @@ use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_jsonrpc::client::RpcTransport;
 use near_jsonrpc::sharded_rpc::ShardedRpcPool;
+use near_network::PeerManagerActor;
+use near_network::client::ClientSenderForNetwork;
+use near_network::config as network_config;
+use near_network::peer_manager_exports::connection::transport::NetworkTransport;
+use near_network::peer_manager_exports::network_state::NetworkState;
+use near_network::peer_manager_exports::peer_store;
+use near_network::store as network_store;
+use near_network::tcp;
 use near_primitives::genesis::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_store::adapter::StoreAdapter;
 use near_store::config::SplitStorageConfig;
+use near_store::db::TestDB;
 use near_store::{StoreConfig, TrieConfig};
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::state_sync::StateSyncDumper;
@@ -83,6 +92,9 @@ pub fn setup_client(
     let chunk_executor_adapter = LateBoundSender::new();
     let spice_data_distributor_adapter = LateBoundSender::new();
     let spice_core_writer_adapter = LateBoundSender::new();
+    let state_request_adapter = LateBoundSender::new();
+    let view_client_adapter = LateBoundSender::new();
+    let chunk_endorsement_handler_adapter = LateBoundSender::new();
     let spice_chunk_validator_adapter = LateBoundSender::new();
 
     let homedir = NodeExecutionData::homedir(tempdir, identifier);
@@ -346,17 +358,79 @@ pub fn setup_client(
         Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(10))),
     );
 
-    let peer_manager_actor = TestLoopPeerManagerActor::new(
-        test_loop.clock(),
-        &account_id,
-        network_shared_state,
-        client_adapter.as_multi_sender(),
-        GenesisId {
-            chain_id: client_config.chain_id.clone(),
-            hash: *client_actor.client.chain.genesis().hash(),
-        },
-        Arc::new(test_loop.future_spawner(identifier)),
+    // Create real PeerManagerActor with TestLoopTransport instead of TCP.
+    let genesis_id = GenesisId {
+        chain_id: client_config.chain_id.clone(),
+        hash: *client_actor.client.chain.genesis().hash(),
+    };
+    let mut net_config = network_config::NetworkConfig::from_seed(
+        account_id.as_str(),
+        tcp::ListenerAddr::reserve_for_test(),
     );
+    net_config.node_addr = None;
+    net_config.connect_to_reliable_peers_on_startup = false;
+    let verified_config = net_config.verify().unwrap();
+
+    // Create TestLoopTransport for in-memory message dispatch.
+    let transport: Arc<dyn NetworkTransport> = Arc::new(TestLoopTransport::new(
+        peer_id.clone(),
+        network_shared_state.clone(),
+        shared_state.node_network_states.clone(),
+        test_loop.clock(),
+        Arc::new(test_loop.future_spawner(identifier)),
+    ));
+
+    // Create network store and peer store.
+    let net_db: Arc<dyn near_store::db::Database> = TestDB::new();
+    let net_store = network_store::Store::from(net_db);
+    let net_peer_store =
+        peer_store::PeerStore::new(&test_loop.clock(), verified_config.peer_store.clone()).unwrap();
+
+    // Build ClientSenderForNetwork from individual actor adapters.
+    // In production, these come from different actors. In testloop,
+    // we construct it from the individual LateBoundSenders.
+    let client_sender_for_network = ClientSenderForNetwork {
+        block: client_adapter.as_async_sender(),
+        block_headers: client_adapter.as_async_sender(),
+        block_approval: client_adapter.as_async_sender(),
+        network_info: client_adapter.as_async_sender(),
+        state_response: client_adapter.as_async_sender(),
+        epoch_sync_request: client_adapter.as_sender(),
+        epoch_sync_response: client_adapter.as_sender(),
+        optimistic_block_receiver: client_adapter.as_sender(),
+        tx_status_request: view_client_adapter.as_async_sender(),
+        tx_status_response: view_client_adapter.as_async_sender(),
+        block_request: view_client_adapter.as_async_sender(),
+        block_headers_request: view_client_adapter.as_async_sender(),
+        announce_account: view_client_adapter.as_async_sender(),
+        current_epoch_height_request: view_client_adapter.as_async_sender(),
+        transaction: rpc_handler_adapter.as_async_sender(),
+        chunk_endorsement: chunk_endorsement_handler_adapter.as_async_sender(),
+    };
+
+    let network_state = Arc::new(NetworkState::new_for_testloop(
+        &test_loop.clock(),
+        Box::new(test_loop.future_spawner(identifier)),
+        net_store,
+        net_peer_store,
+        verified_config,
+        genesis_id,
+        client_sender_for_network,
+        state_request_adapter.as_multi_sender(),
+        network_adapter.as_multi_sender(),
+        shards_manager_adapter.as_sender(),
+        partial_witness_adapter.as_multi_sender(),
+        spice_data_distributor_adapter.as_multi_sender(),
+        spice_core_writer_adapter.as_sender(),
+        transport.clone(),
+        transport.clone(),
+        transport,
+    ));
+
+    // Register in shared state for other nodes' transports.
+    shared_state.node_network_states.lock().insert(peer_id.clone(), network_state.clone());
+
+    let peer_manager_actor = PeerManagerActor::new_for_testloop(test_loop.clock(), network_state);
 
     let gc_actor = GCActor::new(
         runtime_adapter.store().clone(),
@@ -516,12 +590,17 @@ pub fn setup_client(
 
     let client_sender =
         test_loop.data.register_actor(identifier, client_actor, Some(client_adapter));
-    let view_client_sender = test_loop.data.register_actor(identifier, view_client_actor, None);
-    let state_request_sender = test_loop.data.register_actor(identifier, state_request_actor, None);
+    let view_client_sender =
+        test_loop.data.register_actor(identifier, view_client_actor, Some(view_client_adapter));
+    let state_request_sender =
+        test_loop.data.register_actor(identifier, state_request_actor, Some(state_request_adapter));
     let rpc_handler_sender =
         test_loop.data.register_actor(identifier, rpc_handler, Some(rpc_handler_adapter));
-    let chunk_endorsement_handler_sender =
-        test_loop.data.register_actor(identifier, chunk_endorsement_handler, None);
+    let chunk_endorsement_handler_sender = test_loop.data.register_actor(
+        identifier,
+        chunk_endorsement_handler,
+        Some(chunk_endorsement_handler_adapter),
+    );
     let shards_manager_sender =
         test_loop.data.register_actor(identifier, shards_manager, Some(shards_manager_adapter));
     let partial_witness_sender = test_loop.data.register_actor(
@@ -602,7 +681,7 @@ pub fn setup_client(
 
     // Register all accumulated drop conditions
     for condition in drop_conditions {
-        node_data.register_drop_condition(&mut test_loop.data, chunks_storage.clone(), condition);
+        node_data.register_drop_condition(&test_loop.data, chunks_storage.clone(), condition);
     }
 
     node_data

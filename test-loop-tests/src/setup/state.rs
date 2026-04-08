@@ -2,10 +2,10 @@ use super::drop_condition::{DropCondition, TestLoopChunksStorage};
 use super::peer_manager_actor::{
     ChunkEndorsementSenderForTestLoopNetwork, ClientSenderForTestLoopNetwork,
     SpiceDataDistributorSenderForTestLoopNetwork, TestLoopNetworkBlockInfo,
-    TestLoopNetworkSharedState, TestLoopPeerManagerActor, TxRequestHandleSenderForTestLoopNetwork,
+    TestLoopNetworkSharedState, TxRequestHandleSenderForTestLoopNetwork,
     ViewClientSenderForTestLoopNetwork,
 };
-use near_async::messaging::{IntoMultiSender, IntoSender, Sender};
+use near_async::messaging::{IntoMultiSender, IntoSender, Sender, noop};
 use near_async::test_loop::data::TestLoopDataHandle;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
@@ -24,7 +24,9 @@ use near_client::{
 use near_jsonrpc::ViewClientSenderForRpc;
 use near_jsonrpc::client::{JsonRpcClient, RpcTransport};
 use near_jsonrpc::sharded_rpc::ShardedRpcPool;
+use near_network::PeerManagerActor;
 use near_network::client::SpiceChunkEndorsementMessage;
+use near_network::peer_manager_exports::network_state::NetworkState;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::PartialWitnessSenderForNetwork;
 use near_network::types::StateRequestSenderForNetwork;
@@ -66,6 +68,8 @@ pub struct SharedState {
     pub load_memtries_for_tracked_shards: bool,
     /// Flag to indicate if warmup is pending. This is used to ensure that warmup is only done once.
     pub warmup_pending: Arc<AtomicBool>,
+    /// Shared map from PeerId to NetworkState, used by TestLoopTransport to dispatch messages.
+    pub node_network_states: Arc<Mutex<HashMap<PeerId, Arc<NetworkState>>>>,
 }
 
 /// This is the state associated with each node in the test loop environment before being built.
@@ -92,7 +96,7 @@ pub struct NodeExecutionData {
     pub chunk_endorsement_handler_sender: TestLoopSender<ChunkEndorsementHandlerActor>,
     pub shards_manager_sender: TestLoopSender<ShardsManagerActor>,
     pub partial_witness_sender: TestLoopSender<PartialWitnessActor>,
-    pub peer_manager_sender: TestLoopSender<TestLoopPeerManagerActor>,
+    pub peer_manager_sender: TestLoopSender<PeerManagerActor>,
     pub resharding_sender: TestLoopSender<ReshardingActor>,
     pub state_sync_dumper_handle: TestLoopDataHandle<Arc<StateSyncDumpHandle>>,
     pub spice_data_distributor_sender: TestLoopSender<SpiceDataDistributorActor>,
@@ -185,9 +189,12 @@ impl From<&NodeExecutionData> for ChunkEndorsementSenderForTestLoopNetwork {
     }
 }
 
+// With real PeerManagerActor, block info flows through SetChainInfo, not
+// TestLoopNetworkBlockInfo. Provide a noop sender so TestLoopNetworkSharedState::add_client
+// still compiles (it stores OneClientSenders which includes this field).
 impl From<&NodeExecutionData> for Sender<TestLoopNetworkBlockInfo> {
-    fn from(data: &NodeExecutionData) -> Sender<TestLoopNetworkBlockInfo> {
-        data.peer_manager_sender.clone().with_delay(NETWORK_DELAY).into_sender()
+    fn from(_data: &NodeExecutionData) -> Sender<TestLoopNetworkBlockInfo> {
+        noop().into_sender()
     }
 }
 

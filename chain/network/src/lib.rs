@@ -5,6 +5,7 @@ pub use crate::rate_limits::messages_limits::OverrideConfig as MessagesLimitsOve
 
 #[allow(private_interfaces)]
 pub mod peer_manager_exports {
+    pub use crate::announce_accounts::AnnounceAccountCache;
     pub use crate::peer_manager::connection;
     pub use crate::peer_manager::network_state;
     pub use crate::peer_manager::peer_store;

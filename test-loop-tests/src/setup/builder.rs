@@ -22,7 +22,10 @@ use near_jsonrpc::sharded_rpc::ShardedRpcNode;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::gas::Gas;
+use near_primitives::hash::CryptoHash;
+use near_primitives::network::AnnounceAccount;
 use near_primitives::shard_layout::ShardLayout;
+use near_primitives::types::EpochId;
 use near_primitives::types::{AccountId, Balance, BlockHeight, NumBlocks, NumShards};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::{ProtocolVersion, get_protocol_upgrade_schedule};
@@ -417,6 +420,10 @@ impl TestLoopBuilder {
 
         Self::setup_sharded_rpc_pools(&datas, rpc_pool.as_deref());
 
+        // Pre-populate account_announcements so each node's NetworkState can resolve
+        // account_id → peer_id for routing. Without this, send_message_to_account fails.
+        Self::populate_account_announcements(&datas, &shared_state);
+
         TestLoopEnv { test_loop, node_datas: datas, shared_state }
     }
 
@@ -451,6 +458,31 @@ impl TestLoopBuilder {
         }
     }
 
+    /// After all nodes are set up, populate each node's NetworkState.account_announcements
+    /// with mappings from every other node's account_id to peer_id. This enables
+    /// send_message_to_account to resolve targets.
+    fn populate_account_announcements(datas: &[NodeExecutionData], shared_state: &SharedState) {
+        let node_network_states = shared_state.node_network_states.lock();
+        // Build list of (account_id, peer_id) pairs for all nodes.
+        let all_nodes: Vec<_> =
+            datas.iter().map(|d| (d.account_id.clone(), d.peer_id.clone())).collect();
+        for data in datas {
+            if let Some(state) = node_network_states.get(&data.peer_id) {
+                let announcements: Vec<AnnounceAccount> = all_nodes
+                    .iter()
+                    .filter(|(_, pid)| *pid != data.peer_id)
+                    .map(|(account_id, peer_id)| AnnounceAccount {
+                        account_id: account_id.clone(),
+                        peer_id: peer_id.clone(),
+                        epoch_id: EpochId(CryptoHash::default()),
+                        signature: Default::default(),
+                    })
+                    .collect();
+                state.account_announcements.add_accounts(announcements);
+            }
+        }
+    }
+
     fn setup_shared_state(
         mut self,
         genesis: Genesis,
@@ -474,6 +506,7 @@ impl TestLoopBuilder {
             drop_conditions: Default::default(),
             load_memtries_for_tracked_shards: self.load_memtries_for_tracked_shards,
             warmup_pending,
+            node_network_states: Default::default(),
         };
         (self.test_loop, shared_state)
     }

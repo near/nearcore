@@ -44,7 +44,7 @@ impl Inner {
     }
 }
 
-pub(crate) struct AnnounceAccountCache(Mutex<Inner>);
+pub struct AnnounceAccountCache(Mutex<Inner>);
 
 impl AnnounceAccountCache {
     pub fn new(store: store::Store) -> Self {
@@ -60,7 +60,7 @@ impl AnnounceAccountCache {
     /// Adds accounts to the cache.
     /// Returns the diff: new values that should be broadcasted.
     /// Note: There is at most one peer id per account id.
-    pub(crate) fn add_accounts(
+    pub fn add_accounts(
         &self,
         account_announcements: Vec<AnnounceAccount>,
     ) -> Vec<AnnounceAccount> {
