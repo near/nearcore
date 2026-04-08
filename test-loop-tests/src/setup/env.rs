@@ -108,6 +108,10 @@ impl TestLoopEnv {
         let cloud_storage = self.get_cloud_storage(node_data);
         let storage = TestNodeStorage { hot_store, split_store, cold_db, cloud_storage };
 
+        // Remove old NetworkState from shared transport map so other nodes
+        // don't dispatch to a dead actor.
+        self.shared_state.node_network_states.lock().remove(&node_data.peer_id);
+
         NodeSetupState { account_id, client_config, storage, validator_signer: None }
     }
 
@@ -142,6 +146,8 @@ impl TestLoopEnv {
         // setup_client handles adding the account_id and peer_id details to network_shared_state
         let node_data =
             setup_client(new_identifier, &mut self.test_loop, node_state, &self.shared_state);
+        // Re-populate account_announcements for the new node and all existing nodes.
+        self.populate_account_announcements_for_node(&node_data);
         self.node_datas.push(node_data);
     }
 
@@ -152,6 +158,48 @@ impl TestLoopEnv {
     pub fn add_node(&mut self, identifier: &str, node_state: NodeSetupState) {
         // Logically this function is the same as restart_node
         self.restart_node(identifier, node_state);
+    }
+
+    /// Re-populate account_announcements for a newly added/restarted node.
+    /// The new node needs to know about all existing nodes, and all existing
+    /// nodes need to know about the new node.
+    fn populate_account_announcements_for_node(&self, new_node: &NodeExecutionData) {
+        use near_primitives::hash::CryptoHash;
+        use near_primitives::network::AnnounceAccount;
+        use near_primitives::types::EpochId;
+
+        let node_network_states = self.shared_state.node_network_states.lock();
+
+        // Tell the new node about all existing nodes.
+        let announcements_for_new: Vec<AnnounceAccount> = self
+            .node_datas
+            .iter()
+            .filter(|d| d.peer_id != new_node.peer_id)
+            .map(|d| AnnounceAccount {
+                account_id: d.account_id.clone(),
+                peer_id: d.peer_id.clone(),
+                epoch_id: EpochId(CryptoHash::default()),
+                signature: Default::default(),
+            })
+            .collect();
+        if let Some(state) = node_network_states.get(&new_node.peer_id) {
+            state.account_announcements.add_accounts(announcements_for_new);
+        }
+
+        // Tell all existing nodes about the new node.
+        let new_announce = AnnounceAccount {
+            account_id: new_node.account_id.clone(),
+            peer_id: new_node.peer_id.clone(),
+            epoch_id: EpochId(CryptoHash::default()),
+            signature: Default::default(),
+        };
+        for data in &self.node_datas {
+            if data.peer_id != new_node.peer_id {
+                if let Some(state) = node_network_states.get(&data.peer_id) {
+                    state.account_announcements.add_accounts(vec![new_announce.clone()]);
+                }
+            }
+        }
     }
 
     pub fn get_node_data_by_account_id(&self, account_id: &AccountId) -> &NodeExecutionData {
