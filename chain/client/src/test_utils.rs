@@ -122,19 +122,6 @@ impl Client {
         shard_chunk
     }
 
-    /// Pause processing of the given block. After chunk application finishes,
-    /// `wait_for_block` will block until `resume_block_processing` is called.
-    #[cfg(feature = "test_features")]
-    pub fn pause_block_processing(&mut self, block: &CryptoHash) {
-        self.chain.test_paused_blocks.pause(block);
-    }
-
-    /// Resumes processing of a block previously paused with
-    /// `pause_block_processing`.
-    #[cfg(feature = "test_features")]
-    pub fn resume_block_processing(&mut self, block: &CryptoHash) {
-        self.chain.test_paused_blocks.resume(block);
-    }
 }
 
 fn create_chunk_on_height_for_shard(
