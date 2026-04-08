@@ -150,8 +150,10 @@ impl RocksDB {
         if mode.read_write() {
             match unknown_cf_descriptors(path, &options, columns) {
                 Ok(extra) => cfs.extend(extra),
-                // DB doesn't exist yet — nothing to discover.
-                Err(_) if !path.exists() => {}
+                // DB doesn't exist yet — nothing to discover. Check for the
+                // CURRENT marker file, not just the directory, because a prior
+                // failed open can leave an empty directory behind.
+                Err(_) if !path.join("CURRENT").is_file() => {}
                 Err(err) => return Err(err),
             }
         }
