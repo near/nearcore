@@ -311,12 +311,16 @@ impl TestLoopNetworkSharedState {
     /// `(from_peer, to_peer, &msg)` and returns `Some(msg)` to continue
     /// (possibly with a modified message) or `None` to drop silently.
     /// Short-circuits on the first `None`.
-    #[allow(dead_code)]
     pub fn register_message_filter(
         &self,
         filter: impl Fn(&PeerId, &PeerId, &PeerMessage) -> Option<PeerMessage> + Send + Sync + 'static,
     ) {
         self.0.lock().message_filters.push(Arc::new(filter));
+    }
+
+    /// Register a pre-wrapped `TransportMessageFilter` (Arc-wrapped closure).
+    pub fn register_message_filter_arc(&self, filter: TransportMessageFilter) {
+        self.0.lock().message_filters.push(filter);
     }
 
     /// Apply all registered message filters to a message. Returns `Some(msg)`

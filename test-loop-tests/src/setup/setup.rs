@@ -667,9 +667,17 @@ pub fn setup_client(
         network_shared_state.mark_archival(&node_data.peer_id);
     }
 
-    // Register all accumulated drop conditions
+    // Register all accumulated drop conditions as transport-level message filters.
+    // Get epoch_manager from the newly created client for filter conditions.
+    let epoch_manager =
+        test_loop.data.get(&node_data.client_sender.actor_handle()).client.epoch_manager.clone();
     for condition in drop_conditions {
-        node_data.register_drop_condition(&mut test_loop.data, chunks_storage.clone(), condition);
+        super::drop_condition::register_drop_condition_filter(
+            network_shared_state,
+            chunks_storage.clone(),
+            epoch_manager.clone(),
+            condition,
+        );
     }
 
     node_data

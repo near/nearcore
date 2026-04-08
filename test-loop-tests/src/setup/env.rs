@@ -1,5 +1,5 @@
 use super::builder::{NodeStateBuilder, populate_account_announcements};
-use super::drop_condition::DropCondition;
+use super::drop_condition::{DropCondition, register_drop_condition_filter};
 use super::setup::setup_client;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 use crate::utils::account::{archival_account_id, rpc_account_id};
@@ -33,13 +33,15 @@ impl TestLoopEnv {
     /// While adding a new node to the environment, we can iterate through all the drop_conditions
     /// and register them with the new node's peer_manager_actor.
     pub fn drop(mut self, drop_condition: DropCondition) -> Self {
-        for data in &self.node_datas {
-            data.register_drop_condition(
-                &mut self.test_loop.data,
-                self.shared_state.chunks_storage.clone(),
-                &drop_condition,
-            );
-        }
+        // Get epoch_manager from the first node's client for drop condition filters.
+        let client_handle = self.node_datas[0].client_sender.actor_handle();
+        let epoch_manager = self.test_loop.data.get(&client_handle).client.epoch_manager.clone();
+        register_drop_condition_filter(
+            &self.shared_state.network_shared_state,
+            self.shared_state.chunks_storage.clone(),
+            epoch_manager,
+            &drop_condition,
+        );
         self.shared_state.drop_conditions.push(drop_condition);
         self
     }
