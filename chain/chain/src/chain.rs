@@ -290,7 +290,7 @@ pub struct Chain {
     /// Used to receive apply chunks results
     apply_chunks_receiver: Receiver<BlockApplyChunksResult>,
     /// Used to spawn the apply chunks jobs.
-    apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
+    pub apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
     /// Used to spawn background memtrie loading tasks.
     memtrie_loading_spawner: Arc<dyn AsyncComputationSpawner>,
     pub apply_chunk_results_cache: ApplyChunksResultCache,
