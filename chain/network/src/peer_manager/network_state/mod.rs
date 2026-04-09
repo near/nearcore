@@ -659,20 +659,10 @@ impl NetworkState {
     ) -> bool {
         let my_peer_id = self.config.node_id();
 
-        // Check if the message is for myself.
-        // In testloop, transport handles self-delivery directly (in-memory dispatch).
-        // In production, transport returns false (not in pool), so we drop as before.
+        // Check if the message is for myself and don't try to send it in that case.
         if let PeerIdOrHash::PeerId(target) = msg.target() {
             if target == &my_peer_id {
-                let transport = match tier {
-                    tcp::Tier::T1 => &self.tier1_transport,
-                    tcp::Tier::T2 => &self.tier2_transport,
-                    tcp::Tier::T3 => &self.tier3_transport,
-                };
-                if transport.send_message(my_peer_id.clone(), Arc::new(PeerMessage::Routed(msg))) {
-                    return true;
-                }
-                tracing::debug!(target: "network", account_id = ?self.config.validator.account_id(), ?my_peer_id, "drop signed message to myself");
+                tracing::debug!(target: "network", account_id = ?self.config.validator.account_id(), ?my_peer_id, ?msg, "drop signed message to myself");
                 metrics::CONNECTED_TO_MYSELF.inc();
                 return false;
             }
