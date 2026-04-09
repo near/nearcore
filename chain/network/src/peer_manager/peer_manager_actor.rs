@@ -817,10 +817,23 @@ impl PeerManagerActor {
         let _timer = metrics::PEER_MANAGER_TRIGGER_TIME
             .with_label_values(&["push_network_info"])
             .start_timer();
-        let state = self.state.clone();
-        self.state.spawn("push_network_info", async move {
-            state.client.send_async(SetNetworkInfo(network_info).span_wrap()).await.ok();
-        });
+        if let Some(handle) = &self.handle {
+            // Production: spawn on the actix runtime (same as ClientActor).
+            let state = self.state.clone();
+            handle.spawn(
+                "push_network_info",
+                async move {
+                    state.client.send_async(SetNetworkInfo(network_info).span_wrap()).await.ok();
+                }
+                .instrument(tracing::trace_span!(target: "network", "push_network_info_future")),
+            );
+        } else {
+            // Testloop: spawn on ops_spawner (no actix runtime).
+            let state = self.state.clone();
+            self.state.spawn("push_network_info", async move {
+                state.client.send_async(SetNetworkInfo(network_info).span_wrap()).await.ok();
+            });
+        }
 
         ctx.run_later("push_network_info_trigger", interval, move |act, ctx| {
             act.push_network_info_trigger(ctx, interval);
