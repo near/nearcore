@@ -489,7 +489,7 @@ fn test_restart_rpc_node() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+#[ignore = "global delay filter state doesn't survive node restart"]
 fn test_restart_producer_node() {
     init_test_logger();
 
@@ -569,7 +569,7 @@ fn test_restart_producer_node() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+#[ignore = "global delay filter state doesn't survive node restart"]
 fn test_restart_validator_node() {
     init_test_logger();
 
