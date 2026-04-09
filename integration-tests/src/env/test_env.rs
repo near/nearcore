@@ -909,8 +909,10 @@ impl Drop for TestEnv {
     fn drop(&mut self) {
         #[cfg(feature = "test_features")]
         {
-            let had_paused =
-                self.clients.iter_mut().any(|c| c.chain.test_paused_blocks.resume_all());
+            let mut had_paused = false;
+            for client in &mut self.clients {
+                had_paused |= client.chain.test_paused_blocks.resume_all();
+            }
             if had_paused && !std::thread::panicking() {
                 panic!("some blocks are still paused, did you call `test_paused_blocks.resume`?");
             }
