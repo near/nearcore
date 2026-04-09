@@ -522,25 +522,20 @@ impl Database for RocksDB {
         // For this operation (drop CF) we use the default RocksDB configuration.
         let default_store_config = StoreConfig::default();
         let opts = common_rocksdb_options(&default_store_config.rocksdb);
-        let all_columns: Vec<DBCol> = DBCol::iter().collect();
+        let all_columns = DBCol::iter().collect_vec();
         let mut cfs = cf_descriptors(&all_columns, &default_store_config, Temperature::Hot);
 
         // Include unknown CFs so the checkpoint can be opened, then drop them.
         // The checkpoint path always exists at this point (created above), so
         // any list_cf error is a real problem — propagate it.
-        let unknown_names: Vec<String> = match unknown_cf_descriptors(path, &opts, &all_columns) {
-            Ok(extra) => {
-                let names: Vec<String> = extra.iter().map(|cf| cf.name().to_string()).collect();
-                cfs.extend(extra);
-                names
-            }
-            Err(err) => {
-                return Err(anyhow::Error::from(err).context(format!(
-                    "failed to list column families in checkpoint at {}",
-                    path.display()
-                )));
-            }
-        };
+        let extra = unknown_cf_descriptors(path, &opts, &all_columns).map_err(|err| {
+            anyhow::Error::from(err).context(format!(
+                "failed to list column families in checkpoint at {}",
+                path.display()
+            ))
+        })?;
+        let unknown_names: Vec<String> = extra.iter().map(|cf| cf.name().to_string()).collect();
+        cfs.extend(extra);
 
         let mut db = DB::open_cf_descriptors(&opts, path, cfs)
             .with_context(|| format!("failed to open checkpoint at {}", path.display()))?;
