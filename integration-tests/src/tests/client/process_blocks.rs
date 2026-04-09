@@ -1839,6 +1839,7 @@ fn test_block_height_processed_orphan() {
 }
 
 #[test]
+#[cfg(feature = "test_features")]
 fn test_validate_chunk_extra() {
     // With spice there is no need to test validate_chunk_with_chunk_extra since chunks no longer
     // contain data from chunk extra.
