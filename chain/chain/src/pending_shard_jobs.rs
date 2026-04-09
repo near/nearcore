@@ -66,7 +66,7 @@ impl<K: Send + 'static, R: FromPanic + Send + 'static> PendingShardJobs<K, R> {
     /// If `task` panics, `R::from_panic` produces a fallback result, keeping
     /// `on_done` delivery intact.
     pub fn spawn(self: &Arc<Self>, key: K, task: impl FnOnce() -> R + Send + 'static) {
-        let index = self.next_index.fetch_add(1, Ordering::Relaxed);
+        let index = self.next_index.fetch_add(1, Ordering::AcqRel);
         assert!(
             index < self.results.lock().len(),
             "{}: spawn called more times than the configured count",
@@ -88,7 +88,7 @@ impl<K: Send + 'static, R: FromPanic + Send + 'static> PendingShardJobs<K, R> {
 
     fn set_result(&self, index: usize, result: (K, R)) {
         self.results.lock()[index] = Some(result);
-        if self.remaining.fetch_sub(1, Ordering::Relaxed) == 1 {
+        if self.remaining.fetch_sub(1, Ordering::AcqRel) == 1 {
             self.invoke_on_done();
         }
     }
