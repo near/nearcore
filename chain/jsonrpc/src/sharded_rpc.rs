@@ -5,8 +5,11 @@ use near_jsonrpc_client_internal::JsonRpcClient;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{AccountId, BlockHeight, BlockId, BlockReference, EpochId, ShardId};
+use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use std::net::{IpAddr, SocketAddr, UdpSocket};
 use std::sync::Arc;
 use url::Url;
@@ -273,6 +276,16 @@ impl ShardedRpcPool {
         }
 
         Ok(result)
+    }
+
+    /// Try to resolve a chunk hash to its shard_id by looking up the partial
+    /// chunk in the store. All nodes persist partial chunks for all shards
+    /// (header-only for untracked shards), so this works regardless of which
+    /// shards the local node tracks.
+    pub fn try_resolve_chunk_shard(&self, chunk_hash: &ChunkHash) -> Option<ShardId> {
+        let chunk_store = ChunkStoreAdapter::new(self.chain_store.store_ref().clone());
+        let partial_chunk = chunk_store.get_partial_chunk(chunk_hash).ok()?;
+        Some(partial_chunk.shard_id())
     }
 }
 
