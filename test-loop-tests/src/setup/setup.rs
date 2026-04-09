@@ -386,9 +386,12 @@ pub fn setup_client(
     let net_peer_store =
         peer_store::PeerStore::new(&test_loop.clock(), verified_config.peer_store.clone()).unwrap();
 
-    // Build ClientSenderForNetwork from individual actor adapters.
-    // In production, these come from different actors. In testloop,
-    // we construct it from the individual LateBoundSenders.
+    // Build ClientSenderForNetwork. Mirrors the production
+    // client_sender_for_network() in chain/client/src/adapter.rs:
+    // ClientActor handles block/headers/approval/network_info/state/epoch_sync/optimistic_block,
+    // ViewClientActor handles block_request/headers_request/tx_status/announce_account/epoch_height,
+    // RpcHandlerActor handles transactions,
+    // ChunkEndorsementHandlerActor handles chunk_endorsement.
     let client_sender_for_network = ClientSenderForNetwork {
         block: client_adapter.as_async_sender(),
         block_headers: client_adapter.as_async_sender(),
@@ -398,10 +401,10 @@ pub fn setup_client(
         epoch_sync_request: client_adapter.as_sender(),
         epoch_sync_response: client_adapter.as_sender(),
         optimistic_block_receiver: client_adapter.as_sender(),
-        tx_status_request: view_client_adapter.as_async_sender(),
-        tx_status_response: view_client_adapter.as_async_sender(),
         block_request: view_client_adapter.as_async_sender(),
         block_headers_request: view_client_adapter.as_async_sender(),
+        tx_status_request: view_client_adapter.as_async_sender(),
+        tx_status_response: view_client_adapter.as_async_sender(),
         announce_account: view_client_adapter.as_async_sender(),
         current_epoch_height_request: view_client_adapter.as_async_sender(),
         transaction: rpc_handler_adapter.as_async_sender(),
