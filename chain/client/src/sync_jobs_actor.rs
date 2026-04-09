@@ -46,12 +46,11 @@ impl SyncJobsActor {
         // Schedule the shard jobs on apply_chunks_spawner, using PendingShardJobs.
         // On completion, send the results back to the client.
         let on_done = move |results: Vec<(
-            ShardId,
-            CachedShardUpdateKey,
+            (ShardId, CachedShardUpdateKey),
             Result<ShardUpdateResult, Error>,
         )>| {
             let results =
-                results.into_iter().map(|(shard_id, _, result)| (shard_id, result)).collect();
+                results.into_iter().map(|((shard_id, _), result)| (shard_id, result)).collect();
             client_sender.send(BlockCatchUpResponse { sync_hash, block_hash, results }.span_wrap());
         };
         let pending = PendingShardJobs::new(
@@ -62,10 +61,7 @@ impl SyncJobsActor {
         );
         for (shard_id, cached_shard_update_key, task) in msg.work {
             let parent_span = parent_span.clone();
-            pending.spawn(move || {
-                let result = task(&parent_span);
-                (shard_id, cached_shard_update_key, result)
-            });
+            pending.spawn((shard_id, cached_shard_update_key), move || task(&parent_span));
         }
     }
 }

@@ -1,6 +1,6 @@
 #![cfg_attr(enable_const_type_id, feature(const_type_id))]
 
-pub use block_processing_utils::{BlockProcessingArtifact, PendingShardJobs};
+pub use block_processing_utils::{BlockProcessingArtifact, FromPanic, PendingShardJobs};
 pub use chain::{Chain, MemtrieLoadingSpawner, collect_receipts};
 pub use chain_update::ChainUpdate;
 pub use doomslug::{

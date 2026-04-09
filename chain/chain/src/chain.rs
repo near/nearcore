@@ -240,7 +240,7 @@ impl ApplyChunksResultCache {
 }
 
 type BlockApplyChunksResult =
-    (BlockToApply, Vec<(ShardId, CachedShardUpdateKey, Result<ShardUpdateResult, Error>)>);
+    (BlockToApply, Vec<((ShardId, CachedShardUpdateKey), Result<ShardUpdateResult, Error>)>);
 
 /// Async computation spawner to be used for background memtrie loading tasks.
 #[derive(Default)]
@@ -1425,7 +1425,8 @@ impl Chain {
         while let Ok((block, apply_result)) = self.apply_chunks_receiver.try_recv() {
             match block {
                 BlockToApply::Normal(block_hash) => {
-                    let apply_result = apply_result.into_iter().map(|res| (res.0, res.2)).collect();
+                    let apply_result =
+                        apply_result.into_iter().map(|((shard_id, _), r)| (shard_id, r)).collect();
                     match self.postprocess_ready_block(
                         block_hash,
                         apply_result,
@@ -1809,7 +1810,7 @@ impl Chain {
         );
         for (shard_id, cached_shard_update_key, task) in work {
             let parent_span = parent_span.clone();
-            pending.spawn(move || {
+            pending.spawn((shard_id, cached_shard_update_key), move || {
                 let span = tracing::debug_span!(
                     target: "chain",
                     parent: &parent_span,
@@ -1818,8 +1819,7 @@ impl Chain {
                     %shard_id,
                 );
                 let _guard = span.enter();
-                let result = task(&span);
-                (shard_id, cached_shard_update_key, result)
+                task(&span)
             });
         }
     }
@@ -2037,7 +2037,7 @@ impl Chain {
     fn postprocess_optimistic_block(
         &mut self,
         block_height: BlockHeight,
-        apply_result: Vec<(ShardId, CachedShardUpdateKey, Result<ShardUpdateResult, Error>)>,
+        apply_result: Vec<((ShardId, CachedShardUpdateKey), Result<ShardUpdateResult, Error>)>,
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) {
@@ -2051,7 +2051,7 @@ impl Chain {
 
         let prev_block_hash = optimistic_block.prev_block_hash();
         let block_height = optimistic_block.height();
-        for (shard_id, cached_shard_update_key, apply_result) in apply_result {
+        for ((shard_id, cached_shard_update_key), apply_result) in apply_result {
             match apply_result {
                 Ok(result) => {
                     tracing::debug!(

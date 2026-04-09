@@ -591,7 +591,7 @@ impl ChunkExecutorActor {
         );
         for (shard_id, task) in jobs {
             let parent_span = parent_span.clone();
-            pending.spawn(move || {
+            pending.spawn(shard_id, move || {
                 let span = tracing::debug_span!(
                     target: "chunk_executor",
                     parent: &parent_span,
@@ -600,8 +600,7 @@ impl ChunkExecutorActor {
                     %shard_id,
                 );
                 let _guard = span.enter();
-                let result = task(&span);
-                (shard_id, result)
+                task(&span)
             });
         }
         Ok(())
