@@ -23,12 +23,11 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::MerkleHash;
 use near_primitives::types::{AccountId, Balance, EpochId, Gas};
-use near_primitives::utils::get_block_shard_id;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use near_store::test_utils::create_test_store;
-use near_store::{DBCol, set_genesis_height};
+use near_store::set_genesis_height;
 use parking_lot::{Mutex, RwLock};
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::VecDeque;
@@ -117,6 +116,9 @@ impl ChunkTestFixture {
         // hash so the fixture matches production semantics.
         #[cfg(feature = "nightly")]
         if !orphan_chunk {
+            use near_primitives::utils::get_block_shard_id;
+            use near_store::DBCol;
+
             let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&mock_ancestor_hash).unwrap();
             let shard_layout_for_db = epoch_manager.get_shard_layout(&epoch_id).unwrap();
             let mut store_update = store.store_update();
