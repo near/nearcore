@@ -2,6 +2,7 @@ use crate::Provenance;
 use crate::chain::BlockMissingChunks;
 use crate::near_chain_primitives::error::BlockKnownError::KnownInProcessing;
 use crate::orphan::OrphanMissingChunks;
+use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::time::Instant;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
@@ -10,6 +11,7 @@ use near_primitives::sharding::{ReceiptProof, ShardChunkHeader, StateSyncInfo};
 use near_primitives::types::{BlockHeight, ShardId};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
 
 /// Max number of blocks that can be in the pool at once.
 /// This number will likely never be hit unless there are many forks in the chain.
@@ -291,6 +293,62 @@ mod tests {
             let waiter_value = results_receiver.recv().unwrap();
             assert_eq!(waiter_value, true);
         }
+    }
+}
+
+/// Spawns `count` tasks on spawner and collects their results. When the
+/// last task completes, `on_done` is called with all results. If `count` is
+/// zero, `on_done` is invoked asynchronously via the spawner.
+pub struct PendingShardJobs<T: Send + 'static> {
+    name: &'static str,
+    spawner: Arc<dyn AsyncComputationSpawner>,
+    remaining: AtomicUsize,
+    results: parking_lot::Mutex<Vec<T>>,
+    on_done: parking_lot::Mutex<Option<Box<dyn FnOnce(Vec<T>) + Send>>>,
+}
+
+impl<T: Send + 'static> PendingShardJobs<T> {
+    pub fn new(
+        name: &'static str,
+        spawner: Arc<dyn AsyncComputationSpawner>,
+        count: usize,
+        on_done: impl FnOnce(Vec<T>) + Send + 'static,
+    ) -> Arc<Self> {
+        let pending = Arc::new(Self {
+            name,
+            spawner,
+            remaining: AtomicUsize::new(count),
+            results: parking_lot::Mutex::new(Vec::with_capacity(count)),
+            on_done: parking_lot::Mutex::new(Some(Box::new(on_done))),
+        });
+        if count == 0 {
+            // Invoke on_done via the spawner to keep result delivery asynchronous.
+            // Some test-loops depend on receiving results as a separate event.
+            let pending_clone = pending.clone();
+            pending.spawner.spawn(pending.name, move || {
+                pending_clone.invoke_on_done();
+            });
+        }
+        pending
+    }
+
+    pub fn spawn(self: &Arc<Self>, task: impl FnOnce() -> T + Send + 'static) {
+        let pending = self.clone();
+        self.spawner.spawn(self.name, move || {
+            pending.add_result(task());
+        });
+    }
+
+    fn add_result(&self, result: T) {
+        self.results.lock().push(result);
+        if self.remaining.fetch_sub(1, std::sync::atomic::Ordering::AcqRel) == 1 {
+            self.invoke_on_done();
+        }
+    }
+
+    fn invoke_on_done(&self) {
+        let results = std::mem::take(&mut *self.results.lock());
+        (self.on_done.lock().take().unwrap())(results);
     }
 }
 

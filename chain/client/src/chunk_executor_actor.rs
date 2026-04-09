@@ -3,13 +3,13 @@ use crate::spice_data_distributor_actor::SpiceDataDistributorAdapter;
 use crate::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use crate::spice_data_distributor_actor::SpiceDistributorStateWitness;
 use near_async::futures::AsyncComputationSpawner;
-use near_async::futures::AsyncComputationSpawnerExt;
 use near_async::messaging::CanSend;
 use near_async::messaging::Handler;
 use near_async::messaging::IntoSender;
 use near_async::messaging::Sender;
 use near_chain::BlockHeader;
 use near_chain::ChainStoreAccess;
+use near_chain::PendingShardJobs;
 use near_chain::chain::{NewChunkData, NewChunkResult, ShardContext, StorageContext};
 use near_chain::sharding::get_receipts_shuffle_salt;
 use near_chain::sharding::shuffle_receipt_proofs;
@@ -574,24 +574,27 @@ impl ChunkExecutorActor {
         let parent_span = tracing::debug_span!(
             target: "chunk_executor", "apply_chunks", %block_height, ?block_hash
         );
-        let pending = Arc::new(PendingExecutorApplyChunks {
-            block_hash,
-            remaining: std::sync::atomic::AtomicUsize::new(count),
-            results: std::sync::Mutex::new(Ok(Vec::with_capacity(count))),
-            sender: self.myself_sender.clone(),
-        });
-        if count == 0 {
-            self.apply_chunks_spawner.spawn("apply_chunks", move || {
-                pending.finish();
-            });
-            return Ok(());
-        }
+        let apply_done_sender = self.myself_sender.clone();
+        let on_done = move |results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>| {
+            let apply_results = results
+                .into_iter()
+                .map(|(shard_id, result)| {
+                    result.map_err(|err| FailedToApplyChunkError { shard_id, err })
+                })
+                .collect::<Result<Vec<_>, _>>();
+            apply_done_sender.send(ExecutorApplyChunksDone { block_hash, apply_results });
+        };
+        let pending = PendingShardJobs::new(
+            "apply_chunks",
+            self.apply_chunks_spawner.clone(),
+            count,
+            on_done,
+        );
         for (shard_id, task) in jobs {
-            let pending = pending.clone();
             let parent_span = parent_span.clone();
-            self.apply_chunks_spawner.spawn("apply_chunks", move || {
+            pending.spawn(move || {
                 let result = task(&parent_span);
-                pending.on_shard_done(shard_id, result);
+                (shard_id, result)
             });
         }
         Ok(())
@@ -1146,39 +1149,6 @@ pub fn receipt_proof_exists(
 
 type UpdateShardJob =
     (ShardId, Box<dyn FnOnce(&tracing::Span) -> Result<ShardUpdateResult, Error> + Send + 'static>);
-
-struct PendingExecutorApplyChunks {
-    block_hash: CryptoHash,
-    remaining: std::sync::atomic::AtomicUsize,
-    results: std::sync::Mutex<Result<Vec<ShardUpdateResult>, FailedToApplyChunkError>>,
-    sender: Sender<ExecutorApplyChunksDone>,
-}
-
-impl PendingExecutorApplyChunks {
-    fn on_shard_done(&self, shard_id: ShardId, result: Result<ShardUpdateResult, Error>) {
-        let mut results = self.results.lock().unwrap();
-        match result {
-            Ok(update) => {
-                if let Ok(vec) = results.as_mut() {
-                    vec.push(update);
-                }
-            }
-            Err(err) => {
-                *results = Err(FailedToApplyChunkError { shard_id, err });
-            }
-        }
-        drop(results);
-        if self.remaining.fetch_sub(1, std::sync::atomic::Ordering::AcqRel) == 1 {
-            self.finish();
-        }
-    }
-
-    fn finish(&self) {
-        let results = std::mem::replace(&mut *self.results.lock().unwrap(), Ok(Vec::new()));
-        self.sender
-            .send(ExecutorApplyChunksDone { block_hash: self.block_hash, apply_results: results });
-    }
-}
 
 pub(crate) fn is_descendant_of_final_execution_head(
     chain_store: &ChainStoreAdapter,

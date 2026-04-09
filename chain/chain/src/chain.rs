@@ -1,7 +1,7 @@
 use crate::approval_verification::verify_approval_with_approvers_info;
 use crate::block_processing_utils::{
     ApplyChunksDoneWaiter, ApplyChunksStillApplying, BlockPreprocessInfo, BlockProcessingArtifact,
-    BlocksInProcessing, OptimisticBlockInfo,
+    BlocksInProcessing, OptimisticBlockInfo, PendingShardJobs,
 };
 use crate::blocks_delay_tracker::BlocksDelayTracker;
 use crate::chain_update::ChainUpdate;
@@ -45,9 +45,7 @@ use crate::{DoomslugThresholdMode, metrics};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use itertools::Itertools;
 use lru::LruCache;
-use near_async::futures::{
-    AsyncComputationSpawner, AsyncComputationSpawnerExt, StdThreadAsyncComputationSpawner,
-};
+use near_async::futures::{AsyncComputationSpawner, StdThreadAsyncComputationSpawner};
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain_configs::{MutableValidatorSigner, ProtocolVersionCheckConfig};
@@ -1785,77 +1783,42 @@ impl Chain {
             BlockToApply::Normal(hash) => self.test_paused_blocks.get_gate(hash),
             _ => None,
         };
-        let pending = Arc::new(PendingApplyChunks {
-            block,
-            block_height,
-            remaining: std::sync::atomic::AtomicUsize::new(count),
-            results: std::sync::Mutex::new(Vec::with_capacity(count)),
-            sender: self.apply_chunks_sender.clone(),
-            clock: self.clock.clone(),
-            start_time: self.clock.now(),
+        let sc = self.apply_chunks_sender.clone();
+        let clock = self.clock.clone();
+        let start_time = clock.now();
+        let on_done = move |results| {
             #[cfg(feature = "test_features")]
-            test_pause_gate,
-            still_applying: std::sync::Mutex::new(Some(apply_chunks_still_applying)),
-            done_sender: std::sync::Mutex::new(apply_chunks_done_sender),
-        });
-        if count == 0 {
-            self.apply_chunks_spawner.spawn("apply_chunks", move || {
-                pending.finish();
-            });
-            return;
-        }
+            if let Some(gate) = test_pause_gate {
+                gate.wait();
+            }
+            metrics::APPLY_ALL_CHUNKS_TIME
+                .with_label_values(&[block.as_ref()])
+                .observe((clock.now().signed_duration_since(start_time)).as_seconds_f64());
+            sc.send((block, results)).unwrap();
+            drop(apply_chunks_still_applying);
+            if let Some(sender) = apply_chunks_done_sender {
+                sender.send(ApplyChunksDoneMessage {}.span_wrap());
+            }
+        };
+        let pending = PendingShardJobs::new(
+            "apply_chunks",
+            self.apply_chunks_spawner.clone(),
+            count,
+            on_done,
+        );
         for (shard_id, cached_shard_update_key, task) in work {
-            let pending = pending.clone();
             let parent_span = parent_span.clone();
-            self.apply_chunks_spawner.spawn("apply_chunks", move || {
+            pending.spawn(move || {
+                let _span = tracing::debug_span!(
+                    target: "chain",
+                    "apply_chunk",
+                    %block_height,
+                    %shard_id,
+                )
+                .entered();
                 let result = task(&parent_span);
-                pending.on_shard_done(shard_id, cached_shard_update_key, result);
+                (shard_id, cached_shard_update_key, result)
             });
-        }
-    }
-}
-
-struct PendingApplyChunks {
-    block: BlockToApply,
-    block_height: BlockHeight,
-    remaining: std::sync::atomic::AtomicUsize,
-    results:
-        std::sync::Mutex<Vec<(ShardId, CachedShardUpdateKey, Result<ShardUpdateResult, Error>)>>,
-    sender: Sender<BlockApplyChunksResult>,
-    clock: Clock,
-    start_time: Instant,
-    #[cfg(feature = "test_features")]
-    test_pause_gate: Option<Arc<std::sync::OnceLock<()>>>,
-    still_applying: std::sync::Mutex<Option<ApplyChunksStillApplying>>,
-    done_sender: std::sync::Mutex<Option<ApplyChunksDoneSender>>,
-}
-
-impl PendingApplyChunks {
-    fn on_shard_done(
-        &self,
-        shard_id: ShardId,
-        cached_shard_update_key: CachedShardUpdateKey,
-        result: Result<ShardUpdateResult, Error>,
-    ) {
-        self.results.lock().unwrap().push((shard_id, cached_shard_update_key, result));
-        if self.remaining.fetch_sub(1, std::sync::atomic::Ordering::AcqRel) == 1 {
-            self.finish();
-        }
-    }
-
-    fn finish(&self) {
-        #[cfg(feature = "test_features")]
-        if let Some(gate) = &self.test_pause_gate {
-            gate.wait();
-        }
-        let results = std::mem::take(&mut *self.results.lock().unwrap());
-        metrics::APPLY_ALL_CHUNKS_TIME
-            .with_label_values(&[self.block.as_ref()])
-            .observe((self.clock.now().signed_duration_since(self.start_time)).as_seconds_f64());
-        self.sender.send((self.block.clone(), results)).unwrap();
-        drop(self.still_applying.lock().unwrap().take());
-        if let Some(sender) = self.done_sender.lock().unwrap().take() {
-            sender.send(ApplyChunksDoneMessage {}.span_wrap());
         }
     }
 }
@@ -1920,8 +1883,6 @@ impl Chain {
         let is_caught_up = block_preprocess_info.is_caught_up;
         let provenance = block_preprocess_info.provenance.clone();
         let block_start_processing_time = block_preprocess_info.block_start_processing_time;
-        // TODO(#8055): this zip relies on the ordering of the apply_results.
-        // TODO(wacban): do the above todo
         for (shard_id, apply_result) in &apply_results {
             let shard_index = shard_layout.get_shard_index(*shard_id)?;
             if let Err(err) = apply_result {
