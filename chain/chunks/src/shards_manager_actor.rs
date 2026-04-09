@@ -1412,9 +1412,9 @@ impl ShardsManagerActor {
         let _span = debug_span!(target: "chunks", "validate_chunk_header_preliminary", ?chunk_hash)
             .entered();
 
-        // Signature is intentionally NOT checked here — CPK-based lookups will
-        // become incorrect once EarlyKickout blacklisting ships (CPK returns
-        // default producer, DB returns actual post-blacklist producer).
+        // Signature is intentionally NOT checked here — it requires the chunk
+        // producer from the DB (via prev_block_hash), which may not be available yet.
+        // Signature is verified later in `validate_chunk_header_full`.
         let (epoch_id, epoch_id_confirmed) = {
             let prev_block_hash = *header.prev_block_hash();
             let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash);
@@ -1460,6 +1460,12 @@ impl ShardsManagerActor {
         let chunk_hash = header.chunk_hash();
         let _span =
             debug_span!(target: "chunks", "validate_chunk_header_full", ?chunk_hash).entered();
+
+        // Precondition: prev_block must be processed so epoch and DB lookups succeed.
+        debug_assert!(
+            self.epoch_manager.get_epoch_id_from_prev_block(header.prev_block_hash()).is_ok(),
+            "validate_chunk_header_full called before prev_block is processed"
+        );
 
         let sig_valid = verify_chunk_header_signature_by_hash(self.epoch_manager.as_ref(), header)?;
         if !sig_valid {
@@ -1778,29 +1784,31 @@ impl ShardsManagerActor {
             }
         };
         // Full validation (including signature via hash-based DB lookup) now that
-        // prev_block is processed. Always run because preliminary validation does not
-        // check the signature — `header_fully_validated` only means structurally validated.
-        if let Some(_chunk_entry) = self.encoded_chunks.get(&chunk_hash) {
-            let res = self.validate_chunk_header_full(header);
-            match res {
-                Ok(()) => {
-                    self.encoded_chunks.mark_entry_validated(&chunk_hash);
-                }
-                Err(err) => {
-                    return match err {
-                        Error::ChainError(chain_error) => {
-                            tracing::debug!(target: "chunks", ?chain_error);
-                            Err(chain_error.into())
-                        }
-                        err => {
-                            // the chunk header is invalid
-                            // remove this entry from the cache and remove the request from the request pool
-                            tracing::debug!(target: "chunks", ?err, "chunk header is invalid");
-                            self.encoded_chunks.remove(&chunk_hash);
-                            self.requested_partial_encoded_chunks.remove(&chunk_hash);
-                            Err(err)
-                        }
-                    };
+        // prev_block is processed. Preliminary validation only checks structural fields
+        // (shard_id, protocol_version) — the signature is deferred to here.
+        if let Some(chunk_entry) = self.encoded_chunks.get(&chunk_hash) {
+            if !chunk_entry.header_fully_validated {
+                let res = self.validate_chunk_header_full(header);
+                match res {
+                    Ok(()) => {
+                        self.encoded_chunks.mark_entry_validated(&chunk_hash);
+                    }
+                    Err(err) => {
+                        return match err {
+                            Error::ChainError(chain_error) => {
+                                tracing::debug!(target: "chunks", ?chain_error);
+                                Err(chain_error.into())
+                            }
+                            err => {
+                                // the chunk header is invalid
+                                // remove this entry from the cache and remove the request from the request pool
+                                tracing::debug!(target: "chunks", ?err, "chunk header is invalid");
+                                self.encoded_chunks.remove(&chunk_hash);
+                                self.requested_partial_encoded_chunks.remove(&chunk_hash);
+                                Err(err)
+                            }
+                        };
+                    }
                 }
             }
         } else {
