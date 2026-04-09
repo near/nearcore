@@ -155,52 +155,55 @@ impl messaging::Actor for PeerManagerActor {
         // Periodically push network information to client.
         self.push_network_info_trigger(ctx, self.state.config.push_info_period);
 
-        // TCP-only infrastructure (skipped in testloop mode).
-        if self.handle.is_some() {
-            // Attempt to reconnect to recent outbound connections from storage
-            if self.state.config.connect_to_reliable_peers_on_startup {
-                tracing::debug!(target: "network", "reconnecting to reliable peers from storage");
-                self.bootstrap_outbound_from_recent_connections();
-            } else {
-                tracing::debug!(target: "network", "skipping reconnection to reliable peers");
-            }
-
-            // Periodically starts peer monitoring.
-            tracing::debug!(target: "network",
-                   max_period=?self.state.config.monitor_peers_max_period,
-                   "monitor_peers_trigger");
-            self.monitor_peers_trigger(
-                MONITOR_PEERS_INITIAL_DURATION,
-                (MONITOR_PEERS_INITIAL_DURATION, self.state.config.monitor_peers_max_period),
-            );
-
-            // Periodically fix local edges.
-            let clock = self.clock.clone();
-            let state = self.state.clone();
-            let handle = self.handle.as_ref().unwrap();
-            handle.spawn("fix_local_edges loop", async move {
-                let mut interval = time::Interval::new(clock.now(), FIX_LOCAL_EDGES_INTERVAL);
-                loop {
-                    interval.tick(&clock).await;
-                    state.fix_local_edges(&clock, FIX_LOCAL_EDGES_TIMEOUT).await;
-                }
-            });
-
-            // Periodically update the connection store.
-            let clock = self.clock.clone();
-            let state = self.state.clone();
-            handle.spawn("update_connection_store loop", async move {
-                let mut interval =
-                    time::Interval::new(clock.now(), UPDATE_CONNECTION_STORE_INTERVAL);
-                loop {
-                    interval.tick(&clock).await;
-                    state.update_connection_store(&clock);
-                }
-            });
-
-            // Periodically prints bandwidth stats for each peer.
-            self.report_bandwidth_stats_trigger(ctx, REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL);
+        // TCP-only infrastructure (skipped in testloop mode where handle is None).
+        if self.handle.is_none() {
+            #[cfg(test)]
+            self.state.config.event_sink.send(Event::PeerManagerStarted);
+            return;
         }
+
+        // Attempt to reconnect to recent outbound connections from storage
+        if self.state.config.connect_to_reliable_peers_on_startup {
+            tracing::debug!(target: "network", "reconnecting to reliable peers from storage");
+            self.bootstrap_outbound_from_recent_connections();
+        } else {
+            tracing::debug!(target: "network", "skipping reconnection to reliable peers");
+        }
+
+        // Periodically starts peer monitoring.
+        tracing::debug!(target: "network",
+               max_period=?self.state.config.monitor_peers_max_period,
+               "monitor_peers_trigger");
+        self.monitor_peers_trigger(
+            MONITOR_PEERS_INITIAL_DURATION,
+            (MONITOR_PEERS_INITIAL_DURATION, self.state.config.monitor_peers_max_period),
+        );
+
+        // Periodically fix local edges.
+        let clock = self.clock.clone();
+        let state = self.state.clone();
+        let handle = self.handle.as_ref().unwrap();
+        handle.spawn("fix_local_edges loop", async move {
+            let mut interval = time::Interval::new(clock.now(), FIX_LOCAL_EDGES_INTERVAL);
+            loop {
+                interval.tick(&clock).await;
+                state.fix_local_edges(&clock, FIX_LOCAL_EDGES_TIMEOUT).await;
+            }
+        });
+
+        // Periodically update the connection store.
+        let clock = self.clock.clone();
+        let state = self.state.clone();
+        handle.spawn("update_connection_store loop", async move {
+            let mut interval = time::Interval::new(clock.now(), UPDATE_CONNECTION_STORE_INTERVAL);
+            loop {
+                interval.tick(&clock).await;
+                state.update_connection_store(&clock);
+            }
+        });
+
+        // Periodically prints bandwidth stats for each peer.
+        self.report_bandwidth_stats_trigger(ctx, REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL);
 
         #[cfg(test)]
         self.state.config.event_sink.send(Event::PeerManagerStarted);
@@ -1452,18 +1455,17 @@ impl messaging::Handler<SetChainInfo> for PeerManagerActor {
             return;
         }
 
-        if let (Some(handle), Some(actor_system)) = (&self.handle, &self.actor_system) {
-            let state = self.state.clone();
-            let clock = self.clock.clone();
-            let actor_system = actor_system.clone();
-            handle.spawn(
-                "handle set_chain_info",
-                async move {
-                    state.tier1_advertise_proxies(&clock, actor_system).await;
-                }
-                .in_current_span(),
-            );
-        }
+        let Some(handle) = &self.handle else { return };
+        let state = self.state.clone();
+        let clock = self.clock.clone();
+        let actor_system = self.actor_system.clone().unwrap();
+        handle.spawn(
+            "handle set_chain_info",
+            async move {
+                state.tier1_advertise_proxies(&clock, actor_system).await;
+            }
+            .in_current_span(),
+        );
     }
 }
 

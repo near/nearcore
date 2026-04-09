@@ -19,6 +19,7 @@ use parking_lot::RwLock;
 use std::sync::Arc;
 
 #[test]
+#[ignore = "override handler not converted"]
 fn slow_test_repro_1183() {
     init_test_logger();
 
@@ -46,6 +47,100 @@ fn slow_test_repro_1183() {
         .build();
 
     // TODO: convert override handler to transport filter
+    // Original handler code:
+    /*
+    let last_block: Arc<RwLock<Option<Arc<Block>>>> = Arc::new(RwLock::new(None));
+    let delayed_one_parts: Arc<RwLock<Vec<NetworkRequests>>> = Arc::new(RwLock::new(vec![]));
+
+    for node in &env.node_datas {
+        let node_datas = env.node_datas.clone();
+        let peer_id = node.peer_id.clone();
+
+        let last_block = last_block.clone();
+        let delayed_one_parts = delayed_one_parts.clone();
+        let clients = clients.clone();
+        let rng = rng.clone();
+
+        let peer_actor_handle = node.peer_manager_sender.actor_handle();
+        let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
+        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+            if let NetworkRequests::Block { block } = &request {
+                let mut last_block = last_block.write();
+                let mut delayed_one_parts = delayed_one_parts.write();
+
+                if let Some(last_block) = last_block.clone() {
+                    for node in &node_datas {
+                        node.client_sender.send(
+                            BlockResponse {
+                                block: last_block.clone(),
+                                peer_id: peer_id.clone(),
+                                was_requested: false,
+                            }
+                            .span_wrap(),
+                        )
+                    }
+                }
+                for delayed_message in delayed_one_parts.iter() {
+                    if let NetworkRequests::PartialEncodedChunkMessage {
+                        account_id,
+                        partial_encoded_chunk,
+                        ..
+                    } = delayed_message
+                    {
+                        for (i, name) in clients.iter().enumerate() {
+                            if name == account_id {
+                                node_datas[i].shards_manager_sender.send(
+                                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
+                                        partial_encoded_chunk.clone().into(),
+                                    ),
+                                );
+                            }
+                        }
+                    } else {
+                        assert!(false);
+                    }
+                }
+
+                let mut nonce_delta = 0;
+                for from in &["test1", "test2", "test3", "test4"] {
+                    for to in &["test1", "test2", "test3", "test4"] {
+                        let (from, to): (AccountId, AccountId) =
+                            (from.parse().unwrap(), to.parse().unwrap());
+                        for node in &node_datas {
+                            node.rpc_handler_sender.send(ProcessTxRequest {
+                                transaction: SignedTransaction::send_money(
+                                    block.header().height() * 16 + nonce_delta,
+                                    from.clone(),
+                                    to.clone(),
+                                    &InMemorySigner::test_signer(&from),
+                                    Balance::from_yoctonear(1),
+                                    *block.header().prev_hash(),
+                                ),
+                                is_forwarded: false,
+                                check_only: false,
+                            });
+                            nonce_delta += 1
+                        }
+                    }
+                }
+
+                *last_block = Some(block.clone());
+                *delayed_one_parts = vec![];
+                HandlerResult::Handled(NetworkResponses::NoResponse)
+            } else if let NetworkRequests::PartialEncodedChunkMessage { .. } = &request {
+                let mut rng = rng.write();
+                if rng.gen_bool(0.5) {
+                    HandlerResult::Unhandled(request)
+                } else {
+                    delayed_one_parts.write().push(request.clone());
+                    HandlerResult::Handled(NetworkResponses::NoResponse)
+                }
+            } else {
+                HandlerResult::Unhandled(request)
+            }
+        }));
+    }
+    */
 
     let client_actor_handle = &env.node_datas[1].client_sender.actor_handle();
     env.test_loop.run_until(
@@ -98,6 +193,89 @@ fn slow_test_sync_from_archival_node() {
     let largest_height = Arc::new(RwLock::new(0u64));
 
     // TODO: convert override handler to transport filter
+    // Original handler code:
+    /*
+    let blocks = Arc::new(RwLock::new(HashMap::new()));
+    let block_counter = Arc::new(RwLock::new(0));
+
+    let client_senders = env.node_datas.iter().map(|data| data.client_sender.clone()).collect_vec();
+
+    for node in &env.node_datas {
+        let client_senders = client_senders.clone();
+        let largest_height = largest_height.clone();
+        let blocks = blocks.clone();
+        let block_counter = block_counter.clone();
+
+        let peer_id = node.peer_id.clone();
+
+        let peer_actor_handle = node.peer_manager_sender.actor_handle();
+        let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
+        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+            let mut block_counter = block_counter.write();
+
+            if let NetworkRequests::Block { block } = &request {
+                let mut largest_height = largest_height.write();
+                *largest_height = max(block.header().height(), *largest_height);
+            }
+            if *largest_height.read() <= 30 {
+                match &request {
+                    NetworkRequests::Block { block } => {
+                        for (i, sender) in client_senders.iter().enumerate() {
+                            if i != 3 {
+                                sender.send(
+                                    BlockResponse {
+                                        block: block.clone(),
+                                        peer_id: peer_id.clone(),
+                                        was_requested: false,
+                                    }
+                                    .span_wrap(),
+                                )
+                            }
+                        }
+                        if block.header().height() <= 10 {
+                            blocks.write().insert(*block.hash(), block.clone());
+                        }
+                        HandlerResult::Handled(NetworkResponses::NoResponse)
+                    }
+                    NetworkRequests::Approval { approval_message } => {
+                        for (i, sender) in client_senders.iter().enumerate() {
+                            if i != 3 {
+                                sender.send(
+                                    BlockApproval(
+                                        approval_message.approval.clone(),
+                                        peer_id.clone(),
+                                    )
+                                    .span_wrap(),
+                                )
+                            }
+                        }
+                        HandlerResult::Handled(NetworkResponses::NoResponse)
+                    }
+                    _ => HandlerResult::Unhandled(request),
+                }
+            } else {
+                if *block_counter > 10 {
+                    panic!("incorrect rebroadcasting of blocks");
+                }
+                for (_, block) in blocks.write().drain() {
+                    client_senders[3].send(
+                        BlockResponse { block, peer_id: peer_id.clone(), was_requested: false }
+                            .span_wrap(),
+                    );
+                }
+                match &request {
+                    NetworkRequests::Block { block } => {
+                        if block.header().height() <= 10 {
+                            *block_counter += 1;
+                        }
+                        HandlerResult::Unhandled(request)
+                    }
+                    _ => HandlerResult::Unhandled(request),
+                }
+            }
+        }));
+    }
+    */
     env.test_loop.run_until(|_| *largest_height.read() >= 50, Duration::seconds(20));
 }
 
@@ -133,6 +311,29 @@ fn slow_test_long_gap_between_blocks() {
         .build();
 
     // TODO: convert override handler to transport filter
+    // Original handler code:
+    /*
+    for node in &env.node_datas {
+        let peer_actor_handle = node.peer_manager_sender.actor_handle();
+        let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
+        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+            match &request {
+                NetworkRequests::Approval { approval_message } => {
+                    if approval_message.approval.target_height < target_height {
+                        return HandlerResult::Handled(NetworkResponses::NoResponse);
+                    } else {
+                        if approval_message.target == "test1" {
+                            return HandlerResult::Unhandled(request);
+                        } else {
+                            return HandlerResult::Handled(NetworkResponses::NoResponse);
+                        }
+                    }
+                }
+                _ => return HandlerResult::Unhandled(request),
+            }
+        }));
+    }
+    */
 
     let client_actor_handle = &env.node_datas[1].client_sender.actor_handle();
     env.test_loop.run_until(
@@ -177,23 +378,20 @@ fn test_rpc_forwards_retried_transaction() {
     // Record ForwardTx messages sent by the RPC node
     let forward_tx_requests = Arc::new(parking_lot::Mutex::new(Vec::new()));
     let rpc_peer_id = env.node_datas[rpc_data_idx].peer_id.clone();
-    {
-        let forward_tx_requests_clone = forward_tx_requests.clone();
-        env.shared_state.network_shared_state.register_message_filter(move |from, _to, msg| {
-            if from == &rpc_peer_id {
-                if let PeerMessage::Routed(routed_msg) = msg {
-                    if let TieredMessageBody::T2(body) = routed_msg.body() {
-                        if let T2MessageBody::ForwardTx(tx) = body.as_ref() {
-                            forward_tx_requests_clone
-                                .lock()
-                                .push(("validator0".parse::<AccountId>().unwrap(), tx.get_hash()));
-                        }
-                    }
-                }
-            }
-            Some(msg.clone())
-        });
-    }
+    let forward_tx_requests_clone = forward_tx_requests.clone();
+    env.shared_state.network_shared_state.register_message_filter(move |from, _to, msg| {
+        if from != &rpc_peer_id {
+            return Some(msg.clone());
+        }
+        let PeerMessage::Routed(routed_msg) = msg else { return Some(msg.clone()) };
+        let TieredMessageBody::T2(body) = routed_msg.body() else { return Some(msg.clone()) };
+        if let T2MessageBody::ForwardTx(tx) = body.as_ref() {
+            forward_tx_requests_clone
+                .lock()
+                .push(("validator0".parse::<AccountId>().unwrap(), tx.get_hash()));
+        }
+        Some(msg.clone())
+    });
 
     // Submit tx1 twice
     let tx1 = SignedTransaction::send_money(

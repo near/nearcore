@@ -36,7 +36,6 @@ impl TestLoopEnv {
                 &mut self.test_loop.data,
                 self.shared_state.chunks_storage.clone(),
                 &drop_condition,
-                &self.shared_state.network_shared_state,
             );
         }
         self.shared_state.drop_conditions.push(drop_condition);

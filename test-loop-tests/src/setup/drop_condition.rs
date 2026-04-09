@@ -9,6 +9,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::PeerMessage;
 use near_network::{T1MessageBody, TieredMessageBody};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::types::{AccountId, BlockHeight, ShardId, ShardIndex};
 use near_vm_runner::logic::ProtocolVersion;
 use parking_lot::Mutex;
@@ -99,8 +100,8 @@ impl NodeExecutionData {
         test_loop_data: &TestLoopData,
         chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
         drop_condition: &DropCondition,
-        network_shared_state: &TestLoopNetworkSharedState,
     ) {
+        let network_shared_state = &self.network_shared_state;
         match drop_condition {
             DropCondition::ChunksValidatedBy(account_id) => self.register_drop_chunks_validated_by(
                 test_loop_data,
@@ -146,30 +147,21 @@ impl NodeExecutionData {
         let account_id = account_id.clone();
 
         network_shared_state.register_message_filter(move |_from, _to, msg| {
-            if let PeerMessage::Routed(routed_msg) = msg {
-                if let TieredMessageBody::T1(body) = routed_msg.body() {
-                    if let T1MessageBody::VersionedChunkEndorsement(endorsement) = body.as_ref() {
-                        let chunk_hash = endorsement.chunk_hash();
-                        let chunks = chunks_storage.lock();
-                        if let Some(chunk) = chunks.get(&chunk_hash) {
-                            if chunks.can_drop_chunk(chunk) {
-                                if epoch_manager
-                                    .get_epoch_id_from_prev_block(chunk.prev_block_hash())
-                                    .is_err()
-                                {
-                                    return Some(msg.clone());
-                                }
-                                if is_chunk_validated_by(
-                                    epoch_manager.as_ref(),
-                                    chunk.clone(),
-                                    account_id.clone(),
-                                ) {
-                                    return None;
-                                }
-                            }
-                        }
-                    }
-                }
+            let endorsement = match extract_chunk_endorsement(msg) {
+                Some(e) => e,
+                None => return Some(msg.clone()),
+            };
+            let chunk_hash = endorsement.chunk_hash();
+            let chunks = chunks_storage.lock();
+            let Some(chunk) = chunks.get(&chunk_hash) else { return Some(msg.clone()) };
+            if !chunks.can_drop_chunk(chunk) {
+                return Some(msg.clone());
+            }
+            if epoch_manager.get_epoch_id_from_prev_block(chunk.prev_block_hash()).is_err() {
+                return Some(msg.clone());
+            }
+            if is_chunk_validated_by(epoch_manager.as_ref(), chunk.clone(), account_id.clone()) {
+                return None;
             }
             Some(msg.clone())
         });
@@ -182,14 +174,12 @@ impl NodeExecutionData {
     ) {
         let account_id = account_id.clone();
         network_shared_state.register_message_filter(move |_from, _to, msg| {
-            if let PeerMessage::Routed(routed_msg) = msg {
-                if let TieredMessageBody::T1(body) = routed_msg.body() {
-                    if let T1MessageBody::VersionedChunkEndorsement(endorsement) = body.as_ref() {
-                        if endorsement.validator_account() == &account_id {
-                            return None;
-                        }
-                    }
-                }
+            let endorsement = match extract_chunk_endorsement(msg) {
+                Some(e) => e,
+                None => return Some(msg.clone()),
+            };
+            if endorsement.validator_account() == &account_id {
+                return None;
             }
             Some(msg.clone())
         });
@@ -207,31 +197,26 @@ impl NodeExecutionData {
         let epoch_manager = client_actor.client.chain.epoch_manager.clone();
 
         network_shared_state.register_message_filter(move |_from, _to, msg| {
-            if let PeerMessage::Routed(routed_msg) = msg {
-                if let TieredMessageBody::T1(body) = routed_msg.body() {
-                    if let T1MessageBody::VersionedChunkEndorsement(endorsement) = body.as_ref() {
-                        let chunk_hash = endorsement.chunk_hash();
-                        let chunks = chunks_storage.lock();
-                        if let Some(chunk) = chunks.get(&chunk_hash) {
-                            if chunks.can_drop_chunk(chunk) {
-                                if epoch_manager
-                                    .get_epoch_id_from_prev_block(chunk.prev_block_hash())
-                                    .is_err()
-                                {
-                                    return Some(msg.clone());
-                                }
-                                if should_drop_chunk_for_protocol_upgrade(
-                                    epoch_manager.as_ref(),
-                                    chunk.clone(),
-                                    protocol_version,
-                                    chunk_ranges.clone(),
-                                ) {
-                                    return None;
-                                }
-                            }
-                        }
-                    }
-                }
+            let endorsement = match extract_chunk_endorsement(msg) {
+                Some(e) => e,
+                None => return Some(msg.clone()),
+            };
+            let chunk_hash = endorsement.chunk_hash();
+            let chunks = chunks_storage.lock();
+            let Some(chunk) = chunks.get(&chunk_hash) else { return Some(msg.clone()) };
+            if !chunks.can_drop_chunk(chunk) {
+                return Some(msg.clone());
+            }
+            if epoch_manager.get_epoch_id_from_prev_block(chunk.prev_block_hash()).is_err() {
+                return Some(msg.clone());
+            }
+            if should_drop_chunk_for_protocol_upgrade(
+                epoch_manager.as_ref(),
+                chunk.clone(),
+                protocol_version,
+                chunk_ranges.clone(),
+            ) {
+                return None;
             }
             Some(msg.clone())
         });
@@ -248,30 +233,25 @@ impl NodeExecutionData {
         let epoch_manager = client_actor.client.chain.epoch_manager.clone();
 
         network_shared_state.register_message_filter(move |_from, _to, msg| {
-            if let PeerMessage::Routed(routed_msg) = msg {
-                if let TieredMessageBody::T1(body) = routed_msg.body() {
-                    if let T1MessageBody::VersionedChunkEndorsement(endorsement) = body.as_ref() {
-                        let chunk_hash = endorsement.chunk_hash();
-                        let chunks = chunks_storage.lock();
-                        if let Some(chunk) = chunks.get(&chunk_hash) {
-                            if chunks.can_drop_chunk(chunk) {
-                                if epoch_manager
-                                    .get_epoch_id_from_prev_block(chunk.prev_block_hash())
-                                    .is_err()
-                                {
-                                    return Some(msg.clone());
-                                }
-                                if should_drop_chunk_by_height(
-                                    epoch_manager.as_ref(),
-                                    chunk.clone(),
-                                    chunks_produced.clone(),
-                                ) {
-                                    return None;
-                                }
-                            }
-                        }
-                    }
-                }
+            let endorsement = match extract_chunk_endorsement(msg) {
+                Some(e) => e,
+                None => return Some(msg.clone()),
+            };
+            let chunk_hash = endorsement.chunk_hash();
+            let chunks = chunks_storage.lock();
+            let Some(chunk) = chunks.get(&chunk_hash) else { return Some(msg.clone()) };
+            if !chunks.can_drop_chunk(chunk) {
+                return Some(msg.clone());
+            }
+            if epoch_manager.get_epoch_id_from_prev_block(chunk.prev_block_hash()).is_err() {
+                return Some(msg.clone());
+            }
+            if should_drop_chunk_by_height(
+                epoch_manager.as_ref(),
+                chunk.clone(),
+                chunks_produced.clone(),
+            ) {
+                return None;
             }
             Some(msg.clone())
         });
@@ -292,6 +272,16 @@ impl NodeExecutionData {
             Some(msg.clone())
         });
     }
+}
+
+/// Extracts a chunk endorsement from a routed peer message, if present.
+fn extract_chunk_endorsement(msg: &PeerMessage) -> Option<&ChunkEndorsement> {
+    let PeerMessage::Routed(routed_msg) = msg else { return None };
+    let TieredMessageBody::T1(body) = routed_msg.body() else { return None };
+    let T1MessageBody::VersionedChunkEndorsement(endorsement) = body.as_ref() else {
+        return None;
+    };
+    Some(endorsement)
 }
 
 /// Checks whether chunk is validated by the given account.

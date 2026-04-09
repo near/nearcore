@@ -588,35 +588,28 @@ pub fn setup_client(
     const NETWORK_DELAY: Duration = Duration::milliseconds(10);
 
     // Build ClientSenderForNetwork from registered senders with network delay.
+    let delayed_client = client_sender.clone().with_delay(NETWORK_DELAY);
+    let delayed_view_client = view_client_sender.clone().with_delay(NETWORK_DELAY);
+    let delayed_rpc_handler = rpc_handler_sender.clone().with_delay(NETWORK_DELAY);
+    let delayed_chunk_endorsement =
+        chunk_endorsement_handler_sender.clone().with_delay(NETWORK_DELAY);
     let client_sender_for_network = ClientSenderForNetwork {
-        block: client_sender.clone().with_delay(NETWORK_DELAY).into_async_sender(),
-        block_headers: client_sender.clone().with_delay(NETWORK_DELAY).into_async_sender(),
-        block_approval: client_sender.clone().with_delay(NETWORK_DELAY).into_async_sender(),
-        network_info: client_sender.clone().with_delay(NETWORK_DELAY).into_async_sender(),
-        state_response: client_sender.clone().with_delay(NETWORK_DELAY).into_async_sender(),
-        epoch_sync_request: client_sender.clone().with_delay(NETWORK_DELAY).into_sender(),
-        epoch_sync_response: client_sender.clone().with_delay(NETWORK_DELAY).into_sender(),
-        optimistic_block_receiver: client_sender.clone().with_delay(NETWORK_DELAY).into_sender(),
-        block_request: view_client_sender.clone().with_delay(NETWORK_DELAY).into_async_sender(),
-        block_headers_request: view_client_sender
-            .clone()
-            .with_delay(NETWORK_DELAY)
-            .into_async_sender(),
-        tx_status_request: view_client_sender.clone().with_delay(NETWORK_DELAY).into_async_sender(),
-        tx_status_response: view_client_sender
-            .clone()
-            .with_delay(NETWORK_DELAY)
-            .into_async_sender(),
-        announce_account: view_client_sender.clone().with_delay(NETWORK_DELAY).into_async_sender(),
-        current_epoch_height_request: view_client_sender
-            .clone()
-            .with_delay(NETWORK_DELAY)
-            .into_async_sender(),
-        transaction: rpc_handler_sender.clone().with_delay(NETWORK_DELAY).into_async_sender(),
-        chunk_endorsement: chunk_endorsement_handler_sender
-            .clone()
-            .with_delay(NETWORK_DELAY)
-            .into_async_sender(),
+        block: delayed_client.clone().into_async_sender(),
+        block_headers: delayed_client.clone().into_async_sender(),
+        block_approval: delayed_client.clone().into_async_sender(),
+        network_info: delayed_client.clone().into_async_sender(),
+        state_response: delayed_client.clone().into_async_sender(),
+        epoch_sync_request: delayed_client.clone().into_sender(),
+        epoch_sync_response: delayed_client.clone().into_sender(),
+        optimistic_block_receiver: delayed_client.into_sender(),
+        block_request: delayed_view_client.clone().into_async_sender(),
+        block_headers_request: delayed_view_client.clone().into_async_sender(),
+        tx_status_request: delayed_view_client.clone().into_async_sender(),
+        tx_status_response: delayed_view_client.clone().into_async_sender(),
+        announce_account: delayed_view_client.clone().into_async_sender(),
+        current_epoch_height_request: delayed_view_client.into_async_sender(),
+        transaction: delayed_rpc_handler.into_async_sender(),
+        chunk_endorsement: delayed_chunk_endorsement.into_async_sender(),
     };
 
     let network_state = Arc::new(NetworkState::new_for_testloop(
@@ -677,6 +670,7 @@ pub fn setup_client(
         cold_store_sender,
         cloud_storage_sender,
         cloud_archival_writer_handle,
+        network_shared_state: network_shared_state.clone(),
         jsonrpc_transport,
         sharded_rpc_pool,
         expected_execution_delay: Arc::new(AtomicU64::new(0)),
@@ -693,12 +687,7 @@ pub fn setup_client(
 
     // Register all accumulated drop conditions as transport-level message filters.
     for condition in drop_conditions {
-        node_data.register_drop_condition(
-            &test_loop.data,
-            chunks_storage.clone(),
-            condition,
-            network_shared_state,
-        );
+        node_data.register_drop_condition(&test_loop.data, chunks_storage.clone(), condition);
     }
 
     node_data

@@ -688,10 +688,16 @@ impl NetworkState {
                 let peer_id = match self.tier2_find_route(&clock, msg.target()) {
                     Ok(peer_id) => peer_id,
                     Err(find_route_error) => {
-                        // Graph route failed. For PeerId targets, try direct delivery
-                        // as a fallback. In production, this is a no-op when the peer
-                        // is in the Pool (same as routing success). In testloop, this
-                        // is essential because the routing graph is empty.
+                        // Graph route failed. For PeerId targets, fall back to direct
+                        // delivery via the transport. This diverges from master, which
+                        // unconditionally drops the message on routing failure. The
+                        // fallback is safe in production: when the peer IS in the
+                        // connection Pool, tier2_find_route already succeeds so the
+                        // fallback never fires; when the peer is NOT in the Pool, the
+                        // transport's send_message also fails, so the outcome is the
+                        // same (message dropped). In testloop the routing graph is
+                        // empty (no TCP edges), so this fallback is the only delivery
+                        // path.
                         // For Hash targets (route-back), there's no fallback.
                         match msg.target() {
                             PeerIdOrHash::PeerId(peer_id) => peer_id.clone(),
@@ -838,7 +844,9 @@ impl NetworkState {
     /// Uses fire-and-forget send() / send_async() for all message types.
     ///
     /// This is the shared dispatch logic used by both production
-    /// (receive_routed_message) and testloop (dispatch_routed_message_directly).
+    /// (receive_routed_message) and testloop (TestLoopTransport calls this
+    /// from `test-loop-tests/src/setup/network_dispatch.rs` to dispatch
+    /// routed messages without async overhead).
     /// Only handles non-response message types; response-expecting types
     /// (e.g. TxStatusRequest) must be handled separately in the async path.
     #[allow(unused_must_use)]

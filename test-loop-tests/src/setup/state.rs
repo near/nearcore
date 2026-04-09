@@ -1,9 +1,7 @@
 use super::drop_condition::{DropCondition, TestLoopChunksStorage};
 use super::peer_manager_actor::TestLoopNetworkSharedState;
-use near_async::messaging::{IntoMultiSender, IntoSender, Sender};
 use near_async::test_loop::data::TestLoopDataHandle;
 use near_async::test_loop::sender::TestLoopSender;
-use near_async::time::Duration;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 use near_chain::spice_core_writer_actor::SpiceCoreWriterActor;
 use near_chain_configs::{ClientConfig, Genesis};
@@ -16,15 +14,10 @@ use near_client::{
     ChunkEndorsementHandlerActor, PartialWitnessActor, RpcHandlerActor, StateRequestActor,
     ViewClientActor,
 };
-use near_jsonrpc::ViewClientSenderForRpc;
 use near_jsonrpc::client::{JsonRpcClient, RpcTransport};
 use near_jsonrpc::sharded_rpc::ShardedRpcPool;
 use near_network::PeerManagerActor;
-use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::peer_manager_exports::network_state::NetworkState;
-use near_network::shards_manager::ShardsManagerRequestFromNetwork;
-use near_network::state_witness::PartialWitnessSenderForNetwork;
-use near_network::types::StateRequestSenderForNetwork;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
@@ -41,8 +34,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tempfile::TempDir;
-
-const NETWORK_DELAY: Duration = Duration::milliseconds(10);
 
 /// This is the state associate with the test loop environment.
 /// This state is shared across all nodes and none of it belongs to a specific node.
@@ -99,6 +90,7 @@ pub struct NodeExecutionData {
     pub cold_store_sender: Option<TestLoopSender<ColdStoreActor>>,
     pub cloud_storage_sender: TestLoopDataHandle<Option<Arc<CloudStorage>>>,
     pub cloud_archival_writer_handle: TestLoopDataHandle<Option<CloudArchivalWriterHandle>>,
+    pub network_shared_state: TestLoopNetworkSharedState,
     pub jsonrpc_transport: Arc<dyn RpcTransport>,
     pub sharded_rpc_pool: Arc<RwLock<ShardedRpcPool>>,
     /// Extra blocks of delay between consensus head and execution head.
@@ -133,36 +125,6 @@ impl From<&NodeExecutionData> for AccountId {
 impl From<&NodeExecutionData> for PeerId {
     fn from(data: &NodeExecutionData) -> PeerId {
         data.peer_id.clone()
-    }
-}
-
-impl From<&NodeExecutionData> for ViewClientSenderForRpc {
-    fn from(data: &NodeExecutionData) -> ViewClientSenderForRpc {
-        data.view_client_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
-    }
-}
-
-impl From<&NodeExecutionData> for StateRequestSenderForNetwork {
-    fn from(data: &NodeExecutionData) -> StateRequestSenderForNetwork {
-        data.state_request_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
-    }
-}
-
-impl From<&NodeExecutionData> for PartialWitnessSenderForNetwork {
-    fn from(data: &NodeExecutionData) -> PartialWitnessSenderForNetwork {
-        data.partial_witness_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
-    }
-}
-
-impl From<&NodeExecutionData> for Sender<ShardsManagerRequestFromNetwork> {
-    fn from(data: &NodeExecutionData) -> Sender<ShardsManagerRequestFromNetwork> {
-        data.shards_manager_sender.clone().with_delay(NETWORK_DELAY).into_sender()
-    }
-}
-
-impl From<&NodeExecutionData> for Sender<SpiceChunkEndorsementMessage> {
-    fn from(data: &NodeExecutionData) -> Sender<SpiceChunkEndorsementMessage> {
-        data.spice_core_writer_sender.clone().with_delay(NETWORK_DELAY).into_sender()
     }
 }
 

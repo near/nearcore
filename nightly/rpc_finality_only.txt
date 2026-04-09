@@ -1,0 +1,2 @@
+pytest sanity/rpc_finality.py
+pytest sanity/rpc_finality.py --features nightly

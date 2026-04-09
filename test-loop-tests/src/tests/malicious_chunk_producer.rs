@@ -12,11 +12,18 @@ use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_chunks::shards_manager_actor::AdvDistributeChunksMode;
 use near_client::ProcessTxRequest;
 use near_client::client_actor::{AdvProduceChunksMode, NetworkAdversarialMessage};
+use near_network::types::PeerMessage;
+use near_network::{RoutedMessage, RoutedMessageV3, T1MessageBody, TieredMessageBody};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::test_utils::create_user_test_signer;
+use near_primitives::sharding::{
+    PartialEncodedChunk, PartialEncodedChunkV2, ShardChunkHeader, ShardChunkHeaderV3,
+};
+use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
+use near_primitives::version::PROTOCOL_VERSION;
 
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
@@ -141,14 +148,88 @@ fn test_producer_with_expired_transactions() {
 }
 
 #[test]
-#[ignore = "override handler not converted — creates malicious chunks with modified encoded_length"]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-// Was: #[cfg_attr(feature = "protocol_feature_spice", ignore)]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_producer_sending_large_encoded_length_chunks() {
-    // TODO: convert override handler to transport filter
-    // The handler modifies PartialEncodedChunkMessage to set encoded_length
-    // to u64::MAX, creating a malicious chunk.  Without it the test doesn't
-    // exercise the intended scenario.
+    init_test_logger();
+
+    let mut env = TestLoopBuilder::new().validators(2, 0).gc_num_epochs_to_keep(20).build();
+
+    let epoch_manager = env.node(0).client().epoch_manager.clone();
+    let malicious_peer_id = env.node_datas[0].peer_id.clone();
+
+    // Transport filter: intercept VersionedPartialEncodedChunk messages from node 0
+    // and modify the chunk header's encoded_length to u64::MAX. This simulates
+    // a malicious chunk producer sending chunks with inflated encoded_length.
+    // Routed messages in testloop bypass signature verification (no TCP handshake),
+    // so the modified message is accepted by the receiver.
+    env.shared_state.network_shared_state.register_message_filter(move |from, _to, msg| {
+        if from != &malicious_peer_id {
+            return Some(msg.clone());
+        }
+        let PeerMessage::Routed(routed_msg) = msg else { return Some(msg.clone()) };
+        let TieredMessageBody::T1(body) = routed_msg.body() else {
+            return Some(msg.clone());
+        };
+        let T1MessageBody::VersionedPartialEncodedChunk(chunk) = body.as_ref() else {
+            return Some(msg.clone());
+        };
+
+        let header = chunk.cloned_header();
+        let epoch_id =
+            epoch_manager.get_epoch_id_from_prev_block(header.prev_block_hash()).unwrap();
+        let chunk_producer_info = epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                shard_id: header.shard_id(),
+                epoch_id,
+                height_created: header.height_created(),
+            })
+            .unwrap();
+        let signer = create_test_signer(chunk_producer_info.account_id().as_str());
+        let new_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+            *header.prev_block_hash(),
+            header.prev_state_root(),
+            *header.prev_outcome_root(),
+            *header.encoded_merkle_root(),
+            u64::MAX,
+            header.height_created(),
+            header.shard_id(),
+            header.prev_gas_used(),
+            header.gas_limit(),
+            header.prev_balance_burnt(),
+            *header.prev_outgoing_receipts_root(),
+            *header.tx_root(),
+            header.prev_validator_proposals().collect(),
+            header.congestion_info(),
+            header.bandwidth_requests().unwrap().clone(),
+            header.proposed_split().cloned(),
+            &signer,
+            PROTOCOL_VERSION,
+        ));
+
+        // Rebuild the PartialEncodedChunk with the modified header.
+        let (parts, receipts) = (*chunk.clone()).into_parts_and_receipt_proofs();
+        let modified_chunk = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
+            header: new_header,
+            parts: parts.collect(),
+            prev_outgoing_receipts: receipts.collect(),
+        });
+
+        // Rebuild the routed message with the modified chunk body.
+        let RoutedMessage::V3(v3) = routed_msg.as_ref() else { return Some(msg.clone()) };
+        let modified_routed = RoutedMessage::V3(RoutedMessageV3 {
+            target: v3.target.clone(),
+            author: v3.author.clone(),
+            ttl: v3.ttl,
+            body: T1MessageBody::VersionedPartialEncodedChunk(Box::new(modified_chunk)).into(),
+            signature: v3.signature.clone(),
+            created_at: v3.created_at,
+            num_hops: v3.num_hops,
+        });
+        Some(PeerMessage::Routed(Box::new(modified_routed)))
+    });
+
+    env.node_runner(0).run_for_number_of_blocks(10);
 }
 
 /// Tests chain behavior when a malicious chunk producer withholds chunk parts
