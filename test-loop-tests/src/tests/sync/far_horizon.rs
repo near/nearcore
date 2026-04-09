@@ -348,7 +348,7 @@ fn test_far_horizon_restart_during_header_sync() {
     // observable intermediate states for run_until. Use 10 headers per request
     // so header sync completes quickly enough that validators don't advance
     // past the epoch sync horizon.
-    throttle_header_sync(&mut env.test_loop, &env.shared_state, &env.node_datas[new_node_idx], 10);
+    throttle_header_sync(&env.shared_state, &env.node_datas[new_node_idx], 10);
 
     // Run until new node is in the MIDDLE of HeaderSync (current_height > start_height).
     let new_node_handle = env.node_datas[new_node_idx].client_sender.actor_handle();

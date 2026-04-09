@@ -53,14 +53,14 @@ fn test_stake_nodes_impl(epoch_length: u64, execution_delay: u64) {
         .max_inflation_rate(Rational32::new(0, 1))
         .build();
 
-    let mut env = TestLoopBuilder::new()
+    let env = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(accounts.clone())
         .delay_warmup()
         .build();
     if execution_delay > 0 {
-        delay_endorsements_propagation(&mut env, execution_delay);
+        delay_endorsements_propagation(&env, execution_delay);
     }
     let mut env = env.warmup();
 
@@ -127,7 +127,7 @@ fn test_validator_kickout_impl(epoch_length: u64, execution_delay: u64) {
         .minimum_stake_ratio(Rational32::new(1, 100))
         .build();
 
-    let mut env = TestLoopBuilder::new()
+    let env = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(accounts.clone())
@@ -135,7 +135,7 @@ fn test_validator_kickout_impl(epoch_length: u64, execution_delay: u64) {
         .delay_warmup()
         .build();
     if execution_delay > 0 {
-        delay_endorsements_propagation(&mut env, execution_delay);
+        delay_endorsements_propagation(&env, execution_delay);
     }
     let mut env = env.warmup();
 
@@ -236,7 +236,7 @@ fn test_validator_join_impl(epoch_length: u64, execution_delay: u64) {
         .max_inflation_rate(Rational32::new(0, 1))
         .build();
 
-    let mut env = TestLoopBuilder::new()
+    let env = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(accounts.clone())
@@ -244,7 +244,7 @@ fn test_validator_join_impl(epoch_length: u64, execution_delay: u64) {
         .delay_warmup()
         .build();
     if execution_delay > 0 {
-        delay_endorsements_propagation(&mut env, execution_delay);
+        delay_endorsements_propagation(&env, execution_delay);
     }
     let mut env = env.warmup();
 
@@ -322,7 +322,7 @@ fn test_staking_join_and_leave_impl(execution_delay: u64) {
             amount: TESTING_INIT_STAKE,
         })
         .collect();
-    let mut env = TestLoopBuilder::new()
+    let env = TestLoopBuilder::new()
         .validators_spec(ValidatorsSpec::raw(validators, 2, 2, 2))
         .add_non_validator_client(&accounts[2])
         .add_user_account(&accounts[2], TESTING_INIT_BALANCE)
@@ -332,7 +332,7 @@ fn test_staking_join_and_leave_impl(execution_delay: u64) {
         .delay_warmup()
         .build();
     if execution_delay > 0 {
-        delay_endorsements_propagation(&mut env, execution_delay);
+        delay_endorsements_propagation(&env, execution_delay);
     }
     let mut env = env.warmup();
 
@@ -426,7 +426,7 @@ fn test_spice_uncertified_restake_prevents_stake_return() {
     let unstaker = accounts[unstaker_idx].clone();
     let unstaker_key = create_test_signer(unstaker.as_str()).public_key();
 
-    let mut env = TestLoopBuilder::new()
+    let env = TestLoopBuilder::new()
         .validators_spec(validators_spec)
         .epoch_length(epoch_length)
         .add_user_accounts(&accounts, TESTING_INIT_BALANCE)
@@ -441,7 +441,7 @@ fn test_spice_uncertified_restake_prevents_stake_return() {
         })
         .delay_warmup()
         .build();
-    delay_endorsements_propagation(&mut env, endorsement_delay);
+    delay_endorsements_propagation(&env, endorsement_delay);
     let mut env = env.warmup();
 
     let genesis_height = env.node(unstaker_idx).client().chain.genesis().height();

@@ -183,7 +183,7 @@ fn test_spice_chain_with_delayed_execution() {
 
     let execution_delay = 4;
     // We delay endorsements to simulate slow execution validation causing execution to lag behind.
-    delay_endorsements_propagation(&mut env, execution_delay);
+    delay_endorsements_propagation(&env, execution_delay);
 
     env = env.warmup();
 
@@ -214,7 +214,7 @@ fn setup_spice_env_with_execution_delay() -> (TestLoopEnv, AccountId) {
     let genesis = TestLoopBuilder::new_genesis_builder().validators_spec(validators_spec).build();
 
     let producer_account = clients[0].clone();
-    let mut env = TestLoopBuilder::new()
+    let env = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(clients)
@@ -222,7 +222,7 @@ fn setup_spice_env_with_execution_delay() -> (TestLoopEnv, AccountId) {
         .build();
 
     let execution_delay = 4;
-    delay_endorsements_propagation(&mut env, execution_delay);
+    delay_endorsements_propagation(&env, execution_delay);
 
     let mut env = env.warmup();
 
@@ -368,7 +368,7 @@ fn test_spice_garbage_collection_witnesses() {
 
     // We delay endorsements to simulate slow execution validation causing execution to lag behind.
     let execution_delay = 4;
-    delay_endorsements_propagation(&mut env, execution_delay);
+    delay_endorsements_propagation(&env, execution_delay);
     env = env.warmup();
 
     // Use a chunk producer node (not RPC) since only chunk producers store witnesses.
@@ -512,7 +512,7 @@ fn test_restart_producer_node() {
         .add_user_account_simple(receiver.clone(), Balance::from_near(0))
         .build();
 
-    let mut env = TestLoopBuilder::new()
+    let env = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(clients)
@@ -522,7 +522,7 @@ fn test_restart_producer_node() {
     let execution_delay = 2;
     // Delay is required to make sure that new blocks processing doesn't trigger requests for
     // missing data.
-    delay_endorsements_propagation(&mut env, execution_delay);
+    delay_endorsements_propagation(&env, execution_delay);
 
     let mut env = env.warmup();
 
@@ -584,7 +584,7 @@ fn test_restart_validator_node() {
         .add_user_account_simple(receiver.clone(), Balance::from_near(0))
         .build();
 
-    let mut env = TestLoopBuilder::new()
+    let env = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(clients)
@@ -594,7 +594,7 @@ fn test_restart_validator_node() {
     let execution_delay = 2;
     // Delay is required to make sure that new blocks processing doesn't trigger requests of
     // missing data.
-    delay_endorsements_propagation(&mut env, execution_delay);
+    delay_endorsements_propagation(&env, execution_delay);
 
     let mut env = env.warmup();
 

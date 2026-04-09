@@ -56,7 +56,7 @@ fn test_spice_certified_results_across_resharding() {
         .build();
 
     let execution_delay = 2;
-    delay_endorsements_propagation(&mut env, execution_delay);
+    delay_endorsements_propagation(&env, execution_delay);
     env = env.warmup();
 
     let epoch_manager = env.validator().client().epoch_manager.clone();

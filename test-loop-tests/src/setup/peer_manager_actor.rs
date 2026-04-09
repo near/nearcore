@@ -57,17 +57,18 @@ pub type TransportMessageFilter =
 #[derive(Clone)]
 pub struct TestLoopNetworkSharedState(Arc<Mutex<TestLoopNetworkSharedStateInner>>);
 
+#[allow(dead_code)]
 struct TestLoopNetworkSharedStateInner {
     account_to_peer_id: HashMap<AccountId, PeerId>,
     senders: HashMap<PeerId, Arc<OneClientSenders>>,
-    // Everything sent using these senders should be dropped.
     drop_events_senders: Arc<OneClientSenders>,
     disallowed_peer_links: HashMap<PeerId, HashSet<PeerId>>,
     archival_peer_ids: HashSet<PeerId>,
     message_filters: Vec<TransportMessageFilter>,
 }
 
-/// Senders available for the networking layer, for one node in the test loop.
+/// Legacy sender types from old mock. Kept for add_client compatibility.
+#[allow(dead_code)]
 pub(crate) struct OneClientSenders {
     pub(crate) client_sender: ClientSenderForTestLoopNetwork,
     pub(crate) view_client_sender: ViewClientSenderForTestLoopNetwork,
@@ -136,6 +137,7 @@ impl TestLoopNetworkSharedState {
         guard.disallowed_peer_links.get(from).and_then(|blocklist| blocklist.get(to)).is_some()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn senders_for_peer(
         &self,
         origin: &PeerId,

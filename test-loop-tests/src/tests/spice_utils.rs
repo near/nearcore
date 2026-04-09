@@ -1,64 +1,67 @@
 use crate::setup::env::TestLoopEnv;
-use crate::setup::peer_manager_actor::HandlerResult;
 use near_async::messaging::CanSend as _;
+use near_async::test_loop::sender::TestLoopSender;
+use near_chain::spice_core_writer_actor::SpiceCoreWriterActor;
 use near_network::client::SpiceChunkEndorsementMessage;
-use near_network::types::NetworkRequests;
-use near_network::types::NetworkResponses;
+use near_network::types::PeerMessage;
+use near_network::{T1MessageBody, TieredMessageBody};
 use near_primitives::hash::CryptoHash;
+use near_primitives::network::PeerId;
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::BlockHeight;
 use parking_lot::RwLock;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
-pub(super) fn delay_endorsements_propagation(env: &mut TestLoopEnv, delay_height: u64) {
+pub(super) fn delay_endorsements_propagation(env: &TestLoopEnv, delay_height: u64) {
     for node in &env.node_datas {
         node.set_expected_execution_delay(delay_height);
     }
 
-    let core_writer_senders: HashMap<_, _> = env
+    let core_writer_senders: HashMap<PeerId, TestLoopSender<SpiceCoreWriterActor>> = env
         .node_datas
         .iter()
-        .map(|datas| (datas.account_id.clone(), datas.spice_core_writer_sender.clone()))
+        .map(|data| (data.peer_id.clone(), data.spice_core_writer_sender.clone()))
         .collect();
 
-    for node in &env.node_datas {
-        let senders = core_writer_senders.clone();
-        let block_heights: Arc<RwLock<HashMap<CryptoHash, BlockHeight>>> =
-            Arc::new(RwLock::new(HashMap::new()));
-        let delayed_endorsements: Arc<
-            RwLock<VecDeque<(CryptoHash, AccountId, SpiceChunkEndorsement)>>,
-        > = Arc::new(RwLock::new(VecDeque::new()));
-        let peer_actor = env.test_loop.data.get_mut(&node.peer_manager_sender.actor_handle());
-        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
-            match request {
-                NetworkRequests::Block { ref block } => {
-                    block_heights.write().insert(*block.hash(), block.header().height());
+    let block_heights: Arc<RwLock<HashMap<CryptoHash, BlockHeight>>> =
+        Arc::new(RwLock::new(HashMap::new()));
+    let delayed_endorsements: Arc<RwLock<VecDeque<(CryptoHash, PeerId, SpiceChunkEndorsement)>>> =
+        Arc::new(RwLock::new(VecDeque::new()));
 
-                    let mut delayed_endorsements = delayed_endorsements.write();
-                    loop {
-                        let Some(front) = delayed_endorsements.front() else {
-                            break;
-                        };
-                        let height = block_heights.read()[&front.0];
-                        if height + delay_height >= block.header().height() {
-                            break;
-                        }
-                        let (_, target, endorsement) = delayed_endorsements.pop_front().unwrap();
-                        senders[&target].send(SpiceChunkEndorsementMessage(endorsement));
+    env.shared_state.network_shared_state.register_message_filter(
+        move |_from, to, msg| match msg {
+            PeerMessage::Block(block) => {
+                block_heights.write().insert(*block.hash(), block.header().height());
+
+                let mut delayed = delayed_endorsements.write();
+                loop {
+                    let Some(front) = delayed.front() else {
+                        break;
+                    };
+                    let height = block_heights.read()[&front.0];
+                    if height + delay_height >= block.header().height() {
+                        break;
                     }
-                    HandlerResult::Unhandled(request)
+                    let (_, target, endorsement) = delayed.pop_front().unwrap();
+                    core_writer_senders[&target].send(SpiceChunkEndorsementMessage(endorsement));
                 }
-                NetworkRequests::SpiceChunkEndorsement(target, endorsement) => {
-                    delayed_endorsements.write().push_back((
-                        *endorsement.block_hash(),
-                        target,
-                        endorsement,
-                    ));
-                    HandlerResult::Handled(NetworkResponses::NoResponse)
-                }
-                _ => HandlerResult::Unhandled(request),
+                Some(msg.clone())
             }
-        }));
-    }
+            PeerMessage::Routed(routed_msg) => {
+                if let TieredMessageBody::T1(body) = routed_msg.body() {
+                    if let T1MessageBody::SpiceChunkEndorsement(endorsement) = body.as_ref() {
+                        delayed_endorsements.write().push_back((
+                            *endorsement.block_hash(),
+                            to.clone(),
+                            endorsement.clone(),
+                        ));
+                        return None;
+                    }
+                }
+                Some(msg.clone())
+            }
+            _ => Some(msg.clone()),
+        },
+    );
 }
