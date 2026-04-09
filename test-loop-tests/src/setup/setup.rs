@@ -386,55 +386,6 @@ pub fn setup_client(
     let net_peer_store =
         peer_store::PeerStore::new(&test_loop.clock(), verified_config.peer_store.clone()).unwrap();
 
-    // Build ClientSenderForNetwork. Mirrors the production
-    // client_sender_for_network() in chain/client/src/adapter.rs:
-    // ClientActor handles block/headers/approval/network_info/state/epoch_sync/optimistic_block,
-    // ViewClientActor handles block_request/headers_request/tx_status/announce_account/epoch_height,
-    // RpcHandlerActor handles transactions,
-    // ChunkEndorsementHandlerActor handles chunk_endorsement.
-    let client_sender_for_network = ClientSenderForNetwork {
-        block: client_adapter.as_async_sender(),
-        block_headers: client_adapter.as_async_sender(),
-        block_approval: client_adapter.as_async_sender(),
-        network_info: client_adapter.as_async_sender(),
-        state_response: client_adapter.as_async_sender(),
-        epoch_sync_request: client_adapter.as_sender(),
-        epoch_sync_response: client_adapter.as_sender(),
-        optimistic_block_receiver: client_adapter.as_sender(),
-        block_request: view_client_adapter.as_async_sender(),
-        block_headers_request: view_client_adapter.as_async_sender(),
-        tx_status_request: view_client_adapter.as_async_sender(),
-        tx_status_response: view_client_adapter.as_async_sender(),
-        announce_account: view_client_adapter.as_async_sender(),
-        current_epoch_height_request: view_client_adapter.as_async_sender(),
-        transaction: rpc_handler_adapter.as_async_sender(),
-        chunk_endorsement: chunk_endorsement_handler_adapter.as_async_sender(),
-    };
-
-    let network_state = Arc::new(NetworkState::new_for_testloop(
-        &test_loop.clock(),
-        Box::new(test_loop.future_spawner(identifier)),
-        net_store,
-        net_peer_store,
-        verified_config,
-        genesis_id,
-        client_sender_for_network,
-        state_request_adapter.as_multi_sender(),
-        network_adapter.as_multi_sender(),
-        shards_manager_adapter.as_sender(),
-        partial_witness_adapter.as_multi_sender(),
-        spice_data_distributor_adapter.as_multi_sender(),
-        spice_core_writer_adapter.as_sender(),
-        transport.clone(),
-        transport.clone(),
-        transport,
-    ));
-
-    // Register in shared state for other nodes' transports.
-    shared_state.node_network_states.lock().insert(peer_id.clone(), network_state.clone());
-
-    let peer_manager_actor = PeerManagerActor::new_for_testloop(test_loop.clock(), network_state);
-
     let gc_actor = GCActor::new(
         runtime_adapter.store().clone(),
         &chain_genesis,
@@ -633,6 +584,64 @@ pub fn setup_client(
         chunk_state_witness: chunk_validation_multi_sender.chunk_state_witness,
     });
 
+    // Simulated network latency matching the old mock's NETWORK_DELAY.
+    const NETWORK_DELAY: Duration = Duration::milliseconds(10);
+
+    // Build ClientSenderForNetwork from registered senders with network delay.
+    let client_sender_for_network = ClientSenderForNetwork {
+        block: client_sender.clone().with_delay(NETWORK_DELAY).into_async_sender(),
+        block_headers: client_sender.clone().with_delay(NETWORK_DELAY).into_async_sender(),
+        block_approval: client_sender.clone().with_delay(NETWORK_DELAY).into_async_sender(),
+        network_info: client_sender.clone().with_delay(NETWORK_DELAY).into_async_sender(),
+        state_response: client_sender.clone().with_delay(NETWORK_DELAY).into_async_sender(),
+        epoch_sync_request: client_sender.clone().with_delay(NETWORK_DELAY).into_sender(),
+        epoch_sync_response: client_sender.clone().with_delay(NETWORK_DELAY).into_sender(),
+        optimistic_block_receiver: client_sender.clone().with_delay(NETWORK_DELAY).into_sender(),
+        block_request: view_client_sender.clone().with_delay(NETWORK_DELAY).into_async_sender(),
+        block_headers_request: view_client_sender
+            .clone()
+            .with_delay(NETWORK_DELAY)
+            .into_async_sender(),
+        tx_status_request: view_client_sender.clone().with_delay(NETWORK_DELAY).into_async_sender(),
+        tx_status_response: view_client_sender
+            .clone()
+            .with_delay(NETWORK_DELAY)
+            .into_async_sender(),
+        announce_account: view_client_sender.clone().with_delay(NETWORK_DELAY).into_async_sender(),
+        current_epoch_height_request: view_client_sender
+            .clone()
+            .with_delay(NETWORK_DELAY)
+            .into_async_sender(),
+        transaction: rpc_handler_sender.clone().with_delay(NETWORK_DELAY).into_async_sender(),
+        chunk_endorsement: chunk_endorsement_handler_sender
+            .clone()
+            .with_delay(NETWORK_DELAY)
+            .into_async_sender(),
+    };
+
+    let network_state = Arc::new(NetworkState::new_for_testloop(
+        &test_loop.clock(),
+        Box::new(test_loop.future_spawner(identifier)),
+        net_store,
+        net_peer_store,
+        verified_config,
+        genesis_id,
+        client_sender_for_network,
+        state_request_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender(),
+        network_adapter.as_multi_sender(),
+        shards_manager_sender.clone().with_delay(NETWORK_DELAY).into_sender(),
+        partial_witness_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender(),
+        spice_data_distributor_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender(),
+        spice_core_writer_sender.clone().with_delay(NETWORK_DELAY).into_sender(),
+        transport.clone(),
+        transport.clone(),
+        transport,
+    ));
+
+    // Register in shared state for other nodes' transports.
+    shared_state.node_network_states.lock().insert(peer_id.clone(), network_state.clone());
+
+    let peer_manager_actor = PeerManagerActor::new_for_testloop(test_loop.clock(), network_state);
     let peer_manager_sender =
         test_loop.data.register_actor(identifier, peer_manager_actor, Some(network_adapter));
 
