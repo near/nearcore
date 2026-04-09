@@ -817,9 +817,26 @@ fn test_spice_validator_only_does_not_distribute_witness_and_receipts() {
         .build();
 
     // TODO: convert override handler to transport filter
-    // Previously an override handler counted SpicePartialData messages from
-    // validator-only nodes.  The counter stays 0 without the handler (no
-    // messages are intercepted), so the assertion below remains valid.
+    // Original handler code:
+    /*
+    // Register override handlers on validator-only nodes to track any
+    // SpicePartialData messages they attempt to send. These messages are the
+    // downstream network effect of handling SpiceDistributorOutgoingReceipts
+    // and SpiceDistributorStateWitness, so their absence proves no distribution
+    // happened.
+    let spice_data_sent_count = Arc::new(AtomicUsize::new(0));
+    for i in num_producers..env.node_datas.len() {
+        let node_data = &env.node_datas[i];
+        let counter = spice_data_sent_count.clone();
+        let peer_actor = env.test_loop.data.get_mut(&node_data.peer_manager_sender.actor_handle());
+        peer_actor.register_override_handler(Box::new(move |request| {
+            if matches!(&request, NetworkRequests::SpicePartialData { .. }) {
+                counter.fetch_add(1, Ordering::SeqCst);
+            }
+            HandlerResult::Unhandled(request)
+        }));
+    }
+    */
     let spice_data_sent_count = Arc::new(AtomicUsize::new(0));
 
     let mut env = env.warmup();

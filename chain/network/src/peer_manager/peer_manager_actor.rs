@@ -811,6 +811,7 @@ impl PeerManagerActor {
         let _timer = metrics::PEER_MANAGER_TRIGGER_TIME
             .with_label_values(&["push_network_info"])
             .start_timer();
+        // TODO(gprusak): just spawn a loop.
         if let Some(handle) = &self.handle {
             // Production: spawn on the actix runtime (same as ClientActor).
             let state = self.state.clone();

@@ -127,10 +127,27 @@ fn test_catchup_random_single_part_sync_common(
         .build();
 
     // TODO: convert override handler to transport filter
-    // Previously an override handler dropped PartialEncodedChunkMessage at
-    // heights 23/24 when skip_24 was true.  The handler was a no-op with
-    // real PeerManagerActor, so these tests pass without it but the skip_24
-    // variant no longer exercises the intended scenario.
+    // Original handler code:
+    /*
+    for node_datas in &env.node_datas {
+        let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
+        let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
+        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+            if let NetworkRequests::PartialEncodedChunkMessage { partial_encoded_chunk, .. } =
+                &request
+            {
+                if skip_24 {
+                    if partial_encoded_chunk.header.height_created() == 23
+                        || partial_encoded_chunk.header.height_created() == 24
+                    {
+                        return HandlerResult::Handled(NetworkResponses::NoResponse);
+                    }
+                }
+            }
+            HandlerResult::Unhandled(request)
+        }));
+    }
+    */
 
     let client_actor_handle = &env.node_datas[0].client_sender.actor_handle();
     runner.run_until(
@@ -301,10 +318,43 @@ fn slow_test_catchup_sanity_blocks_produced() {
         .build();
 
     // TODO: convert override handler to transport filter
-    // Previously an override handler dropped blocks at height%10==4 and
-    // checked hash consistency.  The handler was a no-op with real
-    // PeerManagerActor, so the test passes without it but no longer
-    // exercises block-skip scenarios.
+    // Original handler code:
+    /*
+    let heights = Rc::new(RefCell::new(HashMap::new()));
+    for node_datas in &env.node_datas {
+        let check_height = {
+            let heights = heights.clone();
+            move |hash: CryptoHash, height| match heights.borrow_mut().entry(hash) {
+                Entry::Occupied(entry) => {
+                    assert_eq!(*entry.get(), height);
+                }
+                Entry::Vacant(entry) => {
+                    entry.insert(height);
+                }
+            }
+        };
+
+        let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
+        let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
+        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+            if let NetworkRequests::Block { block } = &request {
+                check_height(*block.hash(), block.header().height());
+
+                if block.header().height() % 10 == 5 {
+                    check_height(*block.header().prev_hash(), block.header().height() - 2);
+                } else {
+                    check_height(*block.header().prev_hash(), block.header().height() - 1);
+                }
+
+                // Do not propagate blocks at %10=4
+                if block.header().height() % 10 == 4 {
+                    return HandlerResult::Handled(NetworkResponses::NoResponse);
+                }
+            }
+            HandlerResult::Unhandled(request)
+        }));
+    }
+    */
 
     let client_actor_handle = &env.node_datas[0].client_sender.actor_handle();
     runner.run_until(
@@ -359,9 +409,50 @@ fn slow_test_all_chunks_accepted() {
         .build();
 
     // TODO: convert override handler to transport filter
-    // Previously an override handler checked for duplicate chunk sends and
-    // that all blocks include all chunks.  The handler was a no-op with real
-    // PeerManagerActor, so these assertions were never evaluated.
+    // Original handler code:
+    /*
+    let seen_chunk_same_sender = Rc::new(RefCell::new(HashSet::<(AccountId, u64, ShardId)>::new()));
+    for node_datas in &env.node_datas {
+        let seen_chunk_same_sender = seen_chunk_same_sender.clone();
+        let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
+        let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
+        peer_actor.register_override_handler(Box::new(move |msg| -> HandlerResult {
+            match msg {
+                NetworkRequests::PartialEncodedChunkMessage {
+                    ref account_id,
+                    ref partial_encoded_chunk,
+                } => {
+                    let header = &partial_encoded_chunk.header;
+                    if seen_chunk_same_sender.borrow().contains(&(
+                        account_id.clone(),
+                        header.height_created(),
+                        header.shard_id(),
+                    )) {
+                        println!("=== SAME CHUNK AGAIN!");
+                        assert!(false);
+                    };
+                    seen_chunk_same_sender.borrow_mut().insert((
+                        account_id.clone(),
+                        header.height_created(),
+                        header.shard_id(),
+                    ));
+                }
+                NetworkRequests::Block { ref block } => {
+                    if block.header().chunks_included() != num_shards {
+                        println!(
+                            "BLOCK WITH {:?} CHUNKS, {:?}",
+                            block.header().chunks_included(),
+                            block
+                        );
+                        assert!(false);
+                    }
+                }
+                _ => (),
+            }
+            HandlerResult::Unhandled(msg)
+        }));
+    }
+    */
 
     let client_actor_handle = &env.node_datas[0].client_sender.actor_handle();
     runner.run_until(
