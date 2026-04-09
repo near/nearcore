@@ -348,7 +348,8 @@ impl<T: Send + 'static> PendingShardJobs<T> {
 
     fn invoke_on_done(&self) {
         let results = std::mem::take(&mut *self.results.lock());
-        (self.on_done.lock().take().unwrap())(results);
+        let on_done = self.on_done.lock().take().unwrap();
+        on_done(results);
     }
 }
 
