@@ -1777,6 +1777,7 @@ impl Chain {
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) {
         let count = work.len();
+        // Track all children using `parent_span`, as they may be processed in parallel.
         let parent_span = Span::current();
         #[cfg(feature = "test_features")]
         let test_pause_gate = match &block {
@@ -1809,21 +1810,20 @@ impl Chain {
         for (shard_id, cached_shard_update_key, task) in work {
             let parent_span = parent_span.clone();
             pending.spawn(move || {
-                let _span = tracing::debug_span!(
+                let span = tracing::debug_span!(
                     target: "chain",
+                    parent: &parent_span,
                     "apply_chunk",
                     %block_height,
                     %shard_id,
-                )
-                .entered();
-                let result = task(&parent_span);
+                );
+                let _guard = span.enter();
+                let result = task(&span);
                 (shard_id, cached_shard_update_key, result)
             });
         }
     }
-}
 
-impl Chain {
     #[instrument(level = "debug", target = "chain", skip_all)]
     fn postprocess_block_only(
         &mut self,

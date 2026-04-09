@@ -341,7 +341,7 @@ impl<T: Send + 'static> PendingShardJobs<T> {
 
     fn add_result(&self, result: T) {
         self.results.lock().push(result);
-        if self.remaining.fetch_sub(1, std::sync::atomic::Ordering::AcqRel) == 1 {
+        if self.remaining.fetch_sub(1, std::sync::atomic::Ordering::Relaxed) == 1 {
             self.invoke_on_done();
         }
     }

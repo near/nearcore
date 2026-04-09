@@ -571,9 +571,8 @@ impl ChunkExecutorActor {
         let block_hash = *block.hash();
         let block_height = block.header().height();
         let count = jobs.len();
-        let parent_span = tracing::debug_span!(
-            target: "chunk_executor", "apply_chunks", %block_height, ?block_hash
-        );
+        // Track all children using `parent_span`, as they may be processed in parallel.
+        let parent_span = tracing::Span::current();
         let apply_done_sender = self.myself_sender.clone();
         let on_done = move |results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>| {
             let apply_results = results
@@ -593,7 +592,15 @@ impl ChunkExecutorActor {
         for (shard_id, task) in jobs {
             let parent_span = parent_span.clone();
             pending.spawn(move || {
-                let result = task(&parent_span);
+                let span = tracing::debug_span!(
+                    target: "chunk_executor",
+                    parent: &parent_span,
+                    "apply_chunk",
+                    %block_height,
+                    %shard_id,
+                );
+                let _guard = span.enter();
+                let result = task(&span);
                 (shard_id, result)
             });
         }
