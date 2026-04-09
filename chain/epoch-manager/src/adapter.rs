@@ -16,12 +16,9 @@ use near_primitives::types::{
     AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, ShardId, ShardIndex,
     ValidatorInfoIdentifier,
 };
-use near_primitives::utils::get_block_shard_id;
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives::version::ProtocolVersion;
 use near_primitives::views::EpochValidatorInfo;
-use near_store::DBCol;
 use near_store::ShardUId;
-use near_store::adapter::StoreAdapter;
 use near_store::adapter::epoch_store::EpochStoreUpdateAdapter;
 use std::cmp::Ordering;
 use std::sync::Arc;
@@ -492,7 +489,7 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Only safe to call when `prev_block_hash` is guaranteed to have been
     /// processed (registered with the epoch manager via `add_validator_proposals`
     /// and written to the ChunkProducers DB column via `save_chunk_producers_for_header`).
-    // TODO(#chunk-producer-column): once dynamic sampling ships and the DB may
+    // TODO(early-kickout): once dynamic sampling ships and the DB may
     // diverge from computation (blacklisted producers excluded), consider adding
     // a lenient variant with computation fallback for non-critical paths.
     fn get_chunk_producer_info_db(
@@ -952,19 +949,31 @@ impl EpochManagerAdapter for EpochManagerHandle {
         // have EarlyKickout enabled while the parent block's epoch didn't.
         // For genesis chunks (prev_block_hash = default), get_epoch_id returns
         // the genesis epoch — the DB entry is saved during genesis init.
-        let block_epoch_id = self.get_epoch_id(prev_block_hash)?;
-        let block_protocol_version = self.get_epoch_protocol_version(&block_epoch_id)?;
-        if ProtocolFeature::EarlyKickout.enabled(block_protocol_version) {
-            let epoch_manager = self.read();
-            let key = get_block_shard_id(prev_block_hash, shard_id);
-            return match epoch_manager
-                .store
-                .store_ref()
-                .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
-            {
-                Some(validator) => Ok(validator),
-                None => Err(EpochError::ChunkProducerNotInDB(*prev_block_hash, shard_id)),
-            };
+        // When EarlyKickout is enabled for the block's epoch, read from the
+        // ChunkProducers DB column (strict — errors on miss).
+        // TODO(early-kickout): add a cache layer to avoid hitting the DB on every lookup.
+        // One option is a large RocksDB memtable for this column.
+        #[cfg(feature = "nightly")]
+        {
+            use near_primitives::utils::get_block_shard_id;
+            use near_primitives::version::ProtocolFeature;
+            use near_store::DBCol;
+            use near_store::adapter::StoreAdapter;
+
+            let block_epoch_id = self.get_epoch_id(prev_block_hash)?;
+            let block_protocol_version = self.get_epoch_protocol_version(&block_epoch_id)?;
+            if ProtocolFeature::EarlyKickout.enabled(block_protocol_version) {
+                let epoch_manager = self.read();
+                let key = get_block_shard_id(prev_block_hash, shard_id);
+                return match epoch_manager
+                    .store
+                    .store_ref()
+                    .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
+                {
+                    Some(validator) => Ok(validator),
+                    None => Err(EpochError::ChunkProducerNotInDB(*prev_block_hash, shard_id)),
+                };
+            }
         }
         // Feature not enabled for prev_block's epoch — fall back to computation.
         let chunk_epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;

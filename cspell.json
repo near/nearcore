@@ -393,6 +393,7 @@
         "subsec",
         "subservices",
         "subslice",
+        "splitn",
         "syscall",
         "syscalls",
         "sysinfo",

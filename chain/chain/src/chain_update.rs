@@ -319,7 +319,8 @@ impl<'a> ChainUpdate<'a> {
             if self.epoch_manager.is_next_block_epoch_start(prev_hash)? {
                 tracing::debug!(block_hash = ?block.hash(), "updating epoch sync proof");
                 let epoch_store = self.chain_store_update.store().epoch_store();
-                let epoch_manager_update = update_epoch_sync_proof(&epoch_store, prev_hash)?;
+                let epoch_manager_update =
+                    update_epoch_sync_proof(&epoch_store, block.header().epoch_id())?;
                 self.chain_store_update.merge(epoch_manager_update.into());
             }
         }

@@ -115,6 +115,7 @@ impl ChunkTestFixture {
         // CryptoHash::default(), which production reserves for height-0 genesis
         // chunks. Consider using record_block to register a real predecessor
         // hash so the fixture matches production semantics.
+        #[cfg(feature = "nightly")]
         if !orphan_chunk {
             let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&mock_ancestor_hash).unwrap();
             let shard_layout_for_db = epoch_manager.get_shard_layout(&epoch_id).unwrap();

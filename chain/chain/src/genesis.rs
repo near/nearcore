@@ -145,7 +145,11 @@ impl Chain {
         )?;
         // Save chunk producers for the genesis chunks themselves (height 0).
         // Genesis chunks have prev_block_hash = CryptoHash::default().
-        store_update.save_genesis_chunk_producers(epoch_manager, genesis_protocol_version)?;
+        store_update.save_genesis_chunk_producers(
+            epoch_manager,
+            genesis_protocol_version,
+            genesis.header().height(),
+        )?;
         store_update.save_block_header(genesis.header().clone())?;
         store_update.save_block(genesis.clone().into());
         Self::save_genesis_chunk_extras(&genesis, &state_roots, epoch_manager, &mut store_update)?;

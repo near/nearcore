@@ -1,6 +1,8 @@
 use crate::setup::drop_condition::TestLoopChunksStorage;
+use crate::setup::peer_manager_actor::HandlerResult;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::NetworkRequests;
+use near_network::types::NetworkResponses;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::types::{AccountId, BlockHeight};
 use parking_lot::Mutex;
@@ -15,7 +17,7 @@ pub fn chunk_endorsement_dropper_by_hash(
     chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
     epoch_manager_adapter: Arc<dyn EpochManagerAdapter>,
     drop_chunk_condition: DropChunkCondition,
-) -> Box<dyn Fn(NetworkRequests) -> Option<NetworkRequests>> {
+) -> Box<dyn Fn(NetworkRequests) -> HandlerResult> {
     Box::new(move |request| {
         // Filter out only messages related to distributing chunk in the
         // network; extract `chunk_hash` from the message.
@@ -25,7 +27,7 @@ pub fn chunk_endorsement_dropper_by_hash(
         };
 
         let Some(chunk_hash) = chunk_hash else {
-            return Some(request);
+            return HandlerResult::Unhandled(request);
         };
 
         let chunk = {
@@ -34,7 +36,7 @@ pub fn chunk_endorsement_dropper_by_hash(
             let can_drop_chunk = chunks_storage.can_drop_chunk(&chunk);
 
             if !can_drop_chunk {
-                return Some(request);
+                return HandlerResult::Unhandled(request);
             }
 
             chunk
@@ -45,14 +47,14 @@ pub fn chunk_endorsement_dropper_by_hash(
         // This case appears to be too rare to interfere with the goal of
         // dropping chunk.
         if epoch_manager_adapter.get_epoch_id_from_prev_block(chunk.prev_block_hash()).is_err() {
-            return Some(request);
+            return HandlerResult::Unhandled(request);
         };
 
         if drop_chunk_condition(chunk) {
-            return None;
+            return HandlerResult::Handled(NetworkResponses::NoResponse);
         }
 
-        Some(request)
+        HandlerResult::Unhandled(request)
     })
 }
 
@@ -60,14 +62,14 @@ pub fn chunk_endorsement_dropper_by_hash(
 /// from a given chunk-validator account.
 pub fn chunk_endorsement_dropper(
     validator: AccountId,
-) -> Box<dyn Fn(NetworkRequests) -> Option<NetworkRequests>> {
+) -> Box<dyn Fn(NetworkRequests) -> HandlerResult> {
     Box::new(move |request| {
         if let NetworkRequests::ChunkEndorsement(_target, endorsement) = &request {
             if endorsement.validator_account() == &validator {
-                return None;
+                return HandlerResult::Handled(NetworkResponses::NoResponse);
             }
         }
-        Some(request)
+        HandlerResult::Unhandled(request)
     })
 }
 
@@ -87,15 +89,15 @@ pub fn chunk_endorsement_dropper(
 /// descendants of the same block on one node. This could be improved, though.
 pub fn block_dropper_by_height(
     heights: HashSet<BlockHeight>,
-) -> Box<dyn Fn(NetworkRequests) -> Option<NetworkRequests>> {
+) -> Box<dyn Fn(NetworkRequests) -> HandlerResult> {
     Box::new(move |request| match &request {
         NetworkRequests::Block { block } => {
             if !heights.contains(&block.header().height()) {
-                Some(request)
+                HandlerResult::Unhandled(request)
             } else {
-                None
+                HandlerResult::Handled(NetworkResponses::NoResponse)
             }
         }
-        _ => Some(request),
+        _ => HandlerResult::Unhandled(request),
     })
 }

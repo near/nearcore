@@ -3,6 +3,7 @@
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
+use crate::setup::peer_manager_actor::HandlerResult;
 use crate::utils::account::create_validator_id;
 use crate::utils::node::TestLoopNode;
 use near_async::messaging::CanSend as _;
@@ -155,57 +156,54 @@ fn test_producer_sending_large_encoded_length_chunks() {
     let epoch_manager = env.node(0).client().epoch_manager.clone();
     let peer_manager_actor_handle = env.node_datas[0].peer_manager_sender.actor_handle();
     let peer_manager_actor = env.test_loop.data.get_mut(&peer_manager_actor_handle);
-    peer_manager_actor.register_override_handler(Box::new(
-        move |request| -> Option<NetworkRequests> {
-            match request {
-                NetworkRequests::PartialEncodedChunkMessage {
-                    account_id,
-                    mut partial_encoded_chunk,
-                } => {
-                    let header = partial_encoded_chunk.header;
+    peer_manager_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+        match request {
+            NetworkRequests::PartialEncodedChunkMessage {
+                account_id,
+                mut partial_encoded_chunk,
+            } => {
+                let header = partial_encoded_chunk.header;
 
-                    let epoch_id = epoch_manager
-                        .get_epoch_id_from_prev_block(header.prev_block_hash())
-                        .unwrap();
-                    let chunk_producer_info = epoch_manager
-                        .get_chunk_producer_info(&ChunkProductionKey {
-                            shard_id: header.shard_id(),
-                            epoch_id,
-                            height_created: header.height_created(),
-                        })
-                        .unwrap();
-                    let signer = create_test_signer(chunk_producer_info.account_id().as_str());
-                    let new_encoded_length = u64::MAX;
-                    let new_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-                        *header.prev_block_hash(),
-                        header.prev_state_root(),
-                        *header.prev_outcome_root(),
-                        *header.encoded_merkle_root(),
-                        new_encoded_length,
-                        header.height_created(),
-                        header.shard_id(),
-                        header.prev_gas_used(),
-                        header.gas_limit(),
-                        header.prev_balance_burnt(),
-                        *header.prev_outgoing_receipts_root(),
-                        *header.tx_root(),
-                        header.prev_validator_proposals().collect(),
-                        header.congestion_info(),
-                        header.bandwidth_requests().unwrap().clone(),
-                        header.proposed_split().cloned(),
-                        &signer,
-                        PROTOCOL_VERSION,
-                    ));
-                    partial_encoded_chunk.header = new_header;
-                    Some(NetworkRequests::PartialEncodedChunkMessage {
-                        account_id,
-                        partial_encoded_chunk,
+                let epoch_id =
+                    epoch_manager.get_epoch_id_from_prev_block(header.prev_block_hash()).unwrap();
+                let chunk_producer_info = epoch_manager
+                    .get_chunk_producer_info(&ChunkProductionKey {
+                        shard_id: header.shard_id(),
+                        epoch_id,
+                        height_created: header.height_created(),
                     })
-                }
-                _ => Some(request),
+                    .unwrap();
+                let signer = create_test_signer(chunk_producer_info.account_id().as_str());
+                let new_encoded_length = u64::MAX;
+                let new_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+                    *header.prev_block_hash(),
+                    header.prev_state_root(),
+                    *header.prev_outcome_root(),
+                    *header.encoded_merkle_root(),
+                    new_encoded_length,
+                    header.height_created(),
+                    header.shard_id(),
+                    header.prev_gas_used(),
+                    header.gas_limit(),
+                    header.prev_balance_burnt(),
+                    *header.prev_outgoing_receipts_root(),
+                    *header.tx_root(),
+                    header.prev_validator_proposals().collect(),
+                    header.congestion_info(),
+                    header.bandwidth_requests().unwrap().clone(),
+                    header.proposed_split().cloned(),
+                    &signer,
+                    PROTOCOL_VERSION,
+                ));
+                partial_encoded_chunk.header = new_header;
+                HandlerResult::Unhandled(NetworkRequests::PartialEncodedChunkMessage {
+                    account_id,
+                    partial_encoded_chunk,
+                })
             }
-        },
-    ));
+            _ => HandlerResult::Unhandled(request),
+        }
+    }));
 
     env.node_runner(0).run_for_number_of_blocks(10);
 }

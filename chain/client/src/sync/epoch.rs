@@ -433,8 +433,18 @@ impl EpochSync {
         current_epoch: &EpochSyncProofCurrentEpochData,
         current_epoch_final_block_header: &BlockHeader,
     ) -> Result<(), Error> {
-        // Verify first_block_header_in_epoch
+        // Verify that first_block_header_in_epoch is in the same epoch as the
+        // last final block. Without this check, an attacker could substitute the
+        // first block of a previous epoch (which is also in the Merkle tree),
+        // causing the node to initialize with stale epoch data.
         let first_block_header = &current_epoch.first_block_header_in_epoch;
+        if first_block_header.epoch_id() != current_epoch_final_block_header.epoch_id() {
+            return Err(Error::InvalidEpochSyncProof(
+                "first_block_header_in_epoch is not in the expected epoch".to_string(),
+            ));
+        }
+
+        // Verify first_block_header_in_epoch hash
         if !near_primitives::merkle::verify_hash(
             *current_epoch_final_block_header.block_merkle_root(),
             &current_epoch.merkle_proof_for_first_block,

@@ -1904,7 +1904,7 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-    /// Save chunk producers for genesis chunks (height 0) which have
+    /// Save chunk producers for genesis chunks which have
     /// prev_block_hash = CryptoHash::default(). This is called once during
     /// genesis init so that get_chunk_producer_info_db works for genesis chunks.
     ///
@@ -1913,6 +1913,7 @@ impl<'a> ChainStoreUpdate<'a> {
         &mut self,
         epoch_manager: &dyn EpochManagerAdapter,
         protocol_version: ProtocolVersion,
+        genesis_height: BlockHeight,
     ) -> Result<(), Error> {
         if !ProtocolFeature::EarlyKickout.enabled(protocol_version) {
             return Ok(());
@@ -1923,7 +1924,8 @@ impl<'a> ChainStoreUpdate<'a> {
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
 
         for shard_id in shard_layout.shard_ids() {
-            if let Some(validator_id) = epoch_info.sample_chunk_producer(&shard_layout, shard_id, 0)
+            if let Some(validator_id) =
+                epoch_info.sample_chunk_producer(&shard_layout, shard_id, genesis_height)
             {
                 let validator_stake = epoch_info.get_validator(validator_id);
                 self.chain_store_cache_update
@@ -2177,6 +2179,7 @@ impl<'a> ChainStoreUpdate<'a> {
             }
         }
 
+        #[cfg(feature = "nightly")]
         for ((block_hash, shard_id), validator_stake) in
             &self.chain_store_cache_update.chunk_producers
         {

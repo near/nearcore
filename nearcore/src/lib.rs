@@ -99,7 +99,7 @@ pub fn get_default_home() -> PathBuf {
 // TODO(cloud_archival) There seems to be some legacy complexity around the
 // `archive` config option and `DbKind` — maybe it can be simplified.
 pub fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<NodeStorage> {
-    let migrator = migrations::Migrator::new(near_config);
+    let migrator = migrations::Migrator::new(near_config, home_dir);
     let opener = NodeStorage::opener(
         home_dir,
         &near_config.config.store,
