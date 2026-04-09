@@ -1,48 +1,9 @@
-use near_async::messaging::{AsyncSender, IntoMultiSender, Sender, noop};
-use near_async::{MultiSend, MultiSenderFrom};
-use near_chain::{Block, BlockHeader};
-use near_client::{BlockApproval, BlockResponse, SetNetworkInfo};
-use near_network::client::{
-    BlockHeadersRequest, BlockHeadersResponse, BlockRequest, EpochSyncRequestMessage,
-    EpochSyncResponseMessage, OptimisticBlockMessage,
-};
-use near_network::types::{NetworkRequests, NetworkResponses, PeerMessage, ReasonForBan};
-use near_o11y::span_wrapped_msg::SpanWrapped;
+use near_network::types::PeerMessage;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use parking_lot::{Mutex, MutexGuard};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-
-/// Subset of ClientSenderForNetwork required for the TestLoop network.
-/// We skip over the message handlers from view client.
-#[derive(Clone, MultiSend, MultiSenderFrom)]
-pub struct ClientSenderForTestLoopNetwork {
-    pub block: AsyncSender<SpanWrapped<BlockResponse>, ()>,
-    pub block_headers: AsyncSender<SpanWrapped<BlockHeadersResponse>, Result<(), ReasonForBan>>,
-    pub block_approval: AsyncSender<SpanWrapped<BlockApproval>, ()>,
-    pub epoch_sync_request: Sender<EpochSyncRequestMessage>,
-    pub epoch_sync_response: Sender<EpochSyncResponseMessage>,
-    pub optimistic_block_receiver: Sender<SpanWrapped<OptimisticBlockMessage>>,
-    pub network_info: AsyncSender<SpanWrapped<SetNetworkInfo>, ()>,
-}
-
-#[derive(Clone, MultiSend, MultiSenderFrom)]
-pub struct ViewClientSenderForTestLoopNetwork {
-    pub block_headers_request: AsyncSender<BlockHeadersRequest, Option<Vec<Arc<BlockHeader>>>>,
-    pub block_request: AsyncSender<BlockRequest, Option<Arc<Block>>>,
-}
-
-/// Result of a network request handler.
-#[allow(clippy::large_enum_variant)]
-pub enum HandlerResult {
-    /// Message was not handled, pass to next handler in the chain.
-    Unhandled(NetworkRequests),
-    /// Message was handled, return this response to the caller.
-    Handled(NetworkResponses),
-}
-
-pub type NetworkRequestHandler = Box<dyn Fn(NetworkRequests) -> HandlerResult>;
 
 /// Filter function for transport-level message interception.
 /// Receives (from_peer, to_peer, message) and returns:
@@ -57,33 +18,17 @@ pub type TransportMessageFilter =
 #[derive(Clone)]
 pub struct TestLoopNetworkSharedState(Arc<Mutex<TestLoopNetworkSharedStateInner>>);
 
-#[allow(dead_code)]
 struct TestLoopNetworkSharedStateInner {
     account_to_peer_id: HashMap<AccountId, PeerId>,
-    senders: HashMap<PeerId, Arc<OneClientSenders>>,
-    drop_events_senders: Arc<OneClientSenders>,
     disallowed_peer_links: HashMap<PeerId, HashSet<PeerId>>,
     archival_peer_ids: HashSet<PeerId>,
     message_filters: Vec<TransportMessageFilter>,
 }
 
-/// Legacy sender types from old mock. Kept for add_client compatibility.
-#[allow(dead_code)]
-pub(crate) struct OneClientSenders {
-    pub(crate) client_sender: ClientSenderForTestLoopNetwork,
-    pub(crate) view_client_sender: ViewClientSenderForTestLoopNetwork,
-}
-
 impl TestLoopNetworkSharedState {
     pub fn new() -> Self {
-        let drop_senders = Arc::new(OneClientSenders {
-            client_sender: noop().into_multi_sender(),
-            view_client_sender: noop().into_multi_sender(),
-        });
         let inner = TestLoopNetworkSharedStateInner {
             account_to_peer_id: HashMap::new(),
-            senders: HashMap::new(),
-            drop_events_senders: drop_senders,
             disallowed_peer_links: HashMap::new(),
             archival_peer_ids: HashSet::new(),
             message_filters: Vec::new(),
@@ -95,21 +40,12 @@ impl TestLoopNetworkSharedState {
     where
         AccountId: From<&'a D>,
         PeerId: From<&'a D>,
-        ClientSenderForTestLoopNetwork: From<&'a D>,
-        ViewClientSenderForTestLoopNetwork: From<&'a D>,
     {
         let account_id = AccountId::from(data);
         let peer_id = PeerId::from(data);
 
         let mut guard = self.0.lock();
-        guard.account_to_peer_id.insert(account_id, peer_id.clone());
-        guard.senders.insert(
-            peer_id,
-            Arc::new(OneClientSenders {
-                client_sender: ClientSenderForTestLoopNetwork::from(data),
-                view_client_sender: ViewClientSenderForTestLoopNetwork::from(data),
-            }),
-        );
+        guard.account_to_peer_id.insert(account_id, peer_id);
     }
 
     /// Stops processing of requests from `from` peer to `to` peer.
@@ -135,19 +71,6 @@ impl TestLoopNetworkSharedState {
         to: &PeerId,
     ) -> bool {
         guard.disallowed_peer_links.get(from).and_then(|blocklist| blocklist.get(to)).is_some()
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn senders_for_peer(
-        &self,
-        origin: &PeerId,
-        peer_id: &PeerId,
-    ) -> Arc<OneClientSenders> {
-        let guard = self.0.lock();
-        if Self::is_peer_link_disallowed(&guard, origin, peer_id) {
-            return guard.drop_events_senders.clone();
-        }
-        guard.senders.get(peer_id).unwrap().clone()
     }
 
     /// Returns true if the link from `from` to `to` is allowed (not partitioned).

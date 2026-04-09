@@ -1,10 +1,5 @@
-#[allow(unused_imports)]
-use super::peer_manager_actor::{NetworkRequestHandler, TestLoopNetworkSharedState};
+use super::peer_manager_actor::TestLoopNetworkSharedState;
 use super::state::NodeExecutionData;
-#[allow(unused_imports)]
-use crate::utils::network::{
-    block_dropper_by_height, chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash,
-};
 use near_async::messaging::{CanSend, LateBoundSender};
 use near_async::test_loop::data::TestLoopData;
 use near_async::test_loop::sender::TestLoopSender;
@@ -296,19 +291,6 @@ impl NodeExecutionData {
             }
             Some(msg.clone())
         });
-    }
-
-    #[allow(unused_variables)]
-    pub fn register_override_handler(
-        &self,
-        test_loop_data: &TestLoopData,
-        handler: NetworkRequestHandler,
-    ) {
-        // TODO(peer-testloop): override handlers are not supported with real PeerManagerActor.
-        // This will be replaced by transport-level filters when each test is converted.
-        // For now, silently skip — tests that depend on handlers may fail with wrong results
-        // rather than panicking.
-        tracing::warn!(target: "test", "register_override_handler is a no-op with real PeerManagerActor");
     }
 }
 

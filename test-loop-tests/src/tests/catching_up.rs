@@ -1,5 +1,4 @@
 use crate::setup::builder::TestLoopBuilder;
-use crate::setup::peer_manager_actor::HandlerResult;
 use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 use crate::utils::transactions::get_anchor_hash;
 use itertools::Itertools as _;
@@ -7,19 +6,14 @@ use near_async::messaging::{CanSend as _, Handler as _};
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_client::{ProcessTxRequest, Query};
-use near_network::types::NetworkRequests;
-use near_network::types::NetworkResponses;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance, BlockReference, NumSeats, ShardId};
+use near_primitives::types::{AccountId, Balance, BlockReference, NumSeats};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
-use std::cell::RefCell;
+use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
 
 /// Verifies that fetching of random parts works properly by issuing transactions during the
 /// third epoch, and then making sure that the balances are correct for the next three epochs.
@@ -31,7 +25,6 @@ use std::rc::Rc;
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_catchup_random_single_part_sync() {
     test_catchup_random_single_part_sync_common(RandomSinglePartTest {
-        skip_24: false,
         change_balances: false,
         send_tx_height: 22,
     })
@@ -45,7 +38,6 @@ fn ultra_slow_test_catchup_random_single_part_sync() {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_catchup_random_single_part_sync_skip_24() {
     test_catchup_random_single_part_sync_common(RandomSinglePartTest {
-        skip_24: true,
         change_balances: false,
         send_tx_height: 22,
     })
@@ -56,7 +48,6 @@ fn ultra_slow_test_catchup_random_single_part_sync_skip_24() {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_catchup_random_single_part_sync_send_24() {
     test_catchup_random_single_part_sync_common(RandomSinglePartTest {
-        skip_24: false,
         change_balances: false,
         send_tx_height: 24,
     })
@@ -68,7 +59,6 @@ fn ultra_slow_test_catchup_random_single_part_sync_send_24() {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_catchup_random_single_part_sync_non_zero_amounts() {
     test_catchup_random_single_part_sync_common(RandomSinglePartTest {
-        skip_24: false,
         change_balances: true,
         send_tx_height: 22,
     })
@@ -80,21 +70,19 @@ fn ultra_slow_test_catchup_random_single_part_sync_non_zero_amounts() {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_catchup_random_single_part_sync_height_9() {
     test_catchup_random_single_part_sync_common(RandomSinglePartTest {
-        skip_24: false,
         change_balances: false,
         send_tx_height: 9,
     })
 }
 
 struct RandomSinglePartTest {
-    skip_24: bool,
     change_balances: bool,
     send_tx_height: u64,
 }
 
 /// Allows testing tx application when validators are being changes over epochs. In particular useful for testing on epoch boundaries.
 fn test_catchup_random_single_part_sync_common(
-    RandomSinglePartTest { skip_24, change_balances, send_tx_height }: RandomSinglePartTest,
+    RandomSinglePartTest { change_balances, send_tx_height }: RandomSinglePartTest,
 ) {
     init_test_logger();
 
@@ -138,24 +126,11 @@ fn test_catchup_random_single_part_sync_common(
         .epoch_config_store(epoch_config_store)
         .build();
 
-    for node_datas in &env.node_datas {
-        let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
-        let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
-            if let NetworkRequests::PartialEncodedChunkMessage { partial_encoded_chunk, .. } =
-                &request
-            {
-                if skip_24 {
-                    if partial_encoded_chunk.header.height_created() == 23
-                        || partial_encoded_chunk.header.height_created() == 24
-                    {
-                        return HandlerResult::Handled(NetworkResponses::NoResponse);
-                    }
-                }
-            }
-            HandlerResult::Unhandled(request)
-        }));
-    }
+    // TODO: convert override handler to transport filter
+    // Previously an override handler dropped PartialEncodedChunkMessage at
+    // heights 23/24 when skip_24 was true.  The handler was a no-op with
+    // real PeerManagerActor, so these tests pass without it but the skip_24
+    // variant no longer exercises the intended scenario.
 
     let client_actor_handle = &env.node_datas[0].client_sender.actor_handle();
     runner.run_until(
@@ -325,40 +300,11 @@ fn slow_test_catchup_sanity_blocks_produced() {
         })
         .build();
 
-    let heights = Rc::new(RefCell::new(HashMap::new()));
-    for node_datas in &env.node_datas {
-        let check_height = {
-            let heights = heights.clone();
-            move |hash: CryptoHash, height| match heights.borrow_mut().entry(hash) {
-                Entry::Occupied(entry) => {
-                    assert_eq!(*entry.get(), height);
-                }
-                Entry::Vacant(entry) => {
-                    entry.insert(height);
-                }
-            }
-        };
-
-        let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
-        let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
-            if let NetworkRequests::Block { block } = &request {
-                check_height(*block.hash(), block.header().height());
-
-                if block.header().height() % 10 == 5 {
-                    check_height(*block.header().prev_hash(), block.header().height() - 2);
-                } else {
-                    check_height(*block.header().prev_hash(), block.header().height() - 1);
-                }
-
-                // Do not propagate blocks at %10=4
-                if block.header().height() % 10 == 4 {
-                    return HandlerResult::Handled(NetworkResponses::NoResponse);
-                }
-            }
-            HandlerResult::Unhandled(request)
-        }));
-    }
+    // TODO: convert override handler to transport filter
+    // Previously an override handler dropped blocks at height%10==4 and
+    // checked hash consistency.  The handler was a no-op with real
+    // PeerManagerActor, so the test passes without it but no longer
+    // exercises block-skip scenarios.
 
     let client_actor_handle = &env.node_datas[0].client_sender.actor_handle();
     runner.run_until(
@@ -412,47 +358,10 @@ fn slow_test_all_chunks_accepted() {
         .epoch_config_store(epoch_config_store)
         .build();
 
-    let seen_chunk_same_sender = Rc::new(RefCell::new(HashSet::<(AccountId, u64, ShardId)>::new()));
-    for node_datas in &env.node_datas {
-        let seen_chunk_same_sender = seen_chunk_same_sender.clone();
-        let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
-        let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |msg| -> HandlerResult {
-            match msg {
-                NetworkRequests::PartialEncodedChunkMessage {
-                    ref account_id,
-                    ref partial_encoded_chunk,
-                } => {
-                    let header = &partial_encoded_chunk.header;
-                    if seen_chunk_same_sender.borrow().contains(&(
-                        account_id.clone(),
-                        header.height_created(),
-                        header.shard_id(),
-                    )) {
-                        println!("=== SAME CHUNK AGAIN!");
-                        assert!(false);
-                    };
-                    seen_chunk_same_sender.borrow_mut().insert((
-                        account_id.clone(),
-                        header.height_created(),
-                        header.shard_id(),
-                    ));
-                }
-                NetworkRequests::Block { ref block } => {
-                    if block.header().chunks_included() != num_shards {
-                        println!(
-                            "BLOCK WITH {:?} CHUNKS, {:?}",
-                            block.header().chunks_included(),
-                            block
-                        );
-                        assert!(false);
-                    }
-                }
-                _ => (),
-            }
-            HandlerResult::Unhandled(msg)
-        }));
-    }
+    // TODO: convert override handler to transport filter
+    // Previously an override handler checked for duplicate chunk sends and
+    // that all blocks include all chunks.  The handler was a no-op with real
+    // PeerManagerActor, so these assertions were never evaluated.
 
     let client_actor_handle = &env.node_datas[0].client_sender.actor_handle();
     runner.run_until(

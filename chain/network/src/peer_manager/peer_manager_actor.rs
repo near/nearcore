@@ -229,15 +229,6 @@ impl PeerManagerActor {
         }
     }
 
-    /// Stub for backward compatibility with tests that used TestLoopPeerManagerActor.
-    /// Override handlers are not supported with real PeerManagerActor — use transport
-    /// filters instead. This will be removed once tests are migrated.
-    #[allow(unused_variables)]
-    pub fn register_override_handler<H>(&mut self, handler: H) {
-        // TODO(peer-testloop): migrate tests to transport-level filters
-        tracing::warn!(target: "network", "register_override_handler called on real PeerManagerActor — this is a no-op");
-    }
-
     pub fn spawn(
         clock: time::Clock,
         actor_system: ActorSystem,

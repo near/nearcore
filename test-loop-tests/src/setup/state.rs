@@ -1,7 +1,5 @@
 use super::drop_condition::{DropCondition, TestLoopChunksStorage};
-use super::peer_manager_actor::{
-    ClientSenderForTestLoopNetwork, TestLoopNetworkSharedState, ViewClientSenderForTestLoopNetwork,
-};
+use super::peer_manager_actor::TestLoopNetworkSharedState;
 use near_async::messaging::{IntoMultiSender, IntoSender, Sender};
 use near_async::test_loop::data::TestLoopDataHandle;
 use near_async::test_loop::sender::TestLoopSender;
@@ -138,20 +136,8 @@ impl From<&NodeExecutionData> for PeerId {
     }
 }
 
-impl From<&NodeExecutionData> for ClientSenderForTestLoopNetwork {
-    fn from(data: &NodeExecutionData) -> ClientSenderForTestLoopNetwork {
-        data.client_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
-    }
-}
-
 impl From<&NodeExecutionData> for ViewClientSenderForRpc {
     fn from(data: &NodeExecutionData) -> ViewClientSenderForRpc {
-        data.view_client_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
-    }
-}
-
-impl From<&NodeExecutionData> for ViewClientSenderForTestLoopNetwork {
-    fn from(data: &NodeExecutionData) -> ViewClientSenderForTestLoopNetwork {
         data.view_client_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
     }
 }
