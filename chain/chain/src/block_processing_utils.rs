@@ -11,7 +11,7 @@ use near_primitives::sharding::{ReceiptProof, ShardChunkHeader, StateSyncInfo};
 use near_primitives::types::{BlockHeight, ShardId};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Max number of blocks that can be in the pool at once.
 /// This number will likely never be hit unless there are many forks in the chain.
@@ -338,7 +338,7 @@ impl<T: Send + 'static> PendingShardJobs<T> {
     /// Spawn a task. Results are delivered to `on_done` in the order `spawn`
     /// is called, regardless of which task finishes first.
     pub fn spawn(self: &Arc<Self>, task: impl FnOnce() -> T + Send + 'static) {
-        let index = self.next_index.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let index = self.next_index.fetch_add(1, Ordering::Relaxed);
         let pending = self.clone();
         self.spawner.spawn(self.name, move || {
             pending.set_result(index, task());
@@ -347,7 +347,7 @@ impl<T: Send + 'static> PendingShardJobs<T> {
 
     fn set_result(&self, index: usize, result: T) {
         self.results.lock()[index] = Some(result);
-        if self.remaining.fetch_sub(1, std::sync::atomic::Ordering::Relaxed) == 1 {
+        if self.remaining.fetch_sub(1, Ordering::Relaxed) == 1 {
             self.invoke_on_done();
         }
     }
