@@ -37,8 +37,8 @@ impl Actor for StateRequestActor {}
 /// Result of sync hash validation for request processing
 #[derive(PartialEq)]
 enum SyncHashValidationResult {
-    Valid,      // Proceed with operation
-    BadRequest, // Don't respond to the node, because the request is malformed.
+    Valid,    // Proceed with operation
+    Rejected, // Don't respond; the sync hash is invalid, from an old epoch, or can't be verified.
 }
 
 impl StateRequestActor {
@@ -114,7 +114,7 @@ impl StateRequestActor {
                 // The block may be missing because it was garbage-collected or because
                 // this node hasn't switched to the new epoch yet. Either way, we can't
                 // determine the epoch, so treat it as unknown and drop the request.
-                tracing::info!(target: "sync", ?sync_hash, "can't get sync_hash block for state request");
+                tracing::debug!(target: "sync", ?sync_hash, "can't get sync_hash block for state request");
                 return Ok(false);
             }
             Err(err) => {
@@ -140,20 +140,27 @@ impl StateRequestActor {
 
     /// Validates sync hash and returns appropriate action to take.
     fn validate_sync_hash(&self, sync_hash: &CryptoHash) -> SyncHashValidationResult {
-        if !self.is_sync_hash_from_known_recent_epoch(sync_hash).unwrap_or(true) {
-            tracing::info!(
-                target: "sync",
-                ?sync_hash,
-                "sync_hash didn't pass validation; belongs to an unknown epoch"
-            );
-            return SyncHashValidationResult::BadRequest;
+        match self.is_sync_hash_from_known_recent_epoch(sync_hash) {
+            Ok(true) => {}
+            Ok(false) => {
+                tracing::info!(
+                    target: "sync",
+                    ?sync_hash,
+                    "sync_hash didn't pass validation; belongs to an unknown epoch"
+                );
+                return SyncHashValidationResult::Rejected;
+            }
+            Err(err) => {
+                tracing::warn!(target: "sync", ?err, "failed to check sync_hash epoch");
+                return SyncHashValidationResult::Rejected;
+            }
         }
 
         let good_sync_hash = match self.get_sync_hash(sync_hash) {
             Ok(sync_hash) => sync_hash,
             Err(err) => {
                 tracing::debug!(target: "sync", ?err, "failed to get sync_hash for state request");
-                return SyncHashValidationResult::BadRequest;
+                return SyncHashValidationResult::Rejected;
             }
         };
 
@@ -164,7 +171,7 @@ impl StateRequestActor {
                 target: "sync",
                 "sync_hash didn't pass validation; possible divergence in sync hash computation"
             );
-            SyncHashValidationResult::BadRequest
+            SyncHashValidationResult::Rejected
         }
     }
 
@@ -243,7 +250,7 @@ impl Handler<StateRequestHeader, Option<StatePartOrHeader>> for StateRequestActo
             return None;
         }
 
-        if self.validate_sync_hash(&sync_hash) == SyncHashValidationResult::BadRequest {
+        if self.validate_sync_hash(&sync_hash) == SyncHashValidationResult::Rejected {
             metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL
                 .with_label_values(&["header", "failed"])
                 .inc();
@@ -298,7 +305,7 @@ impl Handler<StateRequestPart, Option<StatePartOrHeader>> for StateRequestActor 
             return None;
         }
 
-        if self.validate_sync_hash(&sync_hash) == SyncHashValidationResult::BadRequest {
+        if self.validate_sync_hash(&sync_hash) == SyncHashValidationResult::Rejected {
             metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL.with_label_values(&["part", "failed"]).inc();
             return None;
         }
