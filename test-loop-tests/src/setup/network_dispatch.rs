@@ -237,19 +237,36 @@ impl TestLoopTransport {
             PeerMessage::BlockHeadersRequest(hashes) => {
                 let target = target_state;
                 let my_id = my_peer_id;
+                let shared_state = self.shared_state.clone();
                 let node_states = self.node_network_states.clone();
                 self.future_spawner.spawn("testloop_block_headers_request", async move {
                     if let Ok(Some(headers)) =
                         target.client.send_async(BlockHeadersRequest(hashes)).await
                     {
-                        let requester_state = {
-                            let states = node_states.lock();
-                            states.get(&my_id).cloned()
+                        // Send response as PeerMessage::BlockHeaders through the
+                        // filter chain (apply_message_filters) so transport filters
+                        // like throttle_header_sync can intercept it.
+                        let response = PeerMessage::BlockHeaders(headers);
+                        let target_node_id = target.config.node_id();
+                        let response = match shared_state.apply_message_filters(
+                            &target_node_id,
+                            &my_id,
+                            response,
+                        ) {
+                            Some(msg) => msg,
+                            None => return, // dropped by filter
                         };
-                        if let Some(requester) = requester_state {
-                            requester.client.send_async(
-                                BlockHeadersResponse(headers, target.config.node_id()).span_wrap(),
-                            );
+                        // Dispatch the (possibly filtered) response to the requester.
+                        if let PeerMessage::BlockHeaders(headers) = response {
+                            let requester_state = {
+                                let states = node_states.lock();
+                                states.get(&my_id).cloned()
+                            };
+                            if let Some(requester) = requester_state {
+                                requester.client.send_async(
+                                    BlockHeadersResponse(headers, target_node_id).span_wrap(),
+                                );
+                            }
                         }
                     }
                 });

@@ -1,7 +1,4 @@
 use crate::setup::env::TestLoopEnv;
-use near_async::messaging::CanSend as _;
-use near_async::test_loop::sender::TestLoopSender;
-use near_chain::spice_core_writer_actor::SpiceCoreWriterActor;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::types::PeerMessage;
 use near_network::{T1MessageBody, TieredMessageBody};
@@ -18,11 +15,10 @@ pub(super) fn delay_endorsements_propagation(env: &TestLoopEnv, delay_height: u6
         node.set_expected_execution_delay(delay_height);
     }
 
-    let core_writer_senders: HashMap<PeerId, TestLoopSender<SpiceCoreWriterActor>> = env
-        .node_datas
-        .iter()
-        .map(|data| (data.peer_id.clone(), data.spice_core_writer_sender.clone()))
-        .collect();
+    // Use the shared node_network_states to look up senders dynamically.
+    // This handles node restart correctly — the restarted node's NetworkState
+    // is re-registered in the shared map, so we always get the current sender.
+    let node_states = env.shared_state.node_network_states.clone();
 
     let block_heights: Arc<RwLock<HashMap<CryptoHash, BlockHeight>>> =
         Arc::new(RwLock::new(HashMap::new()));
@@ -44,7 +40,12 @@ pub(super) fn delay_endorsements_propagation(env: &TestLoopEnv, delay_height: u6
                         break;
                     }
                     let (_, target, endorsement) = delayed.pop_front().unwrap();
-                    core_writer_senders[&target].send(SpiceChunkEndorsementMessage(endorsement));
+                    // Look up the current sender dynamically (handles restart).
+                    if let Some(state) = node_states.lock().get(&target) {
+                        state
+                            .spice_core_writer_adapter
+                            .send(SpiceChunkEndorsementMessage(endorsement));
+                    }
                 }
                 Some(msg.clone())
             }

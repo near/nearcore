@@ -18,8 +18,11 @@ use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::{GetBlock, ProcessTxRequest, Query, QueryError};
 use near_client_primitives::types::GetBlockError;
 use near_network::types::NetworkRequests;
+use near_network::types::PeerMessage;
+use near_network::{T1MessageBody, TieredMessageBody};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
+use near_primitives::network::PeerId;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
@@ -856,25 +859,32 @@ fn test_spice_validator_only_sends_endorsements() {
     let num_producers = 2;
     let num_validators = 2;
 
-    let mut env = TestLoopBuilder::new()
+    let env = TestLoopBuilder::new()
         .validators(num_producers, num_validators)
         .num_shards(2)
         .delay_warmup()
         .build();
 
-    // Register override handlers on validator-only nodes to count outgoing
-    // SpiceChunkEndorsement messages.
+    // Count outgoing SpiceChunkEndorsement messages from validator-only nodes
+    // using a transport filter instead of the old override handler.
     let endorsement_count = Arc::new(AtomicUsize::new(0));
-    for i in num_producers..env.node_datas.len() {
-        let node_data = &env.node_datas[i];
+    {
         let counter = endorsement_count.clone();
-        let peer_actor = env.test_loop.data.get_mut(&node_data.peer_manager_sender.actor_handle());
-        peer_actor.register_override_handler(Box::new(move |request| {
-            if matches!(&request, NetworkRequests::SpiceChunkEndorsement(..)) {
-                counter.fetch_add(1, Ordering::SeqCst);
+        let validator_peer_ids: HashSet<PeerId> = (num_producers..env.node_datas.len())
+            .map(|i| env.node_datas[i].peer_id.clone())
+            .collect();
+        env.shared_state.network_shared_state.register_message_filter(move |from, _to, msg| {
+            if validator_peer_ids.contains(from) {
+                if let PeerMessage::Routed(routed_msg) = msg {
+                    if let TieredMessageBody::T1(body) = routed_msg.body() {
+                        if matches!(body.as_ref(), T1MessageBody::SpiceChunkEndorsement(..)) {
+                            counter.fetch_add(1, Ordering::SeqCst);
+                        }
+                    }
+                }
             }
-            HandlerResult::Unhandled(request)
-        }));
+            Some(msg.clone())
+        });
     }
 
     let mut env = env.warmup();
