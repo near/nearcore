@@ -67,6 +67,11 @@ impl<K: Send + 'static, R: FromPanic + Send + 'static> PendingShardJobs<K, R> {
     /// `on_done` delivery intact.
     pub fn spawn(self: &Arc<Self>, key: K, task: impl FnOnce() -> R + Send + 'static) {
         let index = self.next_index.fetch_add(1, Ordering::Relaxed);
+        assert!(
+            index < self.results.lock().len(),
+            "{}: spawn called more times than the configured count",
+            self.name
+        );
         let pending = self.clone();
         self.spawner.spawn(self.name, move || {
             let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(task)) {
@@ -169,5 +174,18 @@ mod tests {
         );
         let results = rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(results.is_empty());
+    }
+
+    #[test]
+    #[should_panic(expected = "spawn called more times than the configured count")]
+    fn spawn_over_count_panics() {
+        let pending = PendingShardJobs::<u32, TestResult>::new(
+            "test",
+            Arc::new(StdThreadAsyncComputationSpawner),
+            1,
+            move |_| {},
+        );
+        pending.spawn(0, || Ok("first".to_string()));
+        pending.spawn(1, || Ok("second".to_string()));
     }
 }
