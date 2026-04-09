@@ -11,8 +11,7 @@ use near_async::ActorSystem;
 use near_async::messaging::{CanSend, CanSendAsync};
 use near_async::time::{Clock, Duration};
 use near_chain::types::{LatestKnown, RuntimeAdapter};
-use near_chain::validate::validate_chunk_with_chunk_extra;
-use near_chain::{BlockProcessingArtifact, ChainStore, ChainStoreAccess, Error, Provenance};
+use near_chain::{BlockProcessingArtifact, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, ProtocolVersionCheckConfig};
 use near_client::sync::SYNC_V2_ENABLED;
@@ -39,23 +38,18 @@ use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::{PartialMerkleTree, verify_hash};
 use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
-use near_primitives::sharding::{
-    ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV3, ShardChunkWithEncoding,
-};
+use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV3};
 use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::stateless_validation::ChunkProductionKey;
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
-use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{
-    Action, DeployContractAction, ExecutionStatus, FunctionCallAction, SignedTransaction,
-    Transaction, TransactionV0,
+    Action, ExecutionStatus, FunctionCallAction, SignedTransaction, Transaction, TransactionV0,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, Gas, NumBlocks};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
 use near_primitives_core::num_rational::Ratio;
 use near_store::NodeStorage;
@@ -1841,6 +1835,14 @@ fn test_block_height_processed_orphan() {
 #[test]
 #[cfg(feature = "test_features")]
 fn test_validate_chunk_extra() {
+    use near_chain::ChainStore;
+    use near_chain::validate::validate_chunk_with_chunk_extra;
+    use near_primitives::sharding::ShardChunkWithEncoding;
+    use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+    use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
+    use near_primitives::transaction::DeployContractAction;
+    use near_primitives::version::ProtocolFeature;
+
     // With spice there is no need to test validate_chunk_with_chunk_extra since chunks no longer
     // contain data from chunk extra.
     if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {

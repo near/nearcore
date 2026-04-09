@@ -2,7 +2,6 @@ use crate::env::test_env::TestEnv;
 use near_async::messaging::IntoMultiSender;
 use near_async::time::Clock;
 use near_chain::Provenance;
-use near_chain::test_utils::wait_for_all_blocks_in_processing;
 use near_chain_configs::Genesis;
 use near_client::sync::block::BlockSync;
 use near_crypto::{KeyType, PublicKey};
@@ -12,7 +11,6 @@ use near_network::types::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::utils::MaybeValidated;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -33,6 +31,7 @@ fn collect_hashes_from_network_adapter(
         .collect()
 }
 
+#[cfg(feature = "test_features")]
 fn check_hashes_from_network_adapter(
     network_adapter: &MockPeerManagerAdapter,
     expected_hashes: Vec<CryptoHash>,
@@ -69,6 +68,9 @@ fn test_env_with_epoch_length(epoch_length: u64) -> TestEnv {
 #[test]
 #[cfg(feature = "test_features")]
 fn test_block_sync() {
+    use near_chain::test_utils::wait_for_all_blocks_in_processing;
+    use near_primitives::utils::MaybeValidated;
+
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let block_fetch_horizon = 10;
     let max_block_requests = 10;
