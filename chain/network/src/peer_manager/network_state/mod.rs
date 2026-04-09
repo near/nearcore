@@ -726,13 +726,18 @@ impl NetworkState {
                     }
                 };
                 // Remember if we expect a response for this message.
-                if *msg.author() == my_peer_id && msg.expect_response() {
-                    tracing::trace!(target: "network", ?msg, "initiate route back");
-                    self.tier2_route_back.lock().insert(clock, msg.hash(), my_peer_id);
+                // Only record route-back AFTER confirming delivery, to avoid
+                // stale entries when the graph fallback sends to a peer that
+                // isn't in the connection pool.
+                let expects_response = *msg.author() == my_peer_id && msg.expect_response();
+                let msg_hash = msg.hash();
+                let sent =
+                    self.tier2_transport.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
+                if sent && expects_response {
+                    tracing::trace!(target: "network", "initiate route back");
+                    self.tier2_route_back.lock().insert(clock, msg_hash, my_peer_id);
                 }
-                return self
-                    .tier2_transport
-                    .send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
+                return sent;
             }
             tcp::Tier::T3 => {
                 let peer_id = match msg.target() {
