@@ -109,6 +109,7 @@ async fn convert_genesis_records_to_transaction(
         related_transactions: Vec::new(),
         metadata: crate::models::TransactionMetadata {
             type_: crate::models::TransactionType::Block,
+            execution_status: None,
         },
     })
 }

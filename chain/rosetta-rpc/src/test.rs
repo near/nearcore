@@ -5,7 +5,7 @@ use near_crypto::SecretKey;
 use near_parameters::RuntimeConfigView;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::Balance;
-use near_primitives::views::SignedTransactionView;
+use near_primitives::views::{ActionView, SignedTransactionView};
 use std::collections::HashMap;
 
 pub async fn test_convert_block_changes_to_transactions(
@@ -421,5 +421,204 @@ pub async fn test_gas_key_changes_to_transactions(
             Balance::from_millinear(400).as_yoctonear(),
             Balance::from_millinear(200).as_yoctonear(),
         )))
+    );
+}
+
+/// Tests that a Stake transaction during TransactionProcessing produces a single
+/// liquid balance operation with GasPrepayment metadata (since Stake has no deposit
+/// that needs separating, the entire liquid change is gas).
+pub async fn test_stake_gas_prepayment(
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActor>,
+    runtime_config: &RuntimeConfigView,
+) {
+    let block_hash = CryptoHash::default();
+    let stake_tx_hash = CryptoHash([10u8; 32]);
+
+    // Stake action has no deposit during TransactionProcessing — only gas is charged.
+    let exec_to_rx = ExecutionToReceipts::with_data(
+        HashMap::new(),
+        HashMap::from([(
+            stake_tx_hash,
+            SignedTransactionView {
+                signer_id: "alice.near".parse().unwrap(),
+                public_key: SecretKey::from_seed(near_crypto::KeyType::ED25519, "alice")
+                    .public_key(),
+                nonce: 1,
+                receiver_id: "alice.near".parse().unwrap(),
+                actions: vec![ActionView::Stake {
+                    stake: Balance::from_near(100),
+                    public_key: SecretKey::from_seed(near_crypto::KeyType::ED25519, "alice")
+                        .public_key(),
+                }],
+                _priority_fee: 0,
+                signature: near_crypto::Signature::default(),
+                hash: stake_tx_hash,
+                nonce_index: None,
+                nonce_mode: None,
+            },
+        )]),
+    );
+
+    // Previous state: 10 NEAR liquid. After TransactionProcessing: 9.999 NEAR liquid (gas charged).
+    // Locked stays the same during TransactionProcessing (stake adjustment happens in receipt).
+    let accounts_changes = vec![near_primitives::views::StateChangeWithCauseView {
+        cause: near_primitives::views::StateChangeCauseView::TransactionProcessing {
+            tx_hash: stake_tx_hash,
+        },
+        value: near_primitives::views::StateChangeValueView::AccountUpdate {
+            account_id: "alice.near".parse().unwrap(),
+            account: near_primitives::views::AccountView {
+                amount: Balance::from_millinear(9999),
+                code_hash: CryptoHash::default(),
+                locked: Balance::from_near(100),
+                storage_paid_at: 0,
+                storage_usage: 0,
+                global_contract_hash: None,
+                global_contract_account_id: None,
+            },
+        },
+    }];
+    let mut accounts_previous_state = HashMap::new();
+    accounts_previous_state.insert(
+        "alice.near".parse().unwrap(),
+        near_primitives::views::AccountView {
+            amount: Balance::from_near(10),
+            code_hash: CryptoHash::default(),
+            locked: Balance::from_near(100),
+            storage_paid_at: 0,
+            storage_usage: 0,
+            global_contract_hash: None,
+            global_contract_account_id: None,
+        },
+    );
+
+    let transactions = convert_block_changes_to_transactions(
+        view_client_addr,
+        runtime_config,
+        &block_hash,
+        accounts_changes,
+        accounts_previous_state,
+        exec_to_rx,
+        crate::gas_key_utils::GasKeyInfo::empty(),
+        vec![],
+    )
+    .await
+    .unwrap();
+
+    let fee_type =
+        |op: &crate::models::Operation| op.metadata.as_ref().and_then(|m| m.transfer_fee_type);
+
+    let stake_tx = &transactions[&format!("tx:{}", stake_tx_hash)];
+    // Should produce exactly one liquid balance operation (gas charge).
+    // Locked didn't change, so no locked balance operation.
+    let liquid_ops: Vec<_> =
+        stake_tx.operations.iter().filter(|op| op.account.sub_account.is_none()).collect();
+    assert_eq!(liquid_ops.len(), 1, "expected single liquid balance op (gas charge)");
+    assert_eq!(liquid_ops[0].type_, crate::models::OperationType::Transfer);
+    // The gas charge should be marked as GasPrepayment.
+    assert_eq!(
+        fee_type(liquid_ops[0]),
+        Some(crate::models::OperationMetadataTransferFeeType::GasPrepayment),
+        "Stake transaction gas charge must have GasPrepayment metadata"
+    );
+}
+
+/// Tests that a FunctionCall transaction with non-zero deposit during TransactionProcessing
+/// produces two operations: one for the deposit and one for gas (GasPrepayment).
+pub async fn test_function_call_deposit_separation(
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActor>,
+    runtime_config: &RuntimeConfigView,
+) {
+    let block_hash = CryptoHash::default();
+    let fc_tx_hash = CryptoHash([11u8; 32]);
+    let fc_deposit = Balance::from_near(5);
+
+    let exec_to_rx = ExecutionToReceipts::with_data(
+        HashMap::new(),
+        HashMap::from([(
+            fc_tx_hash,
+            SignedTransactionView {
+                signer_id: "bob.near".parse().unwrap(),
+                public_key: SecretKey::from_seed(near_crypto::KeyType::ED25519, "bob").public_key(),
+                nonce: 1,
+                receiver_id: "contract.near".parse().unwrap(),
+                actions: vec![ActionView::FunctionCall {
+                    method_name: "do_something".to_string(),
+                    args: vec![].into(),
+                    gas: near_primitives::types::Gas::from_gas(30_000_000_000_000),
+                    deposit: fc_deposit,
+                }],
+                _priority_fee: 0,
+                signature: near_crypto::Signature::default(),
+                hash: fc_tx_hash,
+                nonce_index: None,
+                nonce_mode: None,
+            },
+        )]),
+    );
+
+    // Previous: 20 NEAR liquid. After TransactionProcessing: 14.999 NEAR (5 NEAR deposit + 0.001 gas).
+    let accounts_changes = vec![near_primitives::views::StateChangeWithCauseView {
+        cause: near_primitives::views::StateChangeCauseView::TransactionProcessing {
+            tx_hash: fc_tx_hash,
+        },
+        value: near_primitives::views::StateChangeValueView::AccountUpdate {
+            account_id: "bob.near".parse().unwrap(),
+            account: near_primitives::views::AccountView {
+                amount: Balance::from_millinear(14999),
+                code_hash: CryptoHash::default(),
+                locked: Balance::ZERO,
+                storage_paid_at: 0,
+                storage_usage: 0,
+                global_contract_hash: None,
+                global_contract_account_id: None,
+            },
+        },
+    }];
+    let mut accounts_previous_state = HashMap::new();
+    accounts_previous_state.insert(
+        "bob.near".parse().unwrap(),
+        near_primitives::views::AccountView {
+            amount: Balance::from_near(20),
+            code_hash: CryptoHash::default(),
+            locked: Balance::ZERO,
+            storage_paid_at: 0,
+            storage_usage: 0,
+            global_contract_hash: None,
+            global_contract_account_id: None,
+        },
+    );
+
+    let transactions = convert_block_changes_to_transactions(
+        view_client_addr,
+        runtime_config,
+        &block_hash,
+        accounts_changes,
+        accounts_previous_state,
+        exec_to_rx,
+        crate::gas_key_utils::GasKeyInfo::empty(),
+        vec![],
+    )
+    .await
+    .unwrap();
+
+    let fee_type =
+        |op: &crate::models::Operation| op.metadata.as_ref().and_then(|m| m.transfer_fee_type);
+
+    let fc_tx = &transactions[&format!("tx:{}", fc_tx_hash)];
+    let liquid_ops: Vec<_> =
+        fc_tx.operations.iter().filter(|op| op.account.sub_account.is_none()).collect();
+    // Should produce two operations: deposit deduction + gas charge.
+    assert_eq!(liquid_ops.len(), 2, "expected two ops: deposit + gas");
+
+    // First op: the deposit (negative, no fee type).
+    assert_eq!(liquid_ops[0].amount, Some(-crate::models::Amount::from_balance(fc_deposit)));
+    assert_eq!(fee_type(liquid_ops[0]), None, "deposit op should have no fee type");
+
+    // Second op: the gas charge (with GasPrepayment).
+    assert_eq!(
+        fee_type(liquid_ops[1]),
+        Some(crate::models::OperationMetadataTransferFeeType::GasPrepayment),
+        "gas charge op must have GasPrepayment metadata"
     );
 }
