@@ -296,14 +296,15 @@ mod tests {
     }
 }
 
-/// Spawns `count` tasks on spawner and collects their results. When the
-/// last task completes, `on_done` is called with all results. If `count` is
-/// zero, `on_done` is invoked asynchronously via the spawner.
+/// Spawns `count` tasks on spawner and collects their results in spawn order.
+/// When the last task completes, `on_done` is called with all results. If
+/// `count` is zero, `on_done` is invoked asynchronously via the spawner.
 pub struct PendingShardJobs<T: Send + 'static> {
     name: &'static str,
     spawner: Arc<dyn AsyncComputationSpawner>,
+    next_index: AtomicUsize,
     remaining: AtomicUsize,
-    results: parking_lot::Mutex<Vec<T>>,
+    results: parking_lot::Mutex<Vec<Option<T>>>,
     on_done: parking_lot::Mutex<Option<Box<dyn FnOnce(Vec<T>) + Send>>>,
 }
 
@@ -314,11 +315,13 @@ impl<T: Send + 'static> PendingShardJobs<T> {
         count: usize,
         on_done: impl FnOnce(Vec<T>) + Send + 'static,
     ) -> Arc<Self> {
+        let results: Vec<Option<T>> = (0..count).map(|_| None).collect();
         let pending = Arc::new(Self {
             name,
             spawner,
+            next_index: AtomicUsize::new(0),
             remaining: AtomicUsize::new(count),
-            results: parking_lot::Mutex::new(Vec::with_capacity(count)),
+            results: parking_lot::Mutex::new(results),
             on_done: parking_lot::Mutex::new(Some(Box::new(on_done))),
         });
         if count == 0 {
@@ -332,22 +335,26 @@ impl<T: Send + 'static> PendingShardJobs<T> {
         pending
     }
 
+    /// Spawn a task. Results are delivered to `on_done` in the order `spawn`
+    /// is called, regardless of which task finishes first.
     pub fn spawn(self: &Arc<Self>, task: impl FnOnce() -> T + Send + 'static) {
+        let index = self.next_index.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let pending = self.clone();
         self.spawner.spawn(self.name, move || {
-            pending.add_result(task());
+            pending.set_result(index, task());
         });
     }
 
-    fn add_result(&self, result: T) {
-        self.results.lock().push(result);
+    fn set_result(&self, index: usize, result: T) {
+        self.results.lock()[index] = Some(result);
         if self.remaining.fetch_sub(1, std::sync::atomic::Ordering::Relaxed) == 1 {
             self.invoke_on_done();
         }
     }
 
     fn invoke_on_done(&self) {
-        let results = std::mem::take(&mut *self.results.lock());
+        let results =
+            std::mem::take(&mut *self.results.lock()).into_iter().map(|r| r.unwrap()).collect();
         let on_done = self.on_done.lock().take().unwrap();
         on_done(results);
     }
