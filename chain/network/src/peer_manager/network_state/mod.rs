@@ -765,27 +765,17 @@ impl NetworkState {
         msg: TieredMessageBody,
     ) -> bool {
         // If the message is allowed to be sent to self, we handle it directly.
-        // Try transport first (handles testloop in-memory dispatch without ops_spawner).
-        // Fall back to ops_spawner for production (transport returns false for self in pool).
+        // If the message is allowed to be sent to self, we handle it directly.
         if self.config.validator.account_id().is_some_and(|id| &id == account_id) {
             // For now, we don't allow some types of messages to be sent to self.
             debug_assert!(msg.allow_sending_to_self());
-            let my_peer_id = self.config.node_id();
-            let msg = self.sign_message(
-                clock,
-                RawRoutedMessage { target: PeerIdOrHash::PeerId(my_peer_id.clone()), body: msg },
-            );
-            // Try transport first — in testloop this delivers directly, avoiding
-            // ops_spawner which runs on a different executor and panics.
-            if self
-                .tier2_transport
-                .send_message(my_peer_id.clone(), Arc::new(PeerMessage::Routed(msg.clone())))
-            {
-                return true;
-            }
-            // Production fallback: spawn on ops_spawner.
             let this = self.clone();
             let clock = clock.clone();
+            let my_peer_id = self.config.node_id();
+            let msg = self.sign_message(
+                &clock,
+                RawRoutedMessage { target: PeerIdOrHash::PeerId(my_peer_id.clone()), body: msg },
+            );
             self.spawn("send_message_to_account", async move {
                 let hash = msg.hash();
                 this.receive_routed_message(
