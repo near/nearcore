@@ -17,6 +17,7 @@
 * State sync status now shows download and apply parts progress. ([#15391](https://github.com/near/nearcore/pull/15391))
 * Fix: allow `Disconnect` message on Tier3 connections. ([#15405](https://github.com/near/nearcore/pull/15405))
 * Fix: gracefully handle expired peer in `peer_connection_attempt`. ([#15390](https://github.com/near/nearcore/pull/15390))
+* Archival nodes with split storage (cold store) will run a one-time migration on startup that is expected to take **1–2 hours** depending on disk performance. Expect downtime. Nodes without cold store are not affected. ([#15503](https://github.com/near/nearcore/pull/15503))
 
 ## [2.11.0]
 
