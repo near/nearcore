@@ -312,7 +312,8 @@ impl TestPausedBlocks {
     }
 
     pub fn pause(&mut self, block_hash: &CryptoHash) {
-        self.gates.insert(*block_hash, Arc::new(std::sync::OnceLock::new()));
+        let prev = self.gates.insert(*block_hash, Arc::new(std::sync::OnceLock::new()));
+        assert!(prev.is_none(), "block {block_hash} is already paused");
     }
 
     pub fn resume(&mut self, block_hash: &CryptoHash) {
