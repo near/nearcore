@@ -639,8 +639,7 @@ pub async fn test_execution_status_propagation(
             success_tx_hash,
             SignedTransactionView {
                 signer_id: "bob.near".parse().unwrap(),
-                public_key: SecretKey::from_seed(near_crypto::KeyType::ED25519, "bob")
-                    .public_key(),
+                public_key: SecretKey::from_seed(near_crypto::KeyType::ED25519, "bob").public_key(),
                 nonce: 1,
                 receiver_id: "bob.near".parse().unwrap(),
                 actions: vec![],
