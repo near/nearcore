@@ -685,32 +685,39 @@ impl NetworkState {
                     .send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
             }
             tcp::Tier::T2 => {
-                match self.tier2_find_route(&clock, msg.target()) {
-                    Ok(peer_id) => {
-                        // Remember if we expect a response for this message.
-                        if *msg.author() == my_peer_id && msg.expect_response() {
-                            tracing::trace!(target: "network", ?msg, "initiate route back");
-                            self.tier2_route_back.lock().insert(clock, msg.hash(), my_peer_id);
-                        }
-                        return self
-                            .tier2_transport
-                            .send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
-                    }
+                let peer_id = match self.tier2_find_route(&clock, msg.target()) {
+                    Ok(peer_id) => peer_id,
                     Err(find_route_error) => {
-                        // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-                        metrics::MessageDropped::NoRouteFound.inc(msg.body());
-
-                        tracing::debug!(target: "network",
-                              account_id = ?self.config.validator.account_id(),
-                              to = ?msg.target(),
-                              reason = ?find_route_error,
-                              known_peers = ?self.graph.routing_table.reachable_peers(),
-                              msg = ?msg.body(),
-                            "dropping signed message"
-                        );
-                        return false;
+                        // Graph route failed. For PeerId targets, try direct delivery
+                        // as a fallback. In production, this is a no-op when the peer
+                        // is in the Pool (same as routing success). In testloop, this
+                        // is essential because the routing graph is empty.
+                        // For Hash targets (route-back), there's no fallback.
+                        match msg.target() {
+                            PeerIdOrHash::PeerId(peer_id) => peer_id.clone(),
+                            PeerIdOrHash::Hash(_) => {
+                                metrics::MessageDropped::NoRouteFound.inc(msg.body());
+                                tracing::debug!(target: "network",
+                                    account_id = ?self.config.validator.account_id(),
+                                    to = ?msg.target(),
+                                    reason = ?find_route_error,
+                                    known_peers = ?self.graph.routing_table.reachable_peers(),
+                                    msg = ?msg.body(),
+                                    "dropping signed message"
+                                );
+                                return false;
+                            }
+                        }
                     }
+                };
+                // Remember if we expect a response for this message.
+                if *msg.author() == my_peer_id && msg.expect_response() {
+                    tracing::trace!(target: "network", ?msg, "initiate route back");
+                    self.tier2_route_back.lock().insert(clock, msg.hash(), my_peer_id);
                 }
+                return self
+                    .tier2_transport
+                    .send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
             }
             tcp::Tier::T3 => {
                 let peer_id = match msg.target() {
