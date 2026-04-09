@@ -82,7 +82,6 @@ impl ExecutionToReceipts {
             &block.header,
             currencies,
         )?;
-
         let statuses = execution_outcomes
             .into_iter()
             .map(|exec| {
@@ -97,7 +96,6 @@ impl ExecutionToReceipts {
                 (exec.id, status)
             })
             .collect();
-
         Ok(Self { map: map_hash_to_receipts, transactions, receipts, events, statuses })
     }
 
@@ -118,6 +116,15 @@ impl ExecutionToReceipts {
         transactions: HashMap<CryptoHash, SignedTransactionView>,
     ) -> Self {
         Self { receipts, transactions, ..Self::empty() }
+    }
+
+    /// Adds execution statuses to an existing mapping. Useful for tests.
+    pub(crate) fn with_statuses(
+        mut self,
+        statuses: HashMap<CryptoHash, crate::models::ExecutionStatus>,
+    ) -> Self {
+        self.statuses = statuses;
+        self
     }
 
     /// Returns the execution outcome status for a given state change cause.
@@ -370,6 +377,10 @@ pub(crate) async fn convert_block_changes_to_transactions(
                                     sum.checked_add(*deposit).unwrap()
                                 }
                                 near_primitives::views::ActionView::FunctionCall {
+                                    deposit,
+                                    ..
+                                } => sum.checked_add(*deposit).unwrap(),
+                                near_primitives::views::ActionView::TransferToGasKey {
                                     deposit,
                                     ..
                                 } => sum.checked_add(*deposit).unwrap(),

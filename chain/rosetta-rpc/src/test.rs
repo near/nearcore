@@ -622,3 +622,132 @@ pub async fn test_function_call_deposit_separation(
         "gas charge op must have GasPrepayment metadata"
     );
 }
+
+/// Tests that execution_status propagates from ExecutionToReceipts statuses
+/// into the Rosetta Transaction metadata.
+pub async fn test_execution_status_propagation(
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActor>,
+    runtime_config: &RuntimeConfigView,
+) {
+    let block_hash = CryptoHash::default();
+    let success_tx_hash = CryptoHash([20u8; 32]);
+    let failure_receipt_hash = CryptoHash([21u8; 32]);
+
+    let exec_to_rx = ExecutionToReceipts::with_data(
+        HashMap::from([(failure_receipt_hash, "alice.near".parse().unwrap())]),
+        HashMap::from([(
+            success_tx_hash,
+            SignedTransactionView {
+                signer_id: "bob.near".parse().unwrap(),
+                public_key: SecretKey::from_seed(near_crypto::KeyType::ED25519, "bob")
+                    .public_key(),
+                nonce: 1,
+                receiver_id: "bob.near".parse().unwrap(),
+                actions: vec![],
+                _priority_fee: 0,
+                signature: near_crypto::Signature::default(),
+                hash: success_tx_hash,
+                nonce_index: None,
+                nonce_mode: None,
+            },
+        )]),
+    )
+    .with_statuses(HashMap::from([
+        (success_tx_hash, crate::models::ExecutionStatus::Success),
+        (failure_receipt_hash, crate::models::ExecutionStatus::Failure),
+    ]));
+
+    let accounts_changes = vec![
+        // TransactionProcessing cause → should get Success status
+        near_primitives::views::StateChangeWithCauseView {
+            cause: near_primitives::views::StateChangeCauseView::TransactionProcessing {
+                tx_hash: success_tx_hash,
+            },
+            value: near_primitives::views::StateChangeValueView::AccountUpdate {
+                account_id: "bob.near".parse().unwrap(),
+                account: near_primitives::views::AccountView {
+                    amount: Balance::from_millinear(9999),
+                    code_hash: CryptoHash::default(),
+                    locked: Balance::ZERO,
+                    storage_paid_at: 0,
+                    storage_usage: 0,
+                    global_contract_hash: None,
+                    global_contract_account_id: None,
+                },
+            },
+        },
+        // ReceiptProcessing cause → should get Failure status
+        near_primitives::views::StateChangeWithCauseView {
+            cause: near_primitives::views::StateChangeCauseView::ReceiptProcessing {
+                receipt_hash: failure_receipt_hash,
+            },
+            value: near_primitives::views::StateChangeValueView::AccountUpdate {
+                account_id: "alice.near".parse().unwrap(),
+                account: near_primitives::views::AccountView {
+                    amount: Balance::from_millinear(9998),
+                    code_hash: CryptoHash::default(),
+                    locked: Balance::ZERO,
+                    storage_paid_at: 0,
+                    storage_usage: 0,
+                    global_contract_hash: None,
+                    global_contract_account_id: None,
+                },
+            },
+        },
+    ];
+
+    let mut accounts_previous_state = HashMap::new();
+    accounts_previous_state.insert(
+        "bob.near".parse().unwrap(),
+        near_primitives::views::AccountView {
+            amount: Balance::from_near(10),
+            code_hash: CryptoHash::default(),
+            locked: Balance::ZERO,
+            storage_paid_at: 0,
+            storage_usage: 0,
+            global_contract_hash: None,
+            global_contract_account_id: None,
+        },
+    );
+    accounts_previous_state.insert(
+        "alice.near".parse().unwrap(),
+        near_primitives::views::AccountView {
+            amount: Balance::from_near(10),
+            code_hash: CryptoHash::default(),
+            locked: Balance::ZERO,
+            storage_paid_at: 0,
+            storage_usage: 0,
+            global_contract_hash: None,
+            global_contract_account_id: None,
+        },
+    );
+
+    let transactions = convert_block_changes_to_transactions(
+        view_client_addr,
+        runtime_config,
+        &block_hash,
+        accounts_changes,
+        accounts_previous_state,
+        exec_to_rx,
+        crate::gas_key_utils::GasKeyInfo::empty(),
+        vec![],
+    )
+    .await
+    .unwrap();
+
+    // TransactionProcessing tx should have Success execution_status.
+    let success_tx = &transactions[&format!("tx:{}", success_tx_hash)];
+    assert_eq!(
+        success_tx.metadata.execution_status,
+        Some(crate::models::ExecutionStatus::Success),
+        "TransactionProcessing tx must have execution_status: Success"
+    );
+
+    // ReceiptProcessing tx should have Failure execution_status.
+    let failure_tx = &transactions[&format!("receipt:{}", failure_receipt_hash)];
+    assert_eq!(
+        failure_tx.metadata.execution_status,
+        Some(crate::models::ExecutionStatus::Failure),
+        "ReceiptProcessing tx must have execution_status: Failure"
+    );
+}
