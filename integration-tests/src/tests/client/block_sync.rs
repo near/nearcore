@@ -68,6 +68,9 @@ fn test_env_with_epoch_length(epoch_length: u64) -> TestEnv {
 #[test]
 #[cfg(feature = "test_features")]
 fn test_block_sync() {
+    use near_chain::test_utils::wait_for_all_blocks_in_processing;
+    use near_primitives::utils::MaybeValidated;
+
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let block_fetch_horizon = 10;
     let max_block_requests = 10;
