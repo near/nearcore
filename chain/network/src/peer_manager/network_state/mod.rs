@@ -834,6 +834,130 @@ impl NetworkState {
         success
     }
 
+    /// Synchronous dispatch of a routed message body to actor senders.
+    /// Uses fire-and-forget send() / send_async() for all message types.
+    ///
+    /// This is the shared dispatch logic used by both production
+    /// (receive_routed_message) and testloop (dispatch_routed_message_directly).
+    /// Only handles non-response message types; response-expecting types
+    /// (e.g. TxStatusRequest) must be handled separately in the async path.
+    #[allow(unused_must_use)]
+    pub fn dispatch_routed_body_sync(
+        &self,
+        from_peer: PeerId,
+        msg_hash: CryptoHash,
+        body: TieredMessageBody,
+    ) {
+        match body {
+            TieredMessageBody::T1(body) => match *body {
+                T1MessageBody::BlockApproval(approval) => {
+                    self.client.send_async(BlockApproval(approval, from_peer).span_wrap());
+                }
+                T1MessageBody::VersionedPartialEncodedChunk(chunk) => {
+                    self.shards_manager_adapter
+                        .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(*chunk));
+                }
+                T1MessageBody::PartialEncodedChunkForward(msg) => {
+                    self.shards_manager_adapter.send(
+                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg),
+                    );
+                }
+                T1MessageBody::PartialEncodedStateWitness(witness) => {
+                    self.partial_witness_adapter.send(PartialEncodedStateWitnessMessage(witness));
+                }
+                T1MessageBody::PartialEncodedStateWitnessForward(witness) => {
+                    self.partial_witness_adapter
+                        .send(PartialEncodedStateWitnessForwardMessage(witness));
+                }
+                T1MessageBody::VersionedChunkEndorsement(endorsement) => {
+                    self.client.send_async(ChunkEndorsementMessage(endorsement));
+                }
+                T1MessageBody::ChunkContractAccesses(accesses) => {
+                    self.partial_witness_adapter.send(ChunkContractAccessesMessage(accesses));
+                }
+                T1MessageBody::ContractCodeRequest(request) => {
+                    self.partial_witness_adapter.send(ContractCodeRequestMessage(request));
+                }
+                T1MessageBody::ContractCodeResponse(response) => {
+                    self.partial_witness_adapter.send(ContractCodeResponseMessage(response));
+                }
+                T1MessageBody::SpicePartialData(spice_partial_data) => {
+                    self.spice_data_distributor_adapter
+                        .send(SpiceIncomingPartialData { data: spice_partial_data });
+                }
+                T1MessageBody::SpiceChunkEndorsement(endorsement) => {
+                    self.spice_core_writer_adapter.send(SpiceChunkEndorsementMessage(endorsement));
+                }
+                T1MessageBody::SpicePartialDataRequest(request) => {
+                    self.spice_data_distributor_adapter.send(request);
+                }
+                T1MessageBody::SpiceChunkContractAccesses(accesses) => {
+                    self.spice_data_distributor_adapter
+                        .send(SpiceChunkContractAccessesMessage(accesses));
+                }
+                T1MessageBody::SpiceContractCodeRequest(request) => {
+                    self.spice_data_distributor_adapter
+                        .send(SpiceContractCodeRequestMessage(request));
+                }
+                T1MessageBody::SpiceContractCodeResponse(response) => {
+                    self.spice_data_distributor_adapter
+                        .send(SpiceContractCodeResponseMessage(response));
+                }
+            },
+            TieredMessageBody::T2(body) => match *body {
+                T2MessageBody::TxStatusResponse(tx_result) => {
+                    self.client.send_async(TxStatusResponse(tx_result.into()));
+                }
+                T2MessageBody::ForwardTx(transaction) => {
+                    self.client.send_async(ProcessTxRequest {
+                        transaction,
+                        is_forwarded: true,
+                        check_only: false,
+                    });
+                }
+                T2MessageBody::PartialEncodedChunkRequest(request) => {
+                    self.shards_manager_adapter.send(
+                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
+                            partial_encoded_chunk_request: request,
+                            route_back: msg_hash,
+                        },
+                    );
+                }
+                T2MessageBody::PartialEncodedChunkResponse(response) => {
+                    self.shards_manager_adapter.send(
+                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
+                            partial_encoded_chunk_response: response,
+                            received_time: time::Instant::now().into(),
+                        },
+                    );
+                }
+                T2MessageBody::ChunkStateWitnessAck(ack) => {
+                    self.partial_witness_adapter.send(ChunkStateWitnessAckMessage(ack));
+                }
+                T2MessageBody::PartialEncodedContractDeploys(deploys) => {
+                    self.partial_witness_adapter
+                        .send(PartialEncodedContractDeploysMessage(deploys));
+                }
+                T2MessageBody::StateRequestAck(ack) => {
+                    self.client.send_async(
+                        StateResponseReceived {
+                            peer_id: from_peer,
+                            state_response: StateResponse::Ack(ack),
+                        }
+                        .span_wrap(),
+                    );
+                }
+                body => {
+                    tracing::warn!(
+                        target: "network",
+                        ?body,
+                        "dispatch_routed_body_sync: unhandled routed message type, dropping"
+                    );
+                }
+            },
+        }
+    }
+
     pub async fn receive_routed_message(
         self: &Arc<Self>,
         clock: &time::Clock,
