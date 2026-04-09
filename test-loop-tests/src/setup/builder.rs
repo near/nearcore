@@ -19,6 +19,7 @@ use near_chain_configs::{
 };
 use near_jsonrpc::client::JsonRpcClient;
 use near_jsonrpc::sharded_rpc::ShardedRpcNode;
+use near_network::routing::NextHopTable;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::gas::Gas;
@@ -33,6 +34,7 @@ use near_primitives_core::num_rational::Rational32;
 use near_store::archive::cloud_storage::config::test_cloud_archival_config;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::{TestNodeStorage, create_test_node_storage};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -423,6 +425,10 @@ impl TestLoopBuilder {
         // Pre-populate account_announcements so each node's NetworkState can resolve
         // account_id → peer_id for routing. Without this, send_message_to_account fails.
         Self::populate_account_announcements(&datas, &shared_state);
+        // Pre-populate routing tables so each node can find next-hop routes.
+        // In a fully connected testloop, every node's next hop to any other node
+        // is that node directly.
+        Self::populate_routing_tables(&datas, &shared_state);
 
         TestLoopEnv { test_loop, node_datas: datas, shared_state }
     }
@@ -479,6 +485,57 @@ impl TestLoopBuilder {
                     })
                     .collect();
                 state.account_announcements.add_accounts(announcements);
+            }
+        }
+    }
+
+    /// Pre-populate each node's routing table with a fully-connected topology.
+    /// Every node can reach every other node directly (next hop = target).
+    pub(crate) fn populate_routing_tables(datas: &[NodeExecutionData], shared_state: &SharedState) {
+        let node_network_states = shared_state.node_network_states.lock();
+        for data in datas {
+            let my_peer_id = &data.peer_id;
+            let mut next_hops: NextHopTable = HashMap::new();
+            for other in datas {
+                if other.peer_id != *my_peer_id {
+                    next_hops.insert(other.peer_id.clone(), vec![other.peer_id.clone()]);
+                }
+            }
+            if let Some(state) = node_network_states.get(my_peer_id) {
+                state.graph.routing_table.update(Arc::new(next_hops), Arc::new(HashMap::new()));
+            }
+        }
+    }
+
+    /// Update routing tables for a single new/restarted node and all existing nodes.
+    pub(crate) fn populate_routing_tables_for_node(
+        datas: &[NodeExecutionData],
+        new_node: &NodeExecutionData,
+        shared_state: &SharedState,
+    ) {
+        let node_network_states = shared_state.node_network_states.lock();
+
+        // New node needs routes to all existing nodes.
+        let mut new_node_hops: NextHopTable = HashMap::new();
+        for data in datas {
+            if data.peer_id != new_node.peer_id {
+                new_node_hops.insert(data.peer_id.clone(), vec![data.peer_id.clone()]);
+            }
+        }
+        if let Some(state) = node_network_states.get(&new_node.peer_id) {
+            state.graph.routing_table.update(Arc::new(new_node_hops), Arc::new(HashMap::new()));
+        }
+
+        // All existing nodes need a route to the new node.
+        for data in datas {
+            if data.peer_id != new_node.peer_id {
+                if let Some(state) = node_network_states.get(&data.peer_id) {
+                    // Read existing next_hops, add the new node, and write back.
+                    let info = state.graph.routing_table.info();
+                    let mut next_hops: NextHopTable = (*info.next_hops).clone();
+                    next_hops.insert(new_node.peer_id.clone(), vec![new_node.peer_id.clone()]);
+                    state.graph.routing_table.update(Arc::new(next_hops), Arc::new(HashMap::new()));
+                }
             }
         }
     }

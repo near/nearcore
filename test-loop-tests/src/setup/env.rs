@@ -1,4 +1,4 @@
-use super::builder::NodeStateBuilder;
+use super::builder::{NodeStateBuilder, TestLoopBuilder};
 use super::drop_condition::DropCondition;
 use super::setup::setup_client;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
@@ -147,6 +147,12 @@ impl TestLoopEnv {
             setup_client(new_identifier, &mut self.test_loop, node_state, &self.shared_state);
         // Re-populate account_announcements for the new node and all existing nodes.
         self.populate_account_announcements_for_node(&node_data);
+        // Re-populate routing tables for the new node and update existing nodes.
+        TestLoopBuilder::populate_routing_tables_for_node(
+            &self.node_datas,
+            &node_data,
+            &self.shared_state,
+        );
         self.node_datas.push(node_data);
     }
 

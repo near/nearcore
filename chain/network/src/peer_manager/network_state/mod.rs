@@ -195,6 +195,16 @@ impl EdgesWithSource {
     }
 }
 
+/// Result of processing an incoming routed message.
+pub enum RoutedAction {
+    /// Message dispatched to local actors.
+    Consumed,
+    /// Not for this node. Forward to next_hop.
+    Forward { next_hop: PeerId, msg: Box<RoutedMessage> },
+    /// Message dropped (TTL, dedup, no route).
+    Dropped,
+}
+
 impl NetworkState {
     pub fn new(
         clock: &time::Clock,
@@ -685,45 +695,32 @@ impl NetworkState {
                     .send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
             }
             tcp::Tier::T2 => {
-                let peer_id = match self.tier2_find_route(&clock, msg.target()) {
-                    Ok(peer_id) => peer_id,
-                    Err(find_route_error) => {
-                        // Graph route failed. For PeerId targets, fall back to direct
-                        // delivery via the transport. This diverges from master, which
-                        // unconditionally drops the message on routing failure. The
-                        // fallback is safe in production: when the peer IS in the
-                        // connection Pool, tier2_find_route already succeeds so the
-                        // fallback never fires; when the peer is NOT in the Pool, the
-                        // transport's send_message also fails, so the outcome is the
-                        // same (message dropped). In testloop the routing graph is
-                        // empty (no TCP edges), so this fallback is the only delivery
-                        // path.
-                        // For Hash targets (route-back), there's no fallback.
-                        match msg.target() {
-                            PeerIdOrHash::PeerId(peer_id) => peer_id.clone(),
-                            PeerIdOrHash::Hash(_) => {
-                                metrics::MessageDropped::NoRouteFound.inc(msg.body());
-                                tracing::debug!(target: "network",
-                                    account_id = ?self.config.validator.account_id(),
-                                    to = ?msg.target(),
-                                    reason = ?find_route_error,
-                                    known_peers = ?self.graph.routing_table.reachable_peers(),
-                                    msg = ?msg.body(),
-                                    "dropping signed message"
-                                );
-                                return false;
-                            }
+                match self.tier2_find_route(&clock, msg.target()) {
+                    Ok(peer_id) => {
+                        // Remember if we expect a response for this message.
+                        if *msg.author() == my_peer_id && msg.expect_response() {
+                            tracing::trace!(target: "network", ?msg, "initiate route back");
+                            self.tier2_route_back.lock().insert(clock, msg.hash(), my_peer_id);
                         }
+                        return self
+                            .tier2_transport
+                            .send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
                     }
-                };
-                // Remember if we expect a response for this message.
-                if *msg.author() == my_peer_id && msg.expect_response() {
-                    tracing::trace!(target: "network", ?msg, "initiate route back");
-                    self.tier2_route_back.lock().insert(clock, msg.hash(), my_peer_id);
+                    Err(find_route_error) => {
+                        // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
+                        metrics::MessageDropped::NoRouteFound.inc(msg.body());
+
+                        tracing::debug!(target: "network",
+                              account_id = ?self.config.validator.account_id(),
+                              to = ?msg.target(),
+                              reason = ?find_route_error,
+                              known_peers = ?self.graph.routing_table.reachable_peers(),
+                              msg = ?msg.body(),
+                            "dropping signed message"
+                        );
+                        return false;
+                    }
                 }
-                return self
-                    .tier2_transport
-                    .send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
             }
             tcp::Tier::T3 => {
                 let peer_id = match msg.target() {
@@ -1147,6 +1144,47 @@ impl NetworkState {
                     None
                 }
             },
+        }
+    }
+
+    /// Process an incoming routed message at this node.
+    /// Performs: route_back recording, message_for_me check, dedup,
+    /// TTL decrement, next-hop BFS lookup.
+    /// Returns an action for the caller to execute.
+    pub fn process_incoming_routed(
+        &self,
+        clock: &time::Clock,
+        from_peer: PeerId,
+        mut msg: Box<RoutedMessage>,
+    ) -> RoutedAction {
+        // Record route_back at every hop (before for_me check).
+        if msg.expect_response() {
+            self.tier2_route_back.lock().insert(clock, msg.hash(), from_peer.clone());
+        }
+
+        if self.message_for_me(msg.target()) {
+            // Dedup check.
+            let msg_hash = msg.hash();
+            {
+                let mut recent = self.recent_routed_messages.lock();
+                if recent.put(msg_hash, ()).is_some() {
+                    return RoutedAction::Consumed;
+                }
+            }
+
+            let body = msg.body_owned();
+            self.dispatch_routed_body_sync(from_peer, msg_hash, body);
+            RoutedAction::Consumed
+        } else {
+            // Not for me — forward.
+            if !msg.decrease_ttl() {
+                return RoutedAction::Dropped;
+            }
+            *msg.num_hops_mut() = msg.num_hops_mut().saturating_add(1);
+            match self.tier2_find_route(clock, msg.target()) {
+                Ok(next_hop) => RoutedAction::Forward { next_hop, msg },
+                Err(_) => RoutedAction::Dropped,
+            }
         }
     }
 

@@ -35,6 +35,7 @@ mod max_receipt_size;
 mod multinode_stateless_validators;
 #[cfg(feature = "test_features")]
 mod network_drop;
+mod network_routing;
 mod optimistic_block;
 mod process_blocks;
 mod processed_receipts_gc;

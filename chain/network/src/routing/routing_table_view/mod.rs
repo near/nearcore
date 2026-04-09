@@ -10,7 +10,7 @@ mod tests;
 
 const LAST_ROUTED_CACHE_SIZE: usize = 10_000;
 
-pub(crate) struct RoutingTableView(Mutex<Inner>);
+pub struct RoutingTableView(Mutex<Inner>);
 
 struct Inner {
     /// For each peer, the set of neighbors which are one hop closer to `my_peer_id`.
@@ -69,7 +69,7 @@ impl RoutingTableView {
         }))
     }
 
-    pub(crate) fn update(
+    pub fn update(
         &self,
         next_hops: Arc<routing::NextHopTable>,
         distance: Arc<routing::DistanceTable>,
@@ -97,7 +97,7 @@ impl RoutingTableView {
         self.0.lock().next_hops.get(peer_id).cloned()
     }
 
-    pub(crate) fn info(&self) -> RoutingTableInfo {
+    pub fn info(&self) -> RoutingTableInfo {
         let inner = self.0.lock();
         RoutingTableInfo { next_hops: inner.next_hops.clone() }
     }

@@ -247,7 +247,7 @@ impl Inner {
     }
 }
 
-pub(crate) struct Graph {
+pub struct Graph {
     snapshot: ArcSwap<GraphSnapshot>,
     unreliable_peers: ArcSwap<HashSet<PeerId>>,
     pub routing_table: RoutingTableView,
@@ -300,6 +300,7 @@ impl Graph {
     /// node. The node would then validate all the edges every time, then reject the whole set
     /// because just the last edge was invalid. Instead, we accept all the edges verified so
     /// far and return an error only afterwards.
+    #[allow(private_interfaces)]
     pub async fn update(&self, edges: Vec<EdgesWithSource>) -> (Vec<Edge>, Vec<bool>) {
         self.updater.send_async(UpdateEdges(edges)).await.unwrap()
     }
