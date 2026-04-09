@@ -1,9 +1,10 @@
 use crate::accounts_data::{AccountDataCache, AccountDataError};
 use crate::announce_accounts::AnnounceAccountCache;
 use crate::client::{
-    BlockApproval, ChunkEndorsementMessage, ClientSenderForNetwork, ProcessTxRequest,
-    SpiceChunkEndorsementMessage, StateResponse, StateResponseReceived, TxStatusRequest,
-    TxStatusResponse,
+    BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage,
+    ClientSenderForNetwork, EpochSyncRequestMessage, EpochSyncResponseMessage,
+    OptimisticBlockMessage, ProcessTxRequest, SpiceChunkEndorsementMessage, StateResponse,
+    StateResponseReceived, TxStatusRequest, TxStatusResponse,
 };
 use crate::concurrency::demux;
 use crate::config;
@@ -37,8 +38,9 @@ use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
 use crate::types::{
-    ChainInfo, PeerManagerSenderForNetwork, PeerType, ReasonForBan, StateHeaderRequestBody,
-    StatePartRequestBody, StateRequestSenderForNetwork, Tier3Request, Tier3RequestBody,
+    BlockInfo, ChainInfo, PeerManagerSenderForNetwork, PeerType, ReasonForBan,
+    StateHeaderRequestBody, StatePartRequestBody, StateRequestSenderForNetwork, Tier3Request,
+    Tier3RequestBody,
 };
 use anyhow::Context;
 use arc_swap::ArcSwap;
@@ -54,7 +56,7 @@ use parking_lot::{Mutex, RwLock};
 use std::net::SocketAddr;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 mod routing;
 mod tier1;
@@ -960,6 +962,82 @@ impl NetworkState {
                     );
                 }
             },
+        }
+    }
+
+    /// Dispatch a non-routed incoming message to the appropriate actor sender.
+    /// Fire-and-forget -- no response expected. Returns true if handled.
+    ///
+    /// For request-response messages (BlockRequest, BlockHeadersRequest,
+    /// StateRequest*), returns false -- the caller handles these separately
+    /// (PeerActor awaits response via TCP, TestLoopTransport spawns async).
+    ///
+    /// For routed messages, the caller should use process_incoming_routed
+    /// or dispatch_routed_body_sync instead.
+    #[allow(unused_must_use)]
+    pub fn dispatch_incoming_message(&self, from_peer: PeerId, msg: PeerMessage) -> bool {
+        match msg {
+            PeerMessage::Block(block) => {
+                self.txns_since_last_block.store(0, Ordering::Release);
+                let height = block.header().height();
+                let hash = *block.hash();
+                self.testloop_peer_block_info.lock().insert(
+                    from_peer.clone(),
+                    (
+                        PeerInfo { id: from_peer.clone(), addr: None, account_id: None },
+                        BlockInfo { height, hash },
+                    ),
+                );
+                self.client.send_async(
+                    BlockResponse { block, peer_id: from_peer, was_requested: false }.span_wrap(),
+                );
+                true
+            }
+            PeerMessage::Transaction(transaction) => {
+                self.client.send_async(ProcessTxRequest {
+                    transaction,
+                    is_forwarded: false,
+                    check_only: false,
+                });
+                true
+            }
+            PeerMessage::BlockHeaders(headers) => {
+                self.client.send_async(BlockHeadersResponse(headers, from_peer).span_wrap());
+                true
+            }
+            PeerMessage::VersionedStateResponse(info) => {
+                self.client.send_async(
+                    StateResponseReceived {
+                        peer_id: from_peer,
+                        state_response: StateResponse::State(info.into()),
+                    }
+                    .span_wrap(),
+                );
+                true
+            }
+            PeerMessage::EpochSyncRequest => {
+                self.client.send(EpochSyncRequestMessage { from_peer });
+                true
+            }
+            PeerMessage::EpochSyncResponse(proof) => {
+                self.client.send(EpochSyncResponseMessage { from_peer, proof });
+                true
+            }
+            PeerMessage::OptimisticBlock(ob) => {
+                self.client
+                    .send(OptimisticBlockMessage { from_peer, optimistic_block: ob }.span_wrap());
+                true
+            }
+            PeerMessage::Challenge(_) => true, // ignored
+            // Request-response messages -- caller handles these
+            PeerMessage::BlockRequest(_)
+            | PeerMessage::BlockHeadersRequest(_)
+            | PeerMessage::StateRequestHeader(..)
+            | PeerMessage::StateRequestPart(..) => false,
+            // Routed messages -- caller should use process_incoming_routed
+            PeerMessage::Routed(_) => false,
+            // Connection-level messages -- not dispatched here
+            _ => false,
         }
     }
 

@@ -1,12 +1,10 @@
 #![allow(dead_code, unused_must_use, unused_variables)]
 
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
-use near_async::messaging::{CanSend, CanSendAsync};
+use near_async::messaging::CanSendAsync;
 use near_async::time::Clock;
 use near_network::client::{
     BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
-    EpochSyncRequestMessage, EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
-    StateResponse, StateResponseReceived,
 };
 use near_network::peer_manager_exports::connection::transport::NetworkTransport;
 use near_network::peer_manager_exports::network_state::{NetworkState, RoutedAction};
@@ -80,151 +78,93 @@ impl TestLoopTransport {
         };
 
         let my_peer_id = self.my_peer_id.clone();
-        let clock = self.clock.clone();
 
-        match msg {
-            PeerMessage::Routed(routed_msg) => {
-                self.dispatch_routed_with_hops(target_peer_id.clone(), target_state, routed_msg)
+        match &msg {
+            PeerMessage::Routed(_) => {
+                if let PeerMessage::Routed(routed_msg) = msg {
+                    self.dispatch_routed_with_hops(target_peer_id.clone(), target_state, routed_msg)
+                } else {
+                    unreachable!()
+                }
             }
-
-            PeerMessage::Block(block) => {
-                // Record sender's block info so highest_height_peers is populated for sync.
-                let height = block.header().height();
-                let hash = *block.hash();
-                target_state.testloop_peer_block_info.lock().insert(
-                    my_peer_id.clone(),
-                    (
-                        near_network::types::PeerInfo {
-                            id: my_peer_id.clone(),
-                            addr: None,
-                            account_id: None,
-                        },
-                        near_network::types::BlockInfo { height, hash },
-                    ),
-                );
-                target_state.client.send_async(
-                    BlockResponse { block, peer_id: my_peer_id, was_requested: false }.span_wrap(),
-                );
-                true
-            }
-
-            PeerMessage::Transaction(tx) => {
-                target_state.client.send_async(ProcessTxRequest {
-                    transaction: tx,
-                    is_forwarded: false,
-                    check_only: false,
-                });
-                true
-            }
-
-            PeerMessage::BlockRequest(hash) => {
-                let target = target_state;
-                let my_id = my_peer_id;
-                let node_states = self.node_network_states.clone();
-                self.future_spawner.spawn("testloop_block_request", async move {
-                    if let Ok(Some(block)) = target.client.send_async(BlockRequest(hash)).await {
-                        // Send block back to requester.
-                        let requester_state = {
-                            let states = node_states.lock();
-                            states.get(&my_id).cloned()
-                        };
-                        if let Some(requester) = requester_state {
-                            requester.client.send_async(
-                                BlockResponse {
-                                    block,
-                                    peer_id: target.config.node_id(),
-                                    was_requested: true,
+            PeerMessage::BlockRequest(_) | PeerMessage::BlockHeadersRequest(_) => {
+                // Request-response messages need async handling.
+                match msg {
+                    PeerMessage::BlockRequest(hash) => {
+                        let target = target_state;
+                        let my_id = my_peer_id;
+                        let node_states = self.node_network_states.clone();
+                        self.future_spawner.spawn("testloop_block_request", async move {
+                            if let Ok(Some(block)) =
+                                target.client.send_async(BlockRequest(hash)).await
+                            {
+                                let requester_state = {
+                                    let states = node_states.lock();
+                                    states.get(&my_id).cloned()
+                                };
+                                if let Some(requester) = requester_state {
+                                    requester.client.send_async(
+                                        BlockResponse {
+                                            block,
+                                            peer_id: target.config.node_id(),
+                                            was_requested: true,
+                                        }
+                                        .span_wrap(),
+                                    );
                                 }
-                                .span_wrap(),
-                            );
-                        }
-                    }
-                });
-                true
-            }
-
-            PeerMessage::BlockHeadersRequest(hashes) => {
-                let target = target_state;
-                let my_id = my_peer_id;
-                let shared_state = self.shared_state.clone();
-                let node_states = self.node_network_states.clone();
-                self.future_spawner.spawn("testloop_block_headers_request", async move {
-                    if let Ok(Some(headers)) =
-                        target.client.send_async(BlockHeadersRequest(hashes)).await
-                    {
-                        // Send response as PeerMessage::BlockHeaders through the
-                        // filter chain (apply_message_filters) so transport filters
-                        // like throttle_header_sync can intercept it.
-                        let response = PeerMessage::BlockHeaders(headers);
-                        let target_node_id = target.config.node_id();
-                        let response = match shared_state.apply_message_filters(
-                            &target_node_id,
-                            &my_id,
-                            response,
-                        ) {
-                            Some(msg) => msg,
-                            None => return, // dropped by filter
-                        };
-                        // Dispatch the (possibly filtered) response to the requester.
-                        if let PeerMessage::BlockHeaders(headers) = response {
-                            let requester_state = {
-                                let states = node_states.lock();
-                                states.get(&my_id).cloned()
-                            };
-                            if let Some(requester) = requester_state {
-                                requester.client.send_async(
-                                    BlockHeadersResponse(headers, target_node_id).span_wrap(),
-                                );
                             }
-                        }
+                        });
+                        true
                     }
-                });
-                true
-            }
-
-            PeerMessage::BlockHeaders(headers) => {
-                target_state
-                    .client
-                    .send_async(BlockHeadersResponse(headers, my_peer_id).span_wrap());
-                true
-            }
-
-            PeerMessage::VersionedStateResponse(info) => {
-                target_state.client.send_async(
-                    StateResponseReceived {
-                        peer_id: my_peer_id,
-                        state_response: StateResponse::State(info.into()),
+                    PeerMessage::BlockHeadersRequest(hashes) => {
+                        let target = target_state;
+                        let my_id = my_peer_id;
+                        let shared_state = self.shared_state.clone();
+                        let node_states = self.node_network_states.clone();
+                        self.future_spawner.spawn("testloop_block_headers_request", async move {
+                            if let Ok(Some(headers)) =
+                                target.client.send_async(BlockHeadersRequest(hashes)).await
+                            {
+                                let response = PeerMessage::BlockHeaders(headers);
+                                let target_node_id = target.config.node_id();
+                                let response = match shared_state.apply_message_filters(
+                                    &target_node_id,
+                                    &my_id,
+                                    response,
+                                ) {
+                                    Some(msg) => msg,
+                                    None => return,
+                                };
+                                if let PeerMessage::BlockHeaders(headers) = response {
+                                    let requester_state = {
+                                        let states = node_states.lock();
+                                        states.get(&my_id).cloned()
+                                    };
+                                    if let Some(requester) = requester_state {
+                                        requester.client.send_async(
+                                            BlockHeadersResponse(headers, target_node_id)
+                                                .span_wrap(),
+                                        );
+                                    }
+                                }
+                            }
+                        });
+                        true
                     }
-                    .span_wrap(),
-                );
-                true
+                    _ => unreachable!(),
+                }
             }
-
-            PeerMessage::EpochSyncRequest => {
-                target_state.client.send(EpochSyncRequestMessage { from_peer: my_peer_id });
-                true
-            }
-
-            PeerMessage::EpochSyncResponse(proof) => {
-                target_state.client.send(EpochSyncResponseMessage { from_peer: my_peer_id, proof });
-                true
-            }
-
-            PeerMessage::OptimisticBlock(ob) => {
-                target_state.client.send(
-                    OptimisticBlockMessage { from_peer: my_peer_id, optimistic_block: ob }
-                        .span_wrap(),
-                );
-                true
-            }
-
-            other => {
-                tracing::warn!(
-                    target: "network",
-                    msg = ?format!("{:?}", std::mem::discriminant(&other)),
-                    "testloop transport: unhandled non-routed message type, dropping"
-                );
-                false
+            _ => {
+                // Fire-and-forget messages: use shared dispatch on NetworkState.
+                if target_state.dispatch_incoming_message(my_peer_id, msg) {
+                    true
+                } else {
+                    tracing::warn!(
+                        target: "network",
+                        "testloop transport: unhandled non-routed message type, dropping"
+                    );
+                    false
+                }
             }
         }
     }
