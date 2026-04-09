@@ -380,7 +380,8 @@ impl ActorHandler {
     pub async fn send_ping(&self, clock: &time::Clock, nonce: u64, target: PeerId) {
         let clock = clock.clone();
         self.with_state(move |s| async move {
-            s.send_ping(&clock, tcp::Tier::T2, nonce, target);
+            let transport = s.pool_transport(tcp::Tier::T2);
+            s.send_ping(&clock, tcp::Tier::T2, nonce, target, &transport);
         })
         .await;
     }

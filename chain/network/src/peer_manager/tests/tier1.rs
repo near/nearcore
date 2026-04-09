@@ -61,7 +61,12 @@ async fn send_tier1_message(
         T1MessageBody::BlockApproval(make_block_approval(rng, from_signer.as_ref())).into();
     let clock = clock.clone();
     from.with_state(move |s| async move {
-        if s.send_message_to_account(&clock, &target, want.clone()) { Some(want) } else { None }
+        let transport = s.pool_transport(tcp::Tier::T2);
+        if s.send_message_to_account(&clock, &target, want.clone(), &transport) {
+            Some(want)
+        } else {
+            None
+        }
     })
     .await
 }

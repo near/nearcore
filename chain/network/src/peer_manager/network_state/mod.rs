@@ -126,12 +126,6 @@ pub struct NetworkState {
     pub tier2: connection::Pool,
     pub tier1: connection::Pool,
     pub tier3: connection::Pool,
-    /// Transport layer for sending messages to peers.
-    /// In production, these are PoolTransport wrapping the connection pools.
-    /// In testloop, these will be replaced with TestLoopTransport.
-    pub tier1_transport: Arc<dyn NetworkTransport>,
-    pub tier2_transport: Arc<dyn NetworkTransport>,
-    pub tier3_transport: Arc<dyn NetworkTransport>,
     /// Semaphore limiting inflight inbound handshakes.
     pub inbound_handshake_permits: Arc<tokio::sync::Semaphore>,
     /// The public IP of this node; available after connecting to any one peer.
@@ -244,9 +238,6 @@ impl NetworkState {
             shards_manager_adapter,
             partial_witness_adapter,
             chain_info: Default::default(),
-            tier1_transport: Arc::new(PoolTransport::new(tier1.clone())),
-            tier2_transport: Arc::new(PoolTransport::new(tier2.clone())),
-            tier3_transport: Arc::new(PoolTransport::new(tier3.clone())),
             tier1,
             tier2,
             tier3,
@@ -296,9 +287,6 @@ impl NetworkState {
         partial_witness_adapter: PartialWitnessSenderForNetwork,
         spice_data_distributor_adapter: SpiceDataDistributorSenderForNetwork,
         spice_core_writer_adapter: Sender<SpiceChunkEndorsementMessage>,
-        tier1_transport: Arc<dyn NetworkTransport>,
-        tier2_transport: Arc<dyn NetworkTransport>,
-        tier3_transport: Arc<dyn NetworkTransport>,
     ) -> Self {
         let tier1 = connection::Pool::new(config.node_id());
         let tier2 = connection::Pool::new(config.node_id());
@@ -319,9 +307,6 @@ impl NetworkState {
             shards_manager_adapter,
             partial_witness_adapter,
             chain_info: Default::default(),
-            tier1_transport,
-            tier2_transport,
-            tier3_transport,
             tier1,
             tier2,
             tier3,
@@ -352,6 +337,16 @@ impl NetworkState {
             ops_spawner,
             spice_data_distributor_adapter,
             spice_core_writer_adapter,
+        }
+    }
+
+    /// Create a PoolTransport for the given tier from the connection pool.
+    /// Used by PeerActor (production-only) to create transports on-the-fly.
+    pub fn pool_transport(&self, tier: tcp::Tier) -> PoolTransport {
+        match tier {
+            tcp::Tier::T1 => PoolTransport::new(self.tier1.clone()),
+            tcp::Tier::T2 => PoolTransport::new(self.tier2.clone()),
+            tcp::Tier::T3 => PoolTransport::new(self.tier3.clone()),
         }
     }
 
@@ -633,24 +628,38 @@ impl NetworkState {
     }
 
     #[cfg(test)]
-    pub fn send_ping(&self, clock: &time::Clock, tier: tcp::Tier, nonce: u64, target: PeerId) {
+    pub fn send_ping(
+        &self,
+        clock: &time::Clock,
+        tier: tcp::Tier,
+        nonce: u64,
+        target: PeerId,
+        transport: &dyn NetworkTransport,
+    ) {
         let body = T2MessageBody::Ping(crate::network_protocol::Ping {
             nonce,
             source: self.config.node_id(),
         })
         .into();
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body };
-        self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
+        self.send_message_to_peer(clock, tier, self.sign_message(clock, msg), transport);
     }
 
-    pub fn send_pong(&self, clock: &time::Clock, tier: tcp::Tier, nonce: u64, target: CryptoHash) {
+    pub fn send_pong(
+        &self,
+        clock: &time::Clock,
+        tier: tcp::Tier,
+        nonce: u64,
+        target: CryptoHash,
+        transport: &dyn NetworkTransport,
+    ) {
         let body = T2MessageBody::Pong(crate::network_protocol::Pong {
             nonce,
             source: self.config.node_id(),
         })
         .into();
         let msg = RawRoutedMessage { target: PeerIdOrHash::Hash(target), body };
-        self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
+        self.send_message_to_peer(clock, tier, self.sign_message(clock, msg), transport);
     }
 
     pub fn sign_message(&self, clock: &time::Clock, msg: RawRoutedMessage) -> Box<RoutedMessage> {
@@ -668,6 +677,7 @@ impl NetworkState {
         clock: &time::Clock,
         tier: tcp::Tier,
         msg: Box<RoutedMessage>,
+        transport: &dyn NetworkTransport,
     ) -> bool {
         let my_peer_id = self.config.node_id();
 
@@ -692,9 +702,7 @@ impl NetworkState {
                     }
                     PeerIdOrHash::PeerId(peer_id) => peer_id.clone(),
                 };
-                return self
-                    .tier1_transport
-                    .send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
+                return transport.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
             }
             tcp::Tier::T2 => {
                 match self.tier2_find_route(&clock, msg.target()) {
@@ -704,9 +712,7 @@ impl NetworkState {
                             tracing::trace!(target: "network", ?msg, "initiate route back");
                             self.tier2_route_back.lock().insert(clock, msg.hash(), my_peer_id);
                         }
-                        return self
-                            .tier2_transport
-                            .send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
+                        return transport.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
                     }
                     Err(find_route_error) => {
                         // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
@@ -733,9 +739,7 @@ impl NetworkState {
                     }
                     PeerIdOrHash::PeerId(peer_id) => peer_id.clone(),
                 };
-                return self
-                    .tier3_transport
-                    .send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
+                return transport.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
             }
         }
     }
@@ -748,6 +752,7 @@ impl NetworkState {
         clock: &time::Clock,
         account_id: &AccountId,
         msg: TieredMessageBody,
+        tier2_transport: &dyn NetworkTransport,
     ) -> bool {
         // If the message is allowed to be sent to self, we handle it directly.
         // If the message is allowed to be sent to self, we handle it directly.
@@ -834,7 +839,8 @@ impl NetworkState {
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body: msg };
         let msg = self.sign_message(clock, msg);
         for _ in 0..msg.body().message_resend_count() {
-            success |= self.send_message_to_peer(clock, tcp::Tier::T2, msg.clone());
+            success |=
+                self.send_message_to_peer(clock, tcp::Tier::T2, msg.clone(), tier2_transport);
         }
         success
     }

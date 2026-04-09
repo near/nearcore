@@ -12,6 +12,7 @@ use crate::network_protocol::{
 use crate::network_protocol::{SyncSnapshotHosts, T1MessageBody};
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
+use crate::peer_manager::connection::transport::{NetworkTransport, PoolTransport};
 use crate::peer_manager::network_state::{NetworkState, WhitelistNode};
 use crate::peer_manager::peer_store;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
@@ -111,6 +112,14 @@ pub struct PeerManagerActor {
 
     /// State that is shared between multiple threads (including PeerActors).
     pub(crate) state: Arc<NetworkState>,
+
+    /// Transport layer for sending messages to peers.
+    /// In production, these are PoolTransport wrapping the connection pools.
+    /// In testloop, these are TestLoopTransport using in-memory dispatch.
+    #[allow(dead_code)]
+    pub(crate) tier1_transport: Arc<dyn NetworkTransport>,
+    pub(crate) tier2_transport: Arc<dyn NetworkTransport>,
+    pub(crate) tier3_transport: Arc<dyn NetworkTransport>,
 }
 
 /// TEST-ONLY
@@ -212,15 +221,21 @@ impl messaging::Actor for PeerManagerActor {
     /// Try to gracefully disconnect from connected peers.
     fn stop_actor(&mut self) {
         tracing::debug!(target: "network", "peer manager stopping");
-        self.state.tier2_transport.broadcast_message(Arc::new(PeerMessage::Disconnect(
-            Disconnect { remove_from_connection_store: false },
-        )));
+        self.tier2_transport.broadcast_message(Arc::new(PeerMessage::Disconnect(Disconnect {
+            remove_from_connection_store: false,
+        })));
     }
 }
 
 impl PeerManagerActor {
     /// Testloop constructor. Creates a PeerManagerActor without TCP infrastructure.
-    pub fn new_for_testloop(clock: time::Clock, state: Arc<NetworkState>) -> Self {
+    pub fn new_for_testloop(
+        clock: time::Clock,
+        state: Arc<NetworkState>,
+        tier1_transport: Arc<dyn NetworkTransport>,
+        tier2_transport: Arc<dyn NetworkTransport>,
+        tier3_transport: Arc<dyn NetworkTransport>,
+    ) -> Self {
         let my_peer_id = state.config.node_id();
         Self {
             clock,
@@ -229,6 +244,9 @@ impl PeerManagerActor {
             my_peer_id,
             started_connect_attempts: false,
             state,
+            tier1_transport,
+            tier2_transport,
+            tier3_transport,
         }
     }
 
@@ -394,6 +412,12 @@ impl PeerManagerActor {
                 });
             }
         });
+        let tier1_transport: Arc<dyn NetworkTransport> =
+            Arc::new(PoolTransport::new(state.tier1.clone()));
+        let tier2_transport: Arc<dyn NetworkTransport> =
+            Arc::new(PoolTransport::new(state.tier2.clone()));
+        let tier3_transport: Arc<dyn NetworkTransport> =
+            Arc::new(PoolTransport::new(state.tier3.clone()));
         builder.spawn_tokio_actor(Self {
             my_peer_id,
             started_connect_attempts: false,
@@ -401,6 +425,9 @@ impl PeerManagerActor {
             clock,
             actor_system: Some(actor_system),
             handle: Some(handle.clone()),
+            tier1_transport,
+            tier2_transport,
+            tier3_transport,
         });
         Ok(handle)
     }
@@ -843,7 +870,7 @@ impl PeerManagerActor {
         metrics::REQUEST_COUNT_BY_TYPE_TOTAL.with_label_values(&[msg.as_ref()]).inc();
         match msg {
             NetworkRequests::Block { block } => {
-                self.state.tier2_transport.broadcast_message(Arc::new(PeerMessage::Block(block)));
+                self.tier2_transport.broadcast_message(Arc::new(PeerMessage::Block(block)));
                 NetworkResponses::NoResponse
             }
             NetworkRequests::OptimisticBlock { chunk_producers, optimistic_block } => {
@@ -860,7 +887,7 @@ impl PeerManagerActor {
                         if let Some(peer_id) =
                             self.state.account_announcements.get_account_owner(&target_account)
                         {
-                            self.state.tier2_transport.send_message(peer_id, msg.clone());
+                            self.tier2_transport.send_message(peer_id, msg.clone());
                         }
                     }
                 }
@@ -871,12 +898,12 @@ impl PeerManagerActor {
                     &self.clock,
                     &approval_message.target,
                     T1MessageBody::BlockApproval(approval_message.approval).into(),
+                    &*self.tier2_transport,
                 );
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BlockRequest { hash, peer_id } => {
                 if self
-                    .state
                     .tier2_transport
                     .send_message(peer_id, Arc::new(PeerMessage::BlockRequest(hash)))
                 {
@@ -887,7 +914,6 @@ impl PeerManagerActor {
             }
             NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
                 if self
-                    .state
                     .tier2_transport
                     .send_message(peer_id, Arc::new(PeerMessage::BlockHeadersRequest(hashes)))
                 {
@@ -927,7 +953,12 @@ impl PeerManagerActor {
                     },
                 );
 
-                if !self.state.send_message_to_peer(&self.clock, tcp::Tier::T2, routed_message) {
+                if !self.state.send_message_to_peer(
+                    &self.clock,
+                    tcp::Tier::T2,
+                    routed_message,
+                    &*self.tier2_transport,
+                ) {
                     return NetworkResponses::RouteNotFound;
                 }
 
@@ -971,7 +1002,12 @@ impl PeerManagerActor {
                     },
                 );
 
-                if !self.state.send_message_to_peer(&self.clock, tcp::Tier::T2, routed_message) {
+                if !self.state.send_message_to_peer(
+                    &self.clock,
+                    tcp::Tier::T2,
+                    routed_message,
+                    &*self.tier2_transport,
+                ) {
                     return NetworkResponses::RouteNotFound;
                 }
 
@@ -999,7 +1035,12 @@ impl PeerManagerActor {
                     },
                 );
 
-                if !self.state.send_message_to_peer(&self.clock, tcp::Tier::T2, routed_message) {
+                if !self.state.send_message_to_peer(
+                    &self.clock,
+                    tcp::Tier::T2,
+                    routed_message,
+                    &*self.tier2_transport,
+                ) {
                     return NetworkResponses::RouteNotFound;
                 }
 
@@ -1070,11 +1111,9 @@ impl PeerManagerActor {
                 // Insert our info to our own cache.
                 self.state.snapshot_hosts.insert_skip_verify(snapshot_host_info.clone());
 
-                self.state.tier2_transport.broadcast_message(Arc::new(
-                    PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts {
-                        hosts: vec![snapshot_host_info],
-                    }),
-                ));
+                self.tier2_transport.broadcast_message(Arc::new(PeerMessage::SyncSnapshotHosts(
+                    SyncSnapshotHosts { hosts: vec![snapshot_host_info] },
+                )));
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {
@@ -1103,6 +1142,7 @@ impl PeerManagerActor {
                                 &self.clock,
                                 account_id,
                                 T2MessageBody::PartialEncodedChunkRequest(request.clone()).into(),
+                                &*self.tier2_transport,
                             ) {
                                 success = true;
                                 break;
@@ -1136,6 +1176,7 @@ impl PeerManagerActor {
                                         .into(),
                                     },
                                 ),
+                                &*self.tier2_transport,
                             ) {
                                 success = true;
                                 break;
@@ -1164,6 +1205,7 @@ impl PeerManagerActor {
                             body: T2MessageBody::PartialEncodedChunkResponse(response).into(),
                         },
                     ),
+                    &*self.tier2_transport,
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -1178,6 +1220,7 @@ impl PeerManagerActor {
                         partial_encoded_chunk.into(),
                     ))
                     .into(),
+                    &*self.tier2_transport,
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -1189,6 +1232,7 @@ impl PeerManagerActor {
                     &self.clock,
                     &account_id,
                     T1MessageBody::PartialEncodedChunkForward(forward).into(),
+                    &*self.tier2_transport,
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -1200,6 +1244,7 @@ impl PeerManagerActor {
                     &self.clock,
                     &account_id,
                     T2MessageBody::ForwardTx(tx).into(),
+                    &*self.tier2_transport,
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -1211,6 +1256,7 @@ impl PeerManagerActor {
                     &self.clock,
                     &account_id,
                     T2MessageBody::TxStatusRequest(signer_account_id, tx_hash).into(),
+                    &*self.tier2_transport,
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -1222,6 +1268,7 @@ impl PeerManagerActor {
                     &self.clock,
                     &target,
                     T2MessageBody::ChunkStateWitnessAck(ack).into(),
+                    &*self.tier2_transport,
                 );
                 NetworkResponses::NoResponse
             }
@@ -1230,6 +1277,7 @@ impl PeerManagerActor {
                     &self.clock,
                     &target,
                     T1MessageBody::VersionedChunkEndorsement(endorsement).into(),
+                    &*self.tier2_transport,
                 );
                 NetworkResponses::NoResponse
             }
@@ -1252,6 +1300,7 @@ impl PeerManagerActor {
                         &self.clock,
                         &chunk_validator,
                         T1MessageBody::PartialEncodedStateWitness(partial_witness).into(),
+                        &*self.tier2_transport,
                     );
                 }
                 NetworkResponses::NoResponse
@@ -1274,15 +1323,13 @@ impl PeerManagerActor {
                         &chunk_validator,
                         T1MessageBody::PartialEncodedStateWitnessForward(partial_witness.clone())
                             .into(),
+                        &*self.tier2_transport,
                     );
                 }
                 NetworkResponses::NoResponse
             }
             NetworkRequests::EpochSyncRequest { peer_id } => {
-                if self
-                    .state
-                    .tier2_transport
-                    .send_message(peer_id, PeerMessage::EpochSyncRequest.into())
+                if self.tier2_transport.send_message(peer_id, PeerMessage::EpochSyncRequest.into())
                 {
                     NetworkResponses::NoResponse
                 } else {
@@ -1291,7 +1338,6 @@ impl PeerManagerActor {
             }
             NetworkRequests::EpochSyncResponse { peer_id, proof } => {
                 if self
-                    .state
                     .tier2_transport
                     .send_message(peer_id, PeerMessage::EpochSyncResponse(proof).into())
                 {
@@ -1306,6 +1352,7 @@ impl PeerManagerActor {
                         &self.clock,
                         &validator,
                         T1MessageBody::ChunkContractAccesses(accesses.clone()).into(),
+                        &*self.tier2_transport,
                     );
                 }
                 NetworkResponses::NoResponse
@@ -1315,6 +1362,7 @@ impl PeerManagerActor {
                     &self.clock,
                     &target,
                     T1MessageBody::ContractCodeRequest(request).into(),
+                    &*self.tier2_transport,
                 );
                 NetworkResponses::NoResponse
             }
@@ -1323,6 +1371,7 @@ impl PeerManagerActor {
                     &self.clock,
                     &target,
                     T1MessageBody::ContractCodeResponse(response).into(),
+                    &*self.tier2_transport,
                 );
                 NetworkResponses::NoResponse
             }
@@ -1334,12 +1383,14 @@ impl PeerManagerActor {
                         &self.clock,
                         &account,
                         T2MessageBody::PartialEncodedContractDeploys(deploys.clone()).into(),
+                        &*self.tier2_transport,
                     );
                 }
                 self.state.send_message_to_account(
                     &self.clock,
                     &last_account,
                     T2MessageBody::PartialEncodedContractDeploys(deploys).into(),
+                    &*self.tier2_transport,
                 );
                 NetworkResponses::NoResponse
             }
@@ -1353,6 +1404,7 @@ impl PeerManagerActor {
                         // TODO(spice): Once spice data distribution retries are implemented
                         // reconsider if sending data over T1 still makes sense.
                         T1MessageBody::SpicePartialData(partial_data).into(),
+                        &*self.tier2_transport,
                     );
                 }
                 NetworkResponses::NoResponse
@@ -1362,6 +1414,7 @@ impl PeerManagerActor {
                     &self.clock,
                     &target,
                     T1MessageBody::SpiceChunkEndorsement(endorsement).into(),
+                    &*self.tier2_transport,
                 );
                 NetworkResponses::NoResponse
             }
@@ -1370,6 +1423,7 @@ impl PeerManagerActor {
                     &self.clock,
                     &producer,
                     T1MessageBody::SpicePartialDataRequest(request).into(),
+                    &*self.tier2_transport,
                 );
                 NetworkResponses::NoResponse
             }
@@ -1379,6 +1433,7 @@ impl PeerManagerActor {
                         &self.clock,
                         &target,
                         T1MessageBody::SpiceChunkContractAccesses(accesses.clone()).into(),
+                        &*self.tier2_transport,
                     );
                 }
                 NetworkResponses::NoResponse
@@ -1388,6 +1443,7 @@ impl PeerManagerActor {
                     &self.clock,
                     &target,
                     T1MessageBody::SpiceContractCodeRequest(request).into(),
+                    &*self.tier2_transport,
                 );
                 NetworkResponses::NoResponse
             }
@@ -1396,6 +1452,7 @@ impl PeerManagerActor {
                     &self.clock,
                     &target,
                     T1MessageBody::SpiceContractCodeResponse(response).into(),
+                    &*self.tier2_transport,
                 );
                 NetworkResponses::NoResponse
             }
@@ -1510,6 +1567,8 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
         let state = self.state.clone();
         let clock = self.clock.clone();
         let actor_system = self.actor_system.clone().unwrap();
+        let tier2_transport = self.tier2_transport.clone();
+        let tier3_transport = self.tier3_transport.clone();
         handle.spawn("handle tier3 request",
             async move {
                 // Process the request.
@@ -1579,7 +1638,7 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                         body: tier2_ack,
                     },
                 );
-                if !state.send_message_to_peer(&clock, tcp::Tier::T2, routed_message) {
+                if !state.send_message_to_peer(&clock, tcp::Tier::T2, routed_message, &*tier2_transport) {
                     tracing::debug!(target: "network", sender = %sender, "failed to route ack");
                 }
 
@@ -1604,7 +1663,7 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                     }
                 }
 
-                state.tier3_transport.send_message(sender, Arc::new(tier3_response));
+                tier3_transport.send_message(sender, Arc::new(tier3_response));
             }
         );
     }

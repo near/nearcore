@@ -1427,11 +1427,13 @@ impl PeerActor {
                     match msg.body() {
                         TieredMessageBody::T2(t2) => match t2.as_ref() {
                             T2MessageBody::Ping(ping) => {
+                                let transport = self.network_state.pool_transport(conn.tier);
                                 self.network_state.send_pong(
                                     &self.clock,
                                     conn.tier,
                                     ping.nonce,
                                     msg.hash(),
+                                    &transport,
                                 );
                                 // TODO(gprusak): deprecate Event::Ping/Pong in favor of
                                 // MessageProcessed.
@@ -1460,7 +1462,13 @@ impl PeerActor {
                     if msg.decrease_ttl() {
                         let num_hops = msg.num_hops_mut();
                         *num_hops = num_hops.saturating_add(1);
-                        self.network_state.send_message_to_peer(&self.clock, conn.tier, msg);
+                        let transport = self.network_state.pool_transport(conn.tier);
+                        self.network_state.send_message_to_peer(
+                            &self.clock,
+                            conn.tier,
+                            msg,
+                            &transport,
+                        );
                     } else {
                         #[cfg(test)]
                         self.network_state.config.event_sink.send(Event::RoutedMessageDropped);
