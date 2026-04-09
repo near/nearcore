@@ -570,7 +570,6 @@ impl ChunkExecutorActor {
 
         let block_hash = *block.hash();
         let block_height = block.header().height();
-        let count = jobs.len();
         // Track all children using `parent_span`, as they may be processed in parallel.
         let parent_span = tracing::Span::current();
         let apply_done_sender = self.myself_sender.clone();
@@ -583,26 +582,25 @@ impl ChunkExecutorActor {
                 .collect::<Result<Vec<_>, _>>();
             apply_done_sender.send(ExecutorApplyChunksDone { block_hash, apply_results });
         };
-        let pending = PendingShardJobs::new(
-            "apply_chunks",
-            self.apply_chunks_spawner.clone(),
-            count,
-            on_done,
-        );
-        for (shard_id, task) in jobs {
-            let parent_span = parent_span.clone();
-            pending.spawn(shard_id, move || {
-                let span = tracing::debug_span!(
-                    target: "chunk_executor",
-                    parent: &parent_span,
-                    "apply_chunk",
-                    %block_height,
-                    %shard_id,
-                );
-                let _guard = span.enter();
-                task(&span)
-            });
-        }
+        let jobs = jobs
+            .into_iter()
+            .map(|(shard_id, task)| {
+                let parent_span = parent_span.clone();
+                let boxed: Box<dyn FnOnce() -> _ + Send> = Box::new(move || {
+                    let span = tracing::debug_span!(
+                        target: "chunk_executor",
+                        parent: &parent_span,
+                        "apply_chunk",
+                        %block_height,
+                        %shard_id,
+                    );
+                    let _guard = span.enter();
+                    task(&span)
+                });
+                (shard_id, boxed)
+            })
+            .collect();
+        PendingShardJobs::run("apply_chunks", self.apply_chunks_spawner.clone(), jobs, on_done);
         Ok(())
     }
 

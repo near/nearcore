@@ -53,15 +53,15 @@ impl SyncJobsActor {
                 results.into_iter().map(|((shard_id, _), result)| (shard_id, result)).collect();
             client_sender.send(BlockCatchUpResponse { sync_hash, block_hash, results }.span_wrap());
         };
-        let pending = PendingShardJobs::new(
-            "apply_chunks",
-            self.apply_chunks_spawner.clone(),
-            msg.work.len(),
-            on_done,
-        );
-        for (shard_id, cached_shard_update_key, task) in msg.work {
-            let parent_span = parent_span.clone();
-            pending.spawn((shard_id, cached_shard_update_key), move || task(&parent_span));
-        }
+        let jobs = msg
+            .work
+            .into_iter()
+            .map(|(shard_id, cached_shard_update_key, task)| {
+                let parent_span = parent_span.clone();
+                let boxed: Box<dyn FnOnce() -> _ + Send> = Box::new(move || task(&parent_span));
+                ((shard_id, cached_shard_update_key), boxed)
+            })
+            .collect();
+        PendingShardJobs::run("apply_chunks", self.apply_chunks_spawner.clone(), jobs, on_done);
     }
 }

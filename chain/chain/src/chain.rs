@@ -1778,7 +1778,6 @@ impl Chain {
         apply_chunks_still_applying: ApplyChunksStillApplying,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) {
-        let count = work.len();
         // Track all children using `parent_span`, as they may be processed in parallel.
         let parent_span = Span::current();
         #[cfg(feature = "test_features")]
@@ -1803,26 +1802,25 @@ impl Chain {
                 sender.send(ApplyChunksDoneMessage {}.span_wrap());
             }
         };
-        let pending = PendingShardJobs::new(
-            "apply_chunks",
-            self.apply_chunks_spawner.clone(),
-            count,
-            on_done,
-        );
-        for (shard_id, cached_shard_update_key, task) in work {
-            let parent_span = parent_span.clone();
-            pending.spawn((shard_id, cached_shard_update_key), move || {
-                let span = tracing::debug_span!(
-                    target: "chain",
-                    parent: &parent_span,
-                    "apply_chunk",
-                    %block_height,
-                    %shard_id,
-                );
-                let _guard = span.enter();
-                task(&span)
-            });
-        }
+        let jobs = work
+            .into_iter()
+            .map(|(shard_id, cached_shard_update_key, task)| {
+                let parent_span = parent_span.clone();
+                let boxed: Box<dyn FnOnce() -> _ + Send> = Box::new(move || {
+                    let span = tracing::debug_span!(
+                        target: "chain",
+                        parent: &parent_span,
+                        "apply_chunk",
+                        %block_height,
+                        %shard_id,
+                    );
+                    let _guard = span.enter();
+                    task(&span)
+                });
+                ((shard_id, cached_shard_update_key), boxed)
+            })
+            .collect();
+        PendingShardJobs::run("apply_chunks", self.apply_chunks_spawner.clone(), jobs, on_done);
     }
 
     #[instrument(level = "debug", target = "chain", skip_all)]
