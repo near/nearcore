@@ -1,5 +1,5 @@
 use crate::block_processing_utils::BlockNotInPoolError;
-use crate::chain::{ApplyChunksIterationMode, Chain};
+use crate::chain::Chain;
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::runtime::NightshadeRuntime;
 use crate::store::ChainStoreAccess;
@@ -78,7 +78,6 @@ pub fn get_chain_with_genesis(clock: Clock, genesis: Genesis) -> Chain {
         ChainConfig::test(),
         None,
         ApplyChunksSpawner::Custom(Arc::new(RayonAsyncComputationSpawner)),
-        ApplyChunksIterationMode::Sequential,
         Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
@@ -165,7 +164,6 @@ pub fn setup_with_tx_validity_period(
         ChainConfig::test(),
         None,
         ApplyChunksSpawner::Custom(Arc::new(RayonAsyncComputationSpawner)),
-        ApplyChunksIterationMode::Sequential,
         Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),

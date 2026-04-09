@@ -1304,6 +1304,10 @@ pub enum PrepareError {
     FunctionBodyTooLarge = 11,
     /// The instrumented code exceeds the size limit.
     InstrumentedCodeTooLarge = 12,
+    /// A function contains too many basic blocks.
+    TooManyBlocksPerFunction = 13,
+    /// A contract contains too many basic blocks.
+    TooManyBlocksPerContract = 14,
 }
 
 /// A kind of a trap happened during execution of a binary

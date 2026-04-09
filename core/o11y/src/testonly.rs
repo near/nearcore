@@ -1,8 +1,6 @@
-mod tracing_capture;
 use crate::subscriber::use_color_auto;
 use core::fmt::Result;
 use std::time::Instant;
-pub use tracing_capture::TracingCapture;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt;
 use tracing_subscriber::fmt::format::Writer;

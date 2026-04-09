@@ -6,6 +6,7 @@ mod tests {
     use near_epoch_manager::EpochManagerAdapter;
     use near_o11y::testonly::init_test_logger;
     use near_primitives::merkle::PartialMerkleTree;
+    use near_primitives::stateless_validation::ChunkProductionKey;
     use near_primitives::test_utils::TestBlockBuilder;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::utils::get_block_shard_id;
@@ -152,6 +153,86 @@ mod tests {
                     block.header().height()
                 );
             }
+        }
+    }
+
+    /// Verify that get_chunk_producer_info_db reads from DB and matches
+    /// the result of get_chunk_producer_info (CPK-based computation).
+    #[test]
+    fn test_get_chunk_producer_info_db_reads_from_db() {
+        init_test_logger();
+        let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap());
+        clock.advance(Duration::milliseconds(3444));
+        let (mut chain, epoch_manager, _, signer) = setup(clock.clock());
+
+        // Process a block so the DB is populated.
+        let prev = chain.get_block(&chain.genesis().hash().clone()).unwrap();
+        clock.advance(Duration::milliseconds(1));
+        let block = TestBlockBuilder::from_prev_block(clock.clock(), &prev, signer).build();
+        let block_hash = *block.hash();
+        chain.process_block_test(block).unwrap();
+
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&block_hash).unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let block_info = epoch_manager.get_block_info(&block_hash).unwrap();
+        let height = block_info.height() + 1;
+
+        for shard_id in shard_layout.shard_ids() {
+            // get_chunk_producer_info_db reads from DB (strict when EarlyKickout enabled).
+            let from_db = epoch_manager.get_chunk_producer_info_db(&block_hash, shard_id).unwrap();
+            // get_chunk_producer_info uses CPK-based computation.
+            let cpk = ChunkProductionKey { epoch_id, height_created: height, shard_id };
+            let from_computation = epoch_manager.get_chunk_producer_info(&cpk).unwrap();
+            assert_eq!(
+                from_db.account_id(),
+                from_computation.account_id(),
+                "DB-backed and computation-based lookups should agree, shard {shard_id}"
+            );
+        }
+    }
+
+    /// Verify that get_chunk_producer_info_db errors on DB miss when EarlyKickout is enabled.
+    #[test]
+    fn test_get_chunk_producer_info_db_errors_on_db_miss() {
+        init_test_logger();
+        let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap());
+        clock.advance(Duration::milliseconds(3444));
+        let (mut chain, epoch_manager, _, signer) = setup(clock.clock());
+
+        // Process a block so the epoch manager knows about it.
+        let prev = chain.get_block(&chain.genesis().hash().clone()).unwrap();
+        clock.advance(Duration::milliseconds(1));
+        let block = TestBlockBuilder::from_prev_block(clock.clock(), &prev, signer).build();
+        let block_hash = *block.hash();
+        chain.process_block_test(block).unwrap();
+
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&block_hash).unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+
+        // Succeeds when DB is populated.
+        for shard_id in shard_layout.shard_ids() {
+            assert!(
+                epoch_manager.get_chunk_producer_info_db(&block_hash, shard_id).is_ok(),
+                "should succeed when DB is populated, shard {shard_id}"
+            );
+        }
+
+        // Delete chunk producers from DB to simulate a miss.
+        {
+            let mut store_update = chain.chain_store().store().store_update();
+            for shard_id in shard_layout.shard_ids() {
+                let key = get_block_shard_id(&block_hash, shard_id);
+                store_update.delete(DBCol::ChunkProducers, &key);
+            }
+            store_update.commit();
+        }
+
+        // Should error on miss when EarlyKickout is enabled.
+        for shard_id in shard_layout.shard_ids() {
+            assert!(
+                epoch_manager.get_chunk_producer_info_db(&block_hash, shard_id).is_err(),
+                "should error on DB miss, shard {shard_id}"
+            );
         }
     }
 }

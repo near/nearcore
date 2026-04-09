@@ -1,4 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
+use crate::setup::peer_manager_actor::HandlerResult;
 use near_async::time::Duration;
 use near_crypto::Signature;
 use near_network::types::NetworkRequests;
@@ -33,12 +34,14 @@ fn block_chunk_signature_rejection() {
                             previous < 2,
                             "Expected at most two mutated blocks before a ban kicks in"
                         );
-                        return Some(NetworkRequests::Block { block: Arc::new(block_clone) });
+                        return HandlerResult::Unhandled(NetworkRequests::Block {
+                            block: Arc::new(block_clone),
+                        });
                     }
                 }
-                Some(NetworkRequests::Block { block })
+                HandlerResult::Unhandled(NetworkRequests::Block { block })
             }
-            other => Some(other),
+            other => HandlerResult::Unhandled(other),
         }));
     }
 

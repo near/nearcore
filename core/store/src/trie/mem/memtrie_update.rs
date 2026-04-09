@@ -522,13 +522,14 @@ mod tests {
     use crate::trie::mem::memtries::MemTries;
     use crate::trie::{AccessOptions, MemTrieChanges};
     use crate::{KeyLookupMode, ShardTries, TrieChanges};
+    use itertools::Itertools;
     use near_primitives::errors::StorageError;
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardUId;
     use near_primitives::state::{FlatStateValue, ValueRef};
     use near_primitives::types::{BlockHeight, StateRoot};
     use rand::Rng;
-    use std::collections::{HashMap, HashSet};
+    use std::collections::{BTreeMap, HashMap, HashSet};
 
     struct TestTries {
         mem: MemTries,
@@ -1009,6 +1010,233 @@ mod tests {
         memtrie.delete_until_height(2);
         assert_eq!(memtrie.arena.num_active_allocs(), frozen_arena.num_active_allocs());
         assert_eq!(memtrie.arena.active_allocs_bytes(), frozen_arena.active_allocs_bytes());
+    }
+
+    /// Helper to verify a key's value in a memtrie. Asserts the value matches
+    /// the expected hex-encoded bytes, or asserts absence if expected is None.
+    fn assert_lookup(
+        memtrie: &MemTries,
+        state_root: &CryptoHash,
+        key_hex: &str,
+        expected_hex: Option<&str>,
+    ) {
+        let key = hex::decode(key_hex).unwrap();
+        let result = memtrie.lookup(state_root, &key, None).unwrap();
+        match expected_hex {
+            Some(expected) => {
+                let view = result.expect("key not found");
+                let flat = view.to_flat_value();
+                let data = match flat {
+                    FlatStateValue::Inlined(data) => data,
+                    FlatStateValue::Ref(_) => unreachable!(),
+                };
+                assert_eq!(hex::encode(data), expected,);
+            }
+            None => assert!(result.is_none()),
+        }
+    }
+
+    /// Applies a changes string (same format as `parse_changes`) to the expected
+    /// state map. Inserts become `Some(value_hex)`, deletes become `None`.
+    fn apply_to_expected(expected: &mut BTreeMap<String, Option<String>>, changes: &str) {
+        for line in changes.split('\n') {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            let [key, value] = line.splitn(2, " = ").collect_vec()[..] else { unreachable!() };
+            if value == "delete" {
+                expected.insert(key.to_string(), None);
+            } else {
+                expected.insert(key.to_string(), Some(value.to_string()));
+            }
+        }
+    }
+
+    /// Asserts that the memtrie state matches the expected state map exactly.
+    fn assert_memtrie_state(
+        memtrie: &MemTries,
+        state_root: &CryptoHash,
+        expected: &BTreeMap<String, Option<String>>,
+    ) {
+        for (key, value) in expected {
+            assert_lookup(memtrie, state_root, key, value.as_deref());
+        }
+    }
+
+    /// Exhaustive test for multi-level hybrid memtrie (consecutive freeze).
+    ///
+    /// 1. Create a memtrie on STArena and do many operations.
+    /// 2. Freeze -> create hybrid arena child memtrie, do more operations.
+    /// 3. Freeze again -> create another hybrid arena grandchild, do more operations.
+    /// 4. Verify the full memtrie state at every generation.
+    /// 5. GC old heights across freeze boundaries to test deallocation.
+    // cspell:ignore aabb ccdd ccdde ccddff
+    #[test]
+    fn test_memtrie_consecutive_freeze() {
+        let shard_uid = ShardUId::single_shard();
+        let mut memtrie = MemTries::new(shard_uid);
+        assert!(!memtrie.arena.has_shared_memory());
+
+        // Mirror of the expected memtrie state. Keys map to Some(value) if
+        // present, None if deleted/absent. Updated alongside each batch of
+        // changes so we can assert the full state after every operation.
+        let mut expected: BTreeMap<String, Option<String>> = BTreeMap::new();
+        // Keys that never exist — asserted as absent after every step.
+        for key in ["aa02", "ff", "bb0101", "00", "aa", "aabb", "3300"] {
+            expected.insert(key.to_string(), None);
+        }
+
+        // ── Generation 0: bulk insert on STArena ─────────────────────────────
+        // Insert a bunch of keys with shared prefixes to exercise branch/extension nodes.
+        let gen0_changes = "
+            aa00 = 0001
+            aa01 = 0002
+            aa0100 = 0003
+            aa0101 = 0004
+            aa0200 = 0005
+            bb00 = 0006
+            bb01 = 0007
+            bb0100 = 0008
+            cc = 0009
+            ccdd = 000a
+            ccdde0 = 000b
+            dd00 = 000c
+            dd01 = 000d
+            dd02 = 000e
+            ee = 000f
+        ";
+        let state_root =
+            insert_changes_to_memtrie(&mut memtrie, StateRoot::default(), 0, gen0_changes);
+        apply_to_expected(&mut expected, gen0_changes);
+        assert_memtrie_state(&memtrie, &state_root, &expected);
+
+        // Delete some keys and update some values at height 1 (still on STArena).
+        let gen0_update = "
+            aa0100 = delete
+            bb00 = delete
+            cc = 1009
+            dd02 = delete
+            ee = 100f
+            ff00 = 1010
+        ";
+        let state_root = insert_changes_to_memtrie(&mut memtrie, state_root, 1, gen0_update);
+        apply_to_expected(&mut expected, gen0_update);
+        assert_memtrie_state(&memtrie, &state_root, &expected);
+
+        // ── Freeze #1: STArena -> HybridArena (simulates first resharding) ───
+        let frozen1 = memtrie.arena.freeze();
+        let frozen1_allocs_bytes = frozen1.active_allocs_bytes();
+        let frozen1_allocs_count = frozen1.num_active_allocs();
+        memtrie.arena = HybridArena::from_frozen(shard_uid.to_string(), frozen1.clone());
+        assert!(memtrie.arena.has_shared_memory());
+
+        // Verify all data is still accessible after freeze.
+        assert_memtrie_state(&memtrie, &state_root, &expected);
+
+        // ── Generation 1 operations on HybridArena ───────────────────────────
+        // Insert new keys, update existing, delete some — operations that create
+        // new nodes in owned memory while referencing shared memory nodes.
+        let gen1_changes = "
+            aa0102 = 2001
+            aa0200 = delete
+            bb0100 = delete
+            bb0200 = 2002
+            cc = delete
+            ccdd = 200a
+            dd0300 = 2003
+            ff01 = 2004
+            ff02 = 2005
+            1100 = 2006
+            1101 = 2007
+        ";
+        let state_root = insert_changes_to_memtrie(&mut memtrie, state_root, 2, gen1_changes);
+        apply_to_expected(&mut expected, gen1_changes);
+        assert_memtrie_state(&memtrie, &state_root, &expected);
+
+        // Do another round of changes at height 3 to exercise more node rewriting.
+        let gen1_update2 = "
+            aa00 = 2101
+            aa01 = delete
+            dd00 = delete
+            dd01 = delete
+            dd0300 = delete
+            ee = delete
+            1100 = 2106
+        ";
+        let state_root = insert_changes_to_memtrie(&mut memtrie, state_root, 3, gen1_update2);
+        apply_to_expected(&mut expected, gen1_update2);
+        assert_memtrie_state(&memtrie, &state_root, &expected);
+
+        // ── GC across first freeze boundary ──────────────────────────────────
+        // GC heights 0 and 1 (pre-freeze roots). Shared memory should stay
+        // pinned, so alloc stats should not change.
+        let allocs_before_gc = memtrie.arena.num_active_allocs();
+        let bytes_before_gc = memtrie.arena.active_allocs_bytes();
+        memtrie.delete_until_height(2);
+        assert_eq!(memtrie.arena.num_active_allocs(), allocs_before_gc);
+        assert_eq!(memtrie.arena.active_allocs_bytes(), bytes_before_gc);
+
+        // Data at the latest root must still be intact.
+        assert_memtrie_state(&memtrie, &state_root, &expected);
+
+        // ── Freeze #2: consecutive freeze (HybridArena -> HybridArena) ────────
+        let frozen2 = memtrie.arena.freeze();
+        let frozen2_allocs_bytes = frozen2.active_allocs_bytes();
+        let frozen2_allocs_count = frozen2.num_active_allocs();
+        memtrie.arena = HybridArena::from_frozen(shard_uid.to_string(), frozen2.clone());
+        assert!(memtrie.arena.has_shared_memory());
+
+        // Verify everything is intact after the second freeze.
+        assert_memtrie_state(&memtrie, &state_root, &expected);
+
+        // ── Generation 2 operations on doubly-hybrid arena ───────────────────
+        // This is the critical path: 2 shared layers + owned memory.
+        let gen2_changes = "
+            aa0101 = delete
+            aa0102 = delete
+            aa0103 = 3001
+            bb0200 = 3002
+            ccdd = delete
+            ccdde0 = delete
+            ccddff = 3003
+            ff00 = delete
+            ff01 = delete
+            ff02 = delete
+            ff03 = 3004
+            2200 = 3005
+            2201 = 3006
+        ";
+        let state_root = insert_changes_to_memtrie(&mut memtrie, state_root, 4, gen2_changes);
+        apply_to_expected(&mut expected, gen2_changes);
+        assert_memtrie_state(&memtrie, &state_root, &expected);
+
+        // ── GC across second freeze boundary ─────────────────────────────────
+        // GC heights 2 and 3 (the generation-1 roots that are now in shared
+        // memory after freeze #2). Shared memory stays pinned.
+        let allocs_before_gc2 = memtrie.arena.num_active_allocs();
+        let bytes_before_gc2 = memtrie.arena.active_allocs_bytes();
+        memtrie.delete_until_height(4);
+        assert_eq!(memtrie.arena.num_active_allocs(), allocs_before_gc2);
+        assert_eq!(memtrie.arena.active_allocs_bytes(), bytes_before_gc2);
+
+        assert_memtrie_state(&memtrie, &state_root, &expected);
+
+        // GC the last height — only owned-memory nodes should be freed,
+        // leaving allocator stats back at what frozen2 captured.
+        memtrie.delete_until_height(5);
+        assert_eq!(memtrie.arena.num_active_allocs(), frozen2_allocs_count);
+        assert_eq!(memtrie.arena.active_allocs_bytes(), frozen2_allocs_bytes);
+
+        // Verify frozen snapshots preserve correct allocator stats when used
+        // to create new arenas, confirming they are independent of the main arena.
+        let frozen1_arena = HybridArena::from_frozen("frozen1".to_string(), frozen1);
+        assert_eq!(frozen1_arena.active_allocs_bytes(), frozen1_allocs_bytes);
+        assert_eq!(frozen1_arena.num_active_allocs(), frozen1_allocs_count);
+
+        let frozen2_arena = HybridArena::from_frozen("frozen2".to_string(), frozen2);
+        assert_eq!(frozen2_arena.active_allocs_bytes(), frozen2_allocs_bytes);
+        assert_eq!(frozen2_arena.num_active_allocs(), frozen2_allocs_count);
     }
 
     #[test]

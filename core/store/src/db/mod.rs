@@ -280,6 +280,24 @@ pub trait Database: Sync + Send {
     fn deserialized_column_cache(&self) -> Arc<deserialized_column::Cache> {
         deserialized_column::Cache::disabled()
     }
+
+    /// Ingests external SST files into the specified column.
+    ///
+    /// This is a RocksDB-specific bulk loading optimization that bypasses the
+    /// normal write path (memtable, WAL, compaction). The SST files must contain
+    /// sorted keys compatible with the column's comparator.
+    ///
+    /// If `move_files` is true, files are moved (renamed) into the DB directory
+    /// instead of copied. This is faster but requires the files to be on the
+    /// same filesystem.
+    fn ingest_external_sst_files(
+        &self,
+        _col: DBCol,
+        _paths: &[std::path::PathBuf],
+        _move_files: bool,
+    ) -> anyhow::Result<()> {
+        Err(anyhow::anyhow!("ingest_external_sst_files is not supported by this database"))
+    }
 }
 
 fn assert_no_overwrite(col: DBCol, key: &[u8], value: &[u8], old_value: &[u8]) {

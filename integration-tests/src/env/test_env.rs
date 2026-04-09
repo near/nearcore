@@ -31,7 +31,6 @@ use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::NetworkRequests;
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
-use near_o11y::testonly::TracingCapture;
 use near_parameters::RuntimeConfig;
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::block::Block;
@@ -53,9 +52,8 @@ use near_primitives::views::{
 use near_store::ShardUId;
 use near_store::db::metadata::DbKind;
 use near_vm_runner::logic::ProtocolVersion;
-use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use time::ext::InstantExt as _;
 
 /// Timeout used in tests that wait for a specific chunk endorsement to appear
@@ -77,7 +75,6 @@ pub struct TestEnv {
     pub rpc_handlers: Vec<RpcHandlerActor>,
     pub spice_chunk_executors: Vec<TestonlySyncChunkExecutorActor>,
     pub(crate) account_indices: AccountIndices,
-    pub(crate) paused_blocks: Arc<Mutex<HashMap<CryptoHash, Arc<OnceLock<()>>>>>,
     // random seed to be inject in each client according to AccountId
     // if not set, a default constant TEST_SEED will be injected
     pub(crate) seeds: HashMap<AccountId, RngSeed>,
@@ -189,42 +186,6 @@ impl TestEnv {
             return;
         }
         panic!("No client found for block producer {}", block_producer);
-    }
-
-    /// Pause processing of the given block, which means that the background
-    /// thread which applies the chunks on the block will get blocked until
-    /// `resume_block_processing` is called.
-    ///
-    /// Note that you must call `resume_block_processing` at some later point to
-    /// unstuck the block.
-    ///
-    /// Implementation is rather crude and just hijacks our logging
-    /// infrastructure. Hopefully this is good enough, but, if it isn't, we can
-    /// add something more robust.
-    pub fn pause_block_processing(&mut self, capture: &mut TracingCapture, block: &CryptoHash) {
-        let paused_blocks = Arc::clone(&self.paused_blocks);
-        paused_blocks.lock().insert(*block, Arc::new(OnceLock::new()));
-        capture.set_callback(move |msg| {
-            if msg.starts_with("do_apply_chunks") {
-                let cell = paused_blocks.lock().iter().find_map(|(block_hash, cell)| {
-                    if msg.contains(&format!("block=Normal({block_hash})")) {
-                        Some(Arc::clone(cell))
-                    } else {
-                        None
-                    }
-                });
-                if let Some(cell) = cell {
-                    cell.wait();
-                }
-            }
-        });
-    }
-
-    /// See `pause_block_processing`.
-    pub fn resume_block_processing(&mut self, block: &CryptoHash) {
-        let mut paused_blocks = self.paused_blocks.lock();
-        let cell = paused_blocks.remove(block).unwrap();
-        let _ = cell.set(());
     }
 
     pub fn contains_client(&self, account_id: &AccountId) -> bool {
@@ -946,12 +907,15 @@ impl TestEnv {
 
 impl Drop for TestEnv {
     fn drop(&mut self) {
-        let paused_blocks = self.paused_blocks.lock();
-        for cell in paused_blocks.values() {
-            let _ = cell.set(());
-        }
-        if !paused_blocks.is_empty() && !std::thread::panicking() {
-            panic!("some blocks are still paused, did you call `resume_block_processing`?")
+        #[cfg(feature = "test_features")]
+        {
+            let mut had_paused = false;
+            for client in &mut self.clients {
+                had_paused |= client.chain.test_paused_blocks.resume_all();
+            }
+            if had_paused && !std::thread::panicking() {
+                panic!("some blocks are still paused, did you call `test_paused_blocks.resume`?");
+            }
         }
     }
 }

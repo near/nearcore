@@ -1007,7 +1007,6 @@ mod tests {
             None,
             Default::default(),
             Default::default(),
-            Default::default(),
             validator.clone(),
             noop().into_multi_sender(),
             None,
