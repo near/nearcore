@@ -23,7 +23,11 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::MerkleHash;
 use near_primitives::types::{AccountId, Balance, EpochId, Gas};
+#[cfg(feature = "nightly")]
+use near_primitives::utils::get_block_shard_id;
 use near_primitives::version::PROTOCOL_VERSION;
+#[cfg(feature = "nightly")]
+use near_store::DBCol;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use near_store::set_genesis_height;
@@ -109,6 +113,29 @@ impl ChunkTestFixture {
         let mock_shard_id = shard_layout.shard_ids().next().unwrap();
         let mock_epoch_id =
             epoch_manager.get_epoch_id_from_prev_block(&mock_ancestor_hash).unwrap();
+
+        // Populate ChunkProducers DB column for the mock prev_block_hash so that
+        // get_chunk_producer_info_db works in nightly (strict-on-miss) mode.
+        #[cfg(feature = "nightly")]
+        {
+            let mut store_update = store.store_update();
+            for shard_id in shard_layout.shard_ids() {
+                let chunk_producer = epoch_manager
+                    .get_chunk_producer_info(&ChunkProductionKey {
+                        epoch_id: mock_epoch_id,
+                        height_created: mock_height,
+                        shard_id,
+                    })
+                    .unwrap();
+                store_update.insert_ser(
+                    DBCol::ChunkProducers,
+                    &get_block_shard_id(&mock_parent_hash, shard_id),
+                    &chunk_producer,
+                );
+            }
+            store_update.commit();
+        }
+
         let mock_chunk_producer = epoch_manager
             .get_chunk_producer_info(&ChunkProductionKey {
                 epoch_id: mock_epoch_id,
