@@ -631,12 +631,14 @@ pub fn setup_client(
     // Register in shared state for other nodes' transports.
     shared_state.node_network_states.lock().insert(peer_id.clone(), network_state.clone());
 
-    let peer_manager_actor = PeerManagerActor::new_for_testloop(
+    let peer_manager_actor = PeerManagerActor::new(
         test_loop.clock(),
         network_state,
         transport.clone(),
         transport.clone(),
         transport,
+        None,
+        None,
     );
     let peer_manager_sender =
         test_loop.data.register_actor(identifier, peer_manager_actor, Some(network_adapter));

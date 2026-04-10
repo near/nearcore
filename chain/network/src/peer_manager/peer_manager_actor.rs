@@ -165,54 +165,51 @@ impl messaging::Actor for PeerManagerActor {
         self.push_network_info_trigger(ctx, self.state.config.push_info_period);
 
         // TCP-only infrastructure (skipped in testloop mode where handle is None).
-        if self.handle.is_none() {
-            #[cfg(test)]
-            self.state.config.event_sink.send(Event::PeerManagerStarted);
-            return;
-        }
-
-        // Attempt to reconnect to recent outbound connections from storage
-        if self.state.config.connect_to_reliable_peers_on_startup {
-            tracing::debug!(target: "network", "reconnecting to reliable peers from storage");
-            self.bootstrap_outbound_from_recent_connections();
-        } else {
-            tracing::debug!(target: "network", "skipping reconnection to reliable peers");
-        }
-
-        // Periodically starts peer monitoring.
-        tracing::debug!(target: "network",
-               max_period=?self.state.config.monitor_peers_max_period,
-               "monitor_peers_trigger");
-        self.monitor_peers_trigger(
-            MONITOR_PEERS_INITIAL_DURATION,
-            (MONITOR_PEERS_INITIAL_DURATION, self.state.config.monitor_peers_max_period),
-        );
-
-        // Periodically fix local edges.
-        let clock = self.clock.clone();
-        let state = self.state.clone();
-        let handle = self.handle.as_ref().unwrap();
-        handle.spawn("fix_local_edges loop", async move {
-            let mut interval = time::Interval::new(clock.now(), FIX_LOCAL_EDGES_INTERVAL);
-            loop {
-                interval.tick(&clock).await;
-                state.fix_local_edges(&clock, FIX_LOCAL_EDGES_TIMEOUT).await;
+        if self.handle.is_some() {
+            // Attempt to reconnect to recent outbound connections from storage
+            if self.state.config.connect_to_reliable_peers_on_startup {
+                tracing::debug!(target: "network", "reconnecting to reliable peers from storage");
+                self.bootstrap_outbound_from_recent_connections();
+            } else {
+                tracing::debug!(target: "network", "skipping reconnection to reliable peers");
             }
-        });
 
-        // Periodically update the connection store.
-        let clock = self.clock.clone();
-        let state = self.state.clone();
-        handle.spawn("update_connection_store loop", async move {
-            let mut interval = time::Interval::new(clock.now(), UPDATE_CONNECTION_STORE_INTERVAL);
-            loop {
-                interval.tick(&clock).await;
-                state.update_connection_store(&clock);
-            }
-        });
+            // Periodically starts peer monitoring.
+            tracing::debug!(target: "network",
+                   max_period=?self.state.config.monitor_peers_max_period,
+                   "monitor_peers_trigger");
+            self.monitor_peers_trigger(
+                MONITOR_PEERS_INITIAL_DURATION,
+                (MONITOR_PEERS_INITIAL_DURATION, self.state.config.monitor_peers_max_period),
+            );
 
-        // Periodically prints bandwidth stats for each peer.
-        self.report_bandwidth_stats_trigger(ctx, REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL);
+            // Periodically fix local edges.
+            let clock = self.clock.clone();
+            let state = self.state.clone();
+            let handle = self.handle.as_ref().unwrap();
+            handle.spawn("fix_local_edges loop", async move {
+                let mut interval = time::Interval::new(clock.now(), FIX_LOCAL_EDGES_INTERVAL);
+                loop {
+                    interval.tick(&clock).await;
+                    state.fix_local_edges(&clock, FIX_LOCAL_EDGES_TIMEOUT).await;
+                }
+            });
+
+            // Periodically update the connection store.
+            let clock = self.clock.clone();
+            let state = self.state.clone();
+            handle.spawn("update_connection_store loop", async move {
+                let mut interval =
+                    time::Interval::new(clock.now(), UPDATE_CONNECTION_STORE_INTERVAL);
+                loop {
+                    interval.tick(&clock).await;
+                    state.update_connection_store(&clock);
+                }
+            });
+
+            // Periodically prints bandwidth stats for each peer.
+            self.report_bandwidth_stats_trigger(ctx, REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL);
+        }
 
         #[cfg(test)]
         self.state.config.event_sink.send(Event::PeerManagerStarted);
@@ -228,19 +225,20 @@ impl messaging::Actor for PeerManagerActor {
 }
 
 impl PeerManagerActor {
-    /// Testloop constructor. Creates a PeerManagerActor without TCP infrastructure.
-    pub fn new_for_testloop(
+    pub fn new(
         clock: time::Clock,
         state: Arc<NetworkState>,
         tier1_transport: Arc<dyn NetworkTransport>,
         tier2_transport: Arc<dyn NetworkTransport>,
         tier3_transport: Arc<dyn NetworkTransport>,
+        handle: Option<TokioRuntimeHandle<Self>>,
+        actor_system: Option<ActorSystem>,
     ) -> Self {
         let my_peer_id = state.config.node_id();
         Self {
             clock,
-            actor_system: None,
-            handle: None,
+            actor_system,
+            handle,
             my_peer_id,
             started_connect_attempts: false,
             state,
@@ -281,7 +279,6 @@ impl PeerManagerActor {
             }
             v
         };
-        let my_peer_id = config.node_id();
         let builder = actor_system.new_tokio_builder();
         let handle = builder.handle();
         let clock = clock;
@@ -418,17 +415,15 @@ impl PeerManagerActor {
             Arc::new(PoolTransport::new(state.tier2.clone()));
         let tier3_transport: Arc<dyn NetworkTransport> =
             Arc::new(PoolTransport::new(state.tier3.clone()));
-        builder.spawn_tokio_actor(Self {
-            my_peer_id,
-            started_connect_attempts: false,
-            state,
+        builder.spawn_tokio_actor(Self::new(
             clock,
-            actor_system: Some(actor_system),
-            handle: Some(handle.clone()),
+            state,
             tier1_transport,
             tier2_transport,
             tier3_transport,
-        });
+            Some(handle.clone()),
+            Some(actor_system),
+        ));
         Ok(handle)
     }
 
