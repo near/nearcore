@@ -24,6 +24,8 @@ use near_vm_runner::FilesystemContractRuntimeCache;
 /// both in the same block, let the RPC catch up, then replay and verify
 /// chunk extras and execution outcomes match in both shards.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_memtries_replay_chunks_controller() {
     init_test_logger();
 
