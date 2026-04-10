@@ -49,6 +49,9 @@ skip = [
     { name = "wasm-encoder", version = "=0.27.0" },
     { name = "wasmprinter", version = "=0.2.57" },
 
+    # wasmtime (pulley-macros) uses 0.10, rest of the ecosystem uses 0.13/0.14
+    { name = "itertools", version = "=0.10.5" },
+
     # wasmer 0.17.x
     { name = "target-lexicon", version = "^0.12.0" },
 
