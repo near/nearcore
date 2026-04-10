@@ -790,6 +790,7 @@ impl OperationStatusKind {
 pub(crate) enum OperationMetadataTransferFeeType {
     GasPrepayment,
     GasRefund,
+    GasReward,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize, ToSchema)]

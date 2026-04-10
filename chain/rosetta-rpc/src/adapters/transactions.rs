@@ -364,6 +364,10 @@ pub(crate) async fn convert_block_changes_to_transactions(
                     &account_change.cause,
                     near_primitives::views::StateChangeCauseView::TransactionProcessing { .. }
                 );
+                let is_gas_reward = matches!(
+                    &account_change.cause,
+                    near_primitives::views::StateChangeCauseView::ActionReceiptGasReward { .. }
+                );
                 // Calculate the total amount of deposit from transfer and function call actions.
                 // This is needed to separate deposits into a separate operation
                 // so that the remaining balance change can be marked as gas prepayment.
@@ -407,6 +411,7 @@ pub(crate) async fn convert_block_changes_to_transactions(
                     deposit,
                     &predecessor_id,
                     is_transaction_processing,
+                    is_gas_reward,
                 );
                 accounts_previous_state.insert(account_id, account);
             }
@@ -456,6 +461,7 @@ fn convert_account_update_to_operations(
     deposit: Option<Balance>,
     predecessor_id: &Option<crate::models::AccountIdentifier>,
     is_transaction_processing: bool,
+    is_gas_reward: bool,
 ) {
     let previous_account_balances = previous_account_state
         .map(|account| crate::utils::RosettaAccountBalances::from_account(account, runtime_config))
@@ -537,6 +543,10 @@ fn convert_account_update_to_operations(
                     if is_transaction_processing {
                         metadata.with_transfer_fee_type(
                             crate::models::OperationMetadataTransferFeeType::GasPrepayment,
+                        )
+                    } else if is_gas_reward {
+                        metadata.with_transfer_fee_type(
+                            crate::models::OperationMetadataTransferFeeType::GasReward,
                         )
                     } else if let Some("system") = predecessor_id
                         .as_ref()
