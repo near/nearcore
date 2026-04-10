@@ -1297,8 +1297,20 @@ impl JsonRpcHandler {
                 let block_hint = BlockReference::BlockId(block_id.clone()).into();
                 (block_hint, ShardHint::Id(*shard_id), CoordinatorRequestStrategy::Sequential)
             }
-            ChunkReference::ChunkHash { .. } => {
-                (BlockHint::None, ShardHint::None, CoordinatorRequestStrategy::ParallelTakeFirst)
+            ChunkReference::ChunkHash { chunk_id } => {
+                let chunk_hash = ChunkHash::from(*chunk_id);
+                match self.pool.read().try_resolve_chunk_shard(&chunk_hash) {
+                    Some(shard_id) => (
+                        BlockHint::None,
+                        ShardHint::Id(shard_id),
+                        CoordinatorRequestStrategy::Sequential,
+                    ),
+                    None => (
+                        BlockHint::None,
+                        ShardHint::None,
+                        CoordinatorRequestStrategy::ParallelTakeFirst,
+                    ),
+                }
             }
         };
         self.run_coordinator_request(
