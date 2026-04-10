@@ -394,7 +394,7 @@ fn test_transfer_and_add_key_to_deterministic_account() {
     let tx = SignedTransaction::from_actions(
         env.next_nonce(),
         env.user_account(),
-        det_account.clone(),
+        det_account,
         &user_signer,
         vec![
             Action::Transfer(TransferAction { deposit: Balance::from_near(1) }),
@@ -435,7 +435,7 @@ fn test_transfer_and_deploy_contract_to_deterministic_account() {
     let tx = SignedTransaction::from_actions(
         env.next_nonce(),
         env.user_account(),
-        det_account.clone(),
+        det_account,
         &user_signer,
         vec![
             Action::Transfer(TransferAction { deposit: Balance::from_near(1) }),
@@ -473,7 +473,7 @@ fn test_transfer_and_state_init_to_deterministic_account() {
     let tx = SignedTransaction::from_actions(
         env.next_nonce(),
         env.user_account(),
-        det_account.clone(),
+        det_account,
         &user_signer,
         vec![
             Action::Transfer(TransferAction { deposit: Balance::from_near(1) }),
