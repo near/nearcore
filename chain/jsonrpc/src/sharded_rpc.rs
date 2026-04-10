@@ -207,6 +207,7 @@ impl ShardedRpcPool {
 
                 self.nodes_for_account_in_epochs(possible_epochs, account_id)?
             }
+            (_, ShardHint::Id(shard_id)) => self.nodes_for_shard(*shard_id),
             _ => self.all_nodes(),
         };
 
@@ -278,14 +279,44 @@ impl ShardedRpcPool {
         Ok(result)
     }
 
+    /// Returns nodes that track the given shard.
+    fn nodes_for_shard(&self, shard_id: ShardId) -> Vec<RpcNodeHandle> {
+        let mut result = Vec::new();
+
+        // Check if the local node tracks this shard (using head epoch).
+        if let Ok(tip) = self.chain_store.head() {
+            if self
+                .shard_tracker
+                .rpc_tracks_shard_at_epoch(shard_id, &tip.epoch_id)
+                .unwrap_or(false)
+            {
+                result.push(RpcNodeHandle::LocalNode);
+            }
+        }
+
+        // Check remote nodes.
+        for node in &self.nodes {
+            if node.tracked_shards.contains(&shard_id) {
+                result.push(RpcNodeHandle::RemoteNode(node.client.clone()));
+            }
+        }
+
+        result
+    }
+
     /// Try to resolve a chunk hash to its shard_id by looking up the partial
     /// chunk in the store. All nodes persist partial chunks for all shards
     /// (header-only for untracked shards), so this works regardless of which
     /// shards the local node tracks.
     pub fn try_resolve_chunk_shard(&self, chunk_hash: &ChunkHash) -> Option<ShardId> {
         let chunk_store = ChunkStoreAdapter::new(self.chain_store.store());
-        let partial_chunk = chunk_store.get_partial_chunk(chunk_hash).ok()?;
-        Some(partial_chunk.shard_id())
+        match chunk_store.get_partial_chunk(chunk_hash) {
+            Ok(partial_chunk) => Some(partial_chunk.shard_id()),
+            Err(err) => {
+                tracing::debug!(target: "jsonrpc", ?chunk_hash, ?err, "failed to resolve chunk shard from partial chunk store");
+                None
+            }
+        }
     }
 }
 

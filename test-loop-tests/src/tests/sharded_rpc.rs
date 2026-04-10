@@ -886,7 +886,7 @@ fn test_rpc_chunk_hash_forwarding() {
             |client| client.chunk(ChunkId::Hash(chunk_id)),
             Duration::seconds(5),
         )?;
-        assert_eq!(CryptoHash(result.header.chunk_hash.0), chunk_id);
+        assert_eq!(result.header.chunk_hash, chunk_id);
         Ok(())
     };
 
