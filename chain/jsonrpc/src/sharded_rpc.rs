@@ -283,7 +283,7 @@ impl ShardedRpcPool {
     /// (header-only for untracked shards), so this works regardless of which
     /// shards the local node tracks.
     pub fn try_resolve_chunk_shard(&self, chunk_hash: &ChunkHash) -> Option<ShardId> {
-        let chunk_store = ChunkStoreAdapter::new(self.chain_store.store_ref().clone());
+        let chunk_store = ChunkStoreAdapter::new(self.chain_store.store());
         let partial_chunk = chunk_store.get_partial_chunk(chunk_hash).ok()?;
         Some(partial_chunk.shard_id())
     }

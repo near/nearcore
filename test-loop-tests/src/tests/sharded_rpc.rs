@@ -873,12 +873,13 @@ fn test_rpc_chunk_hash_forwarding() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
 
-    // Get a chunk hash from the head block.
+    // Get chunk hashes from both shards in the head block.
     let validator = h.validator.clone();
     let head = h.env.node_for_account(&validator).head();
     let head_block =
         h.env.node_for_account(&validator).client().chain.get_block(&head.last_block_hash).unwrap();
-    let chunk_hash = head_block.chunks()[0].chunk_hash().0;
+    let chunk_hash_shard0 = head_block.chunks()[0].chunk_hash().0;
+    let chunk_hash_shard1 = head_block.chunks()[1].chunk_hash().0;
 
     let mut run_chunk = |node_id: &AccountId, chunk_id: CryptoHash| -> Result<(), RpcError> {
         let result = h.env.runner_for_account(node_id).run_with_jsonrpc_client(
@@ -889,11 +890,14 @@ fn test_rpc_chunk_hash_forwarding() {
         Ok(())
     };
 
-    // Both nodes should be able to serve a ChunkHash query (resolved via partial chunk store).
+    // Both nodes should be able to serve ChunkHash queries for both shards
+    // (resolved via partial chunk store).
     let alice_node = h.alice_node.clone();
     let zoe_node = h.zoe_node.clone();
-    run_chunk(&alice_node, chunk_hash).unwrap();
-    run_chunk(&zoe_node, chunk_hash).unwrap();
+    run_chunk(&alice_node, chunk_hash_shard0).unwrap();
+    run_chunk(&alice_node, chunk_hash_shard1).unwrap();
+    run_chunk(&zoe_node, chunk_hash_shard0).unwrap();
+    run_chunk(&zoe_node, chunk_hash_shard1).unwrap();
 }
 
 /// Cross-shard EXPERIMENTAL_view_code for an account with no contract should return a proper error.
