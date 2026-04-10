@@ -456,7 +456,6 @@ mod tests {
             None,
             Default::default(),
             Default::default(),
-            Default::default(),
             MutableConfigValue::new(None, "validator_signer"),
             noop().into_multi_sender(),
             None,

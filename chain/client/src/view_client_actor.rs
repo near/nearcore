@@ -864,17 +864,9 @@ impl Handler<GetChunk, Result<ChunkView, GetChunkError>> for ViewClientActor {
         };
 
         let chunk_inner = chunk.cloned_header().take_inner();
-        let epoch_id = self
-            .epoch_manager
-            .get_epoch_id_from_prev_block(chunk_inner.prev_block_hash())
-            .into_chain_error()?;
         let author = self
             .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
-                epoch_id,
-                height_created: chunk_inner.height_created(),
-                shard_id: chunk_inner.shard_id(),
-            })
+            .get_chunk_producer_info_db(chunk_inner.prev_block_hash(), chunk_inner.shard_id())
             .map(|info| info.take_account_id())
             .into_chain_error()?;
 

@@ -1,4 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
+use crate::setup::peer_manager_actor::HandlerResult;
 use crate::utils::account::{
     create_account_ids, create_validators_spec, validators_spec_clients_with_rpc,
 };
@@ -13,6 +14,7 @@ use near_crypto::InMemorySigner;
 use near_network::client::{BlockApproval, BlockResponse};
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::NetworkRequests;
+use near_network::types::NetworkResponses;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
@@ -73,7 +75,7 @@ fn slow_test_repro_1183() {
 
         let peer_actor_handle = node.peer_manager_sender.actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
+        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
             if let NetworkRequests::Block { block } = &request {
                 let mut last_block = last_block.write();
                 let mut delayed_one_parts = delayed_one_parts.write();
@@ -136,17 +138,17 @@ fn slow_test_repro_1183() {
 
                 *last_block = Some(block.clone());
                 *delayed_one_parts = vec![];
-                None
+                HandlerResult::Handled(NetworkResponses::NoResponse)
             } else if let NetworkRequests::PartialEncodedChunkMessage { .. } = &request {
                 let mut rng = rng.write();
                 if rng.gen_bool(0.5) {
-                    Some(request)
+                    HandlerResult::Unhandled(request)
                 } else {
                     delayed_one_parts.write().push(request.clone());
-                    None
+                    HandlerResult::Handled(NetworkResponses::NoResponse)
                 }
             } else {
-                Some(request)
+                HandlerResult::Unhandled(request)
             }
         }));
     }
@@ -215,7 +217,7 @@ fn slow_test_sync_from_archival_node() {
 
         let peer_actor_handle = node.peer_manager_sender.actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
+        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
             let mut block_counter = block_counter.write();
 
             if let NetworkRequests::Block { block } = &request {
@@ -240,7 +242,7 @@ fn slow_test_sync_from_archival_node() {
                         if block.header().height() <= 10 {
                             blocks.write().insert(*block.hash(), block.clone());
                         }
-                        None
+                        HandlerResult::Handled(NetworkResponses::NoResponse)
                     }
                     NetworkRequests::Approval { approval_message } => {
                         for (i, sender) in client_senders.iter().enumerate() {
@@ -254,9 +256,9 @@ fn slow_test_sync_from_archival_node() {
                                 )
                             }
                         }
-                        None
+                        HandlerResult::Handled(NetworkResponses::NoResponse)
                     }
-                    _ => Some(request),
+                    _ => HandlerResult::Unhandled(request),
                 }
             } else {
                 if *block_counter > 10 {
@@ -273,9 +275,9 @@ fn slow_test_sync_from_archival_node() {
                         if block.header().height() <= 10 {
                             *block_counter += 1;
                         }
-                        Some(request)
+                        HandlerResult::Unhandled(request)
                     }
-                    _ => Some(request),
+                    _ => HandlerResult::Unhandled(request),
                 }
             }
         }));
@@ -318,20 +320,20 @@ fn slow_test_long_gap_between_blocks() {
     for node in &env.node_datas {
         let peer_actor_handle = node.peer_manager_sender.actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
+        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
             match &request {
                 NetworkRequests::Approval { approval_message } => {
                     if approval_message.approval.target_height < target_height {
-                        return None;
+                        return HandlerResult::Handled(NetworkResponses::NoResponse);
                     } else {
                         if approval_message.target == "test1" {
-                            return Some(request);
+                            return HandlerResult::Unhandled(request);
                         } else {
-                            return None;
+                            return HandlerResult::Handled(NetworkResponses::NoResponse);
                         }
                     }
                 }
-                _ => return Some(request),
+                _ => return HandlerResult::Unhandled(request),
             }
         }));
     }
@@ -388,7 +390,7 @@ fn test_rpc_forwards_retried_transaction() {
                     .push((account.clone(), transaction.get_hash())),
                 _ => {}
             }
-            Some(nr)
+            HandlerResult::Unhandled(nr)
         }),
     );
 

@@ -134,6 +134,14 @@ pub struct LimitConfig {
     /// pathologically large contracts.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_instrumented_code_size: Option<u64>,
+    /// If present, stores max number of basic blocks (block/loop/if) in a single function.
+    /// This caps per-function compilation time in Cranelift.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_blocks_per_function: Option<u64>,
+    /// If present, stores max total number of basic blocks across all functions in a contract.
+    /// This caps total compilation time for a contract.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_blocks_per_contract: Option<u64>,
     /// Whether to enforce account_id well-formed-ness where it wasn't enforced
     /// historically.
     #[serde(default = "AccountIdValidityRulesVersion::v0")]

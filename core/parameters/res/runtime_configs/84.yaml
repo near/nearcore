@@ -2,5 +2,7 @@ reftypes_bulk_memory: { old: false, new: true }
 vm_kind: { old: "NearVm", new: "Wasmtime" }
 wasm_linear_op_base_cost: { old: 300_000_000_000_000, new: 26_328_192 }
 wasm_linear_op_unit_cost: { old: 300_000_000_000_000, new: 822_756 }
-max_function_body_size: { new: 262_144 }
+max_function_body_size: { new: 196_608 }
 max_instrumented_code_size: { new: 16_777_216 }
+max_blocks_per_function: { new: 5_000 }
+max_blocks_per_contract: { new: 50_000 }

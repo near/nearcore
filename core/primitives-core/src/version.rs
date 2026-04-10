@@ -381,6 +381,10 @@ pub enum ProtocolFeature {
     /// (sequential ordering). Transactions with a nonce gap are held in the
     /// pool rather than discarded.
     StrictNonce,
+    /// Pre-compute and persist chunk producer assignments in `DBCol::ChunkProducers`
+    /// during header sync and block processing. Foundation for early chunk producer
+    /// kickout without epoch manager recomputation.
+    EarlyKickout,
 }
 
 impl ProtocolFeature {
@@ -501,6 +505,7 @@ impl ProtocolFeature {
             ProtocolFeature::GasKeys => 149,
             ProtocolFeature::DynamicResharding => 150,
             ProtocolFeature::StrictNonce => 151,
+            ProtocolFeature::EarlyKickout => 152,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
@@ -524,7 +529,7 @@ pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 80;
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 85;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 151;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 152;
 
 // TODO(spice): Once spice is mature and close to release make it part of nightly - at the point in
 // time cargo feature for spice should be removed as well.

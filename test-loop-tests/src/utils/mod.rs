@@ -15,6 +15,7 @@ pub(crate) mod receipts;
 pub(crate) mod resharding;
 pub(crate) mod rotating_validators_runner;
 pub(crate) mod setups;
+pub(crate) mod sharded_rpc;
 pub(crate) mod sharding;
 pub(crate) mod transactions;
 pub(crate) mod trie_sanity;
