@@ -5094,6 +5094,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-replay"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "near-chain",
+ "near-epoch-manager",
+ "near-primitives",
+ "near-store",
+ "node-runtime",
+ "tracing",
+]
+
+[[package]]
 name = "near-replay-archive-tool"
 version = "0.0.0"
 dependencies = [
@@ -8439,6 +8452,7 @@ dependencies = [
  "near-parameters",
  "near-primitives",
  "near-primitives-core",
+ "near-replay",
  "near-store",
  "near-test-contracts",
  "near-vm-runner",

@@ -24,6 +24,7 @@ members = [
     "benchmarks/transactions-generator",
     "chain/chain",
     "chain/chunks",
+    "chain/replay",
     "chain/client",
     "chain/client-primitives",
     "chain/epoch-manager",
@@ -234,6 +235,7 @@ near-async-derive = { path = "core/async-derive" }
 near-cache = { path = "utils/near-cache" }
 near-chain = { path = "chain/chain" }
 near-chain-configs = { path = "core/chain-configs" }
+near-replay = { path = "chain/replay" }
 near-chain-primitives = { path = "chain/chain-primitives" }
 near-chunks = { path = "chain/chunks" }
 near-chunks-primitives = { path = "chain/chunks-primitives" }

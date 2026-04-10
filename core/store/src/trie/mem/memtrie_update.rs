@@ -275,6 +275,12 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
     ) -> Result<(), StorageError> {
         self.generic_insert(0, key, GenericTrieValue::MemtrieOnly(value), AccessOptions::DEFAULT)
     }
+
+    /// Deletes the given key from the in-memory trie.
+    /// This is used to update the in-memory trie only, without caring about on-disk changes.
+    pub fn delete_memtrie_only(&mut self, key: &[u8]) -> Result<(), StorageError> {
+        self.generic_delete(0, key, AccessOptions::DEFAULT)
+    }
 }
 
 impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {

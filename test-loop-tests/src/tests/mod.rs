@@ -46,6 +46,7 @@ mod protocol_upgrade;
 mod receipt_to_tx;
 mod reject_outdated_blocks;
 mod resharding_cold_storage;
+mod replay_chunks;
 mod resharding_v3;
 mod sharded_rpc;
 mod sharded_rpc_reliability;
