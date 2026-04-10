@@ -168,10 +168,11 @@ pub struct NetworkState {
     /// TODO(gprusak): make it use synchronization primitives in some more canonical way.
     set_chain_info_mutex: Mutex<()>,
 
-    /// Testloop-only: block info per peer, populated by TestLoopTransport when
-    /// dispatching Block messages. Empty in production (zero-cost).
-    /// Used by PeerManagerActor::highest_height_peers() to provide sync info.
-    pub testloop_peer_block_info:
+    /// Block info per peer, populated by dispatch_incoming_message when
+    /// processing Block messages. Used by highest_height_peers() to provide
+    /// sync info. In production this supplements Pool-based peer info;
+    /// in testloop (where Pools are empty) this is the sole source.
+    pub peer_block_info:
         Mutex<std::collections::HashMap<PeerId, (crate::types::PeerInfo, crate::types::BlockInfo)>>,
 }
 
@@ -261,7 +262,7 @@ impl NetworkState {
                 future_spawner,
             ),
             set_chain_info_mutex: Mutex::new(()),
-            testloop_peer_block_info: Mutex::new(std::collections::HashMap::new()),
+            peer_block_info: Mutex::new(std::collections::HashMap::new()),
             config,
             created_at: clock.now(),
             tier1_advertise_proxies_mutex: tokio::sync::Mutex::new(()),
@@ -330,7 +331,7 @@ impl NetworkState {
                 &*ops_spawner,
             ),
             set_chain_info_mutex: Mutex::new(()),
-            testloop_peer_block_info: Mutex::new(std::collections::HashMap::new()),
+            peer_block_info: Mutex::new(std::collections::HashMap::new()),
             config,
             created_at: clock.now(),
             tier1_advertise_proxies_mutex: tokio::sync::Mutex::new(()),
@@ -987,7 +988,7 @@ impl NetworkState {
                 self.txns_since_last_block.store(0, Ordering::Release);
                 let height = block.header().height();
                 let hash = *block.hash();
-                self.testloop_peer_block_info.lock().insert(
+                self.peer_block_info.lock().insert(
                     from_peer.clone(),
                     (
                         PeerInfo { id: from_peer.clone(), addr: None, account_id: None },

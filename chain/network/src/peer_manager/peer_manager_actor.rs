@@ -495,10 +495,11 @@ impl PeerManagerActor {
             .filter_map(|p| p.full_peer_info().into())
             .collect();
 
-        // In testloop, connection pools are empty. Use block info from transport dispatch.
+        // Supplement with block info from dispatch_incoming_message.
+        // In testloop (no Pools), this is the sole source of peer height info.
         {
-            let testloop_info = self.state.testloop_peer_block_info.lock();
-            for (_peer_id, (peer_info, block_info)) in testloop_info.iter() {
+            let dispatch_info = self.state.peer_block_info.lock();
+            for (_peer_id, (peer_info, block_info)) in dispatch_info.iter() {
                 infos.push(HighestHeightPeerInfo {
                     peer_info: peer_info.clone(),
                     genesis_id: self.state.genesis_id.clone(),
