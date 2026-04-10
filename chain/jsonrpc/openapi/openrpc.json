@@ -5174,25 +5174,25 @@
           {
             "additionalProperties": false,
             "properties": {
-              "CodeHash": {
+              "hash": {
                 "$ref": "#/components/schemas/CryptoHash"
               }
             },
             "required": [
-              "CodeHash"
+              "hash"
             ],
-            "title": "CodeHash",
+            "title": "Hash",
             "type": "object"
           },
           {
             "additionalProperties": false,
             "properties": {
-              "AccountId": {
+              "account_id": {
                 "$ref": "#/components/schemas/AccountId"
               }
             },
             "required": [
-              "AccountId"
+              "account_id"
             ],
             "title": "AccountId",
             "type": "object"

@@ -26,8 +26,8 @@ use std::hash::{Hash, Hasher};
 use std::sync::{Arc, LazyLock};
 use wasmtime::{
     CallHook, Engine, Extern, ExternType, Instance, InstanceAllocationStrategy, InstancePre,
-    Linker, Memory, Module, ModuleExport, PoolingAllocationConfig, ResourcesRequired, Store,
-    StoreLimits, StoreLimitsBuilder, Strategy, Val, WasmBacktraceDetails,
+    Linker, Memory, Module, ModuleExport, OptLevel, PoolingAllocationConfig, ResourcesRequired,
+    Store, StoreLimits, StoreLimitsBuilder, Strategy, Val, WasmBacktraceDetails,
 };
 
 mod logic;
@@ -427,6 +427,7 @@ impl WasmtimeVM {
                 .max_wasm_stack(1024 * 1024 * 1024)
                 // Enable the Cranelift optimizing compiler.
                 .strategy(Strategy::Cranelift)
+                .cranelift_opt_level(OptLevel::None)
                 // Enable signals-based traps. This is required to elide explicit bounds-checking.
                 .signals_based_traps(true)
                 // Configure linear memories such that explicit bounds-checking can be elided.
@@ -452,7 +453,7 @@ impl WasmtimeVM {
     pub(crate) fn vm_hash(&self) -> u64 {
         // increment the `version` when making modifications that affect the
         // artifact compatibility.
-        let version = 68;
+        let version = 69;
 
         let mut hasher = std::hash::DefaultHasher::new();
         self.engine.precompile_compatibility_hash().hash(&mut hasher);
