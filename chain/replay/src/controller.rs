@@ -2,7 +2,7 @@ use crate::replay_chunk::{ChunkReplayResult, replay_chunk};
 use anyhow::{Context, Result};
 use near_chain::runtime::NightshadeRuntime;
 use near_chain::types::{RuntimeAdapter, StorageDataSource};
-use near_chain::{ChainStore, ChainStoreAccess};
+use near_chain::{BlockHeader, ChainStore, ChainStoreAccess};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_primitives::borsh::BorshDeserialize;
@@ -17,8 +17,7 @@ use std::sync::Arc;
 
 /// Result of replaying a single block across all shards.
 pub struct BlockReplayResult {
-    pub height: u64,
-    pub block_hash: CryptoHash,
+    pub block_header: BlockHeader,
     pub chunk_results: Vec<ChunkReplayResult>,
 }
 
@@ -86,10 +85,9 @@ impl MemtriesChunksReplayController {
 
     /// Replays the current block without changing the controller state.
     pub fn replay_current_block(&self) -> Result<BlockReplayResult> {
-        let block_hash = self.current_block_hash;
-        let block = self.chain_store.get_block(&block_hash)?;
-        let height = block.header().height();
-        let epoch_id = block.header().epoch_id();
+        let block = self.chain_store.get_block(&self.current_block_hash)?;
+        let block_header = block.header().clone();
+        let epoch_id = block_header.epoch_id();
         let shard_ids = self.epoch_manager.shard_ids(epoch_id)?;
 
         let mut chunk_results = Vec::with_capacity(shard_ids.len());
@@ -99,14 +97,14 @@ impl MemtriesChunksReplayController {
                 &self.chain_store,
                 self.runtime.as_ref(),
                 self.epoch_manager.as_ref(),
-                &block_hash,
+                &self.current_block_hash,
                 shard_uid,
                 StorageDataSource::Db,
             )?;
             chunk_results.push(result);
         }
 
-        Ok(BlockReplayResult { height, block_hash, chunk_results })
+        Ok(BlockReplayResult { block_header, chunk_results })
     }
 
     /// Advances the controller to the next block, updating memtries to
