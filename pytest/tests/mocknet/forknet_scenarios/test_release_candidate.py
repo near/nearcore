@@ -30,7 +30,7 @@ class TestReleaseCandidate(TestSetup):
             num_chunk_producer_seats=9, num_chunk_validator_seats=11)
         self.epoch_len = 2000  # 14500 blocks / 2 bps / 60 / 60 = 2h
         self.has_state_dumper = False
-        self.regions = "us-east1,europe-west4,asia-east1,us-west1"
+        self.regions = "us-east1,europe-west1,asia-east1,us-west1"
 
         # Upgrade 1/2 nodes in the second epoch. A quarter at a time.
         self.upgrade_interval_minutes = 15  # 15 minutes between each upgrade batch.
