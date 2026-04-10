@@ -1,16 +1,11 @@
 #![allow(dead_code, unused_must_use, unused_variables)]
 
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
-use near_async::messaging::CanSendAsync;
 use near_async::time::Clock;
-use near_network::client::{
-    BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
-};
 use near_network::peer_manager_exports::connection::transport::NetworkTransport;
 use near_network::peer_manager_exports::network_state::{NetworkState, RoutedAction};
 use near_network::types::PeerMessage;
 use near_network::{PeerIdOrHash, RawRoutedMessage};
-use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::network::PeerId;
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -87,84 +82,43 @@ impl TestLoopTransport {
                     unreachable!()
                 }
             }
-            PeerMessage::BlockRequest(_) | PeerMessage::BlockHeadersRequest(_) => {
-                // Request-response messages need async handling.
-                match msg {
-                    PeerMessage::BlockRequest(hash) => {
-                        let target = target_state;
-                        let my_id = my_peer_id;
-                        let node_states = self.node_network_states.clone();
-                        self.future_spawner.spawn("testloop_block_request", async move {
-                            if let Ok(Some(block)) =
-                                target.client.send_async(BlockRequest(hash)).await
-                            {
-                                let requester_state = {
-                                    let states = node_states.lock();
-                                    states.get(&my_id).cloned()
-                                };
-                                if let Some(requester) = requester_state {
-                                    requester.client.send_async(
-                                        BlockResponse {
-                                            block,
-                                            peer_id: target.config.node_id(),
-                                            was_requested: true,
-                                        }
-                                        .span_wrap(),
-                                    );
-                                }
-                            }
-                        });
-                        true
-                    }
-                    PeerMessage::BlockHeadersRequest(hashes) => {
-                        let target = target_state;
-                        let my_id = my_peer_id;
-                        let shared_state = self.shared_state.clone();
-                        let node_states = self.node_network_states.clone();
-                        self.future_spawner.spawn("testloop_block_headers_request", async move {
-                            if let Ok(Some(headers)) =
-                                target.client.send_async(BlockHeadersRequest(hashes)).await
-                            {
-                                let response = PeerMessage::BlockHeaders(headers);
-                                let target_node_id = target.config.node_id();
-                                let response = match shared_state.apply_message_filters(
-                                    &target_node_id,
-                                    &my_id,
-                                    response,
-                                ) {
-                                    Some(msg) => msg,
-                                    None => return,
-                                };
-                                if let PeerMessage::BlockHeaders(headers) = response {
-                                    let requester_state = {
-                                        let states = node_states.lock();
-                                        states.get(&my_id).cloned()
-                                    };
-                                    if let Some(requester) = requester_state {
-                                        requester.client.send_async(
-                                            BlockHeadersResponse(headers, target_node_id)
-                                                .span_wrap(),
-                                        );
-                                    }
-                                }
-                            }
-                        });
-                        true
-                    }
-                    _ => unreachable!(),
-                }
-            }
             _ => {
-                // Fire-and-forget messages: use shared dispatch on NetworkState.
-                if target_state.dispatch_incoming_message(my_peer_id, msg) {
-                    true
-                } else {
-                    tracing::warn!(
-                        target: "network",
-                        "testloop transport: unhandled non-routed message type, dropping"
-                    );
-                    false
-                }
+                // All non-routed messages: use shared async dispatch.
+                // Returns Ok(Some(response)) for request-response messages,
+                // Ok(None) for fire-and-forget.
+                let target = target_state;
+                let my_id = my_peer_id;
+                let shared_state = self.shared_state.clone();
+                let node_states = self.node_network_states.clone();
+                let clock = self.clock.clone();
+                self.future_spawner.spawn("testloop_handle_peer_message", async move {
+                    let target_node_id = target.config.node_id();
+                    let result =
+                        target.handle_peer_message(&clock, my_id.clone(), msg, false).await;
+                    if let Ok(Some(response)) = result {
+                        // Route response back to requester, applying filters.
+                        let response = match shared_state.apply_message_filters(
+                            &target_node_id,
+                            &my_id,
+                            response,
+                        ) {
+                            Some(msg) => msg,
+                            None => return,
+                        };
+                        let requester_state = {
+                            let states = node_states.lock();
+                            states.get(&my_id).cloned()
+                        };
+                        if let Some(requester) = requester_state {
+                            // Dispatch the response at the requester (fire-and-forget).
+                            requester
+                                .handle_peer_message(&clock, target_node_id, response, true)
+                                .await
+                                .ok();
+                        }
+                    }
+                });
+                true
             }
         }
     }

@@ -1,9 +1,10 @@
 use crate::accounts_data::{AccountDataCache, AccountDataError};
 use crate::announce_accounts::AnnounceAccountCache;
 use crate::client::{
-    BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage,
-    ClientSenderForNetwork, EpochSyncRequestMessage, EpochSyncResponseMessage,
-    OptimisticBlockMessage, ProcessTxRequest, SpiceChunkEndorsementMessage, StateResponse,
+    BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
+    ChunkEndorsementMessage, ClientSenderForNetwork, EpochSyncRequestMessage,
+    EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
+    SpiceChunkEndorsementMessage, StateRequestHeader, StateRequestPart, StateResponse,
     StateResponseReceived, TxStatusRequest, TxStatusResponse,
 };
 use crate::concurrency::demux;
@@ -972,80 +973,142 @@ impl NetworkState {
         }
     }
 
-    /// Dispatch a non-routed incoming message to the appropriate actor sender.
-    /// Fire-and-forget -- no response expected. Returns true if handled.
+    /// Dispatch an incoming peer message to the appropriate actor sender.
     ///
-    /// For request-response messages (BlockRequest, BlockHeadersRequest,
-    /// StateRequest*), returns false -- the caller handles these separately
-    /// (PeerActor awaits response via TCP, TestLoopTransport spawns async).
+    /// Handles both fire-and-forget messages (Block, Transaction, etc.) and
+    /// request-response messages (BlockRequest, StateRequest*, etc.).
+    /// Returns `Ok(Some(response))` for request-response messages,
+    /// `Ok(None)` for fire-and-forget, `Err(ban)` for protocol violations.
     ///
-    /// For routed messages, the caller should use process_incoming_routed
-    /// or dispatch_routed_body_sync instead.
-    #[allow(unused_must_use)]
-    pub fn dispatch_incoming_message(&self, from_peer: PeerId, msg: PeerMessage) -> bool {
-        match msg {
+    /// Shared between PeerActor (production) and TestLoopTransport (testloop).
+    /// PeerActor sends `Ok(Some(response))` back over TCP.
+    /// TestLoopTransport routes it back via in-memory dispatch.
+    ///
+    /// Routed messages are also handled here via `receive_routed_message`.
+    /// In testloop, routed messages go through multi-hop routing instead
+    /// and don't reach this function.
+    pub async fn handle_peer_message(
+        self: &Arc<Self>,
+        clock: &time::Clock,
+        peer_id: PeerId,
+        msg: PeerMessage,
+        was_requested: bool,
+    ) -> Result<Option<PeerMessage>, ReasonForBan> {
+        Ok(match msg {
+            PeerMessage::Routed(msg) => {
+                let msg_hash = msg.hash();
+                self.receive_routed_message(
+                    clock,
+                    msg.author().clone(),
+                    peer_id.clone(),
+                    msg_hash,
+                    msg.body_owned(),
+                )
+                .await
+                .map(|body| {
+                    PeerMessage::Routed(self.sign_message(
+                        clock,
+                        RawRoutedMessage { target: PeerIdOrHash::Hash(msg_hash), body },
+                    ))
+                })
+            }
+            PeerMessage::BlockRequest(hash) => self
+                .client
+                .send_async(BlockRequest(hash))
+                .await
+                .ok()
+                .flatten()
+                .map(|block| PeerMessage::Block(block)),
+            PeerMessage::BlockHeadersRequest(hashes) => self
+                .client
+                .send_async(BlockHeadersRequest(hashes))
+                .await
+                .ok()
+                .flatten()
+                .map(PeerMessage::BlockHeaders),
             PeerMessage::Block(block) => {
                 self.txns_since_last_block.store(0, Ordering::Release);
                 let height = block.header().height();
                 let hash = *block.hash();
                 self.peer_block_info.lock().insert(
-                    from_peer.clone(),
+                    peer_id.clone(),
                     (
-                        PeerInfo { id: from_peer.clone(), addr: None, account_id: None },
+                        PeerInfo { id: peer_id.clone(), addr: None, account_id: None },
                         BlockInfo { height, hash },
                     ),
                 );
-                self.client.send_async(
-                    BlockResponse { block, peer_id: from_peer, was_requested: false }.span_wrap(),
-                );
-                true
+                self.client
+                    .send_async(BlockResponse { block, peer_id, was_requested }.span_wrap())
+                    .await
+                    .ok();
+                None
             }
             PeerMessage::Transaction(transaction) => {
-                self.client.send_async(ProcessTxRequest {
-                    transaction,
-                    is_forwarded: false,
-                    check_only: false,
-                });
-                true
+                self.client
+                    .send_async(ProcessTxRequest {
+                        transaction,
+                        is_forwarded: false,
+                        check_only: false,
+                    })
+                    .await
+                    .ok();
+                None
             }
             PeerMessage::BlockHeaders(headers) => {
-                self.client.send_async(BlockHeadersResponse(headers, from_peer).span_wrap());
-                true
+                if let Ok(Err(ban_reason)) =
+                    self.client.send_async(BlockHeadersResponse(headers, peer_id).span_wrap()).await
+                {
+                    return Err(ban_reason);
+                }
+                None
             }
+            PeerMessage::Challenge(_) => None,
+            PeerMessage::StateRequestHeader(shard_id, sync_hash) => self
+                .state_request_adapter
+                .send_async(StateRequestHeader { shard_id, sync_hash })
+                .await
+                .ok()
+                .flatten()
+                .map(|response| PeerMessage::VersionedStateResponse(*response.0)),
+            PeerMessage::StateRequestPart(shard_id, sync_hash, part_id) => self
+                .state_request_adapter
+                .send_async(StateRequestPart { shard_id, sync_hash, part_id })
+                .await
+                .ok()
+                .flatten()
+                .map(|response| PeerMessage::VersionedStateResponse(*response.0)),
             PeerMessage::VersionedStateResponse(info) => {
-                self.client.send_async(
-                    StateResponseReceived {
-                        peer_id: from_peer,
-                        state_response: StateResponse::State(info.into()),
-                    }
-                    .span_wrap(),
-                );
-                true
+                self.client
+                    .send_async(
+                        StateResponseReceived {
+                            peer_id,
+                            state_response: StateResponse::State(info.into()),
+                        }
+                        .span_wrap(),
+                    )
+                    .await
+                    .ok();
+                None
             }
             PeerMessage::EpochSyncRequest => {
-                self.client.send(EpochSyncRequestMessage { from_peer });
-                true
+                self.client.send(EpochSyncRequestMessage { from_peer: peer_id });
+                None
             }
             PeerMessage::EpochSyncResponse(proof) => {
-                self.client.send(EpochSyncResponseMessage { from_peer, proof });
-                true
+                self.client.send(EpochSyncResponseMessage { from_peer: peer_id, proof });
+                None
             }
             PeerMessage::OptimisticBlock(ob) => {
-                self.client
-                    .send(OptimisticBlockMessage { from_peer, optimistic_block: ob }.span_wrap());
-                true
+                self.client.send(
+                    OptimisticBlockMessage { from_peer: peer_id, optimistic_block: ob }.span_wrap(),
+                );
+                None
             }
-            PeerMessage::Challenge(_) => true, // ignored
-            // Request-response messages -- caller handles these
-            PeerMessage::BlockRequest(_)
-            | PeerMessage::BlockHeadersRequest(_)
-            | PeerMessage::StateRequestHeader(..)
-            | PeerMessage::StateRequestPart(..) => false,
-            // Routed messages -- caller should use process_incoming_routed
-            PeerMessage::Routed(_) => false,
-            // Connection-level messages -- not dispatched here
-            _ => false,
-        }
+            msg => {
+                tracing::error!(target: "network", ?msg, "unexpected peer message type");
+                None
+            }
+        })
     }
 
     pub async fn receive_routed_message(
