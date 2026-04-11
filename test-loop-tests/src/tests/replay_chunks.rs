@@ -11,22 +11,32 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::transaction::ExecutionOutcome;
 use near_primitives::types::Balance;
-use near_replay::MemtriesChunksReplayController;
+use near_replay::{CombinedDatabase, ReplayStorageMode, SequentialChunksReplayController};
 use near_store::{Store, TrieConfig};
 use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::FilesystemContractRuntimeCache;
+use std::sync::Arc;
 
-/// Tests the MemtriesChunksReplayController with multiple shards.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_memtries_replay_chunks_controller() {
+    test_replay_chunks_controller(ReplayStorageMode::Memtries);
+}
+
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_flat_state_replay_chunks_controller() {
+    test_replay_chunks_controller(ReplayStorageMode::FlatState);
+}
+
+/// Tests the SequentialChunksReplayController with multiple shards.
 ///
 /// Setup: 1 validator + 1 RPC node, 2 shards with boundary at "user_shard01" so
 /// that "user_shard0" and "user_shard1" land in different shards. We snapshot the RPC
 /// node's DB, deploy contracts to both accounts, submit function calls to
 /// both in the same block, let the RPC catch up, then replay and verify
 /// chunk extras and execution outcomes match in both shards.
-#[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_memtries_replay_chunks_controller() {
+fn test_replay_chunks_controller(storage_mode: ReplayStorageMode) {
     init_test_logger();
 
     let user_shard0 = create_account_id("user_shard0");
@@ -99,7 +109,7 @@ fn test_memtries_replay_chunks_controller() {
         Duration::seconds(20),
     );
 
-    let mut controller = create_replay_controller(&env, &snapshot_store);
+    let mut controller = create_replay_controller(&env, &snapshot_store, storage_mode);
 
     // Verify the controller starts before the call block.
     let rpc_client = env.rpc_node().client();
@@ -131,29 +141,29 @@ fn test_memtries_replay_chunks_controller() {
     assert_replayed_outcome(&result, receipt_id1, &receipt_outcome1.outcome_with_id.outcome);
 }
 
-/// Creates a `MemtriesChunksReplayController` from the given snapshot store
-/// (for memtries) and the RPC node's current chain store and epoch manager
-/// (for replay data).
+/// Creates a `SequentialChunksReplayController` using a `CombinedDatabase`
+/// that reads flat-state columns from the snapshot and everything else
+/// from the RPC node's current store.
 fn create_replay_controller(
     env: &TestLoopEnv,
-    memtrie_source_store: &Store,
-) -> MemtriesChunksReplayController {
+    snapshot_store: &Store,
+    storage_mode: ReplayStorageMode,
+) -> SequentialChunksReplayController {
     let rpc_client = env.rpc_node().client();
     let chain_store = rpc_client.chain.chain_store.clone();
     let epoch_manager = rpc_client.epoch_manager.clone();
     let genesis_config = &env.shared_state.genesis.config;
 
-    // Create a NightshadeRuntime backed by the RPC node's store so that
-    // trie data reads during replay have access to the full state.
+    let combined_store = CombinedDatabase::new(snapshot_store.clone(), env.rpc_node().store());
+
     let home_dir =
         NodeExecutionData::homedir(&env.shared_state.tempdir, &env.rpc_node().node_data.identifier);
-    let rpc_store = env.rpc_node().store();
     let runtime_epoch_manager =
-        EpochManager::new_arc_handle(rpc_store.clone(), genesis_config, Some(&home_dir));
+        EpochManager::new_arc_handle(combined_store.clone(), genesis_config, Some(&home_dir));
     let contract_cache = FilesystemContractRuntimeCache::test().expect("filesystem contract cache");
     let runtime = NightshadeRuntime::test_with_trie_config(
         &home_dir,
-        rpc_store,
+        combined_store,
         ContractRuntimeCache::handle(&contract_cache),
         genesis_config,
         runtime_epoch_manager,
@@ -164,13 +174,8 @@ fn create_replay_controller(
         false,
     );
 
-    MemtriesChunksReplayController::load_memtries(
-        chain_store,
-        runtime,
-        epoch_manager,
-        memtrie_source_store,
-    )
-    .expect("failed to create replay controller")
+    SequentialChunksReplayController::new(chain_store, runtime, epoch_manager, storage_mode)
+        .expect("failed to create replay controller")
 }
 
 /// Finds the execution outcome for the given receipt in the replay result

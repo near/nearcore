@@ -456,23 +456,13 @@ impl ShardTries {
         state_root: Option<StateRoot>,
         parallelize: bool,
     ) -> Result<(), StorageError> {
-        self.load_memtrie_from_store(&self.0.store.store(), shard_uid, state_root, parallelize)
-    }
-
-    /// Loads in-memory trie from a given store, which may differ from the
-    /// store owned by this ShardTries instance. This is useful for replay
-    /// scenarios where memtries are loaded from an earlier database snapshot
-    /// while the ShardTries instance is backed by the current store.
-    pub fn load_memtrie_from_store(
-        &self,
-        store: &Store,
-        shard_uid: &ShardUId,
-        state_root: Option<StateRoot>,
-        parallelize: bool,
-    ) -> Result<(), StorageError> {
         tracing::info!(target: "memtrie", ?shard_uid, "loading trie to memory for shard");
-        let (memtries, _) =
-            load_trie_from_flat_state_and_delta(store, *shard_uid, state_root, parallelize)?;
+        let (memtries, _) = load_trie_from_flat_state_and_delta(
+            &self.0.store.store(),
+            *shard_uid,
+            state_root,
+            parallelize,
+        )?;
         self.0.memtries.write().insert(*shard_uid, Arc::new(RwLock::new(memtries)));
         tracing::info!(target: "memtrie", ?shard_uid, "memtrie loading complete for shard");
         Ok(())
