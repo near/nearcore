@@ -30,9 +30,10 @@ fn pipelining_pool() -> &'static rayon::ThreadPool {
     static POOL: OnceLock<rayon::ThreadPool> = OnceLock::new();
     POOL.get_or_init(|| {
         rayon::ThreadPoolBuilder::new()
+            .num_threads(std::cmp::max(rayon::current_num_threads() / 2, 1))
             .thread_name(|index| format!("pipelining-{index}"))
             .build()
-            .unwrap()
+            .expect("failed to build pipelining thread pool")
     })
 }
 
