@@ -214,7 +214,7 @@ impl TestTriesBuilder {
             }
             update_for_chunk_extra.commit();
 
-            tries.load_memtries_for_enabled_shards(&shard_uids, &[].into(), false).unwrap();
+            tries.load_memtries_for_enabled_shards(&shard_uids, None, false).unwrap();
         }
         tries
     }

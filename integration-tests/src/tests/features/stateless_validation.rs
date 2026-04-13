@@ -50,7 +50,6 @@ fn run_chunk_validation_test(
     let num_validators = 8;
     let (accounts, shard_layout) = get_accounts_and_shard_layout(num_accounts, num_validators);
 
-    let num_shards = shard_layout.shard_ids().count();
     let mut genesis_config = GenesisConfig {
         // Use the latest protocol version. Otherwise, the version may be too
         // old that e.g. blocks don't even store previous heights.
@@ -76,10 +75,6 @@ fn run_chunk_validation_test(
         num_block_producer_seats: num_validators as NumSeats,
         // Each shard has 2 chunk producers, so 4 shards, 8 chunk producers total.
         minimum_validators_per_shard: 2,
-        // Even though not used for the most recent protocol version,
-        // this must still have the same length as the number of shards,
-        // or else the genesis fails validation.
-        num_block_producer_seats_per_shard: vec![8; num_shards],
         gas_limit: Gas::from_teragas(1000),
         // Needed to completely avoid validator kickouts as we want to test
         // missing chunks functionality.
@@ -280,7 +275,6 @@ fn test_protocol_upgrade_81() {
 
     let (accounts, shard_layout) = get_accounts_and_shard_layout(num_accounts, num_validators);
 
-    let num_shards = shard_layout.shard_ids().count();
     let genesis_config = GenesisConfig {
         protocol_version: PROTOCOL_VERSION,
         chain_id: "mocknet".to_string(),
@@ -298,7 +292,6 @@ fn test_protocol_upgrade_81() {
         protocol_treasury_account: accounts[num_validators].clone(),
         num_block_producer_seats: num_validators as NumSeats,
         minimum_validators_per_shard: num_validators as NumSeats,
-        num_block_producer_seats_per_shard: vec![8; num_shards],
         block_producer_kickout_threshold: 90,
         chunk_producer_kickout_threshold: 90,
         ..Default::default()

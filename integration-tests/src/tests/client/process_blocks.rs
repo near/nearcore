@@ -11,8 +11,7 @@ use near_async::ActorSystem;
 use near_async::messaging::{CanSend, CanSendAsync};
 use near_async::time::{Clock, Duration};
 use near_chain::types::{LatestKnown, RuntimeAdapter};
-use near_chain::validate::validate_chunk_with_chunk_extra;
-use near_chain::{BlockProcessingArtifact, ChainStore, ChainStoreAccess, Error, Provenance};
+use near_chain::{BlockProcessingArtifact, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, ProtocolVersionCheckConfig};
 use near_client::sync::SYNC_V2_ENABLED;
@@ -39,23 +38,18 @@ use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::{PartialMerkleTree, verify_hash};
 use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
-use near_primitives::sharding::{
-    ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV3, ShardChunkWithEncoding,
-};
+use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV3};
 use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::stateless_validation::ChunkProductionKey;
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
-use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{
-    Action, DeployContractAction, ExecutionStatus, FunctionCallAction, SignedTransaction,
-    Transaction, TransactionV0,
+    Action, ExecutionStatus, FunctionCallAction, SignedTransaction, Transaction, TransactionV0,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, Gas, NumBlocks};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
 use near_primitives_core::num_rational::Ratio;
 use near_store::NodeStorage;
@@ -720,12 +714,7 @@ fn test_bad_chunk_mask() {
     let account1: AccountId = "test1.near".parse().unwrap();
     let accounts = vec![account0.clone(), account1.clone()];
     let num_validators: u64 = accounts.len().try_into().unwrap();
-    let genesis = Genesis::test_sharded(
-        Clock::real(),
-        accounts.clone(),
-        num_validators,
-        vec![num_validators; 2],
-    );
+    let genesis = Genesis::test_sharded(Clock::real(), accounts.clone(), num_validators, 2);
     let mut env = TestEnv::builder(&genesis.config)
         .clients(accounts)
         .nightshade_runtimes(&genesis)
@@ -1188,7 +1177,7 @@ fn slow_test_process_block_after_state_sync() {
     let mut genesis = Genesis::test_sharded_new_version(
         vec!["test0".parse().unwrap(), "test1".parse().unwrap()],
         1,
-        vec![1],
+        1,
     );
     genesis.config.epoch_length = epoch_length;
     genesis.config.transaction_validity_period = epoch_length * 2;
@@ -1345,7 +1334,6 @@ fn test_tx_forward_around_epoch_boundary() {
     let epoch_length = 4;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.num_block_producer_seats = 2;
-    genesis.config.num_block_producer_seats_per_shard = vec![2];
     genesis.config.epoch_length = epoch_length;
     genesis.config.transaction_validity_period = epoch_length * 2;
     let mut env = TestEnv::builder(&genesis.config)
@@ -1845,14 +1833,21 @@ fn test_block_height_processed_orphan() {
 }
 
 #[test]
+#[cfg(feature = "test_features")]
 fn test_validate_chunk_extra() {
+    use near_chain::ChainStore;
+    use near_chain::validate::validate_chunk_with_chunk_extra;
+    use near_primitives::sharding::ShardChunkWithEncoding;
+    use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+    use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
+    use near_primitives::transaction::DeployContractAction;
+    use near_primitives::version::ProtocolFeature;
+
     // With spice there is no need to test validate_chunk_with_chunk_extra since chunks no longer
     // contain data from chunk extra.
     if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
         return;
     }
-    let mut capture = near_o11y::testonly::TracingCapture::enable();
-
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
@@ -1947,7 +1942,7 @@ fn test_validate_chunk_extra() {
     // to try to produce chunks on top of block1, so we force the reorg case
     // using `capture`
 
-    env.pause_block_processing(&mut capture, block2.hash());
+    env.clients[0].chain.test_paused_blocks.pause(block2.hash());
     let mut chain_store = ChainStore::new(
         env.clients[0].chain.chain_store().store(),
         true,
@@ -1964,7 +1959,7 @@ fn test_validate_chunk_extra() {
     env.clients[0].process_blocks_with_missing_chunks(None);
     let accepted_blocks = env.clients[0].finish_block_in_processing(block1.hash());
     assert_eq!(accepted_blocks.len(), 1);
-    env.resume_block_processing(block2.hash());
+    env.clients[0].chain.test_paused_blocks.resume(block2.hash());
     let accepted_blocks = env.clients[0].finish_block_in_processing(block2.hash());
     env.propagate_chunk_state_witnesses_and_endorsements(false);
     assert_eq!(accepted_blocks.len(), 1);
@@ -2298,7 +2293,7 @@ fn test_refund_receipts_processing() {
     let mut genesis = Genesis::test_sharded_new_version(
         vec!["test0".parse().unwrap(), "test1".parse().unwrap()],
         1,
-        vec![1],
+        1,
     );
     genesis.config.epoch_length = epoch_length;
     genesis.config.transaction_validity_period = epoch_length * 2;

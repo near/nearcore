@@ -19,9 +19,10 @@ use near_client_primitives::types::{
     Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
     GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
     GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetMaintenanceWindows,
-    GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProtocolConfig,
-    GetProtocolConfigError, GetReceipt, GetReceiptError, GetReceiptToTx, GetReceiptToTxError,
-    GetReceiptToTxResponse, GetSplitStorageInfo, GetSplitStorageInfoError, GetStateChangesError,
+    GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProcessedReceiptIds,
+    GetProcessedReceiptIdsError, GetProtocolConfig, GetProtocolConfigError, GetReceipt,
+    GetReceiptError, GetReceiptToTx, GetReceiptToTxError, GetReceiptToTxResponse,
+    GetSplitStorageInfo, GetSplitStorageInfoError, GetStateChangesError,
     GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
     GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError,
 };
@@ -41,7 +42,7 @@ use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{PartialMerkleTree, merklize};
 use near_primitives::network::AnnounceAccount;
-use near_primitives::receipt::{Receipt, ReceiptOrigin, ReceiptToTxInfo};
+use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptOrigin, ReceiptToTxInfo};
 use near_primitives::sharding::ShardChunk;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{
@@ -863,17 +864,9 @@ impl Handler<GetChunk, Result<ChunkView, GetChunkError>> for ViewClientActor {
         };
 
         let chunk_inner = chunk.cloned_header().take_inner();
-        let epoch_id = self
-            .epoch_manager
-            .get_epoch_id_from_prev_block(chunk_inner.prev_block_hash())
-            .into_chain_error()?;
         let author = self
             .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
-                epoch_id,
-                height_created: chunk_inner.height_created(),
-                shard_id: chunk_inner.shard_id(),
-            })
+            .get_chunk_producer_info_db(chunk_inner.prev_block_hash(), chunk_inner.shard_id())
             .map(|info| info.take_account_id())
             .into_chain_error()?;
 
@@ -1232,6 +1225,30 @@ impl Handler<GetReceipt, Result<Option<ReceiptView>, GetReceiptError>> for ViewC
             .chain_store()
             .get_receipt(&msg.receipt_id)
             .map(|receipt| Receipt::clone(&receipt).into()))
+    }
+}
+
+impl
+    Handler<
+        GetProcessedReceiptIds,
+        Result<Vec<ProcessedReceiptMetadata>, GetProcessedReceiptIdsError>,
+    > for ViewClientActor
+{
+    fn handle(
+        &mut self,
+        msg: GetProcessedReceiptIds,
+    ) -> Result<Vec<ProcessedReceiptMetadata>, GetProcessedReceiptIdsError> {
+        tracing::debug!(target: "client", ?msg);
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["GetProcessedReceiptIds"])
+            .start_timer();
+        Ok(self
+            .chain
+            .chain_store()
+            .get_processed_receipt_ids(&msg.block_hash, msg.shard_id)?
+            .iter()
+            .cloned()
+            .collect())
     }
 }
 

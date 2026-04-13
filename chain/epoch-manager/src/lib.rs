@@ -660,7 +660,6 @@ impl EpochManager {
         // in epoch config for epoch X. This is different from dynamic resharding approach,
         // where resharding parameters stored in epoch config for epoch X determine the layout
         // for epoch X+2.
-        // TODO(dynamic_resharding): remove `next_next_epoch_config` when tests are adjusted
 
         // Dynamic resharding won't be enabled until epoch N+2, use the static layout.
         if let Some(shard_layout) = next_next_epoch_config.static_shard_layout() {

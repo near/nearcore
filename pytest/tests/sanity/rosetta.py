@@ -806,6 +806,7 @@ class RosettaTestCase(unittest.TestCase):
 
         self.assertEqual([{
             'metadata': {
+                'execution_status': 'SUCCESS',
                 'type': 'TRANSACTION'
             },
             'operations': [{
@@ -891,6 +892,7 @@ class RosettaTestCase(unittest.TestCase):
                     }
                 }],
                 'metadata': {
+                    'execution_status': 'SUCCESS',
                     'type': 'TRANSACTION'
                 }
             }, result.transaction())
@@ -918,6 +920,7 @@ class RosettaTestCase(unittest.TestCase):
         self.assertEqual(
             {
                 'metadata': {
+                    'execution_status': 'SUCCESS',
                     'type': 'TRANSACTION'
                 },
                 'operations': [{
@@ -939,7 +942,8 @@ class RosettaTestCase(unittest.TestCase):
                     'metadata': {
                         'predecessor_id': {
                             'address': implicit.account_id
-                        }
+                        },
+                        'transfer_fee_type': 'GAS_PREPAYMENT'
                     }
                 }],
                 'related_transactions': [{
@@ -954,6 +958,7 @@ class RosettaTestCase(unittest.TestCase):
         self.assertEqual(
             {
                 'metadata': {
+                    'execution_status': 'SUCCESS',
                     'type': 'TRANSACTION'
                 },
                 'operations': [{
@@ -985,6 +990,7 @@ class RosettaTestCase(unittest.TestCase):
         self.assertEqual(
             {
                 'metadata': {
+                    'execution_status': 'SUCCESS',
                     'type': 'TRANSACTION'
                 },
                 'operations': [{

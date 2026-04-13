@@ -381,6 +381,10 @@ pub enum ProtocolFeature {
     /// (sequential ordering). Transactions with a nonce gap are held in the
     /// pool rather than discarded.
     StrictNonce,
+    /// Pre-compute and persist chunk producer assignments in `DBCol::ChunkProducers`
+    /// during header sync and block processing. Foundation for early chunk producer
+    /// kickout without epoch manager recomputation.
+    EarlyKickout,
 }
 
 impl ProtocolFeature {
@@ -490,7 +494,8 @@ impl ProtocolFeature {
             | ProtocolFeature::EthImplicitGlobalContract
             | ProtocolFeature::InstantDeleteAccount => 83,
             ProtocolFeature::Wasmtime => 84,
-            ProtocolFeature::FixDelegateActionDepositWithFunctionCallError => 85,
+            ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
+            | ProtocolFeature::ContinuousEpochSync => 85,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -500,7 +505,7 @@ impl ProtocolFeature {
             ProtocolFeature::GasKeys => 149,
             ProtocolFeature::DynamicResharding => 150,
             ProtocolFeature::StrictNonce => 151,
-            ProtocolFeature::ContinuousEpochSync => 152,
+            ProtocolFeature::EarlyKickout => 152,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.

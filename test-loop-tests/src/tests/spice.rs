@@ -1,6 +1,7 @@
 use super::spice_utils::delay_endorsements_propagation;
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
+use crate::setup::peer_manager_actor::HandlerResult;
 use crate::utils::account::{
     create_account_id, create_validators_spec, validators_spec_clients,
     validators_spec_clients_with_rpc,
@@ -828,7 +829,7 @@ fn test_spice_validator_only_does_not_distribute_witness_and_receipts() {
             if matches!(&request, NetworkRequests::SpicePartialData { .. }) {
                 counter.fetch_add(1, Ordering::SeqCst);
             }
-            Some(request)
+            HandlerResult::Unhandled(request)
         }));
     }
 
@@ -872,7 +873,7 @@ fn test_spice_validator_only_sends_endorsements() {
             if matches!(&request, NetworkRequests::SpiceChunkEndorsement(..)) {
                 counter.fetch_add(1, Ordering::SeqCst);
             }
-            Some(request)
+            HandlerResult::Unhandled(request)
         }));
     }
 

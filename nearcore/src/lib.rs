@@ -99,7 +99,7 @@ pub fn get_default_home() -> PathBuf {
 // TODO(cloud_archival) There seems to be some legacy complexity around the
 // `archive` config option and `DbKind` — maybe it can be simplified.
 pub fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<NodeStorage> {
-    let migrator = migrations::Migrator::new(near_config);
+    let migrator = migrations::Migrator::new(near_config, home_dir);
     let opener = NodeStorage::opener(
         home_dir,
         &near_config.config.store,
@@ -314,7 +314,6 @@ fn spawn_spice_actors(
             let thread_limit = runtime.get_shard_limit(PROTOCOL_VERSION) as usize * 3;
             ApplyChunksSpawner::default().into_spawner(thread_limit)
         },
-        Default::default(),
         chunk_executor_adapter.as_sender(),
         spice_core_writer_adapter.as_sender(),
         spice_data_distributor_adapter.as_multi_sender(),

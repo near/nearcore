@@ -40,7 +40,7 @@ pub use manager::FlatStorageManager;
 pub use metrics::{
     FlatStorageReshardingShardCatchUpMetrics, FlatStorageReshardingShardSplitMetrics,
 };
-pub use storage::FlatStorage;
+pub use storage::{FlatHeadHold, FlatStorage};
 pub use types::{
     BlockInfo, FetchingStateStatus, FlatStateIterator, FlatStorageCreationStatus, FlatStorageError,
     FlatStorageReadyStatus, FlatStorageReshardingStatus, FlatStorageStatus, ParentSplitParameters,

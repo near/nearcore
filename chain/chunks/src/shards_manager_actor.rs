@@ -1779,13 +1779,10 @@ impl ShardsManagerActor {
         // calculating owner parts requires that, so we first check
         // whether prev_block_hash is in the chain, if not, returns NeedBlock
         let prev_block_hash = header.prev_block_hash();
-        let epoch_id = match self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash) {
-            Ok(epoch_id) => epoch_id,
-            Err(_) => {
-                tracing::debug!(target: "chunks", ?prev_block_hash, "block not found");
-                return Ok(ProcessPartialEncodedChunkResult::NeedBlock);
-            }
-        };
+        if self.epoch_manager.get_block_info(&prev_block_hash).is_err() {
+            tracing::debug!(target: "chunks", ?prev_block_hash, "block not found");
+            return Ok(ProcessPartialEncodedChunkResult::NeedBlock);
+        }
         // check the header exists in encoded_chunks and validate it again (full validation)
         // now that prev_block is processed
         if let Some(chunk_entry) = self.encoded_chunks.get(&chunk_hash) {
@@ -1838,11 +1835,7 @@ impl ShardsManagerActor {
 
         let chunk_producer = self
             .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
-                epoch_id,
-                height_created: header.height_created(),
-                shard_id: header.shard_id(),
-            })?
+            .get_chunk_producer_info_db(&prev_block_hash, header.shard_id())?
             .take_account_id();
 
         if have_all_parts {

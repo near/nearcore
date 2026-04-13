@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.2.3"
+    "version": "1.2.4"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -7149,15 +7149,6 @@
       },
       "GenesisConfig": {
         "properties": {
-          "avg_hidden_validator_seats_per_shard": {
-            "description": "Expected number of hidden validators per shard.",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "type": "array"
-          },
           "block_producer_kickout_threshold": {
             "description": "Threshold for kicking out block producers, between 0 and 100.",
             "format": "uint8",
@@ -7301,24 +7292,8 @@
             "minimum": 0,
             "type": "integer"
           },
-          "num_block_producer_seats_per_shard": {
-            "description": "Defines number of shards and number of block producer seats per each shard at genesis.\nNote: not used with protocol_feature_chunk_only_producers -- replaced by minimum_validators_per_shard\nNote: not used before as all block producers produce chunks for all shards",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "type": "array"
-          },
           "num_blocks_per_year": {
             "description": "Expected number of blocks per year",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "num_chunk_only_producer_seats": {
-            "default": 300,
-            "description": "Deprecated.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -7470,8 +7445,6 @@
           "chain_id",
           "genesis_height",
           "num_block_producer_seats",
-          "num_block_producer_seats_per_shard",
-          "avg_hidden_validator_seats_per_shard",
           "dynamic_resharding",
           "epoch_length",
           "gas_limit",
@@ -7527,24 +7500,24 @@
           {
             "additionalProperties": false,
             "properties": {
-              "CodeHash": {
+              "hash": {
                 "$ref": "#/components/schemas/CryptoHash"
               }
             },
             "required": [
-              "CodeHash"
+              "hash"
             ],
             "type": "object"
           },
           {
             "additionalProperties": false,
             "properties": {
-              "AccountId": {
+              "account_id": {
                 "$ref": "#/components/schemas/AccountId"
               }
             },
             "required": [
-              "AccountId"
+              "account_id"
             ],
             "type": "object"
           }
@@ -11077,6 +11050,20 @@
             "minimum": 0,
             "type": "integer"
           },
+          "max_blocks_per_contract": {
+            "description": "If present, stores max total number of basic blocks across all functions in a contract.\nThis caps total compilation time for a contract.",
+            "format": "uint64",
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          },
+          "max_blocks_per_function": {
+            "description": "If present, stores max number of basic blocks (block/loop/if) in a single function.\nThis caps per-function compilation time in Cranelift.",
+            "format": "uint64",
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          },
           "max_contract_size": {
             "description": "Max contract size",
             "format": "uint64",
@@ -11811,6 +11798,20 @@
             "description": "The instrumented code exceeds the size limit.",
             "enum": [
               "InstrumentedCodeTooLarge"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "A function contains too many basic blocks.",
+            "enum": [
+              "TooManyBlocksPerFunction"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "A contract contains too many basic blocks.",
+            "enum": [
+              "TooManyBlocksPerContract"
             ],
             "type": "string"
           }
@@ -14185,15 +14186,6 @@
       },
       "RpcProtocolConfigResponse": {
         "properties": {
-          "avg_hidden_validator_seats_per_shard": {
-            "description": "Expected number of hidden validators per shard.",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "type": "array"
-          },
           "block_producer_kickout_threshold": {
             "description": "Threshold for kicking out block producers, between 0 and 100.",
             "format": "uint8",
@@ -14326,15 +14318,6 @@
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
-          },
-          "num_block_producer_seats_per_shard": {
-            "description": "Defines number of shards and number of block producer seats per each shard at genesis.",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "type": "array"
           },
           "num_blocks_per_year": {
             "description": "Expected number of blocks per year",
