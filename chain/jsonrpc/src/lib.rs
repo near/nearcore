@@ -1299,9 +1299,9 @@ impl JsonRpcHandler {
             }
             ChunkReference::ChunkHash { chunk_id } => {
                 let chunk_hash = ChunkHash::from(*chunk_id);
-                match self.pool.read().try_resolve_chunk_shard(&chunk_hash) {
-                    Some(shard_id) => (
-                        BlockHint::None,
+                match self.pool.read().try_resolve_chunk_block_and_shard(&chunk_hash) {
+                    Some((height, shard_id)) => (
+                        BlockHint::Height(height),
                         ShardHint::Id(shard_id),
                         CoordinatorRequestStrategy::Sequential,
                     ),
@@ -1719,9 +1719,9 @@ impl JsonRpcHandler {
             }
             ChunkReference::ChunkHash { chunk_id } => {
                 let chunk_hash = ChunkHash::from(*chunk_id);
-                match self.pool.read().try_resolve_chunk_shard(&chunk_hash) {
-                    Some(shard_id) => (
-                        BlockHint::None,
+                match self.pool.read().try_resolve_chunk_block_and_shard(&chunk_hash) {
+                    Some((height, shard_id)) => (
+                        BlockHint::Height(height),
                         ShardHint::Id(shard_id),
                         CoordinatorRequestStrategy::Sequential,
                     ),
