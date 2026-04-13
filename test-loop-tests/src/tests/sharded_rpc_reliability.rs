@@ -6,6 +6,7 @@ use near_jsonrpc_primitives::types::chunks::{ChunkReference, RpcChunkRequest};
 use near_jsonrpc_primitives::types::query::RpcQueryRequest;
 use near_jsonrpc_primitives::types::receipts::{ReceiptReference, RpcReceiptRequest};
 use near_o11y::testonly::init_test_logger;
+use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockId, BlockReference, Finality};
 use near_primitives::views::QueryRequest;
@@ -153,6 +154,31 @@ fn test_rpc_chunk_coordinator_header_bypass() {
             assert_rpc_error(&err, "UNKNOWN_CHUNK");
         }
         other => panic!("expected Response, got: {other:?}"),
+    }
+}
+
+/// A chunk query by ChunkHash for a chunk that doesn't exist anywhere falls
+/// through the partial-chunk-store resolution and triggers the
+/// ParallelTakeFirst fallback. All nodes return UnknownChunk; the strategy
+/// must surface UNKNOWN_CHUNK rather than an unrelated error or a timeout.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_rpc_chunk_bogus_hash_parallel_fallback() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+
+    let bogus_chunk_hash = CryptoHash::hash_bytes(b"bogus chunk hash");
+
+    for node_id in [&h.alice_node.clone(), &h.zoe_node.clone()] {
+        let err = h
+            .env
+            .runner_for_account(node_id)
+            .run_with_jsonrpc_client(
+                |client| client.chunk(ChunkId::Hash(bogus_chunk_hash)),
+                Duration::seconds(5),
+            )
+            .unwrap_err();
+        assert_rpc_error(&err, "UNKNOWN_CHUNK");
     }
 }
 
