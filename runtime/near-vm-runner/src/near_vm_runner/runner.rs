@@ -262,6 +262,7 @@ impl NearVM {
                 let _span =
                     tracing::debug_span!(target: "vm", "NearVM::fetch_from_cache").entered();
                 let cache_record = cache.get(&key).map_err(CacheError::ReadError)?;
+                crate::metrics::record_persisted_contract_cache_lookup(cache_record.is_some());
                 let Some(compiled_contract_info) = cache_record else {
                     let Some(code) = contract.get_code() else {
                         return Err(VMRunnerError::ContractCodeNotPresent);

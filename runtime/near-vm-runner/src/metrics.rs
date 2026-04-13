@@ -11,6 +11,8 @@ thread_local! {
         wasmtime_compilation_time: Duration::new(0, 0),
         compiled_contract_cache_lookups: 0,
         compiled_contract_cache_hits: 0,
+        persisted_contract_cache_lookups: 0,
+        persisted_contract_cache_hits: 0,
     }) };
 }
 
@@ -70,6 +72,24 @@ static COMPILED_CONTRACT_CACHE_HITS_TOTAL: LazyLock<IntCounterVec> = LazyLock::n
     .unwrap()
 });
 
+static PERSISTED_CONTRACT_CACHE_LOOKUPS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_vm_persisted_contract_cache_lookups_total",
+        "The number of times the runtime looks up an entry in the persisted (on-disk) compiled-contract cache, after missing the in-memory cache, for the given caller context and shard_id",
+        &["context", "shard_id"],
+    )
+    .unwrap()
+});
+
+static PERSISTED_CONTRACT_CACHE_HITS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_vm_persisted_contract_cache_hits_total",
+        "The number of times the runtime finds an entry in the persisted (on-disk) compiled-contract cache, after missing the in-memory cache, for the given caller context and shard_id",
+        &["context", "shard_id"],
+    )
+    .unwrap()
+});
+
 #[derive(Default, Copy, Clone)]
 struct Metrics {
     near_vm_compilation_time: Duration,
@@ -78,6 +98,11 @@ struct Metrics {
     compiled_contract_cache_lookups: u64,
     /// Number of times the lookup from the compiled contract cache finds a match.
     compiled_contract_cache_hits: u64,
+    /// Number of lookups from the persisted (on-disk) compiled contract cache,
+    /// after an in-memory cache miss.
+    persisted_contract_cache_lookups: u64,
+    /// Number of times the persisted-cache lookup finds a match.
+    persisted_contract_cache_hits: u64,
 }
 
 #[cfg(any(feature = "near_vm", feature = "wasmtime_vm"))]
@@ -115,6 +140,19 @@ pub(crate) fn record_compiled_contract_cache_lookup(is_hit: bool) {
     });
 }
 
+/// Updates metrics to record a persisted (on-disk) compiled-contract cache
+/// lookup, where is_hit=true indicates that we found an entry. This is only
+/// called when the in-memory cache missed and we fell back to disk.
+#[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
+pub(crate) fn record_persisted_contract_cache_lookup(is_hit: bool) {
+    METRICS.with_borrow_mut(|m| {
+        m.persisted_contract_cache_lookups += 1;
+        if is_hit {
+            m.persisted_contract_cache_hits += 1;
+        }
+    });
+}
+
 pub fn reset_metrics() {
     METRICS.with_borrow_mut(|m| *m = Metrics::default());
 }
@@ -146,6 +184,16 @@ pub fn report_metrics(shard_id: &str, caller_context: &str) {
             COMPILED_CONTRACT_CACHE_HITS_TOTAL
                 .with_label_values(&[caller_context, shard_id])
                 .inc_by(m.compiled_contract_cache_hits);
+        }
+        if m.persisted_contract_cache_lookups > 0 {
+            PERSISTED_CONTRACT_CACHE_LOOKUPS_TOTAL
+                .with_label_values(&[caller_context, shard_id])
+                .inc_by(m.persisted_contract_cache_lookups);
+        }
+        if m.persisted_contract_cache_hits > 0 {
+            PERSISTED_CONTRACT_CACHE_HITS_TOTAL
+                .with_label_values(&[caller_context, shard_id])
+                .inc_by(m.persisted_contract_cache_hits);
         }
 
         *m = Metrics::default();
