@@ -6,6 +6,9 @@ use near_jsonrpc_primitives::message::Message;
 use near_jsonrpc_primitives::types::call_function::RpcCallFunctionRequest;
 use near_jsonrpc_primitives::types::chunks::ChunkReference;
 use near_jsonrpc_primitives::types::congestion::RpcCongestionLevelRequest;
+use near_jsonrpc_primitives::types::light_client::{
+    RpcLightClientExecutionProofRequest, RpcLightClientExecutionProofResponse,
+};
 use near_jsonrpc_primitives::types::query::{QueryResponseKind, RpcQueryRequest};
 use near_jsonrpc_primitives::types::receipts::{
     ReceiptReference, RpcReceiptRequest, RpcReceiptResponse,
@@ -21,6 +24,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{
     AccountId, Balance, BlockId, BlockReference, Finality, FunctionArgs, Gas, StoreKey,
+    TransactionOrReceiptId,
 };
 use near_primitives::views::QueryRequest;
 use near_store::ShardUId;
@@ -1212,4 +1216,149 @@ fn test_rpc_query_unknown_block_fallback() {
         )
         .unwrap_err();
     assert_rpc_error(&err, "UNKNOWN_BLOCK");
+}
+
+/// `light_client_proof` should be forwarded to the RPC node that tracks the shard
+/// derived from the account in `TransactionOrReceiptId` under the epoch of
+/// `light_client_head`, for both transaction and receipt variants.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_rpc_light_client_proof_forwarding() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+
+    // Submit a cross-shard transfer so we have both a transaction outcome (alice's shard)
+    // and a receipt outcome (zoe's shard).
+    let alice = h.alice.clone();
+    let zoe = h.zoe.clone();
+    let validator = h.validator.clone();
+    let alice_node = h.alice_node.clone();
+    let zoe_node = h.zoe_node.clone();
+
+    let tx = h.env.node_for_account(&validator).tx_send_money(&alice, &zoe, Balance::from_near(1));
+    let tx_hash = tx.get_hash();
+    h.env.node_for_account(&validator).submit_tx(tx);
+
+    // Wait for tx + receipt to execute and for several further blocks so the
+    // outcome's block is final and we have a final head ahead of it. Advance
+    // both RPC nodes so their canonical chain includes the chosen
+    // `light_client_head`.
+    let target_height = h.env.node_for_account(&validator).head().height + 10;
+    h.env.runner_for_account(&validator).run_until_executed_height(target_height);
+    h.env.runner_for_account(&alice_node).run_until_executed_height(target_height);
+    h.env.runner_for_account(&zoe_node).run_until_executed_height(target_height);
+
+    let receipt_id = h
+        .env
+        .node_for_account(&validator)
+        .client()
+        .chain
+        .get_execution_outcome(&tx_hash)
+        .unwrap()
+        .outcome_with_id
+        .outcome
+        .receipt_ids[0];
+
+    // Pick the final head from an RPC node so the block is guaranteed to be
+    // canonical on the node that actually answers the request.
+    let light_client_head =
+        h.env.node_for_account(&alice_node).client().chain.final_head().unwrap().last_block_hash;
+
+    let run_proof_query = |h: &mut TwoShardHarness,
+                           node_id: &AccountId,
+                           id: TransactionOrReceiptId|
+     -> Result<RpcLightClientExecutionProofResponse, RpcError> {
+        h.env.runner_for_account(node_id).run_with_jsonrpc_client(
+            |client| {
+                client.light_client_proof(RpcLightClientExecutionProofRequest {
+                    id: id.clone(),
+                    light_client_head,
+                })
+            },
+            Duration::seconds(5),
+        )
+    };
+
+    // Transaction variant — routes to alice's shard via `sender_id`.
+    for node_id in [&alice_node, &zoe_node] {
+        let resp = run_proof_query(
+            &mut h,
+            node_id,
+            TransactionOrReceiptId::Transaction {
+                transaction_hash: tx_hash,
+                sender_id: alice.clone(),
+            },
+        )
+        .unwrap_or_else(|e| panic!("tx proof query from {node_id} failed: {e:?}"));
+        assert_eq!(resp.outcome_proof.id, tx_hash);
+        // The block referenced by the proof must be final and match the block
+        // the header lite describes.
+        assert_eq!(resp.block_header_lite.inner_lite.height > 0, true);
+        // Every outcome produces a non-empty outcome merkle path because the
+        // outcome hash is not the only leaf in its chunk.
+        assert!(
+            !resp.outcome_proof.proof.is_empty() || !resp.outcome_root_proof.is_empty(),
+            "expected non-empty outcome/outcome-root proof chain, got empty from {node_id}",
+        );
+    }
+
+    // Receipt variant — routes to zoe's shard via `receiver_id`.
+    for node_id in [&alice_node, &zoe_node] {
+        let resp = run_proof_query(
+            &mut h,
+            node_id,
+            TransactionOrReceiptId::Receipt { receipt_id, receiver_id: zoe.clone() },
+        )
+        .unwrap_or_else(|e| panic!("receipt proof query from {node_id} failed: {e:?}"));
+        assert_eq!(resp.outcome_proof.id, receipt_id);
+    }
+}
+
+/// `light_client_proof` should return `UNKNOWN_TRANSACTION_OR_RECEIPT` from either RPC
+/// node when the outcome id does not exist, since the routing target tracks the
+/// shard but still cannot find the outcome.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_rpc_light_client_proof_unknown_outcome() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+
+    // Run a few blocks so we have a final head to use as `light_client_head`.
+    let target_height = h.env.node_for_account(&h.validator.clone()).head().height + 5;
+    h.env.runner_for_account(&h.validator.clone()).run_until_executed_height(target_height);
+
+    let validator = h.validator.clone();
+    let alice = h.alice.clone();
+    let alice_node = h.alice_node.clone();
+    let zoe_node = h.zoe_node.clone();
+
+    let light_client_head =
+        h.env.node_for_account(&validator).client().chain.final_head().unwrap().last_block_hash;
+
+    let bogus_tx_hash = CryptoHash::hash_bytes(b"bogus-tx");
+
+    let run_proof_query = |h: &mut TwoShardHarness,
+                           node_id: &AccountId|
+     -> Result<RpcLightClientExecutionProofResponse, RpcError> {
+        h.env.runner_for_account(node_id).run_with_jsonrpc_client(
+            |client| {
+                client.light_client_proof(RpcLightClientExecutionProofRequest {
+                    id: TransactionOrReceiptId::Transaction {
+                        transaction_hash: bogus_tx_hash,
+                        sender_id: alice.clone(),
+                    },
+                    light_client_head,
+                })
+            },
+            Duration::seconds(5),
+        )
+    };
+
+    // Both RPC nodes should return UNKNOWN_TRANSACTION_OR_RECEIPT: alice_node resolves
+    // locally, zoe_node forwards to alice_node via the coordinator.
+    let err = run_proof_query(&mut h, &alice_node).unwrap_err();
+    assert_rpc_error(&err, "UNKNOWN_TRANSACTION_OR_RECEIPT");
+
+    let err = run_proof_query(&mut h, &zoe_node).unwrap_err();
+    assert_rpc_error(&err, "UNKNOWN_TRANSACTION_OR_RECEIPT");
 }
