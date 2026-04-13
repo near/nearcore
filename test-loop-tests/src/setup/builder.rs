@@ -580,6 +580,7 @@ impl<'a> NodeStateBuilder<'a> {
             num_block_producer_seats: 4,
             archive,
             state_sync_enabled: false,
+            transaction_pool_size_limit: None,
         });
         client_config.epoch_length = self.genesis.config.epoch_length;
         client_config.max_block_wait_delay = Duration::seconds(6);

@@ -89,6 +89,7 @@ fn setup_network_node(
         num_block_producer_seats: num_validators,
         archive: config.archive,
         state_sync_enabled: true,
+        transaction_pool_size_limit: None,
     });
     client_config.ttl_account_id_router = config.ttl_account_id_router.try_into().unwrap();
     let state_roots = near_store::get_genesis_state_roots(runtime.store())

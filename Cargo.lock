@@ -3452,6 +3452,7 @@ dependencies = [
  "near-network",
  "near-o11y",
  "near-parameters",
+ "near-pool",
  "near-primitives",
  "near-primitives-core",
  "near-rosetta-rpc",
