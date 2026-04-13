@@ -12,6 +12,10 @@ use std::collections::HashSet;
 /// The merkle tree is updated incrementally: the previous block's tree is read,
 /// extended with prev_hash, and saved under the current block's hash. The
 /// initial tree for each epoch must be written by `save_epoch_data` first.
+///
+/// Block, BlockHeader, BlockInfo use `insert_ser` (insert-only, content-addressed
+/// by hash). BlockHeight and BlockMerkleTree use `set_ser` (regular columns,
+/// keyed by height or hash, safe to overwrite).
 pub fn save_block_data(store: &Store, block_data: &BlockData) {
     let block = block_data.block();
     let header = block.header();

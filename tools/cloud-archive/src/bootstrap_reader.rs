@@ -31,6 +31,14 @@ impl BootstrapReaderCmd {
         let near_config = nearcore::config::load_config(home_dir, genesis_validation)
             .context("failed to load config")?;
 
+        let genesis_height = near_config.genesis.config.genesis_height;
+        anyhow::ensure!(
+            self.start_height > genesis_height,
+            "start_height ({}) must be > genesis_height ({}); the genesis block is not in cloud storage",
+            self.start_height,
+            genesis_height,
+        );
+
         let cloud_storage_context = near_config
             .cloud_storage_context()
             .context("cloud_archival not configured in config.json")?;
