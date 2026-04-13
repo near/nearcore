@@ -1,5 +1,6 @@
 use crate::utils::sharded_rpc::{TwoShardHarness, assert_rpc_error};
 use near_async::time::Duration;
+use near_jsonrpc::client::ChunkId;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::Message;
 use near_jsonrpc_primitives::types::call_function::RpcCallFunctionRequest;
@@ -798,6 +799,105 @@ fn test_rpc_experimental_congestion_level_chunk_hash_forwarding() {
     let zoe_node = h.zoe_node.clone();
     run_congestion_level(&alice_node, chunk_hash).unwrap();
     run_congestion_level(&zoe_node, chunk_hash).unwrap();
+}
+
+/// chunk queries by BlockId::Height + ShardId should be forwarded across shards.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_rpc_chunk_block_height_shard_id_forwarding() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+
+    let shard_layout = ShardLayout::multi_shard(2, 1);
+    let shard_uids: Vec<ShardUId> = shard_layout.shard_uids().collect();
+    let head_height = h.env.node_for_account(&h.validator).head().height;
+
+    let mut run_chunk = |node_id: &AccountId, shard_uid: ShardUId| -> Result<(), RpcError> {
+        let result = h.env.runner_for_account(node_id).run_with_jsonrpc_client(
+            |client| {
+                client.chunk(ChunkId::BlockShardId(
+                    BlockId::Height(head_height),
+                    shard_uid.shard_id(),
+                ))
+            },
+            Duration::seconds(5),
+        )?;
+        assert_eq!(result.header.shard_id, shard_uid.shard_id());
+        Ok(())
+    };
+
+    // Cross-shard: query shard 1 from shard 0's node and vice versa.
+    run_chunk(&h.alice_node, shard_uids[1]).unwrap();
+    run_chunk(&h.zoe_node, shard_uids[0]).unwrap();
+    // Local.
+    run_chunk(&h.alice_node, shard_uids[0]).unwrap();
+    run_chunk(&h.zoe_node, shard_uids[1]).unwrap();
+}
+
+/// chunk queries by BlockId::Hash + ShardId should be forwarded across shards.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_rpc_chunk_block_hash_shard_id_forwarding() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+
+    let shard_layout = ShardLayout::multi_shard(2, 1);
+    let shard_uids: Vec<ShardUId> = shard_layout.shard_uids().collect();
+    let validator = h.validator.clone();
+    let head = h.env.node_for_account(&validator).head();
+    let block_hash = head.last_block_hash;
+
+    let mut run_chunk = |node_id: &AccountId, shard_uid: ShardUId| -> Result<(), RpcError> {
+        let result = h.env.runner_for_account(node_id).run_with_jsonrpc_client(
+            |client| {
+                client.chunk(ChunkId::BlockShardId(BlockId::Hash(block_hash), shard_uid.shard_id()))
+            },
+            Duration::seconds(5),
+        )?;
+        assert_eq!(result.header.shard_id, shard_uid.shard_id());
+        Ok(())
+    };
+
+    // Cross-shard: query shard 1 from shard 0's node and vice versa.
+    run_chunk(&h.alice_node, shard_uids[1]).unwrap();
+    run_chunk(&h.zoe_node, shard_uids[0]).unwrap();
+    // Local.
+    run_chunk(&h.alice_node, shard_uids[0]).unwrap();
+    run_chunk(&h.zoe_node, shard_uids[1]).unwrap();
+}
+
+/// chunk queries by ChunkHash should be forwarded across shards.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_rpc_chunk_hash_forwarding() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+
+    // Get chunk hashes from both shards in the head block.
+    let validator = h.validator.clone();
+    let head = h.env.node_for_account(&validator).head();
+    let head_block =
+        h.env.node_for_account(&validator).client().chain.get_block(&head.last_block_hash).unwrap();
+    let chunk_hash_shard0 = head_block.chunks()[0].chunk_hash().0;
+    let chunk_hash_shard1 = head_block.chunks()[1].chunk_hash().0;
+
+    let mut run_chunk = |node_id: &AccountId, chunk_id: CryptoHash| -> Result<(), RpcError> {
+        let result = h.env.runner_for_account(node_id).run_with_jsonrpc_client(
+            |client| client.chunk(ChunkId::Hash(chunk_id)),
+            Duration::seconds(5),
+        )?;
+        assert_eq!(result.header.chunk_hash, chunk_id);
+        Ok(())
+    };
+
+    // Both nodes should be able to serve ChunkHash queries for both shards
+    // (resolved via partial chunk store).
+    let alice_node = h.alice_node.clone();
+    let zoe_node = h.zoe_node.clone();
+    run_chunk(&alice_node, chunk_hash_shard0).unwrap();
+    run_chunk(&alice_node, chunk_hash_shard1).unwrap();
+    run_chunk(&zoe_node, chunk_hash_shard0).unwrap();
+    run_chunk(&zoe_node, chunk_hash_shard1).unwrap();
 }
 
 /// Cross-shard EXPERIMENTAL_view_code for an account with no contract should return a proper error.

@@ -6,7 +6,7 @@ use near_client::ViewClientActor;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::Balance;
 use near_primitives::views::{
-    AccessKeyPermissionView, ExecutionOutcomeWithIdView, SignedTransactionView,
+    AccessKeyPermissionView, ExecutionOutcomeWithIdView, ExecutionStatusView, SignedTransactionView,
 };
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -25,6 +25,8 @@ pub(crate) struct ExecutionToReceipts {
     receipts: HashMap<CryptoHash, AccountId>,
     /// A vector of FungibleTokenEvents derived from logs in the ExecutionOutcomeWithIdView vector.
     events: Vec<FungibleTokenEvent>,
+    /// A mapping from execution ID (transaction or receipt hash) to execution outcome status.
+    statuses: HashMap<CryptoHash, crate::models::ExecutionStatus>,
 }
 impl ExecutionToReceipts {
     /// Fetches execution outcomes for given block and constructs a mapping from
@@ -80,7 +82,21 @@ impl ExecutionToReceipts {
             &block.header,
             currencies,
         )?;
-        Ok(Self { map: map_hash_to_receipts, transactions, receipts, events })
+        let statuses = execution_outcomes
+            .into_iter()
+            .map(|exec| {
+                let status = match exec.outcome.status {
+                    ExecutionStatusView::Unknown => crate::models::ExecutionStatus::Unknown,
+                    ExecutionStatusView::Failure(_) => crate::models::ExecutionStatus::Failure,
+                    ExecutionStatusView::SuccessValue(_)
+                    | ExecutionStatusView::SuccessReceiptId(_) => {
+                        crate::models::ExecutionStatus::Success
+                    }
+                };
+                (exec.id, status)
+            })
+            .collect();
+        Ok(Self { map: map_hash_to_receipts, transactions, receipts, events, statuses })
     }
 
     /// Creates an empty mapping.  This is useful for tests.
@@ -90,6 +106,7 @@ impl ExecutionToReceipts {
             transactions: Default::default(),
             receipts: Default::default(),
             events: Default::default(),
+            statuses: Default::default(),
         }
     }
 
@@ -99,6 +116,40 @@ impl ExecutionToReceipts {
         transactions: HashMap<CryptoHash, SignedTransactionView>,
     ) -> Self {
         Self { receipts, transactions, ..Self::empty() }
+    }
+
+    /// Adds execution statuses to an existing mapping. Useful for tests.
+    pub(crate) fn with_statuses(
+        mut self,
+        statuses: HashMap<CryptoHash, crate::models::ExecutionStatus>,
+    ) -> Self {
+        self.statuses = statuses;
+        self
+    }
+
+    /// Returns the execution outcome status for a given state change cause.
+    fn get_execution_status(
+        &self,
+        cause: &near_primitives::views::StateChangeCauseView,
+    ) -> Option<crate::models::ExecutionStatus> {
+        use near_primitives::views::StateChangeCauseView;
+        let exec_id = match cause {
+            StateChangeCauseView::TransactionProcessing { tx_hash } => Some(*tx_hash),
+            StateChangeCauseView::ActionReceiptProcessingStarted { receipt_hash }
+            | StateChangeCauseView::ReceiptProcessing { receipt_hash }
+            | StateChangeCauseView::PostponedReceipt { receipt_hash }
+            | StateChangeCauseView::ActionReceiptGasReward { receipt_hash } => Some(*receipt_hash),
+            _ => None,
+        };
+        exec_id.and_then(|id| self.get_execution_status_by_hash(&id))
+    }
+
+    /// Returns the execution outcome status for a given execution hash.
+    fn get_execution_status_by_hash(
+        &self,
+        hash: &CryptoHash,
+    ) -> Option<crate::models::ExecutionStatus> {
+        self.statuses.get(hash).copied()
     }
 
     /// Returns list of related transactions for given NEAR transaction or
@@ -241,6 +292,7 @@ impl<'a> RosettaTransactions<'a> {
         cause: &near_primitives::views::StateChangeCauseView,
     ) -> crate::errors::Result<&mut crate::models::Transaction> {
         let (id, exec_hash) = convert_cause_to_transaction_id(self.block_hash, cause)?;
+        let execution_status = self.exec_to_rx.get_execution_status(cause);
         let tx = self.map.entry(id.hash).or_insert_with_key(|hash| {
             let related_transactions = exec_hash
                 .map(|exec_hash| self.exec_to_rx.get_related(exec_hash))
@@ -251,6 +303,7 @@ impl<'a> RosettaTransactions<'a> {
                 related_transactions,
                 metadata: crate::models::TransactionMetadata {
                     type_: crate::models::TransactionType::Transaction,
+                    execution_status,
                 },
             }
         });
@@ -267,6 +320,8 @@ impl<'a> RosettaTransactions<'a> {
     ) -> crate::errors::Result<&mut crate::models::Transaction> {
         let transaction_identifier = fungible_token_event.receipt_id;
         let related_transactions = self.exec_to_rx.get_related(transaction_identifier);
+        let execution_status =
+            self.exec_to_rx.get_execution_status_by_hash(&transaction_identifier);
         let tx = self
             .map
             .entry(crate::models::TransactionIdentifier::receipt(&transaction_identifier).hash)
@@ -278,6 +333,7 @@ impl<'a> RosettaTransactions<'a> {
                 related_transactions,
                 metadata: crate::models::TransactionMetadata {
                     type_: crate::models::TransactionType::Transaction,
+                    execution_status,
                 },
             });
         Ok(tx)
@@ -304,9 +360,17 @@ pub(crate) async fn convert_block_changes_to_transactions(
         let receipts_in_block = &transactions.exec_to_rx.receipts;
         match account_change.value {
             near_primitives::views::StateChangeValueView::AccountUpdate { account_id, account } => {
-                // Calculate the total amount of deposit from transfer actions.
-                // This is needed to separate transfers into a separate operation
-                // to pass the rosetta cli check
+                let is_transaction_processing = matches!(
+                    &account_change.cause,
+                    near_primitives::views::StateChangeCauseView::TransactionProcessing { .. }
+                );
+                let is_gas_reward = matches!(
+                    &account_change.cause,
+                    near_primitives::views::StateChangeCauseView::ActionReceiptGasReward { .. }
+                );
+                // Calculate the total amount of deposit from transfer and function call actions.
+                // This is needed to separate deposits into a separate operation
+                // so that the remaining balance change can be marked as gas prepayment.
                 let deposit = match &account_change.cause {
                     near_primitives::views::StateChangeCauseView::TransactionProcessing {
                         tx_hash,
@@ -316,6 +380,14 @@ pub(crate) async fn convert_block_changes_to_transactions(
                                 near_primitives::views::ActionView::Transfer { deposit } => {
                                     sum.checked_add(*deposit).unwrap()
                                 }
+                                near_primitives::views::ActionView::FunctionCall {
+                                    deposit,
+                                    ..
+                                } => sum.checked_add(*deposit).unwrap(),
+                                near_primitives::views::ActionView::TransferToGasKey {
+                                    deposit,
+                                    ..
+                                } => sum.checked_add(*deposit).unwrap(),
                                 _ => sum,
                             });
                         if total_sum.is_zero() { None } else { Some(total_sum) }
@@ -338,6 +410,8 @@ pub(crate) async fn convert_block_changes_to_transactions(
                     &account,
                     deposit,
                     &predecessor_id,
+                    is_transaction_processing,
+                    is_gas_reward,
                 );
                 accounts_previous_state.insert(account_id, account);
             }
@@ -386,6 +460,8 @@ fn convert_account_update_to_operations(
     account: &near_primitives::views::AccountView,
     deposit: Option<Balance>,
     predecessor_id: &Option<crate::models::AccountIdentifier>,
+    is_transaction_processing: bool,
+    is_gas_reward: bool,
 ) {
     let previous_account_balances = previous_account_state
         .map(|account| crate::utils::RosettaAccountBalances::from_account(account, runtime_config))
@@ -464,7 +540,15 @@ fn convert_account_update_to_operations(
                     predecessor_id.clone(),
                 )
                 .map(|metadata| {
-                    if let Some("system") = predecessor_id
+                    if is_transaction_processing {
+                        metadata.with_transfer_fee_type(
+                            crate::models::OperationMetadataTransferFeeType::GasPrepayment,
+                        )
+                    } else if is_gas_reward {
+                        metadata.with_transfer_fee_type(
+                            crate::models::OperationMetadataTransferFeeType::GasReward,
+                        )
+                    } else if let Some("system") = predecessor_id
                         .as_ref()
                         .map(|predecessor_id| predecessor_id.address.as_str())
                     {

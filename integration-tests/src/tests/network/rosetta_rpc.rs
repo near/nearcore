@@ -25,5 +25,20 @@ async fn test_convert_block_changes_to_transactions() {
         &runtime_config,
     )
     .await;
+    near_rosetta_rpc::test::test_stake_gas_prepayment(
+        &actor_handles.view_client_actor,
+        &runtime_config,
+    )
+    .await;
+    near_rosetta_rpc::test::test_function_call_deposit_separation(
+        &actor_handles.view_client_actor,
+        &runtime_config,
+    )
+    .await;
+    near_rosetta_rpc::test::test_execution_status_propagation(
+        &actor_handles.view_client_actor,
+        &runtime_config,
+    )
+    .await;
     actor_system.stop();
 }

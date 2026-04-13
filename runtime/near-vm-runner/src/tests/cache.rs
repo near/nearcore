@@ -3,8 +3,7 @@ use crate::cache::{CompiledContractInfo, ContractRuntimeCache};
 use crate::logic::Config;
 use crate::logic::errors::VMRunnerError;
 use crate::logic::mocks::mock_external::MockedExternal;
-use crate::runner::VMKindExt;
-use crate::runner::VMResult;
+use crate::runner::{VMKindExt, VMResult};
 use crate::{ContractCode, MockContractRuntimeCache};
 use assert_matches::assert_matches;
 use near_parameters::RuntimeFeesConfig;
@@ -326,4 +325,40 @@ impl ContractRuntimeCache for FaultingContractRuntimeCache {
     fn handle(&self) -> Box<dyn ContractRuntimeCache> {
         Box::new(self.clone())
     }
+}
+
+/// Verify that two threads racing to compile the same contract only produce one
+/// compilation, and that no lock entries leak in the global map.
+#[cfg(feature = "wasmtime_vm")]
+#[test]
+fn test_no_duplicate_compilation() {
+    use crate::cache::get_contract_cache_key;
+    use crate::runner::VM;
+    use crate::wasmtime_runner::{WasmtimeVM, compilation_locks};
+
+    let config = test_vm_config(Some(VMKind::Wasmtime));
+    let cache = MockContractRuntimeCache::default();
+    let wasm = wat::parse_str(r#"(module (func (export "main")))"#).unwrap();
+    let code = ContractCode::new(wasm, None);
+    let vm = Arc::new(WasmtimeVM::new_for_target(Arc::new(config.clone()), None).unwrap());
+    let cache_key = get_contract_cache_key(*code.hash(), &config, vm.vm_hash());
+
+    // Spawn two threads that both try to precompile the same contract.
+    let handles: Vec<_> = (0..2)
+        .map(|_| {
+            let vm = vm.clone();
+            let code = code.clone();
+            let cache = cache.handle();
+            std::thread::spawn(move || vm.precompile(&code, cache.as_ref()))
+        })
+        .collect();
+    for h in handles {
+        h.join().unwrap().unwrap().unwrap();
+    }
+
+    assert_eq!(cache.put_count(), 1, "should have compiled only once");
+    assert!(
+        !compilation_locks().lock().contains_key(&cache_key),
+        "lock entry for this contract should be cleaned up"
+    );
 }

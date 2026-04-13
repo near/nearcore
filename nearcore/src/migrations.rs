@@ -9,7 +9,7 @@ use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{BlockHeightDelta, ShardId, StateChangeCause};
+use near_primitives::types::{BlockHeightDelta, EpochId, ShardId, StateChangeCause};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::TrieStoreUpdateAdapter;
 use near_store::archive::cold_storage::{join_two_keys, rc_aware_set};
@@ -182,6 +182,24 @@ fn migrate_48_to_49(
     if is_snapshot {
         tracing::info!(target: "migrations", "state snapshot DB, skipping chain-dependent migration steps");
         return Ok(());
+    }
+
+    // Fresh nodes and forknet-initialized nodes have BlockMisc cleared, so
+    // HEAD is absent; nodes that only produced blocks in the genesis epoch
+    // have HEAD set but head.epoch_id == EpochId::default(). In both cases
+    // there are no block headers to copy, no epoch sync proof to derive, and
+    // nothing to verify or delete.
+    match hot_store.chain_store().head() {
+        Ok(head) if head.epoch_id == EpochId::default() => {
+            tracing::info!(target: "migrations", "chain is in the genesis epoch, skipping chain-dependent migration steps");
+            return Ok(());
+        }
+        Err(Error::DBNotFoundErr(_)) => {
+            tracing::info!(target: "migrations", "chain head not set (fresh/forknet DB), skipping chain-dependent migration steps");
+            return Ok(());
+        }
+        Ok(_) => {}
+        Err(err) => return Err(err.into()),
     }
 
     if let Some(cold_db) = cold_db {
@@ -364,11 +382,14 @@ fn update_epoch_sync_proof(
     tracing::info!(target: "migrations", "generating latest epoch sync proof");
     let chain_store = store.chain_store();
     let final_head = chain_store.final_head()?;
+    let genesis_height = chain_store.get_genesis_height();
     let current_epoch_start_height = epoch_store.get_epoch_start(&final_head.epoch_id)?;
-    if current_epoch_start_height < transaction_validity_period {
+    let chain_height_since_genesis = current_epoch_start_height.saturating_sub(genesis_height);
+    if chain_height_since_genesis < transaction_validity_period {
         tracing::info!(
             target: "migrations",
             ?current_epoch_start_height,
+            ?genesis_height,
             ?transaction_validity_period,
             "chain is too short to produce epoch sync proof, skipping"
         );

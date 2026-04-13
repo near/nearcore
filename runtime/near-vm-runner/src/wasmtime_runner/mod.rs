@@ -20,10 +20,11 @@ use core::sync::atomic::{AtomicU64, Ordering};
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::{LimitConfig, VMKind};
 use near_primitives_core::gas::Gas;
+use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::Balance;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, OnceLock};
 use wasmtime::{
     CallHook, Engine, Extern, ExternType, Instance, InstanceAllocationStrategy, InstancePre,
     Linker, Memory, Module, ModuleExport, OptLevel, PoolingAllocationConfig, ResourcesRequired,
@@ -71,6 +72,18 @@ struct VMKey {
 
 static VMS: LazyLock<parking_lot::RwLock<HashMap<VMKey, WasmtimeVM>>> =
     LazyLock::new(parking_lot::RwLock::default);
+
+/// Per-contract-cache-key compilation lock. Prevents duplicate compilations
+/// when multiple threads (e.g. precompile_contracts and
+/// validate_chunk_state_witness) race to compile the same contract
+/// simultaneously. The lock entry is automatically removed when the guard is
+/// dropped.
+type CompilationLocks = parking_lot::Mutex<HashMap<CryptoHash, Arc<parking_lot::Mutex<()>>>>;
+
+pub(crate) fn compilation_locks() -> &'static CompilationLocks {
+    static LOCKS: OnceLock<CompilationLocks> = OnceLock::new();
+    LOCKS.get_or_init(|| parking_lot::Mutex::new(HashMap::new()))
+}
 
 fn guest_memory_size(pages: u32) -> Option<usize> {
     let pages = usize::try_from(pages).ok()?;
@@ -500,13 +513,40 @@ impl WasmtimeVM {
         name = "Wasmtime::compile_and_cache",
         skip_all
     )]
+    /// Compile a contract and store the result in the cache. Uses a
+    /// per-contract-cache-key lock to prevent duplicate compilations when
+    /// multiple threads race on the same contract (e.g. precompile_contracts
+    /// vs validate_chunk_state_witness).
     fn compile_and_cache(
         &self,
         code: &ContractCode,
         cache: &dyn ContractRuntimeCache,
     ) -> Result<Result<Vec<u8>, CompilationError>, CacheError> {
-        let serialized_or_error = self.compile_uncached(code);
         let key = get_contract_cache_key(*code.hash(), &self.config, self.vm_hash());
+
+        // Acquire a per-key lock so only one thread compiles a given contract.
+        // Cleanup is declared before guard so that on drop, the per-key mutex
+        // is released first (_guard drops), then the map entry is removed
+        // (_cleanup drops). Locals drop in reverse declaration order.
+        let lock = compilation_locks().lock().entry(key).or_default().clone();
+        struct Cleanup(CryptoHash);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                compilation_locks().lock().remove(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(key);
+        let _guard = lock.lock();
+
+        // Check the disk cache: another thread may have compiled while we waited.
+        if let Some(info) = cache.get(&key).map_err(CacheError::ReadError)? {
+            match info.compiled {
+                CompiledContract::Code(module) => return Ok(Ok(module)),
+                CompiledContract::CompileModuleError(err) => return Ok(Err(err)),
+            }
+        }
+
+        let serialized_or_error = self.compile_uncached(code);
         let record = CompiledContractInfo {
             wasm_bytes: code.code().len() as u64,
             compiled: match &serialized_or_error {

@@ -57,6 +57,7 @@ use node_runtime::{
     get_signer_and_access_key, validate_transaction, verify_and_charge_gas_key_tx_ephemeral,
     verify_and_charge_tx_ephemeral,
 };
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -71,6 +72,19 @@ pub mod test_utils;
 #[cfg(test)]
 mod tests;
 mod trie_update_wrapper;
+
+/// Dedicated thread pool for contract compilation, so it doesn't share the
+/// global rayon pool.
+fn compilation_pool() -> &'static rayon::ThreadPool {
+    static POOL: std::sync::OnceLock<rayon::ThreadPool> = std::sync::OnceLock::new();
+    POOL.get_or_init(|| {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(std::cmp::max(rayon::current_num_threads() / 2, 1))
+            .thread_name(|index| format!("compile-contracts-{index}"))
+            .build()
+            .expect("failed to build compilation thread pool")
+    })
+}
 
 /// Defines Nightshade state transition and validator rotation.
 /// TODO: this possibly should be merged with the runtime cargo or at least reconciled on the interfaces.
@@ -1552,31 +1566,17 @@ impl RuntimeAdapter for NightshadeRuntime {
         let runtime_config = self.runtime_config_store.get_config(protocol_version);
         let compiled_contract_cache: Option<Box<dyn ContractRuntimeCache>> =
             Some(Box::new(self.compiled_contract_cache.handle()));
-        // Execute precompile_contract in parallel but prevent it from using more than half of all
-        // threads so that node will still function normally.
-        rayon::scope(|scope| {
-            let (slot_sender, slot_receiver) = std::sync::mpsc::channel();
-            // Use up-to half of the threads for the compilation.
-            let max_threads = std::cmp::max(rayon::current_num_threads() / 2, 1);
-            for _ in 0..max_threads {
-                slot_sender.send(()).expect("both sender and receiver are owned here");
-            }
-            for code in contract_codes {
-                slot_receiver.recv().expect("could not receive a slot to compile contract");
-                let contract_cache = compiled_contract_cache.as_deref();
-                let slot_sender = slot_sender.clone();
-                scope.spawn(move |_| {
-                    precompile_contract(
-                        &code,
-                        Arc::clone(&runtime_config.wasm_config),
-                        contract_cache,
-                    )
-                    .ok();
-                    // If this fails, it just means there won't be any more attempts to recv the
-                    // slots
-                    let _ = slot_sender.send(());
-                });
-            }
+        // Execute precompile_contract in parallel on a dedicated thread pool
+        // to avoid sharing the global rayon pool.
+        compilation_pool().install(|| {
+            contract_codes.par_iter().for_each(|code| {
+                precompile_contract(
+                    code,
+                    Arc::clone(&runtime_config.wasm_config),
+                    compiled_contract_cache.as_deref(),
+                )
+                .ok();
+            });
         });
         Ok(())
     }
