@@ -384,7 +384,9 @@ fn update_epoch_sync_proof(
     let final_head = chain_store.final_head()?;
     let genesis_height = chain_store.get_genesis_height();
     let current_epoch_start_height = epoch_store.get_epoch_start(&final_head.epoch_id)?;
-    if current_epoch_start_height - genesis_height < transaction_validity_period {
+    let chain_height_since_genesis =
+        current_epoch_start_height.saturating_sub(genesis_height);
+    if chain_height_since_genesis < transaction_validity_period {
         tracing::info!(
             target: "migrations",
             ?current_epoch_start_height,
