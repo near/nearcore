@@ -12,7 +12,7 @@ use near_store::adapter::StoreAdapter;
 use near_store::flat::{self, FlatStateChanges, FlatStorageStatus};
 use near_store::trie::KeyForStateChanges;
 use near_store::trie::mem::memtrie_update::TrackingMode;
-use near_store::{DBCol, ShardTries, ShardUId};
+use near_store::{DBCol, ShardUId};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -23,6 +23,7 @@ pub struct BlockReplayResult {
 }
 
 /// How the controller reads state during replay and advances between blocks.
+#[derive(Clone, Copy, Debug)]
 pub enum ReplayStorageMode {
     /// Uses memtries for state reads. On advance, updates memtries using
     /// state changes from `DBCol::StateChanges`.

@@ -5129,6 +5129,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-replay-tool"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "near-chain",
+ "near-chain-configs",
+ "near-epoch-manager",
+ "near-replay",
+ "near-store",
+ "nearcore",
+ "tracing",
+]
+
+[[package]]
 name = "near-rosetta-rpc"
 version = "0.0.0"
 dependencies = [
@@ -5692,6 +5707,7 @@ dependencies = [
  "near-ping",
  "near-primitives",
  "near-replay-archive-tool",
+ "near-replay-tool",
  "near-state-parts",
  "near-state-parts-dump-check",
  "near-store",

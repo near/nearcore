@@ -86,6 +86,7 @@ members = [
     "tools/mock-node",
     "tools/ping",
     "tools/protocol-schema-check",
+    "tools/replay",
     "tools/restaked",
     "tools/state-parts",
     "tools/state-parts-dump-check",
@@ -270,6 +271,7 @@ near-pool = { path = "chain/pool" }
 near-primitives = { path = "core/primitives" }
 near-primitives-core = { path = "core/primitives-core" }
 near-replay-archive-tool = { path = "tools/replay-archive" }
+near-replay-tool = { path = "tools/replay" }
 near-rosetta-rpc = { path = "chain/rosetta-rpc" }
 near-stable-hasher = { path = "utils/near-stable-hasher" }
 near-state-parts = { path = "tools/state-parts" }

@@ -15,7 +15,6 @@ use near_replay::{CombinedDatabase, ReplayStorageMode, SequentialChunksReplayCon
 use near_store::{Store, TrieConfig};
 use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::FilesystemContractRuntimeCache;
-use std::sync::Arc;
 
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]

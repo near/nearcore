@@ -24,6 +24,20 @@ pub struct ChunkReplayResult {
     pub apply_result: ApplyChunkResult,
 }
 
+impl ChunkReplayResult {
+    /// Returns `Ok(())` if the actual ChunkExtra matches the expected one,
+    /// or an error describing the mismatch otherwise.
+    pub fn verify(&self) -> Result<()> {
+        anyhow::ensure!(
+            self.expected == self.actual,
+            "chunk extra mismatch:\nexpected: {:#?}\nactual:   {:#?}",
+            self.expected,
+            self.actual,
+        );
+        Ok(())
+    }
+}
+
 /// Replays a single chunk and returns the expected and actual ChunkExtras.
 ///
 /// All data needed for replay (block, prev block, chunk, receipts, etc.)
