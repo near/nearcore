@@ -495,7 +495,7 @@ impl Client {
     }
 
     /// Remove transactions for tracked chunks in `block` from the pool.
-    /// Returns the hashes of the removed transactions.
+    /// Returns the hashes of transactions referenced by those tracked chunks.
     pub fn remove_transactions_for_block(
         &mut self,
         block: &Block,
