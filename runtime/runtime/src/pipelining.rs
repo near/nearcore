@@ -18,24 +18,11 @@ use near_store::contract::ContractStorage;
 use near_store::trie::AccessOptions;
 use near_store::{TrieUpdate, get_pure};
 use near_vm_runner::logic::GasCounter;
-use near_vm_runner::{ContractRuntimeCache, PreparedContract};
+use near_vm_runner::{ContractRuntimeCache, PreparedContract, contract_compilation_pool};
 use parking_lot::{Condvar, Mutex};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use std::time::Instant;
-
-/// Dedicated thread pool for pipelining, to avoid sharing the global rayon pool
-/// with wasmtime's internal compilation which also uses rayon.
-fn pipelining_pool() -> &'static rayon::ThreadPool {
-    static POOL: OnceLock<rayon::ThreadPool> = OnceLock::new();
-    POOL.get_or_init(|| {
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(std::cmp::max(rayon::current_num_threads() / 2, 1))
-            .thread_name(|index| format!("pipelining-{index}"))
-            .build()
-            .expect("failed to build pipelining thread pool")
-    })
-}
 
 pub(crate) struct ReceiptPreparationPipeline {
     /// Mapping from a Receipt's ID to a parallel "task" to prepare the receipt's data.
@@ -225,7 +212,7 @@ impl ReceiptPreparationPipeline {
                     let task = Arc::new(PrepareTask { status, condvar: Condvar::new() });
                     entry.insert(Arc::clone(&task));
                     PIPELINING_ACTIONS_SUBMITTED.inc_by(1);
-                    pipelining_pool().spawn_fifo(move || {
+                    contract_compilation_pool().spawn_boxed(Box::new(move || {
                         let task_status = {
                             let mut status = task.status.lock();
                             std::mem::replace(&mut *status, PrepareTaskStatus::Working)
@@ -248,7 +235,7 @@ impl ReceiptPreparationPipeline {
                         *status = PrepareTaskStatus::Prepared(contract);
                         PIPELINING_ACTIONS_TASK_WORKING_TIME.inc_by(start.elapsed().as_secs_f64());
                         task.condvar.notify_all();
-                    });
+                    }));
                     any_function_calls = true;
                 }
                 // No need to handle this receipt as it only generates other new receipts.

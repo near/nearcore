@@ -48,7 +48,7 @@ use near_store::{
     TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_gas_key_nonce,
 };
 use near_vm_runner::ContractCode;
-use near_vm_runner::{ContractRuntimeCache, precompile_contract};
+use near_vm_runner::{ContractRuntimeCache, contract_compilation_pool, precompile_contract};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
@@ -57,10 +57,10 @@ use node_runtime::{
     get_signer_and_access_key, validate_transaction, verify_and_charge_gas_key_tx_ephemeral,
     verify_and_charge_tx_ephemeral,
 };
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::instrument;
 use trie_update_wrapper::TrieUpdateWitnessSizeWrapper;
@@ -72,19 +72,6 @@ pub mod test_utils;
 #[cfg(test)]
 mod tests;
 mod trie_update_wrapper;
-
-/// Dedicated thread pool for contract compilation, so it doesn't share the
-/// global rayon pool.
-fn compilation_pool() -> &'static rayon::ThreadPool {
-    static POOL: std::sync::OnceLock<rayon::ThreadPool> = std::sync::OnceLock::new();
-    POOL.get_or_init(|| {
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(std::cmp::max(rayon::current_num_threads() / 2, 1))
-            .thread_name(|index| format!("compile-contracts-{index}"))
-            .build()
-            .expect("failed to build compilation thread pool")
-    })
-}
 
 /// Defines Nightshade state transition and validator rotation.
 /// TODO: this possibly should be merged with the runtime cargo or at least reconciled on the interfaces.
@@ -1564,20 +1551,19 @@ impl RuntimeAdapter for NightshadeRuntime {
         .entered();
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         let runtime_config = self.runtime_config_store.get_config(protocol_version);
-        let compiled_contract_cache: Option<Box<dyn ContractRuntimeCache>> =
-            Some(Box::new(self.compiled_contract_cache.handle()));
-        // Execute precompile_contract in parallel on a dedicated thread pool
-        // to avoid sharing the global rayon pool.
-        compilation_pool().install(|| {
-            contract_codes.par_iter().for_each(|code| {
-                precompile_contract(
-                    code,
-                    Arc::clone(&runtime_config.wasm_config),
-                    compiled_contract_cache.as_deref(),
-                )
-                .ok();
-            });
-        });
+        let cache: Arc<dyn ContractRuntimeCache> = Arc::from(self.compiled_contract_cache.handle());
+        let (tx, rx) = mpsc::channel();
+        for code in contract_codes {
+            let tx = tx.clone();
+            let wasm_config = Arc::clone(&runtime_config.wasm_config);
+            let cache = Arc::clone(&cache);
+            contract_compilation_pool().spawn_boxed(Box::new(move || {
+                precompile_contract(&code, wasm_config, Some(cache.as_ref())).ok();
+                let _ = tx.send(());
+            }));
+        }
+        drop(tx);
+        while rx.recv().is_ok() {}
         Ok(())
     }
 }

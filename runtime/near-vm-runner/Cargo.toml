@@ -23,6 +23,7 @@ finite-wasm = { workspace = true, features = ["instrument"], optional = true }
 finite-wasm-6 = { workspace = true, optional = true }
 lru.workspace = true
 memoffset = { workspace = true, optional = true }
+num_cpus.workspace = true
 num-rational.workspace = true
 parking_lot.workspace = true
 prefix-sum-vec = { workspace = true, optional = true }
@@ -49,6 +50,7 @@ wasmtime = { workspace = true, features = [
     "runtime",
 ], optional = true }
 
+near-async.workspace = true
 near-crypto.workspace = true
 near-o11y = { workspace = true, optional = true }
 near-parameters.workspace = true

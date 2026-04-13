@@ -7,7 +7,6 @@ use crate::state_sync::StateSyncDumper;
 use anyhow::Context;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::time::Clock;
-use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 pub use near_chain::runtime::NightshadeRuntime;
 use near_chain::spice_core::SpiceCoreReader;
@@ -18,7 +17,7 @@ use near_chain::state_snapshot_actor::{
 use near_chain::types::RuntimeAdapter;
 use near_chain::{
     ApplyChunksSpawner, Chain, ChainGenesis, PartialWitnessValidationThreadPool,
-    WitnessCreationThreadPool,
+    PrecompileDeployedContractsThreadPool, WitnessCreationThreadPool,
 };
 use near_chain_configs::{MutableValidatorSigner, ReshardingHandle};
 use near_chunks::shards_manager_actor::start_shards_manager;
@@ -566,7 +565,7 @@ pub async fn start_with_config_and_synchronization_impl(
         config.validator_signer.clone(),
         epoch_manager.clone(),
         runtime.clone(),
-        Arc::new(RayonAsyncComputationSpawner),
+        Arc::new(PrecompileDeployedContractsThreadPool::new()),
         Arc::new(PartialWitnessValidationThreadPool::new()),
         Arc::new(WitnessCreationThreadPool::new()),
     ));

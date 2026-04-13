@@ -11,7 +11,8 @@ pub use near_chain_primitives::{self, Error};
 pub use near_primitives::receipt::ReceiptResult;
 pub use pending_shard_jobs::{FromPanic, PendingShardJobs};
 pub use soft_realtime_thread_pool::{
-    ApplyChunksSpawner, PartialWitnessValidationThreadPool, WitnessCreationThreadPool,
+    ApplyChunksSpawner, PartialWitnessValidationThreadPool, PrecompileDeployedContractsThreadPool,
+    WitnessCreationThreadPool,
 };
 pub use store::utils::{
     check_transaction_validity_period, get_chunk_clone_from_header,

@@ -4,6 +4,7 @@
 #![cfg_attr(enable_const_type_id, feature(const_type_id))]
 
 mod cache;
+pub mod compilation_pool;
 mod errors;
 mod features;
 mod imports;
@@ -29,6 +30,7 @@ pub use cache::{
     CompiledContract, CompiledContractInfo, ContractRuntimeCache, MockContractRuntimeCache,
     NoContractRuntimeCache, precompile_contract,
 };
+pub use compilation_pool::contract_compilation_pool;
 #[cfg(feature = "metrics")]
 pub use metrics::{report_metrics, reset_metrics};
 pub use near_primitives_core::code::ContractCode;
