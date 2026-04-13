@@ -31,6 +31,9 @@ impl BootstrapReaderCmd {
         let near_config = nearcore::config::load_config(home_dir, genesis_validation)
             .context("failed to load config")?;
 
+        // TODO(cloud_archival): consider uploading the genesis block to cloud
+        // (or constructing it locally from genesis.json in the reader) so the
+        // genesis epoch can be bootstrapped too.
         let genesis_height = near_config.genesis.config.genesis_height;
         anyhow::ensure!(
             self.start_height > genesis_height,
