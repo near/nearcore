@@ -532,8 +532,8 @@ impl JsonRpcHandler {
                 process_sharded_method_call(
                     request,
                     source,
-                    |params| self.light_client_execution_outcome_proof_sharded(params),
-                    |params| self.light_client_execution_outcome_proof_local(params),
+                    |params| self.light_client_proof_sharded(params),
+                    |params| self.light_client_proof_local(params),
                 )
                 .await
             }
@@ -629,8 +629,8 @@ impl JsonRpcHandler {
                 process_sharded_method_call(
                     request,
                     source,
-                    |params| self.light_client_execution_outcome_proof_sharded(params),
-                    |params| self.light_client_execution_outcome_proof_local(params),
+                    |params| self.light_client_proof_sharded(params),
+                    |params| self.light_client_proof_local(params),
                 )
                 .await
             }
@@ -1873,7 +1873,7 @@ impl JsonRpcHandler {
         Ok(response.rpc_into())
     }
 
-    async fn light_client_execution_outcome_proof_sharded(
+    async fn light_client_proof_sharded(
         &self,
         request_data: near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRequest,
     ) -> Result<Value, RpcError> {
@@ -1893,7 +1893,7 @@ impl JsonRpcHandler {
         .await
     }
 
-    async fn light_client_execution_outcome_proof_local(
+    async fn light_client_proof_local(
         &self,
         request: near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRequest,
     ) -> Result<
