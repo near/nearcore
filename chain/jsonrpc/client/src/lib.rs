@@ -333,8 +333,9 @@ impl JsonRpcClient {
     pub fn light_client_proof(
         &self,
         request: near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRequest,
-    ) -> RpcRequest<near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse>
-    {
+    ) -> RpcRequest<
+        near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse,
+    > {
         call_method(&self.transport, "light_client_proof", request)
     }
 

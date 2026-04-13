@@ -1358,7 +1358,7 @@ fn test_rpc_light_client_proof_unknown_outcome() {
     // Bogus transaction hash — routes by `sender_id` to alice's shard.
     let bogus_tx = TransactionOrReceiptId::Transaction {
         transaction_hash: CryptoHash::hash_bytes(b"bogus-tx"),
-        sender_id: alice.clone(),
+        sender_id: alice,
     };
     for node_id in [&alice_node, &zoe_node] {
         let err = run_proof_query(&mut h, node_id, bogus_tx.clone())
@@ -1369,7 +1369,7 @@ fn test_rpc_light_client_proof_unknown_outcome() {
     // Bogus receipt id — routes by `receiver_id` to zoe's shard.
     let bogus_receipt = TransactionOrReceiptId::Receipt {
         receipt_id: CryptoHash::hash_bytes(b"bogus-receipt"),
-        receiver_id: zoe.clone(),
+        receiver_id: zoe,
     };
     for node_id in [&alice_node, &zoe_node] {
         let err = run_proof_query(&mut h, node_id, bogus_receipt.clone())
