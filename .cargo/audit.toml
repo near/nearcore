@@ -61,13 +61,10 @@ ignore = [
     # TODO(#15435): Update object_store once the maintainers release a version with reqwest 0.13+
     "RUSTSEC-2026-0049",
 
-    # RUSTSEC-2026-0097: rand unsoundness is only reachable when rand's `log` feature is enabled
-    # AND a custom `log::Log` logger calls `rand::rng()` during `ThreadRng` reseed. Verified not
-    # to apply here: none of rand 0.7.3 / 0.8.5 / 0.9.0 in Cargo.lock has the `log` feature enabled,
-    # and nearcore installs no custom `log::Log` implementation (logging goes through tracing).
-    # Fixed in rand >= 0.9.3 / >= 0.10.1, but rand 0.8.x has no patched release, and the 0.7.3
-    # (wiremock -> http-types) and 0.9.0 (object_store, opentelemetry_sdk, rust-multipart-rfc7578_2)
-    # copies come from upstream deps. Revisit once workspace rand is bumped to 0.9.3+ and those
-    # upstream crates update.
+    # RUSTSEC-2026-0097: rand unsoundness only triggers when rand's `log` feature is on and a
+    # custom `log::Log` logger calls `rand::rng()` on reseed. Neither applies here: the `log`
+    # feature is not enabled (check with `cargo tree -e features --workspace | grep 'rand feature'`)
+    # and nearcore has no custom `log::Log` impl (logging goes through tracing).
+    # Fixed in rand >= 0.9.3 / >= 0.10.1; 0.8.x has no patch and 0.7.3/0.9.0 are transitive.
     "RUSTSEC-2026-0097",
 ]
