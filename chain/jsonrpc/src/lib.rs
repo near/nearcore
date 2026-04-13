@@ -79,7 +79,7 @@ use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockId, BlockReference, ShardId};
+use near_primitives::types::{AccountId, BlockId, BlockReference, ShardId, TransactionOrReceiptId};
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, GasPriceView, LightClientBlockView,
@@ -529,9 +529,12 @@ impl JsonRpcHandler {
             }
             "health" => process_method_call(request, |_params: ()| self.health()).await,
             "light_client_proof" => {
-                process_method_call(request, |params| {
-                    self.light_client_execution_outcome_proof(params)
-                })
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| self.light_client_execution_outcome_proof_sharded(params),
+                    |params| self.light_client_execution_outcome_proof_local(params),
+                )
                 .await
             }
             "maintenance_windows" | "EXPERIMENTAL_maintenance_windows" => {
@@ -623,9 +626,12 @@ impl JsonRpcHandler {
                 .await
             }
             "EXPERIMENTAL_light_client_proof" => {
-                process_method_call(request, |params| {
-                    self.light_client_execution_outcome_proof(params)
-                })
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| self.light_client_execution_outcome_proof_sharded(params),
+                    |params| self.light_client_execution_outcome_proof_local(params),
+                )
                 .await
             }
             "EXPERIMENTAL_light_client_block_proof" => {
@@ -1867,7 +1873,27 @@ impl JsonRpcHandler {
         Ok(response.rpc_into())
     }
 
-    async fn light_client_execution_outcome_proof(
+    async fn light_client_execution_outcome_proof_sharded(
+        &self,
+        request_data: near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRequest,
+    ) -> Result<Value, RpcError> {
+        let account_id = match &request_data.id {
+            TransactionOrReceiptId::Transaction { sender_id, .. } => sender_id.clone(),
+            TransactionOrReceiptId::Receipt { receiver_id, .. } => receiver_id.clone(),
+        };
+        let block_hint = BlockHint::Hash(request_data.light_client_head);
+        let shard_hint = ShardHint::Account(account_id);
+        self.run_coordinator_request(
+            "light_client_proof",
+            request_data,
+            block_hint,
+            shard_hint,
+            CoordinatorRequestStrategy::Sequential,
+        )
+        .await
+    }
+
+    async fn light_client_execution_outcome_proof_local(
         &self,
         request: near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRequest,
     ) -> Result<
