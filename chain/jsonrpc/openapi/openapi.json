@@ -7500,24 +7500,24 @@
           {
             "additionalProperties": false,
             "properties": {
-              "CodeHash": {
+              "hash": {
                 "$ref": "#/components/schemas/CryptoHash"
               }
             },
             "required": [
-              "CodeHash"
+              "hash"
             ],
             "type": "object"
           },
           {
             "additionalProperties": false,
             "properties": {
-              "AccountId": {
+              "account_id": {
                 "$ref": "#/components/schemas/AccountId"
               }
             },
             "required": [
-              "AccountId"
+              "account_id"
             ],
             "type": "object"
           }
@@ -11050,6 +11050,20 @@
             "minimum": 0,
             "type": "integer"
           },
+          "max_blocks_per_contract": {
+            "description": "If present, stores max total number of basic blocks across all functions in a contract.\nThis caps total compilation time for a contract.",
+            "format": "uint64",
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          },
+          "max_blocks_per_function": {
+            "description": "If present, stores max number of basic blocks (block/loop/if) in a single function.\nThis caps per-function compilation time in Cranelift.",
+            "format": "uint64",
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          },
           "max_contract_size": {
             "description": "Max contract size",
             "format": "uint64",
@@ -11784,6 +11798,20 @@
             "description": "The instrumented code exceeds the size limit.",
             "enum": [
               "InstrumentedCodeTooLarge"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "A function contains too many basic blocks.",
+            "enum": [
+              "TooManyBlocksPerFunction"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "A contract contains too many basic blocks.",
+            "enum": [
+              "TooManyBlocksPerContract"
             ],
             "type": "string"
           }

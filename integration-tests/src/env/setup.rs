@@ -13,7 +13,7 @@ use near_chain::resharding::resharding_actor::ReshardingActor;
 use near_chain::resharding::types::ReshardingSender;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::{ChainConfig, RuntimeAdapter};
-use near_chain::{ApplyChunksIterationMode, Chain, ChainGenesis, DoomslugThresholdMode};
+use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{
     ChunkDistributionNetworkConfig, ClientConfig, Genesis, MutableConfigValue,
@@ -475,8 +475,6 @@ pub fn setup_client_with_runtime(
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(&chain_genesis.chain_id);
     let multi_spawner = AsyncComputationMultiSpawner::default()
         .custom_apply_chunks(Arc::new(RayonAsyncComputationSpawner)); // Use rayon instead of the default thread pool
-    let apply_chunks_iteration_mode = ApplyChunksIterationMode::default();
-
     // TestEnv bypasses chunk validation actors and handles chunk validation
     // directly through propagate_chunk_state_witnesses method
     let chunk_validation_sender = ChunkValidationSender {
@@ -499,7 +497,6 @@ pub fn setup_client_with_runtime(
         rng_seed,
         snapshot_callbacks,
         multi_spawner,
-        apply_chunks_iteration_mode,
         partial_witness_adapter,
         resharding_sender,
         actor_system.new_future_spawner("state sync").into(),
@@ -568,7 +565,6 @@ pub fn setup_synchronous_shards_manager(
             protocol_version_check: Default::default(),
         }, // irrelevant
         None,
-        Default::default(),
         Default::default(),
         Default::default(),
         MutableConfigValue::new(None, "validator_signer"),

@@ -5,7 +5,7 @@ use crate::genesis::find_threshold;
 use crate::reward_calculator::NUM_NS_IN_SECOND;
 use crate::{BlockInfo, EpochManager};
 use near_crypto::{KeyType, SecretKey};
-use near_primitives::epoch_block_info::BlockInfoV2;
+use near_primitives::epoch_block_info::BlockInfoV4;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AllEpochConfig;
 use near_primitives::epoch_manager::{EpochConfigBuilder, EpochConfigStore};
@@ -429,8 +429,6 @@ where
     (last_hash, height + count)
 }
 
-// TODO(dynamic_resharding): Start using BlockInfoV4 in the tests.
-#[allow(deprecated)]
 pub fn block_info(
     hash: CryptoHash,
     height: BlockHeight,
@@ -440,8 +438,15 @@ pub fn block_info(
     epoch_first_block: CryptoHash,
     chunk_mask: Vec<bool>,
     total_supply: Balance,
+    num_validators: usize,
 ) -> BlockInfo {
-    BlockInfo::V2(BlockInfoV2 {
+    let mut chunk_endorsements = ChunkEndorsementsBitmap::new(chunk_mask.len());
+    for i in 0..chunk_mask.len() {
+        if chunk_mask[i] {
+            chunk_endorsements.add_endorsements(i, vec![true; num_validators]);
+        }
+    }
+    BlockInfo::V4(BlockInfoV4 {
         hash,
         height,
         last_finalized_height,
@@ -452,9 +457,10 @@ pub fn block_info(
         proposals: vec![],
         chunk_mask,
         latest_protocol_version: PROTOCOL_VERSION,
-        slashed: Default::default(),
         total_supply,
         timestamp_nanosec: height * NUM_NS_IN_SECOND,
+        chunk_endorsements,
+        shard_split: None,
     })
 }
 

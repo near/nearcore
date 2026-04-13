@@ -1058,7 +1058,6 @@ mod tests {
             None,
             Default::default(),
             Default::default(),
-            Default::default(),
             validator_signer,
             noop().into_multi_sender(),
             None,
