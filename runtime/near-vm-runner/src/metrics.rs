@@ -24,6 +24,20 @@ static COMPILATION_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     .unwrap()
 });
 
+/// Per-compile histogram, observed directly at the (uncached) compile site.
+/// Unlike `near_vm_runner_compilation_seconds`, this metric counts every
+/// compile regardless of the invoking path (function-call `run`, precompile
+/// on a dedicated rayon pool, view calls, etc.).
+static COMPILE_SECONDS: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_vm_runner_compile_seconds",
+        "Time to compile a single contract, measured at the compile site",
+        &["vm_kind"],
+        Some(vec![0.010, 0.025, 0.050, 0.1, 0.25, 0.5, 1.0, 2.0]),
+    )
+    .unwrap()
+});
+
 static COMPILED_CONTRACT_CACHE_LOOKUPS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_vm_compiled_contract_cache_lookups_total",
@@ -75,6 +89,18 @@ pub(crate) fn compilation_duration(kind: near_parameters::vm::VMKind, duration: 
         VMKind::Wasmer2 => unreachable!(),
         VMKind::NearVm => m.near_vm_compilation_time += duration,
     });
+    observe_compile_seconds(kind, duration);
+}
+
+#[cfg(any(feature = "near_vm", feature = "wasmtime_vm"))]
+fn observe_compile_seconds(kind: near_parameters::vm::VMKind, duration: Duration) {
+    use near_parameters::vm::VMKind;
+    let label = match kind {
+        VMKind::NearVm => "near_vm",
+        VMKind::Wasmtime => "wasmtime",
+        VMKind::Wasmer0 | VMKind::Wasmer2 => return,
+    };
+    COMPILE_SECONDS.with_label_values(&[label]).observe(duration.as_secs_f64());
 }
 
 /// Updates metrics to record a compiled-contract cache lookup,
