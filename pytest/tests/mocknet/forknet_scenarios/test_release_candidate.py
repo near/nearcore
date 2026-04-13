@@ -32,9 +32,10 @@ class TestReleaseCandidate(TestSetup):
         self.has_state_dumper = False
         self.regions = "us-east1,europe-west1,asia-east1,us-west1"
 
-        # Upgrade 1/2 nodes in the second epoch. A quarter at a time.
+        # Upgrade 1/2 nodes at a time, a quarter at a time.
         self.upgrade_interval_minutes = 15  # 15 minutes between each upgrade batch.
-        self.upgrade_delay_minutes = 120  # 2 hours after the test starts. This falls in the second and third epochs.
+        self.first_upgrade_delay_minutes = 45
+        self.second_upgrade_delay_minutes = 75
 
     def _upgrade_nodes_in_four_batches(self):
         """
@@ -43,9 +44,9 @@ class TestReleaseCandidate(TestSetup):
         In total, we upgrade in 4 batches.
         """
         first_upgrade_time = datetime.now() + timedelta(
-            minutes=self.upgrade_delay_minutes)
-        second_upgrade_time = first_upgrade_time + timedelta(
-            minutes=self.upgrade_delay_minutes)
+            minutes=self.first_upgrade_delay_minutes)
+        second_upgrade_time = datetime.now() + timedelta(
+            minutes=self.second_upgrade_delay_minutes)
 
         upgrade_time = [
             batch_start_time +
