@@ -4,7 +4,10 @@ use near_chain::ChainStore;
 use near_chain::runtime::NightshadeRuntime;
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::EpochManager;
-use near_replay::{CombinedDatabase, ReplayStorageMode, SequentialChunksReplayController};
+use near_primitives::types::ShardId;
+use near_replay::{
+    CombinedDatabase, ReplayStorageMode, SequentialChunksReplayController, ShardFilter,
+};
 use near_store::{NodeStorage, Store, StoreConfig};
 use nearcore::{NightshadeRuntimeExt, load_config};
 use std::path::{Path, PathBuf};
@@ -36,6 +39,11 @@ pub struct ReplayCommand {
     /// Storage mode used during replay.
     #[clap(long, value_parser = storage_mode_parser(), default_value = "memtries")]
     storage_mode: ReplayStorageMode,
+
+    /// Which shards to replay: `all`, `available`, or a comma-separated
+    /// list of shard ids (e.g. `0,1,3`).
+    #[clap(long, value_parser = parse_shard_filter, default_value = "all")]
+    shards: ShardFilter,
 
     /// If set, return an error on the first ChunkExtra mismatch instead of
     /// continuing to log warnings.
@@ -79,6 +87,7 @@ impl ReplayCommand {
             runtime,
             epoch_manager,
             self.storage_mode,
+            self.shards,
         )
         .context("failed to create replay controller")?;
 
@@ -128,4 +137,23 @@ fn storage_mode_parser() -> impl TypedValueParser<Value = ReplayStorageMode> {
         "flat-state" => ReplayStorageMode::FlatState,
         _ => unreachable!(),
     })
+}
+
+fn parse_shard_filter(s: &str) -> std::result::Result<ShardFilter, String> {
+    match s {
+        "all" => Ok(ShardFilter::All),
+        "available" => Ok(ShardFilter::Available),
+        other => {
+            let shard_ids = other
+                .split(',')
+                .map(|id| {
+                    id.trim()
+                        .parse::<u64>()
+                        .map(ShardId::new)
+                        .map_err(|e| format!("invalid shard id '{}': {}", id.trim(), e))
+                })
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            Ok(ShardFilter::Whitelist(shard_ids))
+        }
+    }
 }

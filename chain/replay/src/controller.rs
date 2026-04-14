@@ -32,6 +32,17 @@ pub enum ReplayStorageMode {
     FlatState,
 }
 
+/// Determines which shards are replayed and advanced.
+#[derive(Clone, Debug)]
+pub enum ShardFilter {
+    /// All shards in the current shard layout.
+    All,
+    /// Only shards whose flat storage is in the ready state.
+    Available,
+    /// Only the specified shard ids.
+    Whitelist(Vec<ShardId>),
+}
+
 /// Controller for replaying chunks block by block.
 ///
 /// Tracks the current block header and advances state between blocks.
@@ -45,6 +56,7 @@ pub struct SequentialChunksReplayController {
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     current_block_hash: CryptoHash,
     storage_mode: ReplayStorageMode,
+    shard_uids: Vec<ShardUId>,
 }
 
 impl SequentialChunksReplayController {
@@ -58,16 +70,29 @@ impl SequentialChunksReplayController {
         runtime: Arc<NightshadeRuntime>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         storage_mode: ReplayStorageMode,
+        shards_filter: ShardFilter,
     ) -> Result<Self> {
-        let flat_head_hash =
-            init_storage(&chain_store, &runtime, epoch_manager.as_ref(), &storage_mode)
-                .context("failed to initialize storage")?;
+        let (flat_head_hash, shard_uids) = init_storage(
+            &chain_store,
+            &runtime,
+            epoch_manager.as_ref(),
+            &storage_mode,
+            &shards_filter,
+        )
+        .context("failed to initialize storage")?;
 
         let current_block_hash = chain_store
             .get_next_block_hash(&flat_head_hash)
             .context("no block after flat head to start replay from")?;
 
-        Ok(Self { chain_store, runtime, epoch_manager, current_block_hash, storage_mode })
+        Ok(Self {
+            chain_store,
+            runtime,
+            epoch_manager,
+            current_block_hash,
+            storage_mode,
+            shard_uids,
+        })
     }
 
     /// Returns the block hash the controller is currently at.
@@ -89,15 +114,8 @@ impl SequentialChunksReplayController {
             .context("failed to get current block for replay")?
             .header()
             .clone();
-        let shard_layout = get_shard_layout(
-            &self.chain_store,
-            self.epoch_manager.as_ref(),
-            &self.current_block_hash,
-        )
-        .context("failed to get shard layout for replay")?;
-
-        let mut chunk_results = Vec::with_capacity(shard_layout.num_shards() as usize);
-        for shard_uid in shard_layout.shard_uids() {
+        let mut chunk_results = Vec::with_capacity(self.shard_uids.len());
+        for &shard_uid in &self.shard_uids {
             let result = replay_chunk(
                 &self.chain_store,
                 self.runtime.as_ref(),
@@ -143,13 +161,7 @@ impl SequentialChunksReplayController {
         )
         .context("failed to get flat state changes")?;
 
-        let shard_layout = get_shard_layout(
-            &self.chain_store,
-            self.epoch_manager.as_ref(),
-            &self.current_block_hash,
-        )
-        .context("failed to get shard layout for advance")?;
-        for shard_uid in shard_layout.shard_uids() {
+        for &shard_uid in &self.shard_uids {
             let flat_changes = changes_by_shard.remove(&shard_uid.shard_id()).unwrap_or_default();
             advance_shard(
                 &self.chain_store,
@@ -256,7 +268,8 @@ fn init_storage(
     runtime: &NightshadeRuntime,
     epoch_manager: &dyn EpochManagerAdapter,
     storage_mode: &ReplayStorageMode,
-) -> Result<CryptoHash> {
+    shards_filter: &ShardFilter,
+) -> Result<(CryptoHash, Vec<ShardUId>)> {
     let tries = runtime.get_tries();
     let flat_storage_manager = runtime.get_flat_storage_manager();
 
@@ -284,22 +297,13 @@ fn init_storage(
         .context("no ready flat storage status found")?;
     let max_flat_head_hash = max_flat_head.hash;
 
-    // Iterate through all shards of the block at max height.
-    let block = chain_store
-        .get_block(&max_flat_head_hash)
-        .context("failed to get block at max flat head")?;
-    let epoch_id = block.header().epoch_id();
-    let shard_layout = epoch_manager
-        .get_shard_layout(epoch_id)
-        .context("failed to get shard layout at max flat head")?;
+    let shard_uids =
+        resolve_shards(chain_store, epoch_manager, &max_flat_head_hash, shards_filter, &statuses)?;
 
-    for shard_uid in shard_layout.shard_uids() {
+    for &shard_uid in &shard_uids {
         let flat_head = match statuses.get(&shard_uid) {
             Some(FlatStorageStatus::Ready(r)) => &r.flat_head,
-            Some(other) => {
-                anyhow::bail!("flat storage not ready for shard {}: {:?}", shard_uid, other)
-            }
-            None => anyhow::bail!("no flat storage status for shard {}", shard_uid),
+            _ => continue, // already filtered above
         };
 
         match storage_mode {
@@ -353,7 +357,7 @@ fn init_storage(
         }
     }
 
-    Ok(max_flat_head_hash)
+    Ok((max_flat_head_hash, shard_uids))
 }
 
 /// Reads state changes for a block from the chain store, partitions them
@@ -387,7 +391,6 @@ fn get_flat_state_changes_by_shard(
         .collect())
 }
 
-
 /// Returns an error if the shard layout differs between the two blocks.
 fn ensure_same_shard_layout(
     chain_store: &ChainStore,
@@ -418,4 +421,54 @@ fn get_shard_layout(
     epoch_manager
         .get_shard_layout(block.header().epoch_id())
         .with_context(|| format!("failed to get shard layout for block {}", block_hash))
+}
+
+/// Resolves the list of shard UIDs to replay based on the filter.
+fn resolve_shards(
+    chain_store: &ChainStore,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block_hash: &CryptoHash,
+    filter: &ShardFilter,
+    statuses: &HashMap<ShardUId, FlatStorageStatus>,
+) -> Result<Vec<ShardUId>> {
+    let shard_layout = get_shard_layout(chain_store, epoch_manager, block_hash)
+        .context("failed to get shard layout for shard resolution")?;
+    match filter {
+        ShardFilter::All => {
+            let uids: Vec<_> = shard_layout.shard_uids().collect();
+            for &shard_uid in &uids {
+                ensure_flat_storage_ready(statuses, shard_uid)?;
+            }
+            Ok(uids)
+        }
+        ShardFilter::Available => Ok(shard_layout
+            .shard_uids()
+            .filter(|uid| matches!(statuses.get(uid), Some(FlatStorageStatus::Ready(_))))
+            .collect()),
+        ShardFilter::Whitelist(shard_ids) => shard_ids
+            .iter()
+            .map(|&shard_id| {
+                let shard_uid = shard_layout
+                    .shard_uids()
+                    .find(|uid| uid.shard_id() == shard_id)
+                    .with_context(|| format!("shard id {} not in current layout", shard_id))?;
+                ensure_flat_storage_ready(statuses, shard_uid)?;
+                Ok(shard_uid)
+            })
+            .collect::<Result<Vec<_>>>(),
+    }
+}
+
+/// Returns an error if flat storage is not ready for the given shard.
+fn ensure_flat_storage_ready(
+    statuses: &HashMap<ShardUId, FlatStorageStatus>,
+    shard_uid: ShardUId,
+) -> Result<()> {
+    match statuses.get(&shard_uid) {
+        Some(FlatStorageStatus::Ready(_)) => Ok(()),
+        Some(other) => {
+            anyhow::bail!("flat storage not ready for shard {}: {:?}", shard_uid, other)
+        }
+        None => anyhow::bail!("no flat storage status for shard {}", shard_uid),
+    }
 }

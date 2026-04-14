@@ -11,7 +11,10 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::transaction::ExecutionOutcome;
 use near_primitives::types::Balance;
-use near_replay::{CombinedDatabase, ReplayStorageMode, SequentialChunksReplayController};
+use near_replay::{
+    BlockReplayResult, CombinedDatabase, ReplayStorageMode, SequentialChunksReplayController,
+    ShardFilter,
+};
 use near_store::{Store, TrieConfig};
 use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::FilesystemContractRuntimeCache;
@@ -173,15 +176,21 @@ fn create_replay_controller(
         false,
     );
 
-    SequentialChunksReplayController::new(chain_store, runtime, epoch_manager, storage_mode)
-        .expect("failed to create replay controller")
+    SequentialChunksReplayController::new(
+        chain_store,
+        runtime,
+        epoch_manager,
+        storage_mode,
+        ShardFilter::All,
+    )
+    .expect("failed to create replay controller")
 }
 
 /// Finds the execution outcome for the given receipt in the replay result
 /// and asserts it matches the expected outcome (ignoring `compute_usage`
 /// which is `borsh(skip)` and not persisted in the database).
 fn assert_replayed_outcome(
-    result: &near_replay::BlockReplayResult,
+    result: &BlockReplayResult,
     receipt_id: CryptoHash,
     expected: &ExecutionOutcome,
 ) {

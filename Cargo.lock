@@ -5137,6 +5137,7 @@ dependencies = [
  "near-chain",
  "near-chain-configs",
  "near-epoch-manager",
+ "near-primitives",
  "near-replay",
  "near-store",
  "nearcore",
