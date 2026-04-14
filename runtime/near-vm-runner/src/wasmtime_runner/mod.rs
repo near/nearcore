@@ -390,7 +390,6 @@ impl WasmtimeVM {
         if let Some(target) = &target {
             engine_config.target(&target)?;
         }
-
         let mut guard = VMS.write();
         let vm = guard.entry(vm_key).or_insert_with_key(|vm_key| {
             // NOTE: Configuration values are based on:
