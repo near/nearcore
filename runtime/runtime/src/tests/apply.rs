@@ -183,6 +183,7 @@ fn setup_runtime_for_shard(
         bandwidth_requests: BlockBandwidthRequests::empty(),
         trie_access_tracker_state: Default::default(),
         on_post_state_ready: None,
+        contract_preparation_pool: None,
     };
 
     (runtime, tries, root, apply_state, signers)
@@ -3392,6 +3393,7 @@ fn test_fix_access_key_allowance_no_mutation_on_failed_tx() {
             bandwidth_requests: BlockBandwidthRequests::empty(),
             trie_access_tracker_state: Default::default(),
             on_post_state_ready: None,
+            contract_preparation_pool: None,
         };
 
         let make_fc_tx = |nonce, receiver| {

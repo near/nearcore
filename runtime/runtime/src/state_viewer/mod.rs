@@ -305,6 +305,7 @@ impl TrieViewer {
             bandwidth_requests: BlockBandwidthRequests::empty(),
             trie_access_tracker_state: Default::default(),
             on_post_state_ready: None,
+            contract_preparation_pool: None,
         };
         let function_call = FunctionCallAction {
             method_name: method_name.to_string(),
@@ -331,6 +332,7 @@ impl TrieViewer {
             apply_state.cache.as_ref().map(|v| v.handle()),
             state_update.contract_storage().clone(),
             epoch_info_provider.chain_id(),
+            None,
         );
         let max_gas_burnt_view = self.max_gas_burnt_view(view_state.current_protocol_version);
         let view_config = Some(ViewConfig { max_gas_burnt: max_gas_burnt_view });

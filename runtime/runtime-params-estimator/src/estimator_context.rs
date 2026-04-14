@@ -194,6 +194,7 @@ impl<'c> EstimatorContext<'c> {
             bandwidth_requests: BlockBandwidthRequests::empty(),
             trie_access_tracker_state: Default::default(),
             on_post_state_ready: None,
+            contract_preparation_pool: None,
         }
     }
 

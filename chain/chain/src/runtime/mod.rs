@@ -7,6 +7,7 @@ use crate::types::{
     StateRootNodeValidationResult, StorageDataSource, Tip,
 };
 use errors::FromStateViewerErrors;
+use near_async::thread_pool::ThreadPool;
 use near_async::time::{Duration, Instant};
 use near_chain_configs::{GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig};
 use near_crypto::PublicKey;
@@ -57,7 +58,6 @@ use node_runtime::{
     get_signer_and_access_key, validate_transaction, verify_and_charge_gas_key_tx_ephemeral,
     verify_and_charge_tx_ephemeral,
 };
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -72,19 +72,6 @@ pub mod test_utils;
 #[cfg(test)]
 mod tests;
 mod trie_update_wrapper;
-
-/// Dedicated thread pool for contract compilation, so it doesn't share the
-/// global rayon pool.
-fn compilation_pool() -> &'static rayon::ThreadPool {
-    static POOL: std::sync::OnceLock<rayon::ThreadPool> = std::sync::OnceLock::new();
-    POOL.get_or_init(|| {
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(std::cmp::max(rayon::current_num_threads() / 2, 1))
-            .thread_name(|index| format!("compile-contracts-{index}"))
-            .build()
-            .expect("failed to build compilation thread pool")
-    })
-}
 
 /// Defines Nightshade state transition and validator rotation.
 /// TODO: this possibly should be merged with the runtime cargo or at least reconciled on the interfaces.
@@ -101,6 +88,8 @@ pub struct NightshadeRuntime {
     state_parts_compression_lvl: i32,
     is_cloud_archival_writer: bool,
     save_receipt_to_tx: bool,
+    /// thread pool used for contract preparation and compilation.
+    contract_preparation_pool: Arc<ThreadPool>,
 }
 
 impl NightshadeRuntime {
@@ -146,6 +135,15 @@ impl NightshadeRuntime {
             tracing::debug!(target: "runtime", ?err, "the state snapshot is not available");
         }
 
+        let num_preparation_threads = std::thread::available_parallelism().map_or(4, |n| n.get());
+        // Higher than apply_chunks (50), slightly above witness pools (70).
+        let preparation_priority = 75;
+        let contract_preparation_pool = Arc::new(ThreadPool::new(
+            "contract_preparation",               // pool name (metrics label)
+            std::time::Duration::from_secs(3600), // idle thread timeout
+            num_preparation_threads,
+            preparation_priority,
+        ));
         Arc::new(NightshadeRuntime {
             genesis_config: genesis_config.clone(),
             compiled_contract_cache,
@@ -159,6 +157,7 @@ impl NightshadeRuntime {
             state_parts_compression_lvl,
             is_cloud_archival_writer,
             save_receipt_to_tx,
+            contract_preparation_pool,
         })
     }
 
@@ -307,6 +306,7 @@ impl NightshadeRuntime {
             bandwidth_requests,
             trie_access_tracker_state: Default::default(),
             on_post_state_ready,
+            contract_preparation_pool: Some(self.contract_preparation_pool.clone()),
         };
 
         let instant = Instant::now();
@@ -1562,22 +1562,23 @@ impl RuntimeAdapter for NightshadeRuntime {
             "precompile_contracts",
             num_contracts = contract_codes.len())
         .entered();
+        if contract_codes.is_empty() {
+            return Ok(());
+        }
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         let runtime_config = self.runtime_config_store.get_config(protocol_version);
-        let compiled_contract_cache: Option<Box<dyn ContractRuntimeCache>> =
-            Some(Box::new(self.compiled_contract_cache.handle()));
-        // Execute precompile_contract in parallel on a dedicated thread pool
-        // to avoid sharing the global rayon pool.
-        compilation_pool().install(|| {
-            contract_codes.par_iter().for_each(|code| {
-                precompile_contract(
-                    code,
-                    Arc::clone(&runtime_config.wasm_config),
-                    compiled_contract_cache.as_deref(),
-                )
-                .ok();
-            });
-        });
+        let (tx, rx) = std::sync::mpsc::channel();
+        for code in contract_codes {
+            let tx = tx.clone();
+            let config = Arc::clone(&runtime_config.wasm_config);
+            let cache = self.compiled_contract_cache.handle();
+            self.contract_preparation_pool.spawn_boxed(Box::new(move || {
+                precompile_contract(&code, config, Some(&*cache)).ok();
+                let _ = tx.send(());
+            }));
+        }
+        drop(tx);
+        while rx.recv().is_ok() {}
         Ok(())
     }
 }
