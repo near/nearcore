@@ -7,6 +7,7 @@ use crate::types::{
     StateRootNodeValidationResult, StorageDataSource, Tip,
 };
 use errors::FromStateViewerErrors;
+use near_async::thread_pool::contract_compilation_pool;
 use near_async::time::{Duration, Instant};
 use near_chain_configs::{GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig};
 use near_crypto::PublicKey;
@@ -47,7 +48,6 @@ use near_store::{
     ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
     TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_gas_key_nonce,
 };
-use near_thread_pools::contract_compilation_pool;
 use near_vm_runner::ContractCode;
 use near_vm_runner::{ContractRuntimeCache, precompile_contract};
 use node_runtime::adapter::ViewRuntimeAdapter;

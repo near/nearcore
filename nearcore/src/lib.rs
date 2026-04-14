@@ -6,6 +6,9 @@ use crate::metrics::spawn_trie_metrics_loop;
 use crate::state_sync::StateSyncDumper;
 use anyhow::Context;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
+use near_async::thread_pool::{
+    PartialWitnessValidationThreadPool, WitnessCreationThreadPool, contract_compilation_pool,
+};
 use near_async::time::Clock;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 pub use near_chain::runtime::NightshadeRuntime;
@@ -48,9 +51,6 @@ use near_store::genesis::initialize_sharded_genesis_state;
 use near_store::metrics::spawn_db_metrics_loop;
 use near_store::{NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
-use near_thread_pools::{
-    PartialWitnessValidationThreadPool, WitnessCreationThreadPool, contract_compilation_pool,
-};
 use parking_lot::RwLock;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

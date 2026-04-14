@@ -6,6 +6,7 @@ use crate::metrics::{
     PIPELINING_ACTIONS_SUBMITTED, PIPELINING_ACTIONS_TASK_DELAY_TIME,
     PIPELINING_ACTIONS_TASK_WORKING_TIME, PIPELINING_ACTIONS_WAITING_TIME,
 };
+use near_async::thread_pool::contract_compilation_pool;
 use near_parameters::RuntimeConfig;
 use near_primitives::account::{Account, AccountContract};
 use near_primitives::action::{Action, GlobalContractIdentifier};
@@ -17,7 +18,6 @@ use near_primitives::types::{AccountId, Gas};
 use near_store::contract::ContractStorage;
 use near_store::trie::AccessOptions;
 use near_store::{TrieUpdate, get_pure};
-use near_thread_pools::contract_compilation_pool;
 use near_vm_runner::logic::GasCounter;
 use near_vm_runner::{ContractRuntimeCache, PreparedContract};
 use parking_lot::{Condvar, Mutex};

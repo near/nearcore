@@ -57,7 +57,6 @@ near-parameters.workspace = true
 near-primitives.workspace = true
 near-rosetta-rpc = { workspace = true, optional = true }
 near-store.workspace = true
-near-thread-pools.workspace = true
 near-telemetry.workspace = true
 near-rpc-probe = { workspace = true, optional = true }
 near-transactions-generator = { workspace = true, optional = true }

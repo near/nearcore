@@ -4234,7 +4234,6 @@ dependencies = [
  "near-schema-checker-lib",
  "near-store",
  "near-test-contracts",
- "near-thread-pools",
  "near-vm-runner",
  "node-runtime",
  "num-rational 0.3.2",
@@ -5246,13 +5245,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-thread-pools"
-version = "0.0.0"
-dependencies = [
- "near-async",
-]
-
-[[package]]
 name = "near-time"
 version = "0.0.0"
 dependencies = [
@@ -5563,7 +5555,6 @@ dependencies = [
  "near-rpc-probe",
  "near-store",
  "near-telemetry",
- "near-thread-pools",
  "near-time",
  "near-transactions-generator",
  "near-vm-runner",
@@ -5673,6 +5664,7 @@ dependencies = [
  "expect-test",
  "hex",
  "itertools 0.14.0",
+ "near-async",
  "near-chain-configs",
  "near-crypto",
  "near-crypto-ed25519-batch",
@@ -5682,7 +5674,6 @@ dependencies = [
  "near-primitives-core",
  "near-store",
  "near-test-contracts",
- "near-thread-pools",
  "near-vm-runner",
  "near-wallet-contract",
  "num-integer",

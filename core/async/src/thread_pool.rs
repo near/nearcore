@@ -262,6 +262,99 @@ fn run_worker(state: Arc<ThreadPoolState>, idle_timeout: Duration) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Named pool instances.
+// ---------------------------------------------------------------------------
+
+// SCHED_RR priorities (higher preempts lower)
+/// Contract compilation and pipelining
+const PRIORITY_CONTRACT_COMPILATION: u8 = 55;
+/// Chunk application, incl. witness validation.
+const PRIORITY_APPLY_CHUNKS: u8 = 50;
+/// Validation/forwarding of partial encoded witnesses
+const PRIORITY_PARTIAL_WITNESS_VALIDATION: u8 = 70;
+/// Witness creation
+const PRIORITY_WITNESS_CREATION: u8 = 70;
+
+/// Shared thread pool for contract compilation and pipelining.
+pub fn contract_compilation_pool() -> &'static Arc<ThreadPool> {
+    static POOL: std::sync::OnceLock<Arc<ThreadPool>> = std::sync::OnceLock::new();
+    POOL.get_or_init(|| {
+        let thread_limit = std::thread::available_parallelism().map_or(4, |n| n.get());
+        Arc::new(ThreadPool::new(
+            "contract_compilation",
+            Duration::from_secs(3600),
+            thread_limit,
+            PRIORITY_CONTRACT_COMPILATION,
+        ))
+    })
+}
+
+/// Async computation spawner to be used for chunk applying tasks.
+#[derive(Default)]
+pub enum ApplyChunksSpawner {
+    /// Use a pool of OS-based high priority threads, limited by the number of shards.
+    #[default]
+    Default,
+    /// Use a custom spawner, e.g. rayon.
+    Custom(Arc<dyn AsyncComputationSpawner>),
+}
+
+impl ApplyChunksSpawner {
+    /// Get the custom spawner, or create the default spawner with the given thread limit.
+    pub fn into_spawner(self, thread_limit: usize) -> Arc<dyn AsyncComputationSpawner> {
+        match self {
+            ApplyChunksSpawner::Default => Arc::new(ThreadPool::new(
+                "apply_chunks",
+                Duration::from_secs(30),
+                thread_limit,
+                PRIORITY_APPLY_CHUNKS,
+            )),
+            ApplyChunksSpawner::Custom(spawner) => spawner,
+        }
+    }
+}
+
+/// High-priority thread pool for validating partial chunk witnesses.
+pub struct PartialWitnessValidationThreadPool(ThreadPool);
+
+impl PartialWitnessValidationThreadPool {
+    pub fn new() -> Self {
+        Self(ThreadPool::new(
+            "partial_witness_validation",
+            Duration::from_secs(30),
+            96,
+            PRIORITY_PARTIAL_WITNESS_VALIDATION,
+        ))
+    }
+}
+
+impl AsyncComputationSpawner for PartialWitnessValidationThreadPool {
+    fn spawn_boxed(&self, _name: &str, job: Box<dyn FnOnce() + Send>) {
+        self.0.spawn_boxed(job)
+    }
+}
+
+/// High-priority thread pool for creating chunk witnesses.
+pub struct WitnessCreationThreadPool(ThreadPool);
+
+impl WitnessCreationThreadPool {
+    pub fn new() -> Self {
+        Self(ThreadPool::new(
+            "witness_creation",
+            Duration::from_secs(30),
+            6,
+            PRIORITY_WITNESS_CREATION,
+        ))
+    }
+}
+
+impl AsyncComputationSpawner for WitnessCreationThreadPool {
+    fn spawn_boxed(&self, _name: &str, job: Box<dyn FnOnce() + Send>) {
+        self.0.spawn_boxed(job)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

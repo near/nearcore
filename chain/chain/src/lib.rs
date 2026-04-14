@@ -7,11 +7,11 @@ pub use doomslug::{
     ChunksReadiness, Doomslug, DoomslugBlockProductionReadiness, DoomslugThresholdMode,
 };
 pub use lightclient::{create_light_client_block_view, get_epoch_block_producers_view};
-pub use near_chain_primitives::{self, Error};
-pub use near_primitives::receipt::ReceiptResult;
-pub use near_thread_pools::{
+pub use near_async::thread_pool::{
     ApplyChunksSpawner, PartialWitnessValidationThreadPool, WitnessCreationThreadPool,
 };
+pub use near_chain_primitives::{self, Error};
+pub use near_primitives::receipt::ReceiptResult;
 pub use pending_shard_jobs::{FromPanic, PendingShardJobs};
 pub use store::utils::{
     check_transaction_validity_period, get_chunk_clone_from_header,
