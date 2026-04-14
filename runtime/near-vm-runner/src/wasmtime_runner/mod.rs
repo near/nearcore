@@ -390,6 +390,10 @@ impl WasmtimeVM {
         if let Some(target) = &target {
             engine_config.target(&target)?;
         }
+        // Disable native -> wasm code address mappings to reduce the generated code size.
+        // This saves around 40% of total size for contracts on mainnet.
+        engine_config.generate_address_map(false);
+
         let mut guard = VMS.write();
         let vm = guard.entry(vm_key).or_insert_with_key(|vm_key| {
             // NOTE: Configuration values are based on:
