@@ -532,7 +532,7 @@ impl JsonRpcHandler {
                 process_sharded_method_call(
                     request,
                     source,
-                    |params| self.light_client_proof_sharded(params),
+                    |params| self.light_client_proof_sharded("light_client_proof", params),
                     |params| self.light_client_proof_local(params),
                 )
                 .await
@@ -629,7 +629,9 @@ impl JsonRpcHandler {
                 process_sharded_method_call(
                     request,
                     source,
-                    |params| self.light_client_proof_sharded(params),
+                    |params| {
+                        self.light_client_proof_sharded("EXPERIMENTAL_light_client_proof", params)
+                    },
                     |params| self.light_client_proof_local(params),
                 )
                 .await
@@ -1875,6 +1877,7 @@ impl JsonRpcHandler {
 
     async fn light_client_proof_sharded(
         &self,
+        method_name: &str,
         request_data: near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRequest,
     ) -> Result<Value, RpcError> {
         let account_id = match &request_data.id {
@@ -1884,7 +1887,7 @@ impl JsonRpcHandler {
         let block_hint = BlockHint::Hash(request_data.light_client_head);
         let shard_hint = ShardHint::Account(account_id);
         self.run_coordinator_request(
-            "light_client_proof",
+            method_name,
             request_data,
             block_hint,
             shard_hint,
