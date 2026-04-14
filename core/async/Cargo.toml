@@ -18,8 +18,6 @@ parking_lot.workspace = true
 rand = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
-[target.'cfg(unix)'.dependencies]
-thread-priority.workspace = true
 time.workspace = true
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
 tokio-util.workspace = true
@@ -28,6 +26,9 @@ tracing.workspace = true
 near-o11y.workspace = true
 near-async-derive.workspace = true
 near-time = { workspace = true, features = ["clock"] }
+
+[target.'cfg(unix)'.dependencies]
+thread-priority.workspace = true
 
 [features]
 actor_instrumentation_testing = ["rand"]
