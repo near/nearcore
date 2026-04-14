@@ -1,98 +1,69 @@
 use crate::replay_chunk::{ChunkReplayResult, replay_chunk};
-use anyhow::{Context, Result};
-use near_chain::runtime::NightshadeRuntime;
+use anyhow::{Context, Result, anyhow, ensure};
 use near_chain::types::{RuntimeAdapter, StorageDataSource};
-use near_chain::{BlockHeader, ChainStore, ChainStoreAccess};
+use near_chain::{ChainStore, ChainStoreAccess};
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{RawStateChangesWithTrieKey, ShardId};
-use near_store::adapter::StoreAdapter;
-use near_store::flat::{self, FlatStateChanges, FlatStorageStatus};
-use near_store::trie::KeyForStateChanges;
+use near_primitives::state::FlatStateValue;
+use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
+use near_primitives::types::ShardId;
 use near_store::trie::mem::memtrie_update::TrackingMode;
-use near_store::{DBCol, ShardUId};
-use std::collections::HashMap;
+use near_store::trie::trie_storage::TrieDBStorage;
+use near_store::trie::{AccessOptions, KeyForStateChanges};
+use near_store::{KeyLookupMode, ShardUId, Trie};
 use std::sync::Arc;
 
-/// Result of replaying a single block across all shards.
-pub struct BlockReplayResult {
-    pub block_header: BlockHeader,
-    pub chunk_results: Vec<ChunkReplayResult>,
-}
-
-/// How the controller reads state during replay and advances between blocks.
-#[derive(Clone, Copy, Debug)]
-pub enum ReplayStorageMode {
-    /// Uses memtries for state reads. On advance, updates memtries using
-    /// state changes from `DBCol::StateChanges`.
-    Memtries,
-    /// Uses flat storage for state reads. On advance, adds deltas to flat
-    /// storage in memory and moves the flat head forward.
-    FlatState,
-}
-
-/// Determines which shards are replayed and advanced.
-#[derive(Clone, Debug)]
-pub enum ShardFilter {
-    /// All shards in the current shard layout.
-    All,
-    /// Only shards whose flat storage is in the ready state.
-    Available,
-    /// Only the specified shard ids.
-    Whitelist(Vec<ShardId>),
-}
-
-/// Controller for replaying chunks block by block.
+/// Controller for replaying chunks backwards, block by block, for a single shard.
 ///
-/// Tracks the current block header and advances state between blocks.
-/// Replay and advance are decoupled: `replay_current_block()` replays
-/// without mutating controller state, while `advance()` moves forward
-/// and updates the internal state (memtries or flat storage) to match
-/// the expected database state.
+/// Starts at the chain head (where the memtrie is loaded from flat state)
+/// and moves backwards. Only requires a single database.
+///
+/// Replay and advance are decoupled: `replay_current_chunk()` replays
+/// without mutating controller state, while `advance()` moves to the
+/// previous block by reversing memtrie changes.
 pub struct SequentialChunksReplayController {
     chain_store: ChainStore,
-    runtime: Arc<NightshadeRuntime>,
+    runtime: Arc<dyn RuntimeAdapter>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     current_block_hash: CryptoHash,
-    storage_mode: ReplayStorageMode,
-    shard_uids: Vec<ShardUId>,
+    shard_uid: ShardUId,
 }
 
 impl SequentialChunksReplayController {
-    /// Creates a controller with the given storage mode.
+    /// Creates a controller that replays backwards from the chain head for
+    /// the given shard.
     ///
-    /// The runtime should be backed by a `CombinedDatabase` store that
-    /// reads flat-state columns from an earlier snapshot and everything
-    /// else from the main store.
-    pub fn new(
+    /// Resolves the shard's `ShardUId` from the chain head's shard layout,
+    /// loads the memtrie from the store's flat state, then reverses the
+    /// head block's changes so the memtrie is at prev_state_root(head),
+    /// ready for replay_current_chunk().
+    pub fn load_memtrie(
         chain_store: ChainStore,
-        runtime: Arc<NightshadeRuntime>,
+        runtime: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
-        storage_mode: ReplayStorageMode,
-        shards_filter: ShardFilter,
+        shard_id: ShardId,
     ) -> Result<Self> {
-        let (flat_head_hash, shard_uids) = init_storage(
-            &chain_store,
-            &runtime,
-            epoch_manager.as_ref(),
-            &storage_mode,
-            &shards_filter,
-        )
-        .context("failed to initialize storage")?;
+        let head_hash = chain_store.head().context("failed to get chain head")?.last_block_hash;
+        let shard_layout = get_shard_layout(&chain_store, epoch_manager.as_ref(), &head_hash)
+            .context("failed to get shard layout at head")?;
+        let shard_uid = shard_layout
+            .shard_uids()
+            .find(|uid| uid.shard_id() == shard_id)
+            .with_context(|| format!("shard id {shard_id} not in current shard layout"))?;
 
-        let current_block_hash = chain_store
-            .get_next_block_hash(&flat_head_hash)
-            .context("no block after flat head to start replay from")?;
+        runtime
+            .get_tries()
+            .load_memtrie(&shard_uid, None, true)
+            .with_context(|| format!("failed to load memtries for shard id {shard_id}"))?;
 
-        Ok(Self {
-            chain_store,
-            runtime,
-            epoch_manager,
-            current_block_hash,
-            storage_mode,
-            shard_uids,
-        })
+        let controller =
+            Self { chain_store, runtime, epoch_manager, current_block_hash: head_hash, shard_uid };
+
+        // Reverse the head block's changes so the memtrie is at
+        // prev_state_root(head), ready for replay_current_chunk().
+        controller.reverse_current_block()?;
+        Ok(controller)
     }
 
     /// Returns the block hash the controller is currently at.
@@ -100,298 +71,193 @@ impl SequentialChunksReplayController {
         &self.current_block_hash
     }
 
-    /// Replays the current block without changing the controller state.
+    /// Replays the chunk at the current block without changing the
+    /// controller state.
     #[tracing::instrument(
         target = "replay",
         level = "debug",
         skip_all,
-        fields(block_hash = %self.current_block_hash),
+        fields(block_hash = %self.current_block_hash, shard_uid = %self.shard_uid),
     )]
-    pub fn replay_current_block(&self) -> Result<BlockReplayResult> {
-        let block_header = self
-            .chain_store
-            .get_block(&self.current_block_hash)
-            .context("failed to get current block for replay")?
-            .header()
-            .clone();
-        let mut chunk_results = Vec::with_capacity(self.shard_uids.len());
-        for &shard_uid in &self.shard_uids {
-            let result = replay_chunk(
-                &self.chain_store,
-                self.runtime.as_ref(),
-                self.epoch_manager.as_ref(),
-                &self.current_block_hash,
-                shard_uid,
-                StorageDataSource::Db,
-            )
-            .with_context(|| format!("failed to replay chunk for shard {}", shard_uid))?;
-            chunk_results.push(result);
-        }
-
-        Ok(BlockReplayResult { block_header, chunk_results })
+    pub fn replay_current_chunk(&self) -> Result<ChunkReplayResult> {
+        replay_chunk(
+            &self.chain_store,
+            self.runtime.as_ref(),
+            self.epoch_manager.as_ref(),
+            &self.current_block_hash,
+            self.shard_uid,
+            StorageDataSource::Db,
+        )
+        .with_context(|| format!("failed to replay chunk for shard {}", self.shard_uid))
     }
 
-    /// Advances the controller to the next block, updating internal state
-    /// (memtries or flat storage) using stored state changes.
-    /// Returns `false` when there is no next block in the chain.
+    /// Advances the controller to the previous block by reversing memtrie
+    /// changes. After advancing, `replay_current_chunk()` is ready to use.
+    /// Returns `false` when the current block is genesis or when the
+    /// previous block is no longer available in the store (e.g. it has
+    /// been garbage collected).
     #[tracing::instrument(
         target = "replay",
         level = "debug",
         skip_all,
-        fields(block_hash = %self.current_block_hash),
+        fields(block_hash = %self.current_block_hash, shard_uid = %self.shard_uid),
     )]
     pub fn advance(&mut self) -> Result<bool> {
-        let next_block_hash = match self.chain_store.get_next_block_hash(&self.current_block_hash) {
-            Ok(hash) => hash,
-            Err(_) => return Ok(false),
-        };
+        let block = self
+            .chain_store
+            .get_block(&self.current_block_hash)
+            .context("failed to get current block for advance")?;
+        if block.header().is_genesis() {
+            return Ok(false);
+        }
+        let prev_hash = *block.header().prev_hash();
+
+        if !self.chain_store.block_exists(&prev_hash) {
+            tracing::debug!(
+                target: "replay",
+                %prev_hash,
+                "prev block not available (likely garbage collected), stopping advance",
+            );
+            return Ok(false);
+        }
 
         ensure_same_shard_layout(
             &self.chain_store,
             self.epoch_manager.as_ref(),
             &self.current_block_hash,
-            &next_block_hash,
+            &prev_hash,
         )
         .context("shard layout check failed during advance")?;
 
-        let mut changes_by_shard = get_flat_state_changes_by_shard(
-            &self.chain_store,
-            self.epoch_manager.as_ref(),
-            &next_block_hash,
-        )
-        .context("failed to get flat state changes")?;
-
-        for &shard_uid in &self.shard_uids {
-            let flat_changes = changes_by_shard.remove(&shard_uid.shard_id()).unwrap_or_default();
-            advance_shard(
-                &self.chain_store,
-                self.runtime.as_ref(),
-                shard_uid,
-                &self.current_block_hash,
-                &next_block_hash,
-                flat_changes,
-                self.storage_mode,
-            )
-            .with_context(|| {
-                format!("failed to advance shard {} to block {}", shard_uid, next_block_hash)
-            })?;
-        }
-
-        self.current_block_hash = next_block_hash;
+        self.current_block_hash = prev_hash;
+        self.reverse_current_block()?;
         Ok(true)
     }
-}
 
-/// Advances a single shard's state (memtries or flat storage) by one block.
-fn advance_shard(
-    chain_store: &ChainStore,
-    runtime: &NightshadeRuntime,
-    shard_uid: ShardUId,
-    prev_hash: &CryptoHash,
-    next_hash: &CryptoHash,
-    flat_changes: FlatStateChanges,
-    storage_mode: ReplayStorageMode,
-) -> Result<()> {
-    let next_height = chain_store
-        .get_block(next_hash)
-        .context("failed to get next block in advance_shard")?
-        .header()
-        .height();
-    match storage_mode {
-        ReplayStorageMode::Memtries => {
-            let prev_chunk_extra = chain_store
-                .get_chunk_extra(prev_hash, &shard_uid)
-                .context("failed to get prev chunk extra")?;
-            let old_state_root = *prev_chunk_extra.state_root();
+    /// Reverses the current block's memtrie changes so the memtrie is at
+    /// prev_state_root(current), ready for replay.
+    ///
+    /// Iterates the shard's changed trie keys from `DBCol::StateChanges`,
+    /// reads the previous value for each key from the on-disk trie at
+    /// prev_state_root using `TrieDBStorage` (bypassing memtries and flat
+    /// storage), and applies the reverse delta to the memtrie.
+    fn reverse_current_block(&self) -> Result<()> {
+        let shard_uid = self.shard_uid;
+        let block_hash = &self.current_block_hash;
 
-            let tries = runtime.get_tries();
-            let memtries =
-                tries.get_memtries(shard_uid).context("memtries not loaded for shard")?;
-            let mut memtries_guard = memtries.write();
+        let block = self.chain_store.get_block(block_hash).context("failed to get block")?;
+        let prev_hash = block.header().prev_hash();
+        let height = block.header().height();
 
-            let mut trie_update = memtries_guard
-                .update(old_state_root, TrackingMode::None)
-                .map_err(|e| anyhow::anyhow!("failed to create memtrie update: {}", e))?;
-            for (key, value) in flat_changes.0 {
-                match value {
-                    Some(value) => {
-                        trie_update
-                            .insert_memtrie_only(&key, value)
-                            .map_err(|e| anyhow::anyhow!("failed to insert into memtrie: {}", e))?;
+        let shard_layout =
+            get_shard_layout(&self.chain_store, self.epoch_manager.as_ref(), block_hash)
+                .context("failed to get shard layout for reverse")?;
+
+        let chunk_extra = self
+            .chain_store
+            .get_chunk_extra(block_hash, &shard_uid)
+            .context("failed to get chunk extra")?;
+        let current_state_root = *chunk_extra.state_root();
+
+        let prev_chunk_extra = self
+            .chain_store
+            .get_chunk_extra(prev_hash, &shard_uid)
+            .context("failed to get prev chunk extra")?;
+        let prev_state_root = *prev_chunk_extra.state_root();
+
+        // Create a trie that reads directly from DBCol::State, bypassing
+        // memtries and flat storage, to look up previous values.
+        let tries = self.runtime.get_tries();
+        let trie = Trie::new(
+            Arc::new(TrieDBStorage::new(tries.store(), shard_uid)),
+            prev_state_root,
+            None,
+        );
+
+        let memtries = tries.get_memtries(shard_uid).context("memtries not loaded for shard")?;
+        let mut memtries_guard = memtries.write();
+        let mut trie_update = memtries_guard
+            .update(current_state_root, TrackingMode::None)
+            .map_err(|e| anyhow!("failed to create memtrie update: {}", e))?;
+
+        // Iterate changed trie keys for this shard, looking up the previous
+        // value and applying the reverse change directly to the memtrie.
+        let target_shard_id = shard_uid.shard_id();
+        let store = self.chain_store.store();
+        for (row_key, _change) in KeyForStateChanges::for_block(block_hash).find_rows_iter(&store) {
+            let full_trie_key = &row_key[CryptoHash::LENGTH..];
+
+            let (key_shard_id, actual_trie_key) =
+                match parse_account_id_from_raw_key(full_trie_key)? {
+                    Some(account_id) => {
+                        (shard_layout.account_id_to_shard_id(&account_id), full_trie_key)
                     }
                     None => {
-                        trie_update
-                            .delete_memtrie_only(&key)
-                            .map_err(|e| anyhow::anyhow!("failed to delete from memtrie: {}", e))?;
+                        ensure!(
+                            full_trie_key.len() >= 8,
+                            "trie key too short for shard uid suffix"
+                        );
+                        let (trie_key, shard_uid_raw) =
+                            full_trie_key.split_at(full_trie_key.len() - 8);
+                        let key_shard_uid = ShardUId::try_from(shard_uid_raw)
+                            .map_err(|e| anyhow!("failed to decode shard uid: {}", e))?;
+                        (key_shard_uid.shard_id(), trie_key)
                     }
                 };
-            }
-            let memtrie_changes = trie_update.to_memtrie_changes_only();
-            memtries_guard.apply_memtrie_changes(next_height, &memtrie_changes);
-        }
-        ReplayStorageMode::FlatState => {
-            let delta = flat::FlatStateDelta {
-                metadata: flat::FlatStateDeltaMetadata {
-                    block: flat::BlockInfo {
-                        hash: *next_hash,
-                        height: next_height,
-                        prev_hash: *prev_hash,
-                    },
-                    prev_block_with_changes: None,
-                },
-                changes: flat_changes,
-            };
-            let flat_storage = runtime
-                .get_flat_storage_manager()
-                .get_flat_storage_for_shard(shard_uid)
-                .context("flat storage not initialized for shard")?;
-            let _store_update = flat_storage
-                .add_delta(delta)
-                .map_err(|e| anyhow::anyhow!("failed to add flat storage delta: {}", e))?;
-        }
-    }
-    Ok(())
-}
-
-/// Initializes storage for each shard based on the storage mode.
-/// Different shards may have their flat heads at different heights; lagging
-/// shards are advanced to the maximum flat head. Returns the maximum flat
-/// head block hash.
-#[tracing::instrument(
-    target = "replay",
-    level = "debug",
-    skip_all,
-    fields(?storage_mode),
-)]
-fn init_storage(
-    chain_store: &ChainStore,
-    runtime: &NightshadeRuntime,
-    epoch_manager: &dyn EpochManagerAdapter,
-    storage_mode: &ReplayStorageMode,
-    shards_filter: &ShardFilter,
-) -> Result<(CryptoHash, Vec<ShardUId>)> {
-    let tries = runtime.get_tries();
-    let flat_storage_manager = runtime.get_flat_storage_manager();
-
-    // Read all flat storage statuses into a map.
-    let mut statuses: HashMap<ShardUId, FlatStorageStatus> = HashMap::new();
-    for (shard_uid_bytes, _) in tries.store().store_ref().iter(DBCol::FlatStorageStatus) {
-        let shard_uid = match ShardUId::try_from(shard_uid_bytes.as_ref()) {
-            Ok(uid) => uid,
-            Err(e) => {
-                tracing::warn!(target: "replay", ?e, "failed to parse shard uid from flat storage status key");
+            if key_shard_id != target_shard_id {
                 continue;
             }
-        };
-        statuses.insert(shard_uid, flat_storage_manager.get_flat_storage_status(shard_uid));
-    }
 
-    // Find the block hash at the maximum flat head height.
-    let max_flat_head = statuses
-        .values()
-        .filter_map(|s| match s {
-            FlatStorageStatus::Ready(r) => Some(r.flat_head.clone()),
-            _ => None,
-        })
-        .max_by_key(|info| info.height)
-        .context("no ready flat storage status found")?;
-    let max_flat_head_hash = max_flat_head.hash;
+            let prev_value_ref = trie
+                .get_optimized_ref(
+                    actual_trie_key,
+                    KeyLookupMode::MemOrTrie,
+                    AccessOptions::DEFAULT,
+                )?
+                .map(|v| v.into_value_ref());
 
-    let shard_uids =
-        resolve_shards(chain_store, epoch_manager, &max_flat_head_hash, shards_filter, &statuses)?;
-
-    for &shard_uid in &shard_uids {
-        let flat_head = match statuses.get(&shard_uid) {
-            Some(FlatStorageStatus::Ready(r)) => &r.flat_head,
-            _ => continue, // already filtered above
-        };
-
-        match storage_mode {
-            ReplayStorageMode::Memtries => {
-                tries.load_memtrie(&shard_uid, None, true).map_err(|e| {
-                    anyhow::anyhow!("failed to load memtrie for shard {}: {}", shard_uid, e)
-                })?;
-            }
-            ReplayStorageMode::FlatState => {
-                flat_storage_manager.create_flat_storage_for_shard(shard_uid).map_err(|e| {
-                    anyhow::anyhow!("failed to create flat storage for shard {}: {}", shard_uid, e)
-                })?;
+            match prev_value_ref {
+                None => {
+                    trie_update
+                        .delete_memtrie_only(actual_trie_key)
+                        .map_err(|e| anyhow!("failed to delete from memtrie: {}", e))?;
+                }
+                Some(value_ref) => {
+                    let prev_value = if FlatStateValue::should_inline(value_ref.len()) {
+                        let value = trie.retrieve_value(&value_ref.hash, AccessOptions::DEFAULT)?;
+                        FlatStateValue::Inlined(value)
+                    } else {
+                        FlatStateValue::Ref(value_ref)
+                    };
+                    trie_update
+                        .insert_memtrie_only(actual_trie_key, prev_value)
+                        .map_err(|e| anyhow!("failed to insert into memtrie: {}", e))?;
+                }
             }
         }
 
-        // Advance from this shard's flat head to the max flat head.
-        let mut current_hash = flat_head.hash;
-        while current_hash != max_flat_head_hash {
-            let next_hash = chain_store
-                .get_next_block_hash(&current_hash)
-                .context("failed to get next block hash during catch-up")?;
-            tracing::debug!(
-                target: "replay",
-                %shard_uid,
-                %current_hash,
-                %next_hash,
-                "catching up shard",
-            );
-            ensure_same_shard_layout(chain_store, epoch_manager, &current_hash, &next_hash)
-                .context("shard layout check failed during catch-up")?;
-            let mut changes_by_shard =
-                get_flat_state_changes_by_shard(chain_store, epoch_manager, &next_hash)
-                    .context("failed to get flat state changes during catch-up")?;
-            let flat_changes = changes_by_shard.remove(&shard_uid.shard_id()).unwrap_or_default();
-            advance_shard(
-                chain_store,
-                runtime,
-                shard_uid,
-                &current_hash,
-                &next_hash,
-                flat_changes,
-                *storage_mode,
-            )
-            .with_context(|| {
-                format!(
-                    "failed to advance shard {} during catch-up to block {}",
-                    shard_uid, next_hash
-                )
-            })?;
-            current_hash = next_hash;
-        }
-    }
+        let memtrie_changes = trie_update.to_memtrie_changes_only();
+        let applied_root = memtries_guard.apply_memtrie_changes(height - 1, &memtrie_changes);
+        ensure!(
+            applied_root == prev_state_root,
+            "memtrie root mismatch after reverse: expected {} but got {}",
+            prev_state_root,
+            applied_root,
+        );
 
-    Ok((max_flat_head_hash, shard_uids))
+        // Clean up the old root we reversed away from.
+        memtries_guard.delete_root(&current_state_root);
+
+        Ok(())
+    }
 }
 
-/// Reads state changes for a block from the chain store, partitions them
-/// by shard id, and converts each shard's changes to `FlatStateChanges`.
-fn get_flat_state_changes_by_shard(
-    chain_store: &ChainStore,
-    epoch_manager: &dyn EpochManagerAdapter,
-    block_hash: &CryptoHash,
-) -> Result<HashMap<ShardId, FlatStateChanges>> {
-    let shard_layout = get_shard_layout(chain_store, epoch_manager, block_hash)
-        .context("failed to get shard layout for state changes")?;
-    let mut raw_by_shard: HashMap<ShardId, Vec<RawStateChangesWithTrieKey>> = HashMap::new();
-    for (row_key, change) in
-        KeyForStateChanges::for_block(block_hash).find_rows_iter(&chain_store.store())
-    {
-        let shard_id = match change.trie_key.get_account_id() {
-            Some(account_id) => shard_layout.account_id_to_shard_id(&account_id),
-            None => KeyForStateChanges::delayed_receipt_key_decode_shard_uid(
-                &row_key,
-                block_hash,
-                &change.trie_key,
-            )
-            .context("failed to decode shard uid from state change row key")?
-            .shard_id(),
-        };
-        raw_by_shard.entry(shard_id).or_default().push(change);
+impl Drop for SequentialChunksReplayController {
+    fn drop(&mut self) {
+        self.runtime.get_tries().unload_memtrie(&self.shard_uid);
     }
-    Ok(raw_by_shard
-        .into_iter()
-        .map(|(shard_id, changes)| (shard_id, FlatStateChanges::from_state_changes(&changes)))
-        .collect())
 }
 
-/// Returns an error if the shard layout differs between the two blocks.
 fn ensure_same_shard_layout(
     chain_store: &ChainStore,
     epoch_manager: &dyn EpochManagerAdapter,
@@ -400,7 +266,7 @@ fn ensure_same_shard_layout(
 ) -> Result<()> {
     let layout_a = get_shard_layout(chain_store, epoch_manager, block_hash_a)?;
     let layout_b = get_shard_layout(chain_store, epoch_manager, block_hash_b)?;
-    anyhow::ensure!(
+    ensure!(
         layout_a == layout_b,
         "shard layout changed between blocks {} and {} — resharding replay is not supported",
         block_hash_a,
@@ -409,7 +275,6 @@ fn ensure_same_shard_layout(
     Ok(())
 }
 
-/// Returns the shard layout for the epoch of the given block.
 fn get_shard_layout(
     chain_store: &ChainStore,
     epoch_manager: &dyn EpochManagerAdapter,
@@ -421,54 +286,4 @@ fn get_shard_layout(
     epoch_manager
         .get_shard_layout(block.header().epoch_id())
         .with_context(|| format!("failed to get shard layout for block {}", block_hash))
-}
-
-/// Resolves the list of shard UIDs to replay based on the filter.
-fn resolve_shards(
-    chain_store: &ChainStore,
-    epoch_manager: &dyn EpochManagerAdapter,
-    block_hash: &CryptoHash,
-    filter: &ShardFilter,
-    statuses: &HashMap<ShardUId, FlatStorageStatus>,
-) -> Result<Vec<ShardUId>> {
-    let shard_layout = get_shard_layout(chain_store, epoch_manager, block_hash)
-        .context("failed to get shard layout for shard resolution")?;
-    match filter {
-        ShardFilter::All => {
-            let uids: Vec<_> = shard_layout.shard_uids().collect();
-            for &shard_uid in &uids {
-                ensure_flat_storage_ready(statuses, shard_uid)?;
-            }
-            Ok(uids)
-        }
-        ShardFilter::Available => Ok(shard_layout
-            .shard_uids()
-            .filter(|uid| matches!(statuses.get(uid), Some(FlatStorageStatus::Ready(_))))
-            .collect()),
-        ShardFilter::Whitelist(shard_ids) => shard_ids
-            .iter()
-            .map(|&shard_id| {
-                let shard_uid = shard_layout
-                    .shard_uids()
-                    .find(|uid| uid.shard_id() == shard_id)
-                    .with_context(|| format!("shard id {} not in current layout", shard_id))?;
-                ensure_flat_storage_ready(statuses, shard_uid)?;
-                Ok(shard_uid)
-            })
-            .collect::<Result<Vec<_>>>(),
-    }
-}
-
-/// Returns an error if flat storage is not ready for the given shard.
-fn ensure_flat_storage_ready(
-    statuses: &HashMap<ShardUId, FlatStorageStatus>,
-    shard_uid: ShardUId,
-) -> Result<()> {
-    match statuses.get(&shard_uid) {
-        Some(FlatStorageStatus::Ready(_)) => Ok(()),
-        Some(other) => {
-            anyhow::bail!("flat storage not ready for shard {}: {:?}", shard_uid, other)
-        }
-        None => anyhow::bail!("no flat storage status for shard {}", shard_uid),
-    }
 }

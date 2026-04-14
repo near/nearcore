@@ -1,44 +1,38 @@
-use anyhow::{Context, Result};
-use clap::builder::{PossibleValuesParser, TypedValueParser};
-use near_chain::ChainStore;
+use anyhow::{Context, Result, bail, ensure};
 use near_chain::runtime::NightshadeRuntime;
+use near_chain::types::RuntimeAdapter;
+use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
-use near_epoch_manager::EpochManager;
+use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::types::ShardId;
-use near_replay::{
-    CombinedDatabase, ReplayStorageMode, SequentialChunksReplayController, ShardFilter,
-};
-use near_store::{NodeStorage, Store, StoreConfig};
+use near_replay::SequentialChunksReplayController;
+use near_store::adapter::StoreAdapter;
+use near_store::flat::FlatStorageStatus;
+use near_store::{DBCol, NodeStorage, ShardUId};
 use nearcore::{NightshadeRuntimeExt, load_config};
-use std::path::{Path, PathBuf};
+use std::collections::HashMap;
+use std::path::Path;
+use std::result::Result as StdResult;
+use std::sync::Arc;
 
-/// Replay chunks from a database snapshot and verify results match the stored
-/// ChunkExtras.
-///
-/// The node config is loaded from the global `--home` argument. The actual
-/// database data paths are provided separately via `--main-db-dir` and
-/// `--storage-init-db-dir` so that the tool can read from arbitrary
-/// locations without requiring matching config files there.
+/// Determines which shards are replayed.
+#[derive(Clone, Debug)]
+pub enum ShardFilter {
+    /// All shards in the current shard layout.
+    All,
+    /// Only shards whose flat storage is in the ready state.
+    Available,
+    /// Only the specified shard ids.
+    Whitelist(Vec<ShardId>),
+}
+
+/// Replay chunks backwards from the chain head and verify results match the
+/// stored ChunkExtras. Uses the database from the global `--home` argument.
 #[derive(clap::Parser)]
 pub struct ReplayCommand {
-    /// Directory containing the main database (the one containing the
-    /// blocks, chunks, and trie data to replay).
-    #[clap(long, value_parser)]
-    main_db_dir: PathBuf,
-
-    /// Directory containing the storage init database (an earlier snapshot
-    /// whose flat storage head is at or before the replay range). Used to
-    /// initialize memtries / flat storage prior to replay.
-    #[clap(long, value_parser)]
-    storage_init_db_dir: PathBuf,
-
     /// Number of blocks to replay.
     #[clap(long)]
     num_blocks: u64,
-
-    /// Storage mode used during replay.
-    #[clap(long, value_parser = storage_mode_parser(), default_value = "memtries")]
-    storage_mode: ReplayStorageMode,
 
     /// Which shards to replay: `all`, `available`, or a comma-separated
     /// list of shard ids (e.g. `0,1,3`).
@@ -56,90 +50,114 @@ impl ReplayCommand {
         let near_config =
             load_config(home_dir, genesis_validation).context("failed to load config")?;
 
-        let main_store = open_store_at(&self.main_db_dir, &near_config.config.store)?;
-        let storage_init_store =
-            open_store_at(&self.storage_init_db_dir, &near_config.config.store)?;
-
-        let combined_store = CombinedDatabase::new(storage_init_store, main_store.clone());
+        let opener = NodeStorage::opener(
+            home_dir,
+            &near_config.config.store,
+            near_config.config.cold_store.as_ref(),
+            near_config.cloud_storage_context(),
+        );
+        let storage = opener.open_unsafe().context("failed to open storage")?;
+        let store = storage.get_hot_store();
 
         let epoch_manager = EpochManager::new_arc_handle(
-            main_store.clone(),
+            store.clone(),
             &near_config.genesis.config,
             Some(home_dir),
         );
 
         let runtime = NightshadeRuntime::from_config(
             home_dir,
-            combined_store,
+            store.clone(),
             &near_config,
             epoch_manager.clone(),
         )
         .context("failed to create runtime")?;
 
         let chain_store = ChainStore::new(
-            main_store,
+            store.clone(),
             false,
             near_config.genesis.config.transaction_validity_period,
         );
 
-        let mut controller = SequentialChunksReplayController::new(
-            chain_store,
-            runtime,
-            epoch_manager,
-            self.storage_mode,
-            self.shards,
-        )
-        .context("failed to create replay controller")?;
+        let shard_ids =
+            resolve_shards(&chain_store, epoch_manager.as_ref(), &runtime, &self.shards)
+                .context("failed to resolve shards")?;
+        ensure!(!shard_ids.is_empty(), "no shards to replay");
 
-        for i in 0..self.num_blocks {
-            let result = controller.replay_current_block().context("replay failed")?;
-            let height = result.block_header.height();
-            for chunk in &result.chunk_results {
-                if let Err(e) = chunk.verify() {
-                    if self.fail_fast {
-                        return Err(e.context(format!("chunk mismatch at height {}", height)));
-                    }
-                    tracing::warn!(target: "replay", %height, "chunk mismatch: {:#}", e);
-                }
-            }
-            tracing::info!(
-                target: "replay",
-                block = i + 1,
-                %height,
-                chunks = result.chunk_results.len(),
-                "replayed block"
-            );
-            if !controller.advance().context("advance failed")? {
-                tracing::info!(target: "replay", "reached end of chain after {} blocks", i + 1);
-                break;
-            }
+        for shard_id in shard_ids {
+            replay_shard(
+                &chain_store,
+                runtime.clone(),
+                epoch_manager.clone(),
+                shard_id,
+                self.num_blocks,
+                self.fail_fast,
+            )
+            .with_context(|| format!("failed to replay shard {}", shard_id))?;
         }
 
         Ok(())
     }
 }
 
-/// Opens a store at the given directory using the provided store config,
-/// overriding the path to point at `db_dir`. Uses `open_unsafe` to bypass
-/// the DB version check since we want to replay historical data without
-/// running migrations.
-fn open_store_at(db_dir: &Path, store_config: &StoreConfig) -> Result<Store> {
-    let mut store_config = store_config.clone();
-    store_config.path = Some(db_dir.to_path_buf());
-    let opener = NodeStorage::opener(db_dir, &store_config, None, None);
-    let storage = opener.open_unsafe().context("failed to open storage")?;
-    Ok(storage.get_hot_store())
+/// Replays up to `num_blocks` chunks for a single shard, walking backwards
+/// from the chain head. Verifies each chunk's ChunkExtra against the value
+/// stored in the database and either aborts on the first mismatch
+/// (`fail_fast`) or logs a warning and continues.
+fn replay_shard(
+    chain_store: &ChainStore,
+    runtime: Arc<NightshadeRuntime>,
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
+    shard_id: ShardId,
+    num_blocks: u64,
+    fail_fast: bool,
+) -> Result<()> {
+    let mut controller = SequentialChunksReplayController::load_memtrie(
+        chain_store.clone(),
+        runtime,
+        epoch_manager,
+        shard_id,
+    )
+    .context("failed to create replay controller")?;
+
+    for i in 0..num_blocks {
+        let current_hash = *controller.current_block_hash();
+        let height = chain_store
+            .get_block(&current_hash)
+            .context("failed to get current block")?
+            .header()
+            .height();
+
+        let result = controller.replay_current_chunk().context("replay failed")?;
+        if let Err(e) = result.verify() {
+            if fail_fast {
+                return Err(e.context(format!("chunk mismatch at height {}", height)));
+            }
+            tracing::warn!(target: "replay", %shard_id, %height, "chunk mismatch: {:#}", e);
+        }
+        tracing::info!(
+            target: "replay",
+            block = i + 1,
+            %shard_id,
+            %height,
+            "replayed chunk"
+        );
+
+        if !controller.advance().context("advance failed")? {
+            tracing::info!(
+                target: "replay",
+                %shard_id,
+                "reached end of replay window after {} blocks",
+                i + 1,
+            );
+            break;
+        }
+    }
+
+    Ok(())
 }
 
-fn storage_mode_parser() -> impl TypedValueParser<Value = ReplayStorageMode> {
-    PossibleValuesParser::new(["memtries", "flat-state"]).map(|s| match s.as_str() {
-        "memtries" => ReplayStorageMode::Memtries,
-        "flat-state" => ReplayStorageMode::FlatState,
-        _ => unreachable!(),
-    })
-}
-
-fn parse_shard_filter(s: &str) -> std::result::Result<ShardFilter, String> {
+fn parse_shard_filter(s: &str) -> StdResult<ShardFilter, String> {
     match s {
         "all" => Ok(ShardFilter::All),
         "available" => Ok(ShardFilter::Available),
@@ -152,8 +170,84 @@ fn parse_shard_filter(s: &str) -> std::result::Result<ShardFilter, String> {
                         .map(ShardId::new)
                         .map_err(|e| format!("invalid shard id '{}': {}", id.trim(), e))
                 })
-                .collect::<std::result::Result<Vec<_>, _>>()?;
+                .collect::<StdResult<Vec<_>, _>>()?;
             Ok(ShardFilter::Whitelist(shard_ids))
         }
+    }
+}
+
+/// Resolves a `ShardFilter` into a list of shard ids based on the current
+/// shard layout at the chain head. For `All` and `Whitelist`, also verifies
+/// that flat storage is ready for every requested shard.
+fn resolve_shards(
+    chain_store: &ChainStore,
+    epoch_manager: &dyn EpochManagerAdapter,
+    runtime: &NightshadeRuntime,
+    filter: &ShardFilter,
+) -> Result<Vec<ShardId>> {
+    let head_hash = chain_store.head().context("failed to get chain head")?.last_block_hash;
+    let head_block = chain_store.get_block(&head_hash).context("failed to get head block")?;
+    let shard_layout = epoch_manager
+        .get_shard_layout(head_block.header().epoch_id())
+        .context("failed to get shard layout for head")?;
+
+    let statuses = collect_flat_storage_statuses(runtime);
+
+    match filter {
+        ShardFilter::All => {
+            let uids: Vec<_> = shard_layout.shard_uids().collect();
+            for &shard_uid in &uids {
+                ensure_flat_storage_ready(&statuses, shard_uid)?;
+            }
+            Ok(uids.into_iter().map(|uid| uid.shard_id()).collect())
+        }
+        ShardFilter::Available => Ok(shard_layout
+            .shard_uids()
+            .filter(|uid| matches!(statuses.get(uid), Some(FlatStorageStatus::Ready(_))))
+            .map(|uid| uid.shard_id())
+            .collect()),
+        ShardFilter::Whitelist(shard_ids) => shard_ids
+            .iter()
+            .map(|&shard_id| {
+                let shard_uid = shard_layout
+                    .shard_uids()
+                    .find(|uid| uid.shard_id() == shard_id)
+                    .with_context(|| format!("shard id {} not in current layout", shard_id))?;
+                ensure_flat_storage_ready(&statuses, shard_uid)?;
+                Ok(shard_id)
+            })
+            .collect::<Result<Vec<_>>>(),
+    }
+}
+
+fn collect_flat_storage_statuses(
+    runtime: &NightshadeRuntime,
+) -> HashMap<ShardUId, FlatStorageStatus> {
+    let tries = runtime.get_tries();
+    let flat_storage_manager = runtime.get_flat_storage_manager();
+    let mut statuses: HashMap<ShardUId, FlatStorageStatus> = HashMap::new();
+    for (shard_uid_bytes, _) in tries.store().store_ref().iter(DBCol::FlatStorageStatus) {
+        let shard_uid = match ShardUId::try_from(shard_uid_bytes.as_ref()) {
+            Ok(uid) => uid,
+            Err(e) => {
+                tracing::warn!(target: "replay", ?e, "failed to parse shard uid from flat storage status key");
+                continue;
+            }
+        };
+        statuses.insert(shard_uid, flat_storage_manager.get_flat_storage_status(shard_uid));
+    }
+    statuses
+}
+
+fn ensure_flat_storage_ready(
+    statuses: &HashMap<ShardUId, FlatStorageStatus>,
+    shard_uid: ShardUId,
+) -> Result<()> {
+    match statuses.get(&shard_uid) {
+        Some(FlatStorageStatus::Ready(_)) => Ok(()),
+        Some(other) => {
+            bail!("flat storage not ready for shard {}: {:?}", shard_uid, other)
+        }
+        None => bail!("no flat storage status for shard {}", shard_uid),
     }
 }
