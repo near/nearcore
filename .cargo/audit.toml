@@ -6,7 +6,7 @@ ignore = [
     # It cannot be a security liability in production, considering it is bindings to the OS X kernel.
     "RUSTSEC-2020-0168",
 
-    # older versions of parking-lot are vulnerable, but used by reed-solomon-erasure (dev-dep).
+    # older versions of parking-lot are vulnerable, but used by reed-solomon-erasure.
     "RUSTSEC-2020-0070",
 
     # proc-macro-error is unmaintained, but hard to replace right now (via dynasm).
