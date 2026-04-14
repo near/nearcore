@@ -7,7 +7,6 @@ use crate::types::{
     StateRootNodeValidationResult, StorageDataSource, Tip,
 };
 use errors::FromStateViewerErrors;
-use near_async::thread_pool::ThreadPool;
 use near_async::time::{Duration, Instant};
 use near_chain_configs::{GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig};
 use near_crypto::PublicKey;
@@ -48,6 +47,7 @@ use near_store::{
     ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
     TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_gas_key_nonce,
 };
+use near_thread_pools::contract_compilation_pool;
 use near_vm_runner::ContractCode;
 use near_vm_runner::{ContractRuntimeCache, precompile_contract};
 use node_runtime::adapter::ViewRuntimeAdapter;
@@ -88,8 +88,6 @@ pub struct NightshadeRuntime {
     state_parts_compression_lvl: i32,
     is_cloud_archival_writer: bool,
     save_receipt_to_tx: bool,
-    /// thread pool used for contract preparation and compilation.
-    contract_preparation_pool: Arc<ThreadPool>,
 }
 
 impl NightshadeRuntime {
@@ -135,15 +133,6 @@ impl NightshadeRuntime {
             tracing::debug!(target: "runtime", ?err, "the state snapshot is not available");
         }
 
-        let num_preparation_threads = std::thread::available_parallelism().map_or(4, |n| n.get());
-        // Higher than apply_chunks (50), slightly above witness pools (70).
-        let preparation_priority = 75;
-        let contract_preparation_pool = Arc::new(ThreadPool::new(
-            "contract_preparation",               // pool name (metrics label)
-            std::time::Duration::from_secs(3600), // idle thread timeout
-            num_preparation_threads,
-            preparation_priority,
-        ));
         Arc::new(NightshadeRuntime {
             genesis_config: genesis_config.clone(),
             compiled_contract_cache,
@@ -157,7 +146,6 @@ impl NightshadeRuntime {
             state_parts_compression_lvl,
             is_cloud_archival_writer,
             save_receipt_to_tx,
-            contract_preparation_pool,
         })
     }
 
@@ -306,7 +294,6 @@ impl NightshadeRuntime {
             bandwidth_requests,
             trie_access_tracker_state: Default::default(),
             on_post_state_ready,
-            contract_preparation_pool: Some(self.contract_preparation_pool.clone()),
         };
 
         let instant = Instant::now();
@@ -1572,7 +1559,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             let tx = tx.clone();
             let config = Arc::clone(&runtime_config.wasm_config);
             let cache = self.compiled_contract_cache.handle();
-            self.contract_preparation_pool.spawn_boxed(Box::new(move || {
+            contract_compilation_pool().spawn_boxed(Box::new(move || {
                 precompile_contract(&code, config, Some(&*cache)).ok();
                 let _ = tx.send(());
             }));

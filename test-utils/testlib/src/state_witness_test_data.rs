@@ -94,7 +94,6 @@ pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateW
         bandwidth_requests: BlockBandwidthRequests::empty(),
         trie_access_tracker_state: Default::default(),
         on_post_state_ready: None,
-        contract_preparation_pool: None,
     };
 
     // Collect data for building the witness

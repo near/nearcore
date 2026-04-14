@@ -6,7 +6,6 @@ use crate::metrics::{
     PIPELINING_ACTIONS_SUBMITTED, PIPELINING_ACTIONS_TASK_DELAY_TIME,
     PIPELINING_ACTIONS_TASK_WORKING_TIME, PIPELINING_ACTIONS_WAITING_TIME,
 };
-use near_async::thread_pool::ThreadPool;
 use near_parameters::RuntimeConfig;
 use near_primitives::account::{Account, AccountContract};
 use near_primitives::action::{Action, GlobalContractIdentifier};
@@ -18,6 +17,7 @@ use near_primitives::types::{AccountId, Gas};
 use near_store::contract::ContractStorage;
 use near_store::trie::AccessOptions;
 use near_store::{TrieUpdate, get_pure};
+use near_thread_pools::contract_compilation_pool;
 use near_vm_runner::logic::GasCounter;
 use near_vm_runner::{ContractRuntimeCache, PreparedContract};
 use parking_lot::{Condvar, Mutex};
@@ -69,10 +69,6 @@ pub(crate) struct ReceiptPreparationPipeline {
     storage: ContractStorage,
 
     chain_id: String,
-
-    /// Thread pool for contract preparation. When `None`, tasks stay `Pending`
-    /// and `get_contract` will prepare on the main thread.
-    pool: Option<Arc<ThreadPool>>,
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
@@ -99,7 +95,6 @@ impl ReceiptPreparationPipeline {
         contract_cache: Option<Box<dyn ContractRuntimeCache>>,
         storage: ContractStorage,
         chain_id: String,
-        pool: Option<Arc<ThreadPool>>,
     ) -> Self {
         Self {
             map: Default::default(),
@@ -109,7 +104,6 @@ impl ReceiptPreparationPipeline {
             contract_cache,
             storage,
             chain_id,
-            pool,
         }
     }
 
@@ -219,33 +213,29 @@ impl ReceiptPreparationPipeline {
                     let task = Arc::new(PrepareTask { status, condvar: Condvar::new() });
                     entry.insert(Arc::clone(&task));
                     PIPELINING_ACTIONS_SUBMITTED.inc_by(1);
-                    if let Some(pool) = &self.pool {
-                        pool.spawn_boxed(Box::new(move || {
-                            let task_status = {
-                                let mut status = task.status.lock();
-                                std::mem::replace(&mut *status, PrepareTaskStatus::Working)
-                            };
-                            let PrepareTaskStatus::Pending = task_status else {
-                                return;
-                            };
-                            PIPELINING_ACTIONS_TASK_DELAY_TIME
-                                .inc_by(created.elapsed().as_secs_f64());
-                            let start = Instant::now();
-                            let contract = prepare_function_call(
-                                &storage,
-                                cache.as_deref(),
-                                config,
-                                gas_counter,
-                                identifier,
-                                &method_name,
-                            );
+                    contract_compilation_pool().spawn_boxed(Box::new(move || {
+                        let task_status = {
                             let mut status = task.status.lock();
-                            *status = PrepareTaskStatus::Prepared(contract);
-                            PIPELINING_ACTIONS_TASK_WORKING_TIME
-                                .inc_by(start.elapsed().as_secs_f64());
-                            task.condvar.notify_all();
-                        }));
-                    }
+                            std::mem::replace(&mut *status, PrepareTaskStatus::Working)
+                        };
+                        let PrepareTaskStatus::Pending = task_status else {
+                            return;
+                        };
+                        PIPELINING_ACTIONS_TASK_DELAY_TIME.inc_by(created.elapsed().as_secs_f64());
+                        let start = Instant::now();
+                        let contract = prepare_function_call(
+                            &storage,
+                            cache.as_deref(),
+                            config,
+                            gas_counter,
+                            identifier,
+                            &method_name,
+                        );
+                        let mut status = task.status.lock();
+                        *status = PrepareTaskStatus::Prepared(contract);
+                        PIPELINING_ACTIONS_TASK_WORKING_TIME.inc_by(start.elapsed().as_secs_f64());
+                        task.condvar.notify_all();
+                    }));
                     any_function_calls = true;
                 }
                 // No need to handle this receipt as it only generates other new receipts.

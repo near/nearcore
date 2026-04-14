@@ -31,9 +31,9 @@ smallvec.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
-near-async.workspace = true
 near-crypto.workspace = true
 near-crypto-ed25519-batch.workspace = true
+near-thread-pools.workspace = true
 near-o11y.workspace = true
 near-parameters.workspace = true
 near-primitives.workspace = true

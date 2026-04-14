@@ -35,7 +35,6 @@ use global_contracts::{
 };
 use itertools::Itertools;
 use metrics::ApplyMetrics;
-use near_async::thread_pool::ThreadPool;
 pub use near_crypto;
 use near_crypto::{PublicKey, Signature};
 use near_parameters::{ActionCosts, RuntimeConfig};
@@ -214,9 +213,6 @@ pub struct ApplyState {
     pub bandwidth_requests: BlockBandwidthRequests,
     /// Callback to be called when the post-state is ready.
     pub on_post_state_ready: Option<PostStateReadyCallback>,
-    /// Thread pool for contract preparation (pipelining). When `None`,
-    /// pipelining is disabled and contracts are prepared on the main thread.
-    pub contract_preparation_pool: Option<Arc<ThreadPool>>,
 }
 
 impl ApplyState {
@@ -3064,7 +3060,6 @@ impl<'a> ApplyProcessingState<'a> {
             self.apply_state.cache.as_ref().map(|v| v.handle()),
             self.state_update.contract_storage().clone(),
             self.epoch_info_provider.chain_id(),
-            self.apply_state.contract_preparation_pool.clone(),
         );
         ApplyProcessingReceiptState {
             pipeline_manager,
@@ -3284,7 +3279,6 @@ pub mod estimator {
             apply_state.cache.as_ref().map(|c| c.handle()),
             state_update.contract_storage().clone(),
             epoch_info_provider.chain_id(),
-            apply_state.contract_preparation_pool.clone(),
         );
         let mut receipt_to_tx = Vec::new();
         let apply_result = Runtime {}.apply_action_receipt(

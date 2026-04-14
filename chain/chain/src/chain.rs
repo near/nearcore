@@ -18,7 +18,6 @@ use crate::signature_verification::{
     verify_block_header_signature_with_epoch_manager, verify_block_vrf,
     verify_chunk_header_signature_by_hash,
 };
-use crate::soft_realtime_thread_pool::ApplyChunksSpawner;
 use crate::spice_core::SpiceCoreReader;
 use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::state_sync::ChainStateSyncAdapter;
@@ -96,6 +95,7 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::get_genesis_state_roots;
 use near_store::merkle_proof::MerkleProofAccess;
 use near_store::{DBCol, StateSnapshotConfig};
+use near_thread_pools::ApplyChunksSpawner;
 use node_runtime::{PostState, PostStateReadyCallback, SignedValidPeriodTransactions};
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet};
