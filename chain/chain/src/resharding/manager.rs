@@ -49,6 +49,7 @@ impl ReshardingManager {
         block: &Block,
         shard_uid: ShardUId,
         tries: ShardTries,
+        save_trie_changes: bool,
     ) -> Result<(), Error> {
         let block_hash = block.hash();
         let block_height = block.header().height();
@@ -94,6 +95,7 @@ impl ReshardingManager {
                     tries,
                     split_shard_event,
                     false,
+                    save_trie_changes,
                 )?;
             }
             None => {
@@ -111,6 +113,7 @@ impl ReshardingManager {
         tries: ShardTries,
         split_shard_event: ReshardingSplitShardParams,
         allow_resharding_without_memtries: bool,
+        save_trie_changes: bool,
     ) -> Result<SplitShardTrieChanges, Error> {
         if split_shard_event.parent_shard != shard_uid {
             let parent_shard = split_shard_event.parent_shard;
@@ -145,6 +148,7 @@ impl ReshardingManager {
             tries,
             &split_shard_event,
             allow_resharding_without_memtries,
+            save_trie_changes,
         )?;
 
         // Trigger resharding by sending the event to the resharding actor.
@@ -180,6 +184,7 @@ impl ReshardingManager {
         tries: ShardTries,
         split_shard_event: &ReshardingSplitShardParams,
         allow_resharding_without_memtries: bool,
+        save_trie_changes: bool,
     ) -> Result<SplitShardTrieChanges, Error> {
         let block_hash = block.hash();
         let block_height = block.header().height();
@@ -245,6 +250,18 @@ impl ReshardingManager {
             let trie_changes = parent_trie.retain_split_shard(boundary_account, retain_mode)?;
             tries.apply_insertions(&trie_changes, *parent_shard_uid, &mut store_update);
             tries.apply_memtrie_changes(&trie_changes, *parent_shard_uid, block_height);
+
+            // Persist TrieChanges so that cold store can copy the resharding
+            // insertions. We store only insertions (no deletions) because
+            // deletions are not applied during resharding and would corrupt
+            // GC refcounts.
+            if save_trie_changes {
+                store_update.set_trie_changes(
+                    *new_shard_uid,
+                    block_hash,
+                    &trie_changes.insertions_only(),
+                );
+            }
 
             // TODO(resharding): set all fields of `ChunkExtra`. Consider stronger
             // typing. Clarify where it should happen when `State` and

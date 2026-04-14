@@ -978,6 +978,7 @@ fn test_archival_gc_common(
                 &tracked_shards,
                 &i,
                 is_resharding_boundary,
+                None,
                 1,
             )
             .unwrap();

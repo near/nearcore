@@ -179,6 +179,7 @@ fn test_storage_after_commit_of_cold_update() {
             &shard_uids,
             &height,
             is_resharding_boundary,
+            None,
             4,
         )
         .unwrap();
@@ -340,6 +341,7 @@ fn test_cold_db_copy_with_height_skips() {
             &shard_uids,
             &height,
             is_last_block_in_epoch,
+            None,
             1,
         )
         .unwrap();

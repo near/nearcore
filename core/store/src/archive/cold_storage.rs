@@ -56,6 +56,9 @@ pub trait ColdMigrationStore {
 /// 1. add it to `DBCol::is_cold` list
 /// 2. define `DBCol::key_type` for it (if it isn't already defined)
 /// 3. add new clause in `get_keys_from_store` for new key types used for this column (if there are any)
+/// `resharding_block_hash` should be set when `is_resharding_boundary` is true.
+/// It is the hash of the previous block (the resharding block) whose TrieChanges
+/// contain the child shard state insertions that need to be copied to cold store.
 pub fn update_cold_db(
     cold_db: &ColdDB,
     hot_store: &Store,
@@ -63,6 +66,7 @@ pub fn update_cold_db(
     tracked_shards: &Vec<ShardUId>,
     height: &BlockHeight,
     is_resharding_boundary: bool,
+    resharding_block_hash: Option<&[u8]>,
     num_threads: usize,
 ) -> io::Result<()> {
     let _span = tracing::debug_span!(target: "cold_store", "update cold db", height = height);
@@ -101,6 +105,7 @@ pub fn update_cold_db(
                             block_hash_key,
                             cold_db,
                             &hot_store,
+                            resharding_block_hash,
                         )
                     } else if col == DBCol::StateChanges {
                         copy_state_changes_from_store(cold_db, &hot_store, block_hash_key)
@@ -189,6 +194,7 @@ fn copy_state_from_store(
     block_hash_key: &[u8],
     cold_db: &ColdDB,
     hot_store: &Store,
+    resharding_block_hash: Option<&[u8]>,
 ) -> io::Result<()> {
     let col = DBCol::State;
     let _span = tracing::debug_span!(target: "cold_store", "copy_state_from_store", %col);
@@ -206,22 +212,44 @@ fn copy_state_from_store(
         );
 
         let shard_uid_key = shard_uid.to_bytes();
+        let mapped_shard_uid_key = get_shard_uid_mapping(&cold_store, shard_uid).to_bytes();
+
+        // Copy TrieChanges from normal block processing.
         let key = join_two_keys(&block_hash_key, &shard_uid_key);
         let trie_changes: Option<TrieChanges> =
             hot_store.get_ser::<TrieChanges>(DBCol::TrieChanges, &key);
 
-        let Some(trie_changes) = trie_changes else { continue };
-        copied_shards.insert(shard_uid);
-        total_keys += trie_changes.insertions().len();
-        let mapped_shard_uid_key = get_shard_uid_mapping(&cold_store, shard_uid).to_bytes();
-        for op in trie_changes.insertions() {
-            // TODO(resharding) Test it properly. Currently this path is not triggered in testloop.
-            let key = join_two_keys(&mapped_shard_uid_key, op.hash().as_bytes());
-            let value = op.payload().to_vec();
+        if let Some(trie_changes) = trie_changes {
+            copied_shards.insert(shard_uid);
+            total_keys += trie_changes.insertions().len();
+            for op in trie_changes.insertions() {
+                let key = join_two_keys(&mapped_shard_uid_key, op.hash().as_bytes());
+                let value = op.payload().to_vec();
+                total_size += value.len();
+                tracing::trace!(target: "cold_store", pretty_key=?near_fmt::StorageKey(&key), "copying state node to colddb");
+                rc_aware_set(&mut transaction, DBCol::State, key, value);
+            }
+        }
 
-            total_size += value.len();
-            tracing::trace!(target: "cold_store", pretty_key=?near_fmt::StorageKey(&key), "copying state node to colddb");
-            rc_aware_set(&mut transaction, DBCol::State, key, value);
+        // At resharding boundaries, also copy TrieChanges from the resharding
+        // block (previous block). The resharding creates child shard state by
+        // splitting the parent trie, and those TrieChanges are keyed by
+        // (resharding_block_hash, child_shard_uid).
+        if let Some(resharding_hash_key) = resharding_block_hash {
+            let resharding_key = join_two_keys(resharding_hash_key, &shard_uid_key);
+            let resharding_trie_changes: Option<TrieChanges> =
+                hot_store.get_ser::<TrieChanges>(DBCol::TrieChanges, &resharding_key);
+            if let Some(trie_changes) = resharding_trie_changes {
+                copied_shards.insert(shard_uid);
+                total_keys += trie_changes.insertions().len();
+                for op in trie_changes.insertions() {
+                    let key = join_two_keys(&mapped_shard_uid_key, op.hash().as_bytes());
+                    let value = op.payload().to_vec();
+                    total_size += value.len();
+                    tracing::trace!(target: "cold_store", pretty_key=?near_fmt::StorageKey(&key), "copying resharding state node to colddb");
+                    rc_aware_set(&mut transaction, DBCol::State, key, value);
+                }
+            }
         }
     }
     for tracked_shard in tracked_shards {

@@ -231,6 +231,11 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, epoch_manager: &Epo
     let block_info = epoch_manager.get_block_info(&next_height_block_hash).unwrap();
     let is_resharding_boundary =
         epoch_manager.is_resharding_boundary(block_info.prev_hash()).unwrap();
+    let resharding_block_hash = if is_resharding_boundary {
+        Some(block_info.prev_hash().as_bytes().to_vec())
+    } else {
+        None
+    };
     update_cold_db(
         &*store.cold_db().unwrap(),
         &store.get_hot_store(),
@@ -238,6 +243,7 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, epoch_manager: &Epo
         &shard_uids,
         &next_height,
         is_resharding_boundary,
+        resharding_block_hash.as_deref(),
         1,
     )
     .unwrap_or_else(|_| panic!("Failed to copy block at height {} to cold db", next_height));
