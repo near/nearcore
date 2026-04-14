@@ -390,9 +390,6 @@ impl WasmtimeVM {
         if let Some(target) = &target {
             engine_config.target(&target)?;
         }
-        // Disable native -> wasm code address mappings to reduce the generated code size.
-        // This saves around 40% of total size for contracts on mainnet.
-        engine_config.generate_address_map(false);
 
         let mut guard = VMS.write();
         let vm = guard.entry(vm_key).or_insert_with_key(|vm_key| {
@@ -438,6 +435,9 @@ impl WasmtimeVM {
                 .native_unwind_info(false)
                 .wasm_backtrace(false)
                 .wasm_backtrace_details(WasmBacktraceDetails::Disable)
+                // Disable native -> wasm code address mappings to reduce the generated code size.
+                // This saves around 40% of total size for contracts on mainnet.
+                .generate_address_map(false)
                 // Enable copy-on-write heap images.
                 .memory_init_cow(true)
                 // Wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
