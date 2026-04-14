@@ -4,6 +4,7 @@ use parking_lot::{Condvar, Mutex};
 use std::collections::VecDeque;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
+#[cfg(unix)]
 use thread_priority::{
     RealtimeThreadSchedulePolicy, ThreadBuilder, ThreadPriority, ThreadSchedulePolicy,
 };
@@ -55,7 +56,9 @@ static THREAD_POOL_QUEUE_SIZE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
 /// deadlocks from recursive work-stealing.
 pub struct ThreadPool {
     name: &'static str,
-    priority: ThreadPriority,
+    /// Thread priority in [0; 99] range. Only used on unix for SCHED_RR policy.
+    #[cfg(unix)]
+    priority: u8,
     idle_timeout: Duration,
     thread_limit: usize,
     state: Arc<ThreadPoolState>,
@@ -138,11 +141,13 @@ impl Drop for ThreadPool {
 }
 
 impl ThreadPool {
-    /// Create a new thread pool. Panics if priority is out of [0; 100] range.
+    /// Create a new thread pool. Panics if priority is out of [0; 99] range.
     pub fn new(name: &'static str, idle_timeout: Duration, limit: usize, priority: u8) -> Self {
+        assert!(priority <= 99, "priority out of range");
         Self {
             name,
-            priority: priority.try_into().expect("priority out of range"),
+            #[cfg(unix)]
+            priority,
             idle_timeout,
             thread_limit: limit,
             state: Arc::new(ThreadPoolState {
@@ -182,22 +187,33 @@ impl ThreadPool {
         let name = self.name;
         let idle_timeout = self.idle_timeout;
         let state = self.state.clone();
-        ThreadBuilder::default()
-            .name(name)
-            .policy(ThreadSchedulePolicy::Realtime(RealtimeThreadSchedulePolicy::RoundRobin))
-            .priority(self.priority)
-            .spawn(move |res| {
-                if let Err(err) = res {
-                    tracing::debug!(
-                       target: "near_async::thread_pool",
-                       pool = name,
-                       err = %err,
-                       "set scheduler policy failed"
-                    );
-                };
-                run_worker(state, idle_timeout)
-            })
-            .expect("failed to spawn thread");
+        #[cfg(unix)]
+        {
+            let priority: ThreadPriority = self.priority.try_into().expect("priority out of range");
+            ThreadBuilder::default()
+                .name(name)
+                .policy(ThreadSchedulePolicy::Realtime(RealtimeThreadSchedulePolicy::RoundRobin))
+                .priority(priority)
+                .spawn(move |res| {
+                    if let Err(err) = res {
+                        tracing::debug!(
+                            target: "near_async::thread_pool",
+                            pool = name,
+                            err = %err,
+                            "set scheduler policy failed"
+                        );
+                    };
+                    run_worker(state, idle_timeout)
+                })
+                .expect("failed to spawn thread");
+        }
+        #[cfg(not(unix))]
+        {
+            std::thread::Builder::new()
+                .name(name.to_string())
+                .spawn(move || run_worker(state, idle_timeout))
+                .expect("failed to spawn thread");
+        }
     }
 
     #[cfg(test)]
@@ -432,7 +448,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "priority out of range")]
     fn invalid_priority() {
-        ThreadPool::new(POOL_NAME, DEFAULT_IDLE_TIMEOUT, DEFAULT_LIMIT, 101);
+        ThreadPool::new(POOL_NAME, DEFAULT_IDLE_TIMEOUT, DEFAULT_LIMIT, 100);
     }
 
     #[test]
