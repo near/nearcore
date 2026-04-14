@@ -26,6 +26,9 @@ pub struct GraphConfig {
     pub node_id: PeerId,
     pub prune_unreachable_peers_after: time::Duration,
     pub prune_edges_after: Option<time::Duration>,
+    pub max_edges_per_source: usize,
+    pub max_total_edges: usize,
+    pub max_graph_peers: usize,
 }
 
 #[derive(Default)]
@@ -47,6 +50,8 @@ struct Inner {
     edges: im::HashMap<EdgeKey, Edge>,
     /// Last time a peer was reachable.
     peer_reachable_at: HashMap<PeerId, time::Instant>,
+    edge_source: HashMap<EdgeKey, PeerId>,
+    source_edge_count: HashMap<PeerId, usize>,
 }
 
 fn has(set: &im::HashMap<EdgeKey, Edge>, edge: &Edge) -> bool {
@@ -56,15 +61,39 @@ fn has(set: &im::HashMap<EdgeKey, Edge>, edge: &Edge) -> bool {
 impl Inner {
     /// Adds an edge without validating the signatures. O(1).
     /// Returns true, iff <edge> was newer than an already known version of this edge.
-    fn update_edge(&mut self, edge: Edge) -> bool {
+    fn update_edge(&mut self, edge: Edge, source: Option<&PeerId>) -> bool {
         if has(&self.edges, &edge) {
             return false;
         }
         let key = edge.key();
-        // Add the edge.
+        let is_new_key = !self.edges.contains_key(key);
+        if is_new_key {
+            if self.edges.len() >= self.config.max_total_edges {
+                metrics::EDGE_DROPPED.inc();
+                return false;
+            }
+            if let Some(source) = source {
+                let count = self.source_edge_count.get(source).copied().unwrap_or(0);
+                if count >= self.config.max_edges_per_source {
+                    metrics::EDGE_DROPPED.inc();
+                    return false;
+                }
+            }
+        }
         match edge.edge_type() {
-            EdgeState::Active => self.graph.add_edge(&key.0, &key.1),
+            EdgeState::Active => {
+                if !self.graph.add_edge(&key.0, &key.1) {
+                    metrics::EDGE_DROPPED.inc();
+                    return false;
+                }
+            }
             EdgeState::Removed => self.graph.remove_edge(&key.0, &key.1),
+        }
+        if is_new_key {
+            if let Some(source) = source {
+                self.edge_source.insert(key.clone(), source.clone());
+                *self.source_edge_count.entry(source.clone()).or_insert(0) += 1;
+            }
         }
         self.edges.insert(key.clone(), edge);
         true
@@ -74,6 +103,14 @@ impl Inner {
     fn remove_edge(&mut self, key: &EdgeKey) {
         if self.edges.remove(key).is_some() {
             self.graph.remove_edge(&key.0, &key.1);
+            if let Some(source) = self.edge_source.remove(key) {
+                if let Some(count) = self.source_edge_count.get_mut(&source) {
+                    *count -= 1;
+                    if *count == 0 {
+                        self.source_edge_count.remove(&source);
+                    }
+                }
+            }
         }
     }
 
@@ -143,9 +180,9 @@ impl Inner {
         clock: &time::Clock,
         edges_and_source: EdgesWithSource,
     ) -> (Vec<Edge>, bool) {
-        let (mut edges, self_loop_allowed) = match edges_and_source {
-            EdgesWithSource::Local(edges) => (edges, true),
-            EdgesWithSource::Remote(edges) => (edges, false),
+        let (mut edges, self_loop_allowed, source) = match edges_and_source {
+            EdgesWithSource::Local(edges) => (edges, true, None),
+            EdgesWithSource::Remote { edges, source } => (edges, false, Some(source)),
         };
 
         metrics::EDGE_UPDATES.inc_by(edges.len() as u64);
@@ -169,12 +206,20 @@ impl Inner {
                 }
             }
 
-            return true;
+            true
         });
+
+        let mut provisional_new_edges: usize = 0;
+        let base_edge_count = self.edges.len();
+        let base_source_count = source
+            .as_ref()
+            .map(|s| self.source_edge_count.get(s).copied().unwrap_or(0))
+            .unwrap_or(0);
 
         // Stop at first invalid edge.
         let mut valid_edges = Vec::<Edge>::new();
         let mut ok = true;
+        let mut dropped_by_pre_check: u64 = 0;
         for edge in edges {
             if edge.key().0 == edge.key().1 {
                 // Locally a node might create a self-loop to validate its self-discovered public IP, but that
@@ -186,15 +231,43 @@ impl Inner {
                 ok = false;
                 break;
             }
+            let is_new_key = !self.edges.contains_key(edge.key());
+            if is_new_key {
+                if base_edge_count + provisional_new_edges >= self.config.max_total_edges {
+                    metrics::EDGE_DROPPED.inc();
+                    dropped_by_pre_check += 1;
+                    continue;
+                }
+                if source.is_some()
+                    && base_source_count + provisional_new_edges >= self.config.max_edges_per_source
+                {
+                    metrics::EDGE_DROPPED.inc();
+                    dropped_by_pre_check += 1;
+                    continue;
+                }
+            }
             if !edge.verify() {
                 ok = false;
                 break;
             }
+            if is_new_key {
+                provisional_new_edges += 1;
+            }
             valid_edges.push(edge);
         }
 
-        // Add the verified edges to the graph.
-        valid_edges.retain(|e| self.update_edge(e.clone()));
+        let pre_retain_count = valid_edges.len();
+        valid_edges.retain(|e| self.update_edge(e.clone(), source.as_ref()));
+        let dropped_by_update = (pre_retain_count - valid_edges.len()) as u64;
+
+        if dropped_by_pre_check + dropped_by_update > 0 {
+            tracing::info!(
+                target: "network",
+                dropped_by_pre_check,
+                dropped_by_update,
+                "edges dropped due to routing graph limits"
+            );
+        }
         (valid_edges, ok)
     }
 
@@ -262,10 +335,12 @@ impl Graph {
                 clock: clock.clone(),
                 graph: weak.clone(),
                 inner: Inner {
-                    graph: bfs::Graph::new(config.node_id.clone()),
+                    graph: bfs::Graph::new(config.node_id.clone(), config.max_graph_peers),
                     config: config.clone(),
                     edges: Default::default(),
                     peer_reachable_at: HashMap::new(),
+                    edge_source: HashMap::new(),
+                    source_edge_count: HashMap::new(),
                 },
             });
             Self {

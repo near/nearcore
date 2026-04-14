@@ -1,4 +1,8 @@
 use super::{Graph, GraphConfig};
+use crate::config::{
+    DEFAULT_ROUTING_GRAPH_MAX_EDGES, DEFAULT_ROUTING_GRAPH_MAX_EDGES_PER_SOURCE,
+    DEFAULT_ROUTING_GRAPH_MAX_PEERS,
+};
 use crate::network_protocol::Edge;
 use crate::network_protocol::testonly as data;
 use crate::peer_manager::network_state::EdgesWithSource;
@@ -43,6 +47,9 @@ async fn empty() {
         node_id: peer_id(&node_key),
         prune_unreachable_peers_after: time::Duration::seconds(3),
         prune_edges_after: None,
+        max_edges_per_source: DEFAULT_ROUTING_GRAPH_MAX_EDGES_PER_SOURCE,
+        max_total_edges: DEFAULT_ROUTING_GRAPH_MAX_EDGES,
+        max_graph_peers: DEFAULT_ROUTING_GRAPH_MAX_PEERS,
     };
     let clock = time::FakeClock::default();
     let g = Graph::new(clock.clock(), cfg);
@@ -62,6 +69,9 @@ async fn one_edge() {
         node_id: peer_id(&node_key),
         prune_unreachable_peers_after: time::Duration::seconds(3),
         prune_edges_after: None,
+        max_edges_per_source: DEFAULT_ROUTING_GRAPH_MAX_EDGES_PER_SOURCE,
+        max_total_edges: DEFAULT_ROUTING_GRAPH_MAX_EDGES,
+        max_graph_peers: DEFAULT_ROUTING_GRAPH_MAX_PEERS,
     };
     let g = Arc::new(Graph::new(clock.clock(), cfg.clone()));
 
@@ -111,6 +121,9 @@ async fn expired_edges() {
         node_id: peer_id(&node_key),
         prune_unreachable_peers_after: time::Duration::hours(100),
         prune_edges_after: Some(110 * SEC),
+        max_edges_per_source: DEFAULT_ROUTING_GRAPH_MAX_EDGES_PER_SOURCE,
+        max_total_edges: DEFAULT_ROUTING_GRAPH_MAX_EDGES,
+        max_graph_peers: DEFAULT_ROUTING_GRAPH_MAX_PEERS,
     };
     let g = Arc::new(Graph::new(clock.clock(), cfg.clone()));
 

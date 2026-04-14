@@ -330,6 +330,10 @@ pub struct NetworkConfigOverrides {
     pub routing_table_update_rate_limit_burst: Option<u64>,
     pub routing_table_update_rate_limit_qps: Option<f64>,
     pub received_messages_rate_limits: Option<messages_limits::OverrideConfig>,
+    pub routing_graph_max_edges_per_message: Option<usize>,
+    pub routing_graph_max_edges_per_source: Option<usize>,
+    pub routing_graph_max_peers: Option<usize>,
+    pub routing_graph_max_edges: Option<usize>,
 }
 
 impl Default for Config {
