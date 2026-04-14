@@ -49,6 +49,7 @@ pub mod telemetry;
 pub mod test_utils;
 pub mod transaction;
 pub mod trie_key;
+pub mod trie_split;
 pub mod types;
 pub mod upgrade_schedule;
 pub mod utils;

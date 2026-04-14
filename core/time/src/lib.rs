@@ -32,7 +32,6 @@ pub mod serde;
 
 #[cfg(feature = "serde")]
 pub use serde::*;
-
 pub use time::error;
 
 // TODO: consider wrapping these types to prevent interactions

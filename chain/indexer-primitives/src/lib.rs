@@ -19,7 +19,11 @@ pub struct IndexerChunkView {
     pub receipts: Vec<views::ReceiptView>,
     /// Receipts generated in this chunk from transactions with `signer_id`
     /// equal to `receiver_id`.
+    #[serde(default)]
     pub local_receipts: Vec<views::ReceiptView>,
+    /// Receipts that were processed instantly in the same chunk they were created.
+    #[serde(default)]
+    pub instant_receipts: Vec<views::ReceiptView>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]

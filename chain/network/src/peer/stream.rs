@@ -17,6 +17,10 @@ const NETWORK_MESSAGE_MAX_SIZE_BYTES: usize = 512 * MIB as usize;
 /// Maximum capacity of write buffer in bytes.
 const MAX_WRITE_BUFFER_CAPACITY_BYTES: usize = GIB as usize;
 
+/// Timeout for individual write operations (write + flush) to detect if the connection is
+/// stuck due to a half-open TCP connection where the peer stopped ACKing writes.
+const WRITE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
 type ReadHalf = tokio::io::ReadHalf<tokio::net::TcpStream>;
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
@@ -81,7 +85,9 @@ impl FramedStream {
             let error_sender = error_sender.clone();
             let m = send_buf_size_metric.clone();
             async move {
-                if let Err(err) = Self::run_send_loop(tcp_send, queue_recv, stats, m).await {
+                if let Err(err) =
+                    Self::run_send_loop(tcp_send, queue_recv, stats, m, WRITE_TIMEOUT).await
+                {
                     error_sender.send(Error::Send(SendError::IO(err)));
                 }
             }
@@ -176,6 +182,7 @@ impl FramedStream {
         mut queue_recv: tokio::sync::mpsc::UnboundedReceiver<Frame>,
         stats: Arc<connection::Stats>,
         buf_size_metric: Arc<metrics::IntGaugeGuard>,
+        write_timeout: std::time::Duration,
     ) -> io::Result<()> {
         const WRITE_BUFFER_CAPACITY: usize = 8 * 1024;
         let mut writer = tokio::io::BufWriter::with_capacity(WRITE_BUFFER_CAPACITY, tcp_send);
@@ -187,8 +194,19 @@ impl FramedStream {
                 if msg.len() > NETWORK_MESSAGE_MAX_SIZE_BYTES {
                     metrics::MessageDropped::InputTooLong.inc_unknown_msg();
                 } else {
-                    writer.write_u32_le(msg.len() as u32).await?;
-                    writer.write_all(&msg[..]).await?;
+                    tokio::time::timeout(write_timeout, async {
+                        writer.write_u32_le(msg.len() as u32).await?;
+                        writer.write_all(&msg[..]).await?;
+                        io::Result::Ok(())
+                    })
+                    .await
+                    .map_err(|_| {
+                        tracing::debug!(target: "network", timeout_secs = write_timeout.as_secs(), "write timed out, closing half-open connection");
+                        io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            "write timed out, connection may be half-open",
+                        )
+                    })??;
                 }
                 stats.messages_to_send.fetch_sub(1, Ordering::Release);
                 stats.bytes_to_send.fetch_sub(msg.len() as u64, Ordering::Release);
@@ -204,8 +222,65 @@ impl FramedStream {
             // and added to the queue at a rate similar to flush latency. To fix that
             // we would need to put writer.flush() and queue_recv.recv() into a tokio::select
             // and make sure that both are cancellation-safe.
-            writer.flush().await?;
+            tokio::time::timeout(write_timeout, writer.flush()).await.map_err(|_| {
+                tracing::debug!(target: "network", timeout_secs = write_timeout.as_secs(), "flush timed out, closing half-open connection");
+                io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "flush timed out, connection may be half-open",
+                )
+            })??;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::stats::metrics;
+
+    /// Simulates a half-open TCP connection by holding the receiver socket open without reading.
+    /// The sender's TCP buffer fills up, writes block, and the write timeout fires.
+    /// Uses run_send_loop directly with a short timeout (5s) to keep the test fast.
+    #[tokio::test]
+    async fn write_timeout_on_half_open_connection() {
+        near_o11y::testonly::init_test_logger();
+        let listener = tokio::net::TcpListener::bind("[::1]:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (client, server) =
+            tokio::join!(tokio::net::TcpStream::connect(addr), listener.accept(),);
+        let client = client.unwrap();
+        // Hold the server socket open without reading — simulates a process that crashed
+        // without sending FIN (e.g. killed with SIGKILL, or network partition).
+        let _server = server.unwrap().0;
+
+        let (_, tcp_send) = tokio::io::split(client);
+        let (queue_send, queue_recv) = tokio::sync::mpsc::unbounded_channel();
+        let stats: Arc<connection::Stats> = Arc::default();
+        let buf_size_metric = Arc::new(metrics::MetricGuard::new(
+            &*metrics::PEER_DATA_WRITE_BUFFER_SIZE,
+            vec!["test_half_open".to_string()],
+        ));
+
+        // Enqueue enough large messages to fill the TCP send buffer.
+        for _ in 0..64 {
+            let _ = queue_send.send(Frame(vec![0u8; 1024 * 1024]));
+        }
+        // Close the sender so run_send_loop will drain the queue and exit.
+        drop(queue_send);
+
+        // Use a short write timeout (5s) to keep the test fast.
+        let write_timeout = std::time::Duration::from_secs(5);
+        let result = FramedStream::run_send_loop(
+            tcp_send,
+            queue_recv,
+            stats,
+            buf_size_metric,
+            write_timeout,
+        )
+        .await;
+
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::TimedOut);
     }
 }

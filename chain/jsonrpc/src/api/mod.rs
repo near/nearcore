@@ -1,10 +1,10 @@
 use near_async::messaging::AsyncSendError;
-use serde_json::Value;
-
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::errors::{RpcError, ServerError};
+use serde_json::Value;
 
 mod blocks;
+mod call_function;
 mod changes;
 mod chunks;
 mod client_config;
@@ -21,6 +21,12 @@ mod split_storage;
 mod status;
 mod transactions;
 mod validator;
+mod view_access_key;
+mod view_access_key_list;
+mod view_account;
+mod view_code;
+mod view_gas_key_nonces;
+mod view_state;
 
 pub trait RpcRequest: Sized {
     fn parse(value: Value) -> Result<Self, RpcParseError>;
@@ -82,10 +88,9 @@ impl RpcFrom<near_primitives::errors::InvalidTxError> for ServerError {
 }
 
 mod params {
+    use near_jsonrpc_primitives::errors::RpcParseError;
     use serde::de::DeserializeOwned;
     use serde_json::Value;
-
-    use near_jsonrpc_primitives::errors::RpcParseError;
 
     /// Helper wrapper for parsing JSON value into expected request format.
     ///

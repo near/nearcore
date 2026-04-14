@@ -7,7 +7,6 @@
 //! (for official releases it should be the same as version).
 
 use anyhow::{Result, anyhow};
-
 use std::os::unix::ffi::OsStringExt;
 
 /// Returns value of given environment variable or error if missing.
@@ -141,6 +140,11 @@ fn try_main() -> Result<()> {
     println!("cargo:rustc-env=NEARD_RUSTC_VERSION={}", rustc_version::version()?);
 
     println!("cargo:rustc-env=NEARD_FEATURES={}", get_enabled_features());
+
+    let profile = std::env::var("PROFILE").unwrap_or_default();
+    if profile == "release" {
+        println!("cargo:rustc-env=NEAR_RELEASE_BUILD=release");
+    }
 
     Ok(())
 }

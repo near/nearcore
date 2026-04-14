@@ -1,11 +1,9 @@
 //! Database connection and struct representing rows in the data tables.
 
-use std::path::Path;
-
+use crate::Metric;
 use chrono::NaiveDateTime;
 use rusqlite::{Connection, Row, params};
-
-use crate::Metric;
+use std::path::Path;
 
 /// Wrapper around database connection
 pub(crate) struct Db {

@@ -1,16 +1,14 @@
-use std::cmp::Ordering;
-use std::panic::Location;
-use std::time::{Duration, Instant};
-use std::{fmt, iter, ops};
-
+use crate::config::GasMetric;
+use crate::estimator_params::{GAS_IN_INSTR, GAS_IN_NS, IO_READ_BYTE_COST, IO_WRITE_BYTE_COST};
+use crate::qemu::QemuMeasurement;
 use near_primitives::types::Gas;
 use num_rational::Ratio;
 use num_traits::ToPrimitive;
 use serde_json::json;
-
-use crate::config::GasMetric;
-use crate::estimator_params::{GAS_IN_INSTR, GAS_IN_NS, IO_READ_BYTE_COST, IO_WRITE_BYTE_COST};
-use crate::qemu::QemuMeasurement;
+use std::cmp::Ordering;
+use std::panic::Location;
+use std::time::{Duration, Instant};
+use std::{fmt, iter, ops};
 
 /// Result of cost estimation.
 ///

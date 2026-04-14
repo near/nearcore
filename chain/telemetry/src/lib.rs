@@ -6,8 +6,6 @@ use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::{Actor, Handler};
 use near_async::time::{Duration, Instant};
 use near_async::tokio::TokioRuntimeHandle;
-use near_performance_metrics as _; // Suppress cargo machete
-use near_performance_metrics_macros::perf;
 use reqwest::Client;
 use std::ops::Sub;
 
@@ -87,7 +85,6 @@ impl TelemetryActor {
 }
 
 impl Handler<TelemetryEvent> for TelemetryActor {
-    #[perf]
     fn handle(&mut self, msg: TelemetryEvent) {
         tracing::debug!(target: "telemetry", ?msg);
         let now = Instant::now();
@@ -112,7 +109,7 @@ impl Handler<TelemetryEvent> for TelemetryActor {
                                 target: "telemetry",
                                 err = ?error,
                                 endpoint = ?endpoint,
-                                "Failed to send telemetry data");
+                                "failed to send telemetry data");
                             "failed"
                         } else {
                             "ok"

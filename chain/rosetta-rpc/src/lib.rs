@@ -1,14 +1,23 @@
 #![doc = include_str!("../README.md")]
 
-use std::convert::AsRef;
-use std::sync::Arc;
-use std::time::Duration;
-
 use axum::Router;
 use axum::extract::{Json, State};
 use axum::http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use axum::http::{HeaderValue, Method};
 use axum::routing::post;
+pub use config::RosettaRpcConfig;
+use near_async::futures::{FutureSpawner, FutureSpawnerExt};
+use near_async::messaging::CanSendAsync;
+use near_async::multithread::MultithreadRuntimeHandle;
+use near_async::tokio::TokioRuntimeHandle;
+use near_chain_configs::Genesis;
+use near_client::client_actor::ClientActor;
+use near_client::{RpcHandlerActor, ViewClientActor};
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
+use near_primitives::{borsh::BorshDeserialize, types::Balance};
+use std::convert::AsRef;
+use std::sync::Arc;
+use std::time::Duration;
 use strum::IntoEnumIterator;
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
@@ -16,20 +25,10 @@ use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
-pub use config::RosettaRpcConfig;
-use near_async::futures::{FutureSpawner, FutureSpawnerExt};
-use near_async::messaging::CanSendAsync;
-use near_async::multithread::MultithreadRuntimeHandle;
-use near_async::tokio::TokioRuntimeHandle;
-use near_chain_configs::Genesis;
-use near_client::client_actor::ClientActorInner;
-use near_client::{RpcHandler, ViewClientActorInner};
-use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
-use near_primitives::{borsh::BorshDeserialize, types::Balance};
-
 mod adapters;
 mod config;
 mod errors;
+mod gas_key_utils;
 mod models;
 pub mod test;
 mod types;
@@ -49,9 +48,9 @@ struct GenesisWithIdentifier {
 #[derive(Clone)]
 struct RosettaAppState {
     genesis: Arc<GenesisWithIdentifier>,
-    client_addr: TokioRuntimeHandle<ClientActorInner>,
-    view_client_addr: MultithreadRuntimeHandle<ViewClientActorInner>,
-    tx_handler_addr: MultithreadRuntimeHandle<RpcHandler>,
+    client_addr: TokioRuntimeHandle<ClientActor>,
+    view_client_addr: MultithreadRuntimeHandle<ViewClientActor>,
+    tx_handler_addr: MultithreadRuntimeHandle<RpcHandlerActor>,
     currencies: Option<Vec<models::Currency>>,
 }
 
@@ -60,7 +59,7 @@ struct RosettaAppState {
 /// `blockchain` and `network` must match and `sub_network_identifier` must not
 /// be provided.  On success returns client actor’s status response.
 async fn check_network_identifier(
-    client_addr: &TokioRuntimeHandle<ClientActorInner>,
+    client_addr: &TokioRuntimeHandle<ClientActor>,
     identifier: models::NetworkIdentifier,
 ) -> Result<near_client::StatusResponse, errors::ErrorKind> {
     if identifier.blockchain != BLOCKCHAIN {
@@ -443,6 +442,14 @@ async fn account_balance(
             crate::models::SubAccount::LiquidBalanceForStorage => {
                 account_balances.liquid_for_storage
             }
+            crate::models::SubAccount::GasKey => {
+                crate::gas_key_utils::query_gas_key_balance(
+                    near_primitives::types::BlockId::Hash(block_hash).into(),
+                    account_identifier.address.clone().into(),
+                    &state.view_client_addr,
+                )
+                .await?
+            }
         }
     } else {
         account_balances.liquid
@@ -767,7 +774,7 @@ async fn construction_payloads(
         unsigned_transaction: unsigned_transaction.into(),
         payloads: vec![models::SigningPayload {
             account_identifier: signer_account_id.into(),
-            signature_type: Some(signer_public_access_key.key_type().into()),
+            signature_type: Some(signer_public_access_key.key_type().try_into()?),
             hex_bytes: transaction_hash.as_ref().to_vec().into(),
         }],
     }))
@@ -1024,6 +1031,7 @@ async fn construction_submit(
             models::TransactionIdentifierResponse,
             models::TransactionMetadata,
             models::TransactionType,
+            models::ExecutionStatus,
             models::Version,
         )
     ),
@@ -1068,9 +1076,9 @@ pub fn start_rosetta_rpc(
     config: crate::config::RosettaRpcConfig,
     genesis: Genesis,
     genesis_block_hash: &near_primitives::hash::CryptoHash,
-    client_addr: TokioRuntimeHandle<ClientActorInner>,
-    view_client_addr: MultithreadRuntimeHandle<ViewClientActorInner>,
-    tx_handler_addr: MultithreadRuntimeHandle<RpcHandler>,
+    client_addr: TokioRuntimeHandle<ClientActor>,
+    view_client_addr: MultithreadRuntimeHandle<ViewClientActor>,
+    tx_handler_addr: MultithreadRuntimeHandle<RpcHandlerActor>,
     future_spawner: &dyn FutureSpawner,
 ) {
     let crate::config::RosettaRpcConfig { addr, cors_allowed_origins, limits, currencies } = config;

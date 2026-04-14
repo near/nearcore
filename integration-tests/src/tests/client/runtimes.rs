@@ -1,6 +1,8 @@
 //! Client is responsible for tracking the chain, chunks, and producing them when needed.
 //! This client works completely synchronously and must be operated by some async actor outside.
 
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use near_chain_configs::Genesis;
 use near_crypto::KeyType;
 use near_network::test_utils::MockPeerManagerAdapter;
@@ -14,9 +16,6 @@ use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use std::collections::HashMap;
 use std::sync::Arc;
-
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
 
 #[test]
 fn test_pending_approvals() {
@@ -68,6 +67,7 @@ fn test_cap_max_gas_price() {
     genesis.config.max_gas_price = Balance::from_yoctonear(1_000_000);
     genesis.config.protocol_version = PROTOCOL_VERSION;
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     for i in 1..epoch_length {

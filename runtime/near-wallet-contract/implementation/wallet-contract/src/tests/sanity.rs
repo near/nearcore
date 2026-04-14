@@ -1,6 +1,5 @@
 use aurora_engine_types::types::Wei;
 use near_sdk::{AccountId, Gas, NearToken};
-
 use crate::{
     internal::MAX_YOCTO_NEAR,
     tests::utils::{self, codec, test_context::TestContext},

@@ -11,15 +11,13 @@ use crate::{
 };
 use itertools::Itertools;
 use near_primitives::account::id::AccountId;
-use near_primitives::bandwidth_scheduler::BandwidthRequests;
-use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{DataReceipt, PromiseYieldTimeout, Receipt, ReceiptEnum, ReceiptV1};
+use near_primitives::receipt::{DataReceipt, PromiseYieldTimeout, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::shard_layout::{ShardLayout, ShardUId, get_block_shard_uid};
 use near_primitives::state::FlatStateValue;
 use near_primitives::trie_key::TrieKey;
+use near_primitives::types::StateRoot;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{Balance, StateRoot};
 use rand::Rng;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
@@ -29,8 +27,8 @@ use std::sync::Arc;
 
 fn create_in_memory_node_storage(version: DbVersion, hot_kind: DbKind) -> NodeStorage {
     let storage = NodeStorage::new(TestDB::new());
-    storage.get_hot_store().set_db_version(version).unwrap();
-    storage.get_hot_store().set_db_kind(hot_kind).unwrap();
+    storage.get_hot_store().set_db_version(version);
+    storage.get_hot_store().set_db_kind(hot_kind);
     storage
 }
 
@@ -56,20 +54,24 @@ fn create_test_node_storage_archive(
     version: DbVersion,
     hot_kind: DbKind,
     home_dir: Option<PathBuf>,
+    chain_id: Option<String>,
 ) -> (NodeStorage, Arc<TestDB>, Option<Arc<TestDB>>) {
     let hot = TestDB::new();
     let cold = if cold_enabled { Some(TestDB::new()) } else { None };
     let cold_db = cold.as_ref().map(|cold| cold.clone() as Arc<dyn Database>);
-    let cloud =
-        if cloud_enabled { Some(create_test_cloud_storage(home_dir.unwrap())) } else { None };
+    let cloud = if cloud_enabled {
+        Some(create_test_cloud_storage(home_dir.unwrap(), chain_id.unwrap()))
+    } else {
+        None
+    };
     let storage = NodeStorage::new_archive(hot.clone(), cold_db, cloud);
 
     let hot_store = storage.get_hot_store();
-    hot_store.set_db_version(version).unwrap();
-    hot_store.set_db_kind(hot_kind).unwrap();
+    hot_store.set_db_version(version);
+    hot_store.set_db_kind(hot_kind);
     if let Some(cold_store) = storage.get_cold_store() {
-        cold_store.set_db_version(version).unwrap();
-        cold_store.set_db_kind(DbKind::Cold).unwrap();
+        cold_store.set_db_version(version);
+        cold_store.set_db_kind(DbKind::Cold);
     }
     (storage, hot, cold)
 }
@@ -80,7 +82,7 @@ pub fn create_test_node_storage_with_cold(
     hot_kind: DbKind,
 ) -> (NodeStorage, Arc<TestDB>, Arc<TestDB>) {
     let (storage, hot, cold) =
-        create_test_node_storage_archive(true, false, version, hot_kind, None);
+        create_test_node_storage_archive(true, false, version, hot_kind, None, None);
     (storage, hot, cold.unwrap())
 }
 
@@ -97,6 +99,7 @@ pub fn create_test_node_storage(
     cold_enabled: bool,
     cloud_enabled: bool,
     home_dir: Option<PathBuf>,
+    chain_id: Option<String>,
 ) -> TestNodeStorage {
     if !cold_enabled && !cloud_enabled {
         return TestNodeStorage {
@@ -113,6 +116,7 @@ pub fn create_test_node_storage(
         DB_VERSION,
         hot_kind,
         home_dir,
+        chain_id,
     );
     TestNodeStorage {
         hot_store: storage.get_hot_store(),
@@ -178,7 +182,6 @@ impl TestTriesBuilder {
                 load_memtries_for_tracked_shards: self.enable_in_memory_tries,
                 ..Default::default()
             },
-            &shard_uids,
             flat_storage_manager,
             StateSnapshotConfig::Disabled,
         );
@@ -191,7 +194,7 @@ impl TestTriesBuilder {
                     FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }),
                 );
             }
-            store_update.commit().unwrap();
+            store_update.commit();
 
             let flat_storage_manager = tries.get_flat_storage_manager();
             for &shard_uid in &shard_uids {
@@ -200,30 +203,18 @@ impl TestTriesBuilder {
         }
         if self.enable_in_memory_tries {
             // ChunkExtra is needed for in-memory trie loading code to query state roots.
-            let congestion_info = Some(CongestionInfo::default());
-            let chunk_extra = ChunkExtra::new(
-                &Trie::EMPTY_ROOT,
-                CryptoHash::default(),
-                Vec::new(),
-                near_primitives::types::Gas::ZERO,
-                near_primitives::types::Gas::ZERO,
-                Balance::ZERO,
-                congestion_info,
-                BandwidthRequests::empty(),
-            );
+            let chunk_extra = ChunkExtra::new_with_only_state_root(&Trie::EMPTY_ROOT);
             let mut update_for_chunk_extra = store.store_update();
             for shard_uid in &shard_uids {
-                update_for_chunk_extra
-                    .set_ser(
-                        DBCol::ChunkExtra,
-                        &get_block_shard_uid(&CryptoHash::default(), shard_uid),
-                        &chunk_extra,
-                    )
-                    .unwrap();
+                update_for_chunk_extra.set_ser(
+                    DBCol::ChunkExtra,
+                    &get_block_shard_uid(&CryptoHash::default(), shard_uid),
+                    &chunk_extra,
+                );
             }
-            update_for_chunk_extra.commit().unwrap();
+            update_for_chunk_extra.commit();
 
-            tries.load_memtries_for_enabled_shards(&shard_uids, &[].into(), false).unwrap();
+            tries.load_memtries_for_enabled_shards(&shard_uids, None, false).unwrap();
         }
         tries
     }
@@ -240,7 +231,7 @@ pub fn test_populate_trie(
     let mut store_update = tries.store_update();
     tries.apply_memtrie_changes(&trie_changes, shard_uid, 1); // TODO: don't hardcode block height
     let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
     let deduped = simplify_changes(&changes);
     let trie = tries.get_trie_for_shard(shard_uid, root);
     for (key, value) in deduped {
@@ -270,7 +261,7 @@ pub fn test_populate_flat_storage(
             value.as_ref().map(|value| FlatStateValue::on_disk(value)),
         );
     }
-    store_update.commit().unwrap();
+    store_update.commit();
 }
 
 /// Insert values to non-reference-counted columns in the store.
@@ -279,7 +270,7 @@ pub fn test_populate_store(store: &Store, data: impl Iterator<Item = (DBCol, Vec
     for (column, key, value) in data {
         update.insert(column, key, value);
     }
-    update.commit().expect("db commit failed");
+    update.commit();
 }
 
 /// Insert values to reference-counted columns in the store.
@@ -288,7 +279,7 @@ pub fn test_populate_store_rc(store: &Store, data: &[(DBCol, Vec<u8>, Vec<u8>)])
     for (column, key, value) in data {
         update.increment_refcount(*column, key, value);
     }
-    update.commit().expect("db commit failed");
+    update.commit();
 }
 
 fn gen_alphabet() -> Vec<u8> {
@@ -341,7 +332,7 @@ pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {
     accounts
         .iter()
         .map(|account_id| {
-            Receipt::V1(ReceiptV1 {
+            Receipt::V0(ReceiptV0 {
                 predecessor_id: account_id.clone(),
                 receiver_id: account_id.clone(),
                 receipt_id: CryptoHash::default(),
@@ -349,7 +340,6 @@ pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {
                     data_id: CryptoHash::default(),
                     data: None,
                 }),
-                priority: 0,
             })
         })
         .collect()

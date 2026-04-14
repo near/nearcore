@@ -1,25 +1,26 @@
-use std::sync::Arc;
-
-use near_external_storage::ExternalConnection;
-
-use near_chain_configs::ExternalStorageLocation;
-
 use crate::archive::cloud_storage::CloudStorage;
-use crate::archive::cloud_storage::config::CloudStorageConfig;
+use crate::archive::cloud_storage::config::CloudStorageContext;
+use near_chain_configs::ExternalStorageLocation;
+use near_external_storage::ExternalConnection;
+use std::io::Result;
+use std::sync::Arc;
 
 /// Opener for the external archival storage, which results in an `CloudStorage` instance.
 pub struct CloudStorageOpener {
-    config: CloudStorageConfig,
+    /// Context for the cloud archival storage.
+    context: CloudStorageContext,
 }
 
 impl CloudStorageOpener {
-    pub fn new(config: CloudStorageConfig) -> Self {
-        Self { config }
+    pub fn new(context: CloudStorageContext) -> Self {
+        Self { context }
     }
 
-    pub fn open(&self) -> Arc<CloudStorage> {
+    pub fn open(&self) -> Result<Arc<CloudStorage>> {
         let external = self.create_external_connection();
-        Arc::new(CloudStorage { external })
+        let chain_id = self.context.chain_id.clone();
+        let cloud_storage = CloudStorage { external, chain_id };
+        Ok(Arc::new(cloud_storage))
     }
 
     /// Returns `true` if the given storage backend is supported by cloud archival.
@@ -37,10 +38,10 @@ impl CloudStorageOpener {
     ///
     /// Panics if the configured storage location is not supported.
     fn create_external_connection(&self) -> ExternalConnection {
-        let location = &self.config.location;
+        let location = &self.context.cloud_archive.location;
         if !Self::is_storage_location_supported(location) {
-            panic!("{} is not supported cloud storage location", location.name())
+            panic!("{:?} is not a supported cloud storage location", location)
         }
-        ExternalConnection::new(location, self.config.credentials_file.clone(), None)
+        ExternalConnection::new(location, self.context.cloud_archive.credentials_file.clone(), None)
     }
 }

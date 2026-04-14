@@ -14,6 +14,7 @@ pub mod gas;
 pub mod global_contract;
 pub mod hash;
 pub mod serialize;
+pub mod trie_key;
 pub mod types;
 pub mod version;
 

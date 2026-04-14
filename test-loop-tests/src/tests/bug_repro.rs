@@ -1,8 +1,8 @@
-use std::cmp::max;
-use std::collections::HashMap;
-use std::sync::Arc;
-
 use crate::setup::builder::TestLoopBuilder;
+use crate::setup::peer_manager_actor::HandlerResult;
+use crate::utils::account::{
+    create_account_ids, create_validators_spec, validators_spec_clients_with_rpc,
+};
 use itertools::Itertools as _;
 use near_async::messaging::CanSend as _;
 use near_async::time::Duration;
@@ -14,13 +14,20 @@ use near_crypto::InMemorySigner;
 use near_network::client::{BlockApproval, BlockResponse};
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::NetworkRequests;
+use near_network::types::NetworkResponses;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
+use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
 use parking_lot::RwLock;
 use rand::{Rng as _, thread_rng};
+use std::cell::RefCell;
+use std::cmp::max;
+use std::collections::HashMap;
+use std::rc::Rc;
+use std::sync::Arc;
 
 #[test]
 fn slow_test_repro_1183() {
@@ -52,8 +59,7 @@ fn slow_test_repro_1183() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
-        .build()
-        .warmup();
+        .build();
 
     let last_block: Arc<RwLock<Option<Arc<Block>>>> = Arc::new(RwLock::new(None));
     let delayed_one_parts: Arc<RwLock<Vec<NetworkRequests>>> = Arc::new(RwLock::new(vec![]));
@@ -69,7 +75,7 @@ fn slow_test_repro_1183() {
 
         let peer_actor_handle = node.peer_manager_sender.actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
+        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
             if let NetworkRequests::Block { block } = &request {
                 let mut last_block = last_block.write();
                 let mut delayed_one_parts = delayed_one_parts.write();
@@ -132,17 +138,17 @@ fn slow_test_repro_1183() {
 
                 *last_block = Some(block.clone());
                 *delayed_one_parts = vec![];
-                None
+                HandlerResult::Handled(NetworkResponses::NoResponse)
             } else if let NetworkRequests::PartialEncodedChunkMessage { .. } = &request {
                 let mut rng = rng.write();
                 if rng.gen_bool(0.5) {
-                    Some(request)
+                    HandlerResult::Unhandled(request)
                 } else {
                     delayed_one_parts.write().push(request.clone());
-                    None
+                    HandlerResult::Handled(NetworkResponses::NoResponse)
                 }
             } else {
-                Some(request)
+                HandlerResult::Unhandled(request)
             }
         }));
     }
@@ -156,11 +162,11 @@ fn slow_test_repro_1183() {
         },
         Duration::seconds(60),
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_sync_from_archival_node() {
     init_test_logger();
 
@@ -183,7 +189,7 @@ fn slow_test_sync_from_archival_node() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
-        .cold_storage_archival_clients([clients[0].clone()].into())
+        .cold_storage_archival_clients(vec![clients[0].clone()])
         .config_modifier(move |config, idx| {
             config.min_block_production_delay = block_prod_time;
             config.max_block_production_delay = 3 * block_prod_time;
@@ -193,8 +199,7 @@ fn slow_test_sync_from_archival_node() {
                 config.tracked_shards_config = TrackedShardsConfig::AllShards;
             }
         })
-        .build()
-        .warmup();
+        .build();
 
     let largest_height = Arc::new(RwLock::new(0));
     let blocks = Arc::new(RwLock::new(HashMap::new()));
@@ -212,7 +217,7 @@ fn slow_test_sync_from_archival_node() {
 
         let peer_actor_handle = node.peer_manager_sender.actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
+        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
             let mut block_counter = block_counter.write();
 
             if let NetworkRequests::Block { block } = &request {
@@ -237,7 +242,7 @@ fn slow_test_sync_from_archival_node() {
                         if block.header().height() <= 10 {
                             blocks.write().insert(*block.hash(), block.clone());
                         }
-                        None
+                        HandlerResult::Handled(NetworkResponses::NoResponse)
                     }
                     NetworkRequests::Approval { approval_message } => {
                         for (i, sender) in client_senders.iter().enumerate() {
@@ -251,9 +256,9 @@ fn slow_test_sync_from_archival_node() {
                                 )
                             }
                         }
-                        None
+                        HandlerResult::Handled(NetworkResponses::NoResponse)
                     }
-                    _ => Some(request),
+                    _ => HandlerResult::Unhandled(request),
                 }
             } else {
                 if *block_counter > 10 {
@@ -270,17 +275,15 @@ fn slow_test_sync_from_archival_node() {
                         if block.header().height() <= 10 {
                             *block_counter += 1;
                         }
-                        Some(request)
+                        HandlerResult::Unhandled(request)
                     }
-                    _ => Some(request),
+                    _ => HandlerResult::Unhandled(request),
                 }
             }
         }));
     }
 
     env.test_loop.run_until(|_| *largest_height.read() >= 50, Duration::seconds(20));
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
 #[test]
@@ -312,26 +315,25 @@ fn slow_test_long_gap_between_blocks() {
             config.max_block_production_delay = 3 * block_prod_time;
             config.max_block_wait_delay = 3 * block_prod_time;
         })
-        .build()
-        .warmup();
+        .build();
 
     for node in &env.node_datas {
         let peer_actor_handle = node.peer_manager_sender.actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
+        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
             match &request {
                 NetworkRequests::Approval { approval_message } => {
                     if approval_message.approval.target_height < target_height {
-                        return None;
+                        return HandlerResult::Handled(NetworkResponses::NoResponse);
                     } else {
                         if approval_message.target == "test1" {
-                            return Some(request);
+                            return HandlerResult::Unhandled(request);
                         } else {
-                            return None;
+                            return HandlerResult::Handled(NetworkResponses::NoResponse);
                         }
                     }
                 }
-                _ => return Some(request),
+                _ => return HandlerResult::Unhandled(request),
             }
         }));
     }
@@ -345,6 +347,113 @@ fn slow_test_long_gap_between_blocks() {
         },
         Duration::seconds(3 * 70),
     );
+}
 
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
+/// 1 RPC node, 1 validator node, 1 shard
+/// Submit the same transaction twice, it should get forwarded to the validator node twice.
+/// Should work both when the RPC node has a `validator_signer` and when it doesn't.
+/// Reproduces an issue where the RPC didn't forward retried transactions when
+/// the `validator_signer` was set. (See https://github.com/near/nearcore/pull/14958)
+#[test]
+fn test_rpc_forwards_retried_transaction() {
+    init_test_logger();
+
+    let shard_layout = ShardLayout::single_shard();
+    let user_accounts = create_account_ids(["account0"]);
+    let initial_balance = Balance::from_near(1_000_000);
+    let validators_spec = create_validators_spec(1, 0);
+    let clients = validators_spec_clients_with_rpc(&validators_spec);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .shard_layout(shard_layout)
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&user_accounts, initial_balance)
+        .build();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store_from_genesis()
+        .clients(clients)
+        .build();
+    let rpc_data_idx = env.rpc_data_idx();
+
+    // First test the case where `validator_signer` is set.
+    assert!(env.rpc_node().client().validator_signer.get().is_some());
+
+    // Record ForwardTx messages sent by the RPC node
+    let forward_tx_requests = Rc::new(RefCell::new(Vec::new()));
+    let forward_tx_requests_clone = forward_tx_requests.clone();
+    env.node_datas[rpc_data_idx].register_override_handler(
+        &mut env.test_loop.data,
+        Box::new(move |nr| {
+            match &nr {
+                NetworkRequests::ForwardTx(account, transaction) => forward_tx_requests_clone
+                    .borrow_mut()
+                    .push((account.clone(), transaction.get_hash())),
+                _ => {}
+            }
+            HandlerResult::Unhandled(nr)
+        }),
+    );
+
+    // Submit tx1 twice
+    let tx1 = SignedTransaction::send_money(
+        1,
+        user_accounts[0].clone(),
+        user_accounts[0].clone(),
+        &create_user_test_signer(&user_accounts[0]),
+        Balance::from_near(1),
+        env.rpc_node().head().last_block_hash,
+    );
+    env.node_datas[rpc_data_idx].rpc_handler_sender.send(ProcessTxRequest {
+        transaction: tx1.clone(),
+        is_forwarded: false,
+        check_only: false,
+    });
+    env.node_datas[rpc_data_idx].rpc_handler_sender.send(ProcessTxRequest {
+        transaction: tx1.clone(),
+        is_forwarded: false,
+        check_only: false,
+    });
+
+    // Run TestLoop to process the transaction requests
+    env.rpc_runner().run_for_number_of_blocks(1);
+
+    // There should be two ForwardTx(validator0, tx1) messages recorded.
+    let validator_acc: AccountId = "validator0".parse().unwrap();
+    assert_eq!(
+        forward_tx_requests.borrow_mut().as_slice(),
+        &[(validator_acc.clone(), tx1.get_hash()), (validator_acc.clone(), tx1.get_hash())]
+    );
+    forward_tx_requests.borrow_mut().clear();
+
+    // Now set validator_signer to None.
+    env.rpc_node().client().validator_signer.update(None);
+
+    // Submit tx2 twice
+    let tx2 = SignedTransaction::send_money(
+        2,
+        user_accounts[0].clone(),
+        user_accounts[0].clone(),
+        &create_user_test_signer(&user_accounts[0]),
+        Balance::from_near(1),
+        env.rpc_node().head().last_block_hash,
+    );
+    env.node_datas[rpc_data_idx].rpc_handler_sender.send(ProcessTxRequest {
+        transaction: tx2.clone(),
+        is_forwarded: false,
+        check_only: false,
+    });
+    env.node_datas[rpc_data_idx].rpc_handler_sender.send(ProcessTxRequest {
+        transaction: tx2.clone(),
+        is_forwarded: false,
+        check_only: false,
+    });
+
+    // Run TestLoop for a bit
+    env.rpc_runner().run_for_number_of_blocks(1);
+
+    // There should be two ForwardTx(validator0, tx2) messages recorded.
+    assert_eq!(
+        forward_tx_requests.borrow_mut().as_slice(),
+        &[(validator_acc.clone(), tx2.get_hash()), (validator_acc, tx2.get_hash())]
+    );
 }

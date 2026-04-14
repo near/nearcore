@@ -80,12 +80,11 @@ pub static CHUNK_TRANSACTIONS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| 
     .unwrap()
 });
 
-pub(crate) static PRODUCED_CHUNKS_SOME_POOL_TRANSACTIONS_DID_NOT_FIT: LazyLock<IntCounterVec> =
+pub(crate) static PRODUCE_CHUNK_TRANSACTIONS_LIMITED_BY: LazyLock<IntCounterVec> =
     LazyLock::new(|| {
         try_create_int_counter_vec(
-        "near_produced_chunks_some_pool_transactions_did_not_fit",
-        "Total number of produced chunks where some transactions from the pool didn't fit in the chunk \
-        (since starting this node). The limited_by label specifies which limit was hit.",
+        "near_produce_chunk_transactions_limited_by",
+        "Records what limited the number of transaction included in chunks produced by this node",
         &["shard_id", "limited_by"],
     )
     .unwrap()
@@ -480,6 +479,15 @@ pub(crate) static STATE_SYNC_REQUEST_TIME: LazyLock<HistogramVec> = LazyLock::ne
     .unwrap()
 });
 
+pub(crate) static STATE_SYNC_REQUESTS_SERVED_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_state_sync_requests_served_total",
+        "Count of state sync requests processed by type (header, part) and status (success, failed)",
+        &["type", "status"],
+    )
+    .unwrap()
+});
+
 pub(crate) static STATE_SYNC_REQUESTS_THROTTLED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
         "near_state_sync_requests_throttled_total",
@@ -520,15 +528,6 @@ pub(crate) fn export_version(chain_id: &str, neard_version: &near_primitives::ve
         ])
         .inc();
 }
-
-pub(crate) static EPOCH_SYNC_LAST_GENERATED_COMPRESSED_PROOF_SIZE: LazyLock<IntGauge> =
-    LazyLock::new(|| {
-        try_create_int_gauge(
-            "near_epoch_sync_last_generated_compressed_proof_size",
-            "Size of the last generated compressed epoch sync proof, in bytes",
-        )
-        .unwrap()
-    });
 
 pub(crate) static STATE_SYNC_STAGE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec(
@@ -811,6 +810,22 @@ pub(crate) static COLD_STORE_COPY_RESULT: LazyLock<IntCounterVec> = LazyLock::ne
         "near_cold_store_copy_result",
         "The result of a cold store copy iteration in the cold store loop.",
         &["result"],
+    )
+    .unwrap()
+});
+
+pub(crate) static SPICE_CERTIFICATION_LAG: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_spice_certification_lag",
+        "Number of blocks between target height and certification height",
+    )
+    .unwrap()
+});
+
+pub(crate) static SPICE_BLOCK_PRODUCTION_DELAY_MS: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_spice_block_production_delay_ms",
+        "Spice-induced block production delay in milliseconds",
     )
     .unwrap()
 });

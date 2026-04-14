@@ -1,19 +1,16 @@
-use std::fmt::Debug;
-use std::ops::Range;
-
-use itertools::Itertools;
-use near_primitives::errors::StorageError;
-use near_primitives::trie_key::col;
-use near_primitives::types::AccountId;
-
-use crate::NibbleSlice;
-use crate::trie::AccessOptions;
-
 use super::interface::{
     GenericNodeOrIndex, GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize, HasValueLength,
     UpdatedNodeId,
 };
 use super::squash::GenericTrieUpdateSquash;
+use crate::NibbleSlice;
+use crate::trie::AccessOptions;
+use itertools::Itertools;
+use near_primitives::errors::StorageError;
+use near_primitives::trie_key::col;
+use near_primitives::types::AccountId;
+use std::fmt::Debug;
+use std::ops::Range;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 /// Whether to retain left or right part of trie after shard split.
@@ -55,7 +52,8 @@ fn boundary_account_to_intervals(
             | col::PROMISE_YIELD_INDICES
             | col::PROMISE_YIELD_TIMEOUT
             | col::BANDWIDTH_SCHEDULER_STATE
-            | col::GLOBAL_CONTRACT_CODE => {
+            | col::GLOBAL_CONTRACT_CODE
+            | col::GLOBAL_CONTRACT_NONCE => {
                 // This section contains the keys that we need to copy to both shards.
                 intervals.push(get_interval_for_copy_to_both_children(prefix))
             }
@@ -346,13 +344,11 @@ pub fn retain_split_shard_custom_ranges<'a, N, V>(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
+    use super::{RetainMode, append_key, boundary_account_to_intervals};
     use itertools::Itertools;
     use near_primitives::trie_key::col;
     use near_primitives::types::AccountId;
-
-    use super::{RetainMode, append_key, boundary_account_to_intervals};
+    use std::collections::HashMap;
 
     #[test]
     fn test_boundary_account_to_intervals() {
@@ -383,7 +379,8 @@ mod tests {
             vec![col::BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM]
                 ..vec![col::BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM + 1],
             vec![col::GLOBAL_CONTRACT_CODE]..vec![col::GLOBAL_CONTRACT_CODE + 1],
-            vec![col::GAS_KEY]..append_key(col::GAS_KEY, &alice_account),
+            vec![col::GLOBAL_CONTRACT_NONCE]..vec![col::GLOBAL_CONTRACT_NONCE + 1],
+            vec![col::PROMISE_YIELD_STATUS]..append_key(col::PROMISE_YIELD_STATUS, &alice_account),
         ];
         assert!(left_intervals.iter().all(|range| range.start < range.end));
         for (actual, expected) in left_intervals.iter().zip_eq(expected_left_intervals.iter()) {
@@ -409,7 +406,9 @@ mod tests {
                 ..vec![col::PROMISE_YIELD_RECEIPT + 1],
             vec![col::BANDWIDTH_SCHEDULER_STATE]..vec![col::BANDWIDTH_SCHEDULER_STATE + 1],
             vec![col::GLOBAL_CONTRACT_CODE]..vec![col::GLOBAL_CONTRACT_CODE + 1],
-            append_key(col::GAS_KEY, &alice_account)..vec![col::GAS_KEY + 1],
+            vec![col::GLOBAL_CONTRACT_NONCE]..vec![col::GLOBAL_CONTRACT_NONCE + 1],
+            append_key(col::PROMISE_YIELD_STATUS, &alice_account)
+                ..vec![col::PROMISE_YIELD_STATUS + 1],
         ];
         assert!(right_intervals.iter().all(|range| range.start < range.end));
         for (actual, expected) in right_intervals.iter().zip_eq(expected_right_intervals.iter()) {

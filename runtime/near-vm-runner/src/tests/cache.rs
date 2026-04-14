@@ -3,8 +3,7 @@ use crate::cache::{CompiledContractInfo, ContractRuntimeCache};
 use crate::logic::Config;
 use crate::logic::errors::VMRunnerError;
 use crate::logic::mocks::mock_external::MockedExternal;
-use crate::runner::VMKindExt;
-use crate::runner::VMResult;
+use crate::runner::{VMKindExt, VMResult};
 use crate::{ContractCode, MockContractRuntimeCache};
 use assert_matches::assert_matches;
 use near_parameters::RuntimeFeesConfig;
@@ -156,13 +155,13 @@ fn test_near_vm_artifact_output_stability() {
     let mut got_prepared_hashes = Vec::with_capacity(seeds.len());
     let compiled_hashes = [
         // See the above comment if you want to change this
-        10359202179711734961,
-        10830978663396839891,
-        4113425387108096249,
-        17915109147814468885,
-        10647100344041648873,
-        4181460672868866599,
-        19820563360826786,
+        14334640818099302233,
+        3088822364801994455,
+        9323816103508019335,
+        10991511583726085305,
+        9651246307898204416,
+        14836449607610025008,
+        16100465623403894777,
     ];
     let mut got_compiled_hashes = Vec::with_capacity(seeds.len());
     for seed in seeds {
@@ -240,13 +239,13 @@ fn test_wasmtime_artifact_output_stability() {
     ];
     let compiled_hashes = [
         // See the above comment if you want to change this
-        9950924174948878954,
-        8803697765082602215,
-        4017484580479522250,
-        3364258580096170639,
-        10567990929592989318,
-        7579701708129024444,
-        187752494411248376,
+        15357622861946059213,
+        16638481262920523869,
+        3943469136926844948,
+        16440063152199940029,
+        17421217776167824235,
+        12368027928383938722,
+        18372661511647223039,
     ];
     let mut got_prepared_hashes = Vec::with_capacity(seeds.len());
     let mut got_compiled_hashes = Vec::with_capacity(seeds.len());
@@ -326,4 +325,40 @@ impl ContractRuntimeCache for FaultingContractRuntimeCache {
     fn handle(&self) -> Box<dyn ContractRuntimeCache> {
         Box::new(self.clone())
     }
+}
+
+/// Verify that two threads racing to compile the same contract only produce one
+/// compilation, and that no lock entries leak in the global map.
+#[cfg(feature = "wasmtime_vm")]
+#[test]
+fn test_no_duplicate_compilation() {
+    use crate::cache::get_contract_cache_key;
+    use crate::runner::VM;
+    use crate::wasmtime_runner::{WasmtimeVM, compilation_locks};
+
+    let config = test_vm_config(Some(VMKind::Wasmtime));
+    let cache = MockContractRuntimeCache::default();
+    let wasm = wat::parse_str(r#"(module (func (export "main")))"#).unwrap();
+    let code = ContractCode::new(wasm, None);
+    let vm = Arc::new(WasmtimeVM::new_for_target(Arc::new(config.clone()), None).unwrap());
+    let cache_key = get_contract_cache_key(*code.hash(), &config, vm.vm_hash());
+
+    // Spawn two threads that both try to precompile the same contract.
+    let handles: Vec<_> = (0..2)
+        .map(|_| {
+            let vm = vm.clone();
+            let code = code.clone();
+            let cache = cache.handle();
+            std::thread::spawn(move || vm.precompile(&code, cache.as_ref()))
+        })
+        .collect();
+    for h in handles {
+        h.join().unwrap().unwrap().unwrap();
+    }
+
+    assert_eq!(cache.put_count(), 1, "should have compiled only once");
+    assert!(
+        !compilation_locks().lock().contains_key(&cache_key),
+        "lock entry for this contract should be cleaned up"
+    );
 }

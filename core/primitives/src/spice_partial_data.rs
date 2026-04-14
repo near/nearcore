@@ -1,10 +1,9 @@
-use near_crypto::{PublicKey, Signature};
-use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::{AccountId, MerkleHash, ShardId};
-
 use crate::merkle::MerklePath;
 use crate::types::StaticSignatureDifferentiator;
 use crate::validator_signer::ValidatorSigner;
+use near_crypto::{PublicKey, Signature};
+use near_primitives_core::hash::CryptoHash;
+use near_primitives_core::types::{AccountId, MerkleHash, ShardId};
 
 #[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SpiceDataIdentifier {

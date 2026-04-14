@@ -1,3 +1,5 @@
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use assert_matches::assert_matches;
 use near_chain::Provenance;
 use near_chain_configs::Genesis;
@@ -14,13 +16,12 @@ use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::FinalExecutionStatus;
 
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
-
 /// Test:
 /// * per-receipt hard storage proof size limit
 /// * per-chunk soft storage proof size limit
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_storage_proof_size_limit() {
     near_o11y::testonly::init_test_logger();
 
@@ -31,6 +32,7 @@ fn test_storage_proof_size_limit() {
     let mut env = {
         let mut genesis = Genesis::test(vec![contract_account.clone(), user_account.clone()], 1);
         genesis.config.epoch_length = epoch_length;
+        genesis.config.transaction_validity_period = epoch_length * 2;
         genesis.config.protocol_version = PROTOCOL_VERSION;
         TestEnv::builder(&genesis.config)
             .nightshade_runtimes_with_runtime_config_store(&genesis, vec![runtime_config_store])
@@ -70,7 +72,6 @@ fn test_storage_proof_size_limit() {
             &signer,
             vec![action],
             env.clients[0].chain.head().unwrap().last_block_hash,
-            0,
         );
         nonce += 1;
         let res = env.execute_tx(tx).unwrap();
@@ -93,7 +94,6 @@ fn test_storage_proof_size_limit() {
             &signer,
             vec![action],
             after_writes_block_hash,
-            0,
         );
         nonce += 1;
         tx

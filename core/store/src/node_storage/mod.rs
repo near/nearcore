@@ -1,11 +1,10 @@
 pub(super) mod opener;
 
 use crate::archive::cloud_storage::CloudStorage;
-use crate::archive::cloud_storage::config::CloudStorageConfig;
+use crate::archive::cloud_storage::config::CloudStorageContext;
 use crate::db::{Database, SplitDB, metadata};
 use crate::{Store, StoreConfig};
 use opener::StoreOpener;
-use std::io;
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
 
@@ -45,15 +44,15 @@ pub struct NodeStorage {
 }
 
 impl NodeStorage {
-    /// Initializes a new opener with given home directory and hot and cold
-    /// store config.
+    /// Initializes a new opener with given home directory and hot, cold,
+    /// and cloud store config.
     pub fn opener<'a>(
         home_dir: &std::path::Path,
         store_config: &'a StoreConfig,
         cold_store_config: Option<&'a StoreConfig>,
-        cloud_storage_config: Option<&'a CloudStorageConfig>,
+        cloud_storage_context: Option<CloudStorageContext>,
     ) -> StoreOpener<'a> {
-        StoreOpener::new(home_dir, store_config, cold_store_config, cloud_storage_config)
+        StoreOpener::new(home_dir, store_config, cold_store_config, cloud_storage_context)
     }
 
     /// Initializes an opener for a new temporary test store.
@@ -199,15 +198,15 @@ impl NodeStorage {
     }
 
     /// Reads database metadata and returns `true` if it is split storage or legacy archival node.
-    pub fn is_local_archive(&self) -> io::Result<bool> {
+    pub fn is_local_archive(&self) -> bool {
         if self.cold_storage.is_some() {
-            return Ok(true);
+            return true;
         }
-        Ok(match metadata::DbMetadata::read(self.hot_storage.as_ref())?.kind.unwrap() {
+        match metadata::DbMetadata::read(self.hot_storage.as_ref()).kind.unwrap() {
             metadata::DbKind::RPC => false,
             metadata::DbKind::Archive => true,
             metadata::DbKind::Hot | metadata::DbKind::Cold => true,
-        })
+        }
     }
 
     pub fn is_cloud_archive(&self) -> bool {

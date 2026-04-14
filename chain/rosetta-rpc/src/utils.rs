@@ -7,7 +7,7 @@ use futures::StreamExt;
 use near_async::messaging::CanSendAsync;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_chain_configs::ProtocolConfigView;
-use near_client::ViewClientActorInner;
+use near_client::ViewClientActor;
 use near_primitives::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_primitives::types::Balance;
 
@@ -121,25 +121,25 @@ pub(crate) struct SignedDiff<T>
 where
     T: Copy + PartialEq,
 {
-    is_positive: bool,
+    is_non_negative: bool,
     absolute_difference: T,
 }
 
 impl From<u64> for SignedDiff<u64> {
     fn from(value: u64) -> Self {
-        Self { is_positive: true, absolute_difference: value }
+        Self { is_non_negative: true, absolute_difference: value }
     }
 }
 
 impl From<u128> for SignedDiff<u128> {
     fn from(value: u128) -> Self {
-        Self { is_positive: true, absolute_difference: value }
+        Self { is_non_negative: true, absolute_difference: value }
     }
 }
 
 impl From<i64> for SignedDiff<u128> {
     fn from(value: i64) -> Self {
-        Self { is_positive: value >= 0, absolute_difference: value.unsigned_abs() as u128 }
+        Self { is_non_negative: value >= 0, absolute_difference: value.unsigned_abs() as u128 }
     }
 }
 
@@ -149,14 +149,14 @@ where
 {
     pub fn cmp(lhs: T, rhs: T) -> Self {
         if lhs <= rhs {
-            Self { is_positive: true, absolute_difference: rhs - lhs }
+            Self { is_non_negative: true, absolute_difference: rhs - lhs }
         } else {
-            Self { is_positive: false, absolute_difference: lhs - rhs }
+            Self { is_non_negative: false, absolute_difference: lhs - rhs }
         }
     }
 
-    pub fn is_positive(&self) -> bool {
-        self.is_positive
+    pub fn is_non_negative(&self) -> bool {
+        self.is_non_negative
     }
 
     pub fn absolute_difference(&self) -> T {
@@ -172,7 +172,7 @@ where
         write!(
             f,
             "{}{}",
-            if self.is_positive { "" } else { "-" },
+            if self.is_non_negative { "" } else { "-" },
             self.absolute_difference.to_string()
         )
     }
@@ -194,7 +194,7 @@ where
     type Output = Self;
 
     fn neg(mut self) -> Self::Output {
-        self.is_positive = !self.is_positive;
+        self.is_non_negative = !self.is_non_negative;
         self
     }
 }
@@ -207,7 +207,7 @@ where
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&self.to_string())
+        serializer.collect_str(self)
     }
 }
 
@@ -223,13 +223,13 @@ where
         let string_value = <String as serde::Deserialize>::deserialize(deserializer)?;
         let mut chars_value = string_value.chars();
         if let Some(first_char) = chars_value.next() {
-            let (is_positive, absolute_difference) = if first_char == '-' {
+            let (is_non_negative, absolute_difference) = if first_char == '-' {
                 (false, chars_value.as_str())
             } else {
                 (true, string_value.as_str())
             };
             Ok(Self {
-                is_positive,
+                is_non_negative,
                 absolute_difference: absolute_difference.parse().map_err(|err| {
                     serde::de::Error::invalid_value(
                         serde::de::Unexpected::Other(&format!(
@@ -296,7 +296,7 @@ impl RosettaAccountBalances {
 pub(crate) async fn query_account(
     block_id: near_primitives::types::BlockReference,
     account_id: near_primitives::types::AccountId,
-    view_client_addr: MultithreadRuntimeHandle<ViewClientActorInner>,
+    view_client_addr: MultithreadRuntimeHandle<ViewClientActor>,
 ) -> Result<
     (
         near_primitives::hash::CryptoHash,
@@ -333,7 +333,7 @@ pub(crate) async fn query_account(
 pub(crate) async fn query_accounts<R>(
     block_id: near_primitives::types::BlockReference,
     account_ids: impl Iterator<Item = near_primitives::types::AccountId>,
-    view_client_addr: MultithreadRuntimeHandle<ViewClientActorInner>,
+    view_client_addr: MultithreadRuntimeHandle<ViewClientActor>,
 ) -> Result<R, crate::errors::ErrorKind>
 where
     R: std::iter::FromIterator<(
@@ -369,7 +369,7 @@ pub(crate) async fn query_access_key(
     block_id: near_primitives::types::BlockReference,
     account_id: near_primitives::types::AccountId,
     public_key: near_crypto::PublicKey,
-    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActor>,
 ) -> Result<
     (
         near_primitives::hash::CryptoHash,
@@ -409,7 +409,7 @@ pub(crate) async fn query_access_key(
 
 pub(crate) async fn query_protocol_config(
     block_hash: near_primitives::hash::CryptoHash,
-    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActor>,
 ) -> crate::errors::Result<ProtocolConfigView> {
     view_client_addr
         .send_async(near_client::GetProtocolConfig(near_primitives::types::BlockReference::from(
@@ -473,7 +473,7 @@ where
 /// Returns `Ok(None)` if the block does not exist or is not final.
 pub(crate) async fn get_block_if_final(
     block_id: &near_primitives::types::BlockReference,
-    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActor>,
 ) -> Result<Option<near_primitives::views::BlockView>, models::Error> {
     let final_block = get_final_block(view_client_addr).await?;
     let is_query_by_height = match block_id {
@@ -520,7 +520,7 @@ pub(crate) async fn get_block_if_final(
 }
 
 pub(crate) async fn get_final_block(
-    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActor>,
 ) -> Result<near_primitives::views::BlockView, errors::ErrorKind> {
     view_client_addr
         .send_async(near_client::GetBlock(near_primitives::types::BlockReference::Finality(
@@ -531,7 +531,7 @@ pub(crate) async fn get_final_block(
 }
 
 pub(crate) async fn get_nonces(
-    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActor>,
     account_id: AccountId,
     public_keys: Vec<models::PublicKey>,
 ) -> Result<AccountBalanceResponseMetadata, models::Error> {

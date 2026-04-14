@@ -1,18 +1,17 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::Arc;
-
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
+use crate::setup::peer_manager_actor::HandlerResult;
 use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 use near_async::messaging::CanSend as _;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain::Block;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
-use near_client::client_actor::ClientActorInner;
+use near_client::client_actor::ClientActor;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{BlockApproval, BlockResponse};
 use near_network::types::NetworkRequests;
+use near_network::types::NetworkResponses;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::{Approval, ApprovalInner};
@@ -22,6 +21,8 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats};
 use parking_lot::RwLock;
 use rand::{Rng as _, thread_rng};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
 
 /// Rotates three independent sets of block producers producing blocks with a very short epoch length.
 /// Occasionally when an endorsement comes, make all the endorsers send a skip message far-ish into
@@ -29,6 +30,8 @@ use rand::{Rng as _, thread_rng};
 /// Periodically verify finality is not violated.
 /// This test is designed to reproduce finality bugs on the epoch boundaries.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_consensus_with_epoch_switches() {
     init_test_logger();
 
@@ -70,8 +73,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
         // With short epoch length sync hash may not be available for catchup so we track all
         // shards.
         .track_all_shards()
-        .build()
-        .warmup();
+        .build();
 
     let min_delay = 3;
     let handler = Arc::new(RwLock::new(NetworkHandlingData::new(&env, validators)));
@@ -85,7 +87,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
 
         let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
+        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
             let mut handler = handler.write();
             let mut rng = rng.write();
 
@@ -136,7 +138,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                         handler.delayed_blocks_count += 1;
                         if handler.delayed_blocks.len() < 2 {
                             handler.delayed_blocks.push(block.clone());
-                            return None;
+                            return HandlerResult::Handled(NetworkResponses::NoResponse);
                         }
                     }
                     handler.largest_block_height =
@@ -145,7 +147,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                     let mut new_delayed_blocks = vec![];
                     for delayed_block in &handler.delayed_blocks {
                         if delayed_block.hash() == block.hash() {
-                            return Some(request);
+                            return HandlerResult::Unhandled(request);
                         }
                         if delayed_block.header().height() <= block.header().height() + 2 {
                             for (_, sender) in &handler.client_senders {
@@ -215,7 +217,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                                 // We already manually sent a skip conflicting with this endorsement
                                 // my_ord % 8 < 2 are two malicious actors in every epoch and they
                                 // continue sending endorsements
-                                return None;
+                                return HandlerResult::Handled(NetworkResponses::NoResponse);
                             }
 
                             approval_message.approval.target_height - 1
@@ -273,13 +275,13 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                         // the participants who haven't sent their endorsements to be converted
                         // to skips change their head.
                         if my_ord % 8 < 2 {
-                            return None;
+                            return HandlerResult::Handled(NetworkResponses::NoResponse);
                         }
                     }
                 }
                 _ => {}
             };
-            Some(request)
+            HandlerResult::Unhandled(request)
         }));
     }
 
@@ -302,8 +304,6 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
     let delayed_blocks_count = handler.read().delayed_blocks_count;
     assert!(delayed_blocks_count > 0, "no blocks were delayed");
     println!("Delayed {} blocks", delayed_blocks_count);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
 struct NetworkHandlingData {
@@ -321,7 +321,7 @@ struct NetworkHandlingData {
 
     current_epoch: EpochId,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-    client_senders: HashMap<AccountId, TestLoopSender<ClientActorInner>>,
+    client_senders: HashMap<AccountId, TestLoopSender<ClientActor>>,
     validators: Vec<Vec<AccountId>>,
 }
 

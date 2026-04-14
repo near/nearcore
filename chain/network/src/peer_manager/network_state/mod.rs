@@ -18,13 +18,13 @@ use crate::peer_manager::connection;
 use crate::peer_manager::connection_store;
 use crate::peer_manager::peer_store;
 use crate::private_messages::RegisterPeerError;
-#[cfg(feature = "distance_vector_routing")]
-use crate::routing::NetworkTopologyChange;
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::{SnapshotHostInfoError, SnapshotHostsCache};
 use crate::spice_data_distribution::{
-    SpiceDataDistributorSenderForNetwork, SpiceIncomingPartialData,
+    SpiceChunkContractAccessesMessage, SpiceContractCodeRequestMessage,
+    SpiceContractCodeResponseMessage, SpiceDataDistributorSenderForNetwork,
+    SpiceIncomingPartialData,
 };
 use crate::state_witness::{
     ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
@@ -137,11 +137,6 @@ pub(crate) struct NetworkState {
     pub pending_reconnect: Mutex<Vec<PeerInfo>>,
     /// A graph of the whole NEAR network.
     pub graph: Arc<crate::routing::Graph>,
-    /// A sparse graph of the whole NEAR network.
-    /// TODO(saketh): deprecate graph above, rename this to RoutingTable
-    #[cfg(feature = "distance_vector_routing")]
-    pub graph_v2: Arc<crate::routing::GraphV2>,
-
     /// Hashes of the body of recently received routed messages.
     /// It allows us to determine whether messages arrived faster over TIER1 or TIER2 network.
     pub recent_routed_messages: Mutex<lru::LruCache<CryptoHash, ()>>,
@@ -165,15 +160,26 @@ pub(crate) struct NetworkState {
     /// Mutex which prevents overlapping calls to tier1_advertise_proxies.
     tier1_advertise_proxies_mutex: tokio::sync::Mutex<()>,
     /// Demultiplexer aggregating calls to add_edges(), for V1 routing protocol
-    add_edges_demux: demux::Demux<Vec<Edge>, Result<(), ReasonForBan>>,
-    /// Demultiplexer aggregating calls to update_routes(), for V2 routing protocol
-    #[cfg(feature = "distance_vector_routing")]
-    update_routes_demux:
-        demux::Demux<crate::routing::NetworkTopologyChange, Result<(), ReasonForBan>>,
-
+    add_edges_demux: demux::Demux<EdgesWithSource, Result<(), ReasonForBan>>,
     /// Mutex serializing calls to set_chain_info(), which mutates a bunch of stuff non-atomically.
     /// TODO(gprusak): make it use synchronization primitives in some more canonical way.
     set_chain_info_mutex: Mutex<()>,
+}
+
+#[derive(Debug)]
+/// Edges along with their source (constructed locally or received from a remote peer).
+/// Self-connected edges are not allowed from remote peers.
+pub(crate) enum EdgesWithSource {
+    Local(Vec<Edge>),
+    Remote(Vec<Edge>),
+}
+
+impl EdgesWithSource {
+    pub(crate) fn is_empty(&self) -> bool {
+        match self {
+            EdgesWithSource::Local(edges) | EdgesWithSource::Remote(edges) => edges.is_empty(),
+        }
+    }
 }
 
 impl NetworkState {
@@ -203,14 +209,6 @@ impl NetworkState {
                     prune_edges_after: Some(PRUNE_EDGES_AFTER),
                 },
             ),
-            #[cfg(feature = "distance_vector_routing")]
-            graph_v2: crate::routing::GraphV2::new(
-                clock.clone(),
-                crate::routing::GraphConfigV2 {
-                    node_id: config.node_id(),
-                    prune_edges_after: Some(PRUNE_EDGES_AFTER),
-                },
-            ),
             genesis_id,
             client,
             state_request_adapter,
@@ -222,7 +220,7 @@ impl NetworkState {
             tier1: connection::Pool::new(config.node_id()),
             tier3: connection::Pool::new(config.node_id()),
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
-            my_public_addr: Arc::new(RwLock::new(None)),
+            my_public_addr: Arc::new(RwLock::new(config.tier3_public_addr)),
             peer_store,
             snapshot_hosts: Arc::new(SnapshotHostsCache::new(config.snapshot_hosts.clone())),
             connection_store: connection_store::ConnectionStore::new(store.clone()).unwrap(),
@@ -240,8 +238,6 @@ impl NetworkState {
                 config.routing_table_update_rate_limit,
                 future_spawner,
             ),
-            #[cfg(feature = "distance_vector_routing")]
-            update_routes_demux: demux::Demux::new(config.routing_table_update_rate_limit),
             set_chain_info_mutex: Mutex::new(()),
             config,
             created_at: clock.now(),
@@ -285,7 +281,7 @@ impl NetworkState {
             peer.stop(Some(ban_reason));
         } else {
             if let Err(err) = self.peer_store.peer_ban(clock, peer_id, ban_reason) {
-                tracing::debug!(target: "network", ?err, "Failed to save peer data");
+                tracing::debug!(target: "network", ?err, "failed to save peer data");
             }
         }
     }
@@ -336,12 +332,12 @@ impl NetworkState {
             let peer_info = &conn.peer_info;
             // Check if this is a blacklisted peer.
             if peer_info.addr.as_ref().map_or(true, |addr| this.peer_store.is_blacklisted(addr)) {
-                tracing::debug!(target: "network", peer_info = ?peer_info, "Dropping connection from blacklisted peer or unknown address");
+                tracing::debug!(target: "network", peer_info = ?peer_info, "dropping connection from blacklisted peer or unknown address");
                 return Err(RegisterPeerError::Blacklisted);
             }
 
             if this.peer_store.is_banned(&peer_info.id) {
-                tracing::debug!(target: "network", id = ?peer_info.id, "Dropping connection from banned peer");
+                tracing::debug!(target: "network", id = ?peer_info.id, "dropping connection from banned peer");
                 return Err(RegisterPeerError::Banned);
             }
 
@@ -370,7 +366,7 @@ impl NetworkState {
                             tracing::debug!(target: "network",
                                 tier2 = tier2.ready.len(), outgoing_peers = tier2.outbound_handshakes.len(),
                                 max_num_peers = this.config.max_num_peers,
-                                "Dropping handshake (network at max capacity)."
+                                "dropping handshake (network at max capacity)"
                             );
                             return Err(RegisterPeerError::ConnectionLimitExceeded);
                         }
@@ -378,15 +374,11 @@ impl NetworkState {
                     // First verify and broadcast the edge of the connection, so that in case
                     // it is invalid, the connection is not added to the pool.
                     // TODO(gprusak): consider actually banning the peer for consistency.
-                    this.add_edges(&clock, vec![edge.clone()])
+                    this.add_edges(&clock, EdgesWithSource::Local(vec![edge.clone()]))
                         .await
                         .map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
                     // Insert to the local connection pool
                     this.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
-                    // Update the V2 routing table
-                    #[cfg(feature = "distance_vector_routing")]
-                    this.update_routes(NetworkTopologyChange::PeerConnected(peer_info.id.clone(), edge.clone()))
-                        .await.map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
                     // Write to the peer store
                     this.peer_store.peer_connected(&clock, peer_info);
                 }
@@ -428,45 +420,42 @@ impl NetworkState {
                 tcp::Tier::T3 => this.tier3.remove(&conn),
             }
 
-            // The rest of this function has to do with banning or routing,
-            // which are applicable only for TIER2.
-            if conn.tier != tcp::Tier::T2 {
-                return;
-            }
+            // Handle banning and routing, which are applicable only for TIER2.
+            if conn.tier == tcp::Tier::T2 {
+                let peer_id = conn.peer_info.id.clone();
 
-            let peer_id = conn.peer_info.id.clone();
-
-            // If the last edge we have with this peer represent a connection addition, create the edge
-            // update that represents the connection removal.
-            if let Some(edge) = this.graph.load().local_edges.get(&peer_id) {
-                if edge.edge_type() == EdgeState::Active {
-                    let edge_update =
-                        edge.remove_edge(this.config.node_id(), &this.config.node_key);
-                    this.add_edges(&clock, vec![edge_update.clone()]).await.unwrap();
+                // If the last edge we have with this peer represent a connection addition, create the edge
+                // update that represents the connection removal.
+                if let Some(edge) = this.graph.load().local_edges.get(&peer_id) {
+                    if edge.edge_type() == EdgeState::Active {
+                        let edge_update =
+                            edge.remove_edge(this.config.node_id(), &this.config.node_key);
+                        this.add_edges(&clock, EdgesWithSource::Local(vec![edge_update.clone()]))
+                            .await
+                            .unwrap();
+                    }
                 }
-            }
 
-            // Update the V2 routing table
-            #[cfg(feature = "distance_vector_routing")]
-            this.update_routes(NetworkTopologyChange::PeerDisconnected(peer_id.clone()))
-                .await
-                .unwrap();
-
-            // Save the fact that we are disconnecting to the PeerStore.
-            let res = match reason {
-                ClosingReason::Ban(ban_reason) => {
-                    this.peer_store.peer_ban(&clock, &conn.peer_info.id, ban_reason)
+                // Save the fact that we are disconnecting to the PeerStore.
+                let res = match &reason {
+                    ClosingReason::Ban(ban_reason) => {
+                        this.peer_store.peer_ban(&clock, &conn.peer_info.id, *ban_reason)
+                    }
+                    _ => this.peer_store.peer_disconnected(&clock, &conn.peer_info.id),
+                };
+                if let Err(err) = res {
+                    tracing::debug!(target: "network", ?err, "failed to save peer data");
                 }
-                _ => this.peer_store.peer_disconnected(&clock, &conn.peer_info.id),
-            };
-            if let Err(err) = res {
-                tracing::debug!(target: "network", ?err, "Failed to save peer data");
-            }
 
-            // Save the fact that we are disconnecting to the ConnectionStore,
-            // and push a reconnect attempt, if applicable
-            if this.connection_store.connection_closed(&conn.peer_info, &conn.peer_type, &reason) {
-                this.pending_reconnect.lock().push(conn.peer_info.clone());
+                // Save the fact that we are disconnecting to the ConnectionStore,
+                // and push a reconnect attempt, if applicable
+                if this.connection_store.connection_closed(
+                    &conn.peer_info,
+                    &conn.peer_type,
+                    &reason,
+                ) {
+                    this.pending_reconnect.lock().push(conn.peer_info.clone());
+                }
             }
 
             #[cfg(test)]
@@ -502,7 +491,6 @@ impl NetworkState {
                     clock.clone(),
                     actor_system.clone(),
                     stream,
-                    None,
                     self.clone(),
                 )
                 .await
@@ -514,7 +502,7 @@ impl NetworkState {
             let succeeded = !result.is_err();
 
             if let Err(ref err) = result {
-                tracing::info!(target:"network", err = format!("{:#}", err), "Failed to connect to {peer_info}");
+                tracing::info!(target:"network", %err, %peer_info, "failed to connect");
             }
 
             // The peer may not be in the peer store; we try to record the connection attempt but
@@ -578,7 +566,7 @@ impl NetworkState {
         // Check if the message is for myself and don't try to send it in that case.
         if let PeerIdOrHash::PeerId(target) = msg.target() {
             if target == &my_peer_id {
-                tracing::debug!(target: "network", account_id = ?self.config.validator.account_id(), ?my_peer_id, ?msg, "Drop signed message to myself");
+                tracing::debug!(target: "network", account_id = ?self.config.validator.account_id(), ?my_peer_id, ?msg, "drop signed message to myself");
                 metrics::CONNECTED_TO_MYSELF.inc();
                 return false;
             }
@@ -620,7 +608,7 @@ impl NetworkState {
                               reason = ?find_route_error,
                               known_peers = ?self.graph.routing_table.reachable_peers(),
                               msg = ?msg.body(),
-                            "Drop signed message"
+                            "dropping signed message"
                         );
                         return false;
                     }
@@ -675,7 +663,7 @@ impl NetworkState {
         }
 
         let accounts_data = self.accounts_data.load();
-        if tcp::Tier::T1.is_allowed_routed(&msg) {
+        if tcp::Tier::T1.is_allowed_send_routed(&msg) {
             for key in accounts_data.keys_by_id.get(account_id).iter().flat_map(|keys| keys.iter())
             {
                 let data = match accounts_data.data.get(key) {
@@ -722,9 +710,10 @@ impl NetworkState {
             tracing::debug!(target: "network",
                    account_id = ?self.config.validator.account_id(),
                    to = ?account_id,
-                   ?msg,"Drop message: unknown account",
+                   ?msg,
+                   err = "unknown account",
             );
-            tracing::trace!(target: "network", known_peers = ?self.account_announcements.get_accounts_keys(), "Known peers");
+            tracing::trace!(target: "network", known_peers = ?self.account_announcements.get_accounts_keys());
             return false;
         };
 
@@ -801,6 +790,21 @@ impl NetworkState {
                 }
                 T1MessageBody::SpicePartialDataRequest(request) => {
                     self.spice_data_distributor_adapter.send(request);
+                    None
+                }
+                T1MessageBody::SpiceChunkContractAccesses(accesses) => {
+                    self.spice_data_distributor_adapter
+                        .send(SpiceChunkContractAccessesMessage(accesses));
+                    None
+                }
+                T1MessageBody::SpiceContractCodeRequest(request) => {
+                    self.spice_data_distributor_adapter
+                        .send(SpiceContractCodeRequestMessage(request));
+                    None
+                }
+                T1MessageBody::SpiceContractCodeResponse(response) => {
+                    self.spice_data_distributor_adapter
+                        .send(SpiceContractCodeResponseMessage(response));
                     None
                 }
             },
@@ -899,7 +903,7 @@ impl NetworkState {
                     None
                 }
                 body => {
-                    tracing::error!(target: "network", "Peer received unexpected message type: {:?}", body);
+                    tracing::error!(target: "network", ?body, "peer received unexpected message type");
                     None
                 }
             },
@@ -1030,7 +1034,9 @@ impl NetworkState {
                             // Unwrap is safe, because new_edge is always valid.
                             let new_edge =
                                 edge.remove_edge(this.config.node_id(), &this.config.node_key);
-                            this.add_edges(&clock, vec![new_edge.clone()]).await.unwrap()
+                            this.add_edges(&clock, EdgesWithSource::Local(vec![new_edge.clone()]))
+                                .await
+                                .unwrap()
                         }
                     })),
                     // OK
@@ -1039,28 +1045,6 @@ impl NetworkState {
             }
             for t in tasks {
                 let _ = t.await;
-            }
-
-            // Now that `graph` has been synchronized with the state of the local connections,
-            // use it as the source of truth to fix the local state in `graph_v2`
-            #[cfg(feature = "distance_vector_routing")]
-            {
-                let mut tasks = vec![];
-                let node_id = this.config.node_id();
-                for edge in graph.local_edges.values() {
-                    let other_peer = edge.other(&node_id).unwrap();
-                    tasks.push(match edge.edge_type() {
-                        EdgeState::Active => this.update_routes(
-                            NetworkTopologyChange::PeerConnected(other_peer.clone(), edge.clone()),
-                        ),
-                        EdgeState::Removed => this.update_routes(
-                            NetworkTopologyChange::PeerDisconnected(other_peer.clone()),
-                        ),
-                    });
-                }
-                for t in tasks {
-                    let _ = t.await;
-                }
             }
         })
         .await

@@ -9,17 +9,15 @@ use crate::runner::VMKindExt;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
 use parking_lot::Mutex;
-
+#[cfg(not(windows))]
+use rand::Rng as _;
 use std::any::Any;
 use std::collections::HashMap;
 use std::fmt;
-use std::num::NonZeroUsize;
-use std::sync::Arc;
-
-#[cfg(not(windows))]
-use rand::Rng as _;
 #[cfg(not(windows))]
 use std::io::{Read, Write};
+use std::num::NonZeroUsize;
+use std::sync::Arc;
 
 #[cfg(any(feature = "wasmtime_vm", all(feature = "near_vm", target_arch = "x86_64")))]
 // FIXME(ProtocolSchema): this isn't really part of the protocol schema??
@@ -72,10 +70,30 @@ impl CompiledContract {
     }
 }
 
+/// Contains result of contract compilation with auxiliary data
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize)]
 pub struct CompiledContractInfo {
     pub wasm_bytes: u64,
     pub compiled: CompiledContract,
+}
+
+impl CompiledContractInfo {
+    /// size [bytes] of the source wasm module
+    pub fn wasm_size(&self) -> u64 {
+        self.wasm_bytes
+    }
+
+    /// Size [bytes] of the compiled module.
+    ///
+    /// In case of compilation error, returns a heuristic minimum weight for the
+    /// error entry in the cache, rather than the raw `CompilationError` struct
+    /// size, which would underestimate heap allocations (e.g. error messages).
+    pub fn compiled_size(&self) -> u64 {
+        match &self.compiled {
+            CompiledContract::CompileModuleError(err) => err.size_bytes_approximate() as u64,
+            CompiledContract::Code(code) => code.len() as u64,
+        }
+    }
 }
 
 /// Cache for compiled modules
@@ -84,7 +102,7 @@ pub trait ContractRuntimeCache: Send + Sync {
     fn memory_cache(&self) -> &AnyCache {
         // This method returns a reference, so we need to store an instance somewhere.
         static ZERO_ANY_CACHE: std::sync::LazyLock<AnyCache> =
-            std::sync::LazyLock::new(|| AnyCache::new(0));
+            std::sync::LazyLock::new(|| AnyCache::new(0, 0));
         &ZERO_ANY_CACHE
     }
     fn put(&self, key: &CryptoHash, value: CompiledContractInfo) -> std::io::Result<()>;
@@ -167,16 +185,22 @@ impl ContractRuntimeCache for NoContractRuntimeCache {
 #[derive(Default, Clone)]
 pub struct MockContractRuntimeCache {
     store: Arc<Mutex<HashMap<CryptoHash, CompiledContractInfo>>>,
+    put_count: Arc<std::sync::atomic::AtomicU32>,
 }
 
 impl MockContractRuntimeCache {
     pub fn len(&self) -> usize {
         self.store.lock().len()
     }
+
+    pub fn put_count(&self) -> u32 {
+        self.put_count.load(std::sync::atomic::Ordering::Relaxed)
+    }
 }
 
 impl ContractRuntimeCache for MockContractRuntimeCache {
     fn put(&self, key: &CryptoHash, value: CompiledContractInfo) -> std::io::Result<()> {
+        self.put_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.store.lock().insert(*key, value);
         Ok(())
     }
@@ -233,7 +257,7 @@ impl FilesystemContractRuntimeCache {
         StorePath: AsRef<std::path::Path> + ?Sized,
         ContractCachePath: AsRef<std::path::Path> + ?Sized,
     {
-        Self::with_memory_cache(home_dir, store_path, contract_cache_path, 0)
+        Self::with_memory_cache(home_dir, store_path, contract_cache_path, 0, None)
     }
 
     /// When setting up a cache of compiled contracts, also set-up a `size` element in-memory
@@ -248,7 +272,8 @@ impl FilesystemContractRuntimeCache {
         home_dir: &std::path::Path,
         store_path: Option<&StorePath>,
         contract_cache_path: &ContractCachePath,
-        memory_cache_size: usize,
+        memcache_expected_item_count: usize,
+        memcache_metrics_identifier: Option<String>,
     ) -> std::io::Result<Self>
     where
         StorePath: AsRef<std::path::Path> + ?Sized,
@@ -279,10 +304,36 @@ impl FilesystemContractRuntimeCache {
             path = %path.display(),
             message = "opened a contract executable cache directory"
         );
+
+        // Contract weight multiplier to map the user-provided max items cap to the memory
+        // requirements. Estimated from looking at `data/contract_cache` directory. Results in a
+        // reasonable 4GB max cache memory footprint for the default value of 256 items cap.
+        const AVG_COMPILED_CONTRACT_WEIGHT: u64 = 16 * 1024 * 1024; // 16 MiB
+        // x4 to accommodate for a long tail of smaller contracts / compilation errors and not hit
+        // items cap too often as it is cache memory footprint which is really important to limit.
+        // The constant is chosen somewhat arbitrarily.
+        let expected_cache_item_count = memcache_expected_item_count * 4;
+
+        let any_cache = AnyCache::new(
+            expected_cache_item_count,
+            memcache_expected_item_count as u64 * AVG_COMPILED_CONTRACT_WEIGHT,
+        );
+        #[cfg(feature = "metrics")]
+        let any_cache = if let Some(id) = memcache_metrics_identifier {
+            any_cache.with_metrics_identifier(id)
+        } else {
+            any_cache
+        };
+        #[cfg(not(feature = "metrics"))]
+        debug_assert!(
+            memcache_metrics_identifier.is_none(),
+            "memcache_metrics_identifier is only supported with the `metrics` feature"
+        );
+
         Ok(Self {
             state: Arc::new(FilesystemContractRuntimeCacheState {
                 dir,
-                any_cache: AnyCache::new(memory_cache_size),
+                any_cache,
                 test_temp_dir: None,
             }),
         })
@@ -462,7 +513,7 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
                         tracing::error!(
                             file_name = ?entry.file_name(),
                             err = &err as &dyn std::error::Error,
-                            "Failed to remove contract cache file",
+                            "failed to remove contract cache file",
                         );
                     }
                 }
@@ -474,27 +525,108 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
 
 type AnyCacheValue = dyn Any + Send;
 
+/// LRU cache with weight-based eviction policy.
+struct LruWeightedCache<K, V> {
+    current_weight: u64,
+    max_weight: u64,
+    cache: lru::LruCache<K, LruWeightedCacheEntry<V>>,
+}
+
+type LruWeightedCacheEntry<V> = (u64, V);
+
+impl<K: std::hash::Hash + Eq, V> LruWeightedCache<K, V> {
+    fn new(item_capacity: NonZeroUsize, max_weight: u64) -> Self {
+        assert!(
+            max_weight < u64::MAX / 2,
+            "cache weight must be capped at u64::MAX / 2 to avoid overflows"
+        );
+        Self { current_weight: 0, max_weight, cache: lru::LruCache::new(item_capacity) }
+    }
+
+    fn get(&mut self, key: &K) -> Option<&(u64, V)> {
+        self.cache.get(key)
+    }
+
+    fn put(&mut self, key: K, weight: u64, value: V) {
+        if self.max_weight < weight {
+            return;
+        }
+
+        // `push` (unlike `put`) returns any evicted entry, whether it was a
+        // same-key replacement or the LRU entry dropped due to item_capacity.
+        if let Some((_, (evicted_weight, _))) = self.cache.push(key, (weight, value)) {
+            self.current_weight -= evicted_weight;
+        }
+        self.current_weight += weight;
+
+        while self.max_weight < self.current_weight {
+            let (_, (evicted_weight, _)) = self
+                .cache
+                .pop_lru()
+                .expect("current_weight >= max_weight implies cache is not empty");
+            self.current_weight -= evicted_weight;
+        }
+    }
+
+    #[cfg_attr(not(feature = "metrics"), allow(dead_code))]
+    fn len(&self) -> usize {
+        self.cache.len()
+    }
+
+    #[cfg_attr(not(feature = "metrics"), allow(dead_code))]
+    fn current_weight(&self) -> u64 {
+        self.current_weight
+    }
+
+    fn clear(&mut self) {
+        self.current_weight = 0;
+        self.cache.clear();
+    }
+
+    fn contains(&self, key: &K) -> bool {
+        self.cache.contains(key)
+    }
+}
+
 /// Cache that can store instances of any type, keyed by a CryptoHash.
 ///
 /// Used primarily for storage of artifacts on a per-VM basis.
 pub struct AnyCache {
-    cache: Option<Mutex<lru::LruCache<CryptoHash, Box<AnyCacheValue>>>>,
+    cache: Option<Mutex<LruWeightedCache<CryptoHash, Box<AnyCacheValue>>>>,
+    /// Optional identifier for this cache instance, used as a label when reporting metrics.
+    /// Metrics are only reported when this is set.
+    #[cfg(feature = "metrics")]
+    identifier: Option<String>,
 }
 
 impl AnyCache {
-    fn new(size: usize) -> Self {
+    fn new(max_item_count: usize, max_cache_weight: u64) -> Self {
         Self {
-            cache: if let Some(size) = NonZeroUsize::new(size) {
-                Some(Mutex::new(lru::LruCache::new(size.into())))
+            cache: if let Some(max_item_count) = NonZeroUsize::new(max_item_count) {
+                Some(Mutex::new(LruWeightedCache::new(max_item_count, max_cache_weight)))
             } else {
                 None
             },
+            #[cfg(feature = "metrics")]
+            identifier: None,
         }
+    }
+
+    #[cfg(feature = "metrics")]
+    #[cfg_attr(windows, allow(dead_code))]
+    fn with_metrics_identifier(mut self, identifier: String) -> Self {
+        self.identifier = Some(identifier);
+        self
     }
 
     pub fn clear(&self) {
         if let Some(cache) = &self.cache {
-            cache.lock().clear();
+            let mut cache_guard = cache.lock();
+            cache_guard.clear();
+            #[cfg(feature = "metrics")]
+            if let Some(id) = &self.identifier {
+                crate::metrics::set_compiled_contract_cache_metrics(id, 0, 0);
+            }
         }
     }
 
@@ -522,7 +654,7 @@ impl AnyCache {
     ///     // system.
     ///     match std::fs::read("/this/path/does/not/exist/") {
     ///         Err(e) => Err(e),
-    ///         Ok(bytes) => Ok(Box::new(bytes)) // : Result<Box<dyn Any...>, std::io::Error>
+    ///         Ok(bytes) => Ok((bytes.len() as u64, Box::new(bytes))) // : Result<(u64, Box<dyn std::any::Any + Send>), std::io::Error>
     ///     }
     ///     // If the function above succeeds (returns `Ok`), `Vec<u8>` will end up being stored in
     ///     // the cache.
@@ -543,28 +675,33 @@ impl AnyCache {
     pub fn try_lookup<E, R>(
         &self,
         key: CryptoHash,
-        generate: impl FnOnce() -> Result<Box<AnyCacheValue>, E>,
+        generate: impl FnOnce() -> Result<(u64, Box<AnyCacheValue>), E>,
         with: impl FnOnce(&AnyCacheValue) -> R,
     ) -> Result<R, E> {
         let Some(cache) = &self.cache else {
-            let v = generate()?;
+            let (_, v) = generate()?;
             // NB: The stars and ampersands here are semantics-affecting. e.g. if the star is
             // missing, we end up making an object out of `Box<dyn ...>` rather than using `dyn
             // Any` within the box which is obviously quite wrong.
             return Ok(with(&*v));
         };
         {
-            let mut guard = cache.lock();
-            if let Some(cached_value) = guard.get(&key) {
+            if let Some((_weight, cached_value)) = cache.lock().get(&key) {
                 // Same here.
                 return Ok(with(&**cached_value));
             }
         }
-        let generated = generate()?;
+        let (weight, generated) = generate()?;
         let result = with(&*generated);
-        {
-            let mut guard = cache.lock();
-            guard.put(key, generated);
+        let mut locked = cache.lock();
+        locked.put(key, weight, generated);
+        #[cfg(feature = "metrics")]
+        if let Some(id) = &self.identifier {
+            crate::metrics::set_compiled_contract_cache_metrics(
+                id,
+                locked.len(),
+                locked.current_weight(),
+            );
         }
         Ok(result)
     }
@@ -572,8 +709,7 @@ impl AnyCache {
     /// Checks if the cache contains the key without modifying the cache.
     pub fn contains(&self, key: CryptoHash) -> bool {
         let Some(cache) = &self.cache else { return false };
-        let guard = cache.lock();
-        guard.contains(&key)
+        cache.lock().contains(&key)
     }
 }
 
@@ -603,7 +739,7 @@ mod tests {
     #[test]
     fn any_cache_empty() {
         struct TestType;
-        let empty = AnyCache::new(0);
+        let empty = AnyCache::new(0, 0);
         let key = CryptoHash::hash_bytes(b"empty");
         cov_mark::check!(any_cache_empty_generate);
         cov_mark::check!(any_cache_empty_with);
@@ -611,7 +747,7 @@ mod tests {
             key,
             || {
                 cov_mark::hit!(any_cache_empty_generate);
-                Ok::<_, ()>(Box::new(TestType))
+                Ok::<_, ()>((0_u64, Box::new(TestType)))
             },
             |v| {
                 cov_mark::hit!(any_cache_empty_with);
@@ -624,8 +760,9 @@ mod tests {
 
     #[test]
     fn any_cache_sized() {
+        const CACHE_ITEM_WEIGHT: u64 = 1;
         struct TestType;
-        let empty = AnyCache::new(1);
+        let empty = AnyCache::new(1, 2 * CACHE_ITEM_WEIGHT);
         let key = CryptoHash::hash_bytes(b"sized");
         cov_mark::check!(any_cache_sized_generate);
         cov_mark::check!(any_cache_sized_with);
@@ -633,7 +770,7 @@ mod tests {
             key,
             || {
                 cov_mark::hit!(any_cache_sized_generate);
-                Ok::<_, ()>(Box::new(TestType))
+                Ok::<_, ()>((CACHE_ITEM_WEIGHT, Box::new(TestType)))
             },
             |v| {
                 cov_mark::hit!(any_cache_sized_with);
@@ -657,8 +794,98 @@ mod tests {
     }
 
     #[test]
+    fn any_cache_item_cap_eviction() {
+        struct TestType(u32);
+        let cache = AnyCache::new(2, 100);
+        let key1 = CryptoHash::hash_bytes(b"item1");
+        let key2 = CryptoHash::hash_bytes(b"item2");
+        let key3 = CryptoHash::hash_bytes(b"item3");
+
+        // Insert first item
+        let result1 = cache.try_lookup(
+            key1,
+            || Ok::<_, ()>((0, Box::new(TestType(1)))),
+            |v| v.downcast_ref::<TestType>().unwrap().0,
+        );
+        assert_eq!(result1.unwrap(), 1);
+        assert!(cache.contains(key1));
+
+        // Insert second item
+        let result2 = cache.try_lookup(
+            key2,
+            || Ok::<_, ()>((0, Box::new(TestType(2)))),
+            |v| v.downcast_ref::<TestType>().unwrap().0,
+        );
+        assert_eq!(result2.unwrap(), 2);
+        assert!(cache.contains(key1));
+        assert!(cache.contains(key2));
+
+        // Insert third item - this should trigger eviction of the least recently used item (key1)
+        let result3 = cache.try_lookup(
+            key3,
+            || Ok::<_, ()>((0, Box::new(TestType(3)))),
+            |v| v.downcast_ref::<TestType>().unwrap().0,
+        );
+        assert_eq!(result3.unwrap(), 3);
+        assert!(!cache.contains(key1), "Least recently used item should have been evicted");
+        assert!(cache.contains(key2));
+        assert!(cache.contains(key3));
+    }
+
+    #[test]
+    fn any_cache_weight_eviction() {
+        const ITEM_WEIGHT: u64 = 100;
+        const MAX_CACHE_WEIGHT: u64 = 250; // Can fit 2 items comfortably
+
+        struct TestType(u32);
+
+        // Create cache that can hold ~2 items based on weight
+        let cache = AnyCache::new(10, MAX_CACHE_WEIGHT);
+
+        let key1 = CryptoHash::hash_bytes(b"item1");
+        let key2 = CryptoHash::hash_bytes(b"item2");
+        let key3 = CryptoHash::hash_bytes(b"item3");
+
+        // Insert first item
+        let result1 = cache.try_lookup(
+            key1,
+            || Ok::<_, ()>((ITEM_WEIGHT, Box::new(TestType(1)))),
+            |v| v.downcast_ref::<TestType>().unwrap().0,
+        );
+        assert_eq!(result1.unwrap(), 1);
+        assert!(cache.contains(key1));
+
+        // Insert second item
+        let result2 = cache.try_lookup(
+            key2,
+            || Ok::<_, ()>((ITEM_WEIGHT, Box::new(TestType(2)))),
+            |v| v.downcast_ref::<TestType>().unwrap().0,
+        );
+        assert_eq!(result2.unwrap(), 2);
+        assert!(cache.contains(key1));
+        assert!(cache.contains(key2));
+
+        // Insert third item - this should trigger eviction of older items
+        // since 3 * ITEM_WEIGHT (300) > MAX_CACHE_WEIGHT (250)
+        let result3 = cache.try_lookup(
+            key3,
+            || Ok::<_, ()>((ITEM_WEIGHT, Box::new(TestType(3)))),
+            |v| v.downcast_ref::<TestType>().unwrap().0,
+        );
+        assert_eq!(result3.unwrap(), 3);
+        assert!(cache.contains(key3));
+
+        // Verify that at least one of the earlier items was evicted
+        let some_evicted = !cache.contains(key1) || !cache.contains(key2);
+        assert!(
+            some_evicted,
+            "Cache should have evicted at least one item when exceeding weight limit"
+        );
+    }
+
+    #[test]
     fn any_cache_errors() {
-        let empty = AnyCache::new(0);
+        let empty = AnyCache::new(0, 0);
         let key = CryptoHash::hash_bytes(b"errors");
         cov_mark::check!(any_cache_errors_generate);
         let result = empty.try_lookup(
@@ -681,6 +908,114 @@ mod tests {
             |_| unreachable!(),
         );
         assert!(matches!(result, Err("mikan")));
+    }
+
+    // example of why we might want to use the weight-aware eviction
+    #[test]
+    fn any_cache_weight_based_eviction() {
+        const MAX_CACHE_WEIGHT: u64 = 19;
+
+        struct TestType(u32);
+
+        let cache = AnyCache::new(10, MAX_CACHE_WEIGHT);
+
+        let key1 = CryptoHash::hash_bytes(b"weight1");
+        let key2 = CryptoHash::hash_bytes(b"weight3");
+        let key3 = CryptoHash::hash_bytes(b"weight5");
+        let key4 = CryptoHash::hash_bytes(b"weight10a");
+        let key5 = CryptoHash::hash_bytes(b"weight10b");
+
+        // Insert item with weight 1
+        cache
+            .try_lookup(
+                key1,
+                || Ok::<_, ()>((1, Box::new(TestType(1)))),
+                |v| v.downcast_ref::<TestType>().unwrap().0,
+            )
+            .unwrap();
+
+        // Insert item with weight 3
+        cache
+            .try_lookup(
+                key2,
+                || Ok::<_, ()>((3, Box::new(TestType(2)))),
+                |v| v.downcast_ref::<TestType>().unwrap().0,
+            )
+            .unwrap();
+
+        // Insert item with weight 5
+        cache
+            .try_lookup(
+                key3,
+                || Ok::<_, ()>((5, Box::new(TestType(3)))),
+                |v| v.downcast_ref::<TestType>().unwrap().0,
+            )
+            .unwrap();
+
+        // Insert item with weight 10 (total would be 19)
+        cache
+            .try_lookup(
+                key4,
+                || Ok::<_, ()>((10, Box::new(TestType(4)))),
+                |v| v.downcast_ref::<TestType>().unwrap().0,
+            )
+            .unwrap();
+
+        cache
+            .try_lookup(
+                key5,
+                || Ok::<_, ()>((10, Box::new(TestType(5)))),
+                |v| v.downcast_ref::<TestType>().unwrap().0,
+            )
+            .unwrap();
+
+        // Only the last inserted item should remain in cache
+        assert!(!cache.contains(key1), "Item 1 should have been evicted");
+        assert!(!cache.contains(key2), "Item 2 should have been evicted");
+        assert!(!cache.contains(key3), "Item 3 should have been evicted");
+        assert!(!cache.contains(key4), "Item 4 should have been evicted");
+        assert!(cache.contains(key5), "Item 5 should be in cache");
+    }
+
+    #[test]
+    fn lru_weighted_cache_item_capacity_eviction_tracks_weight() {
+        // Regression test: when lru::LruCache silently evicts an entry due to
+        // item_capacity, the evicted entry's weight must be subtracted from
+        // current_weight. Otherwise the tracked weight drifts upward and
+        // triggers spurious weight-based evictions.
+        let item_capacity = NonZeroUsize::new(2).unwrap();
+        let max_weight = 25;
+        let mut cache = LruWeightedCache::<&str, u32>::new(item_capacity, max_weight);
+
+        cache.put("a", 10, 1);
+        cache.put("b", 10, 2);
+        // At this point: items={a,b}, current_weight should be 20.
+
+        // Inserting "c" causes lru::LruCache to silently evict "a" (the LRU).
+        // Total actual weight is now 20 (b=10 + c=10) which fits in max_weight=25.
+        cache.put("c", 10, 3);
+
+        // "b" should still be in the cache because total weight (20) <= max_weight (25).
+        assert!(
+            cache.contains(&"b"),
+            "item 'b' was spuriously evicted due to inflated current_weight"
+        );
+        assert!(cache.contains(&"c"), "item 'c' should be in cache");
+        assert!(!cache.contains(&"a"), "item 'a' should have been evicted by item_capacity");
+    }
+
+    #[test]
+    fn lru_weighted_cache_same_key_replace_tracks_weight() {
+        let item_capacity = NonZeroUsize::new(2).unwrap();
+        let max_weight = 25;
+        let mut cache = LruWeightedCache::<&str, u32>::new(item_capacity, max_weight);
+
+        cache.put("a", 20, 1); // current_weight = 20
+        cache.put("a", 5, 2); // current_weight = 5 (old weight 20 subtracted)
+        cache.put("b", 20, 3); // current_weight = 25, fits in max_weight
+
+        assert!(cache.contains(&"a"), "item 'a' should still be in cache");
+        assert!(cache.contains(&"b"), "item 'b' should still be in cache");
     }
 
     #[cfg(feature = "test_features")]

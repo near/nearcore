@@ -1,5 +1,4 @@
 use bencher::{Bencher, benchmark_group, benchmark_main, black_box};
-use near_primitives::errors::StorageError;
 use near_store::{DBCol, NodeStorage, Store};
 use std::time::{Duration, Instant};
 
@@ -57,9 +56,8 @@ fn read_from_db(store: &Store, keys: &[Vec<u8>], col: DBCol) -> usize {
         let r = rand::random::<u32>() % (keys.len() as u32);
         let key = &keys[r as usize];
 
-        let val = store.get(col, key.as_ref()).map_err(|_| StorageError::StorageInternalError);
-
-        if let Ok(Some(x)) = val {
+        let val = store.get(col, key.as_ref());
+        if let Some(x) = val {
             black_box(x);
             read += 1;
         }
@@ -78,7 +76,7 @@ fn write_to_db(store: &Store, keys: &[Vec<u8>], max_value_size: usize, col: DBCo
         // NOTE:  this
         store_update.set(col, &key, &val);
     }
-    store_update.commit().unwrap();
+    store_update.commit();
 }
 
 fn benchmark_write_then_read_successful_10m(bench: &mut Bencher) {

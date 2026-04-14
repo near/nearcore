@@ -1,6 +1,5 @@
-use borsh::{BorshDeserialize, BorshSerialize};
-
 use crate::trie::{ChildrenMask, NUM_CHILDREN};
+use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::hash::CryptoHash;
 use near_primitives::state::ValueRef;
 use near_schema_checker_lib::ProtocolSchema;

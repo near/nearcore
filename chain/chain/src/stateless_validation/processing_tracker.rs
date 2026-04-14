@@ -47,11 +47,10 @@ impl ProcessingDoneWaiter {
 
 #[cfg(test)]
 mod tests {
+    use super::ProcessingDoneTracker;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
-
-    use super::ProcessingDoneTracker;
 
     /// Basic test for `ProcessingDoneTracker` and `ProcessingDoneWaiter`.
     /// Spawns a task on a separate thread and waits for it to finish

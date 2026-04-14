@@ -17,12 +17,12 @@ pub(super) fn query_epoch_id_and_height_for_block(
     block_hash: CryptoHash,
 ) -> Result<(EpochId, EpochHeight), near_chain::Error> {
     let block_header =
-        store.get_ser::<BlockHeader>(DBCol::BlockHeader, block_hash.as_bytes())?.ok_or_else(
+        store.get_ser::<BlockHeader>(DBCol::BlockHeader, block_hash.as_bytes()).ok_or_else(
             || near_chain::Error::DBNotFoundErr(format!("No block header {}", block_hash)),
         )?;
     let epoch_id = *block_header.epoch_id();
     let epoch_info = store
-        .get_ser::<EpochInfo>(DBCol::EpochInfo, epoch_id.0.as_bytes())?
+        .get_ser::<EpochInfo>(DBCol::EpochInfo, epoch_id.0.as_bytes())
         .ok_or_else(|| near_chain::Error::DBNotFoundErr(format!("No epoch info {:?}", epoch_id)))?;
     let epoch_height = epoch_info.epoch_height();
     Ok((epoch_id, epoch_height))
@@ -36,5 +36,5 @@ pub fn get_state_header_if_exists_in_storage(
     Ok(store.get_ser::<ShardStateSyncResponseHeader>(
         DBCol::StateHeaders,
         &borsh::to_vec(&StateHeaderKey(shard_id, sync_hash)).unwrap(),
-    )?)
+    ))
 }

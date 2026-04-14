@@ -1,17 +1,16 @@
+use crate::config::Config;
 use near_chain_configs::{DumpConfig, ExternalStorageLocation, SyncConfig};
 use near_config_utils::{ValidationError, ValidationErrors};
 use near_store::archive::cloud_storage::opener::CloudStorageOpener;
 use std::collections::HashSet;
 use std::path::Path;
 
-use crate::config::Config;
-
 /// Validate Config extracted from config.json.
 /// This function does not panic. It returns the error if any validation fails.
 pub fn validate_config(config: &Config) -> Result<(), ValidationError> {
     let mut validation_errors = ValidationErrors::new();
     let mut config_validator = ConfigValidator::new(config, &mut validation_errors);
-    tracing::info!(target: "config", "Validating Config, extracted from config.json...");
+    tracing::info!(target: "config", "validating config, extracted from config.json");
     config_validator.validate()
 }
 
@@ -32,6 +31,7 @@ impl<'a> ConfigValidator<'a> {
 
     /// this function would check all conditions, and add all error messages to ConfigValidator.errors
     fn validate_all_conditions(&mut self) {
+        self.warn_deprecated_centralized_state_sync();
         self.validate_cloud_archival_config();
         self.validate_cold_store_config();
         self.validate_state_sync_config();
@@ -90,6 +90,28 @@ impl<'a> ConfigValidator<'a> {
                 "'config.tx_routing_height_horizon' can't be too high to avoid spamming the network. Keep it below 100. Got {tx_routing_height_horizon}."
             );
             self.validation_errors.push_config_semantics_error(error_message);
+        }
+    }
+
+    fn warn_deprecated_centralized_state_sync(&self) {
+        let Some(state_sync) = &self.config.state_sync else {
+            return;
+        };
+
+        if state_sync.dump.is_some() {
+            tracing::warn!(
+                target: "config",
+                "centralized state sync is deprecated and will be removed in a future release. \
+                 'state_sync.dump' configuration will stop being supported."
+            );
+        }
+        if matches!(state_sync.sync, SyncConfig::ExternalStorage(_)) {
+            tracing::warn!(
+                target: "config",
+                "centralized state sync is deprecated and will be removed in a future release. \
+                 'state_sync.sync.ExternalStorage' configuration will stop being supported. \
+                 Please migrate to peer-based state sync (\"Peers\")."
+            );
         }
     }
 
@@ -233,10 +255,17 @@ impl<'a> ConfigValidator<'a> {
             }
             return;
         };
+        if self.config.state_sync.is_some() || self.config.state_sync_enabled {
+            let error_message =
+                "State sync/dump cannot be configured when cloud archive is enabled; \
+                dump settings are derived from the cloud archival config."
+                    .to_string();
+            self.validation_errors.push_config_semantics_error(error_message);
+        }
         if !CloudStorageOpener::is_storage_location_supported(&cloud_archival_config.location) {
             let error_message = format!(
-                "{} is not supported cloud storage location.",
-                cloud_archival_config.location.name()
+                "{:?} is not a supported cloud storage location",
+                cloud_archival_config.location
             );
             self.validation_errors.push_config_semantics_error(error_message);
         }
@@ -298,10 +327,9 @@ impl<'a> ConfigValidator<'a> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use near_chain_configs::{StateSyncConfig, TrackedShardsConfig};
     use near_store::archive::cloud_storage::config::test_cloud_archival_config;
-
-    use super::*;
 
     #[test]
     #[should_panic(expected = "and 'config.tracked_shards_config' cannot be both set")]
@@ -452,15 +480,35 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "\\nconfig.json semantic issue: S3 is not supported cloud storage location."
-    )]
+    #[should_panic(expected = "is not a supported cloud storage location")]
     fn test_cloud_archival_storage_s3_not_supported() {
         let mut config = Config::default();
         let mut cloud_archival_config = test_cloud_archival_config("");
         cloud_archival_config.location =
             ExternalStorageLocation::S3 { bucket: "".into(), region: "".into() };
         config.cloud_archival = Some(cloud_archival_config);
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "\\nconfig.json semantic issue: State sync/dump cannot be configured when cloud archive is enabled; dump settings are derived from the cloud archival config."
+    )]
+    fn test_cloud_archival_with_state_sync_enabled() {
+        let mut config = Config::default();
+        config.cloud_archival = Some(test_cloud_archival_config(""));
+        config.state_sync_enabled = true;
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "\\nconfig.json semantic issue: State sync/dump cannot be configured when cloud archive is enabled; dump settings are derived from the cloud archival config."
+    )]
+    fn test_cloud_archival_with_state_sync_configured() {
+        let mut config = Config::default();
+        config.cloud_archival = Some(test_cloud_archival_config(""));
+        config.state_sync = Some(Default::default());
         validate_config(&config).unwrap();
     }
 }

@@ -1,25 +1,24 @@
-/// Test economic edge cases.
-use std::path::Path;
-
-use near_client::ProcessTxResponse;
-use near_epoch_manager::EpochManager;
-use num_rational::Ratio;
+//! Test economic edge cases.
 
 use crate::env::test_env::TestEnv;
 use near_chain_configs::Genesis;
+use near_client::ProcessTxResponse;
 use near_crypto::InMemorySigner;
+use near_epoch_manager::EpochManager;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::{Balance, EpochId};
 use near_store::{genesis::initialize_genesis_state, test_utils::create_test_store};
 use nearcore::NightshadeRuntime;
-use testlib::fees_utils::FeeHelper;
-
-use near_primitives::types::{Balance, EpochId};
+use num_rational::Ratio;
 use primitive_types::U256;
+use std::path::Path;
+use testlib::fees_utils::FeeHelper;
 
 fn build_genesis() -> Genesis {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = 2;
+    genesis.config.transaction_validity_period = 4;
     genesis.config.num_blocks_per_year = 2;
     genesis.config.protocol_reward_rate = Ratio::new_raw(1, 10);
     genesis.config.max_inflation_rate = Ratio::new_raw(1, 10);
@@ -59,6 +58,8 @@ fn calc_total_supply(env: &mut TestEnv) -> Balance {
 /// Test that node mints and burns tokens correctly with fees and epoch rewards.
 /// This combines Client & NightshadeRuntime to also test EpochManager.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_burn_mint() {
     let genesis = build_genesis();
     let mut env = setup_env(&genesis);

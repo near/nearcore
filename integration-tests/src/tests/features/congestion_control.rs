@@ -1,3 +1,6 @@
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
+use crate::env::test_env_builder::TestEnvBuilder;
 use assert_matches::assert_matches;
 use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
@@ -18,10 +21,6 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 use near_vm_runner::logic::ProtocolVersion;
 use std::sync::Arc;
-
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
-use crate::env::test_env_builder::TestEnvBuilder;
 
 const ACCOUNT_PARENT_ID: &str = "near";
 const CONTRACT_ID: &str = "contract.near";
@@ -59,8 +58,9 @@ fn set_default_congestion_control(config_store: &RuntimeConfigStore, config: &mu
 /// The test version of runtime has custom gas cost.
 fn setup_test_runtime(_sender_id: AccountId, protocol_version: ProtocolVersion) -> TestEnv {
     let accounts = TestEnvBuilder::make_accounts(1);
-    let mut genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
+    let mut genesis = Genesis::test_sharded_new_version(accounts, 1, 4);
     genesis.config.epoch_length = 10;
+    genesis.config.transaction_validity_period = 20;
     genesis.config.protocol_version = protocol_version;
 
     // Chain must be sharded to test cross-shard congestion control.
@@ -275,6 +275,8 @@ fn submit_n_cheap_fns(
 /// See [`test_transaction_limit_for_remote_congestion`] for a similar test but
 /// with remote traffic.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_transaction_limit_for_local_congestion() {
     init_test_logger();
 
@@ -325,6 +327,8 @@ fn test_transaction_limit_for_local_congestion() {
 /// test but goes beyond `reject_tx_congestion_threshold` to test the tx
 /// rejection.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_transaction_limit_for_remote_congestion() {
     init_test_logger();
     // We don't want to go into the TX rejection limit in this test.
@@ -356,6 +360,8 @@ fn test_transaction_limit_for_remote_congestion() {
 
 /// Test that clients stop including transactions to fully congested receivers.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_transaction_filtering() {
     init_test_logger();
 
@@ -521,6 +527,8 @@ fn measure_tx_limit(
 /// Test that RPC clients stop accepting transactions when the receiver is
 /// congested.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_rpc_client_rejection() {
     let sender_id: AccountId = "test0".parse().unwrap();
     let mut env = setup_test_runtime(sender_id.clone(), PROTOCOL_VERSION);

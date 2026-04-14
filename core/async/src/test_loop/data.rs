@@ -1,12 +1,10 @@
+use super::pending_events_sender::RawPendingEventsSender;
+use super::sender::TestLoopSender;
+use crate::messaging::{Actor, LateBoundSender};
 use std::any::{Any, type_name};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
-
-use crate::messaging::{Actor, LateBoundSender};
-
-use super::pending_events_sender::RawPendingEventsSender;
-use super::sender::TestLoopSender;
 
 /// TestLoopData is the container for all data that is stored and accessed by the test loop.
 ///
@@ -149,11 +147,10 @@ impl<T> TestLoopDataHandle<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-    use std::sync::atomic::AtomicBool;
-
     use crate::test_loop::data::TestLoopData;
     use crate::test_loop::pending_events_sender::RawPendingEventsSender;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
 
     #[derive(Debug, PartialEq)]
     struct TestData {

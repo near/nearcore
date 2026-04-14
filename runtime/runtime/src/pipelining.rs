@@ -1,3 +1,4 @@
+use crate::contract_code::RuntimeContractIdentifier;
 use crate::ext::RuntimeContractExt;
 use crate::metrics::{
     PIPELINING_ACTIONS_FOUND_PREPARED, PIPELINING_ACTIONS_MAIN_THREAD_WORKING_TIME,
@@ -11,17 +12,30 @@ use near_primitives::action::{Action, GlobalContractIdentifier};
 use near_primitives::config::ViewConfig;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptEnum};
-use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Gas};
 use near_store::contract::ContractStorage;
 use near_store::trie::AccessOptions;
-use near_store::{KeyLookupMode, TrieUpdate, get_pure};
+use near_store::{TrieUpdate, get_pure};
 use near_vm_runner::logic::GasCounter;
 use near_vm_runner::{ContractRuntimeCache, PreparedContract};
 use parking_lot::{Condvar, Mutex};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Instant;
+
+/// Dedicated thread pool for pipelining, to avoid sharing the global rayon pool
+/// with wasmtime's internal compilation which also uses rayon.
+fn pipelining_pool() -> &'static rayon::ThreadPool {
+    static POOL: OnceLock<rayon::ThreadPool> = OnceLock::new();
+    POOL.get_or_init(|| {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(std::cmp::max(rayon::current_num_threads() / 2, 1))
+            .thread_name(|index| format!("pipelining-{index}"))
+            .build()
+            .expect("failed to build pipelining thread pool")
+    })
+}
 
 pub(crate) struct ReceiptPreparationPipeline {
     /// Mapping from a Receipt's ID to a parallel "task" to prepare the receipt's data.
@@ -65,6 +79,8 @@ pub(crate) struct ReceiptPreparationPipeline {
 
     /// Storage for WASM code.
     storage: ContractStorage,
+
+    chain_id: String,
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
@@ -90,6 +106,7 @@ impl ReceiptPreparationPipeline {
         config: Arc<RuntimeConfig>,
         contract_cache: Option<Box<dyn ContractRuntimeCache>>,
         storage: ContractStorage,
+        chain_id: String,
     ) -> Self {
         Self {
             map: Default::default(),
@@ -98,6 +115,7 @@ impl ReceiptPreparationPipeline {
             config,
             contract_cache,
             storage,
+            chain_id,
         }
     }
 
@@ -158,40 +176,37 @@ impl ReceiptPreparationPipeline {
                         };
                         account.insert(receiver)
                     };
-                    let code_hash = match account.contract().as_ref() {
+                    // Check if the account's global contract has been blocked
+                    // in this chunk (due to a global contract deployment).
+                    match account.contract().as_ref() {
                         AccountContract::None => continue,
-                        AccountContract::Local(code_hash) => *code_hash,
-                        AccountContract::Global(global_code_hash) => {
+                        AccountContract::Global(h) => {
                             if self
                                 .block_global_contracts
-                                .contains(&GlobalContractIdentifier::CodeHash(*global_code_hash))
+                                .contains(&GlobalContractIdentifier::CodeHash(*h))
                             {
                                 continue;
                             }
-                            *global_code_hash
                         }
-                        AccountContract::GlobalByAccount(global_contract_account_id) => {
-                            if self.block_global_contracts.contains(
-                                &GlobalContractIdentifier::AccountId(
-                                    global_contract_account_id.clone(),
-                                ),
-                            ) {
+                        AccountContract::GlobalByAccount(id) => {
+                            if self
+                                .block_global_contracts
+                                .contains(&GlobalContractIdentifier::AccountId(id.clone()))
+                            {
                                 continue;
                             }
-                            let key = TrieKey::GlobalContractCode {
-                                identifier: GlobalContractCodeIdentifier::AccountId(
-                                    global_contract_account_id.clone(),
-                                ),
-                            };
-                            let Ok(Some(value_ref)) = state_update.get_ref(
-                                &key,
-                                KeyLookupMode::MemOrFlatOrTrie,
-                                AccessOptions::NO_SIDE_EFFECTS,
-                            ) else {
-                                continue;
-                            };
-                            value_ref.value_hash()
                         }
+                        AccountContract::Local(_) => {}
+                    }
+                    let Ok(identifier) = RuntimeContractIdentifier::resolve(
+                        &account_id,
+                        account.contract().into_owned(),
+                        state_update,
+                        &self.config.wasm_config,
+                        &self.chain_id,
+                        AccessOptions::NO_SIDE_EFFECTS,
+                    ) else {
+                        continue;
                     };
                     let key = PrepareTaskKey { receipt_id: receipt.get_hash(), action_index };
                     let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);
@@ -210,7 +225,7 @@ impl ReceiptPreparationPipeline {
                     let task = Arc::new(PrepareTask { status, condvar: Condvar::new() });
                     entry.insert(Arc::clone(&task));
                     PIPELINING_ACTIONS_SUBMITTED.inc_by(1);
-                    rayon::spawn_fifo(move || {
+                    pipelining_pool().spawn_fifo(move || {
                         let task_status = {
                             let mut status = task.status.lock();
                             std::mem::replace(&mut *status, PrepareTaskStatus::Working)
@@ -225,8 +240,7 @@ impl ReceiptPreparationPipeline {
                             cache.as_deref(),
                             config,
                             gas_counter,
-                            code_hash,
-                            &account_id,
+                            identifier,
                             &method_name,
                         );
 
@@ -246,7 +260,9 @@ impl ReceiptPreparationPipeline {
                 | Action::AddKey(_)
                 | Action::DeleteKey(_)
                 | Action::DeleteAccount(_)
-                | Action::DeployGlobalContract(_) => {}
+                | Action::DeployGlobalContract(_)
+                | Action::TransferToGasKey(_)
+                | Action::WithdrawFromGasKey(_) => {}
             }
         }
         return any_function_calls;
@@ -263,7 +279,7 @@ impl ReceiptPreparationPipeline {
     pub(crate) fn get_contract(
         &self,
         receipt: &Receipt,
-        code_hash: CryptoHash,
+        identifier: RuntimeContractIdentifier,
         action_index: usize,
         view_config: Option<ViewConfig>,
     ) -> Box<dyn PreparedContract> {
@@ -303,8 +319,7 @@ impl ReceiptPreparationPipeline {
                 self.contract_cache.as_deref(),
                 Arc::clone(&self.config.wasm_config),
                 gas_counter,
-                code_hash,
-                &account_id,
+                identifier,
                 &function_call.method_name,
             );
             PIPELINING_ACTIONS_NOT_SUBMITTED.inc_by(1);
@@ -333,8 +348,7 @@ impl ReceiptPreparationPipeline {
                         cache.as_deref(),
                         Arc::clone(&self.config.wasm_config),
                         gas_counter,
-                        code_hash,
-                        &account_id,
+                        identifier,
                         &method_name,
                     );
                     PIPELINING_ACTIONS_PREPARED_IN_MAIN_THREAD.inc_by(1);
@@ -381,11 +395,9 @@ fn prepare_function_call(
     cache: Option<&dyn ContractRuntimeCache>,
     config: Arc<near_parameters::vm::Config>,
     gas_counter: GasCounter,
-    code_hash: CryptoHash,
-    account_id: &AccountId,
+    identifier: RuntimeContractIdentifier,
     method_name: &str,
 ) -> Box<dyn PreparedContract> {
-    let code_ext = RuntimeContractExt { storage: contract_storage.clone(), account_id, code_hash };
-    let contract = near_vm_runner::prepare(&code_ext, config, cache, gas_counter, method_name);
-    contract
+    let code_ext = RuntimeContractExt { storage: contract_storage.clone(), identifier };
+    near_vm_runner::prepare(&code_ext, config, cache, gas_counter, method_name)
 }

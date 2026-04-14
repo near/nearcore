@@ -1,5 +1,4 @@
 use std::env;
-
 use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
 use diesel::prelude::*;

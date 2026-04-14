@@ -1,22 +1,20 @@
-use near_epoch_manager::shard_assignment::shard_id_to_uid;
-use rand::Rng;
-use std::borrow::Cow;
-use std::path::Path;
-
+use crate::util::load_trie;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    DataReceipt, Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, ReceiptV1,
+    DataReceipt, Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, ReceiptV0,
 };
 use near_primitives::types::{ShardId, StateChangeCause, StateRoot};
 use near_store::trie::receipts_column_helper::{DelayedReceiptQueue, TrieQueue};
 use near_store::{ShardTries, ShardUId, Store, TrieUpdate};
 use nearcore::NearConfig;
 use node_runtime::bootstrap_congestion_info;
-
-use crate::util::load_trie;
+use rand::Rng;
+use std::borrow::Cow;
+use std::path::Path;
 
 /// A set of commands for inspecting and debugging the congestion control
 /// feature. The typical scenarios are:
@@ -212,7 +210,7 @@ impl PrepareBenchmarkCmd {
 
         let mut store_update = tries.store_update();
         let new_state_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        store_update.commit().unwrap();
+        store_update.commit();
 
         new_state_root
     }
@@ -233,8 +231,8 @@ impl PrepareBenchmarkCmd {
 
         let receipt = DataReceipt { data_id, data: Some(data) };
         let receipt = ReceiptEnum::Data(receipt);
-        let receipt = ReceiptV1 { predecessor_id, receiver_id, receipt_id, receipt, priority: 0 };
+        let receipt = ReceiptV0 { predecessor_id, receiver_id, receipt_id, receipt };
 
-        Receipt::V1(receipt)
+        Receipt::V0(receipt)
     }
 }

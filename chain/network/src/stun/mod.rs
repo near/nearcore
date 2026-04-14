@@ -54,7 +54,7 @@ pub(crate) async fn query(
                 // stun crate doesn't document whether and when it can happen.
                 // We treat it as a failed STUN transaction and log an error because
                 // it is not an expected behavior.
-                tracing::error!("STUN client has closed the output channel before returning a response - this is unexpected");
+                tracing::error!("stun client has closed the output channel before returning a response, this is unexpected");
                 return Err(Error::ErrTransactionStopped);
             }
             Some(e) => {

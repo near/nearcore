@@ -280,16 +280,13 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
+    use super::*;
     use chrono::TimeZone;
     use csv::WriterBuilder;
-    use tempfile::NamedTempFile;
-
     use near_crypto::KeyType;
-
-    use super::*;
     use near_primitives::network::PeerId;
+    use std::path::Path;
+    use tempfile::NamedTempFile;
 
     #[test]
     fn test_with_file() {

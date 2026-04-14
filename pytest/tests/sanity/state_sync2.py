@@ -29,11 +29,9 @@ nodes = start_cluster(
                     ["block_producer_kickout_threshold", 10],
                     ["chunk_producer_kickout_threshold", 10]],
     {x: node_config for x in range(4)}) if nightly else start_cluster(
-        2, 0, 2,
-        None, [["num_block_producer_seats", 199],
-               ["num_block_producer_seats_per_shard", [99, 100]],
-               ["epoch_length", 10], ["block_producer_kickout_threshold", 10],
-               ["chunk_producer_kickout_threshold", 10]],
+        2, 0, 2, None, [["num_block_producer_seats", 199], ["epoch_length", 10],
+                        ["block_producer_kickout_threshold", 10],
+                        ["chunk_producer_kickout_threshold", 10]],
         {x: node_config for x in range(4)})
 logger.info('cluster started')
 
@@ -52,4 +50,4 @@ time.sleep(3)
 utils.wait_for_blocks(nodes[0], target=BLOCKS)
 
 # make sure `nodes[0]` actually state synced
-assert tracker.check("transition to State Sync")
+assert tracker.check("transition to state sync")

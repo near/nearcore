@@ -1,10 +1,7 @@
-use std::collections::HashSet;
-use std::sync::Arc;
-
+use crate::env::test_env::TestEnv;
 use near_async::messaging::IntoMultiSender;
 use near_async::time::Clock;
 use near_chain::Provenance;
-use near_chain::test_utils::wait_for_all_blocks_in_processing;
 use near_chain_configs::Genesis;
 use near_client::sync::block::BlockSync;
 use near_crypto::{KeyType, PublicKey};
@@ -12,12 +9,10 @@ use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerInfo, PeerManagerMessageRequest,
 };
-use near_o11y::testonly::TracingCapture;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::utils::MaybeValidated;
-
-use crate::env::test_env::TestEnv;
+use std::collections::HashSet;
+use std::sync::Arc;
 
 /// Helper function for block sync tests
 fn collect_hashes_from_network_adapter(
@@ -36,6 +31,7 @@ fn collect_hashes_from_network_adapter(
         .collect()
 }
 
+#[cfg(feature = "test_features")]
 fn check_hashes_from_network_adapter(
     network_adapter: &MockPeerManagerAdapter,
     expected_hashes: Vec<CryptoHash>,
@@ -64,13 +60,17 @@ fn create_highest_height_peer_infos(num_peers: usize) -> Vec<HighestHeightPeerIn
 fn test_env_with_epoch_length(epoch_length: u64) -> TestEnv {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
 
     TestEnv::builder_from_genesis(&genesis).clients_count(2).build()
 }
 
 #[test]
+#[cfg(feature = "test_features")]
 fn test_block_sync() {
-    let mut capture = TracingCapture::enable();
+    use near_chain::test_utils::wait_for_all_blocks_in_processing;
+    use near_primitives::utils::MaybeValidated;
+
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let block_fetch_horizon = 10;
     let max_block_requests = 10;
@@ -80,6 +80,7 @@ fn test_block_sync() {
         block_fetch_horizon,
         false,
         true,
+        max_block_requests,
     );
     let mut env = test_env_with_epoch_length(100);
     let mut blocks = vec![];
@@ -94,7 +95,7 @@ fn test_block_sync() {
 
     // fetch three blocks at a time
     for i in 0..3 {
-        block_sync.block_sync(&env.clients[1].chain, &peer_infos, max_block_requests).unwrap();
+        block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
 
         let expected_blocks: Vec<_> =
             blocks[i * max_block_requests..(i + 1) * max_block_requests].to_vec();
@@ -110,7 +111,7 @@ fn test_block_sync() {
 
     // Now test when the node receives the block out of order
     // fetch the next three blocks
-    block_sync.block_sync(&env.clients[1].chain, &peer_infos, max_block_requests).unwrap();
+    block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
     check_hashes_from_network_adapter(
         &network_adapter,
         (3 * max_block_requests..4 * max_block_requests).map(|h| *blocks[h].hash()).collect(),
@@ -122,7 +123,7 @@ fn test_block_sync() {
     );
 
     // the next block sync should not request block[4*max_block_requests-1] again
-    block_sync.block_sync(&env.clients[1].chain, &peer_infos, max_block_requests).unwrap();
+    block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
     check_hashes_from_network_adapter(
         &network_adapter,
         (3 * max_block_requests..4 * max_block_requests - 1).map(|h| *blocks[h].hash()).collect(),
@@ -130,19 +131,19 @@ fn test_block_sync() {
 
     // Receive all blocks. Should not request more. As an extra
     // complication, pause the processing of one block.
-    env.pause_block_processing(&mut capture, blocks[4 * max_block_requests - 1].hash());
+    env.clients[1].chain.test_paused_blocks.pause(blocks[4 * max_block_requests - 1].hash());
     for i in 3 * max_block_requests..5 * max_block_requests {
         let _ = env.clients[1]
             .process_block_test(MaybeValidated::from(blocks[i].clone()), Provenance::NONE);
     }
 
-    block_sync.block_sync(&env.clients[1].chain, &peer_infos, max_block_requests).unwrap();
+    block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
     let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
     assert!(requested_block_hashes.is_empty(), "{:?}", requested_block_hashes);
 
     // Now finish paused processing and sanity check that we
     // still are fully synced.
-    env.resume_block_processing(blocks[4 * max_block_requests - 1].hash());
+    env.clients[1].chain.test_paused_blocks.resume(blocks[4 * max_block_requests - 1].hash());
     wait_for_all_blocks_in_processing(&mut env.clients[1].chain);
     let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
     assert!(requested_block_hashes.is_empty(), "{:?}", requested_block_hashes);
@@ -159,6 +160,7 @@ fn test_block_sync_archival() {
         block_fetch_horizon,
         true,
         true,
+        max_block_requests,
     );
     let mut env = test_env_with_epoch_length(5);
     let mut blocks = vec![];
@@ -171,7 +173,7 @@ fn test_block_sync_archival() {
     let peer_infos = create_highest_height_peer_infos(2);
     env.clients[1].chain.sync_block_headers(block_headers).unwrap();
 
-    block_sync.block_sync(&env.clients[1].chain, &peer_infos, max_block_requests).unwrap();
+    block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
     let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
     // We don't have archival peers, and thus cannot request any blocks
     assert_eq!(requested_block_hashes, HashSet::new());
@@ -181,7 +183,7 @@ fn test_block_sync_archival() {
         peer.archival = true;
     }
 
-    block_sync.block_sync(&env.clients[1].chain, &peer_infos, max_block_requests).unwrap();
+    block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
     let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
     assert_eq!(
         requested_block_hashes,

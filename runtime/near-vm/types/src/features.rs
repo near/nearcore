@@ -24,8 +24,6 @@ pub struct Features {
     pub exceptions: bool,
     /// Mutable global proposal should be enabled
     pub mutable_global: bool,
-    /// Non-trapping float-to-int proposal should be enabled
-    pub saturating_float_to_int: bool,
     /// Sign-extension operators should be enabled
     pub sign_extension: bool,
 }
@@ -49,7 +47,6 @@ impl Features {
             exceptions: false,
             // these were once defaulting to true in wasmparser, we now set them to true here
             mutable_global: true,
-            saturating_float_to_int: true,
             sign_extension: true,
         }
     }
@@ -234,7 +231,6 @@ mod test_features {
                 memory64: false,
                 exceptions: false,
                 mutable_global: true,
-                saturating_float_to_int: true,
                 sign_extension: true,
             }
         );

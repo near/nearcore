@@ -176,7 +176,7 @@ impl LoopCheckCommand {
 
         let rpc_client = new_client(&rpc_server_addr);
 
-        tracing::info!("started running LoopCheckCommand");
+        tracing::info!("started running loop check command");
 
         let result = run_loop_all_shards(
             chain_id,
@@ -193,10 +193,10 @@ impl LoopCheckCommand {
 
         match result {
             Ok(_) => {
-                tracing::info!("run_loop_all_shards returned OK()");
+                tracing::info!("run_loop_all_shards returned ok");
             }
             Err(err) => {
-                tracing::info!("run_loop_all_shards errored out with {}", err);
+                tracing::info!(?err, "run_loop_all_shards errored out");
             }
         }
 
@@ -249,14 +249,14 @@ fn validate_state_part(state_root: &StateRoot, part_id: PartId, part: &[u8]) -> 
                 Ok(_) => true,
                 // Storage error should not happen
                 Err(err) => {
-                    tracing::error!(target: "state-parts", ?err, "State part storage error");
+                    tracing::error!(target: "state-parts", ?err, "state part storage error");
                     false
                 }
             }
         }
         // Deserialization error means we've got the data from malicious peer
         Err(err) => {
-            tracing::error!(target: "state-parts", ?err, "State part deserialization error");
+            tracing::error!(target: "state-parts", ?err, "state part deserialization error");
             false
         }
     }
@@ -270,7 +270,7 @@ fn validate_state_header(header: &[u8]) -> bool {
         }
         // Deserialization error means we've got invalid data stored in the external folder.
         Err(err) => {
-            tracing::error!(target: "state-parts", ?err, "Header deserialization error");
+            tracing::error!(target: "state-parts", ?err, "header deserialization error");
             false
         }
     }
@@ -302,14 +302,15 @@ fn run_loop_all_shards(
             .block_on(async move { get_processing_epoch_information(&rpc_client).await });
         if let Err(err) = dump_check_iter_info_res {
             tracing::info!(
-                "get_processing_epoch_information errs out with {}. sleeping for {loop_interval}s.",
-                err
+                ?err,
+                %loop_interval,
+                "get_processing_epoch_information errs out, sleeping"
             );
             sleep(Duration::from_secs(loop_interval));
             continue;
         }
         let Some(dump_check_iter_info) = dump_check_iter_info_res? else {
-            tracing::info!("sync_hash not yet known. sleeping for {loop_interval}s.");
+            tracing::info!(%loop_interval, "sync_hash not yet known, sleeping");
             sleep(Duration::from_secs(loop_interval));
             continue;
         };
@@ -326,20 +327,22 @@ fn run_loop_all_shards(
             ));
             match status {
                 Ok(StatePartsDumpCheckStatus::Done { epoch_height }) => {
-                    tracing::info!(epoch_height, "last one was done.");
+                    tracing::info!(epoch_height, "last one was done");
                     if *epoch_height >= dump_check_iter_info.epoch_height {
                         tracing::info!(
-                            "current height was already checked. sleeping for {loop_interval}s."
+                            %loop_interval,
+                            "current height was already checked, sleeping"
                         );
                         sleep(Duration::from_secs(loop_interval));
                         continue;
                     }
 
-                    tracing::info!("current height was not already checked, will start checking.");
+                    tracing::info!("current height was not already checked, will start checking");
                     if dump_check_iter_info.epoch_height > *epoch_height + 1 {
                         tracing::info!(
-                            "there is a skip between last done epoch at epoch height: {epoch_height}, and latest available epoch at {}",
-                            dump_check_iter_info.epoch_height
+                            %epoch_height,
+                            latest_epoch_height = %dump_check_iter_info.epoch_height,
+                            "skip between last done epoch and latest available epoch"
                         );
                         crate::metrics::STATE_SYNC_DUMP_CHECK_HAS_SKIPPED_EPOCH
                             .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
@@ -356,11 +359,12 @@ fn run_loop_all_shards(
                     parts_done,
                     headers_done,
                 }) => {
-                    tracing::info!(epoch_height, "last one was waiting.");
+                    tracing::info!(epoch_height, "last one was waiting");
                     if dump_check_iter_info.epoch_height > *epoch_height {
                         tracing::info!(
-                            "last one was never finished. There is a skip between last waiting epoch at epoch height {epoch_height}, and latest available epoch at {}",
-                            dump_check_iter_info.epoch_height
+                            %epoch_height,
+                            latest_epoch_height = %dump_check_iter_info.epoch_height,
+                            "last one was never finished, skip between last waiting epoch and latest available epoch"
                         );
                         crate::metrics::STATE_SYNC_DUMP_CHECK_HAS_SKIPPED_EPOCH
                             .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
@@ -372,7 +376,7 @@ fn run_loop_all_shards(
                             ?epoch_height,
                             ?parts_done,
                             ?headers_done,
-                            "Still working on the same epoch as last check."
+                            "still working on the same epoch as last check"
                         );
                     }
                 }
@@ -419,7 +423,7 @@ fn run_loop_all_shards(
 }
 
 fn reset_num_parts_metrics(chain_id: &str, shard_id: ShardId) -> () {
-    tracing::info!(%shard_id, "Resetting num of parts metrics to 0.");
+    tracing::info!(%shard_id, "resetting num of parts metrics to 0");
     crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_VALID
         .with_label_values(&[&shard_id.to_string(), chain_id])
         .set(0);
@@ -469,11 +473,11 @@ async fn run_single_check_with_3_retries(
         .await;
         match res {
             Ok(_) => {
-                tracing::info!(%shard_id, epoch_height, "run_single_check returned OK.",);
+                tracing::info!(%shard_id, epoch_height, "run_single_check returned ok");
                 break;
             }
             Err(_) if retries < MAX_RETRIES => {
-                tracing::info!(%shard_id, epoch_height, "run_single_check failure. Will retry.",);
+                tracing::info!(%shard_id, epoch_height, "run_single_check failure, will retry",);
                 retries += 1;
                 tokio::time::sleep(Duration::from_secs(60)).await;
             }
@@ -481,7 +485,7 @@ async fn run_single_check_with_3_retries(
                 tracing::info!(
                     %shard_id,
                     epoch_height,
-                    "run_single_check failure. No more retries."
+                    "run_single_check failure, no more retries"
                 );
                 break;
             }
@@ -542,7 +546,7 @@ async fn check_parts(
             %shard_id,
             total_required_parts,
             num_parts,
-            "Waiting for all parts to be dumped."
+            "waiting for all parts to be dumped"
         );
         return Ok(false);
     } else if num_parts > total_required_parts {
@@ -551,7 +555,7 @@ async fn check_parts(
             %shard_id,
             total_required_parts,
             num_parts,
-            "There are more dumped parts than total required, something is seriously wrong."
+            "there are more dumped parts than total required, something is seriously wrong"
         );
         return Ok(true);
     }
@@ -560,7 +564,7 @@ async fn check_parts(
         %shard_id,
         epoch_height,
         num_parts,
-        "Spawning threads to download and validate state parts."
+        "spawning threads to download and validate state parts"
     );
 
     let start = Instant::now();
@@ -590,7 +594,7 @@ async fn check_parts(
     }
 
     let duration = start.elapsed();
-    tracing::info!("Time elapsed in downloading and validating the parts is: {:?}", duration);
+    tracing::info!(?duration, "time elapsed in downloading and validating the parts");
     Ok(true)
 }
 
@@ -614,7 +618,7 @@ async fn check_headers(
         .is_state_sync_header_stored_for_epoch(shard_id, chain_id, epoch_id, epoch_height)
         .await?
     {
-        tracing::info!(epoch_height, %shard_id, "Waiting for header to be dumped.");
+        tracing::info!(epoch_height, %shard_id, "waiting for header to be dumped");
         return Ok(false);
     }
 
@@ -622,7 +626,7 @@ async fn check_headers(
         .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
         .set(1 as i64);
 
-    tracing::info!(%shard_id, epoch_height, "Download and validate state header.");
+    tracing::info!(%shard_id, epoch_height, "download and validate state header");
 
     let start = Instant::now();
     let chain_id = chain_id.clone();
@@ -631,7 +635,7 @@ async fn check_headers(
     process_header_with_3_retries(chain_id, *epoch_id, epoch_height, shard_id, external).await?;
 
     let duration = start.elapsed();
-    tracing::info!("Time elapsed in downloading and validating the header is: {:?}", duration);
+    tracing::info!(?duration, "time elapsed in downloading and validating the header");
     Ok(true)
 }
 
@@ -736,7 +740,7 @@ async fn process_part_with_3_retries(
         .await;
         match res {
             Ok(Ok(_)) => {
-                tracing::info!(%shard_id, epoch_height, part_id, "process_part success.",);
+                tracing::info!(%shard_id, epoch_height, part_id, "process_part success",);
                 break;
             }
             _ if retries < MAX_RETRIES => {
@@ -744,7 +748,7 @@ async fn process_part_with_3_retries(
                     %shard_id,
                     epoch_height,
                     part_id,
-                    "process_part failed. Will retry.",
+                    "process_part failed, will retry",
                 );
                 retries += 1;
                 tokio::time::sleep(Duration::from_secs(5)).await;
@@ -754,7 +758,7 @@ async fn process_part_with_3_retries(
                     %shard_id,
                     epoch_height,
                     part_id,
-                    "process_part failed. No more retries.",
+                    "process_part failed, no more retries",
                 );
                 break;
             }
@@ -783,11 +787,11 @@ async fn process_header_with_3_retries(
         .await;
         match res {
             Ok(Ok(_)) => {
-                tracing::info!(%shard_id, epoch_height, "process_header success.",);
+                tracing::info!(%shard_id, epoch_height, "process_header success",);
                 break;
             }
             _ if retries < MAX_RETRIES => {
-                tracing::info!(%shard_id, epoch_height, ?res, "process_header failed. Will retry.",);
+                tracing::info!(%shard_id, epoch_height, ?res, "process_header failed, will retry",);
                 retries += 1;
                 tokio::time::sleep(Duration::from_secs(5)).await;
             }
@@ -796,7 +800,7 @@ async fn process_header_with_3_retries(
                     %shard_id,
                     epoch_height,
                     ?res,
-                    "process_header failed. No more retries.",
+                    "process_header failed, no more retries",
                 );
                 break;
             }
@@ -815,7 +819,7 @@ async fn process_part(
     num_parts: u64,
     external: StateSyncConnection,
 ) -> anyhow::Result<()> {
-    tracing::info!(part_id, "process_part started.");
+    tracing::info!(part_id, "process_part started");
     let file_type = StateFileType::StatePart { part_id, num_parts };
     let location =
         external_storage_location(&chain_id, &epoch_id, epoch_height, shard_id, &file_type);
@@ -825,12 +829,12 @@ async fn process_part(
         crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_VALID
             .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
             .inc();
-        tracing::info!("part {part_id} is valid.");
+        tracing::info!(%part_id, "part is valid");
     } else {
         crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_INVALID
             .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
             .inc();
-        tracing::info!("part {part_id} is invalid.");
+        tracing::info!(%part_id, "part is invalid");
     }
     Ok(())
 }
@@ -842,7 +846,7 @@ async fn process_header(
     shard_id: ShardId,
     external: StateSyncConnection,
 ) -> anyhow::Result<()> {
-    tracing::info!("process_header started.");
+    tracing::info!("process_header started");
     let file_type = StateFileType::StateHeader;
     let location =
         external_storage_location(&chain_id, &epoch_id, epoch_height, shard_id, &file_type);
@@ -852,12 +856,12 @@ async fn process_header(
         crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_HEADERS_VALID
             .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
             .inc();
-        tracing::info!("header {shard_id} is valid.");
+        tracing::info!(%shard_id, "header is valid");
     } else {
         crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_HEADERS_INVALID
             .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
             .inc();
-        tracing::info!("header {shard_id} is invalid.");
+        tracing::info!(%shard_id, "header is invalid");
     }
     Ok(())
 }

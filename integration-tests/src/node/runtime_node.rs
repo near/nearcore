@@ -1,16 +1,14 @@
-use std::sync::Arc;
-
+use crate::node::Node;
+use crate::user::runtime_user::MockClient;
+use crate::user::{RuntimeUser, User};
+use crate::utils::runtime_utils::get_runtime_and_trie_from_genesis;
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, Signer};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::types::{AccountId, Balance};
 use parking_lot::RwLock;
+use std::sync::Arc;
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account, carol_account};
-
-use crate::node::Node;
-use crate::user::runtime_user::MockClient;
-use crate::user::{RuntimeUser, User};
-use crate::utils::runtime_utils::get_runtime_and_trie_from_genesis;
 
 pub struct RuntimeNode {
     pub client: Arc<RwLock<MockClient>>,

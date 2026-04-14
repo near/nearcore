@@ -1,7 +1,5 @@
-use std::collections::HashMap;
-use std::iter;
-use std::sync::Arc;
-
+use crate::EpochManager;
+use crate::validator_selection::proposals_to_epoch_info;
 use itertools::Itertools;
 use near_primitives::chains::{MAINNET, TESTNET};
 use near_primitives::epoch_block_info::BlockInfo;
@@ -14,9 +12,9 @@ use near_primitives::types::{AccountId, Balance, EpochId, NumSeats, ValidatorId}
 use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
 use rand::{RngCore, SeedableRng};
 use rand_hc::Hc128Rng;
-
-use crate::EpochManager;
-use crate::validator_selection::proposals_to_epoch_info;
+use std::collections::HashMap;
+use std::iter;
+use std::sync::Arc;
 
 impl EpochManager {
     pub fn initialize_genesis_epoch_info(
@@ -33,7 +31,7 @@ impl EpochManager {
         let mut store_update = self.store.store_update();
         self.save_epoch_info(&mut store_update, &EpochId::default(), Arc::new(genesis_epoch_info))?;
         self.save_block_info(&mut store_update, block_info)?;
-        store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 
@@ -62,6 +60,12 @@ impl EpochManager {
             }
             Ok(genesis_epoch_info)
         } else {
+            let shard_layout = genesis_epoch_config.static_shard_layout().ok_or_else(|| {
+                EpochError::ShardingError(format!(
+                    "static shard layout expected for genesis. genesis_protocol_version={}",
+                    genesis_protocol_version
+                ))
+            })?;
             proposals_to_epoch_info(
                 &genesis_epoch_config,
                 [0; 32],
@@ -71,7 +75,9 @@ impl EpochManager {
                 validator_reward,
                 Balance::ZERO,
                 genesis_protocol_version,
+                shard_layout,
                 false,
+                None,
             )
         }
     }
@@ -99,9 +105,7 @@ impl EpochManager {
         let stake_change = validators.iter().map(|v| (v.account_id().clone(), v.stake())).collect();
 
         // Get the threshold given current number of seats and stakes.
-        let num_hidden_validator_seats: NumSeats =
-            epoch_config.avg_hidden_validator_seats_per_shard.iter().sum();
-        let num_total_seats = epoch_config.num_block_producer_seats + num_hidden_validator_seats;
+        let num_total_seats = epoch_config.num_block_producer_seats;
         let stakes = validators.iter().map(|v| v.stake()).collect_vec();
         let threshold = find_threshold(&stakes, num_total_seats).unwrap();
 
@@ -123,11 +127,14 @@ impl EpochManager {
             dup_proposals[..epoch_config.num_block_producer_seats as usize].to_vec();
 
         // Collect proposals into block producer assignments.
+        let shard_layout = epoch_config
+            .static_shard_layout()
+            .expect("prod_genesis is only used for mainnet/testnet with static shard layout");
         let mut chunk_producers_settlement: Vec<Vec<ValidatorId>> = vec![];
         let mut last_index: u64 = 0;
-        for num_seats_in_shard in &epoch_config.num_block_producer_seats_per_shard {
+        for _ in shard_layout.shard_ids() {
             let mut shard_settlement: Vec<ValidatorId> = vec![];
-            for _ in 0..*num_seats_in_shard {
+            for _ in 0..epoch_config.num_block_producer_seats {
                 let proposal_index = block_producers_settlement[last_index as usize];
                 shard_settlement.push(proposal_index);
                 last_index = (last_index + 1) % epoch_config.num_block_producer_seats;

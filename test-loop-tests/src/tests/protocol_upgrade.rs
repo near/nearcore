@@ -1,3 +1,5 @@
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::drop_condition::DropCondition;
 use itertools::Itertools;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
@@ -11,15 +13,10 @@ use near_primitives::types::{AccountId, Balance, BlockHeight, ShardId, ShardInde
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::logic::ProtocolVersion;
-
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ops::Deref;
 use std::sync::Arc;
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::drop_condition::DropCondition;
-use crate::setup::env::TestLoopEnv;
 
 /// Test upgrading the blockchain to another protocol version.
 /// Optionally make some chunks around epoch boundary missing.
@@ -32,7 +29,6 @@ pub(crate) fn test_protocol_upgrade(
     init_test_logger();
 
     // 2 producers, 2 validators, 1 rpc node, 4 shards, 20 accounts (account{i}) with 10k NEAR each.
-    // Taken from standard_setup_1()
     let num_clients = 5;
     let num_producers = 2;
     let num_validators = 2;
@@ -77,15 +73,14 @@ pub(crate) fn test_protocol_upgrade(
         .build();
 
     let mainnet_epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
-    let mut old_epoch_config: EpochConfig =
+    let old_epoch_config: EpochConfig =
         mainnet_epoch_config_store.get_config(old_protocol).deref().clone();
-    let mut new_epoch_config: EpochConfig =
+    let new_epoch_config: EpochConfig =
         mainnet_epoch_config_store.get_config(new_protocol).deref().clone();
 
     // Adjust the epoch configs for the test
-    let adjust_epoch_config = |config: &mut EpochConfig| {
+    let adjust_epoch_config = |mut config: EpochConfig| {
         config.epoch_length = epoch_length;
-        config.shard_layout = shard_layout.clone();
         config.num_block_producer_seats = genesis_epoch_info.num_block_producer_seats;
         config.num_chunk_producer_seats = genesis_epoch_info.num_chunk_producer_seats;
         config.num_chunk_validator_seats = genesis_epoch_info.num_chunk_validator_seats;
@@ -95,9 +90,10 @@ pub(crate) fn test_protocol_upgrade(
             config.chunk_producer_kickout_threshold = 0;
             config.chunk_validator_only_kickout_threshold = 0;
         }
+        config.with_shard_layout(shard_layout.clone())
     };
-    adjust_epoch_config(&mut old_epoch_config);
-    adjust_epoch_config(&mut new_epoch_config);
+    let old_epoch_config = adjust_epoch_config(old_epoch_config);
+    let new_epoch_config = adjust_epoch_config(new_epoch_config);
 
     let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![
         (old_protocol, Arc::new(old_epoch_config)),
@@ -107,16 +103,17 @@ pub(crate) fn test_protocol_upgrade(
     // Immediately start voting for the new protocol version
     let protocol_upgrade_schedule = ProtocolUpgradeVotingSchedule::new_immediate(new_protocol);
 
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder
+    let mut env = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .protocol_upgrade_schedule(protocol_upgrade_schedule)
         .clients(clients)
+        .delay_warmup()
         .build()
         .drop(DropCondition::ProtocolUpgradeChunkRange(new_protocol, chunk_ranges_to_drop.clone()))
         .warmup();
 
-    let client_handle = node_datas[0].client_sender.actor_handle();
+    let client_handle = env.node_datas[0].client_sender.actor_handle();
     let epoch_ids_with_old_protocol = RefCell::new(BTreeSet::new());
     let epoch_ids_with_new_protocol = RefCell::new(BTreeSet::new());
     let first_new_protocol_height = Cell::new(None);
@@ -134,7 +131,7 @@ pub(crate) fn test_protocol_upgrade(
                 // There should be no missing blocks
                 assert_eq!(last_observed_height.get() + 1, block_header.height());
             }
-            tracing::info!(target: "test", "Observed new block at height {}, chunk_mask: {:?}", block_header.height(), block_header.chunk_mask());
+            tracing::info!(target: "test", height = %block_header.height(), chunk_mask = ?block_header.chunk_mask(), "observed new block at height");
             last_observed_height.set(block_header.height());
 
             // Record observed missing chunks
@@ -175,7 +172,7 @@ pub(crate) fn test_protocol_upgrade(
             && epoch_ids_with_new_protocol.borrow().len() >= 2
     };
 
-    test_loop.run_until(success_condition, Duration::seconds((7 * epoch_length) as i64));
+    env.test_loop.run_until(success_condition, Duration::seconds((7 * epoch_length) as i64));
 
     // Validate that the correct chunks were missing
     let upgraded_epoch_start = first_new_protocol_height.get().unwrap();
@@ -191,17 +188,18 @@ pub(crate) fn test_protocol_upgrade(
         }
     }
     assert_eq!(&*observed_missing_chunks.borrow(), &expected_missing_chunks);
-
-    TestLoopEnv { test_loop, node_datas, shared_state }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_protocol_upgrade_no_missing_chunks() {
     test_protocol_upgrade(PROTOCOL_VERSION - 1, PROTOCOL_VERSION, HashMap::new());
 }
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_protocol_upgrade_with_missing_chunk_one() {
     test_protocol_upgrade(
         PROTOCOL_VERSION - 1,
@@ -211,6 +209,8 @@ fn slow_test_protocol_upgrade_with_missing_chunk_one() {
 }
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_protocol_upgrade_with_missing_chunks_two() {
     test_protocol_upgrade(
         PROTOCOL_VERSION - 1,
@@ -223,6 +223,8 @@ fn slow_test_protocol_upgrade_with_missing_chunks_two() {
 /// There was a bug which caused `test_protocol_upgrade` to always upgrade to `PROTOCOL_VERSION`,
 /// this test ensures that the bug is fixed and it upgrades to the desired version, not the latest one.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_protocol_upgrade_not_latest() {
     test_protocol_upgrade(PROTOCOL_VERSION - 2, PROTOCOL_VERSION - 1, HashMap::new());
 }

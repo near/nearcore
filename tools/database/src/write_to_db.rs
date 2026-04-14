@@ -34,7 +34,7 @@ impl WriteCryptoHashCommand {
             home_dir,
             &near_config.config.store,
             near_config.config.cold_store.as_ref(),
-            near_config.config.cloud_storage_config(),
+            near_config.cloud_storage_context(),
         );
 
         let storage = opener.open()?;
@@ -48,11 +48,12 @@ impl WriteCryptoHashCommand {
                         DBCol::BlockMisc,
                         near_store::STATE_SNAPSHOT_KEY,
                         &self.hash,
-                    )?;
+                    );
                 }
             },
         }
 
-        Ok(store_update.commit()?)
+        store_update.commit();
+        Ok(())
     }
 }

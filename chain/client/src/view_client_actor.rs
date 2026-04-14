@@ -7,47 +7,50 @@ use crate::{
 };
 use near_async::messaging::{Actor, CanSend, Handler};
 use near_async::time::{Clock, Duration, Instant};
+use near_chain::spice_chain::SpiceChainReader;
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
-    Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, MerkleProofAccess,
-    get_epoch_block_producers_view, retrieve_headers,
+    Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, get_epoch_block_producers_view,
+    retrieve_headers,
 };
-
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, ProtocolConfigView};
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_client_primitives::types::{
     Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
     GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
     GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetMaintenanceWindows,
-    GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProtocolConfig,
-    GetProtocolConfigError, GetReceipt, GetReceiptError, GetSplitStorageInfo,
-    GetSplitStorageInfoError, GetStateChangesError, GetStateChangesWithCauseInBlock,
-    GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfoError, Query, QueryError,
-    TxStatus, TxStatusError,
+    GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProcessedReceiptIds,
+    GetProcessedReceiptIdsError, GetProtocolConfig, GetProtocolConfigError, GetReceipt,
+    GetReceiptError, GetReceiptToTx, GetReceiptToTxError, GetReceiptToTxResponse,
+    GetSplitStorageInfo, GetSplitStorageInfoError, GetStateChangesError,
+    GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
+    GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError,
 };
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::{
-    AnnounceAccountRequest, BlockHeadersRequest, BlockRequest, TxStatusRequest, TxStatusResponse,
+    AnnounceAccountRequest, BlockHeadersRequest, BlockRequest, GetCurrentEpochHeight,
+    TxStatusRequest, TxStatusResponse,
 };
 use near_network::types::{
     NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, ReasonForBan,
 };
-use near_performance_metrics_macros::perf;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{PartialMerkleTree, merklize};
 use near_primitives::network::AnnounceAccount;
-use near_primitives::receipt::Receipt;
+use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptOrigin, ReceiptToTxInfo};
 use near_primitives::sharding::ShardChunk;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, BlockReference, EpochId, EpochReference, Finality,
-    MaybeBlockId, ShardId, SyncCheckpoint, TransactionOrReceiptId, ValidatorInfoIdentifier,
+    AccountId, BlockHeight, BlockId, BlockReference, EpochHeight, EpochId, EpochReference,
+    Finality, MaybeBlockId, ShardId, SyncCheckpoint, TransactionOrReceiptId,
+    ValidatorInfoIdentifier,
 };
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView, ExecutionStatusView,
@@ -56,6 +59,8 @@ use near_primitives::views::{
     SignedTransactionView, SplitStorageInfoView, StateChangesKindsView, StateChangesView,
     TxExecutionStatus, TxStatusView,
 };
+use near_store::adapter::StoreAdapter as _;
+use near_store::merkle_proof::MerkleProofAccess;
 use near_store::{COLD_HEAD_KEY, DBCol, FINAL_HEAD_KEY, HEAD_KEY};
 use parking_lot::RwLock;
 use std::cmp::Ordering;
@@ -63,7 +68,6 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::hash::Hash;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use tracing::warn;
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;
@@ -79,7 +83,7 @@ pub struct ViewClientRequestManager {
 }
 
 /// View client provides currently committed (to the storage) view of the current chain and state.
-pub struct ViewClientActorInner {
+pub struct ViewClientActor {
     clock: Clock,
     pub adv: crate::adversarial::Controls,
     pub chain: Chain,
@@ -89,6 +93,7 @@ pub struct ViewClientActorInner {
     network_adapter: PeerManagerAdapter,
     pub config: ClientConfig,
     request_manager: Arc<RwLock<ViewClientRequestManager>>,
+    spice_chain_reader: SpiceChainReader,
 }
 
 impl ViewClientRequestManager {
@@ -100,9 +105,9 @@ impl ViewClientRequestManager {
     }
 }
 
-impl Actor for ViewClientActorInner {}
+impl Actor for ViewClientActor {}
 
-impl ViewClientActorInner {
+impl ViewClientActor {
     pub fn spawn_multithread_actor(
         clock: Clock,
         actor_system: ActorSystem,
@@ -114,9 +119,9 @@ impl ViewClientActorInner {
         config: ClientConfig,
         adv: crate::adversarial::Controls,
         validator_signer: MutableValidatorSigner,
-    ) -> MultithreadRuntimeHandle<ViewClientActorInner> {
+    ) -> MultithreadRuntimeHandle<ViewClientActor> {
         actor_system.spawn_multithread_actor(config.view_client_threads, move || {
-            ViewClientActorInner::new(
+            ViewClientActor::new(
                 clock.clone(),
                 chain_genesis.clone(),
                 epoch_manager.clone(),
@@ -153,6 +158,11 @@ impl ViewClientActorInner {
             config.save_trie_changes,
             validator_signer,
         )?;
+        let spice_chain_reader = SpiceChainReader::new(
+            runtime.store().chain_store(),
+            epoch_manager.clone(),
+            shard_tracker.clone(),
+        );
         Ok(Self {
             clock,
             adv,
@@ -163,6 +173,7 @@ impl ViewClientActorInner {
             network_adapter,
             config,
             request_manager: Arc::new(RwLock::new(ViewClientRequestManager::new())),
+            spice_chain_reader,
         })
     }
 
@@ -200,10 +211,19 @@ impl ViewClientActorInner {
         &self,
         finality: &Finality,
     ) -> Result<CryptoHash, near_chain::Error> {
-        match finality {
-            Finality::None => Ok(self.chain.head()?.last_block_hash),
-            Finality::DoomSlug => Ok(*self.chain.head_header()?.last_ds_final_block()),
-            Finality::Final => Ok(self.chain.final_head()?.last_block_hash),
+        let head = self.chain.head()?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&head.epoch_id)?;
+        let chain_head = match finality {
+            Finality::None => head.last_block_hash,
+            Finality::DoomSlug => *self.chain.head_header()?.last_ds_final_block(),
+            Finality::Final => self.chain.final_head()?.last_block_hash,
+        };
+        // TODO(spice): consider using `get_last_certified_block_header(chain_head)`
+        // for Finality::Final and Finality::DoomSlug.
+        if ProtocolFeature::Spice.enabled(protocol_version) {
+            Ok(*self.spice_chain_reader.find_first_executed_ancestor(&chain_head)?.hash())
+        } else {
+            Ok(chain_head)
         }
     }
 
@@ -216,24 +236,16 @@ impl ViewClientActorInner {
         &self,
         reference: &BlockReference,
     ) -> Result<Option<Arc<BlockHeader>>, near_chain::Error> {
-        // TODO(spice): Implement support for getting different finalities from execution.
-        if cfg!(feature = "protocol_feature_spice")
-            && matches!(reference, BlockReference::Finality(_))
-        {
-            return match self.chain.chain_store().spice_execution_head() {
-                Ok(tip) => self.chain.get_block_header(&tip.last_block_hash).map(Some),
-                Err(near_chain::Error::DBNotFoundErr(_)) => {
-                    Ok(Some(self.chain.genesis().clone().into()))
-                }
-                Err(err) => Err(err),
-            };
-        }
         match reference {
             BlockReference::BlockId(BlockId::Height(block_height)) => {
-                self.chain.get_block_header_by_height(*block_height).map(Some)
+                let header = self.chain.get_block_header_by_height(*block_height)?;
+                self.spice_chain_reader.check_block_executed(&header)?;
+                Ok(Some(header))
             }
             BlockReference::BlockId(BlockId::Hash(block_hash)) => {
-                self.chain.get_block_header(block_hash).map(Some)
+                let header = self.chain.get_block_header(block_hash)?;
+                self.spice_chain_reader.check_block_executed(&header)?;
+                Ok(Some(header))
             }
             BlockReference::Finality(finality) => self
                 .get_block_hash_by_finality(finality)
@@ -263,10 +275,14 @@ impl ViewClientActorInner {
     ) -> Result<Option<Arc<Block>>, near_chain::Error> {
         match reference {
             BlockReference::BlockId(BlockId::Height(block_height)) => {
-                self.chain.get_block_by_height(*block_height).map(Some)
+                let block = self.chain.get_block_by_height(*block_height)?;
+                self.spice_chain_reader.check_block_executed(block.header())?;
+                Ok(Some(block))
             }
             BlockReference::BlockId(BlockId::Hash(block_hash)) => {
-                self.chain.get_block(block_hash).map(Some)
+                let block = self.chain.get_block(block_hash)?;
+                self.spice_chain_reader.check_block_executed(block.header())?;
+                Ok(Some(block))
             }
             BlockReference::Finality(finality) => self
                 .get_block_hash_by_finality(finality)
@@ -339,7 +355,26 @@ impl ViewClientActorInner {
         Ok(windows)
     }
 
-    fn handle_query(&self, msg: Query) -> Result<QueryResponse, QueryError> {
+    /// Returns true if the given block height has been garbage collected on this non-archive node.
+    fn is_block_gc(&self, block_height: BlockHeight) -> bool {
+        if self.config.archive {
+            return false;
+        }
+        match self.chain.head() {
+            Ok(tip) => block_height < self.runtime.get_gc_stop_height(&tip.last_block_hash),
+            Err(_) => false,
+        }
+    }
+
+    pub fn handle_query(&self, msg: Query) -> Result<QueryResponse, QueryError> {
+        // For height-based queries, check upfront whether the block has been garbage collected.
+        if let BlockReference::BlockId(BlockId::Height(h)) = &msg.block_reference {
+            if self.is_block_gc(*h) {
+                let block_hash = self.chain.get_block_hash_by_height(*h).unwrap_or_default();
+                return Err(QueryError::GarbageCollectedBlock { block_height: *h, block_hash });
+            }
+        }
+
         let header = self.get_block_header_by_reference(&msg.block_reference);
         let header = match header {
             Ok(Some(header)) => Ok(header),
@@ -360,23 +395,22 @@ impl ViewClientActorInner {
             shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, header.epoch_id())
                 .map_err(|err| QueryError::InternalError { error_message: err.to_string() })?;
 
-        let tip = self.chain.head();
         let chunk_extra =
             self.chain.get_chunk_extra(header.hash(), &shard_uid).map_err(|err| match err {
-                near_chain::near_chain_primitives::Error::DBNotFoundErr(_) => match tip {
-                    Ok(tip) => {
-                        let gc_stop_height = self.runtime.get_gc_stop_height(&tip.last_block_hash);
-                        if !self.config.archive && header.height() < gc_stop_height {
-                            QueryError::GarbageCollectedBlock {
-                                block_height: header.height(),
-                                block_hash: *header.hash(),
-                            }
-                        } else {
-                            QueryError::UnavailableShard { requested_shard_id: shard_id }
+                near_chain::near_chain_primitives::Error::DBNotFoundErr(_) => {
+                    // After ContinuousEpochSync is enabled, since block headers would be GC'd
+                    // there'll be no way for us to tell whether a block hash is GC'd or just unknown.
+                    if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION)
+                        && self.is_block_gc(header.height())
+                    {
+                        QueryError::GarbageCollectedBlock {
+                            block_height: header.height(),
+                            block_hash: *header.hash(),
                         }
+                    } else {
+                        QueryError::UnavailableShard { requested_shard_id: shard_id }
                     }
-                    Err(err) => QueryError::InternalError { error_message: err.to_string() },
-                },
+                }
                 near_chain::near_chain_primitives::Error::IOErr(error) => {
                     QueryError::InternalError { error_message: error.to_string() }
                 }
@@ -420,12 +454,19 @@ impl ViewClientActorInner {
                     block_height,
                     block_hash,
                 } => QueryError::UnknownAccessKey { public_key, block_height, block_hash },
+                near_chain_primitives::error::QueryError::UnknownGasKey {
+                    public_key,
+                    block_height,
+                    block_hash,
+                } => QueryError::UnknownGasKey { public_key, block_height, block_hash },
                 near_chain::near_chain_primitives::error::QueryError::ContractExecutionError {
                     error_message,
+                    error,
                     block_hash,
                     block_height,
                 } => QueryError::ContractExecutionError {
                     vm_error: error_message,
+                    error,
                     block_height,
                     block_hash,
                 },
@@ -457,6 +498,7 @@ impl ViewClientActorInner {
             | QueryRequest::ViewState { account_id, .. }
             | QueryRequest::ViewAccessKey { account_id, .. }
             | QueryRequest::ViewAccessKeyList { account_id, .. }
+            | QueryRequest::ViewGasKeyNonces { account_id, .. }
             | QueryRequest::CallFunction { account_id, .. }
             | QueryRequest::ViewCode { account_id, .. } => {
                 account_id_to_shard_id(self.epoch_manager.as_ref(), account_id, &epoch_id)
@@ -631,8 +673,7 @@ impl ViewClientActorInner {
                     Ok(TxStatusView { execution_outcome: Some(res), status })
                 }
                 Err(near_chain::Error::DBNotFoundErr(_)) => {
-                    if let Ok(Some(transaction)) = self.chain.chain_store.get_transaction(&tx_hash)
-                    {
+                    if let Some(transaction) = self.chain.chain_store.get_transaction(&tx_hash) {
                         let transaction =
                             SignedTransactionView::from(Arc::unwrap_or_clone(transaction));
                         if let Ok(tx_outcome) = self.chain.get_execution_outcome(&tx_hash) {
@@ -659,7 +700,7 @@ impl ViewClientActorInner {
                     }
                 }
                 Err(err) => {
-                    warn!(target: "client", ?err, "Error trying to get transaction result");
+                    tracing::warn!(target: "client", ?err, "error trying to get transaction result");
                     Err(err.into())
                 }
             }
@@ -713,8 +754,7 @@ impl ViewClientActorInner {
     }
 }
 
-impl Handler<Query, Result<QueryResponse, QueryError>> for ViewClientActorInner {
-    #[perf]
+impl Handler<Query, Result<QueryResponse, QueryError>> for ViewClientActor {
     fn handle(&mut self, msg: Query) -> Result<QueryResponse, QueryError> {
         tracing::debug!(target: "client", ?msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["Query"]).start_timer();
@@ -723,8 +763,7 @@ impl Handler<Query, Result<QueryResponse, QueryError>> for ViewClientActorInner 
 }
 
 /// Handles retrieving block from the chain.
-impl Handler<GetBlock, Result<BlockView, GetBlockError>> for ViewClientActorInner {
-    #[perf]
+impl Handler<GetBlock, Result<BlockView, GetBlockError>> for ViewClientActor {
     fn handle(&mut self, msg: GetBlock) -> Result<BlockView, GetBlockError> {
         tracing::debug!(target: "client", ?msg);
         let _timer =
@@ -739,9 +778,8 @@ impl Handler<GetBlock, Result<BlockView, GetBlockError>> for ViewClientActorInne
 }
 
 impl Handler<GetBlockWithMerkleTree, Result<(BlockView, Arc<PartialMerkleTree>), GetBlockError>>
-    for ViewClientActorInner
+    for ViewClientActor
 {
-    #[perf]
     fn handle(
         &mut self,
         msg: GetBlockWithMerkleTree,
@@ -781,8 +819,7 @@ fn get_chunk_from_block(
     Ok(res)
 }
 
-impl Handler<GetShardChunk, Result<ShardChunk, GetChunkError>> for ViewClientActorInner {
-    #[perf]
+impl Handler<GetShardChunk, Result<ShardChunk, GetChunkError>> for ViewClientActor {
     fn handle(&mut self, msg: GetShardChunk) -> Result<ShardChunk, GetChunkError> {
         tracing::debug!(target: "client", ?msg);
         let _timer =
@@ -805,8 +842,7 @@ impl Handler<GetShardChunk, Result<ShardChunk, GetChunkError>> for ViewClientAct
     }
 }
 
-impl Handler<GetChunk, Result<ChunkView, GetChunkError>> for ViewClientActorInner {
-    #[perf]
+impl Handler<GetChunk, Result<ChunkView, GetChunkError>> for ViewClientActor {
     fn handle(&mut self, msg: GetChunk) -> Result<ChunkView, GetChunkError> {
         tracing::debug!(target: "client", ?msg);
         let _timer =
@@ -828,17 +864,9 @@ impl Handler<GetChunk, Result<ChunkView, GetChunkError>> for ViewClientActorInne
         };
 
         let chunk_inner = chunk.cloned_header().take_inner();
-        let epoch_id = self
-            .epoch_manager
-            .get_epoch_id_from_prev_block(chunk_inner.prev_block_hash())
-            .into_chain_error()?;
         let author = self
             .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
-                epoch_id,
-                height_created: chunk_inner.height_created(),
-                shard_id: chunk_inner.shard_id(),
-            })
+            .get_chunk_producer_info_db(chunk_inner.prev_block_hash(), chunk_inner.shard_id())
             .map(|info| info.take_account_id())
             .into_chain_error()?;
 
@@ -846,8 +874,7 @@ impl Handler<GetChunk, Result<ChunkView, GetChunkError>> for ViewClientActorInne
     }
 }
 
-impl Handler<TxStatus, Result<TxStatusView, TxStatusError>> for ViewClientActorInner {
-    #[perf]
+impl Handler<TxStatus, Result<TxStatusView, TxStatusError>> for ViewClientActor {
     fn handle(&mut self, msg: TxStatus) -> Result<TxStatusView, TxStatusError> {
         tracing::debug!(target: "client", ?msg);
         let _timer =
@@ -857,9 +884,8 @@ impl Handler<TxStatus, Result<TxStatusView, TxStatusError>> for ViewClientActorI
 }
 
 impl Handler<GetValidatorInfo, Result<EpochValidatorInfo, GetValidatorInfoError>>
-    for ViewClientActorInner
+    for ViewClientActor
 {
-    #[perf]
     fn handle(
         &mut self,
         msg: GetValidatorInfo,
@@ -906,9 +932,8 @@ impl Handler<GetValidatorInfo, Result<EpochValidatorInfo, GetValidatorInfoError>
 }
 
 impl Handler<GetValidatorOrdered, Result<Vec<ValidatorStakeView>, GetValidatorInfoError>>
-    for ViewClientActorInner
+    for ViewClientActor
 {
-    #[perf]
     fn handle(
         &mut self,
         msg: GetValidatorOrdered,
@@ -924,9 +949,8 @@ impl Handler<GetValidatorOrdered, Result<Vec<ValidatorStakeView>, GetValidatorIn
 }
 /// Returns a list of change kinds per account in a store for a given block.
 impl Handler<GetStateChangesInBlock, Result<StateChangesKindsView, GetStateChangesError>>
-    for ViewClientActorInner
+    for ViewClientActor
 {
-    #[perf]
     fn handle(
         &mut self,
         msg: GetStateChangesInBlock,
@@ -938,7 +962,7 @@ impl Handler<GetStateChangesInBlock, Result<StateChangesKindsView, GetStateChang
         Ok(self
             .chain
             .chain_store()
-            .get_state_changes_in_block(&msg.block_hash)?
+            .get_state_changes_in_block(&msg.block_hash)
             .into_iter()
             .map(Into::into)
             .collect())
@@ -946,10 +970,7 @@ impl Handler<GetStateChangesInBlock, Result<StateChangesKindsView, GetStateChang
 }
 
 /// Returns a list of changes in a store for a given block filtering by the state changes request.
-impl Handler<GetStateChanges, Result<StateChangesView, GetStateChangesError>>
-    for ViewClientActorInner
-{
-    #[perf]
+impl Handler<GetStateChanges, Result<StateChangesView, GetStateChangesError>> for ViewClientActor {
     fn handle(&mut self, msg: GetStateChanges) -> Result<StateChangesView, GetStateChangesError> {
         tracing::debug!(target: "client", ?msg);
         let _timer =
@@ -957,7 +978,7 @@ impl Handler<GetStateChanges, Result<StateChangesView, GetStateChangesError>>
         Ok(self
             .chain
             .chain_store()
-            .get_state_changes(&msg.block_hash, &msg.state_changes_request.into())?
+            .get_state_changes(&msg.block_hash, &msg.state_changes_request.into())
             .into_iter()
             .map(Into::into)
             .collect())
@@ -966,9 +987,8 @@ impl Handler<GetStateChanges, Result<StateChangesView, GetStateChangesError>>
 
 /// Returns a list of changes in a store with causes for a given block.
 impl Handler<GetStateChangesWithCauseInBlock, Result<StateChangesView, GetStateChangesError>>
-    for ViewClientActorInner
+    for ViewClientActor
 {
-    #[perf]
     fn handle(
         &mut self,
         msg: GetStateChangesWithCauseInBlock,
@@ -980,7 +1000,7 @@ impl Handler<GetStateChangesWithCauseInBlock, Result<StateChangesView, GetStateC
         Ok(self
             .chain
             .chain_store()
-            .get_state_changes_with_cause_in_block(&msg.block_hash)?
+            .get_state_changes_with_cause_in_block(&msg.block_hash)
             .into_iter()
             .map(Into::into)
             .collect())
@@ -993,9 +1013,8 @@ impl
     Handler<
         GetStateChangesWithCauseInBlockForTrackedShards,
         Result<HashMap<ShardId, StateChangesView>, GetStateChangesError>,
-    > for ViewClientActorInner
+    > for ViewClientActor
 {
-    #[perf]
     fn handle(
         &mut self,
         msg: GetStateChangesWithCauseInBlockForTrackedShards,
@@ -1005,7 +1024,7 @@ impl
             .with_label_values(&["GetStateChangesWithCauseInBlockForTrackedShards"])
             .start_timer();
         let state_changes_with_cause_in_block =
-            self.chain.chain_store().get_state_changes_with_cause_in_block(&msg.block_hash)?;
+            self.chain.chain_store().get_state_changes_with_cause_in_block(&msg.block_hash);
 
         let mut state_changes_with_cause_split_by_shard_id: HashMap<ShardId, StateChangesView> =
             HashMap::new();
@@ -1043,9 +1062,8 @@ impl
     Handler<
         GetNextLightClientBlock,
         Result<Option<Arc<LightClientBlockView>>, GetNextLightClientBlockError>,
-    > for ViewClientActorInner
+    > for ViewClientActor
 {
-    #[perf]
     fn handle(
         &mut self,
         msg: GetNextLightClientBlock,
@@ -1085,9 +1103,8 @@ impl
 }
 
 impl Handler<GetExecutionOutcome, Result<GetExecutionOutcomeResponse, GetExecutionOutcomeError>>
-    for ViewClientActorInner
+    for ViewClientActor
 {
-    #[perf]
     fn handle(
         &mut self,
         msg: GetExecutionOutcome,
@@ -1177,9 +1194,8 @@ impl
     Handler<
         GetExecutionOutcomesForBlock,
         Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdView>>, String>,
-    > for ViewClientActorInner
+    > for ViewClientActor
 {
-    #[perf]
     fn handle(
         &mut self,
         msg: GetExecutionOutcomesForBlock,
@@ -1199,8 +1215,7 @@ impl
     }
 }
 
-impl Handler<GetReceipt, Result<Option<ReceiptView>, GetReceiptError>> for ViewClientActorInner {
-    #[perf]
+impl Handler<GetReceipt, Result<Option<ReceiptView>, GetReceiptError>> for ViewClientActor {
     fn handle(&mut self, msg: GetReceipt) -> Result<Option<ReceiptView>, GetReceiptError> {
         tracing::debug!(target: "client", ?msg);
         let _timer =
@@ -1208,15 +1223,85 @@ impl Handler<GetReceipt, Result<Option<ReceiptView>, GetReceiptError>> for ViewC
         Ok(self
             .chain
             .chain_store()
-            .get_receipt(&msg.receipt_id)?
+            .get_receipt(&msg.receipt_id)
             .map(|receipt| Receipt::clone(&receipt).into()))
     }
 }
 
-impl Handler<GetBlockProof, Result<GetBlockProofResponse, GetBlockProofError>>
-    for ViewClientActorInner
+impl
+    Handler<
+        GetProcessedReceiptIds,
+        Result<Vec<ProcessedReceiptMetadata>, GetProcessedReceiptIdsError>,
+    > for ViewClientActor
 {
-    #[perf]
+    fn handle(
+        &mut self,
+        msg: GetProcessedReceiptIds,
+    ) -> Result<Vec<ProcessedReceiptMetadata>, GetProcessedReceiptIdsError> {
+        tracing::debug!(target: "client", ?msg);
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["GetProcessedReceiptIds"])
+            .start_timer();
+        Ok(self
+            .chain
+            .chain_store()
+            .get_processed_receipt_ids(&msg.block_hash, msg.shard_id)?
+            .iter()
+            .cloned()
+            .collect())
+    }
+}
+
+impl Handler<GetReceiptToTx, Result<GetReceiptToTxResponse, GetReceiptToTxError>>
+    for ViewClientActor
+{
+    fn handle(
+        &mut self,
+        msg: GetReceiptToTx,
+    ) -> Result<GetReceiptToTxResponse, GetReceiptToTxError> {
+        tracing::debug!(target: "client", ?msg);
+        let _timer =
+            metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetReceiptToTx"]).start_timer();
+
+        if !self.config.save_receipt_to_tx {
+            return Err(GetReceiptToTxError::Unsupported(
+                "receipt-to-tx mapping is disabled (save_receipt_to_tx=false)".to_string(),
+            ));
+        }
+        if !self.config.tracked_shards_config.tracks_all_shards() {
+            return Err(GetReceiptToTxError::Unsupported(
+                "node does not track all shards".to_string(),
+            ));
+        }
+
+        const MAX_DEPTH: u32 = 1000;
+        let mut current_receipt_id = msg.receipt_id;
+        for _ in 0..MAX_DEPTH {
+            let info = self
+                .chain
+                .chain_store()
+                .get_receipt_to_tx(&current_receipt_id)
+                .ok_or(GetReceiptToTxError::UnknownReceipt(current_receipt_id))?;
+
+            let ReceiptToTxInfo::V1(v1) = info;
+            match v1.origin {
+                ReceiptOrigin::FromTransaction(origin) => {
+                    return Ok(GetReceiptToTxResponse {
+                        transaction_hash: origin.tx_hash,
+                        sender_account_id: origin.sender_account_id,
+                    });
+                }
+                ReceiptOrigin::FromReceipt(origin) => {
+                    current_receipt_id = origin.parent_receipt_id;
+                }
+            }
+        }
+
+        Err(GetReceiptToTxError::DepthExceeded { receipt_id: msg.receipt_id, limit: MAX_DEPTH })
+    }
+}
+
+impl Handler<GetBlockProof, Result<GetBlockProofResponse, GetBlockProofError>> for ViewClientActor {
     fn handle(&mut self, msg: GetBlockProof) -> Result<GetBlockProofResponse, GetBlockProofError> {
         tracing::debug!(target: "client", ?msg);
         let _timer =
@@ -1236,9 +1321,8 @@ impl Handler<GetBlockProof, Result<GetBlockProofResponse, GetBlockProofError>>
 }
 
 impl Handler<GetProtocolConfig, Result<ProtocolConfigView, GetProtocolConfigError>>
-    for ViewClientActorInner
+    for ViewClientActor
 {
-    #[perf]
     fn handle(
         &mut self,
         msg: GetProtocolConfig,
@@ -1264,15 +1348,14 @@ use near_async::ActorSystem;
 use near_async::multithread::MultithreadRuntimeHandle;
 
 #[cfg(feature = "test_features")]
-impl Handler<NetworkAdversarialMessage> for ViewClientActorInner {
+impl Handler<NetworkAdversarialMessage> for ViewClientActor {
     fn handle(&mut self, msg: NetworkAdversarialMessage) {
         Handler::<NetworkAdversarialMessage, Option<u64>>::handle(self, msg);
     }
 }
 
 #[cfg(feature = "test_features")]
-impl Handler<NetworkAdversarialMessage, Option<u64>> for ViewClientActorInner {
-    #[perf]
+impl Handler<NetworkAdversarialMessage, Option<u64>> for ViewClientActor {
     fn handle(&mut self, msg: NetworkAdversarialMessage) -> Option<u64> {
         tracing::debug!(target: "client", ?msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
@@ -1280,15 +1363,15 @@ impl Handler<NetworkAdversarialMessage, Option<u64>> for ViewClientActorInner {
             .start_timer();
         match msg {
             NetworkAdversarialMessage::AdvDisableDoomslug => {
-                tracing::info!(target: "adversary", "Turning Doomslug off");
+                tracing::info!(target: "adversary", "turning doomslug off");
                 self.adv.set_disable_doomslug(true);
             }
             NetworkAdversarialMessage::AdvDisableHeaderSync => {
-                tracing::info!(target: "adversary", "Blocking header sync");
+                tracing::info!(target: "adversary", "blocking header sync");
                 self.adv.set_disable_header_sync(true);
             }
             NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
-                tracing::info!(target: "adversary", "Switching to height");
+                tracing::info!(target: "adversary", "switching to height");
                 let mut chain_store_update = self.chain.mut_chain_store().store_update();
                 chain_store_update.save_largest_target_height(height);
                 chain_store_update
@@ -1302,8 +1385,7 @@ impl Handler<NetworkAdversarialMessage, Option<u64>> for ViewClientActorInner {
     }
 }
 
-impl Handler<TxStatusRequest, Option<Box<FinalExecutionOutcomeView>>> for ViewClientActorInner {
-    #[perf]
+impl Handler<TxStatusRequest, Option<Box<FinalExecutionOutcomeView>>> for ViewClientActor {
     fn handle(&mut self, msg: TxStatusRequest) -> Option<Box<FinalExecutionOutcomeView>> {
         tracing::debug!(target: "client", ?msg);
         let _timer =
@@ -1319,8 +1401,7 @@ impl Handler<TxStatusRequest, Option<Box<FinalExecutionOutcomeView>>> for ViewCl
     }
 }
 
-impl Handler<TxStatusResponse> for ViewClientActorInner {
-    #[perf]
+impl Handler<TxStatusResponse> for ViewClientActor {
     fn handle(&mut self, msg: TxStatusResponse) {
         let TxStatusResponse(tx_result) = msg;
         tracing::debug!(
@@ -1328,7 +1409,7 @@ impl Handler<TxStatusResponse> for ViewClientActorInner {
             tx_hash = %tx_result.transaction.hash, status = ?tx_result.status,
             tx_outcome_status = ?tx_result.transaction_outcome.outcome.status,
             num_receipt_outcomes = tx_result.receipts_outcome.len(),
-            "receive TxStatusResponse"
+            "receive tx status response"
         );
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["TxStatusResponse"])
@@ -1341,8 +1422,7 @@ impl Handler<TxStatusResponse> for ViewClientActorInner {
     }
 }
 
-impl Handler<BlockRequest, Option<Arc<Block>>> for ViewClientActorInner {
-    #[perf]
+impl Handler<BlockRequest, Option<Arc<Block>>> for ViewClientActor {
     fn handle(&mut self, msg: BlockRequest) -> Option<Arc<Block>> {
         tracing::debug!(target: "client", ?msg);
         let _timer =
@@ -1352,8 +1432,7 @@ impl Handler<BlockRequest, Option<Arc<Block>>> for ViewClientActorInner {
     }
 }
 
-impl Handler<BlockHeadersRequest, Option<Vec<Arc<BlockHeader>>>> for ViewClientActorInner {
-    #[perf]
+impl Handler<BlockHeadersRequest, Option<Vec<Arc<BlockHeader>>>> for ViewClientActor {
     fn handle(&mut self, msg: BlockHeadersRequest) -> Option<Vec<Arc<BlockHeader>>> {
         tracing::debug!(target: "client", ?msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
@@ -1372,9 +1451,8 @@ impl Handler<BlockHeadersRequest, Option<Vec<Arc<BlockHeader>>>> for ViewClientA
 }
 
 impl Handler<AnnounceAccountRequest, Result<Vec<AnnounceAccount>, ReasonForBan>>
-    for ViewClientActorInner
+    for ViewClientActor
 {
-    #[perf]
     fn handle(
         &mut self,
         msg: AnnounceAccountRequest,
@@ -1420,7 +1498,7 @@ impl Handler<AnnounceAccountRequest, Result<Vec<AnnounceAccount>, ReasonForBan>>
                 // We currently do NOT ban the peer for either.
                 // TODO(gprusak): consider whether we should change that.
                 Err(err) => {
-                    tracing::debug!(target: "view_client", ?err, "Failed to validate account announce signature");
+                    tracing::debug!(target: "view_client", ?err, "failed to validate account announce signature");
                 }
             }
         }
@@ -1428,8 +1506,7 @@ impl Handler<AnnounceAccountRequest, Result<Vec<AnnounceAccount>, ReasonForBan>>
     }
 }
 
-impl Handler<GetGasPrice, Result<GasPriceView, GetGasPriceError>> for ViewClientActorInner {
-    #[perf]
+impl Handler<GetGasPrice, Result<GasPriceView, GetGasPriceError>> for ViewClientActor {
     fn handle(&mut self, msg: GetGasPrice) -> Result<GasPriceView, GetGasPriceError> {
         tracing::debug!(target: "client", ?msg);
         let _timer =
@@ -1440,9 +1517,8 @@ impl Handler<GetGasPrice, Result<GasPriceView, GetGasPriceError>> for ViewClient
 }
 
 impl Handler<GetMaintenanceWindows, Result<MaintenanceWindowsView, GetMaintenanceWindowsError>>
-    for ViewClientActorInner
+    for ViewClientActor
 {
-    #[perf]
     fn handle(
         &mut self,
         msg: GetMaintenanceWindows,
@@ -1454,7 +1530,7 @@ impl Handler<GetMaintenanceWindows, Result<MaintenanceWindowsView, GetMaintenanc
 
 // TODO(cloud_archival) Consider the case of cloud head
 impl Handler<GetSplitStorageInfo, Result<SplitStorageInfoView, GetSplitStorageInfoError>>
-    for ViewClientActorInner
+    for ViewClientActor
 {
     fn handle(
         &mut self,
@@ -1463,11 +1539,11 @@ impl Handler<GetSplitStorageInfo, Result<SplitStorageInfoView, GetSplitStorageIn
         tracing::debug!(target: "client", ?msg);
 
         let store = self.chain.chain_store().store();
-        let head = store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
-        let final_head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;
-        let cold_head = store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY)?;
+        let head = store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY);
+        let final_head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY);
+        let cold_head = store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY);
 
-        let hot_db_kind = store.get_db_kind()?.map(|kind| kind.to_string());
+        let hot_db_kind = store.get_db_kind().map(|kind| kind.to_string());
 
         Ok(SplitStorageInfoView {
             head_height: head.map(|tip| tip.height),
@@ -1475,5 +1551,14 @@ impl Handler<GetSplitStorageInfo, Result<SplitStorageInfoView, GetSplitStorageIn
             cold_head_height: cold_head.map(|tip| tip.height),
             hot_db_kind,
         })
+    }
+}
+
+impl Handler<GetCurrentEpochHeight, Option<EpochHeight>> for ViewClientActor {
+    fn handle(&mut self, _: GetCurrentEpochHeight) -> Option<EpochHeight> {
+        let Ok(tip) = self.chain.head() else {
+            return None;
+        };
+        self.epoch_manager.get_epoch_info(&tip.epoch_id).map(|info| info.epoch_height()).ok()
     }
 }

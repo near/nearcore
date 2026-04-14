@@ -1,14 +1,14 @@
-use std::cell::RefCell;
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
-
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::peer_manager_actor::HandlerResult;
+use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
+use crate::utils::transactions::get_anchor_hash;
 use itertools::Itertools as _;
 use near_async::messaging::{CanSend as _, Handler as _};
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_client::{ProcessTxRequest, Query};
 use near_network::types::NetworkRequests;
+use near_network::types::NetworkResponses;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -16,10 +16,10 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, BlockReference, NumSeats, ShardId};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
-use crate::utils::transactions::get_anchor_hash;
+use std::cell::RefCell;
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 /// Verifies that fetching of random parts works properly by issuing transactions during the
 /// third epoch, and then making sure that the balances are correct for the next three epochs.
@@ -27,6 +27,8 @@ use crate::utils::transactions::get_anchor_hash;
 /// assigned to were to have incorrect receipts, the balances in the fourth epoch would have
 /// been incorrect due to wrong receipts applied during the third epoch.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_catchup_random_single_part_sync() {
     test_catchup_random_single_part_sync_common(RandomSinglePartTest {
         skip_24: false,
@@ -39,6 +41,8 @@ fn ultra_slow_test_catchup_random_single_part_sync() {
 // It causes all the receipts to be applied only on height 25, which is the next epoch.
 // It tests that the incoming receipts are property synced through epochs
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_catchup_random_single_part_sync_skip_24() {
     test_catchup_random_single_part_sync_common(RandomSinglePartTest {
         skip_24: true,
@@ -48,6 +52,8 @@ fn ultra_slow_test_catchup_random_single_part_sync_skip_24() {
 }
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_catchup_random_single_part_sync_send_24() {
     test_catchup_random_single_part_sync_common(RandomSinglePartTest {
         skip_24: false,
@@ -58,6 +64,8 @@ fn ultra_slow_test_catchup_random_single_part_sync_send_24() {
 
 // Make sure that transactions are at least applied.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_catchup_random_single_part_sync_non_zero_amounts() {
     test_catchup_random_single_part_sync_common(RandomSinglePartTest {
         skip_24: false,
@@ -68,6 +76,8 @@ fn ultra_slow_test_catchup_random_single_part_sync_non_zero_amounts() {
 
 // Use another height to send txs.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_catchup_random_single_part_sync_height_9() {
     test_catchup_random_single_part_sync_common(RandomSinglePartTest {
         skip_24: false,
@@ -126,13 +136,12 @@ fn test_catchup_random_single_part_sync_common(
         .genesis(genesis)
         .clients(runner.all_validators_accounts())
         .epoch_config_store(epoch_config_store)
-        .build()
-        .warmup();
+        .build();
 
     for node_datas in &env.node_datas {
         let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
+        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
             if let NetworkRequests::PartialEncodedChunkMessage { partial_encoded_chunk, .. } =
                 &request
             {
@@ -140,11 +149,11 @@ fn test_catchup_random_single_part_sync_common(
                     if partial_encoded_chunk.header.height_created() == 23
                         || partial_encoded_chunk.header.height_created() == 24
                     {
-                        return None;
+                        return HandlerResult::Handled(NetworkResponses::NoResponse);
                     }
                 }
             }
-            Some(request)
+            HandlerResult::Unhandled(request)
         }));
     }
 
@@ -265,8 +274,6 @@ fn test_catchup_random_single_part_sync_common(
             }
         }
     }
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
 /// Makes sure that consecutive blocks are produced by 12 validators split into three epochs.
@@ -275,6 +282,8 @@ fn test_catchup_random_single_part_sync_common(
 /// This test would fail if at any point validators got stuck with state sync, or block
 /// production stalled for any other reason.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_catchup_sanity_blocks_produced() {
     let validators: Vec<Vec<AccountId>> = [
         vec!["test1.1", "test1.2", "test1.3", "test1.4"],
@@ -314,8 +323,7 @@ fn slow_test_catchup_sanity_blocks_produced() {
             config.max_block_production_delay = 3 * block_prod_time;
             config.max_block_wait_delay = 3 * block_prod_time;
         })
-        .build()
-        .warmup();
+        .build();
 
     let heights = Rc::new(RefCell::new(HashMap::new()));
     for node_datas in &env.node_datas {
@@ -333,7 +341,7 @@ fn slow_test_catchup_sanity_blocks_produced() {
 
         let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
+        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
             if let NetworkRequests::Block { block } = &request {
                 check_height(*block.hash(), block.header().height());
 
@@ -345,10 +353,10 @@ fn slow_test_catchup_sanity_blocks_produced() {
 
                 // Do not propagate blocks at %10=4
                 if block.header().height() % 10 == 4 {
-                    return None;
+                    return HandlerResult::Handled(NetworkResponses::NoResponse);
                 }
             }
-            Some(request)
+            HandlerResult::Unhandled(request)
         }));
     }
 
@@ -362,11 +370,11 @@ fn slow_test_catchup_sanity_blocks_produced() {
         },
         Duration::seconds(120),
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_all_chunks_accepted() {
     init_test_logger();
 
@@ -402,15 +410,14 @@ fn slow_test_all_chunks_accepted() {
         .genesis(genesis)
         .clients(accounts)
         .epoch_config_store(epoch_config_store)
-        .build()
-        .warmup();
+        .build();
 
     let seen_chunk_same_sender = Rc::new(RefCell::new(HashSet::<(AccountId, u64, ShardId)>::new()));
     for node_datas in &env.node_datas {
         let seen_chunk_same_sender = seen_chunk_same_sender.clone();
         let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |msg| -> Option<NetworkRequests> {
+        peer_actor.register_override_handler(Box::new(move |msg| -> HandlerResult {
             match msg {
                 NetworkRequests::PartialEncodedChunkMessage {
                     ref account_id,
@@ -443,7 +450,7 @@ fn slow_test_all_chunks_accepted() {
                 }
                 _ => (),
             }
-            Some(msg)
+            HandlerResult::Unhandled(msg)
         }));
     }
 
@@ -457,6 +464,4 @@ fn slow_test_all_chunks_accepted() {
         },
         Duration::seconds(last_height as i64),
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }

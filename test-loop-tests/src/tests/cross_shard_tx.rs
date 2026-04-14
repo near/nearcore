@@ -1,5 +1,10 @@
-use std::sync::Arc;
-
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
+use crate::setup::peer_manager_actor::HandlerResult;
+use crate::setup::state::NodeExecutionData;
+use crate::utils::get_node_data;
+use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
+use crate::utils::transactions::get_anchor_hash;
 use itertools::Itertools as _;
 use near_async::messaging::{CanSend as _, Handler as _};
 use near_async::test_loop::data::TestLoopData;
@@ -7,6 +12,7 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::{ProcessTxRequest, Query};
 use near_network::types::NetworkRequests;
+use near_network::types::NetworkResponses;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
@@ -15,13 +21,7 @@ use near_primitives::types::{AccountId, Balance, BlockReference, NumSeats};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use parking_lot::RwLock;
 use rand::{Rng as _, thread_rng};
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::env::TestLoopEnv;
-use crate::setup::state::NodeExecutionData;
-use crate::utils::get_node_data;
-use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
-use crate::utils::transactions::get_anchor_hash;
+use std::sync::Arc;
 
 struct Params {
     num_transfers: usize,
@@ -118,14 +118,13 @@ fn test_cross_shard_tx_common(Params { num_transfers, rotate_validators, drop_ch
         .genesis(genesis)
         .clients(validator_accounts)
         .epoch_config_store(epoch_config_store)
-        .build()
-        .warmup();
+        .build();
 
     for node_datas in &env.node_datas {
         let rng = rng.clone();
         let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
+        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
             let mut rng = rng.write();
             match &request {
                 NetworkRequests::PartialEncodedChunkRequest { .. }
@@ -133,12 +132,12 @@ fn test_cross_shard_tx_common(Params { num_transfers, rotate_validators, drop_ch
                 | NetworkRequests::PartialEncodedChunkMessage { .. }
                 | NetworkRequests::PartialEncodedChunkForward { .. } => {
                     if drop_chunks && rng.gen_ratio(1, 5) {
-                        return None;
+                        return HandlerResult::Handled(NetworkResponses::NoResponse);
                     }
                 }
                 _ => (),
             }
-            Some(request)
+            HandlerResult::Unhandled(request)
         }));
     }
 
@@ -208,8 +207,6 @@ fn test_cross_shard_tx_common(Params { num_transfers, rotate_validators, drop_ch
         },
         Duration::seconds(num_transfers as i64 * 4),
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
 enum Runner {
@@ -282,6 +279,8 @@ fn ultra_slow_test_cross_shard_tx() {
 }
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_cross_shard_tx_drop_chunks() {
     test_cross_shard_tx_common(Params {
         num_transfers: 64,
@@ -291,6 +290,8 @@ fn ultra_slow_test_cross_shard_tx_drop_chunks() {
 }
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_cross_shard_tx_with_validator_rotation() {
     test_cross_shard_tx_common(Params {
         num_transfers: 24,
@@ -300,6 +301,8 @@ fn ultra_slow_test_cross_shard_tx_with_validator_rotation() {
 }
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_cross_shard_tx_with_validator_rotation_drop_chunks() {
     test_cross_shard_tx_common(Params {
         num_transfers: 24,

@@ -1,11 +1,10 @@
-use std::collections::BTreeMap;
-
 use crate::errors::RuntimeError;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::config::CongestionControlConfig;
 use near_primitives_core::types::{Gas, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 use ordered_float::NotNan;
+use std::collections::BTreeMap;
 
 /// This class combines the congestion control config, congestion info and
 /// missed chunks count. It contains the main congestion control logic and
@@ -518,11 +517,10 @@ impl ShardAcceptsTransactions {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use itertools::Itertools;
     use near_parameters::RuntimeConfigStore;
     use near_primitives_core::version::PROTOCOL_VERSION;
-
-    use super::*;
 
     fn get_config() -> CongestionControlConfig {
         // Fix the initial configuration of congestion control for the tests.

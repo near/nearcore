@@ -1,4 +1,5 @@
 use crate::network_protocol::{Edge, EdgeState};
+use crate::peer_manager::network_state::EdgesWithSource;
 use crate::routing::bfs;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
@@ -133,11 +134,20 @@ impl Inner {
     ///
     /// This method implements a security measure against an adversary sending invalid edges:
     /// * it deduplicates edges and drops known edges before verification, because verification is expensive.
-    /// * it verifies edges in parallel until the first invalid edge is found. It adds the edges
+    /// * it verifies edges until the first invalid edge is found. It adds the edges
     ///   verified so far (and returns them), but drops all the remaining ones. This way the
     ///   wasted work (verification of invalid edges) is constant, no matter how large the input
     ///   size is.
-    fn add_edges(&mut self, clock: &time::Clock, mut edges: Vec<Edge>) -> (Vec<Edge>, bool) {
+    fn add_edges(
+        &mut self,
+        clock: &time::Clock,
+        edges_and_source: EdgesWithSource,
+    ) -> (Vec<Edge>, bool) {
+        let (mut edges, self_loop_allowed) = match edges_and_source {
+            EdgesWithSource::Local(edges) => (edges, true),
+            EdgesWithSource::Remote(edges) => (edges, false),
+        };
+
         metrics::EDGE_UPDATES.inc_by(edges.len() as u64);
         // Start with deduplicating the edges.
         // TODO(gprusak): sending duplicate edges should be considered a malicious behavior
@@ -166,14 +176,19 @@ impl Inner {
         let mut valid_edges = Vec::<Edge>::new();
         let mut ok = true;
         for edge in edges {
-            if !edge.verify() {
+            if edge.key().0 == edge.key().1 {
+                // Locally a node might create a self-loop to validate its self-discovered public IP, but that
+                // should not be propagated over the network.
+                if self_loop_allowed {
+                    continue;
+                }
+                // Invalid edge: self-loop from a remote peer.
                 ok = false;
                 break;
             }
-            if edge.key().0 == edge.key().1 {
-                // Skip self-loops. We don't reject them outright, because in T1 self-discovery we do
-                // create self-loop edges; we just don't want to add them to the graph.
-                continue;
+            if !edge.verify() {
+                ok = false;
+                break;
             }
             valid_edges.push(edge);
         }
@@ -285,7 +300,7 @@ impl Graph {
     /// node. The node would then validate all the edges every time, then reject the whole set
     /// because just the last edge was invalid. Instead, we accept all the edges verified so
     /// far and return an error only afterwards.
-    pub async fn update(&self, edges: Vec<Vec<Edge>>) -> (Vec<Edge>, Vec<bool>) {
+    pub async fn update(&self, edges: Vec<EdgesWithSource>) -> (Vec<Edge>, Vec<bool>) {
         self.updater.send_async(UpdateEdges(edges)).await.unwrap()
     }
 }
@@ -299,7 +314,7 @@ struct GraphActor {
 impl Actor for GraphActor {}
 
 #[derive(Debug)]
-struct UpdateEdges(Vec<Vec<Edge>>);
+struct UpdateEdges(Vec<EdgesWithSource>);
 
 impl Handler<UpdateEdges, (Vec<Edge>, Vec<bool>)> for GraphActor {
     fn handle(&mut self, msg: UpdateEdges) -> (Vec<Edge>, Vec<bool>) {

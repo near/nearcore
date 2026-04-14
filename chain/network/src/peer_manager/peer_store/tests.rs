@@ -136,13 +136,11 @@ fn test_unknown_vs_not_connected() {
     );
 
     // And fail when trying to reconnect to b.
-    peer_store
-        .peer_connection_attempt(
-            &clock.clock(),
-            &peer_info_b.id,
-            Err(anyhow::anyhow!("b failed to connect error")),
-        )
-        .unwrap();
+    peer_store.peer_connection_attempt(
+        &clock.clock(),
+        &peer_info_b.id,
+        Err(anyhow::anyhow!("b failed to connect error")),
+    );
 
     // It should move 'back' into Unknown state.
     assert_eq!(get_in_memory_status(&peer_store), [Some(Connected), Some(Unknown), Some(Unknown)]);

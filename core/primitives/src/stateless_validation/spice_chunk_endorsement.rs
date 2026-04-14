@@ -1,5 +1,3 @@
-use std::fmt::Debug;
-
 use crate::block_body::SpiceCoreStatement;
 use crate::types::{
     ChunkExecutionResult, ChunkExecutionResultHash, SpiceChunkId, StaticSignatureDifferentiator,
@@ -10,6 +8,7 @@ use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
 use near_schema_checker_lib::ProtocolSchema;
+use std::fmt::Debug;
 
 /// The endorsement of a chunk execution results by a chunk validator. By providing this, a
 /// chunk validator has verified the chunk execution results.
@@ -231,12 +230,10 @@ pub fn testonly_create_chunk_endorsement(
 
 #[cfg(test)]
 mod tests {
-    use near_primitives_core::types::ShardId;
-
+    use super::*;
     use crate::test_utils::create_test_signer;
     use crate::types::chunk_extra::ChunkExtra;
-
-    use super::*;
+    use near_primitives_core::types::ShardId;
 
     #[test]
     fn test_created_endorsement_core_statement_signature_is_valid() {

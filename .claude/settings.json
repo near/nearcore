@@ -1,0 +1,32 @@
+{
+  "spinnerVerbs": {
+    "mode": "append",
+    "verbs": [
+      "Herding stray transactions",
+      "Shaking the Merkle tree",
+      "Convincing chunks to behave",
+      "Teaching nonces to count",
+      "Warming up the cold storage",
+      "Summoning the epoch manager",
+      "Loading memtries",
+      "Burning gas",
+      "Garbage-collecting",
+      "Resharding the state",
+      "Finalizing blocks",
+      "Reaching consensus",
+      "Validating chunks",
+      "Producing blocks",
+      "Propagating transactions",
+      "Syncing headers",
+      "Endorsing chunks",
+      "Running a full state sync",
+      "Hashing mercilessly",
+      "Proving zero-knowledgeability",
+      "Mining nonces",
+      "Shuffling nonces",
+      "Gossiping with neighbors",
+      "Catching up blocks",
+      "Carefully forking the chain"
+    ]
+  }
+}

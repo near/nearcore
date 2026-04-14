@@ -1,9 +1,7 @@
-use std::io;
-
-use thiserror::Error;
-
 use crate::Temperature;
 use ::rocksdb::checkpoint::Checkpoint;
+use std::io;
+use thiserror::Error;
 
 /// Representation of a RocksDB checkpoint.
 ///
@@ -91,8 +89,7 @@ impl Snapshot {
             None => return Ok(Self::none()),
         };
 
-        tracing::info!(target: "db", snapshot_path=%snapshot_path.display(),
-                       "Creating database snapshot");
+        tracing::info!(target: "db", snapshot_path = %snapshot_path.display(), "creating database snapshot");
         if snapshot_path.exists() {
             return Err(SnapshotError::AlreadyExists(snapshot_path));
         }
@@ -109,8 +106,7 @@ impl Snapshot {
     /// Does nothing if the object has been created via [`Self::none`].
     pub fn remove(mut self) -> Result<(), SnapshotRemoveError> {
         if let Some(path) = self.0.take() {
-            tracing::info!(target: "db", snapshot_path=%path.display(),
-                           "Deleting the database snapshot");
+            tracing::info!(target: "db", snapshot_path = %path.display(), "deleting the database snapshot");
             std::fs::remove_dir_all(&path).map_err(|error| SnapshotRemoveError { path, error })
         } else {
             Ok(())
@@ -126,13 +122,8 @@ impl std::ops::Drop for Snapshot {
     /// system and how to recover data from it.
     fn drop(&mut self) {
         if let Some(path) = &self.0 {
-            tracing::info!(target: "db", snapshot_path=%path.display(),
-                           "In case of issues, the database can be recovered \
-                            from the database snapshot");
-            tracing::info!(target: "db", snapshot_path=%path.display(),
-                           "To recover from the snapshot, delete files in the \
-                            database directory and replace them with contents \
-                            of the snapshot directory");
+            tracing::info!(target: "db", snapshot_path = %path.display(), "in case of issues, the database can be recovered from the database snapshot");
+            tracing::info!(target: "db", snapshot_path = %path.display(), "to recover from the snapshot, delete files in the database directory and replace them with contents of the snapshot directory");
         }
     }
 }
@@ -180,7 +171,7 @@ fn test_snapshot_recovery() {
         let store = opener.open().unwrap().get_hot_store();
         let mut update = store.store_update();
         update.set_raw_bytes(COL, KEY, b"value");
-        update.commit().unwrap();
+        update.commit();
     }
 
     // Create snapshot
@@ -192,9 +183,9 @@ fn test_snapshot_recovery() {
         let store = opener.open().unwrap().get_hot_store();
         let mut update = store.store_update();
         update.delete(COL, KEY);
-        update.commit().unwrap();
+        update.commit();
 
-        assert_eq!(None, store.get(COL, KEY).unwrap());
+        assert_eq!(None, store.get(COL, KEY));
     }
 
     // Open snapshot.  Deleted data should be there.
@@ -203,7 +194,7 @@ fn test_snapshot_recovery() {
         config.path = Some(path);
         let opener = crate::NodeStorage::opener(tmpdir.path(), &config, None, None);
         let store = opener.open().unwrap().get_hot_store();
-        assert_eq!(Some(&b"value"[..]), store.get(COL, KEY).unwrap().as_deref());
+        assert_eq!(Some(&b"value"[..]), store.get(COL, KEY).as_deref());
     }
 
     snapshot.remove().unwrap();

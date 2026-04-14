@@ -1,7 +1,6 @@
-use std::{collections::HashMap, io, sync::Arc};
-
+use crate::utils::runtime_utils::{TEST_SHARD_UID, get_runtime_and_trie, get_test_trie_viewer};
 use borsh::BorshDeserialize;
-
+use near_parameters::RuntimeConfigStore;
 use near_primitives::{
     account::{Account, AccountContract},
     hash::{CryptoHash, hash as sha256},
@@ -19,9 +18,8 @@ use near_primitives::{
 use near_store::{NibbleSlice, RawTrieNode, RawTrieNodeWithSize, ShardUId, set_account};
 use node_runtime::state_viewer::errors;
 use node_runtime::state_viewer::*;
+use std::{collections::HashMap, io, sync::Arc};
 use testlib::runtime_utils::alice_account;
-
-use crate::utils::runtime_utils::{TEST_SHARD_UID, get_runtime_and_trie, get_test_trie_viewer};
 
 struct ProofVerifier {
     nodes: HashMap<CryptoHash, RawTrieNodeWithSize>,
@@ -286,7 +284,7 @@ fn test_view_state() {
     let trie_changes = state_update.finalize().unwrap().trie_changes;
     let mut db_changes = tries.store_update();
     let new_root = tries.apply_all(&trie_changes, shard_uid, &mut db_changes);
-    db_changes.commit().unwrap();
+    db_changes.commit();
 
     let state_update = tries.new_trie_update(shard_uid, new_root);
     let trie_viewer = TrieViewer::default();
@@ -369,7 +367,7 @@ fn test_view_state_too_large() {
         alice_account(),
         &Account::new(Balance::ZERO, Balance::ZERO, AccountContract::None, 50_001),
     );
-    let trie_viewer = TrieViewer::new(Some(50_000), None);
+    let trie_viewer = TrieViewer::new(RuntimeConfigStore::new(None), Some(50_000), None);
     let result = trie_viewer.view_state(&state_update, &alice_account(), b"", false);
     assert!(matches!(result, Err(errors::ViewStateError::AccountStateTooLarge { .. })));
 }
@@ -390,7 +388,7 @@ fn test_view_state_with_large_contract() {
         ),
     );
     state_update.set(TrieKey::ContractCode { account_id: alice_account() }, contract_code);
-    let trie_viewer = TrieViewer::new(Some(50_000), None);
+    let trie_viewer = TrieViewer::new(RuntimeConfigStore::new(None), Some(50_000), None);
     let result = trie_viewer.view_state(&state_update, &alice_account(), b"", false);
     assert!(result.is_ok());
 }

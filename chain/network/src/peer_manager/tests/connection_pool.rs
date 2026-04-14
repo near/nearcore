@@ -1,7 +1,7 @@
 use crate::config::SocketOptions;
-use crate::network_protocol::PeerMessage;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{Encoding, Handshake, OwnedAccount, PartialEdgeInfo};
+use crate::network_protocol::{Disconnect, PeerMessage};
+use crate::network_protocol::{Handshake, OwnedAccount, PartialEdgeInfo};
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager;
 use crate::peer_manager::connection;
@@ -16,6 +16,42 @@ use near_async::time;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::version::PROTOCOL_VERSION;
 use std::sync::Arc;
+
+// Verify that a Disconnect message received on a T3 connection is accepted
+// (not rejected as a disallowed message).
+#[tokio::test]
+async fn t3_disconnect() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let pm = peer_manager::testonly::start(
+        clock.clock(),
+        near_store::db::TestDB::new(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
+
+    let cfg = chain.make_config(rng);
+    let conn = pm.start_outbound(chain.clone(), cfg, tcp::Tier::T3).await;
+    let stream_id = conn.stream.id();
+    let mut events = pm.events.from_now();
+    let peer = conn.handshake(&clock.clock()).await;
+
+    // Send a Disconnect message from the peer side over T3.
+    peer.send(PeerMessage::Disconnect(Disconnect { remove_from_connection_store: false })).await;
+
+    let reason = events
+        .recv_until(|ev| match ev {
+            Event::ConnectionClosed(ev) if ev.stream_id == stream_id => Some(ev.reason),
+            _ => None,
+        })
+        .await;
+    assert_eq!(reason, ClosingReason::DisconnectMessage);
+}
 
 #[tokio::test]
 async fn slow_test_connection_spam_security_test() {
@@ -90,7 +126,7 @@ async fn loop_connection() {
     let stream_id = stream.id();
     let port = stream.local_addr.port();
     let mut events = pm.events.from_now();
-    let mut stream = Stream::new(Some(Encoding::Proto), stream);
+    let mut stream = Stream::new(stream);
     stream
         .write(&PeerMessage::Tier2Handshake(Handshake {
             protocol_version: PROTOCOL_VERSION,
@@ -148,7 +184,7 @@ async fn owned_account_mismatch() {
     let stream_id = stream.id();
     let port = stream.local_addr.port();
     let mut events = pm.events.from_now();
-    let mut stream = Stream::new(Some(Encoding::Proto), stream);
+    let mut stream = Stream::new(stream);
     let cfg = chain.make_config(rng);
     let signer = cfg.validator.signer.get().unwrap();
     stream
@@ -269,14 +305,14 @@ async fn invalid_edge() {
 
     for (name, edge) in &testcases {
         for tier in [tcp::Tier::T1, tcp::Tier::T2, tcp::Tier::T3] {
-            tracing::info!(target:"test","{name} {tier:?}");
+            tracing::info!(target:"test", %name, ?tier, "test case");
             let stream = tcp::Stream::connect(&pm.peer_info(), tier, &SocketOptions::default())
                 .await
                 .unwrap();
             let stream_id = stream.id();
             let port = stream.local_addr.port();
             let mut events = pm.events.from_now();
-            let mut stream = Stream::new(Some(Encoding::Proto), stream);
+            let mut stream = Stream::new(stream);
             let signer = cfg.validator.signer.get().unwrap();
             let handshake = Handshake {
                 protocol_version: PROTOCOL_VERSION,

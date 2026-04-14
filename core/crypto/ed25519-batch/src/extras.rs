@@ -2,7 +2,6 @@
 //! additional non-malleable signature checks (`safe_verify_batch`).
 
 use crate::errors::InternalError;
-
 use curve25519_dalek::EdwardsPoint;
 use curve25519_dalek::edwards::CompressedEdwardsY;
 use ed25519_dalek::{PUBLIC_KEY_LENGTH, VerifyingKey};

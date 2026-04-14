@@ -1,10 +1,10 @@
 use crate::db::Database;
+use crate::primitives::RawTrace;
 use crate::profile::{Category, Profile, ProfileMeta, StringTableBuilder, Thread};
-use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
+use axum::body::Body;
+use axum::http::header;
 use axum::response::{IntoResponse, Response};
-use std::sync::Arc;
-use tower_http::cors::CorsLayer;
-use tower_http::compression::CompressionLayer;
+use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 use bson::doc;
 use mongodb::options::FindOptions;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
@@ -15,11 +15,22 @@ use opentelemetry_proto::tonic::trace::v1::Span;
 use prost::Message;
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashSet};
-use tonic::codegen::tokio_stream::StreamExt;
+use std::error::Error as StdError;
+use std::sync::Arc;
+use tokio_stream::StreamExt;
+use tonic::codegen::tokio_stream;
+use tower_http::compression::CompressionLayer;
+use tower_http::cors::CorsLayer;
 
 // Custom error type for axum responses
 #[derive(Debug)]
 struct QueryError(std::io::Error);
+
+impl QueryError {
+    fn new(err: impl Into<String>) -> QueryError {
+        QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.into()))
+    }
+}
 
 impl IntoResponse for QueryError {
     fn into_response(self) -> Response {
@@ -33,18 +44,24 @@ impl From<std::io::Error> for QueryError {
     }
 }
 
+impl From<QueryError> for Box<(dyn StdError + Send + Sync + 'static)> {
+    fn from(query_error: QueryError) -> Self {
+        Box::new(query_error.0)
+    }
+}
+
 /// Runs a server that allows trace data to be queried and returned as a
 /// Firefox profile.
 pub async fn run_query_server(db: Database, port: u16) -> std::io::Result<()> {
     let state = Arc::new(QueryState { db });
-    
+
     let app = Router::new()
         .route("/raw_trace", post(raw_trace))
         .route("/profile", post(profile))
         .with_state(state)
         .layer(CorsLayer::permissive())
         .layer(CompressionLayer::new());
-    
+
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", port)).await?;
     axum::serve(listener, app).await
 }
@@ -109,10 +126,11 @@ impl QueryFilter {
 async fn raw_trace(
     State(data): State<Arc<QueryState>>,
     Json(req): Json<Query>,
-) -> Result<Json<Vec<ExportTraceServiceRequest>>, QueryError> {
+) -> Result<impl IntoResponse, QueryError> {
     // TODO: Set a limit on the duration of the request interval.
+
     let col = data.db.raw_traces();
-    let mut chunks = col
+    let chunks = col
         .find(
             doc! {
                 "max_time": {"$gt": req.start_timestamp_unix_ms * 1000000},
@@ -121,19 +139,49 @@ async fn raw_trace(
             Some(FindOptions::builder().batch_size(100).build()),
         )
         .await
-        .map_err(|err| QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string())))?;
+        .map_err(|err| QueryError::new(err.to_string()))?;
 
-    let mut result: Vec<ExportTraceServiceRequest> = Vec::new();
-    while let Some(chunk) = chunks.next().await {
-        let chunk_bytes = chunk
-            .map_err(|err| QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string())))?
-            .data
-            .bytes;
-        let request = ExportTraceServiceRequest::decode(chunk_bytes.as_slice())
-            .map_err(|err| QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string())))?;
-        result.push(request);
+    let mut is_first_request = true;
+    let mut was_error = false;
+    let main_stream = chunks.map_while(move |read_res| -> Option<String> {
+        if was_error {
+            return None;
+        }
+
+        match raw_trace_to_json_str(read_res, &mut is_first_request) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                // If an error occurs, output it in the response body and stop the stream.
+                // It'll produce invalid json. The user can take a look at it to figure out what went wrong.
+                let res = Some(format!("\nERROR: {:?}", e));
+                was_error = true;
+                res
+            }
+        }
+    });
+
+    let response_stream = tokio_stream::once("[".to_string())
+        .chain(main_stream)
+        .chain(tokio_stream::once("]".to_string()))
+        .map(Ok::<String, QueryError>);
+
+    Ok(([(header::CONTENT_TYPE, "application/json")], Body::from_stream(response_stream)))
+}
+
+fn raw_trace_to_json_str(
+    res: mongodb::error::Result<RawTrace>,
+    is_first_request: &mut bool,
+) -> anyhow::Result<String> {
+    let chunk_bytes = res?.data.bytes;
+    let request = ExportTraceServiceRequest::decode(chunk_bytes.as_slice())?;
+    let result = serde_json::to_string(&request)?;
+
+    if *is_first_request {
+        *is_first_request = false;
+        Ok(result)
+    } else {
+        Ok(format!(",{}", result))
     }
-    Ok(Json(result))
 }
 
 async fn profile(
@@ -151,16 +199,13 @@ async fn profile(
             Some(FindOptions::builder().batch_size(100).build()),
         )
         .await
-        .map_err(|err| QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string())))?;
+        .map_err(|err| QueryError::new(err.to_string()))?;
 
     let mut result = QueryResult::default();
     while let Some(chunk) = chunks.next().await {
-        let chunk_bytes = chunk
-            .map_err(|err| QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string())))?
-            .data
-            .bytes;
+        let chunk_bytes = chunk.map_err(|err| QueryError::new(err.to_string()))?.data.bytes;
         let request = ExportTraceServiceRequest::decode(chunk_bytes.as_slice())
-            .map_err(|err| QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string())))?;
+            .map_err(|err| QueryError::new(err.to_string()))?;
         for resource_span in request.resource_spans {
             if let Some(resource) = resource_span.resource {
                 for scope_span in resource_span.scope_spans {

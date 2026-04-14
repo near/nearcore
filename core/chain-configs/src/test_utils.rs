@@ -1,5 +1,13 @@
-use std::cmp::min;
-
+use crate::{
+    ClientConfig, EpochSyncConfig, FAST_EPOCH_LENGTH, GAS_PRICE_ADJUSTMENT_RATE, GCConfig, Genesis,
+    GenesisConfig, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE, MIN_GAS_PRICE,
+    MutableConfigValue, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE, PROTOCOL_TREASURY_ACCOUNT,
+    ReshardingConfig, StateSyncConfig, TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig,
+    default_chunks_cache_height_horizon, default_enable_early_prepare_transactions,
+    default_orphan_state_witness_max_size, default_orphan_state_witness_pool_size,
+    default_produce_chunk_add_transactions_time_limit,
+    default_transaction_pool_strict_nonce_ttl_blocks,
+};
 use chrono::{DateTime, Utc};
 use near_crypto::{InMemorySigner, PublicKey};
 use near_primitives::account::{AccessKey, Account, AccountContract};
@@ -11,15 +19,7 @@ use near_primitives::utils::{from_timestamp, generate_random_string};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_time::{Clock, Duration};
 use num_rational::{Ratio, Rational32};
-
-use crate::{
-    ClientConfig, EpochSyncConfig, FAST_EPOCH_LENGTH, GAS_PRICE_ADJUSTMENT_RATE, GCConfig, Genesis,
-    GenesisConfig, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE, MIN_GAS_PRICE,
-    MutableConfigValue, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE, PROTOCOL_TREASURY_ACCOUNT,
-    ReshardingConfig, StateSyncConfig, TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig,
-    default_enable_early_prepare_transactions, default_orphan_state_witness_max_size,
-    default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
-};
+use std::cmp::min;
 
 /// Returns the default value for the thread count associated with rpc-handler actor (currently
 /// handling incoming transactions and chunk endorsement validations).
@@ -105,8 +105,11 @@ impl Genesis {
             );
         }
         add_protocol_account(&mut records);
-        let epoch_config =
-            Genesis::test_epoch_config(num_validator_seats, shard_layout, FAST_EPOCH_LENGTH);
+        let epoch_config = Genesis::test_epoch_config(
+            num_validator_seats,
+            shard_layout.clone(),
+            FAST_EPOCH_LENGTH,
+        );
         let config = GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
             genesis_time,
@@ -125,8 +128,6 @@ impl Genesis {
 
             // epoch config parameters
             num_block_producer_seats: epoch_config.num_block_producer_seats,
-            num_block_producer_seats_per_shard: epoch_config.num_block_producer_seats_per_shard,
-            avg_hidden_validator_seats_per_shard: epoch_config.avg_hidden_validator_seats_per_shard,
             protocol_upgrade_stake_threshold: epoch_config.protocol_upgrade_stake_threshold,
             epoch_length: epoch_config.epoch_length,
             block_producer_kickout_threshold: epoch_config.block_producer_kickout_threshold,
@@ -134,7 +135,7 @@ impl Genesis {
             chunk_validator_only_kickout_threshold: epoch_config
                 .chunk_validator_only_kickout_threshold,
             fishermen_threshold: epoch_config.fishermen_threshold,
-            shard_layout: epoch_config.shard_layout,
+            shard_layout,
             target_validator_mandates_per_shard: epoch_config.target_validator_mandates_per_shard,
             max_kickout_stake_perc: epoch_config.validator_max_kickout_stake_perc,
             online_min_threshold: epoch_config.online_min_threshold,
@@ -167,9 +168,8 @@ impl Genesis {
         clock: Clock,
         accounts: Vec<AccountId>,
         num_validator_seats: NumSeats,
-        num_validator_seats_per_shard: Vec<NumSeats>,
+        num_shards: NumShards,
     ) -> Self {
-        let num_shards = num_validator_seats_per_shard.len() as NumShards;
         Self::from_accounts(
             clock,
             accounts,
@@ -181,9 +181,8 @@ impl Genesis {
     pub fn test_sharded_new_version(
         accounts: Vec<AccountId>,
         num_validator_seats: NumSeats,
-        num_validator_seats_per_shard: Vec<NumSeats>,
+        num_shards: NumShards,
     ) -> Self {
-        let num_shards = num_validator_seats_per_shard.len() as NumShards;
         Self::from_accounts(
             Clock::real(),
             accounts,
@@ -308,6 +307,8 @@ impl ClientConfig {
             save_trie_changes: true,
             save_untracked_partial_chunks_parts: true,
             save_tx_outcomes: true,
+            save_receipt_to_tx: true,
+            save_state_changes: true,
             log_summary_style: LogSummaryStyle::Colored,
             view_client_threads: 1,
             chunk_validation_threads: 1,
@@ -322,6 +323,8 @@ impl ClientConfig {
             state_sync: StateSyncConfig::default(),
             epoch_sync: EpochSyncConfig::default(),
             transaction_pool_size_limit: None,
+            transaction_pool_strict_nonce_ttl_blocks:
+                default_transaction_pool_strict_nonce_ttl_blocks(),
             enable_multiline_logging: false,
             resharding_config: MutableConfigValue::new(
                 ReshardingConfig::default(),
@@ -340,7 +343,8 @@ impl ClientConfig {
             transaction_request_handler_threads: default_rpc_handler_thread_count(),
             protocol_version_check: Default::default(),
             enable_early_prepare_transactions: default_enable_early_prepare_transactions(),
-            dynamic_resharding_dry_run: false,
+            chunks_cache_height_horizon: default_chunks_cache_height_horizon(),
+            disable_tx_routing: false,
         }
     }
 }

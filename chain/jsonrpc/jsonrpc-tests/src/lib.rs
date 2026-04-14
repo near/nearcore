@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use axum::Router;
 use axum_test::TestServer;
 use near_async::ActorSystem;
@@ -9,9 +7,10 @@ use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{ClientConfig, Genesis, MutableConfigValue, TrackedShardsConfig};
 use near_client::adversarial::Controls;
 use near_client::client_actor::SpiceClientConfig;
-use near_client::{RpcHandlerConfig, ViewClientActorInner, spawn_rpc_handler_actor, start_client};
+use near_client::{RpcHandlerConfig, ViewClientActor, spawn_rpc_handler_actor, start_client};
 use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::{EpochManager, shard_tracker::ShardTracker};
+use near_jsonrpc::sharded_rpc::ShardedRpcPool;
 use near_jsonrpc::{RpcConfig, create_jsonrpc_app};
 use near_jsonrpc_primitives::types::entity_debug::DummyEntityDebugHandler;
 use near_network::tcp;
@@ -19,10 +18,13 @@ use near_primitives::epoch_info::RngSeed;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, NumSeats};
+use near_store::adapter::StoreAdapter as _;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use near_time::Clock;
 use nearcore::NightshadeRuntime;
+use parking_lot::RwLock;
+use std::sync::Arc;
 
 pub const TEST_SEED: RngSeed = [3; 32];
 
@@ -87,6 +89,7 @@ pub fn create_test_setup_with_accounts_and_validity(
     // Create genesis with all specified accounts
     let mut genesis = Genesis::test(all_accounts, num_validator_seats);
     genesis.config.epoch_length = 10; // Short epochs for faster tests
+    genesis.config.transaction_validity_period = 10 * 2;
 
     initialize_genesis_state(store.clone(), &genesis, None);
 
@@ -94,6 +97,7 @@ pub fn create_test_setup_with_accounts_and_validity(
 
     // 2. Create runtime
     let tempdir = tempfile::TempDir::new().expect("Failed to create temp directory");
+    let chain_store = store.chain_store();
     let runtime =
         NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
 
@@ -110,6 +114,9 @@ pub fn create_test_setup_with_accounts_and_validity(
     let shard_tracker =
         ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone(), signer.clone());
 
+    let (block_notification_watch_sender, block_notification_watch_receiver) =
+        tokio::sync::watch::channel(None);
+
     // 5. Create shared client config
     let client_config = ClientConfig::test(TestClientConfigParams {
         skip_sync_wait: true,
@@ -122,7 +129,7 @@ pub fn create_test_setup_with_accounts_and_validity(
 
     // 6. Create ViewClientActor
     let adv = Controls::default();
-    let view_client_actor = ViewClientActorInner::spawn_multithread_actor(
+    let view_client_actor = ViewClientActor::spawn_multithread_actor(
         Clock::real(),
         actor_system.clone(),
         chain_genesis.clone(),
@@ -158,6 +165,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         true,
         Some(TEST_SEED),
         noop().into_multi_sender(),
+        block_notification_watch_sender,
         SpiceClientConfig {
             chunk_executor_sender: noop().into_sender(),
             spice_chunk_validator_sender: noop().into_sender(),
@@ -172,15 +180,15 @@ pub fn create_test_setup_with_accounts_and_validity(
         tx_routing_height_horizon: client_config.tx_routing_height_horizon,
         epoch_length: client_config.epoch_length,
         transaction_validity_period,
+        disable_tx_routing: client_config.disable_tx_routing,
     };
 
     let rpc_handler_actor = spawn_rpc_handler_actor(
         actor_system.clone(),
         rpc_handler_config,
         client_result.tx_pool,
-        client_result.chunk_endorsement_tracker,
         epoch_manager,
-        shard_tracker,
+        shard_tracker.clone(),
         signer,
         runtime,
         noop().into_multi_sender(),
@@ -195,22 +203,32 @@ pub fn create_test_setup_with_accounts_and_validity(
         limits_config: Default::default(),
         enable_debug_rpc: false,
         experimental_debug_pages_src_path: None,
+        sharded_rpc: None,
     };
 
+    let pool = Arc::new(RwLock::new(ShardedRpcPool::new(
+        rpc_config.sharded_rpc.clone(),
+        shard_tracker,
+        chain_store,
+    )));
+
     let app = create_jsonrpc_app(
+        Clock::real(),
         rpc_config,
         genesis.config,
         client_result.client_actor.into_multi_sender(),
         view_client_actor.into_multi_sender(),
         rpc_handler_actor.into_multi_sender(),
         noop().into_multi_sender(),
+        block_notification_watch_receiver,
         #[cfg(feature = "test_features")]
         noop().into_multi_sender(),
         Arc::new(DummyEntityDebugHandler {}),
+        pool,
     );
 
     // 10. Create TestServer with real HTTP transport to get an address
-    let test_server = TestServer::builder()
+    let test_server: TestServer = TestServer::builder()
         .http_transport()
         .build(app.clone())
         .expect("Failed to create TestServer");

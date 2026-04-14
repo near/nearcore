@@ -130,10 +130,10 @@ impl crate::ChainAccess for ChainAccess {
                 Ok(c) => c,
                 Err(e) => {
                     tracing::error!(
-                        "Can't fetch source chain shard {} chunk at height {}. Are we tracking all shards?: {:?}",
-                        chunk.shard_id(),
-                        height,
-                        e
+                        shard_id = %chunk.shard_id(),
+                        %height,
+                        ?e,
+                        "can't fetch source chain shard chunk at height, are we tracking all shards?"
                     );
                     continue;
                 }
@@ -176,7 +176,7 @@ impl crate::ChainAccess for ChainAccess {
     }
 
     async fn get_receipt(&self, id: &CryptoHash) -> Result<Arc<Receipt>, ChainError> {
-        self.chain.get_receipt(id)?.ok_or(ChainError::Unknown)
+        self.chain.get_receipt(id).ok_or(ChainError::Unknown)
     }
 
     async fn get_full_access_keys(

@@ -60,10 +60,9 @@ impl LoadMemTrieCommand {
         let genesis_config = &near_config.genesis.config;
         // Note: this is not necessarily correct; it's just an estimate of the shard layout,
         // so that users of this tool doesn't have to specify the full shard UID.
-        let head =
-            store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY).unwrap().unwrap().last_block_hash;
+        let head = store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY).unwrap().last_block_hash;
         let block_header = store
-            .get_ser::<BlockHeader>(DBCol::BlockHeader, &borsh::to_vec(&head).unwrap())?
+            .get_ser::<BlockHeader>(DBCol::BlockHeader, &borsh::to_vec(&head).unwrap())
             .ok_or_else(|| anyhow::anyhow!("Block header not found"))?;
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &genesis_config, Some(home));
@@ -86,7 +85,7 @@ impl LoadMemTrieCommand {
         let start_time = std::time::Instant::now();
         runtime.get_tries().load_memtries_for_enabled_shards(
             &selected_shard_uids,
-            &[].into(),
+            None,
             !self.no_parallel,
         )?;
         println!(
@@ -179,8 +178,9 @@ impl SplitShardTrieCommand {
         // Re-create epoch manager with new shard layout
         let epoch_config_store = EpochConfigStore::for_chain_id(chain_id, None)
             .ok_or_else(|| anyhow::anyhow!("Cannot load epoch config store"))?;
-        let mut epoch_config = (**epoch_config_store.get_config(protocol_version)).clone();
-        epoch_config.shard_layout = shard_layout;
+        let epoch_config = (**epoch_config_store.get_config(protocol_version))
+            .clone()
+            .with_shard_layout(shard_layout);
         let epoch_config_store =
             EpochConfigStore::test_single_version(protocol_version, epoch_config);
         let epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(
@@ -249,7 +249,8 @@ impl<'a, 'b> MemtrieSizeCalculator<'a, 'b> {
     /// Get RAM usage of a shard trie
     /// Does a BFS of the whole memtrie
     fn get_shard_trie_size(&self, shard_uid: ShardUId) -> anyhow::Result<ByteSize> {
-        let chunk_extra = self.chain_store.get_chunk_extra(self.block.hash(), &shard_uid)?;
+        let chunk_extra =
+            self.chain_store.chunk_store().get_chunk_extra(self.block.hash(), &shard_uid)?;
         let state_root = chunk_extra.state_root();
         println!("Shard {shard_uid}: state root: {state_root}");
 
@@ -316,7 +317,7 @@ impl FindBoundaryAccountCommand {
         let final_head = chain_store.final_head()?;
         let block = chain_store.get_block(&final_head.prev_block_hash)?;
         let block_hash = *block.hash();
-        tracing::info!("Block height: {} block hash: {block_hash}", block.header().height());
+        tracing::info!(height = %block.header().height(), %block_hash, "block height and hash");
 
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &genesis_config, Some(home));
@@ -324,24 +325,23 @@ impl FindBoundaryAccountCommand {
             .context("could not create the transaction runtime")?;
         let shard_tries = runtime.get_tries();
         let shard_uid = self.shard_uid;
-        tracing::info!("Loading memtries for {shard_uid}...");
+        tracing::info!(?shard_uid, "loading memtries");
         shard_tries.load_memtrie(&shard_uid, None, false)?;
-        tracing::info!("Memtries loaded");
+        tracing::info!("memtries loaded");
 
         runtime.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid)?;
-        let chunk_extra = runtime.store().chain_store().get_chunk_extra(&block_hash, &shard_uid)?;
+        let chunk_extra = runtime.store().chunk_store().get_chunk_extra(&block_hash, &shard_uid)?;
         let state_root = chunk_extra.state_root();
         let trie = shard_tries.get_trie_for_shard(shard_uid, *state_root);
-        tracing::info!("Searching for boundary account...");
+        tracing::info!("searching for boundary account");
         let trie_split = find_trie_split(&trie)?;
 
         let boundary_account = trie_split.boundary_account;
         let left_memory = ByteSize::b(trie_split.left_memory);
         let right_memory = ByteSize::b(trie_split.right_memory);
-        tracing::info!("Boundary account found");
+        tracing::info!("boundary account found");
         println!("{boundary_account}"); // Printing to stdout for script usage 
-        tracing::info!("Left child memory usage: {left_memory}");
-        tracing::info!("Right child memory usage: {right_memory}");
+        tracing::info!(%left_memory, %right_memory, "child memory usage");
 
         tracing::info!(
             "WARNING: Calculated memory usages are artificial values that differ significantly\n\
@@ -398,10 +398,12 @@ impl ArchivalDataLossRecoveryCommand {
 
         // Get the shard layout and ensure the protocol version upgrade actually
         // contains a resharding.
-        let shard_layout =
-            epoch_manager.get_shard_layout_from_protocol_version(self.protocol_version);
-        let prev_shard_layout =
-            epoch_manager.get_shard_layout_from_protocol_version(self.protocol_version - 1);
+        let shard_layout = epoch_manager
+            .get_static_shard_layout_for_protocol_version(self.protocol_version)
+            .context("dynamic resharding protocol versions are not supported")?;
+        let prev_shard_layout = epoch_manager
+            .get_static_shard_layout_for_protocol_version(self.protocol_version - 1)
+            .context("dynamic resharding protocol versions are not supported")?;
         assert_ne!(
             shard_layout, prev_shard_layout,
             "The provided protocol version does not contain a resharding."
@@ -505,7 +507,7 @@ impl ArchivalDataLossRecoveryCommand {
                 rc_aware_set(&mut transaction, DBCol::State, key, value);
             }
         }
-        cold_db.write(transaction)?;
+        cold_db.write(transaction);
 
         Ok(())
     }

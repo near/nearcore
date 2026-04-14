@@ -94,7 +94,7 @@ impl DatabaseCommand {
                 cmd.run(home, &near_config.config.store, near_config.config.cold_store.as_ref())
             }
             SubCommand::RunMigrations(cmd) => cmd.run(home, genesis_validation),
-            SubCommand::StatePerf(cmd) => cmd.run(home),
+            SubCommand::StatePerf(cmd) => cmd.run(home, genesis_validation),
             SubCommand::LoadMemTrie(cmd) => cmd.run(home, genesis_validation),
             SubCommand::SplitShardTrie(cmd) => cmd.run(home, genesis_validation),
             SubCommand::FindBoundaryAccount(cmd) => cmd.run(home, genesis_validation),

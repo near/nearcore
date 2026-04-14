@@ -1,7 +1,10 @@
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-
+use super::drop_condition::{DropCondition, TestLoopChunksStorage};
+use super::peer_manager_actor::{
+    ChunkEndorsementSenderForTestLoopNetwork, ClientSenderForTestLoopNetwork,
+    SpiceDataDistributorSenderForTestLoopNetwork, TestLoopNetworkBlockInfo,
+    TestLoopNetworkSharedState, TestLoopPeerManagerActor, TxRequestHandleSenderForTestLoopNetwork,
+    ViewClientSenderForTestLoopNetwork,
+};
 use near_async::messaging::{IntoMultiSender, IntoSender, Sender};
 use near_async::test_loop::data::TestLoopDataHandle;
 use near_async::test_loop::sender::TestLoopSender;
@@ -12,10 +15,15 @@ use near_chain_configs::{ClientConfig, Genesis};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
 use near_client::archive::cold_store_actor::ColdStoreActor;
-use near_client::client_actor::ClientActorInner;
+use near_client::client_actor::ClientActor;
 use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
-use near_client::{PartialWitnessActor, RpcHandler, StateRequestActor, ViewClientActorInner};
+use near_client::{
+    ChunkEndorsementHandlerActor, PartialWitnessActor, RpcHandlerActor, StateRequestActor,
+    ViewClientActor,
+};
 use near_jsonrpc::ViewClientSenderForRpc;
+use near_jsonrpc::client::{JsonRpcClient, RpcTransport};
+use near_jsonrpc::sharded_rpc::ShardedRpcPool;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::PartialWitnessSenderForNetwork;
@@ -23,21 +31,19 @@ use near_network::types::StateRequestSenderForNetwork;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, Nonce};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
+use near_primitives::validator_signer::ValidatorSigner;
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::test_utils::TestNodeStorage;
 use nearcore::state_sync::StateSyncDumpHandle;
 use parking_lot::Mutex;
+use parking_lot::RwLock;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tempfile::TempDir;
-
-use crate::utils::peer_manager_actor::{
-    ClientSenderForTestLoopNetwork, SpiceDataDistributorSenderForTestLoopNetwork,
-    TestLoopNetworkBlockInfo, TestLoopNetworkSharedState, TestLoopPeerManagerActor,
-    TxRequestHandleSenderForTestLoopNetwork, ViewClientSenderForTestLoopNetwork,
-};
-
-use super::drop_condition::{DropCondition, TestLoopChunksStorage};
 
 const NETWORK_DELAY: Duration = Duration::milliseconds(10);
 
@@ -68,6 +74,7 @@ pub struct NodeSetupState {
     pub account_id: AccountId,
     pub client_config: ClientConfig,
     pub storage: TestNodeStorage,
+    pub validator_signer: Option<Arc<ValidatorSigner>>,
 }
 
 /// This is the state associated with each node in the test loop environment after being built.
@@ -78,10 +85,11 @@ pub struct NodeExecutionData {
     pub identifier: String,
     pub account_id: AccountId,
     pub peer_id: PeerId,
-    pub client_sender: TestLoopSender<ClientActorInner>,
-    pub view_client_sender: TestLoopSender<ViewClientActorInner>,
+    pub client_sender: TestLoopSender<ClientActor>,
+    pub view_client_sender: TestLoopSender<ViewClientActor>,
     pub state_request_sender: TestLoopSender<StateRequestActor>,
-    pub rpc_handler_sender: TestLoopSender<RpcHandler>,
+    pub rpc_handler_sender: TestLoopSender<RpcHandlerActor>,
+    pub chunk_endorsement_handler_sender: TestLoopSender<ChunkEndorsementHandlerActor>,
     pub shards_manager_sender: TestLoopSender<ShardsManagerActor>,
     pub partial_witness_sender: TestLoopSender<PartialWitnessActor>,
     pub peer_manager_sender: TestLoopSender<TestLoopPeerManagerActor>,
@@ -92,6 +100,29 @@ pub struct NodeExecutionData {
     pub cold_store_sender: Option<TestLoopSender<ColdStoreActor>>,
     pub cloud_storage_sender: TestLoopDataHandle<Option<Arc<CloudStorage>>>,
     pub cloud_archival_writer_handle: TestLoopDataHandle<Option<CloudArchivalWriterHandle>>,
+    pub jsonrpc_transport: Arc<dyn RpcTransport>,
+    pub sharded_rpc_pool: Arc<RwLock<ShardedRpcPool>>,
+    /// Extra blocks of delay between consensus head and execution head.
+    /// Set by delay_endorsements_propagation to account for certification delay in timeouts.
+    /// It is Arc<_> so updates are visible through clones.
+    pub(super) expected_execution_delay: Arc<AtomicU64>,
+    /// Tracks the next nonce to use per account across multiple transactions
+    /// within the same block, before on-chain nonces are updated.
+    pub(crate) pending_nonces: Arc<Mutex<HashMap<AccountId, Nonce>>>,
+}
+
+impl NodeExecutionData {
+    pub fn expected_execution_delay(&self) -> u64 {
+        self.expected_execution_delay.load(Ordering::Relaxed)
+    }
+
+    pub fn set_expected_execution_delay(&self, delay: u64) {
+        self.expected_execution_delay.store(delay, Ordering::Relaxed);
+    }
+
+    pub fn jsonrpc_client(&self) -> JsonRpcClient {
+        JsonRpcClient::new_with_transport(self.jsonrpc_transport.clone())
+    }
 }
 
 impl From<&NodeExecutionData> for AccountId {
@@ -145,6 +176,12 @@ impl From<&NodeExecutionData> for Sender<ShardsManagerRequestFromNetwork> {
 impl From<&NodeExecutionData> for TxRequestHandleSenderForTestLoopNetwork {
     fn from(data: &NodeExecutionData) -> TxRequestHandleSenderForTestLoopNetwork {
         data.rpc_handler_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
+    }
+}
+
+impl From<&NodeExecutionData> for ChunkEndorsementSenderForTestLoopNetwork {
+    fn from(data: &NodeExecutionData) -> ChunkEndorsementSenderForTestLoopNetwork {
+        data.chunk_endorsement_handler_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
     }
 }
 

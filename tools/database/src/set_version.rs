@@ -1,9 +1,8 @@
+use crate::utils::get_user_confirmation;
 use clap::Parser;
 use near_chain_configs::GenesisValidationMode;
 use near_store::NodeStorage;
 use std::path::Path;
-
-use crate::utils::get_user_confirmation;
 
 // TODO: remove this cmd once we have a proper way to rollback migration
 #[derive(Parser)]
@@ -24,14 +23,14 @@ impl SetVersionCommand {
             home_dir,
             &near_config.config.store,
             near_config.config.cold_store.as_ref(),
-            near_config.config.cloud_storage_config(),
+            near_config.cloud_storage_context(),
         );
         let storage = opener.open_unsafe()?;
         let store = storage.get_hot_store();
 
-        println!("Current hot db version is: {:?}", store.get_db_version()?);
+        println!("Current hot db version is: {:?}", store.get_db_version());
         if let Some(cold_store) = storage.get_cold_store() {
-            println!("Current cold db version is: {:?}", cold_store.get_db_version()?);
+            println!("Current cold db version is: {:?}", cold_store.get_db_version());
         }
 
         if !get_user_confirmation(&format!(
@@ -44,10 +43,10 @@ impl SetVersionCommand {
         }
 
         println!("Setting hot db version to {}... ", self.version);
-        store.set_db_version(self.version)?;
+        store.set_db_version(self.version);
         if let Some(cold_store) = storage.get_cold_store() {
             println!("Setting cold db version to {}... ", self.version);
-            cold_store.set_db_version(self.version)?;
+            cold_store.set_db_version(self.version);
         }
 
         println!("Database version set to {}", self.version);

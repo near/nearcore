@@ -1,10 +1,8 @@
-use std::collections::{HashMap, HashSet};
-use std::fmt::Debug;
-
+use crate::block_body::ChunkEndorsementSignatures;
 use near_crypto::Signature;
 use near_primitives_core::types::{AccountId, Balance};
-
-use crate::block_body::ChunkEndorsementSignatures;
+use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
 
 #[derive(Debug, Default)]
 pub struct ChunkEndorsementsState {

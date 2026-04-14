@@ -29,8 +29,8 @@ Create a directory named `epoch_configs` with a file called `template.json`: a t
         // true to use tx injection
         "enabled": true,
     }
-    // REQUIRED only if using bench.sh
-    // number of RPC nodes
+    // OPTIONAL
+    // number of RPC nodes (default: 0)
     "rpcs": 1,
     // REQUIRED only if using bench.sh
     // RPS for account creation transactions

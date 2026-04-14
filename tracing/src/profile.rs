@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-
 use serde::Serialize;
 
 /// A minimal replication of the Firefox Profile format.

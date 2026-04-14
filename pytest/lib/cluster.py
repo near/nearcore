@@ -4,6 +4,7 @@ import copy
 import json
 import os
 import pathlib
+import re
 from typing import Optional
 
 import rc
@@ -30,7 +31,6 @@ from google.cloud.compute_v1.types import AggregatedListInstancesRequest, Instan
 import network
 from configured_logger import logger
 from key import Key
-from proxy import NodesProxy
 import state_sync_lib
 
 # cspell:ignore nretry pmap preemptible proxify uefi useragent
@@ -43,7 +43,6 @@ cleanup_remote_nodes_atexit_registered = False
 Config = typing.Dict[str, typing.Any]
 
 # Example value: [
-#   ("num_block_producer_seats_per_shard", [100]),
 #   ("epoch_length", 100)
 # ]
 # Note that we also support using list instead of a tuple here, but that
@@ -187,9 +186,6 @@ class BlockId(typing.NamedTuple):
 class BaseNode(object):
 
     def __init__(self):
-        self._start_proxy = None
-        self._proxy_local_stopped = None
-        self.proxy = None
         self.store_tests = 0
         self.is_check_store = True
 
@@ -590,10 +586,6 @@ class LocalNode(BaseNode):
     def rpc_addr(self):
         return ("127.0.0.1", self.rpc_port)
 
-    def start_proxy_if_needed(self):
-        if self._start_proxy is not None:
-            self._proxy_local_stopped = self._start_proxy()
-
     def output_logs(self):
         stdout = pathlib.Path(self.node_dir) / 'stdout'
         stderr = pathlib.Path(self.node_dir) / 'stderr'
@@ -621,15 +613,7 @@ class LocalNode(BaseNode):
             self.binary_name,
         )
 
-        if self._proxy_local_stopped is not None:
-            while self._proxy_local_stopped.value != 2:
-                logger.info(f'Waiting for previous proxy instance to close')
-                time.sleep(1)
-
         self.run_cmd(cmd=cmd, extra_env=extra_env)
-
-        if not skip_starting_proxy:
-            self.start_proxy_if_needed()
 
         try:
             self.wait_for_rpc(10)
@@ -653,23 +637,28 @@ class LocalNode(BaseNode):
                                              stdin=subprocess.DEVNULL,
                                              stdout=stdout,
                                              stderr=stderr,
-                                             env=env)
+                                             env=env,
+                                             start_new_session=True)
         self._pid = self._process.pid
 
     def kill(self, *, gentle=False):
+        """Kills the process and its entire process group."""
         logger.info(f"Killing node {self.ordinal}.")
-        """Kills the process.  If `gentle` sends SIGINT before killing."""
-        if self._proxy_local_stopped is not None:
-            self._proxy_local_stopped.value = 1
         if self._process and gentle:
-            self._process.send_signal(signal.SIGINT)
+            try:
+                os.killpg(self._process.pid, signal.SIGINT)
+            except OSError:
+                pass
             try:
                 self._process.wait(5)
                 self._process = None
             except subprocess.TimeoutExpired:
                 pass
         if self._process:
-            self._process.kill()
+            try:
+                os.killpg(self._process.pid, signal.SIGKILL)
+            except OSError:
+                pass
             self._process.wait(5)
             self._process = None
 
@@ -952,7 +941,6 @@ def spin_up_node(
     *,
     boot_node: BootNode = None,
     blacklist=(),
-    proxy=None,
     skip_starting_proxy=False,
     single_node=False,
     sleep_after_start=3,
@@ -991,9 +979,6 @@ def spin_up_node(
         with remote_nodes_lock:
             remote_nodes.append(node)
         logger.info(f"node {ordinal} machine created")
-
-    if proxy is not None:
-        proxy.proxify_node(node)
 
     node.start(boot_node=boot_node, skip_starting_proxy=skip_starting_proxy)
     time.sleep(sleep_after_start)
@@ -1055,8 +1040,9 @@ def init_cluster(
     out, err = process.communicate()
     assert 0 == process.returncode, err
 
+    # TODO(logging): checking if /test is a part of the log isn't the most reliable way to get the node dirs
     node_dirs = [
-        line.split()[-1]
+        re.split(r'=|\s', line)[-1]
         for line in err.decode('utf8').split('\n')
         if '/test' in line
     ]
@@ -1126,10 +1112,6 @@ def configure_cold_storage_for_archival_node(node_dir: str):
     if "split_storage" not in config_json:
         config_json["split_storage"] = {
             "enable_split_storage_view_client": True,
-            "cold_store_initial_migration_loop_sleep_duration": {
-                "secs": 0,
-                "nanos": 100000000
-            },
             "cold_store_loop_sleep_duration": {
                 "secs": 0,
                 "nanos": 100000000
@@ -1140,8 +1122,25 @@ def configure_cold_storage_for_archival_node(node_dir: str):
         json.dump(config_json, fd, indent=2)
 
 
+def update_transaction_validity_period_in_genesis(
+        genesis_config_changes: GenesisConfigChanges):
+    """ Function to override the transaction_validity_period to epoch_length * 2 """
+    epoch_length = None
+    has_transaction_validity_period = False
+    for config in genesis_config_changes:
+        if config[0] == "epoch_length":
+            epoch_length = config[1]
+        if config[0] == "transaction_validity_period":
+            has_transaction_validity_period = True
+    if epoch_length is not None and not has_transaction_validity_period:
+        # Set transaction_validity_period to be equal to epoch_length
+        genesis_config_changes.append(
+            ["transaction_validity_period", epoch_length * 2])
+
+
 def apply_genesis_changes(node_dir: str,
                           genesis_config_changes: GenesisConfigChanges):
+    update_transaction_validity_period_in_genesis(genesis_config_changes)
     # apply genesis.json changes
     fname = os.path.join(node_dir, 'genesis.json')
     with open(fname) as fd:
@@ -1260,7 +1259,6 @@ def start_cluster(
             client_config_changes,
             extra_state_dumper=extra_state_dumper)
 
-    proxy = NodesProxy(message_handler) if message_handler is not None else None
     ret = []
 
     def spin_up_node_and_push(i: int, boot_node: BootNode) -> BaseNode:
@@ -1271,8 +1269,6 @@ def start_cluster(
             node_dirs[i],
             ordinal=i,
             boot_node=boot_node,
-            proxy=proxy,
-            skip_starting_proxy=True,
             single_node=single_node,
         )
         ret.append((i, node))
@@ -1291,8 +1287,6 @@ def start_cluster(
         handle.join()
 
     nodes = [node for _, node in sorted(ret)]
-    for node in nodes:
-        node.start_proxy_if_needed()
 
     return nodes
 

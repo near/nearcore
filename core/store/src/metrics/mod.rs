@@ -546,25 +546,6 @@ pub mod resharding {
     }
 }
 
-pub static COLD_STORE_MIGRATION_BATCH_WRITE_COUNT: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "near_cold_migration_initial_writes",
-        "Number of write calls to cold store made for every column during initial population of cold storage.",
-        &["col"],
-    )
-    .unwrap()
-});
-
-pub static COLD_STORE_MIGRATION_BATCH_WRITE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
-    try_create_histogram_vec(
-        "near_cold_migration_initial_writes_time",
-        "Time spent on writing initial migration batches by column.",
-        &["column"],
-        None,
-    )
-    .unwrap()
-});
-
 pub static TRIE_MEMORY_PARTIAL_STORAGE_MISSING_VALUES_COUNT: LazyLock<IntCounter> =
     LazyLock::new(|| {
         try_create_int_counter(
@@ -593,6 +574,15 @@ pub static ROCKS_ITERATOR_TIME_HISTOGRAM: LazyLock<Histogram> = LazyLock::new(||
     .unwrap()
 });
 
+pub static EPOCH_SYNC_LAST_GENERATED_COMPRESSED_PROOF_SIZE: LazyLock<IntGauge> =
+    LazyLock::new(|| {
+        try_create_int_gauge(
+            "near_epoch_sync_last_generated_compressed_proof_size",
+            "Size of the last generated compressed epoch sync proof, in bytes",
+        )
+        .unwrap()
+    });
+
 pub static ROCKS_CURRENT_ITERATORS: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge("near_rocksdb_iterators", "Number of rocksdb iterators currently live")
         .unwrap()
@@ -600,23 +590,23 @@ pub static ROCKS_CURRENT_ITERATORS: LazyLock<IntGauge> = LazyLock::new(|| {
 
 fn export_store_stats(store: &Store, temperature: Temperature) {
     if let Some(stats) = store.get_store_statistics() {
-        tracing::debug!(target:"metrics", "Exporting the db metrics for {temperature:?} store.");
+        tracing::debug!(target:"metrics", ?temperature, "exporting the db metrics for store");
         export_stats_as_metrics(stats, temperature);
     } else {
         // TODO Does that happen under normal circumstances?
         // Should this log be a warning or error instead?
-        tracing::debug!(target:"metrics", "Exporting the db metrics for {temperature:?} store failed. The statistics are missing.");
+        tracing::debug!(target:"metrics", ?temperature, "exporting the db metrics for store failed, the statistics are missing");
     }
 }
 
 pub fn spawn_db_metrics_loop(actor_system: ActorSystem, storage: &NodeStorage, period: Duration) {
-    tracing::debug!(target:"metrics", "Spawning the db metrics loop.");
+    tracing::debug!(target:"metrics", "spawning the db metrics loop");
 
     let hot_store = storage.get_hot_store();
     let cold_store = storage.get_cold_store();
 
     actor_system.new_future_spawner("db metrics loop").spawn("db metrics loop", async move {
-        tracing::debug!(target:"metrics", "Starting the db metrics loop.");
+        tracing::debug!(target:"metrics", "starting the db metrics loop");
         let start = tokio::time::Instant::now();
         let mut interval = tokio::time::interval_at(start, period.unsigned_abs());
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -634,15 +624,14 @@ pub fn spawn_db_metrics_loop(actor_system: ActorSystem, storage: &NodeStorage, p
 
 #[cfg(test)]
 mod test {
+    use super::spawn_db_metrics_loop;
     use crate::db::{StatsValue, StoreStatistics};
     use crate::metadata::{DB_VERSION, DbKind};
     use crate::metrics::rocksdb_metrics;
     use crate::test_utils::create_test_node_storage_with_cold;
+    use near_async::ActorSystem;
     use near_o11y::testonly::init_test_logger;
     use near_time::Duration;
-
-    use super::spawn_db_metrics_loop;
-    use near_async::ActorSystem;
 
     fn stat(name: &str, count: i64) -> (String, Vec<StatsValue>) {
         (name.into(), vec![StatsValue::Count(count)])
@@ -680,7 +669,7 @@ mod test {
         }
 
         let int_gauges = rocksdb_metrics::get_int_gauges();
-        tracing::debug!("int_gauges {int_gauges:#?}");
+        tracing::debug!(?int_gauges);
 
         let hot_gauge = int_gauges.get(&hot_gauge_name);
         let hot_gauge = hot_gauge.ok_or_else(|| anyhow::anyhow!("hot gauge is missing"))?;

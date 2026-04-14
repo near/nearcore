@@ -1,8 +1,7 @@
+use super::RpcFrom;
 use near_async::messaging::AsyncSendError;
 use near_client_primitives::types::GetClientConfigError;
 use near_jsonrpc_primitives::types::client_config::RpcClientConfigError;
-
-use super::RpcFrom;
 
 impl RpcFrom<AsyncSendError> for RpcClientConfigError {
     fn rpc_from(error: AsyncSendError) -> Self {
@@ -15,7 +14,7 @@ impl RpcFrom<GetClientConfigError> for RpcClientConfigError {
         match error {
             GetClientConfigError::IOError(error_message) => Self::InternalError { error_message },
             GetClientConfigError::Unreachable(ref error_message) => {
-                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", error_message);
+                tracing::warn!(target: "jsonrpc", %error_message, "unreachable error occurred");
                 crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
                     .with_label_values(&["RpcClientConfigError"])
                     .inc();

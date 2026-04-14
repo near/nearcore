@@ -1,11 +1,9 @@
+use super::{Params, RpcFrom, RpcRequest};
 use near_async::messaging::AsyncSendError;
-use serde_json::Value;
-
 use near_client_primitives::types::GetGasPriceError;
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::gas_price::{RpcGasPriceError, RpcGasPriceRequest};
-
-use super::{Params, RpcFrom, RpcRequest};
+use serde_json::Value;
 
 impl RpcRequest for RpcGasPriceRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
@@ -29,7 +27,7 @@ impl RpcFrom<GetGasPriceError> for RpcGasPriceError {
                 Self::InternalError { error_message }
             }
             GetGasPriceError::Unreachable { ref error_message } => {
-                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", error_message);
+                tracing::warn!(target: "jsonrpc", %error_message, "unreachable error occurred");
                 crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
                     .with_label_values(&["RpcGasPriceError"])
                     .inc();

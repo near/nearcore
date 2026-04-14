@@ -1,13 +1,11 @@
+use super::{Params, RpcFrom, RpcRequest};
 use near_async::messaging::AsyncSendError;
-use serde_json::Value;
-
 use near_client_primitives::types::{GetBlockError, GetStateChangesError};
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::changes::{
     RpcStateChangesError, RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockRequest,
 };
-
-use super::{Params, RpcFrom, RpcRequest};
+use serde_json::Value;
 
 impl RpcRequest for RpcStateChangesInBlockRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
@@ -34,7 +32,7 @@ impl RpcFrom<GetBlockError> for RpcStateChangesError {
             GetBlockError::NotSyncedYet => Self::NotSyncedYet,
             GetBlockError::IOError { error_message } => Self::InternalError { error_message },
             GetBlockError::Unreachable { ref error_message } => {
-                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", error_message);
+                tracing::warn!(target: "jsonrpc", %error_message, "unreachable error occurred");
                 crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
                     .with_label_values(&["RpcStateChangesError"])
                     .inc();
@@ -55,7 +53,7 @@ impl RpcFrom<GetStateChangesError> for RpcStateChangesError {
             }
             GetStateChangesError::NotSyncedYet => Self::NotSyncedYet,
             GetStateChangesError::Unreachable { ref error_message } => {
-                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", error_message);
+                tracing::warn!(target: "jsonrpc", %error_message, "unreachable error occurred");
                 crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
                     .with_label_values(&["RpcStateChangesError"])
                     .inc();

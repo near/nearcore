@@ -213,8 +213,8 @@ impl Store {
         "Store::commit",
         skip_all
     )]
-    pub fn commit(&self, update: StoreUpdate) -> Result<(), Error> {
-        self.0.write(update.0)
+    pub fn commit(&self, update: StoreUpdate) {
+        self.0.write(update.0);
     }
 
     pub fn get<C: Column>(
@@ -222,7 +222,7 @@ impl Store {
         k: &<C::Key as Format>::T,
     ) -> Result<Option<<C::Value as Format>::T>, Error> {
         debug_assert!(!C::COL.is_rc());
-        let v = self.0.get_raw_bytes(C::COL, to_vec::<C::Key>(k).as_ref())?;
+        let v = self.0.get_raw_bytes(C::COL, to_vec::<C::Key>(k).as_ref());
         Ok(match v {
             Some(v) => Some(C::Value::decode(&v)?),
             None => None,

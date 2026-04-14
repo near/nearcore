@@ -1,8 +1,3 @@
-use near_async::time::Clock;
-use near_store::trie::AccessOptions;
-use rand::Rng;
-use std::sync::Arc;
-
 use crate::ChainStoreAccess;
 use crate::chain::Chain;
 use crate::garbage_collection::GCMode;
@@ -11,7 +6,7 @@ use crate::test_utils::{
     get_chain_with_num_shards,
 };
 use crate::types::Tip;
-
+use near_async::time::Clock;
 use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, GCConfig};
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Block;
@@ -21,8 +16,12 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::{BlockHeight, StateRoot};
 use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::test_utils::gen_changes;
+use near_store::trie::AccessOptions;
 use near_store::{ShardTries, Trie, WrappedTrieChanges};
+use rand::Rng;
+use std::sync::Arc;
 
 // Build a chain of num_blocks on top of prev_block
 fn do_fork(
@@ -54,7 +53,7 @@ fn do_fork(
             .get_next_epoch_id_from_prev_block(prev_block.hash())
             .expect("block must exist");
         let block = if next_epoch_id == *prev_block.header().next_epoch_id() {
-            TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).build()
+            TestBlockBuilder::from_prev_block(Clock::real(), &prev_block, signer.clone()).build()
         } else {
             let epoch_id = *prev_block.header().next_epoch_id();
             if verbose {
@@ -66,7 +65,7 @@ fn do_fork(
             }
             let next_bp_hash =
                 Chain::compute_bp_hash(chain.epoch_manager.as_ref(), next_epoch_id).unwrap();
-            TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone())
+            TestBlockBuilder::from_prev_block(Clock::real(), &prev_block, signer.clone())
                 .epoch_id(epoch_id)
                 .next_epoch_id(next_epoch_id)
                 .next_bp_hash(next_bp_hash)
@@ -100,11 +99,11 @@ fn do_fork(
             final_block_height.unwrap_or_else(|| block.header().height().saturating_sub(2));
         let epoch_manager_update = epoch_manager
             .add_validator_proposals(
-                BlockInfo::from_header(block.header(), final_height),
+                BlockInfo::from_header(block.header(), final_height, PROTOCOL_VERSION),
                 *block.header().random_value(),
             )
             .unwrap();
-        store_update.merge(epoch_manager_update);
+        store_update.merge(epoch_manager_update.into());
 
         let mut trie_changes_shards = Vec::new();
         for shard_id in 0..num_shards {
@@ -242,7 +241,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
                 state_root2 = new_root2;
             }
             state_roots2.push(state_root2);
-            update2.commit().unwrap();
+            update2.commit();
         }
         start_index += simple_chain.length;
     }
@@ -254,7 +253,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
                 let (block1, _, _) = states1[i as usize].clone();
                 // Make sure that blocks were removed.
                 assert_eq!(
-                    chain1.block_exists(block1.hash()).unwrap(),
+                    chain1.block_exists(block1.hash()),
                     false,
                     "Block {:?}@{} should have been removed - as it belongs to removed fork.",
                     block1.hash(),
@@ -269,7 +268,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
             let state_root1 = state_root1[shard_to_check_trie as usize];
             if block1.header().height() > gc_height || i == gc_height {
                 assert_eq!(
-                    chain1.block_exists(block1.hash()).unwrap(),
+                    chain1.block_exists(block1.hash()),
                     true,
                     "Block {:?}@{} should exist",
                     block1.hash(),
@@ -291,7 +290,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
             } else {
                 // Make sure that blocks were removed.
                 assert_eq!(
-                    chain1.block_exists(block1.hash()).unwrap(),
+                    chain1.block_exists(block1.hash()),
                     false,
                     "Block {:?}@{} should have been removed.",
                     block1.hash(),
@@ -634,7 +633,7 @@ fn test_fork_far_away_from_epoch_end() {
     for i in 1..5 {
         let (block, _, _) = states[i as usize].clone();
         assert_eq!(
-            chain.block_exists(block.hash()).unwrap(),
+            chain.block_exists(block.hash()),
             false,
             "Block {:?}@{} should have been removed.",
             block.hash(),
@@ -645,7 +644,7 @@ fn test_fork_far_away_from_epoch_end() {
     for i in 5..7 {
         let (block, _, _) = states[i as usize].clone();
         assert_eq!(
-            chain.block_exists(block.hash()).unwrap(),
+            chain.block_exists(block.hash()),
             true,
             "Block {:?}@{} should NOT be removed.",
             block.hash(),
@@ -674,7 +673,7 @@ fn test_fork_far_away_from_epoch_end() {
     for i in 6..50 {
         let (block, _, _) = states[i as usize].clone();
         assert_eq!(
-            chain.block_exists(block.hash()).unwrap(),
+            chain.block_exists(block.hash()),
             false,
             "Block {:?}@{} should have been removed.",
             block.hash(),
@@ -712,7 +711,7 @@ fn test_clear_old_data() {
         let expected_removed = i < max_height - DEFAULT_GC_NUM_EPOCHS_TO_KEEP as usize;
         let get_block_result = chain.get_block(blocks[i].hash());
         let blocks_by_heigh =
-            chain.mut_chain_store().get_all_block_hashes_by_height(i as BlockHeight).unwrap();
+            chain.mut_chain_store().get_all_block_hashes_by_height(i as BlockHeight);
         assert_eq!(get_block_result.is_err(), expected_removed);
         assert_eq!(blocks_by_heigh.is_empty(), expected_removed);
     }
@@ -733,11 +732,11 @@ fn add_block(
     let mut store_update = chain.mut_chain_store().store_update();
 
     let block = if next_epoch_id == *prev_block.header().next_epoch_id() {
-        TestBlockBuilder::new(Clock::real(), &prev_block, signer).height(height).build()
+        TestBlockBuilder::from_prev_block(Clock::real(), &prev_block, signer).height(height).build()
     } else {
         let epoch_id = *prev_block.header().next_epoch_id();
         let next_bp_hash = Chain::compute_bp_hash(epoch_manager, next_epoch_id).unwrap();
-        TestBlockBuilder::new(Clock::real(), &prev_block, signer)
+        TestBlockBuilder::from_prev_block(Clock::real(), &prev_block, signer)
             .height(height)
             .epoch_id(epoch_id)
             .next_epoch_id(next_epoch_id)
@@ -756,11 +755,15 @@ fn add_block(
     store_update.save_next_block_hash(prev_block.hash(), *block.hash());
     let epoch_manager_update = epoch_manager
         .add_validator_proposals(
-            BlockInfo::from_header(block.header(), block.header().height().saturating_sub(2)),
+            BlockInfo::from_header(
+                block.header(),
+                block.header().height().saturating_sub(2),
+                PROTOCOL_VERSION,
+            ),
             *block.header().random_value(),
         )
         .unwrap();
-    store_update.merge(epoch_manager_update);
+    store_update.merge(epoch_manager_update.into());
     store_update.commit().unwrap();
     *prev_block = block.clone();
 }
@@ -792,7 +795,6 @@ fn test_clear_old_data_fixed_height() {
         chain
             .mut_chain_store()
             .get_all_block_hashes_by_height(5)
-            .unwrap()
             .values()
             .flatten()
             .collect::<Vec<_>>(),
@@ -812,13 +814,17 @@ fn test_clear_old_data_fixed_height() {
     assert!(chain.get_block(blocks[4].hash()).is_err());
     assert!(chain.get_block(blocks[5].hash()).is_ok());
     assert!(chain.get_block(blocks[6].hash()).is_ok());
-    // block header should be available
-    assert!(chain.get_block_header(blocks[4].hash()).is_ok());
+    // block header should be available before continuous epoch sync
+    if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
+        assert!(chain.get_block_header(blocks[4].hash()).is_err());
+    } else {
+        assert!(chain.get_block_header(blocks[4].hash()).is_ok());
+    }
     assert!(chain.get_block_header(blocks[5].hash()).is_ok());
     assert!(chain.get_block_header(blocks[6].hash()).is_ok());
-    assert!(chain.mut_chain_store().get_all_block_hashes_by_height(4).unwrap().is_empty());
-    assert!(!chain.mut_chain_store().get_all_block_hashes_by_height(5).unwrap().is_empty());
-    assert!(!chain.mut_chain_store().get_all_block_hashes_by_height(6).unwrap().is_empty());
+    assert!(chain.mut_chain_store().get_all_block_hashes_by_height(4).is_empty());
+    assert!(!chain.mut_chain_store().get_all_block_hashes_by_height(5).is_empty());
+    assert!(!chain.mut_chain_store().get_all_block_hashes_by_height(6).is_empty());
     assert!(chain.mut_chain_store().get_next_block_hash(blocks[4].hash()).is_err());
     assert!(chain.mut_chain_store().get_next_block_hash(blocks[5].hash()).is_ok());
     assert!(chain.mut_chain_store().get_next_block_hash(blocks[6].hash()).is_ok());
@@ -842,20 +848,20 @@ fn test_fork_chunk_tail_updates() {
             i,
         );
     }
-    assert_eq!(chain.tail().unwrap(), 0);
+    assert_eq!(chain.tail(), 0);
 
     {
         let mut store_update = chain.mut_chain_store().store_update();
-        assert_eq!(store_update.tail().unwrap(), 0);
-        store_update.update_tail(1).unwrap();
+        assert_eq!(store_update.tail(), 0);
+        store_update.update_tail(1);
         store_update.commit().unwrap();
     }
     // Chunk tail should be auto updated to genesis (if not set) and fork_tail to the tail.
     {
         let store_update = chain.mut_chain_store().store_update();
-        assert_eq!(store_update.tail().unwrap(), 1);
-        assert_eq!(store_update.fork_tail().unwrap(), 1);
-        assert_eq!(store_update.chunk_tail().unwrap(), 0);
+        assert_eq!(store_update.tail(), 1);
+        assert_eq!(store_update.fork_tail(), 1);
+        assert_eq!(store_update.chunk_tail(), 0);
     }
     {
         let mut store_update = chain.mut_chain_store().store_update();
@@ -864,13 +870,13 @@ fn test_fork_chunk_tail_updates() {
     }
     {
         let mut store_update = chain.mut_chain_store().store_update();
-        store_update.update_tail(2).unwrap();
+        store_update.update_tail(2);
         store_update.commit().unwrap();
     }
     {
         let store_update = chain.mut_chain_store().store_update();
-        assert_eq!(store_update.tail().unwrap(), 2);
-        assert_eq!(store_update.fork_tail().unwrap(), 3);
-        assert_eq!(store_update.chunk_tail().unwrap(), 0);
+        assert_eq!(store_update.tail(), 2);
+        assert_eq!(store_update.fork_tail(), 3);
+        assert_eq!(store_update.chunk_tail(), 0);
     }
 }

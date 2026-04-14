@@ -1,7 +1,13 @@
+use super::setup::{TEST_SEED, setup_client_with_runtime};
+use super::test_env_builder::TestEnvBuilder;
+use crate::utils::mock_partial_witness_adapter::MockPartialWitnessAdapter;
+use near_async::ActorSystem;
 use near_async::messaging::{CanSend, IntoMultiSender};
 use near_async::time::Clock;
 use near_async::time::{Duration, Instant};
+use near_chain::chain::ChunkStateWitnessMessage;
 use near_chain::near_chain_primitives::error::QueryError;
+use near_chain::spice_core_writer_actor::ProcessedBlock;
 use near_chain::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,
 };
@@ -10,7 +16,13 @@ use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::{Genesis, GenesisConfig, ProtocolVersionCheckConfig};
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
-use near_client::{Client, DistributeStateWitnessRequest, RpcHandler};
+use near_client::ChunkValidationActor;
+use near_client::chunk_executor_actor::testonly::TestonlySyncChunkExecutorActor;
+use near_client::chunk_executor_actor::{
+    ExecutorIncomingUnverifiedReceipts, TryApplyChunksOutcome,
+};
+use near_client::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
+use near_client::{Client, DistributeStateWitnessRequest, RpcHandlerActor};
 use near_crypto::{InMemorySigner, Signer};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_network::client::ProcessTxResponse;
@@ -19,7 +31,6 @@ use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::NetworkRequests;
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
-use near_o11y::testonly::TracingCapture;
 use near_parameters::RuntimeConfig;
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::block::Block;
@@ -33,6 +44,7 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, Gas, NumSeats, ShardId};
 use near_primitives::utils::MaybeValidated;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccountView, FinalExecutionOutcomeView, QueryRequest, QueryResponse, QueryResponseKind,
     StateItem,
@@ -40,19 +52,9 @@ use near_primitives::views::{
 use near_store::ShardUId;
 use near_store::db::metadata::DbKind;
 use near_vm_runner::logic::ProtocolVersion;
-use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use time::ext::InstantExt as _;
-
-use crate::utils::mock_partial_witness_adapter::MockPartialWitnessAdapter;
-
-use near_chain::chain::ChunkStateWitnessMessage;
-use near_client::ChunkValidationActorInner;
-
-use super::setup::{TEST_SEED, setup_client_with_runtime};
-use super::test_env_builder::TestEnvBuilder;
-use near_async::ActorSystem;
 
 /// Timeout used in tests that wait for a specific chunk endorsement to appear
 const CHUNK_ENDORSEMENTS_TIMEOUT: Duration = Duration::seconds(10);
@@ -69,15 +71,16 @@ pub struct TestEnv {
     pub partial_witness_adapters: Vec<MockPartialWitnessAdapter>,
     pub shards_manager_adapters: Vec<SynchronousShardsManagerAdapter>,
     pub clients: Vec<Client>,
-    pub chunk_validation_actors: Vec<ChunkValidationActorInner>,
-    pub rpc_handlers: Vec<RpcHandler>,
+    pub chunk_validation_actors: Vec<ChunkValidationActor>,
+    pub rpc_handlers: Vec<RpcHandlerActor>,
+    pub spice_chunk_executors: Vec<TestonlySyncChunkExecutorActor>,
     pub(crate) account_indices: AccountIndices,
-    pub(crate) paused_blocks: Arc<Mutex<HashMap<CryptoHash, Arc<OnceLock<()>>>>>,
     // random seed to be inject in each client according to AccountId
     // if not set, a default constant TEST_SEED will be injected
     pub(crate) seeds: HashMap<AccountId, RngSeed>,
     pub(crate) enable_split_store: bool,
     pub(crate) save_tx_outcomes: bool,
+    pub(crate) save_receipt_to_tx: bool,
     pub(crate) protocol_version_check: ProtocolVersionCheckConfig,
 }
 
@@ -105,7 +108,9 @@ impl TestEnv {
     /// Simulate the block processing logic in `Client`, i.e, it would run catchup and then process accepted blocks and possibly produce chunks.
     /// Runs garbage collection manually
     pub fn process_block(&mut self, id: usize, block: Arc<Block>, provenance: Provenance) {
-        self.clients[id].process_block_test(MaybeValidated::from(block), provenance).unwrap();
+        self.clients[id]
+            .process_block_test(MaybeValidated::from(block.clone()), provenance)
+            .unwrap();
         // runs gc
         let runtime_adapter = self.clients[id].chain.runtime_adapter.clone();
         let epoch_manager = self.clients[id].chain.epoch_manager.clone();
@@ -126,7 +131,7 @@ impl TestEnv {
             // *and* that the migration to split storage is finished we can check
             // the store kind. It's only set to hot after the migration is finished.
             let store = self.clients[0].chain.chain_store().store();
-            let kind = store.get_db_kind().unwrap();
+            let kind = store.get_db_kind();
             if kind == Some(DbKind::Hot) {
                 self.clients[id]
                     .chain
@@ -145,6 +150,13 @@ impl TestEnv {
         }
         self.process_shards_manager_responses(id);
         self.propagate_chunk_state_witnesses_and_endorsements(false);
+        let protocol_version = self.clients[id]
+            .epoch_manager
+            .get_epoch_protocol_version(block.header().epoch_id())
+            .unwrap();
+        if ProtocolFeature::Spice.enabled(protocol_version) {
+            self.spice_execute_block(id, *block.hash());
+        }
     }
 
     /// Produces block by given client, which may kick off chunk production.
@@ -176,42 +188,6 @@ impl TestEnv {
         panic!("No client found for block producer {}", block_producer);
     }
 
-    /// Pause processing of the given block, which means that the background
-    /// thread which applies the chunks on the block will get blocked until
-    /// `resume_block_processing` is called.
-    ///
-    /// Note that you must call `resume_block_processing` at some later point to
-    /// unstuck the block.
-    ///
-    /// Implementation is rather crude and just hijacks our logging
-    /// infrastructure. Hopefully this is good enough, but, if it isn't, we can
-    /// add something more robust.
-    pub fn pause_block_processing(&mut self, capture: &mut TracingCapture, block: &CryptoHash) {
-        let paused_blocks = Arc::clone(&self.paused_blocks);
-        paused_blocks.lock().insert(*block, Arc::new(OnceLock::new()));
-        capture.set_callback(move |msg| {
-            if msg.starts_with("do_apply_chunks") {
-                let cell = paused_blocks.lock().iter().find_map(|(block_hash, cell)| {
-                    if msg.contains(&format!("block=Normal({block_hash})")) {
-                        Some(Arc::clone(cell))
-                    } else {
-                        None
-                    }
-                });
-                if let Some(cell) = cell {
-                    cell.wait();
-                }
-            }
-        });
-    }
-
-    /// See `pause_block_processing`.
-    pub fn resume_block_processing(&mut self, block: &CryptoHash) {
-        let mut paused_blocks = self.paused_blocks.lock();
-        let cell = paused_blocks.remove(block).unwrap();
-        let _ = cell.set(());
-    }
-
     pub fn contains_client(&self, account_id: &AccountId) -> bool {
         self.account_indices.contains(account_id)
     }
@@ -220,7 +196,7 @@ impl TestEnv {
         self.account_indices.lookup_mut(&mut self.clients, account_id)
     }
 
-    pub fn rpc_handler(&self, account_id: &AccountId) -> &RpcHandler {
+    pub fn rpc_handler(&self, account_id: &AccountId) -> &RpcHandlerActor {
         self.account_indices.lookup(&self.rpc_handlers, account_id)
     }
 
@@ -297,7 +273,7 @@ impl TestEnv {
         {
             let target_id = self.account_indices.index(&target.account_id.unwrap());
             let response = self.get_partial_encoded_chunk_response(target_id, request);
-            tracing::info!("Got response for PartialEncodedChunkRequest: {:?}", response);
+            tracing::info!(?response, "got response for partial encoded chunk request");
             if let Some(response) = response {
                 self.shards_manager_adapters[id].send(
                     ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
@@ -422,7 +398,7 @@ impl TestEnv {
                     witness_processing_done_waiters.push(processing_done_tracker.make_waiter());
 
                     if !self.contains_client(&account_id) {
-                        tracing::warn!(target: "test", "Client not found for account_id {}", account_id);
+                        tracing::warn!(target: "test", %account_id, "client not found for account_id");
                         continue;
                     }
                     let account_index = self.get_client_index(&account_id);
@@ -466,7 +442,7 @@ impl TestEnv {
                     endorsement,
                 )) => {
                     if !self.contains_client(&account_id) {
-                        tracing::warn!(target: "test", "Client not found for account_id {}", account_id);
+                        tracing::warn!(target: "test", %account_id, "client not found for account_id");
                         return None;
                     }
                     let processing_result = self.client(&account_id).chunk_endorsement_tracker.process_chunk_endorsement(endorsement);
@@ -482,6 +458,11 @@ impl TestEnv {
     }
 
     pub fn propagate_chunk_state_witnesses_and_endorsements(&mut self, allow_errors: bool) {
+        if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+            // State witnesses with spice follow completely different code paths compared to before
+            // spice.
+            return;
+        }
         self.propagate_chunk_state_witnesses(allow_errors);
         self.propagate_chunk_endorsements(allow_errors);
     }
@@ -692,6 +673,7 @@ impl TestEnv {
             rng_seed,
             self.enable_split_store,
             self.save_tx_outcomes,
+            self.save_receipt_to_tx,
             self.protocol_version_check,
             None,
             self.clients[idx].partial_witness_adapter.clone(),
@@ -771,7 +753,6 @@ impl TestEnv {
             &signer,
             actions,
             tip.last_block_hash,
-            0,
         )
     }
 
@@ -808,7 +789,6 @@ impl TestEnv {
             &relayer_signer,
             vec![Action::Delegate(Box::new(signed_delegate_action))],
             tip.last_block_hash,
-            0,
         )
     }
 
@@ -874,7 +854,7 @@ impl TestEnv {
         let block = match block {
             Ok(block) => block,
             Err(err) => {
-                tracing::info!(target: "test", ?err, "Block {}: missing", height);
+                tracing::info!(target: "test", ?err, %height, "block: missing");
                 return;
             }
         };
@@ -888,16 +868,54 @@ impl TestEnv {
 
         tracing::info!(target: "test", height, ?block_hash, ?chunk_mask, protocol_version, latest_protocol_version, "block");
     }
+
+    pub fn spice_execute_block(&mut self, id: usize, block_hash: CryptoHash) {
+        if !ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+
+        assert_matches::assert_matches!(
+            self.spice_chunk_executors[id].handle_processed_block(ProcessedBlock { block_hash }),
+            TryApplyChunksOutcome::Scheduled
+        );
+        // This allows us in tests to pretend that all nodes get all endorsements as soon as they
+        // are available (as long as least one chunk producer for shard is validator). Even though
+        // in a real system endorsements to some nodes may arrive only with later blocks.
+        while let Some(endorsement) = self.spice_chunk_executors[id].pop_endorsement() {
+            let endorsements = std::iter::repeat_n(endorsement, self.spice_chunk_executors.len());
+            for (executor, endorsement) in self.spice_chunk_executors.iter_mut().zip(endorsements) {
+                executor.record_endorsement(endorsement);
+            }
+        }
+        while let Some(SpiceDistributorOutgoingReceipts { block_hash, receipt_proofs }) =
+            self.spice_chunk_executors[id].pop_produced_receipts()
+        {
+            for receipt_proof in receipt_proofs {
+                for (executor_id, executor) in self.spice_chunk_executors.iter_mut().enumerate() {
+                    if id == executor_id {
+                        continue;
+                    }
+                    executor.handle_incoming_receipts(ExecutorIncomingUnverifiedReceipts {
+                        block_hash,
+                        receipt_proof: receipt_proof.clone(),
+                    })
+                }
+            }
+        }
+    }
 }
 
 impl Drop for TestEnv {
     fn drop(&mut self) {
-        let paused_blocks = self.paused_blocks.lock();
-        for cell in paused_blocks.values() {
-            let _ = cell.set(());
-        }
-        if !paused_blocks.is_empty() && !std::thread::panicking() {
-            panic!("some blocks are still paused, did you call `resume_block_processing`?")
+        #[cfg(feature = "test_features")]
+        {
+            let mut had_paused = false;
+            for client in &mut self.clients {
+                had_paused |= client.chain.test_paused_blocks.resume_all();
+            }
+            if had_paused && !std::thread::panicking() {
+                panic!("some blocks are still paused, did you call `test_paused_blocks.resume`?");
+            }
         }
     }
 }

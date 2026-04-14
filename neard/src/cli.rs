@@ -1,26 +1,24 @@
 #[cfg(unix)]
 use anyhow::Context;
-use near_amend_genesis::AmendGenesisCommand;
 use near_async::ActorSystem;
 use near_chain_configs::{GenesisValidationMode, TrackedShardsConfig};
 use near_client::ConfigUpdater;
+use near_client::client_actor::ShutdownReason;
+use near_cloud_archive_tool::CloudArchiveCommand;
 use near_cold_store_tool::ColdStoreCommand;
 use near_config_utils::DownloadConfigType;
 use near_database_tool::commands::DatabaseCommand;
-use near_dump_test_contract::DumpTestContractCommand;
 use near_dyn_configs::{UpdatableConfigLoader, UpdatableConfigLoaderError, UpdatableConfigs};
 use near_flat_storage::commands::FlatStorageCommand;
 use near_fork_network::cli::ForkNetworkCommand;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
 use near_mirror::MirrorCommand;
-use near_network::tcp;
 use near_o11y::tracing_subscriber::EnvFilter;
 use near_o11y::{
     BuildEnvFilterError, EnvFilterBuilder, default_subscriber,
     default_subscriber_with_opentelemetry,
 };
 use near_ping::PingCommand;
-use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
 use near_primitives::types::{Gas, NumSeats, NumShards, ProtocolVersion, ShardId};
@@ -40,7 +38,22 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Receiver;
-use tracing::{error, info, warn};
+#[cfg(feature = "dump-test-contract")]
+use {
+    near_dump_test_contract::DumpTestContractCommand, near_network::tcp,
+    near_primitives::epoch_manager::EpochConfigStore,
+};
+
+/// Marker file written inside the hot store directory to signal that the data
+/// directory should be wiped on the next startup for epoch sync re-bootstrap.
+const EPOCH_SYNC_DATA_RESET_MARKER_FILE_NAME: &str = ".EPOCH_SYNC_DATA_RESET";
+
+/// Signal received by the shutdown handler.
+#[derive(Debug)]
+enum ShutdownSignal {
+    OsSignal(String),
+    ClientShutdown(ShutdownReason),
+}
 
 /// NEAR Protocol Node
 #[derive(clap::Parser)]
@@ -64,7 +77,7 @@ impl NeardCmd {
         )
         .local();
 
-        info!(
+        tracing::info!(
             target: "neard",
             version = crate::NEARD_VERSION,
             build = crate::NEARD_BUILD,
@@ -74,13 +87,14 @@ impl NeardCmd {
 
         #[cfg(feature = "test_features")]
         {
-            error!("THIS IS A NODE COMPILED WITH ADVERSARIAL BEHAVIORS. DO NOT USE IN PRODUCTION.");
+            tracing::error!(
+                "this is a node compiled with adversarial behaviors, do not use in production"
+            );
             if std::env::var("ADVERSARY_CONSENT").unwrap_or_default() != "1" {
-                error!(
-                    "To run a node with adversarial behavior enabled give your consent \
-                            by setting an environment variable:"
+                tracing::error!(
+                    "to run a node with adversarial behavior enabled give your consent by setting an environment variable:"
                 );
-                error!("ADVERSARY_CONSENT=1");
+                tracing::error!("ADVERSARY_CONSENT=1");
                 std::process::exit(1);
             }
         }
@@ -116,8 +130,8 @@ impl NeardCmd {
             NeardSubCommand::Mirror(cmd) => {
                 cmd.run()?;
             }
-            NeardSubCommand::AmendGenesis(cmd) => {
-                cmd.run()?;
+            NeardSubCommand::CloudArchive(cmd) => {
+                cmd.run(&home_dir, genesis_validation)?;
             }
             NeardSubCommand::ColdStore(cmd) => {
                 cmd.run(&home_dir, genesis_validation)?;
@@ -151,9 +165,11 @@ impl NeardCmd {
             NeardSubCommand::ReplayArchive(cmd) => {
                 cmd.run(&home_dir, genesis_validation)?;
             }
+            #[cfg(feature = "dump-test-contract")]
             NeardSubCommand::DumpTestContracts(cmd) => {
                 cmd.run()?;
             }
+            #[cfg(feature = "dump-test-contract")]
             NeardSubCommand::DumpEpochConfigs(cmd) => {
                 cmd.run(&home_dir)?;
             }
@@ -200,7 +216,7 @@ impl NeardOpts {
     // TODO(nikurt): Delete in 1.38 or later.
     pub fn verbose_target(&self) -> Option<&str> {
         self.verbose.as_ref().map(|inner| {
-            tracing::error!(target: "neard", "--verbose flag is deprecated, please use RUST_LOG or log_config.json instead.");
+            tracing::error!(target: "neard", "--verbose flag is deprecated, please use RUST_LOG or log_config.json instead");
             inner.as_ref().map_or("", String::as_str)
         })
     }
@@ -234,8 +250,9 @@ pub(super) enum NeardSubCommand {
     /// from it, reproducing traffic and state as closely as possible.
     Mirror(MirrorCommand),
 
-    /// Amend a genesis/records file created by `dump-state`.
-    AmendGenesis(AmendGenesisCommand),
+    /// Cloud archive reader tools.
+    #[clap(name = "cloud-archive")]
+    CloudArchive(CloudArchiveCommand),
 
     /// Testing tool for cold storage
     ColdStore(ColdStoreCommand),
@@ -264,9 +281,11 @@ pub(super) enum NeardSubCommand {
     /// Replays the blocks in the chain from an archival node.
     ReplayArchive(ReplayArchiveCommand),
 
+    #[cfg(feature = "dump-test-contract")]
     /// Placeholder for test contracts subcommand
     DumpTestContracts(DumpTestContractCommand),
 
+    #[cfg(feature = "dump-test-contract")]
     /// Dump hard-coded epoch configs into JSON files
     DumpEpochConfigs(DumpEpochConfigsCommand),
 }
@@ -337,43 +356,32 @@ pub(super) struct InitCmd {
     /// from genesis configuration will be taken.
     #[clap(long)]
     max_gas_burnt_view: Option<Gas>,
-    /// Specify the cloud bucket to use for state sync.
-    #[clap(long)]
+    /// Deprecated: cloud state sync is deprecated and will be removed in a future release.
+    #[clap(long, hide = true)]
     state_sync_bucket: Option<String>,
 }
 
 /// Warns if unsupported build of the executable is used on mainnet or testnet.
 ///
-/// Verifies that when running on mainnet or testnet chain a neard binary built
-/// with `make release` command is used.  That Makefile targets enable
-/// optimization options which aren’t enabled when building with different
-/// methods and is the only officially supported method of building the binary
-/// to run in production.
+/// Warns when running a debug or nightly build on mainnet or testnet.
 ///
 /// The detection is done by checking that `NEAR_RELEASE_BUILD` environment
-/// variable was set to `release` during compilation (which is what Makefile
-/// sets) and that the `nightly` feature is not enabled.
+/// variable was set to `release` during compilation (set by build.rs for
+/// release profile builds) and that the `nightly` feature is not enabled.
 fn check_release_build(chain: &str) {
     let is_release_build =
         option_env!("NEAR_RELEASE_BUILD") == Some("release") && !cfg!(feature = "nightly");
     if !is_release_build
         && [near_primitives::chains::MAINNET, near_primitives::chains::TESTNET].contains(&chain)
     {
-        warn!(
+        tracing::warn!(
             target: "neard",
-            "Running a neard executable which wasn’t built with `make release` \
-             command isn’t supported on {}.",
-            chain
+            %chain,
+            concat!(
+                "running a debug or nightly neard build on this chain is not recommended, ",
+                "consider recompiling with `cargo build -p neard --release`",
+            ),
         );
-        warn!(
-            target: "neard",
-            "Note that `cargo build --release` builds lack optimizations which \
-             may be needed to run properly on {}",
-            chain
-        );
-        warn!(
-            target: "neard",
-            "Consider recompiling the binary using `make release` command.");
     }
 }
 
@@ -543,7 +551,14 @@ impl RunCmd {
             }
         }
 
-        let (tx_crash, mut rx_crash) = broadcast::channel::<()>(16);
+        // Resolve the hot store path from config (before config is moved).
+        let hot_store_path = home_dir
+            .join(near_config.config.store.path.as_deref().unwrap_or_else(|| Path::new("data")));
+
+        // Check for epoch sync data reset marker from a previous run.
+        check_epoch_sync_data_reset_marker(&hot_store_path, near_config.client_config.archive);
+
+        let (tx_crash, mut rx_crash) = broadcast::channel::<ShutdownReason>(16);
         let (tx_config_update, rx_config_update) =
             broadcast::channel::<Result<UpdatableConfigs, Arc<UpdatableConfigLoaderError>>>(16);
         let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
@@ -583,15 +598,24 @@ impl RunCmd {
 
             let sig = loop {
                 let sig = wait_for_interrupt_signal(home_dir, &mut rx_crash).await;
-                if sig == "SIGHUP" {
-                    let maybe_updatable_configs =
-                        nearcore::dyn_config::read_updatable_configs(home_dir);
-                    updatable_config_loader.reload(maybe_updatable_configs);
-                } else {
-                    break sig;
+                match &sig {
+                    ShutdownSignal::OsSignal(s) if s == "SIGHUP" => {
+                        let maybe_updatable_configs =
+                            nearcore::dyn_config::read_updatable_configs(home_dir);
+                        updatable_config_loader.reload(maybe_updatable_configs);
+                    }
+                    _ => break sig,
                 }
             };
-            warn!(target: "neard", "{}, stopping... this may take a few minutes.", sig);
+
+            // Write marker if this is an epoch sync data reset shutdown.
+            let needs_restart =
+                matches!(&sig, ShutdownSignal::ClientShutdown(ShutdownReason::EpochSyncDataReset));
+            if needs_restart {
+                write_epoch_sync_data_reset_marker(&hot_store_path);
+            }
+
+            tracing::warn!(target: "neard", ?sig, "stopping, this may take a few minutes");
             if let Some(handle) = cold_store_loop_handle {
                 handle.store(false, std::sync::atomic::Ordering::Relaxed);
             }
@@ -599,31 +623,107 @@ impl RunCmd {
             near_async::shutdown_all_actors();
             // Disable the subscriber to properly shutdown the tracer.
             near_o11y::reload(Some("error"), None, Some("off"), None).unwrap();
+
+            // Re-exec after shutting down actors. We skip RocksDB shutdown since
+            // the data directory will be wiped on the next startup anyway.
+            if needs_restart {
+                exec_restart();
+            }
         });
-        info!(target: "neard", "Waiting for RocksDB to gracefully shutdown");
+        tracing::info!(target: "neard", "waiting for rocksdb to gracefully shutdown");
         RocksDB::block_until_all_instances_are_dropped();
     }
 }
 
+/// Checks for the epoch sync data reset marker and deletes the data directory if found.
+/// Archival nodes skip deletion to prevent accidental data loss.
+fn check_epoch_sync_data_reset_marker(hot_store_path: &Path, is_archival: bool) {
+    let marker_path = hot_store_path.join(EPOCH_SYNC_DATA_RESET_MARKER_FILE_NAME);
+    if !near_client::sync::SYNC_V2_ENABLED || !marker_path.exists() {
+        return;
+    }
+    if is_archival {
+        tracing::warn!(target: "neard", "epoch sync data reset marker found but node is archival, ignoring");
+    } else {
+        tracing::info!(target: "neard", ?hot_store_path, "epoch sync data reset marker found, deleting data directory");
+        std::fs::remove_dir_all(hot_store_path)
+            .expect("failed to delete data directory for epoch sync reset");
+    }
+}
+
+/// Writes the epoch sync data reset marker file inside the hot store directory.
+/// On next startup, this marker signals that the data directory should be wiped.
+fn write_epoch_sync_data_reset_marker(hot_store_path: &Path) {
+    let marker_path = hot_store_path.join(EPOCH_SYNC_DATA_RESET_MARKER_FILE_NAME);
+    // Ensure the data directory exists (it should, since we're running).
+    std::fs::create_dir_all(hot_store_path)
+        .expect("failed to create data directory for reset marker");
+    std::fs::write(&marker_path, b"").expect("failed to write epoch sync reset marker");
+    // Fsync the marker file and the parent directory to ensure the directory
+    // entry is durably persisted (fsync on the file alone is not sufficient
+    // on all filesystems).
+    std::fs::File::open(&marker_path)
+        .and_then(|f| f.sync_all())
+        .expect("failed to fsync reset marker file");
+    std::fs::File::open(hot_store_path)
+        .and_then(|d| d.sync_all())
+        .expect("failed to fsync hot store directory");
+    tracing::info!(target: "neard", ?marker_path, "epoch sync data reset marker written");
+}
+
+/// On non-unix platforms, exec is not available.
 #[cfg(not(unix))]
-async fn wait_for_interrupt_signal(_home_dir: &Path, mut _rx_crash: &Receiver<()>) -> &str {
+fn exec_restart() {
+    tracing::warn!(
+        target: "neard",
+        "automatic restart after epoch sync data reset is not supported on this platform, \
+         please restart manually"
+    );
+}
+
+/// Re-execs the current process with the same arguments.
+/// On success, this function never returns (the process image is replaced).
+#[cfg(unix)]
+fn exec_restart() {
+    use std::env::{args_os, current_exe};
+    use std::os::unix::process::CommandExt;
+    use std::process::Command;
+
+    let binary = current_exe().expect("failed to determine current executable path");
+    let args: Vec<_> = args_os().skip(1).collect();
+
+    tracing::info!(target: "neard", ?binary, ?args, "restarting process after epoch sync data reset");
+
+    // exec() replaces the process image. If it returns, it failed.
+    let err = Command::new(&binary).args(&args).exec();
+    panic!("failed to exec {:?}: {}", binary, err);
+}
+
+#[cfg(not(unix))]
+async fn wait_for_interrupt_signal(
+    _home_dir: &Path,
+    mut _rx_crash: &Receiver<ShutdownReason>,
+) -> ShutdownSignal {
     // TODO(#6372): Support graceful shutdown on windows.
     tokio::signal::ctrl_c().await.unwrap();
-    "Ctrl+C"
+    ShutdownSignal::OsSignal("Ctrl+C".to_string())
 }
 
 #[cfg(unix)]
-async fn wait_for_interrupt_signal(_home_dir: &Path, rx_crash: &mut Receiver<()>) -> &'static str {
+async fn wait_for_interrupt_signal(
+    _home_dir: &Path,
+    rx_crash: &mut Receiver<ShutdownReason>,
+) -> ShutdownSignal {
     use tokio::signal::unix::{SignalKind, signal};
     let mut sigint = signal(SignalKind::interrupt()).unwrap();
     let mut sigterm = signal(SignalKind::terminate()).unwrap();
     let mut sighup = signal(SignalKind::hangup()).unwrap();
 
     tokio::select! {
-         _ = sigint.recv()  => "SIGINT",
-         _ = sigterm.recv() => "SIGTERM",
-         _ = sighup.recv() => "SIGHUP",
-         _ = rx_crash.recv() => "ClientActor died",
+         _ = sigint.recv()  => ShutdownSignal::OsSignal("SIGINT".to_string()),
+         _ = sigterm.recv() => ShutdownSignal::OsSignal("SIGTERM".to_string()),
+         _ = sighup.recv() => ShutdownSignal::OsSignal("SIGHUP".to_string()),
+         Ok(reason) = rx_crash.recv() => ShutdownSignal::ClientShutdown(reason),
     }
 }
 
@@ -838,6 +938,7 @@ pub(super) struct DumpEpochConfigsCommand {
     output_dir: Option<PathBuf>,
 }
 
+#[cfg(feature = "dump-test-contract")]
 impl DumpEpochConfigsCommand {
     pub fn run(self, home_dir: &Path) -> anyhow::Result<()> {
         let output_dir = self.output_dir.unwrap_or_else(|| home_dir.join("epoch_configs"));
@@ -880,8 +981,8 @@ fn normalize_whitespace(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Checks the provided kernel parameter  from /proc/sys
-/// and prints an error if it is not set to the expected value.
+/// Checks the provided kernel parameter from /proc/sys
+/// and prints a warning if it is not set to the expected value.
 #[cfg(target_os = "linux")]
 fn check_kernel_param(param_name: &str, expected_value: &str) {
     // Convert the dotted param_name into a path under /proc/sys
@@ -898,16 +999,16 @@ fn check_kernel_param(param_name: &str, expected_value: &str) {
             let expected_normalized = normalize_whitespace(expected_value);
 
             if actual_normalized != expected_normalized {
-                error!(
-                    "ERROR: {} is set to {}, expected {}. Please run `scripts/set_kernel_params.sh`.",
-                    param_name, actual_normalized, expected_normalized
+                tracing::warn!(
+                    %param_name,
+                    %actual_normalized,
+                    %expected_normalized,
+                    "parameter is set to incorrect value, please run `scripts/set_kernel_params.sh`"
                 );
-            } else {
-                info!("OK: {} is set to expected value {}", param_name, expected_normalized);
             }
         }
         Err(e) => {
-            error!("ERROR: failed to read parameter {} from {}: {}", param_name, path.display(), e);
+            tracing::error!(%param_name, path = %path.display(), ?e, "failed to read parameter");
         }
     }
 }

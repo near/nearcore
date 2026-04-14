@@ -1,3 +1,5 @@
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use near_chain::{ChainStore, ChainStoreAccess, Provenance};
 use near_chain_configs::Genesis;
 use near_epoch_manager::EpochManagerAdapter;
@@ -6,9 +8,6 @@ use near_store::Store;
 use near_store::test_utils::create_test_store;
 use near_undo_block::undo_block;
 use std::sync::Arc;
-
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
 
 /// Setup environment with one Near client for testing.
 fn setup_env(genesis: &Genesis, store: Store) -> (TestEnv, Arc<dyn EpochManagerAdapter>) {
@@ -26,6 +25,7 @@ fn test_undo_block(epoch_length: u64, stop_height: u64) {
 
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
 
     let store = create_test_store();
     let (mut env, epoch_manager) = setup_env(&genesis, store.clone());

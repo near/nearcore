@@ -18,7 +18,7 @@ use near_primitives::sharding::ShardChunk;
 use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::types::{EpochId, ShardId};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
+use near_primitives::version::ProtocolVersion;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::{DBCol, ShardUId, Store};
@@ -73,13 +73,13 @@ pub(super) async fn run_state_sync_for_shard(
     concurrency_limit: u8,
     min_delay_before_reattempt: Duration,
 ) -> Result<(), near_chain::Error> {
-    tracing::info!("Running state sync for shard {}", shard_id);
+    tracing::info!(target: "sync", %shard_id, "running state sync");
     *status.lock() = ShardSyncStatus::StateDownloadHeader;
     let header = downloader.ensure_shard_header(shard_id, sync_hash, cancel.clone()).await?;
     let state_root = header.chunk_prev_state_root();
     let num_parts = header.num_state_parts();
     let block_header =
-        store.get_ser::<BlockHeader>(DBCol::BlockHeader, sync_hash.as_bytes())?.ok_or_else(
+        store.get_ser::<BlockHeader>(DBCol::BlockHeader, sync_hash.as_bytes()).ok_or_else(
             || near_chain::Error::DBNotFoundErr(format!("No block header {}", sync_hash)),
         )?;
     let epoch_id = *block_header.epoch_id();
@@ -90,7 +90,8 @@ pub(super) async fn run_state_sync_for_shard(
         .set(num_parts as i64);
 
     return_if_cancelled!(cancel);
-    *status.lock() = ShardSyncStatus::StateDownloadParts;
+    let mut parts_downloaded: u64 = 0;
+    *status.lock() = ShardSyncStatus::StateDownloadParts { done: 0, total: num_parts };
     let mut parts_to_download: Vec<u64> = (0..num_parts).collect();
     {
         // Peer selection is designed such that different nodes downloading the same part will tend
@@ -120,6 +121,13 @@ pub(super) async fn run_state_sync_for_shard(
                 respawn_for_parallelism(&*future_spawner, "state sync download part", future)
             })
             .buffered(concurrency_limit.into())
+            .inspect_ok(|_| {
+                parts_downloaded += 1;
+                *status.lock() = ShardSyncStatus::StateDownloadParts {
+                    done: parts_downloaded,
+                    total: num_parts,
+                };
+            })
             .collect::<Vec<_>>()
             .await;
         attempt_count += 1;
@@ -133,6 +141,14 @@ pub(super) async fn run_state_sync_for_shard(
             .collect();
         // Wait before retrying the failed parts
         if !parts_to_download.is_empty() {
+            tracing::debug!(
+                target: "sync",
+                ?shard_id,
+                ?attempt_count,
+                num_failed = parts_to_download.len(),
+                delay = ?min_delay_before_reattempt,
+                "some parts failed to download, retrying after delay",
+            );
             let deadline = downloader.clock.now() + min_delay_before_reattempt;
             tokio::select! {
                 _ = downloader.clock.sleep_until(deadline) => {}
@@ -142,29 +158,49 @@ pub(super) async fn run_state_sync_for_shard(
     }
 
     return_if_cancelled!(cancel);
-    *status.lock() = ShardSyncStatus::StateApplyInProgress;
+    *status.lock() = ShardSyncStatus::StateApplyInProgress { done: 0, total: num_parts };
     runtime.get_tries().unload_memtrie(&shard_uid);
 
-    // Clear flat storage, but only if we haven't started applying parts yet.
-    // (Otherwise we will delete the parts we already applied)
+    // Clear flat storage before applying state parts.
+    //
+    // If flat storage is already loaded in memory, it means a previous state
+    // sync completed and flat state may have been modified by subsequent block
+    // processing. We must clear everything and re-apply from scratch.
+    //
+    // If flat storage is NOT in memory but some parts were already applied
+    // (i.e. we crashed mid-sync and are resuming), skip cleanup to preserve
+    // the progress made so far.
+    let flat_storage_manager = runtime.get_flat_storage_manager();
+    let flat_storage_exists = flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_some();
     let apply_parts_started = any(0..num_parts, |part_id| {
         let key = StatePartKey(sync_hash, shard_id, part_id);
         let key_bytes = borsh::to_vec(&key).unwrap();
-        store.exists(DBCol::StatePartsApplied, &key_bytes).unwrap_or(false)
+        store.exists(DBCol::StatePartsApplied, &key_bytes)
     });
-    if apply_parts_started {
-        tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "Not clearing flat storage before applying state parts because some parts were already applied");
+    if apply_parts_started && !flat_storage_exists {
+        tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "not clearing flat storage before applying state parts because some parts were already applied");
     } else {
-        tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "Clearing flat storage before applying state parts");
+        if flat_storage_exists && apply_parts_started {
+            tracing::debug!(target: "sync", ?shard_id, ?sync_hash,
+                "clearing completed flat storage and re-applying state parts");
+        } else {
+            tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "clearing flat storage before applying state parts");
+        }
         let mut store_update = store.store_update();
-        runtime
-            .get_flat_storage_manager()
+        flat_storage_manager
             .remove_flat_storage_for_shard(shard_uid, &mut store_update.flat_store_update())?;
-        store_update.commit()?;
+        // Also clear StatePartsApplied markers so the parts are re-applied.
+        for part_id in 0..num_parts {
+            let key = StatePartKey(sync_hash, shard_id, part_id);
+            let key_bytes = borsh::to_vec(&key).unwrap();
+            store_update.delete(DBCol::StatePartsApplied, &key_bytes);
+        }
+        store_update.commit();
     }
 
     return_if_cancelled!(cancel);
-    let _results = tokio_stream::iter(0..num_parts)
+    let mut parts_done: u64 = 0;
+    tokio_stream::iter(0..num_parts)
         .map(|part_id| {
             let store = store.clone();
             let runtime = runtime.clone();
@@ -186,6 +222,11 @@ pub(super) async fn run_state_sync_for_shard(
             respawn_for_parallelism(&*future_spawner, "state sync apply part", future)
         })
         .buffer_unordered(concurrency_limit.into())
+        .inspect_ok(|_| {
+            parts_done += 1;
+            *status.lock() =
+                ShardSyncStatus::StateApplyInProgress { done: parts_done, total: num_parts };
+        })
         .try_collect::<Vec<_>>()
         .await?;
 
@@ -210,14 +251,13 @@ pub(super) async fn run_state_sync_for_shard(
     // Load memtrie.
     {
         let handle = computation_task_tracker.get_handle(&format!("shard {}", shard_id)).await;
-        let head_protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        let shard_uids_pending_resharding = epoch_manager
-            .get_shard_uids_pending_resharding(head_protocol_version, PROTOCOL_VERSION)?;
+        let shard_uid_pending_resharding =
+            epoch_manager.get_resharding_parent_shard_uid(&epoch_id, &sync_hash)?;
         handle.set_status("Loading memtrie");
         runtime.get_tries().load_memtrie_on_catchup(
             &shard_uid,
             &state_root,
-            &shard_uids_pending_resharding,
+            shard_uid_pending_resharding.as_ref(),
         )?;
     }
 
@@ -249,7 +289,7 @@ fn create_flat_storage_for_shard(
 
     let flat_head_hash = *chunk.prev_block();
     let flat_head_header =
-        store.get_ser::<BlockHeader>(DBCol::BlockHeader, flat_head_hash.as_bytes())?.ok_or_else(
+        store.get_ser::<BlockHeader>(DBCol::BlockHeader, flat_head_hash.as_bytes()).ok_or_else(
             || near_chain::Error::DBNotFoundErr(format!("No block header {}", flat_head_hash)),
         )?;
     let flat_head_prev_hash = *flat_head_header.prev_hash();
@@ -268,7 +308,7 @@ fn create_flat_storage_for_shard(
             },
         }),
     );
-    store_update.commit()?;
+    store_update.commit();
     flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
     Ok(())
 }
@@ -294,9 +334,9 @@ async fn apply_state_part(
 ) -> Result<StatePartApplyResult, near_chain::Error> {
     let key = StatePartKey(sync_hash, shard_id, part_id);
     let key_bytes = borsh::to_vec(&key).unwrap();
-    let already_applied = store.exists(DBCol::StatePartsApplied, &key_bytes)?;
+    let already_applied = store.exists(DBCol::StatePartsApplied, &key_bytes);
     if already_applied {
-        tracing::debug!(target: "sync", ?key, "State part already applied, skipping");
+        tracing::debug!(target: "sync", ?key, "state part already applied, skipping");
         return Ok(StatePartApplyResult::AlreadyApplied);
     }
     return_if_cancelled!(cancel);
@@ -305,7 +345,7 @@ async fn apply_state_part(
     return_if_cancelled!(cancel);
     handle.set_status("Loading part data from store");
     let bytes = store
-        .get(DBCol::StateParts, &key_bytes)?
+        .get(DBCol::StateParts, &key_bytes)
         .ok_or_else(|| {
             near_chain::Error::DBNotFoundErr(format!(
                 "No state part {} for shard {}",
@@ -322,12 +362,12 @@ async fn apply_state_part(
         &state_part,
         &epoch_id,
     )?;
-    tracing::debug!(target: "sync", ?key, "Applied state part");
+    tracing::debug!(target: "sync", ?key, "applied state part");
 
     // Mark part as applied.
     let mut store_update = store.store_update();
-    store_update.set_ser(DBCol::StatePartsApplied, &key_bytes, &true)?;
-    store_update.commit()?;
+    store_update.set_ser(DBCol::StatePartsApplied, &key_bytes, &true);
+    store_update.commit();
 
     Ok(StatePartApplyResult::Applied)
 }
@@ -341,6 +381,7 @@ mod tests {
     use near_primitives::state::PartialState;
     use near_primitives::state_sync::StatePartKey;
     use near_primitives::types::EpochId;
+    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;
@@ -393,7 +434,7 @@ mod tests {
 
         let mut store_update = store.store_update();
         store_update.set(DBCol::StateParts, &key_bytes, &part_bytes);
-        store_update.commit().unwrap();
+        store_update.commit();
 
         // Apply the state part for the first time
         let result = apply_state_part(
@@ -416,7 +457,7 @@ mod tests {
         assert_eq!(result, StatePartApplyResult::Applied);
 
         // Part should be marked as applied in store
-        assert!(store.exists(DBCol::StatePartsApplied, &key_bytes).unwrap());
+        assert!(store.exists(DBCol::StatePartsApplied, &key_bytes));
 
         // Try to apply the state part again
         let result = apply_state_part(

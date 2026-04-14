@@ -1,9 +1,8 @@
+use crate::{GGas, Model};
 use chrono::{Duration, Utc};
 pub use queue_lengths::{QueueStats, ShardQueueLengths};
 pub use transaction_progress::TransactionStatus;
 pub use user_experience::UserExperience;
-
-use crate::{GGas, Model};
 
 mod queue_lengths;
 pub mod summary_table;

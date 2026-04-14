@@ -1,11 +1,9 @@
-use std::fmt::Debug;
-
-use futures::FutureExt;
-use futures::future::BoxFuture;
-
 use crate::messaging::{AsyncSendError, CanSend, CanSendAsync, Handler};
 use crate::multithread::runtime_handle::{MultithreadRuntimeHandle, MultithreadRuntimeMessage};
 use crate::{next_message_sequence_num, pretty_type_name};
+use futures::FutureExt;
+use futures::future::BoxFuture;
+use std::fmt::Debug;
 
 impl<A, M> CanSend<M> for MultithreadRuntimeHandle<A>
 where
@@ -28,7 +26,7 @@ where
             function: Box::new(function),
         };
         if let Err(_) = self.send_message(message) {
-            tracing::info!(target: "multithread_runtime", seq, "Ignoring sync message, receiving actor is being shut down");
+            tracing::info!(target: "multithread_runtime", seq, "ignoring sync message, receiving actor is being shut down");
         }
     }
 }

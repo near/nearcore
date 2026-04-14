@@ -1,23 +1,27 @@
+use crate::contract_code::RuntimeContractIdentifier;
 use crate::receipt_manager::ReceiptManager;
 use near_parameters::vm::StorageGetMode;
 use near_primitives::account::Account;
-use near_primitives::account::id::AccountType;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas};
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, PromiseYieldStatus,
+};
 use near_primitives::utils::create_receipt_id_from_action_hash;
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_store::contract::ContractStorage;
 use near_store::trie::{AccessOptions, AccessTracker};
-use near_store::{KeyLookupMode, TrieUpdate, TrieUpdateValuePtr, has_promise_yield_receipt};
+use near_store::{
+    KeyLookupMode, TrieUpdate, TrieUpdateValuePtr, has_promise_yield_receipt,
+    has_promise_yield_status, set_promise_yield_status,
+};
 use near_vm_runner::logic::errors::{AnyError, InconsistentStateError, VMLogicError};
 use near_vm_runner::logic::types::{
     ActionIndex, GlobalContractDeployMode, GlobalContractIdentifier, ReceiptIndex,
 };
 use near_vm_runner::logic::{External, StorageAccessTracker, ValuePtr};
 use near_vm_runner::{Contract, ContractCode};
-use near_wallet_contract::wallet_contract;
 use parking_lot::Mutex;
 use std::collections::BTreeMap;
 use std::fmt::Debug;
@@ -343,9 +347,20 @@ impl<'a> External for RuntimeExt<'a> {
         receiver_id: AccountId,
     ) -> Result<(ReceiptIndex, CryptoHash), VMLogicError> {
         let input_data_id = self.generate_data_id();
-        self.receipt_manager
-            .create_promise_yield_receipt(input_data_id, receiver_id)
-            .map(|receipt_index| (receipt_index, input_data_id))
+        let receipt_index =
+            self.receipt_manager.create_promise_yield_receipt(input_data_id, receiver_id.clone());
+        let receipt_index = (receipt_index, input_data_id);
+
+        if ProtocolFeature::YieldResumeImprovements.enabled(self.current_protocol_version) {
+            set_promise_yield_status(
+                &mut self.trie_update,
+                &receiver_id,
+                input_data_id,
+                PromiseYieldStatus::Yielded,
+            );
+        }
+
+        Ok(receipt_index)
     }
 
     fn submit_promise_resume_data(
@@ -353,32 +368,45 @@ impl<'a> External for RuntimeExt<'a> {
         data_id: CryptoHash,
         data: Vec<u8>,
     ) -> Result<bool, VMLogicError> {
-        // If the yielded promise was created by a previous transaction, we'll find it in the trie
-        if has_promise_yield_receipt(self.trie_update, self.account_id.clone(), data_id)
-            .map_err(wrap_storage_error)?
-        {
-            self.receipt_manager.create_promise_resume_receipt(data_id, data)?;
-            return Ok(true);
+        let has_yield_receipt_in_state =
+            has_promise_yield_receipt(self.trie_update, self.account_id.clone(), data_id)
+                .map_err(wrap_storage_error)?;
+
+        if ProtocolFeature::YieldResumeImprovements.enabled(self.current_protocol_version) {
+            let has_yield_status_in_state =
+                has_promise_yield_status(self.trie_update, &self.account_id, data_id)
+                    .map_err(wrap_storage_error)?;
+
+            if has_yield_receipt_in_state || has_yield_status_in_state {
+                self.receipt_manager.create_promise_resume_receipt(data_id, data);
+                set_promise_yield_status(
+                    &mut self.trie_update,
+                    &self.account_id,
+                    data_id,
+                    PromiseYieldStatus::ResumeInitiated,
+                );
+                return Ok(true);
+            }
+
+            Ok(false)
+        } else {
+            if has_yield_receipt_in_state {
+                self.receipt_manager.create_promise_resume_receipt(data_id, data);
+                return Ok(true);
+            }
+
+            // If the yielded promise was created by the current transaction, we'll find it in the
+            // receipt manager.
+            Ok(self.receipt_manager.checked_resolve_promise_yield(data_id, data))
         }
-
-        // If the yielded promise was created by the current transaction, we'll find it in the
-        // receipt manager.
-        self.receipt_manager.checked_resolve_promise_yield(data_id, data)
     }
 
-    fn append_action_create_account(
-        &mut self,
-        receipt_index: ReceiptIndex,
-    ) -> Result<(), VMLogicError> {
-        self.receipt_manager.append_action_create_account(receipt_index)
+    fn append_action_create_account(&mut self, receipt_index: ReceiptIndex) {
+        self.receipt_manager.append_action_create_account(receipt_index);
     }
 
-    fn append_action_deploy_contract(
-        &mut self,
-        receipt_index: ReceiptIndex,
-        code: Vec<u8>,
-    ) -> Result<(), VMLogicError> {
-        self.receipt_manager.append_action_deploy_contract(receipt_index, code)
+    fn append_action_deploy_contract(&mut self, receipt_index: ReceiptIndex, code: Vec<u8>) {
+        self.receipt_manager.append_action_deploy_contract(receipt_index, code);
     }
 
     fn append_action_deploy_global_contract(
@@ -386,16 +414,16 @@ impl<'a> External for RuntimeExt<'a> {
         receipt_index: ReceiptIndex,
         code: Vec<u8>,
         mode: GlobalContractDeployMode,
-    ) -> Result<(), VMLogicError> {
-        self.receipt_manager.append_action_deploy_global_contract(receipt_index, code, mode)
+    ) {
+        self.receipt_manager.append_action_deploy_global_contract(receipt_index, code, mode);
     }
 
     fn append_action_use_global_contract(
         &mut self,
         receipt_index: ReceiptIndex,
         contract_id: GlobalContractIdentifier,
-    ) -> Result<(), VMLogicError> {
-        self.receipt_manager.append_use_deploy_global_contract(receipt_index, contract_id)
+    ) {
+        self.receipt_manager.append_use_deploy_global_contract(receipt_index, contract_id);
     }
 
     fn append_action_deterministic_state_init(
@@ -403,7 +431,7 @@ impl<'a> External for RuntimeExt<'a> {
         receipt_index: ReceiptIndex,
         contract_id: GlobalContractIdentifier,
         amount: Balance,
-    ) -> Result<u64, VMLogicError> {
+    ) -> u64 {
         self.receipt_manager.append_deterministic_state_init(receipt_index, contract_id, amount)
     }
 
@@ -426,12 +454,49 @@ impl<'a> External for RuntimeExt<'a> {
         )
     }
 
-    fn append_action_transfer(
+    fn append_action_transfer(&mut self, receipt_index: ReceiptIndex, deposit: Balance) {
+        self.receipt_manager.append_action_transfer(receipt_index, deposit);
+    }
+
+    fn append_action_transfer_to_gas_key(
         &mut self,
         receipt_index: ReceiptIndex,
+        public_key: near_crypto::PublicKey,
         deposit: Balance,
+    ) {
+        self.receipt_manager.append_action_transfer_to_gas_key(receipt_index, public_key, deposit);
+    }
+
+    fn append_action_add_gas_key_with_full_access(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        public_key: near_crypto::PublicKey,
+        num_nonces: near_primitives::types::NonceIndex,
+    ) {
+        self.receipt_manager.append_action_add_gas_key_with_full_access(
+            receipt_index,
+            public_key,
+            num_nonces,
+        )
+    }
+
+    fn append_action_add_gas_key_with_function_call(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        public_key: near_crypto::PublicKey,
+        num_nonces: near_primitives::types::NonceIndex,
+        allowance: Option<Balance>,
+        receiver_id: AccountId,
+        method_names: Vec<Vec<u8>>,
     ) -> Result<(), VMLogicError> {
-        self.receipt_manager.append_action_transfer(receipt_index, deposit)
+        self.receipt_manager.append_action_add_gas_key_with_function_call(
+            receipt_index,
+            public_key,
+            num_nonces,
+            allowance,
+            receiver_id,
+            method_names,
+        )
     }
 
     fn append_action_stake(
@@ -487,8 +552,8 @@ impl<'a> External for RuntimeExt<'a> {
         &mut self,
         receipt_index: ReceiptIndex,
         beneficiary_id: AccountId,
-    ) -> Result<(), VMLogicError> {
-        self.receipt_manager.append_action_delete_account(receipt_index, beneficiary_id)
+    ) {
+        self.receipt_manager.append_action_delete_account(receipt_index, beneficiary_id);
     }
 
     fn get_receipt_receiver(&self, receipt_index: ReceiptIndex) -> &AccountId {
@@ -515,40 +580,25 @@ impl<'a> External for RuntimeExt<'a> {
     }
 }
 
-pub(crate) struct RuntimeContractExt<'a> {
+pub(crate) struct RuntimeContractExt {
     pub(crate) storage: ContractStorage,
-    pub(crate) account_id: &'a AccountId,
-    pub(crate) code_hash: CryptoHash,
+    pub(crate) identifier: RuntimeContractIdentifier,
 }
 
-impl<'a> Contract for RuntimeContractExt<'a> {
+impl Contract for RuntimeContractExt {
     fn hash(&self) -> CryptoHash {
-        // For eth implicit accounts return the wallet contract code hash.
-        // The account.code_hash() contains hash of the magic bytes, not the contract hash.
-        if self.account_id.get_account_type() == AccountType::EthImplicitAccount {
-            // There are old eth implicit accounts without magic bytes in the code hash.
-            // Result can be None and it's a valid option. See https://github.com/near/nearcore/pull/11606
-            if let Some(wallet_contract) = wallet_contract(self.code_hash) {
-                return *wallet_contract.hash();
-            }
-        }
-
-        self.code_hash
+        self.identifier.hash()
     }
 
     fn get_code(&self) -> Option<Arc<ContractCode>> {
-        let account_id = self.account_id;
-        if account_id.get_account_type() == AccountType::EthImplicitAccount {
-            // Accounts that look like eth implicit accounts and have existed prior to the
-            // eth-implicit accounts protocol change (these accounts are discussed in the
-            // description of #11606) may have something else deployed to them. Only return
-            // something here if the accounts have a wallet contract hash. Otherwise use the
-            // regular path to grab the deployed contract.
-            if let Some(wc) = wallet_contract(self.code_hash) {
-                return Some(wc);
+        match &self.identifier {
+            RuntimeContractIdentifier::None => Option::None,
+            RuntimeContractIdentifier::AccountLocal { code_hash, .. }
+            | RuntimeContractIdentifier::Global { code_hash, .. } => {
+                self.storage.get(*code_hash).map(Arc::new)
             }
+            RuntimeContractIdentifier::LegacyEthWallet(legacy) => Some(legacy.contract()),
         }
-        self.storage.get(self.code_hash).map(Arc::new)
     }
 }
 

@@ -1,6 +1,7 @@
 use crate::runtime_group_tools::RuntimeGroup;
-
 use near_crypto::InMemorySigner;
+#[cfg(feature = "nightly")]
+use near_primitives::account::GasKeyInfo;
 use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, ActionReceiptV2, ReceiptEnum};
@@ -36,7 +37,6 @@ fn test_simple_func_call() {
             deposit: Balance::ZERO,
         }))],
         CryptoHash::default(),
-        0,
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
@@ -87,7 +87,6 @@ fn test_single_promise_no_callback() {
             deposit: Balance::ZERO,
         }))],
         CryptoHash::default(),
-        0,
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
@@ -160,7 +159,6 @@ fn test_single_promise_with_callback() {
             deposit: Balance::ZERO,
         }))],
         CryptoHash::default(),
-        0,
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
@@ -253,7 +251,6 @@ fn test_two_promises_no_callbacks() {
             deposit: Balance::ZERO,
         }))],
         CryptoHash::default(),
-        0,
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
@@ -356,7 +353,6 @@ fn test_two_promises_with_two_callbacks() {
             deposit: Balance::ZERO,
         }))],
         CryptoHash::default(),
-        0,
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
@@ -465,7 +461,6 @@ fn test_single_promise_no_callback_batch() {
             deposit: Balance::ZERO,
         }))],
         CryptoHash::default(),
-        0,
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
@@ -544,7 +539,6 @@ fn test_single_promise_with_callback_batch() {
             deposit: Balance::ZERO,
         }))],
         CryptoHash::default(),
-        0,
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
@@ -627,7 +621,6 @@ fn test_simple_transfer() {
             deposit: Balance::ZERO,
         }))],
         CryptoHash::default(),
-        0,
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
@@ -702,7 +695,6 @@ fn test_create_account_with_transfer_and_full_key() {
             deposit: Balance::ZERO,
         }))],
         CryptoHash::default(),
-        0,
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
@@ -821,7 +813,6 @@ fn test_account_factory() {
             deposit: Balance::ZERO,
         }))],
         CryptoHash::default(),
-        0,
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
@@ -984,7 +975,6 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
             deposit: Balance::ZERO,
         }))],
         CryptoHash::default(),
-        0,
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
@@ -1094,7 +1084,6 @@ fn test_transfer_64len_hex() {
             deposit: Balance::ZERO,
         }))],
         CryptoHash::default(),
-        0,
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
@@ -1169,7 +1158,6 @@ fn test_create_transfer_64len_hex_fail() {
             deposit: Balance::ZERO,
         }))],
         CryptoHash::default(),
-        0,
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
@@ -1218,12 +1206,7 @@ fn test_create_transfer_64len_hex_fail() {
 // redirect the balance refund using `promise_refund_to`
 #[test]
 fn test_refund_to() {
-    let test_contract = if ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        near_test_contracts::nightly_rs_contract()
-    } else {
-        near_test_contracts::rs_contract()
-    };
-    let group = RuntimeGroup::new(4, 4, &test_contract);
+    let group = RuntimeGroup::new(4, 4, near_test_contracts::rs_contract());
 
     let signer_sender = group.signers[0].clone();
     let signer_receiver = group.signers[1].clone();
@@ -1266,7 +1249,6 @@ fn test_refund_to() {
             deposit,
         }))],
         CryptoHash::default(),
-        0,
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
@@ -1311,4 +1293,178 @@ fn test_refund_to() {
     } else {
         assert_refund!(group, deposit_refund @ "near_1");
     }
+}
+
+#[cfg(feature = "nightly")]
+#[test]
+fn test_create_account_add_gas_key_full_access() {
+    let group = RuntimeGroup::new(3, 2, near_test_contracts::nightly_rs_contract());
+    let signer_sender = group.signers[0].clone();
+    let signer_receiver = group.signers[1].clone();
+    let signer_new_account = group.signers[2].clone();
+
+    let data = serde_json::json!([
+        {"batch_create": {
+            "account_id": "near_2",
+        }, "id": 0 },
+        {"action_create_account": {
+            "promise_index": 0,
+        }, "id": 0 },
+        {"action_transfer": {
+            "promise_index": 0,
+            "amount": "10000000000000000000000000",
+        }, "id": 0 },
+        {"action_add_gas_key_with_full_access": {
+            "promise_index": 0,
+            "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key()).unwrap()),
+            "num_nonces": 4,
+        }, "id": 0 }
+    ]);
+
+    let signed_transaction = SignedTransaction::from_actions(
+        1,
+        signer_sender.get_account_id(),
+        signer_receiver.get_account_id(),
+        &signer_sender,
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "call_promise".to_string(),
+            args: serde_json::to_vec(&data).unwrap(),
+            gas: GAS_1,
+            deposit: Balance::ZERO,
+        }))],
+        CryptoHash::default(),
+    );
+
+    let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    use near_primitives::transaction::*;
+    let [r0] = &*assert_receipts!(group, signed_transaction) else {
+        panic!("incorrect number of produced receipts")
+    };
+    let receipts = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
+        {},
+        actions,
+        a0, Action::FunctionCall(function_call_action), {
+            assert_eq!(function_call_action.gas, GAS_1);
+            assert!(function_call_action.deposit.is_zero());
+        }
+    );
+    let [r1, ..] = &receipts else { panic!("incorrect number of produced receipts") };
+
+    assert_receipts!(group, "near_1" => r1 @ "near_2",
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
+        {},
+        actions,
+        _a0, Action::CreateAccount(CreateAccountAction{}), {},
+        _a1, Action::Transfer(TransferAction{deposit}), {
+            assert_eq!(*deposit, Balance::from_near(10));
+        },
+        a2, Action::AddKey(add_key_action), {
+            assert_eq!(add_key_action.public_key, signer_new_account.public_key());
+            assert_eq!(add_key_action.access_key.nonce, 0);
+            assert_eq!(
+                add_key_action.access_key.permission,
+                AccessKeyPermission::GasKeyFullAccess(GasKeyInfo {
+                    balance: Balance::ZERO,
+                    num_nonces: 4,
+                })
+            );
+        }
+    );
+}
+
+#[cfg(feature = "nightly")]
+#[test]
+fn test_create_account_add_gas_key_function_call() {
+    let group = RuntimeGroup::new(3, 2, near_test_contracts::nightly_rs_contract());
+    let signer_sender = group.signers[0].clone();
+    let signer_receiver = group.signers[1].clone();
+    let signer_new_account = group.signers[2].clone();
+
+    let data = serde_json::json!([
+        {"batch_create": {
+            "account_id": "near_2",
+        }, "id": 0 },
+        {"action_create_account": {
+            "promise_index": 0,
+        }, "id": 0 },
+        {"action_transfer": {
+            "promise_index": 0,
+            "amount": "10000000000000000000000000",
+        }, "id": 0 },
+        {"action_add_gas_key_with_function_call": {
+            "promise_index": 0,
+            "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key()).unwrap()),
+            "num_nonces": 8,
+            "allowance": "0",
+            "receiver_id": "near_1",
+            "method_names": "method1,method2",
+        }, "id": 0 }
+    ]);
+
+    let signed_transaction = SignedTransaction::from_actions(
+        1,
+        signer_sender.get_account_id(),
+        signer_receiver.get_account_id(),
+        &signer_sender,
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "call_promise".to_string(),
+            args: serde_json::to_vec(&data).unwrap(),
+            gas: GAS_1,
+            deposit: Balance::ZERO,
+        }))],
+        CryptoHash::default(),
+    );
+
+    let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    use near_primitives::transaction::*;
+    let [r0] = &*assert_receipts!(group, signed_transaction) else {
+        panic!("incorrect number of produced receipts")
+    };
+    let receipts = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
+        {},
+        actions,
+        a0, Action::FunctionCall(function_call_action), {
+            assert_eq!(function_call_action.gas, GAS_1);
+            assert!(function_call_action.deposit.is_zero());
+        }
+    );
+    let [r1, ..] = &receipts else { panic!("incorrect number of produced receipts") };
+
+    assert_receipts!(group, "near_1" => r1 @ "near_2",
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
+        {},
+        actions,
+        _a0, Action::CreateAccount(CreateAccountAction{}), {},
+        _a1, Action::Transfer(TransferAction{deposit}), {
+            assert_eq!(*deposit, Balance::from_near(10));
+        },
+        a2, Action::AddKey(add_key_action), {
+            assert_eq!(add_key_action.public_key, signer_new_account.public_key());
+            assert_eq!(add_key_action.access_key.nonce, 0);
+            assert_eq!(
+                add_key_action.access_key.permission,
+                AccessKeyPermission::GasKeyFunctionCall(
+                    GasKeyInfo {
+                        balance: Balance::ZERO,
+                        num_nonces: 8,
+                    },
+                    FunctionCallPermission {
+                        allowance: None,
+                        receiver_id: "near_1".to_string(),
+                        method_names: vec!["method1".to_string(), "method2".to_string()],
+                    }
+                )
+            );
+        }
+    );
 }

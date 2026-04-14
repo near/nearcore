@@ -8,13 +8,12 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::sync::LazyLock;
-use tracing::warn;
 
 pub fn export_stats_as_metrics(stats: StoreStatistics, temperature: Temperature) {
     match ROCKSDB_METRICS.lock().export_stats_as_metrics(stats, temperature) {
         Ok(_) => {}
         Err(err) => {
-            warn!(target:"stats", "Failed to export {:?} store statistics: {:?}", temperature, err);
+            tracing::warn!(target:"stats", ?temperature, ?err, "failed to export store statistics");
         }
     }
 }

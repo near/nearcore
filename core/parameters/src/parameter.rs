@@ -77,6 +77,9 @@ pub enum Parameter {
     ActionDeterministicStateInit,
     ActionDeterministicStateInitPerEntry,
     ActionDeterministicStateInitPerByte,
+    ActionGasKeyTransfer,
+    ActionGasKeyByte,
+    ActionGasKeyNonceWriteBase,
 
     // Smart contract dynamic gas costs
     WasmRegularOpCost,
@@ -201,15 +204,18 @@ pub enum Parameter {
     MaxYieldPayloadSize,
     MaxTablesPerContract,
     MaxElementsPerContractTable,
+    MaxFunctionBodySize,
+    MaxInstrumentedCodeSize,
+    MaxBlocksPerFunction,
+    MaxBlocksPerContract,
 
     // Contract runtime features
     FlatStorageReads,
-    ImplicitAccountCreation,
     FixContractLoadingCost,
     VmKind,
     EthImplicitAccounts,
+    EthImplicitGlobalContract,
     DiscardCustomSections,
-    SaturatingFloatToInt,
     ReftypesBulkMemory,
 
     // Congestion Control
@@ -245,6 +251,12 @@ pub enum Parameter {
 
     // Flag to enabled deterministic account ids
     DeterministicAccountIds,
+
+    // Flag to enable gas key host functions
+    GasKeyHostFns,
+
+    // Flag to allow 1 yoctoNEAR on promise function calls without balance
+    OneYoctoOnPromise,
 }
 
 #[derive(
@@ -284,6 +296,9 @@ pub enum FeeParameter {
     ActionDeterministicStateInit,
     ActionDeterministicStateInitPerByte,
     ActionDeterministicStateInitPerEntry,
+    ActionGasKeyTransfer,
+    ActionGasKeyByte,
+    ActionGasKeyNonceWriteBase,
 }
 
 impl Parameter {
@@ -321,6 +336,10 @@ impl Parameter {
             Parameter::PerReceiptStorageProofSizeLimit,
             Parameter::MaxTablesPerContract,
             Parameter::MaxElementsPerContractTable,
+            Parameter::MaxFunctionBodySize,
+            Parameter::MaxInstrumentedCodeSize,
+            Parameter::MaxBlocksPerFunction,
+            Parameter::MaxBlocksPerContract,
         ]
         .iter()
     }
@@ -356,6 +375,9 @@ impl From<ActionCosts> for FeeParameter {
             ActionCosts::deterministic_state_init_entry => {
                 Self::ActionDeterministicStateInitPerEntry
             }
+            ActionCosts::gas_key_transfer_base => Self::ActionGasKeyTransfer,
+            ActionCosts::gas_key_byte => Self::ActionGasKeyByte,
+            ActionCosts::gas_key_nonce_write_base => Self::ActionGasKeyNonceWriteBase,
         }
     }
 }

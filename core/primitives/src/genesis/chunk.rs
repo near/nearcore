@@ -1,7 +1,3 @@
-use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::{Balance, BlockHeight, Gas, ProtocolVersion, ShardId};
-use near_primitives_core::version::PROD_GENESIS_PROTOCOL_VERSION;
-
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::congestion_info::CongestionInfo;
 use crate::reed_solomon::reed_solomon_encode;
@@ -10,8 +6,10 @@ use crate::sharding::{
     TransactionReceipt,
 };
 use crate::types::StateRoot;
-use crate::types::chunk_extra::ChunkExtra;
 use crate::validator_signer::EmptyValidatorSigner;
+use near_primitives_core::hash::CryptoHash;
+use near_primitives_core::types::{Balance, BlockHeight, Gas, ProtocolVersion, ShardId};
+use near_primitives_core::version::{PROD_GENESIS_PROTOCOL_VERSION, PROTOCOL_VERSION};
 
 type ShardChunkReedSolomon = reed_solomon_erasure::galois_8::ReedSolomon;
 
@@ -67,6 +65,7 @@ fn genesis_chunk(
     state_root: CryptoHash,
     congestion_info: CongestionInfo,
 ) -> ShardChunk {
+    // TODO(spice): convert genesis chunk into tx-only chunk same as regular chunk.
     let (chunk, _) = ShardChunkWithEncoding::new(
         CryptoHash::default(),
         state_root,
@@ -83,25 +82,13 @@ fn genesis_chunk(
         CryptoHash::default(),
         congestion_info,
         BandwidthRequests::empty(),
+        None,
         &EmptyValidatorSigner::default().into(),
         rs,
+        PROTOCOL_VERSION,
     );
     let encoded_chunk = chunk.into_parts().1;
-    let chunk = encoded_chunk.decode_chunk().expect("Failed to decode genesis chunk");
-    if cfg!(feature = "protocol_feature_spice") {
-        chunk.into_spice_chunk_with_execution(&ChunkExtra::new(
-            &state_root,
-            CryptoHash::default(),
-            vec![],
-            Gas::ZERO,
-            initial_gas_limit,
-            Balance::ZERO,
-            Some(congestion_info),
-            BandwidthRequests::empty(),
-        ))
-    } else {
-        chunk
-    }
+    encoded_chunk.decode_chunk().expect("Failed to decode genesis chunk")
 }
 
 pub fn prod_genesis_chunks(

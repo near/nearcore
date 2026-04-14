@@ -1,3 +1,5 @@
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use borsh::BorshDeserialize;
 use near_async::ActorSystem;
 use near_chain::Provenance;
@@ -16,8 +18,7 @@ use near_primitives::types::{Balance, Gas};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
 use near_store::archive::cold_storage::{
-    copy_all_data_to_cold, test_cold_genesis_update, test_get_store_initial_writes,
-    test_get_store_reads, update_cold_db, update_cold_head,
+    test_copy_all_data_to_cold, test_get_store_reads, update_cold_db, update_cold_head,
 };
 use near_store::db::metadata::{DB_VERSION, DbKind};
 use near_store::test_utils::create_test_node_storage_with_cold;
@@ -27,15 +28,12 @@ use std::collections::HashSet;
 use std::str::FromStr;
 use strum::IntoEnumIterator;
 
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
-
 fn check_key(first_store: &Store, second_store: &Store, col: DBCol, key: &[u8]) {
     let pretty_key = near_fmt::StorageKey(key);
-    tracing::debug!("Checking {:?} {:?}", col, pretty_key);
+    tracing::debug!(?col, ?pretty_key, "checking");
 
-    let first_res = first_store.get(col, key).unwrap();
-    let second_res = second_store.get(col, key).unwrap();
+    let first_res = first_store.get(col, key);
+    let second_res = second_store.get(col, key);
 
     assert_eq!(first_res, second_res, "col: {:?} key: {:?}", col, pretty_key);
 }
@@ -47,7 +45,7 @@ fn check_iter(
     no_check_rules: &Vec<Box<dyn Fn(DBCol, &Box<[u8]>, &Box<[u8]>) -> bool>>,
 ) -> u64 {
     let mut num_checks = 0;
-    for (key, value) in first_store.iter(col).map(Result::unwrap) {
+    for (key, value) in first_store.iter(col) {
         let mut check = true;
         for no_check in no_check_rules {
             if no_check(col, &key, &value) {
@@ -89,7 +87,7 @@ fn create_tx_deploy_contract(
     let code = near_test_contracts::rs_contract().to_vec();
     let action = DeployContractAction { code };
     let action = Action::DeployContract(action);
-    SignedTransaction::from_actions(height, test0(), test0(), signer, vec![action], block_hash, 0)
+    SignedTransaction::from_actions(height, test0(), test0(), signer, vec![action], block_hash)
 }
 
 fn create_tx_function_call(
@@ -103,7 +101,7 @@ fn create_tx_function_call(
         gas: Gas::from_teragas(100),
         deposit: Balance::ZERO,
     }));
-    SignedTransaction::from_actions(nonce, test0(), test0(), signer, vec![action], block_hash, 0)
+    SignedTransaction::from_actions(nonce, test0(), test0(), signer, vec![action], block_hash)
 }
 
 /// Deploying test contract and calling write_random_value 5 times every block for 4 epochs.
@@ -113,6 +111,8 @@ fn create_tx_function_call(
 /// After 4 epochs we check that everything, that exists in cold columns
 /// of the storage of the client also exists in the database to which we were writing.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_storage_after_commit_of_cold_update() {
     init_test_logger();
 
@@ -121,13 +121,14 @@ fn test_storage_after_commit_of_cold_update() {
 
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     genesis.config.min_gas_price = Balance::ZERO;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let cold_db = storage.cold_db().unwrap();
 
-    test_cold_genesis_update(&cold_db, &env.clients[0].runtime_adapter.store()).unwrap();
+    test_copy_all_data_to_cold(&cold_db, &env.clients[0].runtime_adapter.store()).unwrap();
 
     let state_reads = test_get_store_reads(DBCol::State);
 
@@ -238,6 +239,7 @@ fn test_cold_db_head_update() {
 
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let hot_store = &storage.get_hot_store();
     let cold_store = &storage.get_cold_store().unwrap();
@@ -266,6 +268,8 @@ fn test_cold_db_head_update() {
 /// Here we are testing that `update_cold_db` handles itself correctly
 /// if some heights are not present in blockchain.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cold_db_copy_with_height_skips() {
     init_test_logger();
 
@@ -276,6 +280,7 @@ fn test_cold_db_copy_with_height_skips() {
 
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     genesis.config.min_gas_price = Balance::ZERO;
     let mut env = TestEnv::builder(&genesis.config)
         .nightshade_runtimes_congestion_control_disabled(&genesis)
@@ -284,7 +289,7 @@ fn test_cold_db_copy_with_height_skips() {
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let cold_db = storage.cold_db().unwrap();
 
-    test_cold_genesis_update(&cold_db, &env.clients[0].runtime_adapter.store()).unwrap();
+    test_copy_all_data_to_cold(&cold_db, &env.clients[0].runtime_adapter.store()).unwrap();
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
     for height in 1..max_height {
@@ -316,8 +321,7 @@ fn test_cold_db_copy_with_height_skips() {
 
         let client = &env.clients[0];
         let hot_store = client.runtime_adapter.store();
-        let block_hash =
-            hot_store.get_ser::<CryptoHash>(DBCol::BlockHeight, &height.to_le_bytes()).unwrap();
+        let block_hash = hot_store.get_ser::<CryptoHash>(DBCol::BlockHeight, &height.to_le_bytes());
         let Some(block) = block else {
             assert!(block_hash.is_none());
             continue;
@@ -371,88 +375,10 @@ fn test_cold_db_copy_with_height_skips() {
     }
 }
 
-/// Producing 4 epochs of blocks with some transactions.
-/// Call copying full contents of cold columns to cold storage in batches of specified max_size.
-/// Checks COLD_STORE_MIGRATION_BATCH_WRITE_COUNT metric for some batch_sizes:
-/// - If batch_size = 0, check that every value was copied in a separate batch.
-/// - If batch_size = usize::MAX, check that everything was copied in one batch.
-/// Most importantly, checking that everything from cold columns was indeed copied into cold storage.
-fn test_initial_copy_to_cold(batch_size: usize) {
-    init_test_logger();
-
-    let epoch_length = 5;
-    let max_height = epoch_length * 4;
-
-    let mut genesis = Genesis::test(vec![test0(), test1()], 1);
-    genesis.config.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
-
-    let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);
-
-    let mut last_hash = *env.clients[0].chain.genesis().hash();
-    for height in 1..max_height {
-        let signer = InMemorySigner::test_signer(&test0());
-        for i in 0..5 {
-            let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
-            assert_eq!(
-                env.rpc_handlers[0].process_tx(tx, false, false),
-                ProcessTxResponse::ValidTx
-            );
-        }
-
-        let block = env.clients[0].produce_block(height).unwrap().unwrap();
-        env.process_block(0, block.clone(), Provenance::PRODUCED);
-        last_hash = *block.hash();
-    }
-
-    let keep_going = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
-
-    let cold_db = storage.cold_db().unwrap();
-    let cold_store = storage.get_cold_store().unwrap();
-    let client_store = env.clients[0].runtime_adapter.store();
-    copy_all_data_to_cold(cold_db.clone(), &client_store, batch_size, &keep_going).unwrap();
-
-    for col in DBCol::iter() {
-        if !col.is_cold() {
-            continue;
-        }
-        let num_checks = check_iter(&client_store, &cold_store, col, &vec![]);
-        // Some columns are expected to be empty
-        if col == DBCol::StateChangesForSplitStates
-            || col == DBCol::StateHeaders
-            || col == DBCol::StateShardUIdMapping
-        {
-            continue;
-        }
-        // assert that this test actually checks something
-        assert!(num_checks > 0);
-        if batch_size == 0 {
-            assert_eq!(num_checks, test_get_store_initial_writes(col));
-        } else if batch_size == usize::MAX {
-            assert_eq!(1, test_get_store_initial_writes(col));
-        }
-    }
-}
-
-#[test]
-fn test_initial_copy_to_cold_small_batch() {
-    test_initial_copy_to_cold(0);
-}
-
-#[test]
-fn test_initial_copy_to_cold_huge_batch() {
-    test_initial_copy_to_cold(usize::MAX);
-}
-
-#[test]
-fn test_initial_copy_to_cold_medium_batch() {
-    test_initial_copy_to_cold(5000);
-}
-
-/// This test checks that garbage collection does not remove data needed for cold storage migration prematurely.
+/// This test checks that garbage collection does not remove data needed for cold storage copying prematurely.
 /// Test flow:
 /// - Produce a lot of blocks.
-/// - Manually perform initial migration.
+/// - Copy all data to cold storage.
 /// - Produce a lot more blocks for hot tail to reach its boundary.
 /// - Spawn a cold store loop (just like we do in neard).
 /// - Wait 10 seconds.
@@ -465,6 +391,7 @@ fn test_cold_loop_on_gc_boundary() {
 
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
 
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let hot_store = &storage.get_hot_store();
@@ -496,16 +423,14 @@ fn test_cold_loop_on_gc_boundary() {
         last_hash = *block.hash();
     }
 
-    let keep_going = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
-
     let cold_db = storage.cold_db().unwrap();
     let mut store_update = cold_db.as_store().store_update();
     set_genesis_height(&mut store_update, &0);
-    store_update.commit().unwrap();
+    store_update.commit();
 
-    copy_all_data_to_cold(cold_db.clone(), &hot_store, 1000000, &keep_going).unwrap();
+    test_copy_all_data_to_cold(cold_db, hot_store).unwrap();
 
-    update_cold_head(cold_db, &hot_store, &(height_delta - 1)).unwrap();
+    update_cold_head(cold_db, hot_store, &(height_delta - 1)).unwrap();
 
     for height in height_delta..height_delta * 2 {
         let signer = InMemorySigner::test_signer(&test0());
@@ -523,7 +448,7 @@ fn test_cold_loop_on_gc_boundary() {
     }
 
     let start_cold_head =
-        cold_store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY).unwrap().unwrap().height;
+        cold_store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY).unwrap().height;
 
     let signer =
         InMemorySigner::from_random(AccountId::from_str("test").unwrap(), KeyType::ED25519);
@@ -559,8 +484,7 @@ fn test_cold_loop_on_gc_boundary() {
     let _cold_store_addr = actor_system.spawn_tokio_actor(actor);
     std::thread::sleep(std::time::Duration::from_secs(1));
 
-    let end_cold_head =
-        cold_store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY).unwrap().unwrap().height;
+    let end_cold_head = cold_store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY).unwrap().height;
 
     assert!(
         end_cold_head > start_cold_head,

@@ -192,7 +192,7 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
             &state_dump_path,
             &near_config.config.store,
             near_config.config.cold_store.as_ref(),
-            near_config.config.cloud_storage_config(),
+            near_config.cloud_storage_context(),
         )
         .open()
         .unwrap()

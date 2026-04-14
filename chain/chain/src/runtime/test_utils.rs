@@ -1,6 +1,4 @@
-use std::path::Path;
-use std::sync::Arc;
-
+use super::NightshadeRuntime;
 use near_chain_configs::{
     DEFAULT_GC_NUM_EPOCHS_TO_KEEP, DEFAULT_STATE_PARTS_COMPRESSION_LEVEL, GenesisConfig,
 };
@@ -8,8 +6,8 @@ use near_epoch_manager::EpochManagerHandle;
 use near_parameters::RuntimeConfigStore;
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
-
-use super::NightshadeRuntime;
+use std::path::Path;
+use std::sync::Arc;
 
 impl NightshadeRuntime {
     pub fn test_with_runtime_config_store(
@@ -33,7 +31,7 @@ impl NightshadeRuntime {
             StateSnapshotConfig::enabled(home_dir.join("data")),
             DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
             false,
-            false,
+            true,
         )
     }
 
@@ -47,6 +45,7 @@ impl NightshadeRuntime {
         trie_config: TrieConfig,
         gc_num_epochs_to_keep: u64,
         is_cloud_archival_writer: bool,
+        save_receipt_to_tx: bool,
     ) -> Arc<Self> {
         Self::new(
             store,
@@ -61,7 +60,7 @@ impl NightshadeRuntime {
             StateSnapshotConfig::enabled(home_dir.join("data")),
             DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
             is_cloud_archival_writer,
-            false,
+            save_receipt_to_tx,
         )
     }
 
@@ -79,6 +78,7 @@ impl NightshadeRuntime {
                 None::<&str>,
                 "contract.cache",
                 1,
+                None,
             )
             .expect("filesystem contract cache")
             .handle(),

@@ -19,6 +19,10 @@ near-crypto.workspace = true
 near-o11y.workspace = true
 near-primitives.workspace = true
 
+[dev-dependencies]
+near-crypto = { workspace = true, features = ["rand"] }
+near-primitives = { workspace = true, features = ["test_utils"] }
+
 [features]
 nightly = [
   "near-o11y/nightly",

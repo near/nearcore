@@ -222,10 +222,9 @@ impl From<SignableMessageType> for MessageDiscriminant {
 
 #[cfg(test)]
 mod tests {
-    use near_crypto::{InMemorySigner, PublicKey};
-
     use super::*;
     use crate::action::delegate::{DelegateAction, SignedDelegateAction};
+    use near_crypto::{InMemorySigner, PublicKey};
 
     // happy path for NEP-366 signature
     #[test]

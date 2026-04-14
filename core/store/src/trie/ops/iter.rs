@@ -1,17 +1,14 @@
 //! Iterator implementation that is shared between DiskTrieIterator and MemTrieIterator.
-use std::ops::Bound;
-use std::sync::Arc;
-
-use itertools::Itertools;
-use near_primitives::errors::StorageError;
-use near_primitives::hash::CryptoHash;
-
+use super::interface::{GenericTrieInternalStorage, GenericTrieNode};
 use crate::NibbleSlice;
 use crate::trie::iterator::DiskTrieIteratorInner;
 use crate::trie::trie_storage_update::TrieStorageNodePtr;
 use crate::trie::{AccessOptions, ValueHandle};
-
-use super::interface::{GenericTrieInternalStorage, GenericTrieNode};
+use itertools::Itertools;
+use near_primitives::errors::StorageError;
+use near_primitives::hash::CryptoHash;
+use std::ops::Bound;
+use std::sync::Arc;
 
 /// The TrieItem is a tuple of (key, value) of the node.
 pub type TrieItem = (Vec<u8>, Vec<u8>);

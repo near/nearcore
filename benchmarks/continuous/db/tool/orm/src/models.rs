@@ -1,7 +1,6 @@
 use chrono::{DateTime, Utc};
 use diesel::prelude::Insertable;
 use serde::Deserialize;
-
 use crate::schema::ft_transfers;
 
 // cspell:ignore Insertable

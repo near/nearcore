@@ -3,17 +3,15 @@
 mod height_range;
 mod last_blocks;
 
+/// Iterate over blocks between two block heights.
+/// `from_height` and `to_height` are inclusive
+pub use height_range::BlockHeightRangeIterator;
+/// Iterate over the last N blocks in the blockchain
+pub use last_blocks::LastNBlocksIterator;
 use near_chain::{Block, ChainStore};
 use near_primitives::types::BlockHeight;
 use std::rc::Rc;
 use std::sync::Arc;
-
-/// Iterate over blocks between two block heights.
-/// `from_height` and `to_height` are inclusive
-pub use height_range::BlockHeightRangeIterator;
-
-/// Iterate over the last N blocks in the blockchain
-pub use last_blocks::LastNBlocksIterator;
 
 /// Arguments that user can pass to a command to choose some subset of blocks
 pub struct CommandArgs {

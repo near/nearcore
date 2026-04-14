@@ -1,5 +1,4 @@
 use parking_lot::{Condvar, Mutex};
-use tracing::info;
 
 /// Describes number of RocksDB instances and sum of their max_open_files.
 ///
@@ -59,7 +58,7 @@ impl State {
             inner.count += 1;
             inner.count
         };
-        info!(target: "db", num_instances, "Opened a new RocksDB instance.");
+        tracing::info!(target: "db", num_instances, "opened a new rocksdb instance");
         Ok(())
     }
 
@@ -73,18 +72,18 @@ impl State {
             }
             inner.count
         };
-        info!(target: "db", num_instances, "Closed a RocksDB instance.");
+        tracing::info!(target: "db", num_instances, "closed a rocksdb instance");
     }
 
     /// Blocks until all RocksDB instances (usually 0 or 1) shut down.
     fn block_until_all_instances_are_closed(&self) {
         let mut inner = self.inner.lock();
         while inner.count != 0 {
-            info!(target: "db", num_instances=inner.count,
-                  "Waiting for remaining RocksDB instances to close");
+            tracing::info!(target: "db", num_instances=inner.count,
+                  "waiting for remaining rocksdb instances to close");
             self.zero_cvar.wait(&mut inner);
         }
-        info!(target: "db", "All RocksDB instances closed.");
+        tracing::info!(target: "db", "all rocksdb instances closed");
     }
 }
 

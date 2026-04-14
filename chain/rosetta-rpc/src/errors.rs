@@ -1,7 +1,6 @@
-use std::num::ParseIntError;
-
 use near_account_id::ParseAccountError;
 use near_async::messaging::AsyncSendError;
+use std::num::ParseIntError;
 
 #[derive(Debug, strum::EnumIter, thiserror::Error)]
 pub(crate) enum ErrorKind {

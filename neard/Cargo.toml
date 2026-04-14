@@ -30,10 +30,10 @@ tracing.workspace = true
 yansi.workspace = true
 
 nearcore.workspace = true
-near-amend-genesis.workspace = true
 near-async.workspace = true
 near-chain-configs.workspace = true
 near-client.workspace = true
+near-cloud-archive-tool.workspace = true
 near-cold-store-tool.workspace = true
 near-config-utils.workspace = true
 near-database-tool.workspace = true
@@ -44,7 +44,6 @@ near-jsonrpc-primitives.workspace = true
 near-mirror.workspace = true
 near-network.workspace = true
 near-o11y.workspace = true
-near-performance-metrics.workspace = true
 near-ping.workspace = true
 near-primitives.workspace = true
 near-replay-archive-tool.workspace = true
@@ -53,24 +52,25 @@ near-state-parts-dump-check.workspace = true
 near-state-viewer.workspace = true
 near-store.workspace = true
 near-undo-block.workspace = true
-near-dump-test-contract.workspace = true
+near-dump-test-contract = { workspace = true, optional = true }
 
 [build-dependencies]
 anyhow.workspace = true
 rustc_version = "0.4"
 
 [features]
+rpc_probe = ["nearcore/rpc_probe"]
 tx_generator = ["nearcore/tx_generator"]
-default = ["json_rpc", "rosetta_rpc"]
+default = ["json_rpc", "rosetta_rpc", "dump-test-contract"]
 protocol_feature_spice = [
   "near-client/protocol_feature_spice",
   "near-primitives/protocol_feature_spice",
   "near-store/protocol_feature_spice",
-  "nearcore/protocol_feature_spice"
+  "nearcore/protocol_feature_spice",
+  "near-mirror/protocol_feature_spice",
 ]
+dump-test-contract = ["near-dump-test-contract"]
 
-performance_stats = ["nearcore/performance_stats"]
-c_memory_stats = ["nearcore/c_memory_stats"]
 test_features = [
   "nearcore/test_features",
   "near-dump-test-contract/test_features",
@@ -96,13 +96,9 @@ nightly = [
   "near-undo-block/nightly",
   "nearcore/nightly",
 ]
-shadow_chunk_validation = [
-  "near-client/shadow_chunk_validation",
-]
+shadow_chunk_validation = ["near-client/shadow_chunk_validation"]
 
-calimero_zero_storage = [
-  "near-primitives/calimero_zero_storage",
-]
+calimero_zero_storage = ["near-primitives/calimero_zero_storage"]
 
 actor_instrumentation_testing = ["nearcore/actor_instrumentation_testing"]
 

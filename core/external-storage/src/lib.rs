@@ -1,11 +1,10 @@
-use std::io::{Read, Write};
-use std::path::PathBuf;
-use std::sync::Arc;
-
 use anyhow::Context;
 use futures::TryStreamExt;
 use near_chain_configs::ExternalStorageLocation;
-use object_store::{ObjectStore, PutPayload};
+use object_store::{ObjectStore, ObjectStoreExt, PutPayload};
+use std::io::{Read, Write};
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Live connection/handle to an external storage backend.
@@ -39,6 +38,15 @@ pub struct S3AccessConfig {
 }
 
 impl ExternalConnection {
+    /// Human-readable backend name for logging.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::S3 { .. } => "S3",
+            Self::Filesystem { .. } => "Filesystem",
+            Self::GCS { .. } => "GCS",
+        }
+    }
+
     /// Create a connection for the given storage location.
     /// For S3, `s3_access_config` is required; `credentials_file` is used only for RW.
     /// For GCS, `credentials_file` (if provided) overrides SERVICE_ACCOUNT.
@@ -73,14 +81,14 @@ impl ExternalConnection {
             ExternalStorageLocation::GCS { bucket, .. } => {
                 if let Some(credentials_file) = credentials_file {
                     if let Ok(var) = std::env::var("SERVICE_ACCOUNT") {
-                        tracing::warn!(target: "external", "Environment variable 'SERVICE_ACCOUNT' is set to {var}, but 'credentials_file' in config.json overrides it to '{credentials_file:?}'");
+                        tracing::warn!(target: "external", %var, ?credentials_file, "environment variable `SERVICE_ACCOUNT` is set, but `credentials_file` in config.json overrides it");
                         println!(
                             "Environment variable 'SERVICE_ACCOUNT' is set to {var}, but 'credentials_file' in config.json overrides it to '{credentials_file:?}'"
                         );
                     }
                     // SAFE: no threads *yet*.
                     unsafe { std::env::set_var("SERVICE_ACCOUNT", &credentials_file) };
-                    tracing::info!(target: "external", "Set the environment variable 'SERVICE_ACCOUNT' to '{credentials_file:?}'");
+                    tracing::info!(target: "external", ?credentials_file, "set the environment variable `SERVICE_ACCOUNT`");
                 }
                 ExternalConnection::GCS {
                     gcs_client: Arc::new(
@@ -100,7 +108,7 @@ impl ExternalConnection {
     pub async fn get(&self, path: &str) -> Result<Vec<u8>, anyhow::Error> {
         match self {
             ExternalConnection::S3 { bucket } => {
-                tracing::debug!(target: "external", path, "Reading from S3");
+                tracing::debug!(target: "external", path, "reading from S3");
                 let response = bucket.get_object(path).await?;
                 if response.status_code() == 200 {
                     Ok(response.bytes().to_vec())
@@ -110,7 +118,7 @@ impl ExternalConnection {
             }
             ExternalConnection::Filesystem { root_dir } => {
                 let path = root_dir.join(path);
-                tracing::debug!(target: "external", ?path, "Reading a file");
+                tracing::debug!(target: "external", ?path, "reading a file");
                 let data = std::fs::read(&path)?;
                 Ok(data)
             }
@@ -122,7 +130,7 @@ impl ExternalConnection {
                     percent_encoding::percent_encode(bucket.as_bytes(), GCS_ENCODE_SET),
                     percent_encoding::percent_encode(path.as_bytes(), GCS_ENCODE_SET),
                 );
-                tracing::debug!(target: "external", url, "Reading from GCS");
+                tracing::debug!(target: "external", url, "reading from GCS");
                 let response = reqwest_client.get(&url).send().await?.error_for_status();
                 match response {
                     Err(e) => Err(e.into()),
@@ -139,13 +147,13 @@ impl ExternalConnection {
     pub async fn put(&self, path: &str, value: &[u8]) -> Result<(), anyhow::Error> {
         match self {
             ExternalConnection::S3 { bucket } => {
-                tracing::debug!(target: "external", path, "Writing to S3");
+                tracing::debug!(target: "external", path, "writing to S3");
                 bucket.put_object(path, value).await?;
                 Ok(())
             }
             ExternalConnection::Filesystem { root_dir } => {
                 let path = root_dir.join(path);
-                tracing::debug!(target: "external", ?path, "Writing to a file");
+                tracing::debug!(target: "external", ?path, "writing to a file");
                 if let Some(parent_dir) = path.parent() {
                     std::fs::create_dir_all(parent_dir)?;
                 }
@@ -160,7 +168,7 @@ impl ExternalConnection {
             ExternalConnection::GCS { gcs_client, .. } => {
                 let path = object_store::path::Path::parse(path)
                     .with_context(|| format!("{path} isn't a valid path for GCP"))?;
-                tracing::debug!(target: "external", ?path, "Writing to GCS");
+                tracing::debug!(target: "external", ?path, "writing to GCS");
                 gcs_client.put(&path, PutPayload::from_bytes(value.to_vec().into())).await?;
                 Ok(())
             }
@@ -176,7 +184,7 @@ impl ExternalConnection {
             ExternalConnection::S3 { bucket } => {
                 let prefix = format!("{}/", directory_path);
                 let list_results = bucket.list(prefix.clone(), Some("/".to_string())).await?;
-                tracing::debug!(target: "external", directory_path, "List directory in s3");
+                tracing::debug!(target: "external", directory_path, "list directory in S3");
                 let mut file_names = vec![];
                 for res in list_results {
                     for obj in res.contents {
@@ -187,7 +195,7 @@ impl ExternalConnection {
             }
             ExternalConnection::Filesystem { root_dir } => {
                 let path = root_dir.join(directory_path);
-                tracing::debug!(target: "external", ?path, "List files in local directory");
+                tracing::debug!(target: "external", ?path, "list files in local directory");
                 std::fs::create_dir_all(&path)?;
                 let mut file_names = vec![];
                 let files = std::fs::read_dir(&path)?;
@@ -199,7 +207,7 @@ impl ExternalConnection {
             }
             ExternalConnection::GCS { gcs_client, .. } => {
                 let prefix = format!("{}/", directory_path);
-                tracing::debug!(target: "external", directory_path, "List directory in GCS");
+                tracing::debug!(target: "external", directory_path, "list directory in GCS");
                 Ok(gcs_client
                     .list(Some(
                         &object_store::path::Path::parse(&prefix)

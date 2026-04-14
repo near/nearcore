@@ -3,21 +3,32 @@
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::client_queries::ClientQueries;
-use crate::utils::transactions::get_anchor_hash;
+use crate::setup::peer_manager_actor::HandlerResult;
+use crate::utils::account::create_validator_id;
+use crate::utils::node::TestLoopNode;
 use near_async::messaging::CanSend as _;
 use near_async::time::Duration;
+use near_chain::ChainStoreAccess;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_chunks::shards_manager_actor::AdvDistributeChunksMode;
 use near_client::ProcessTxRequest;
 use near_client::client_actor::{AdvProduceChunksMode, NetworkAdversarialMessage};
+use near_network::types::NetworkRequests;
+use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::test_utils::create_user_test_signer;
+use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
+use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::views::{QueryRequest, QueryResponseKind};
+use near_primitives::version::PROTOCOL_VERSION;
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_producer_with_expired_transactions() {
+    init_test_logger();
+
     let accounts =
         (0..3).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
     let chunk_producer = accounts[0].as_str();
@@ -36,8 +47,7 @@ fn test_producer_with_expired_transactions() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(accounts.clone())
-        .build()
-        .warmup();
+        .build();
     let TestLoopEnv { test_loop, node_datas, .. } = &mut test_loop_env;
 
     // First we're gonna ask the chunk producer to keep producing empty chunks and send some
@@ -56,18 +66,9 @@ fn test_producer_with_expired_transactions() {
         let receiver = accounts[0].clone();
         test_loop.send_adhoc_event("transaction".into(), move |data| {
             let signer = create_user_test_signer(&sender);
-            let clients = vec![&data.get(&chunk_producer.client_sender.actor_handle()).client];
-            let response = clients.runtime_query(
-                &receiver,
-                QueryRequest::ViewAccessKey {
-                    account_id: sender.clone(),
-                    public_key: signer.public_key(),
-                },
-            );
-            let QueryResponseKind::AccessKey(access_key) = response.kind else {
-                panic!("Expected AccessKey response");
-            };
-            let anchor_hash = get_anchor_hash(&clients);
+            let node = TestLoopNode { data, node_data: &chunk_producer };
+            let access_key = node.view_access_key_query(&sender, &signer.public_key()).unwrap();
+            let anchor_hash = node.head().last_block_hash;
             let tx = SignedTransaction::send_money(
                 access_key.nonce + 1,
                 sender,
@@ -127,9 +128,9 @@ fn test_producer_with_expired_transactions() {
 
     // I'd have loved to check this holds true for chunk validators but they do not track shards
     // and thus cannot provide the info about balances.
-    let clients = vec![&test_loop.data.get(&chunk_producer.client_sender.actor_handle()).client];
+    let node = TestLoopNode { data: &test_loop.data, node_data: chunk_producer };
     for account in &accounts {
-        let actual = clients.query_balance(account);
+        let actual = node.query_balance(account);
         assert_eq!(actual, Balance::from_near(1000000), "no transfers should have happened");
     }
 
@@ -142,6 +143,117 @@ fn test_producer_with_expired_transactions() {
     let [metric] = applied_tx_metric.get_metric() else { panic!("unexpected metric shape") };
     let applied_txs = metric.get_counter().get_value();
     assert_eq!(applied_txs, 76.0, "should have applied the submitted transactions");
+}
 
-    test_loop_env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_producer_sending_large_encoded_length_chunks() {
+    init_test_logger();
+
+    let mut env = TestLoopBuilder::new().validators(2, 0).gc_num_epochs_to_keep(20).build();
+
+    let epoch_manager = env.node(0).client().epoch_manager.clone();
+    let peer_manager_actor_handle = env.node_datas[0].peer_manager_sender.actor_handle();
+    let peer_manager_actor = env.test_loop.data.get_mut(&peer_manager_actor_handle);
+    peer_manager_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+        match request {
+            NetworkRequests::PartialEncodedChunkMessage {
+                account_id,
+                mut partial_encoded_chunk,
+            } => {
+                let header = partial_encoded_chunk.header;
+
+                let epoch_id =
+                    epoch_manager.get_epoch_id_from_prev_block(header.prev_block_hash()).unwrap();
+                let chunk_producer_info = epoch_manager
+                    .get_chunk_producer_info(&ChunkProductionKey {
+                        shard_id: header.shard_id(),
+                        epoch_id,
+                        height_created: header.height_created(),
+                    })
+                    .unwrap();
+                let signer = create_test_signer(chunk_producer_info.account_id().as_str());
+                let new_encoded_length = u64::MAX;
+                let new_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+                    *header.prev_block_hash(),
+                    header.prev_state_root(),
+                    *header.prev_outcome_root(),
+                    *header.encoded_merkle_root(),
+                    new_encoded_length,
+                    header.height_created(),
+                    header.shard_id(),
+                    header.prev_gas_used(),
+                    header.gas_limit(),
+                    header.prev_balance_burnt(),
+                    *header.prev_outgoing_receipts_root(),
+                    *header.tx_root(),
+                    header.prev_validator_proposals().collect(),
+                    header.congestion_info(),
+                    header.bandwidth_requests().unwrap().clone(),
+                    header.proposed_split().cloned(),
+                    &signer,
+                    PROTOCOL_VERSION,
+                ));
+                partial_encoded_chunk.header = new_header;
+                HandlerResult::Unhandled(NetworkRequests::PartialEncodedChunkMessage {
+                    account_id,
+                    partial_encoded_chunk,
+                })
+            }
+            _ => HandlerResult::Unhandled(request),
+        }
+    }));
+
+    env.node_runner(0).run_for_number_of_blocks(10);
+}
+
+/// Tests chain behavior when a malicious chunk producer withholds chunk parts
+/// from nodes other than the block producer.
+#[test]
+fn test_chunk_parts_withholding_attack() {
+    init_test_logger();
+
+    // 7 validators ensures num_data_parts=2 (formula: (total_parts-1)/3).
+    // The malicious node sends only 1 part to the block producer, which must be
+    // insufficient to reconstruct (need 2). With fewer validators (e.g. 4),
+    // num_data_parts=1, so a single part suffices and the attack is ineffective.
+    let mut env = TestLoopBuilder::new().validators(7, 0).num_shards(7).build();
+
+    let (malicious_node_idx, honest_node_idx) = (0, 1);
+    // The malicious chunk producer only sends chunk parts to the block producer
+    // for that height, withholding from all other validators. Also drops
+    // responses to part requests so other nodes can't fetch the withheld parts.
+    env.node_datas[malicious_node_idx]
+        .shards_manager_sender
+        .send(AdvDistributeChunksMode::WithholdFromNonBlockProducer);
+
+    let num_blocks = 3; // Minimum number of blocks to observe skipped blocks on chain.
+    let head_before = env.node(honest_node_idx).head().height;
+    env.node_runner(honest_node_idx).run_for_number_of_blocks(num_blocks);
+    let head_after = env.node(honest_node_idx).head().height;
+
+    let chain_store = env.node(honest_node_idx).client().chain.chain_store();
+    let epoch_manager = &env.node(honest_node_idx).client().epoch_manager;
+    let head_epoch_id = env.node(honest_node_idx).head().epoch_id;
+    let malicious_account = create_validator_id(malicious_node_idx);
+
+    let (mut malicious_skipped, mut honest_skipped) = (false, false);
+    for height in (head_before + 1)..=head_after {
+        let block_producer = epoch_manager.get_block_producer(&head_epoch_id, height).unwrap();
+        let produced = chain_store.get_block_hash_by_height(height).is_ok();
+        if block_producer == malicious_account {
+            assert!(!produced, "height {height}: block by malicious node should be skipped");
+            malicious_skipped = true;
+        } else if !produced {
+            honest_skipped = true;
+        }
+    }
+    assert!(
+        malicious_skipped,
+        "expected at least one malicious block producer height to be skipped"
+    );
+    // The attack should also cause honest block producers to skip (they
+    // can't verify the withheld chunk and won't send approvals).
+    assert!(honest_skipped, "expected at least one honest block producer to skip");
 }

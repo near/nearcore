@@ -56,6 +56,19 @@ pub enum FunctionCallError {
     HostError(HostError),
 }
 
+impl FunctionCallError {
+    pub fn size_bytes_approximate(&self) -> usize {
+        const BASE_SIZE: usize = 4; // to roughly accommodate for static parts of the enum
+        match self {
+            FunctionCallError::CompilationError(e) => e.size_bytes_approximate(),
+            FunctionCallError::LinkError { msg } => BASE_SIZE + msg.len(),
+            FunctionCallError::MethodResolveError(_)
+            | FunctionCallError::WasmTrap(_)
+            | FunctionCallError::HostError(_) => BASE_SIZE,
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
 pub enum CacheError {
     #[error("cache read error: {0}")]
@@ -120,6 +133,22 @@ pub enum CompilationError {
     } = 3,
 }
 
+impl CompilationError {
+    /// Calculate the approximate memory footprint of given CompilationError.
+    pub fn size_bytes_approximate(&self) -> usize {
+        const BASE_SIZE: usize = 4; // to accommodate for String/Box/Box<str> etc
+
+        let dynamic_size = match self {
+            CompilationError::CodeDoesNotExist { account_id } => account_id.len(),
+            CompilationError::WasmerCompileError { msg }
+            | CompilationError::WasmtimeCompileError { msg } => msg.len(),
+            CompilationError::PrepareError(_) => 0,
+        };
+
+        BASE_SIZE + dynamic_size
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
@@ -154,6 +183,14 @@ pub enum PrepareError {
     TooManyTables = 9,
     /// Contract contains too many table elements.
     TooManyTableElements = 10,
+    /// A function body in the contract exceeds the size limit.
+    FunctionBodyTooLarge = 11,
+    /// The instrumented code exceeds the size limit.
+    InstrumentedCodeTooLarge = 12,
+    /// A function contains too many basic blocks.
+    TooManyBlocksPerFunction = 13,
+    /// A contract contains too many basic blocks.
+    TooManyBlocksPerContract = 14,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, strum::IntoStaticStr)]
@@ -378,6 +415,10 @@ impl fmt::Display for PrepareError {
             TooManyLocals => "Too many locals declared in the contract.",
             TooManyTables => "Too many tables declared in the contract.",
             TooManyTableElements => "Too many table elements declared in the contract.",
+            FunctionBodyTooLarge => "A function body in the contract exceeds the size limit.",
+            InstrumentedCodeTooLarge => "The instrumented code exceeds the size limit.",
+            TooManyBlocksPerFunction => "Too many basic blocks in a function.",
+            TooManyBlocksPerContract => "Too many basic blocks in a contract.",
         })
     }
 }

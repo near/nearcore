@@ -1,11 +1,10 @@
 use crate::commands::*;
 use crate::congestion_control::CongestionControlCmd;
 use crate::contract_accounts::ContractAccountFilter;
+use crate::latest_witnesses::StateWitnessCmd;
 use crate::replay_headers::replay_headers;
 use crate::rocksdb_stats::get_rocksdb_stats;
 use crate::trie_iteration_benchmark::TrieIterationBenchmarkCmd;
-
-use crate::latest_witnesses::StateWitnessCmd;
 use near_chain::types::RuntimeStorageConfig;
 use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
 use near_epoch_manager::EpochManager;
@@ -153,7 +152,7 @@ impl StateViewerSubCommand {
             home_dir,
             &near_config.config.store,
             near_config.config.cold_store.as_ref(),
-            near_config.config.cloud_storage_config(),
+            near_config.cloud_storage_context(),
         );
 
         let storage = store_opener.open_in_mode(mode).unwrap();
@@ -937,6 +936,7 @@ pub enum RecordType {
     DelayedReceiptOrIndices = col::DELAYED_RECEIPT_OR_INDICES,
     ContractData = col::CONTRACT_DATA,
     PromiseYieldReceipt = col::PROMISE_YIELD_RECEIPT,
+    PromiseYieldStatus = col::PROMISE_YIELD_STATUS,
 }
 
 impl clap::ValueEnum for RecordType {
@@ -952,6 +952,7 @@ impl clap::ValueEnum for RecordType {
             Self::DelayedReceiptOrIndices,
             Self::ContractData,
             Self::PromiseYieldReceipt,
+            Self::PromiseYieldStatus,
         ]
     }
 
@@ -972,6 +973,9 @@ impl clap::ValueEnum for RecordType {
             Self::ContractData => Some(clap::builder::PossibleValue::new("contract-data")),
             Self::PromiseYieldReceipt => {
                 Some(clap::builder::PossibleValue::new("promise-yield-receipt"))
+            }
+            Self::PromiseYieldStatus => {
+                Some(clap::builder::PossibleValue::new("promise-yield-status"))
             }
         }
     }

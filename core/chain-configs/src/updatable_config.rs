@@ -1,3 +1,4 @@
+use crate::ReshardingConfig;
 use near_primitives::types::BlockHeight;
 use near_primitives::validator_signer::ValidatorSigner;
 #[cfg(feature = "metrics")]
@@ -9,8 +10,6 @@ use std::sync::Arc;
 use time::Duration;
 #[cfg(feature = "metrics")]
 use time::OffsetDateTime as Utc;
-
-use crate::ReshardingConfig;
 
 /// A wrapper for a config value that can be updated while the node is running.
 /// When initializing sub-objects (e.g. `ShardsManager`), please make sure to
@@ -75,13 +74,13 @@ impl<T: Clone + PartialEq + Debug> MutableConfigValue<T> {
     pub fn update(&self, val: T) -> bool {
         let mut lock = self.value.lock();
         if *lock != val {
-            tracing::info!(target: "config", "Updated config field '{}' from {:?} to {:?}", self.field_name, *lock, val);
+            tracing::info!(target: "config", field_name = self.field_name, old_value = ?*lock, new_value = ?val, "updated config field");
             self.set_metric_value(lock.clone(), 0);
             *lock = val.clone();
             self.set_metric_value(val, 1);
             true
         } else {
-            tracing::info!(target: "config", "Mutable config field '{}' remains the same: {:?}", self.field_name, val);
+            tracing::info!(target: "config", field_name = self.field_name, value = ?val, "mutable config field remains the same");
             false
         }
     }

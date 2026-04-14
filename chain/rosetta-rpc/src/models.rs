@@ -1,8 +1,7 @@
+use crate::utils::{BlobInHexString, BorshInHexString, SignedDiff};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{Balance, BlockHeight, Nonce};
 use utoipa::ToSchema;
-
-use crate::utils::{BlobInHexString, BorshInHexString, SignedDiff};
 
 /// An AccountBalanceRequest is utilized to make a balance request on the
 /// /account/balance endpoint. If the block_identifier is populated, a
@@ -757,6 +756,11 @@ pub(crate) enum OperationType {
     InitiateSignedDelegateAction,
     InitiateDelegateAction,
     FunctionCall,
+    InitiateTransferToGasKey,
+    TransferToGasKey,
+    InitiateWithdrawFromGasKey,
+    WithdrawFromGasKey,
+    GasKeyBalanceBurnt,
 }
 
 #[derive(
@@ -786,6 +790,7 @@ impl OperationStatusKind {
 pub(crate) enum OperationMetadataTransferFeeType {
     GasPrepayment,
     GasRefund,
+    GasReward,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize, ToSchema)]
@@ -1039,6 +1044,7 @@ pub(crate) struct Peer {
 pub(crate) enum SubAccount {
     LiquidBalanceForStorage,
     Locked,
+    GasKey,
 }
 
 impl From<SubAccount> for crate::models::SubAccountIdentifier {
@@ -1145,11 +1151,22 @@ pub(crate) enum TransactionType {
     DataReceipt,
 }
 
+/// Execution outcome status for a transaction or receipt.
+#[derive(Debug, Clone, Copy, PartialEq, ToSchema, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum ExecutionStatus {
+    Success,
+    Failure,
+    Unknown,
+}
+
 /// Extra data for Transaction
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, ToSchema)]
 pub(crate) struct TransactionMetadata {
     #[serde(rename = "type")]
     pub(crate) type_: TransactionType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) execution_status: Option<ExecutionStatus>,
 }
 
 /// The transaction_identifier uniquely identifies a transaction in a particular
@@ -1326,13 +1343,15 @@ pub(crate) enum SignatureType {
      * Schnorr1, */
 }
 
-impl From<near_crypto::KeyType> for SignatureType {
-    fn from(key_type: near_crypto::KeyType) -> Self {
+impl TryFrom<near_crypto::KeyType> for SignatureType {
+    type Error = crate::errors::ErrorKind;
+
+    fn try_from(key_type: near_crypto::KeyType) -> Result<Self, Self::Error> {
         match key_type {
-            near_crypto::KeyType::ED25519 => Self::Ed25519,
-            near_crypto::KeyType::SECP256K1 => {
-                unimplemented!("SECP256K1 keys are not implemented in Rosetta yet")
-            }
+            near_crypto::KeyType::ED25519 => Ok(Self::Ed25519),
+            near_crypto::KeyType::SECP256K1 => Err(crate::errors::ErrorKind::InvalidInput(
+                "SECP256K1 keys are not supported in Rosetta".to_string(),
+            )),
         }
     }
 }
@@ -1432,4 +1451,21 @@ pub(crate) struct FTMetadataResponse {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, ToSchema)]
 pub(crate) struct FTAccountBalanceResponse {
     pub amount: u128,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_signature_type_try_from_ed25519() {
+        let result = SignatureType::try_from(near_crypto::KeyType::ED25519);
+        assert_eq!(result.unwrap(), SignatureType::Ed25519);
+    }
+
+    #[test]
+    fn test_signature_type_try_from_secp256k1_returns_error() {
+        let result = SignatureType::try_from(near_crypto::KeyType::SECP256K1);
+        assert!(result.is_err());
+    }
 }

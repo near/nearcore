@@ -1,8 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use std::fmt::{Debug, Formatter};
-
 use near_primitives_core::hash::{CryptoHash, hash};
 use near_schema_checker_lib::ProtocolSchema;
+use std::fmt::{Debug, Formatter};
 
 /// Serialized TrieNodeWithSize or state value.
 pub type TrieValue = std::sync::Arc<[u8]>;

@@ -25,6 +25,9 @@ import remote_node
 from node_handle import NodeHandle
 from utils import ScheduleContext, ScheduleMode, build_stake_distribution, PartitionSelector
 
+MOCKNET_STORE_PATH = os.getenv("MOCKNET_STORE_PATH",
+                               "gs://near-mocknet-artefact-store")
+
 
 def to_list(item):
     return [item] if item is not None else []
@@ -244,6 +247,7 @@ def init_neard_runners(ctx: CommandContext, remove_home_dir=False):
             "run_id": run_id,
             "is_traffic_generator": False,
             "binaries": node_binaries,
+            "mocknet_store_path": MOCKNET_STORE_PATH
         }
         all_nodes.append(node)
         all_configs.append(node_config)
@@ -937,7 +941,7 @@ def register_base_commands(subparsers):
     new_test_parser = subparsers.add_parser('new-test',
                                             help='''
     Sets up new state from the prepared records and genesis files with the number
-    of validators specified. This calls neard amend-genesis to create the new genesis
+    of validators specified. This calls neard fork-network to create the new genesis
     and records files, and then starts the neard nodes and waits for them to be online
     after computing the genesis state roots. This step takes a long time (a few hours).
     ''')

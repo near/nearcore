@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::runtime_utils::{alice_account, bob_account};
 use borsh;
 use near_crypto::InMemorySigner;
@@ -23,6 +21,7 @@ use near_store::{set_access_key, set_account};
 use near_vm_runner::FilesystemContractRuntimeCache;
 use node_runtime::{ApplyState, Runtime, SignedValidPeriodTransactions};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Generates a realistic ChunkStateWitness from native token transfers.
 pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateWitness {
@@ -66,7 +65,7 @@ pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateW
     let trie_changes = initial_state.finalize().unwrap().trie_changes;
     let mut store_update = tries.store_update();
     let mut current_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
 
     // Setup runtime and apply state
     let runtime = Runtime::new();
@@ -90,6 +89,7 @@ pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateW
         config: Arc::new(RuntimeConfig::test()),
         cache: Some(Box::new(FilesystemContractRuntimeCache::test().unwrap())),
         is_new_chunk: true,
+        save_receipt_to_tx: false,
         congestion_info,
         bandwidth_requests: BlockBandwidthRequests::empty(),
         trie_access_tracker_state: Default::default(),
@@ -167,7 +167,7 @@ pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateW
                 let mut store_update = tries.store_update();
                 current_root =
                     tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
-                store_update.commit().unwrap();
+                store_update.commit();
             }
             Err(e) => {
                 println!("Error applying batch {}: {:?}", batch_num, e);

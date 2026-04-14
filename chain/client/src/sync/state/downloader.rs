@@ -6,7 +6,7 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use near_async::messaging::AsyncSender;
 use near_async::time::{Clock, Duration};
-use near_chain::types::RuntimeAdapter;
+use near_chain::types::{RuntimeAdapter, StatePartValidationResult};
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
@@ -108,10 +108,28 @@ impl StateSyncDownloader {
                 }
             };
 
+            let mut consecutive_failures: u32 = 0;
             loop {
                 match attempt().await {
                     Ok(header) => return Ok(header),
                     Err(err) => {
+                        consecutive_failures += 1;
+                        // warn every ~5 min with default timeouts
+                        if consecutive_failures % 30 == 0 {
+                            tracing::warn!(
+                                target: "sync",
+                                %shard_id,
+                                consecutive_failures,
+                                %err,
+                                "state sync header retrieval is failing repeatedly. \
+                                This may indicate a Tier3 connectivity issue - peers cannot \
+                                connect back to deliver state data. Check: \
+                                (1) the node's listening port is open for inbound TCP, \
+                                (2) if behind NAT, set network.experimental.tier3_public_addr \
+                                in config.json. Run: curl http://localhost:3030/metrics | grep \
+                                near_tier3_public_addr to verify the advertised address",
+                            );
+                        }
                         handle.set_status(&format!(
                             "Error: {}, will retry in {}",
                             err, retry_backoff
@@ -162,7 +180,7 @@ impl StateSyncDownloader {
             let handle =
                 task_tracker.get_handle(&format!("shard {} part {}", shard_id, part_id)).await;
             handle.set_status("Reading existing part");
-            if does_state_part_exist_on_disk(&store, sync_hash, shard_id, part_id)? {
+            if does_state_part_exist_on_disk(&store, sync_hash, shard_id, part_id) {
                 return Ok(());
             }
 
@@ -188,19 +206,20 @@ impl StateSyncDownloader {
                         cancel.clone(),
                     )
                     .await?;
-                if runtime_adapter.validate_state_part(
-                    shard_id,
-                    &state_root,
-                    PartId { idx: part_id, total: num_state_parts },
-                    &part,
+                if matches!(
+                    runtime_adapter.validate_state_part(
+                        shard_id,
+                        &state_root,
+                        PartId { idx: part_id, total: num_state_parts },
+                        &part,
+                    ),
+                    StatePartValidationResult::Valid
                 ) {
                     let mut store_update = store.store_update();
                     let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
                     let bytes = part.to_bytes(protocol_version);
                     store_update.set(DBCol::StateParts, &key, &bytes);
-                    store_update.commit().map_err(|e| {
-                        near_chain::Error::Other(format!("Failed to store part: {}", e))
-                    })?;
+                    store_update.commit();
                 } else {
                     return Err(near_chain::Error::Other("Part data failed validation".to_owned()));
                 }
@@ -230,9 +249,9 @@ fn does_state_part_exist_on_disk(
     sync_hash: CryptoHash,
     shard_id: ShardId,
     part_id: u64,
-) -> Result<bool, near_chain::Error> {
-    Ok(store.exists(
+) -> bool {
+    store.exists(
         DBCol::StateParts,
         &borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap(),
-    )?)
+    )
 }

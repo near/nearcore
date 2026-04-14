@@ -241,7 +241,7 @@ impl ApplyChunksDoneWaiter {
             }
             if i % 1000 == 0 {
                 // If a node or test is somehow deadlocked on this for some reason, log it to help debugging.
-                tracing::error!("Still waiting for chunks application to complete...");
+                tracing::error!("still waiting for chunks application to complete");
                 debug_assert!(
                     start.elapsed().as_secs() < 30,
                     "Chunk application didn't complete in 30 seconds; is there a deadlock?"
@@ -254,11 +254,10 @@ impl ApplyChunksDoneWaiter {
 
 #[cfg(test)]
 mod tests {
+    use super::ApplyChunksDoneWaiter;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
-
-    use super::ApplyChunksDoneWaiter;
 
     #[test]
     fn test_apply_chunks_with_multiple_waiters() {
@@ -292,5 +291,42 @@ mod tests {
             let waiter_value = results_receiver.recv().unwrap();
             assert_eq!(waiter_value, true);
         }
+    }
+}
+
+/// Test-only gate to pause block processing in the spawned apply-chunks task.
+/// The gate blocks the task before `do_apply_chunks` runs, preventing results
+/// from reaching the channel until `resume` is called.
+#[cfg(feature = "test_features")]
+#[derive(Default)]
+pub struct TestPausedBlocks {
+    gates: HashMap<CryptoHash, Arc<std::sync::OnceLock<()>>>,
+}
+
+#[cfg(feature = "test_features")]
+impl TestPausedBlocks {
+    /// Returns the gate for a block, if one is set. The caller passes it into
+    /// the spawned task to block before applying chunks.
+    pub fn get_gate(&self, block_hash: &CryptoHash) -> Option<Arc<std::sync::OnceLock<()>>> {
+        self.gates.get(block_hash).cloned()
+    }
+
+    pub fn pause(&mut self, block_hash: &CryptoHash) {
+        let prev = self.gates.insert(*block_hash, Arc::new(std::sync::OnceLock::new()));
+        assert!(prev.is_none(), "block {block_hash} is already paused");
+    }
+
+    pub fn resume(&mut self, block_hash: &CryptoHash) {
+        let gate = self.gates.remove(block_hash).expect("block was not paused");
+        let _ = gate.set(());
+    }
+
+    /// Resumes all paused blocks. Returns true if any were paused.
+    pub fn resume_all(&mut self) -> bool {
+        let had_paused = !self.gates.is_empty();
+        for (_, gate) in self.gates.drain() {
+            let _ = gate.set(());
+        }
+        had_paused
     }
 }

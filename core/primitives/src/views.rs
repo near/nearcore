@@ -7,7 +7,8 @@ use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermis
 use crate::action::delegate::{DelegateAction, SignedDelegateAction};
 use crate::action::{
     DeployGlobalContractAction, DeterministicStateInitAction, GlobalContractDeployMode,
-    GlobalContractIdentifier, UseGlobalContractAction,
+    GlobalContractIdentifier, TransferToGasKeyAction, UseGlobalContractAction,
+    WithdrawFromGasKeyAction,
 };
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
@@ -19,11 +20,11 @@ use crate::hash::{CryptoHash, hash};
 use crate::merkle::{MerklePath, combine_hash};
 use crate::network::PeerId;
 use crate::receipt::{
-    ActionReceipt, DataReceipt, DataReceiver, GlobalContractDistributionReceipt, Receipt,
-    ReceiptEnum, ReceiptV1, VersionedActionReceipt, VersionedReceiptEnum,
+    ActionReceipt, ActionReceiptV2, DataReceipt, DataReceiver, GlobalContractDistributionReceipt,
+    Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt, VersionedReceiptEnum,
 };
 use crate::serialize::dec_format;
-use crate::sharding::shard_chunk_header_inner::ShardChunkHeaderInnerV4;
+use crate::sharding::shard_chunk_header_inner::{ShardChunkHeaderInnerV4, ShardChunkHeaderInnerV5};
 use crate::sharding::{
     ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderInnerV2,
     ShardChunkHeaderInnerV3, ShardChunkHeaderV3,
@@ -32,9 +33,10 @@ use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBit
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithIdAndProof,
-    ExecutionStatus, FunctionCallAction, PartialExecutionOutcome, PartialExecutionStatus,
-    SignedTransaction, StakeAction, TransferAction,
+    ExecutionStatus, FunctionCallAction, NonceMode, PartialExecutionOutcome,
+    PartialExecutionStatus, SignedTransaction, StakeAction, TransferAction,
 };
+use crate::trie_split::TrieSplit;
 use crate::types::{
     AccountId, AccountWithPublicKey, Balance, BlockHeight, EpochHeight, EpochId, FunctionArgs, Gas,
     Nonce, NumBlocks, ShardId, StateChangeCause, StateChangeKind, StateChangeValue,
@@ -48,7 +50,7 @@ use near_fmt::{AbbrBytes, Slice};
 use near_parameters::config::CongestionControlConfig;
 use near_parameters::view::CongestionControlConfigView;
 use near_parameters::{ActionCosts, ExtCosts};
-use near_primitives_core::account::{AccountContract, GasKey};
+use near_primitives_core::account::{AccountContract, GasKeyInfo};
 use near_primitives_core::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
 };
@@ -153,8 +155,23 @@ impl From<AccountView> for Account {
 #[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum AccessKeyPermissionView {
-    FunctionCall { allowance: Option<Balance>, receiver_id: String, method_names: Vec<String> } = 0,
+    FunctionCall {
+        allowance: Option<Balance>,
+        receiver_id: String,
+        method_names: Vec<String>,
+    } = 0,
     FullAccess = 1,
+    GasKeyFunctionCall {
+        balance: Balance,
+        num_nonces: NonceIndex,
+        allowance: Option<Balance>,
+        receiver_id: String,
+        method_names: Vec<String>,
+    } = 2,
+    GasKeyFullAccess {
+        balance: Balance,
+        num_nonces: NonceIndex,
+    } = 3,
 }
 
 impl From<AccessKeyPermission> for AccessKeyPermissionView {
@@ -166,6 +183,21 @@ impl From<AccessKeyPermission> for AccessKeyPermissionView {
                 method_names: func_call.method_names,
             },
             AccessKeyPermission::FullAccess => AccessKeyPermissionView::FullAccess,
+            AccessKeyPermission::GasKeyFunctionCall(gas_key_info, func_call) => {
+                AccessKeyPermissionView::GasKeyFunctionCall {
+                    balance: gas_key_info.balance,
+                    num_nonces: gas_key_info.num_nonces,
+                    allowance: func_call.allowance,
+                    receiver_id: func_call.receiver_id,
+                    method_names: func_call.method_names,
+                }
+            }
+            AccessKeyPermission::GasKeyFullAccess(gas_key_info) => {
+                AccessKeyPermissionView::GasKeyFullAccess {
+                    balance: gas_key_info.balance,
+                    num_nonces: gas_key_info.num_nonces,
+                }
+            }
         }
     }
 }
@@ -181,6 +213,19 @@ impl From<AccessKeyPermissionView> for AccessKeyPermission {
                 })
             }
             AccessKeyPermissionView::FullAccess => AccessKeyPermission::FullAccess,
+            AccessKeyPermissionView::GasKeyFunctionCall {
+                balance,
+                num_nonces,
+                allowance,
+                receiver_id,
+                method_names,
+            } => AccessKeyPermission::GasKeyFunctionCall(
+                GasKeyInfo { balance, num_nonces },
+                FunctionCallPermission { allowance, receiver_id, method_names },
+            ),
+            AccessKeyPermissionView::GasKeyFullAccess { balance, num_nonces } => {
+                AccessKeyPermission::GasKeyFullAccess(GasKeyInfo { balance, num_nonces })
+            }
         }
     }
 }
@@ -211,43 +256,6 @@ impl From<AccessKey> for AccessKeyView {
 impl From<AccessKeyView> for AccessKey {
     fn from(view: AccessKeyView) -> Self {
         Self { nonce: view.nonce, permission: view.permission.into() }
-    }
-}
-
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    Debug,
-    Eq,
-    PartialEq,
-    Clone,
-    serde::Serialize,
-    serde::Deserialize,
-)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct GasKeyView {
-    pub num_nonces: NonceIndex,
-    pub balance: Balance,
-    pub permission: AccessKeyPermissionView,
-}
-
-impl From<GasKey> for GasKeyView {
-    fn from(gas_key: GasKey) -> Self {
-        Self {
-            num_nonces: gas_key.num_nonces,
-            balance: gas_key.balance,
-            permission: gas_key.permission.into(),
-        }
-    }
-}
-
-impl From<GasKeyView> for GasKey {
-    fn from(view: GasKeyView) -> Self {
-        Self {
-            num_nonces: view.num_nonces,
-            balance: view.balance,
-            permission: view.permission.into(),
-        }
     }
 }
 
@@ -306,6 +314,13 @@ impl FromIterator<AccessKeyInfoView> for AccessKeyList {
     }
 }
 
+/// Gas key nonces view returned by the `view_gas_key_nonces` RPC query.
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct GasKeyNoncesView {
+    pub nonces: Vec<Nonce>,
+}
+
 // cspell:words deepsize
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -348,6 +363,7 @@ pub enum QueryResponseKind {
     CallResult(CallResult),
     AccessKey(AccessKeyView),
     AccessKeyList(AccessKeyList),
+    GasKeyNonces(GasKeyNoncesView),
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -373,6 +389,10 @@ pub enum QueryRequest {
     },
     ViewAccessKeyList {
         account_id: AccountId,
+    },
+    ViewGasKeyNonces {
+        account_id: AccountId,
+        public_key: PublicKey,
     },
     CallFunction {
         account_id: AccountId,
@@ -506,18 +526,21 @@ pub struct NetworkInfoView {
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub enum EpochSyncStatusView {
+    NotStarted,
+    InProgress { source_peer_height: BlockHeight, source_peer_id: String, attempt_time: String },
+    Done,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum SyncStatusView {
     /// Initial state. Not enough peers to do anything yet.
     AwaitingPeers,
     /// Not syncing / Done syncing.
     NoSync,
     /// Syncing using light-client headers to a recent epoch
-    EpochSync {
-        source_peer_height: BlockHeight,
-        source_peer_id: String,
-        attempt_time: String,
-    },
-    EpochSyncDone,
+    EpochSync(EpochSyncStatusView),
     /// Downloading block headers for fast sync.
     HeaderSync {
         start_height: BlockHeight,
@@ -576,37 +599,6 @@ pub struct EdgeView {
 pub struct NetworkGraphView {
     pub edges: Vec<EdgeView>,
     pub next_hops: HashMap<PeerId, Vec<PeerId>>,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct LabeledEdgeView {
-    pub peer0: u32,
-    pub peer1: u32,
-    pub nonce: u64,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Default)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct EdgeCacheView {
-    pub peer_labels: HashMap<PeerId, u32>,
-    pub spanning_trees: HashMap<u32, Vec<LabeledEdgeView>>,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct PeerDistancesView {
-    pub distance: Vec<Option<u32>>,
-    pub min_nonce: u64,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Default)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct NetworkRoutesView {
-    pub edge_cache: EdgeCacheView,
-    pub local_edges: HashMap<PeerId, EdgeView>,
-    pub peer_distances: HashMap<PeerId, PeerDistancesView>,
-    pub my_distances: HashMap<PeerId, u32>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
@@ -917,6 +909,7 @@ pub struct BlockHeaderView {
     pub signature: Signature,
     pub latest_protocol_version: ProtocolVersion,
     pub chunk_endorsements: Option<Vec<Vec<u8>>>,
+    pub shard_split: Option<(ShardId, AccountId)>,
 }
 
 impl From<&BlockHeader> for BlockHeaderView {
@@ -960,6 +953,7 @@ impl From<&BlockHeader> for BlockHeaderView {
             signature: header.signature().clone(),
             latest_protocol_version: header.latest_protocol_version(),
             chunk_endorsements: header.chunk_endorsements().map(|bitmap| bitmap.bytes()),
+            shard_split: header.shard_split().cloned(),
         }
     }
 }
@@ -995,6 +989,7 @@ impl From<BlockHeaderView> for BlockHeader {
             view.block_merkle_root,
             view.prev_height.unwrap_or_default(),
             view.chunk_endorsements.map(|bytes| ChunkEndorsementsBitmap::from_bytes(bytes)),
+            view.shard_split,
         )
     }
 }
@@ -1065,6 +1060,7 @@ impl From<BlockHeaderInnerLiteView> for BlockHeaderInnerLite {
 /// Contains main info about the chunk.
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+// TODO(spice): Once spice is released deprecate fields that wouldn't be part of spice chunks.
 pub struct ChunkHeaderView {
     pub chunk_hash: CryptoHash,
     pub prev_block_hash: CryptoHash,
@@ -1089,6 +1085,12 @@ pub struct ChunkHeaderView {
     pub validator_proposals: Vec<ValidatorStakeView>,
     pub congestion_info: Option<CongestionInfoView>,
     pub bandwidth_requests: Option<BandwidthRequests>,
+    /// Proposed trie split for dynamic resharding
+    /// `None`: field missing (`ShardChunkHeaderInnerV4` or earlier)
+    /// `Some(None)`: field present, but not set (`ChunkHeaderInnerV5` or later)
+    /// `Some(Some(split))`: field present and set
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proposed_split: Option<Option<TrieSplit>>,
     pub signature: Signature,
 }
 
@@ -1108,7 +1110,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             chunk_hash: hash,
             prev_block_hash: *inner.prev_block_hash(),
             outcome_root: *inner.prev_outcome_root(),
-            prev_state_root: if cfg!(feature = "protocol_feature_spice") {
+            prev_state_root: if inner.is_spice_chunk() {
                 CryptoHash::default()
             } else {
                 *inner.prev_state_root()
@@ -1119,7 +1121,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             height_included,
             shard_id: inner.shard_id(),
             gas_used: inner.prev_gas_used(),
-            gas_limit: inner.gas_limit(),
+            gas_limit: if inner.is_spice_chunk() { Gas::default() } else { inner.gas_limit() },
             rent_paid: Balance::ZERO,
             validator_reward: Balance::ZERO,
             balance_burnt: inner.prev_balance_burnt(),
@@ -1128,6 +1130,9 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             validator_proposals: inner.prev_validator_proposals().map(Into::into).collect(),
             congestion_info: Some(inner.congestion_info().into()),
             bandwidth_requests: inner.bandwidth_requests().cloned(),
+            proposed_split: inner
+                .has_proposed_split_field()
+                .then(|| inner.proposed_split().cloned()),
             signature,
         }
     }
@@ -1135,95 +1140,99 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
 
 impl From<ChunkHeaderView> for ShardChunkHeader {
     fn from(view: ChunkHeaderView) -> Self {
-        match (view.bandwidth_requests, view.congestion_info) {
-            (Some(bandwidth_requests), Some(congestion_info)) => {
-                let mut header = ShardChunkHeaderV3 {
-                    inner: ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
-                        prev_block_hash: view.prev_block_hash,
-                        prev_state_root: view.prev_state_root,
-                        prev_outcome_root: view.outcome_root,
-                        encoded_merkle_root: view.encoded_merkle_root,
-                        encoded_length: view.encoded_length,
-                        height_created: view.height_created,
-                        shard_id: view.shard_id,
-                        prev_gas_used: view.gas_used,
-                        gas_limit: view.gas_limit,
-                        prev_balance_burnt: view.balance_burnt,
-                        prev_outgoing_receipts_root: view.outgoing_receipts_root,
-                        tx_root: view.tx_root,
-                        prev_validator_proposals: view
-                            .validator_proposals
-                            .into_iter()
-                            .map(Into::into)
-                            .collect(),
-                        congestion_info: congestion_info.into(),
-                        bandwidth_requests,
-                    }),
-                    height_included: view.height_included,
-                    signature: view.signature,
-                    hash: ChunkHash::default(),
-                };
-                header.init();
-                ShardChunkHeader::V3(header)
+        let prev_validator_proposals =
+            view.validator_proposals.into_iter().map(Into::into).collect();
+        // TODO: store the version in ChunkHeaderView instead of guessing it
+        // from which fields are populated.
+        let inner = match (view.proposed_split, view.bandwidth_requests, view.congestion_info) {
+            (Some(proposed_split), Some(bandwidth_requests), Some(congestion_info)) => {
+                ShardChunkHeaderInner::V5(ShardChunkHeaderInnerV5 {
+                    prev_block_hash: view.prev_block_hash,
+                    prev_state_root: view.prev_state_root,
+                    prev_outcome_root: view.outcome_root,
+                    encoded_merkle_root: view.encoded_merkle_root,
+                    encoded_length: view.encoded_length,
+                    height_created: view.height_created,
+                    shard_id: view.shard_id,
+                    prev_gas_used: view.gas_used,
+                    gas_limit: view.gas_limit,
+                    prev_balance_burnt: view.balance_burnt,
+                    prev_outgoing_receipts_root: view.outgoing_receipts_root,
+                    tx_root: view.tx_root,
+                    prev_validator_proposals,
+                    congestion_info: congestion_info.into(),
+                    bandwidth_requests,
+                    proposed_split,
+                })
             }
-            (None, Some(congestion_info)) => {
-                let mut header = ShardChunkHeaderV3 {
-                    inner: ShardChunkHeaderInner::V3(ShardChunkHeaderInnerV3 {
-                        prev_block_hash: view.prev_block_hash,
-                        prev_state_root: view.prev_state_root,
-                        prev_outcome_root: view.outcome_root,
-                        encoded_merkle_root: view.encoded_merkle_root,
-                        encoded_length: view.encoded_length,
-                        height_created: view.height_created,
-                        shard_id: view.shard_id,
-                        prev_gas_used: view.gas_used,
-                        gas_limit: view.gas_limit,
-                        prev_balance_burnt: view.balance_burnt,
-                        prev_outgoing_receipts_root: view.outgoing_receipts_root,
-                        tx_root: view.tx_root,
-                        prev_validator_proposals: view
-                            .validator_proposals
-                            .into_iter()
-                            .map(Into::into)
-                            .collect(),
-                        congestion_info: congestion_info.into(),
-                    }),
-                    height_included: view.height_included,
-                    signature: view.signature,
-                    hash: ChunkHash::default(),
-                };
-                header.init();
-                ShardChunkHeader::V3(header)
+            (None, Some(bandwidth_requests), Some(congestion_info)) => {
+                ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
+                    prev_block_hash: view.prev_block_hash,
+                    prev_state_root: view.prev_state_root,
+                    prev_outcome_root: view.outcome_root,
+                    encoded_merkle_root: view.encoded_merkle_root,
+                    encoded_length: view.encoded_length,
+                    height_created: view.height_created,
+                    shard_id: view.shard_id,
+                    prev_gas_used: view.gas_used,
+                    gas_limit: view.gas_limit,
+                    prev_balance_burnt: view.balance_burnt,
+                    prev_outgoing_receipts_root: view.outgoing_receipts_root,
+                    tx_root: view.tx_root,
+                    prev_validator_proposals,
+                    congestion_info: congestion_info.into(),
+                    bandwidth_requests,
+                })
             }
-            _ => {
-                let mut header = ShardChunkHeaderV3 {
-                    inner: ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
-                        prev_block_hash: view.prev_block_hash,
-                        prev_state_root: view.prev_state_root,
-                        prev_outcome_root: view.outcome_root,
-                        encoded_merkle_root: view.encoded_merkle_root,
-                        encoded_length: view.encoded_length,
-                        height_created: view.height_created,
-                        shard_id: view.shard_id,
-                        prev_gas_used: view.gas_used,
-                        gas_limit: view.gas_limit,
-                        prev_balance_burnt: view.balance_burnt,
-                        prev_outgoing_receipts_root: view.outgoing_receipts_root,
-                        tx_root: view.tx_root,
-                        prev_validator_proposals: view
-                            .validator_proposals
-                            .into_iter()
-                            .map(Into::into)
-                            .collect(),
-                    }),
-                    height_included: view.height_included,
-                    signature: view.signature,
-                    hash: ChunkHash::default(),
-                };
-                header.init();
-                ShardChunkHeader::V3(header)
+            (None, None, Some(congestion_info)) => {
+                ShardChunkHeaderInner::V3(ShardChunkHeaderInnerV3 {
+                    prev_block_hash: view.prev_block_hash,
+                    prev_state_root: view.prev_state_root,
+                    prev_outcome_root: view.outcome_root,
+                    encoded_merkle_root: view.encoded_merkle_root,
+                    encoded_length: view.encoded_length,
+                    height_created: view.height_created,
+                    shard_id: view.shard_id,
+                    prev_gas_used: view.gas_used,
+                    gas_limit: view.gas_limit,
+                    prev_balance_burnt: view.balance_burnt,
+                    prev_outgoing_receipts_root: view.outgoing_receipts_root,
+                    tx_root: view.tx_root,
+                    prev_validator_proposals,
+                    congestion_info: congestion_info.into(),
+                })
             }
-        }
+            (None, None, None) => ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
+                prev_block_hash: view.prev_block_hash,
+                prev_state_root: view.prev_state_root,
+                prev_outcome_root: view.outcome_root,
+                encoded_merkle_root: view.encoded_merkle_root,
+                encoded_length: view.encoded_length,
+                height_created: view.height_created,
+                shard_id: view.shard_id,
+                prev_gas_used: view.gas_used,
+                gas_limit: view.gas_limit,
+                prev_balance_burnt: view.balance_burnt,
+                prev_outgoing_receipts_root: view.outgoing_receipts_root,
+                tx_root: view.tx_root,
+                prev_validator_proposals,
+            }),
+            (proposed_split, bandwidth_requests, congestion_info) => unreachable!(
+                "unexpected combination of chunk header view fields: \
+                 proposed_split={}, bandwidth_requests={}, congestion_info={}",
+                proposed_split.is_some(),
+                bandwidth_requests.is_some(),
+                congestion_info.is_some(),
+            ),
+        };
+        let mut header = ShardChunkHeaderV3 {
+            inner,
+            height_included: view.height_included,
+            signature: view.signature,
+            hash: ChunkHash::default(),
+        };
+        header.init();
+        ShardChunkHeader::V3(header)
     }
 }
 
@@ -1274,6 +1283,20 @@ impl ChunkView {
     }
 }
 
+#[derive(serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(untagged)]
+// This is needed to deserialize [GlobalContractIdentifierView] after
+// changing serialization format. Examples of the new and the old format
+// can be found in `test_deserialize_global_contract_identifier_view_*`
+// tests.
+enum BackwardCompatibleGlobalContractIdentifierView {
+    CodeHash { hash: CryptoHash },
+    AccountId { account_id: AccountId },
+    DeprecatedCodeHash(CryptoHash),
+    DeprecatedAccountId(AccountId),
+}
+
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -1284,14 +1307,29 @@ impl ChunkView {
     serde::Serialize,
     serde::Deserialize,
 )]
-#[serde(untagged, rename_all = "snake_case")]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case", from = "BackwardCompatibleGlobalContractIdentifierView")]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema), schemars(!from))]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum GlobalContractIdentifierView {
     #[serde(rename = "hash")]
     CodeHash(CryptoHash) = 0,
     AccountId(AccountId) = 1,
+}
+
+impl From<BackwardCompatibleGlobalContractIdentifierView> for GlobalContractIdentifierView {
+    fn from(value: BackwardCompatibleGlobalContractIdentifierView) -> Self {
+        match value {
+            BackwardCompatibleGlobalContractIdentifierView::DeprecatedCodeHash(hash)
+            | BackwardCompatibleGlobalContractIdentifierView::CodeHash { hash } => {
+                GlobalContractIdentifierView::CodeHash(hash)
+            }
+            BackwardCompatibleGlobalContractIdentifierView::DeprecatedAccountId(account_id)
+            | BackwardCompatibleGlobalContractIdentifierView::AccountId { account_id } => {
+                GlobalContractIdentifierView::AccountId(account_id)
+            }
+        }
+    }
 }
 
 impl From<GlobalContractIdentifier> for GlobalContractIdentifierView {
@@ -1400,6 +1438,14 @@ pub enum ActionView {
         data: BTreeMap<Vec<u8>, Vec<u8>>,
         deposit: Balance,
     } = 13,
+    TransferToGasKey {
+        public_key: PublicKey,
+        deposit: Balance,
+    } = 14,
+    WithdrawFromGasKey {
+        public_key: PublicKey,
+        amount: Balance,
+    } = 15,
 }
 
 impl From<Action> for ActionView {
@@ -1458,6 +1504,14 @@ impl From<Action> for ActionView {
                     deposit: action.deposit,
                 }
             }
+            Action::TransferToGasKey(action) => ActionView::TransferToGasKey {
+                public_key: action.public_key,
+                deposit: action.deposit,
+            },
+            Action::WithdrawFromGasKey(action) => ActionView::WithdrawFromGasKey {
+                public_key: action.public_key,
+                amount: action.amount,
+            },
         }
     }
 }
@@ -1526,6 +1580,15 @@ impl TryFrom<ActionView> for Action {
                     deposit,
                 }))
             }
+            ActionView::TransferToGasKey { public_key, deposit } => {
+                Action::TransferToGasKey(Box::new(TransferToGasKeyAction { public_key, deposit }))
+            }
+            ActionView::WithdrawFromGasKey { public_key, amount } => {
+                Action::WithdrawFromGasKey(Box::new(WithdrawFromGasKeyAction {
+                    public_key,
+                    amount,
+                }))
+            }
         })
     }
 }
@@ -1547,29 +1610,36 @@ pub struct SignedTransactionView {
     pub nonce: Nonce,
     pub receiver_id: AccountId,
     pub actions: Vec<ActionView>,
-    // Default value used when deserializing SignedTransactionView which are missing the `priority_fee` field.
-    // Data which is missing this field was serialized before the introduction of priority_fee.
-    // priority_fee for Transaction::V0 => None, SignedTransactionView => 0
-    #[serde(default)]
-    pub priority_fee: u64,
+    /// Deprecated, retained for backward compatibility.
+    #[serde(default, rename = "priority_fee")]
+    pub _priority_fee: u64,
     pub signature: Signature,
     pub hash: CryptoHash,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub nonce_index: Option<NonceIndex>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub nonce_mode: Option<NonceMode>,
 }
 
 impl From<SignedTransaction> for SignedTransactionView {
     fn from(signed_tx: SignedTransaction) -> Self {
         let hash = signed_tx.get_hash();
         let transaction = signed_tx.transaction;
-        let priority_fee = transaction.priority_fee().unwrap_or_default();
+        let nonce_mode = match transaction.nonce_mode() {
+            NonceMode::Monotonic => None,
+            mode => Some(mode),
+        };
         SignedTransactionView {
             signer_id: transaction.signer_id().clone(),
             public_key: transaction.public_key().clone(),
-            nonce: transaction.nonce(),
+            nonce: transaction.nonce().nonce(),
+            nonce_index: transaction.nonce().nonce_index(),
             receiver_id: transaction.receiver_id().clone(),
             actions: transaction.take_actions().into_iter().map(|action| action.into()).collect(),
             signature: signed_tx.signature,
             hash,
-            priority_fee,
+            _priority_fee: 0,
+            nonce_mode,
         }
     }
 }
@@ -2163,11 +2233,9 @@ pub struct ReceiptView {
     pub receipt_id: CryptoHash,
 
     pub receipt: ReceiptEnumView,
-    // Default value used when deserializing ReceiptView which are missing the `priority` field.
-    // Data which is missing this field was serialized before the introduction of priority.
-    // For ReceiptV0 ReceiptPriority::NoPriority => 0
-    #[serde(default)]
-    pub priority: u64,
+    /// Deprecated, retained for backward compatibility.
+    #[serde(default, rename = "priority")]
+    pub _priority: u64,
 }
 
 #[derive(
@@ -2210,6 +2278,8 @@ pub enum ReceiptEnumView {
         actions: Vec<ActionView>,
         #[serde(default = "default_is_promise")]
         is_promise_yield: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        refund_to: Option<AccountId>,
     } = 0,
     Data {
         data_id: CryptoHash,
@@ -2226,6 +2296,8 @@ pub enum ReceiptEnumView {
         #[serde_as(as = "Base64")]
         #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         code: Vec<u8>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        nonce: Option<u64>,
     } = 2,
 }
 
@@ -2241,8 +2313,6 @@ impl From<Receipt> for ReceiptView {
         let is_promise_yield =
             matches!(receipt.versioned_receipt(), VersionedReceiptEnum::PromiseYield(_));
         let is_promise_resume = matches!(receipt.receipt(), ReceiptEnum::PromiseResume(_));
-        let priority = receipt.priority().value();
-
         ReceiptView {
             predecessor_id: receipt.predecessor_id().clone(),
             receiver_id: receipt.receiver_id().clone(),
@@ -2268,10 +2338,11 @@ impl From<Receipt> for ReceiptView {
                         target_shard: receipt.target_shard(),
                         already_delivered_shards: receipt.already_delivered_shards().to_vec(),
                         code: hash(receipt.code()).as_bytes().to_vec(),
+                        nonce: receipt.maybe_nonce(),
                     }
                 }
             },
-            priority,
+            _priority: 0,
         }
     }
 }
@@ -2302,6 +2373,7 @@ impl ReceiptEnumView {
                 .collect(),
             actions: action_receipt.actions().iter().cloned().map(Into::into).collect(),
             is_promise_yield,
+            refund_to: action_receipt.refund_to().clone(),
         }
     }
 }
@@ -2310,7 +2382,7 @@ impl TryFrom<ReceiptView> for Receipt {
     type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn try_from(receipt_view: ReceiptView) -> Result<Self, Self::Error> {
-        Ok(Receipt::V1(ReceiptV1 {
+        Ok(Receipt::V0(ReceiptV0 {
             predecessor_id: receipt_view.predecessor_id,
             receiver_id: receipt_view.receiver_id,
             receipt_id: receipt_view.receipt_id,
@@ -2323,29 +2395,54 @@ impl TryFrom<ReceiptView> for Receipt {
                     input_data_ids,
                     actions,
                     is_promise_yield,
+                    refund_to,
                 } => {
-                    let action_receipt = ActionReceipt {
-                        signer_id,
-                        signer_public_key,
-                        gas_price,
-                        output_data_receivers: output_data_receivers
-                            .into_iter()
-                            .map(|data_receiver_view| DataReceiver {
-                                data_id: data_receiver_view.data_id,
-                                receiver_id: data_receiver_view.receiver_id,
-                            })
-                            .collect(),
-                        input_data_ids: input_data_ids.into_iter().map(Into::into).collect(),
-                        actions: actions
-                            .into_iter()
-                            .map(TryInto::try_into)
-                            .collect::<Result<Vec<_>, _>>()?,
-                    };
-
-                    if is_promise_yield {
-                        ReceiptEnum::PromiseYield(action_receipt)
+                    let output_data_receivers: Vec<_> = output_data_receivers
+                        .into_iter()
+                        .map(|data_receiver_view| DataReceiver {
+                            data_id: data_receiver_view.data_id,
+                            receiver_id: data_receiver_view.receiver_id,
+                        })
+                        .collect();
+                    let input_data_ids: Vec<CryptoHash> =
+                        input_data_ids.into_iter().map(Into::into).collect();
+                    let actions = actions
+                        .into_iter()
+                        .map(TryInto::try_into)
+                        .collect::<Result<Vec<_>, _>>()?;
+                    // Note that this is not consistent with how `new_receipts` are
+                    // created by the runtime - there we always create ActionReceiptV2.
+                    // ActionReceiptV2 without refund_to becomes V1 after a roundtrip
+                    // through views. This will be fixed with #14709.
+                    if refund_to.is_some() {
+                        let action_receipt = ActionReceiptV2 {
+                            signer_id,
+                            signer_public_key,
+                            gas_price,
+                            output_data_receivers,
+                            input_data_ids,
+                            actions,
+                            refund_to,
+                        };
+                        if is_promise_yield {
+                            ReceiptEnum::PromiseYieldV2(action_receipt)
+                        } else {
+                            ReceiptEnum::ActionV2(action_receipt)
+                        }
                     } else {
-                        ReceiptEnum::Action(action_receipt)
+                        let action_receipt = ActionReceipt {
+                            signer_id,
+                            signer_public_key,
+                            gas_price,
+                            output_data_receivers,
+                            input_data_ids,
+                            actions,
+                        };
+                        if is_promise_yield {
+                            ReceiptEnum::PromiseYield(action_receipt)
+                        } else {
+                            ReceiptEnum::Action(action_receipt)
+                        }
                     }
                 }
                 ReceiptEnumView::Data { data_id, data, is_promise_resume } => {
@@ -2362,16 +2459,26 @@ impl TryFrom<ReceiptView> for Receipt {
                     target_shard,
                     already_delivered_shards,
                     code,
+                    nonce,
                 } => {
-                    ReceiptEnum::GlobalContractDistribution(GlobalContractDistributionReceipt::new(
-                        id,
-                        target_shard,
-                        already_delivered_shards,
-                        code.into(),
-                    ))
+                    let receipt = match nonce {
+                        Some(nonce) => GlobalContractDistributionReceipt::new_v2(
+                            id,
+                            target_shard,
+                            already_delivered_shards,
+                            code.into(),
+                            nonce,
+                        ),
+                        None => GlobalContractDistributionReceipt::new_v1(
+                            id,
+                            target_shard,
+                            already_delivered_shards,
+                            code.into(),
+                        ),
+                    };
+                    ReceiptEnum::GlobalContractDistribution(receipt)
                 }
             },
-            priority: receipt_view.priority,
         }))
     }
 }
@@ -2546,13 +2653,7 @@ pub enum StateChangesRequestView {
     SingleAccessKeyChanges {
         keys: Vec<AccountWithPublicKey>,
     },
-    SingleGasKeyChanges {
-        keys: Vec<AccountWithPublicKey>,
-    },
     AllAccessKeyChanges {
-        account_ids: Vec<AccountId>,
-    },
-    AllGasKeyChanges {
         account_ids: Vec<AccountId>,
     },
     ContractCodeChanges {
@@ -2574,14 +2675,8 @@ impl From<StateChangesRequestView> for StateChangesRequest {
             StateChangesRequestView::SingleAccessKeyChanges { keys } => {
                 Self::SingleAccessKeyChanges { keys }
             }
-            StateChangesRequestView::SingleGasKeyChanges { keys } => {
-                Self::SingleGasKeyChanges { keys }
-            }
             StateChangesRequestView::AllAccessKeyChanges { account_ids } => {
                 Self::AllAccessKeyChanges { account_ids }
-            }
-            StateChangesRequestView::AllGasKeyChanges { account_ids } => {
-                Self::AllGasKeyChanges { account_ids }
             }
             StateChangesRequestView::ContractCodeChanges { account_ids } => {
                 Self::ContractCodeChanges { account_ids }
@@ -2699,20 +2794,11 @@ pub enum StateChangeValueView {
         account_id: AccountId,
         public_key: PublicKey,
     },
-    GasKeyUpdate {
-        account_id: AccountId,
-        public_key: PublicKey,
-        gas_key: GasKeyView,
-    },
     GasKeyNonceUpdate {
         account_id: AccountId,
         public_key: PublicKey,
-        index: u32,
+        index: NonceIndex,
         nonce: Nonce,
-    },
-    GasKeyDeletion {
-        account_id: AccountId,
-        public_key: PublicKey,
     },
     DataUpdate {
         account_id: AccountId,
@@ -2753,14 +2839,8 @@ impl From<StateChangeValue> for StateChangeValueView {
             StateChangeValue::AccessKeyDeletion { account_id, public_key } => {
                 Self::AccessKeyDeletion { account_id, public_key }
             }
-            StateChangeValue::GasKeyUpdate { account_id, public_key, gas_key } => {
-                Self::GasKeyUpdate { account_id, public_key, gas_key: gas_key.into() }
-            }
             StateChangeValue::GasKeyNonceUpdate { account_id, public_key, index, nonce } => {
                 Self::GasKeyNonceUpdate { account_id, public_key, index, nonce }
-            }
-            StateChangeValue::GasKeyDeletion { account_id, public_key } => {
-                Self::GasKeyDeletion { account_id, public_key }
             }
             StateChangeValue::DataUpdate { account_id, key, value } => {
                 Self::DataUpdate { account_id, key, value }
@@ -2878,6 +2958,10 @@ mod tests {
     use crate::profile_data_v2::ProfileDataV2;
     use crate::profile_data_v3::ProfileDataV3;
     use crate::transaction::ExecutionMetadata;
+    use crate::views::GlobalContractIdentifierView;
+    use assert_matches::assert_matches;
+    use near_primitives_core::hash::CryptoHash;
+    use serde_json::json;
 
     /// The JSON representation used in RPC responses must not remove or rename
     /// fields, only adding fields is allowed or we risk breaking clients.
@@ -2931,5 +3015,69 @@ mod tests {
         let json = r#"{"final_execution_status":"FINAL","receipts_outcome":[{"block_hash":"9SP8Y3sVADWNN5QoEB5CsvPUE5HT4o8YfBaCnhLss87K","id":"e2XGEosf843XMiCJHvZufvHKyw419ZYibDBdVJQr9cB","outcome":{"executor_id":"btc-client.testnet","gas_burnt":2906160054161,"logs":["Block hash: 0000000000000000ee617846a3e081ae2f30091451442e1b5fb027d8eba09b3a","Saving to mainchain"],"metadata":{"gas_profile":[{"cost":"BASE","cost_category":"WASM_HOST_COST","gas_used":"8472579552"},{"cost":"CONTRACT_LOADING_BASE","cost_category":"WASM_HOST_COST","gas_used":"35445963"},{"cost":"CONTRACT_LOADING_BYTES","cost_category":"WASM_HOST_COST","gas_used":"413841688515"},{"cost":"LOG_BASE","cost_category":"WASM_HOST_COST","gas_used":"7086626100"},{"cost":"LOG_BYTE","cost_category":"WASM_HOST_COST","gas_used":"1253885145"},{"cost":"READ_CACHED_TRIE_NODE","cost_category":"WASM_HOST_COST","gas_used":"102600000000"},{"cost":"READ_MEMORY_BASE","cost_category":"WASM_HOST_COST","gas_used":"54807127200"},{"cost":"READ_MEMORY_BYTE","cost_category":"WASM_HOST_COST","gas_used":"2873807748"},{"cost":"READ_REGISTER_BASE","cost_category":"WASM_HOST_COST","gas_used":"22654486674"},{"cost":"READ_REGISTER_BYTE","cost_category":"WASM_HOST_COST","gas_used":"51252240"},{"cost":"SHA256_BASE","cost_category":"WASM_HOST_COST","gas_used":"13622910750"},{"cost":"SHA256_BYTE","cost_category":"WASM_HOST_COST","gas_used":"3400546491"},{"cost":"STORAGE_READ_BASE","cost_category":"WASM_HOST_COST","gas_used":"450854766000"},{"cost":"STORAGE_READ_KEY_BYTE","cost_category":"WASM_HOST_COST","gas_used":"4952405280"},{"cost":"STORAGE_READ_VALUE_BYTE","cost_category":"WASM_HOST_COST","gas_used":"1806743610"},{"cost":"STORAGE_WRITE_BASE","cost_category":"WASM_HOST_COST","gas_used":"256786944000"},{"cost":"STORAGE_WRITE_EVICTED_BYTE","cost_category":"WASM_HOST_COST","gas_used":"2826323016"},{"cost":"STORAGE_WRITE_KEY_BYTE","cost_category":"WASM_HOST_COST","gas_used":"5638629360"},{"cost":"STORAGE_WRITE_VALUE_BYTE","cost_category":"WASM_HOST_COST","gas_used":"8685190920"},{"cost":"TOUCHING_TRIE_NODE","cost_category":"WASM_HOST_COST","gas_used":"434752810002"},{"cost":"UTF8_DECODING_BASE","cost_category":"WASM_HOST_COST","gas_used":"6223558122"},{"cost":"UTF8_DECODING_BYTE","cost_category":"WASM_HOST_COST","gas_used":"27700145505"},{"cost":"WASM_INSTRUCTION","cost_category":"WASM_HOST_COST","gas_used":"126491330196"},{"cost":"WRITE_MEMORY_BASE","cost_category":"WASM_HOST_COST","gas_used":"28037948610"},{"cost":"WRITE_MEMORY_BYTE","cost_category":"WASM_HOST_COST","gas_used":"1459941792"},{"cost":"WRITE_REGISTER_BASE","cost_category":"WASM_HOST_COST","gas_used":"28655224860"},{"cost":"WRITE_REGISTER_BYTE","cost_category":"WASM_HOST_COST","gas_used":"2311350912"}],"version":3},"receipt_ids":["8ZD92cLpoCEU46hPGFfk3VqZpU8s6DoQhZ4pCMqWwDT6"],"status":{"SuccessValue":""},"tokens_burnt":"290616005416100000000"},"proof":[{"direction":"Left","hash":"BoQHueiPH9e4C7fkxouV4tFpGZ4hK5fJhKQnPBWwPazS"},{"direction":"Right","hash":"Ayxj8iVFTJMzZa7estoTtuBKJaUNhoipaaM7WmTjkkiS"}]},{"block_hash":"3rEx3xmgLCRgUfSgueD71YNrJYQYNvhtkXaqVQxdmj4U","id":"8ZD92cLpoCEU46hPGFfk3VqZpU8s6DoQhZ4pCMqWwDT6","outcome":{"executor_id":"btc-client.testnet","gas_burnt":223182562500,"logs":[],"metadata":{"gas_profile":[],"version":3},"receipt_ids":[],"status":{"SuccessValue":""},"tokens_burnt":"0"},"proof":[{"direction":"Right","hash":"8yEwg14D2GyyLNnJMxdSLDJKyrKShMAL3zTnf9YpQyPW"},{"direction":"Right","hash":"2UK7BfpHf9fCCsvmfHktDfz6Rh8sFihhN6cuTU3R4BBA"}]}],"status":{"SuccessValue":""},"transaction":{"actions":[{"FunctionCall":{"args":"AQAAAABA0CKoR96WKs+KPP6zPl0flT6XC91eR3uAUgwNAAAAAAAAAAzcZU0cipmejc+wGqnRJchd5uM6qRJM5Oojp3FrkJ2HVmGyZsnyFBlkvks8","deposit":"0","gas":100000000000000,"method_name":"submit_blocks"}}],"hash":"GMUCDLHFJVvmZYXmPf9QeUVAt9r9hXcQP1yL5emPFnvx","nonce":170437577001422,"priority_fee":0,"public_key":"ed25519:HM7ax8jJf41JozvanXepzhtD45AeRFcwJQCuLXFuDkjA","receiver_id":"btc-client.testnet","signature":"ed25519:2Qe3ccPSdzPddk764vm5jt4yXcvXgYQz3WzGF3oXpZLuaRa6ggpD131nSSy3FRVPquCvxYqgMGtdum8TKX3dVqNk","signer_id":"btc-client.testnet"},"transaction_outcome":{"block_hash":"9SP8Y3sVADWNN5QoEB5CsvPUE5HT4o8YfBaCnhLss87K","id":"GMUCDLHFJVvmZYXmPf9QeUVAt9r9hXcQP1yL5emPFnvx","outcome":{"executor_id":"btc-client.testnet","gas_burnt":308276385598,"logs":[],"metadata":{"gas_profile":null,"version":1},"receipt_ids":["e2XGEosf843XMiCJHvZufvHKyw419ZYibDBdVJQr9cB"],"status":{"SuccessReceiptId":"e2XGEosf843XMiCJHvZufvHKyw419ZYibDBdVJQr9cB"},"tokens_burnt":"30827638559800000000"},"proof":[{"direction":"Right","hash":"HDgWEk2okmDdAFAVf6ffxGBH6F6vdLM1X3H5Fmaafe4S"},{"direction":"Right","hash":"Ayxj8iVFTJMzZa7estoTtuBKJaUNhoipaaM7WmTjkkiS"}]}}"#;
         let view: FinalExecutionOutcomeViewEnum = serde_json::from_str(json).unwrap();
         assert!(matches!(view, FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(_)));
+    }
+
+    #[test]
+    fn test_deserialize_global_contract_identifier_view_hash_deprecated() {
+        assert_matches!(
+            deserialize_global_contract_identifier(json!(
+                "9SP8Y3sVADWNN5QoEB5CsvPUE5HT4o8YfBaCnhLss87K"
+            )),
+            GlobalContractIdentifierView::CodeHash(_)
+        );
+    }
+
+    #[test]
+    fn test_deserialize_global_contract_identifier_view_account_id_deprecated() {
+        assert_matches!(
+            deserialize_global_contract_identifier(json!("alice.near")),
+            GlobalContractIdentifierView::AccountId(_)
+        );
+    }
+
+    #[test]
+    fn test_deserialize_global_contract_identifier_view_hash() {
+        assert_matches!(
+            deserialize_global_contract_identifier(
+                json!({ "hash": "9SP8Y3sVADWNN5QoEB5CsvPUE5HT4o8YfBaCnhLss87K" })
+            ),
+            GlobalContractIdentifierView::CodeHash(_)
+        );
+    }
+
+    #[test]
+    fn test_deserialize_global_contract_identifier_view_account_id() {
+        assert_matches!(
+            deserialize_global_contract_identifier(json!({ "account_id": "alice.near" })),
+            GlobalContractIdentifierView::AccountId(_)
+        );
+    }
+
+    #[test]
+    fn test_serialize_global_contract_identifier_view_hash() {
+        assert_eq!(
+            serde_json::to_value(GlobalContractIdentifierView::CodeHash(CryptoHash::hash_bytes(
+                b"42"
+            )))
+            .unwrap(),
+            json!({ "hash": "8kzzuAWtRcnhd4SnD2zeEuieq5VtuA8nsNcBgzpRaLuE" })
+        );
+    }
+
+    #[test]
+    fn test_serialize_global_contract_identifier_view_account_id() {
+        assert_eq!(
+            serde_json::to_value(GlobalContractIdentifierView::AccountId(
+                "alice.near".parse().unwrap()
+            ))
+            .unwrap(),
+            json!({ "account_id": "alice.near" })
+        );
+    }
+
+    fn deserialize_global_contract_identifier(
+        json: serde_json::Value,
+    ) -> GlobalContractIdentifierView {
+        serde_json::from_value(json).unwrap()
     }
 }

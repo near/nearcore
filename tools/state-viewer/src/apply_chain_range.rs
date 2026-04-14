@@ -15,7 +15,7 @@ use near_chain_configs::Genesis;
 use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
-use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
+use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptSource};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
@@ -26,7 +26,6 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, Gas, ShardId};
 use near_primitives::utils::get_block_shard_id;
 use near_store::adapter::StoreAdapter;
-use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::flat::{BlockInfo, FlatStateChanges, FlatStorageStatus};
 use near_store::{DBCol, Store};
 use nearcore::NightshadeRuntime;
@@ -53,7 +52,6 @@ fn old_outcomes(
                     outcome.id.as_ref(),
                 )
                 .next()
-                .unwrap()
                 .unwrap()
                 .1
                 .outcome;
@@ -416,9 +414,9 @@ fn apply_block_from_range(
     let mut existing_chunk_extra = None;
     let mut prev_chunk_extra = None;
 
+    let chunk_store = read_store.chunk_store();
     if chunk_present {
-        let res_existing_chunk_extra =
-            ChainStoreAdapter::new(read_store.clone()).get_chunk_extra(&block_hash, &shard_uid);
+        let res_existing_chunk_extra = chunk_store.get_chunk_extra(&block_hash, &shard_uid);
         assert!(
             res_existing_chunk_extra.is_ok(),
             "Can't get existing chunk extra for block #{}",
@@ -426,9 +424,8 @@ fn apply_block_from_range(
         );
         existing_chunk_extra = Some(res_existing_chunk_extra.unwrap());
     } else {
-        let chunk_extra = ChainStoreAdapter::new(read_store.clone())
-            .get_chunk_extra(input.block.header().prev_hash(), &shard_uid)
-            .unwrap();
+        let chunk_extra =
+            chunk_store.get_chunk_extra(input.block.header().prev_hash(), &shard_uid).unwrap();
         prev_chunk_extra = Some(chunk_extra);
     }
 
@@ -436,17 +433,7 @@ fn apply_block_from_range(
     let apply_result = apply_chunk_from_input(input, &*runtime_adapter);
 
     // Process application outcome
-    let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
-    let chunk_extra = ChunkExtra::new(
-        &apply_result.new_root,
-        outcome_root,
-        apply_result.validator_proposals.clone(),
-        apply_result.total_gas_burnt,
-        genesis.config.gas_limit,
-        apply_result.total_balance_burnt,
-        apply_result.congestion_info,
-        apply_result.bandwidth_requests.clone(),
-    );
+    let chunk_extra = apply_result.to_chunk_extra(genesis.config.gas_limit);
 
     let state_update =
         runtime_adapter.get_tries().new_trie_update(shard_uid, *chunk_extra.state_root());
@@ -497,7 +484,11 @@ fn apply_block_from_range(
             raw_timestamp,
             apply_result.total_gas_burnt,
             chunk_present,
-            apply_result.processed_delayed_receipts.len(),
+            apply_result
+                .processed_receipts
+                .iter()
+                .filter(|pr| pr.source == ReceiptSource::Delayed)
+                .count(),
             delayed_indices.unwrap_or(None).map_or(0, |d| d.next_available_index - d.first_index),
             apply_result.trie_changes.state_changes().len(),
         ),
@@ -528,7 +519,7 @@ fn apply_block_from_range(
             let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
             let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
             let store_update = flat_storage.add_delta(delta).unwrap();
-            store_update.commit().unwrap();
+            store_update.commit();
             flat_storage.update_flat_head(&block_hash).unwrap();
         }
         (_, StorageSource::Recorded) => {
@@ -555,14 +546,12 @@ fn apply_block_from_range(
                         .map(|c| c.into())
                         .collect(),
                 });
-            store_update
-                .set_ser(
-                    DBCol::StateTransitionData,
-                    &get_block_shard_id(&block_hash, shard_id),
-                    &state_transition_data,
-                )
-                .unwrap();
-            store_update.commit().unwrap();
+            store_update.set_ser(
+                DBCol::StateTransitionData,
+                &get_block_shard_id(&block_hash, shard_id),
+                &state_transition_data,
+            );
+            store_update.commit();
         }
         (_, StorageSource::FlatStorage) => {
             // Apply trie changes to trie node caches.
@@ -655,7 +644,7 @@ pub fn apply_chain_range(
             assert!(start_height.is_none());
             assert!(end_height.is_none());
             let flat_status = read_store.flat_store().get_flat_storage_status(shard_uid);
-            let Ok(FlatStorageStatus::Ready(ready)) = flat_status else {
+            let FlatStorageStatus::Ready(ready) = flat_status else {
                 panic!("cannot create flat storage for shard {shard_uid} due to {flat_status:?}")
             };
             // We apply the block at flat_head. Users can set the block they want to benchmark by
@@ -664,13 +653,13 @@ pub fn apply_chain_range(
             (ready.flat_head.height + 1, 0)
         }
         (_, StorageSource::Trie | StorageSource::TrieFree) => (
-            start_height.unwrap_or_else(|| chain_store.tail().unwrap()),
+            start_height.unwrap_or_else(|| chain_store.tail()),
             end_height.unwrap_or_else(|| chain_store.head().unwrap().height),
         ),
         (_, StorageSource::FlatStorage | StorageSource::Memtrie) => {
             let start_height = start_height.unwrap_or_else(|| {
                 let status = read_store.flat_store().get_flat_storage_status(shard_uid);
-                let Ok(FlatStorageStatus::Ready(ready)) = status else {
+                let FlatStorageStatus::Ready(ready) = status else {
                     panic!("cannot create flat storage for shard {shard_uid} due to {status:?}")
                 };
                 ready.flat_head.height + 1

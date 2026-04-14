@@ -54,6 +54,7 @@ pub enum RpcLightClientProofError {
     )]
     UnknownBlock {
         #[serde(skip_serializing)]
+        #[cfg_attr(feature = "schemars", schemars(skip))]
         error_message: String,
     },
     #[error(
@@ -87,6 +88,7 @@ pub enum RpcLightClientNextBlockError {
     )]
     UnknownBlock {
         #[serde(skip_serializing)]
+        #[cfg_attr(feature = "schemars", schemars(skip))]
         error_message: String,
     },
     #[error("Epoch Out Of Bounds {epoch_id:?}")]

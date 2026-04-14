@@ -147,7 +147,7 @@ impl RuntimeUser {
                 near_store::flat::FlatStateChanges::from_state_changes(&apply_result.state_changes)
                     .apply_to_flat_state(&mut update.flat_store_update(), ShardUId::single_shard());
             }
-            update.commit().unwrap();
+            update.commit();
             client.state_root = apply_result.state_root;
             for receipt in &apply_result.outgoing_receipts {
                 self.receipts.borrow_mut().insert(*receipt.receipt_id(), receipt.clone());
@@ -203,6 +203,7 @@ impl RuntimeUser {
             config: self.runtime_config.clone(),
             cache: None,
             is_new_chunk: true,
+            save_receipt_to_tx: false,
             congestion_info,
             bandwidth_requests: BlockBandwidthRequests::empty(),
             trie_access_tracker_state: Default::default(),
@@ -288,7 +289,12 @@ impl User for RuntimeUser {
     fn view_contract_code(&self, account_id: &AccountId) -> Result<ContractCodeView, String> {
         let state_update = self.client.read().get_state_update();
         self.trie_viewer
-            .view_account_contract_code(&state_update, account_id)
+            .view_account_contract_code(
+                &state_update,
+                account_id,
+                near_primitives::version::PROTOCOL_VERSION,
+                near_primitives_core::chains::MAINNET,
+            )
             .map(|contract_code| {
                 let hash = *contract_code.hash();
                 ContractCodeView { hash, code: contract_code.into_code() }

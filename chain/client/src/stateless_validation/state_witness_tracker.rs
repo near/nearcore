@@ -68,7 +68,7 @@ impl ChunkStateWitnessTracker {
     ) -> () {
         let key = ChunkStateWitnessKey::new(chunk_hash);
         tracing::trace!(target: "state_witness_tracker", witness_key=?key,
-            size=witness_size_in_bytes, "Recording state witness sent.");
+            size=witness_size_in_bytes, "recording state witness sent");
         self.witnesses.put(
             key,
             ChunkStateWitnessRecord {
@@ -84,7 +84,7 @@ impl ChunkStateWitnessTracker {
     pub fn on_witness_ack_received(&mut self, ack: ChunkStateWitnessAck) -> () {
         let key = ChunkStateWitnessKey { chunk_hash: ack.chunk_hash };
         tracing::trace!(target: "state_witness_tracker", witness_key=?key,
-            "Received ack for state witness");
+            "received ack for state witness");
         if let Some(record) = self.witnesses.get_mut(&key) {
             debug_assert!(record.num_validators > 0);
 

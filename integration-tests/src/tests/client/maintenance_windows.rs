@@ -1,10 +1,9 @@
-use near_async::time::Clock;
-use near_client_primitives::types::GetMaintenanceWindows;
-use near_o11y::testonly::init_test_logger;
-
 use crate::env::setup::setup_no_network;
 use near_async::ActorSystem;
 use near_async::messaging::CanSendAsync;
+use near_async::time::Clock;
+use near_client_primitives::types::GetMaintenanceWindows;
+use near_o11y::testonly::init_test_logger;
 
 /// get maintenance window from view client
 #[tokio::test]

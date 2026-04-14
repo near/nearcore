@@ -65,7 +65,6 @@ pub use crate::translator::{
 };
 pub use crate::trap::TrapInformation;
 pub use near_vm_types::Features;
-
 /// wasmparser is exported as a module to slim compiler dependencies
 pub use wasmparser;
 

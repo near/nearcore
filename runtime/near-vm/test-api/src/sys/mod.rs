@@ -21,14 +21,11 @@ pub use crate::sys::store::Store;
 pub use crate::sys::tunables::BaseTunables;
 pub use crate::sys::types::{FunctionType, MemoryType, TableType, Val, ValType};
 pub use crate::sys::types::{Val as Value, ValType as Type};
-pub use near_vm_types::ExternRef;
-pub use near_vm_vm::{Export, NamedResolver};
-
-#[cfg(feature = "wat")]
-pub use wat::parse_bytes as wat2wasm;
-
 #[cfg(feature = "singlepass")]
 pub use near_vm_compiler_singlepass::Singlepass;
-
 #[cfg(feature = "universal")]
 pub use near_vm_engine::universal::{Universal, UniversalArtifact, UniversalEngine};
+pub use near_vm_types::ExternRef;
+pub use near_vm_vm::{Export, NamedResolver};
+#[cfg(feature = "wat")]
+pub use wat::parse_bytes as wat2wasm;

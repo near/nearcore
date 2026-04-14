@@ -1,6 +1,5 @@
 /// Conversion functions for payloads signable by an account key.
 use super::*;
-
 use crate::network_protocol::proto;
 use crate::network_protocol::proto::account_key_payload::Payload_type as ProtoPT;
 use crate::network_protocol::{

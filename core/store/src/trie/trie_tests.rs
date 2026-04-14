@@ -1,3 +1,4 @@
+use super::{TrieChanges, TrieRefcountDeltaMap};
 use crate::test_utils::{TestTriesBuilder, gen_changes, simplify_changes, test_populate_trie};
 use crate::trie::trie_storage::TrieStorage;
 use crate::trie::{AccessOptions, TrieRefcountAddition, TrieRefcountSubtraction};
@@ -13,8 +14,6 @@ use rand::seq::SliceRandom;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::Arc;
-
-use super::{TrieChanges, TrieRefcountDeltaMap};
 
 pub(crate) fn merge_trie_changes(changes: Vec<TrieChanges>) -> TrieChanges {
     if changes.is_empty() {
@@ -196,7 +195,7 @@ mod trie_storage_tests {
             .collect();
         let mut store_update = tries.store_update();
         tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        store_update.commit().unwrap();
+        store_update.commit();
         tries.store()
     }
 
@@ -267,7 +266,7 @@ mod trie_storage_tests {
             test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, base_changes.clone());
         let trie = tries.get_trie_for_shard(shard_uid, state_root).recording_reads_new_recorder();
         let changes = trie.update(updates.clone(), AccessOptions::DEFAULT).unwrap();
-        tracing::info!("Changes: {:?}", changes);
+        tracing::info!(?changes);
 
         let recorded_normal = trie.recorded_storage();
 
@@ -279,7 +278,7 @@ mod trie_storage_tests {
         let trie = tries.get_trie_for_shard(shard_uid, state_root).recording_reads_new_recorder();
         let changes = trie.update(updates, AccessOptions::DEFAULT).unwrap();
 
-        tracing::info!("Changes: {:?}", changes);
+        tracing::info!(?changes);
 
         let recorded_memtrie = trie.recorded_storage();
 

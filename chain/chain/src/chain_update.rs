@@ -15,6 +15,7 @@ use crate::{DoomslugThresholdMode, metrics};
 use near_chain_configs::ProtocolVersionCheckConfig;
 use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::epoch_sync::update_epoch_sync_proof;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{Block, Tip};
@@ -26,11 +27,11 @@ use near_primitives::sharding::{ReceiptProof, ShardChunk};
 use near_primitives::state_sync::{ReceiptProofResponse, ShardStateSyncResponseHeader};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::LightClientBlockView;
+use near_store::adapter::StoreAdapter;
 use node_runtime::SignedValidPeriodTransactions;
 use std::sync::Arc;
-use tracing::{debug, warn};
 
 /// Chain update helper, contains information that is needed to process block
 /// and decide to accept it or reject it.
@@ -118,21 +119,12 @@ impl<'a> ChainUpdate<'a> {
         let height = block.header().height();
         match result {
             ShardUpdateResult::NewChunk(NewChunkResult { gas_limit, shard_uid, apply_result }) => {
-                let (outcome_root, outcome_paths) =
+                let (_, outcome_paths) =
                     ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
                 let shard_id = shard_uid.shard_id();
 
                 // Save state root after applying transactions.
-                let chunk_extra = ChunkExtra::new(
-                    &apply_result.new_root,
-                    outcome_root,
-                    apply_result.validator_proposals,
-                    apply_result.total_gas_burnt,
-                    gas_limit,
-                    apply_result.total_balance_burnt,
-                    apply_result.congestion_info,
-                    apply_result.bandwidth_requests,
-                );
+                let chunk_extra = apply_result.to_chunk_extra(gas_limit);
                 self.chain_store_update.save_chunk_extra(
                     block_hash,
                     &shard_uid,
@@ -155,6 +147,14 @@ impl<'a> ChainUpdate<'a> {
                     shard_id,
                     apply_result.outgoing_receipts,
                 );
+                let receipt_to_tx_ids: Vec<CryptoHash> =
+                    apply_result.receipt_to_tx.iter().map(|(id, _)| *id).collect();
+                self.chain_store_update.save_processed_receipt_ids(
+                    block_hash,
+                    shard_id,
+                    apply_result.processed_receipts,
+                    receipt_to_tx_ids,
+                );
                 // Save receipt and transaction results.
                 self.chain_store_update.save_outcomes_with_proofs(
                     block_hash,
@@ -162,6 +162,7 @@ impl<'a> ChainUpdate<'a> {
                     apply_result.outcomes,
                     outcome_paths,
                 );
+                self.chain_store_update.save_receipt_to_tx(apply_result.receipt_to_tx);
                 if should_save_state_transition_data {
                     self.chain_store_update.save_state_transition_data(
                         *block_hash,
@@ -260,7 +261,7 @@ impl<'a> ChainUpdate<'a> {
         let prev_hash = block.header().prev_hash();
         let results = apply_chunks_results.into_iter().map(|(shard_id, x)| {
             if let Err(err) = &x {
-                warn!(target: "chain", %shard_id, hash = %block.hash(), %err, "Error in applying chunk for block");
+                tracing::warn!(target: "chain", %shard_id, hash = %block.hash(), %err, "error in applying chunk for block");
             }
             x
         }).collect::<Result<Vec<_>, Error>>()?;
@@ -270,7 +271,7 @@ impl<'a> ChainUpdate<'a> {
             block_preprocess_info;
 
         if !is_caught_up {
-            debug!(target: "chain", %prev_hash, hash = %*block.hash(), "Add block to catch up");
+            tracing::debug!(target: "chain", %prev_hash, hash = %*block.hash(), "add block to catch up");
             self.chain_store_update.add_block_to_catchup(*prev_hash, *block.hash());
         }
 
@@ -292,17 +293,45 @@ impl<'a> ChainUpdate<'a> {
             self.chain_store_update.get_block_header(last_final_block)?.height()
         };
 
+        let current_protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
         let epoch_manager_update = self.epoch_manager.add_validator_proposals(
-            BlockInfo::from_header(block.header(), last_finalized_height),
+            BlockInfo::from_header(block.header(), last_finalized_height, current_protocol_version),
             *block.header().random_value(),
         )?;
-        self.chain_store_update.merge(epoch_manager_update);
+        self.chain_store_update.merge(epoch_manager_update.into());
+        self.chain_store_update.save_chunk_producers_for_header(
+            self.epoch_manager.as_ref(),
+            block.header(),
+            current_protocol_version,
+        )?;
+
+        if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
+            // If this is the first block of the epoch, update epoch sync proof.
+            // We use prev_hash (not last_final_block) because last_final_block can skip
+            // over epoch boundaries when heights are skipped (e.g. dead validator's turn),
+            // causing the proof update to be missed for that epoch.
+            // prev_hash of the first block in epoch T is always the last block of epoch T-1.
+            //
+            // The downside of using prev_hash is that due to forks we may end up hitting the
+            // epoch boundary multiple times, but that's alright as update_epoch_sync_proof
+            // is idempotent.
+            if self.epoch_manager.is_next_block_epoch_start(prev_hash)? {
+                tracing::debug!(block_hash = ?block.hash(), "updating epoch sync proof");
+                let epoch_store = self.chain_store_update.store().epoch_store();
+                let epoch_manager_update =
+                    update_epoch_sync_proof(&epoch_store, block.header().epoch_id())?;
+                self.chain_store_update.merge(epoch_manager_update.into());
+            }
+        }
 
         // Add validated block to the db, even if it's not the canonical fork.
         self.chain_store_update.save_block(Arc::clone(&block));
         self.chain_store_update.inc_block_refcount(prev_hash)?;
 
-        if cfg!(feature = "protocol_feature_spice") {
+        let protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
+        if ProtocolFeature::Spice.enabled(protocol_version) {
             record_uncertified_chunks_for_block(
                 &mut self.chain_store_update,
                 self.epoch_manager.as_ref(),
@@ -394,7 +423,7 @@ impl<'a> ChainUpdate<'a> {
         if header.height() > header_head.height {
             let tip = Tip::from_header(header);
             self.chain_store_update.save_header_head(&tip)?;
-            debug!(target: "chain", "Header head updated to {} at {}", tip.last_block_hash, tip.height);
+            tracing::debug!(target: "chain", last_block_hash = ?tip.last_block_hash, height = %tip.height, "header head updated");
             metrics::HEADER_HEAD_HEIGHT.set(tip.height as i64);
 
             Ok(Some(tip))
@@ -433,7 +462,12 @@ impl<'a> ChainUpdate<'a> {
             self.chain_store_update.save_body_head(&tip)?;
             metrics::BLOCK_HEIGHT_HEAD.set(tip.height as i64);
             metrics::BLOCK_ORDINAL_HEAD.set(header.block_ordinal() as i64);
-            debug!(target: "chain", "Head updated to {} at {}", tip.last_block_hash, tip.height);
+            let now_ns = time::OffsetDateTime::now_utc().unix_timestamp_nanos();
+            let block_ns = header.timestamp().unix_timestamp_nanos();
+            let lag = (now_ns.saturating_sub(block_ns) as f64 / 1_000_000_000.0).max(0.0);
+            metrics::HEAD_LAG_SECONDS.set(lag);
+            metrics::HEAD_LAG_SECONDS_HIST.observe(lag);
+            tracing::debug!(target: "chain", last_block_hash = ?tip.last_block_hash, height = %tip.height, "head updated");
             Ok(Some(tip))
         } else {
             Ok(None)
@@ -528,8 +562,7 @@ impl<'a> ChainUpdate<'a> {
             transactions,
         )?;
 
-        let (outcome_root, outcome_proofs) =
-            ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
+        let (_, outcome_proofs) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
 
         self.chain_store_update.save_chunk(chunk);
 
@@ -545,18 +578,10 @@ impl<'a> ChainUpdate<'a> {
         )?;
         self.chain_store_update.merge(store_update.into());
 
+        let chunk_extra = apply_result.to_chunk_extra(gas_limit);
+
         self.chain_store_update.save_trie_changes(*block_header.hash(), apply_result.trie_changes);
 
-        let chunk_extra = ChunkExtra::new(
-            &apply_result.new_root,
-            outcome_root,
-            apply_result.validator_proposals,
-            apply_result.total_gas_burnt,
-            gas_limit,
-            apply_result.total_balance_burnt,
-            apply_result.congestion_info,
-            apply_result.bandwidth_requests,
-        );
         self.chain_store_update.save_chunk_extra(
             block_header.hash(),
             &shard_uid,
@@ -575,6 +600,15 @@ impl<'a> ChainUpdate<'a> {
             apply_result.outcomes,
             outcome_proofs,
         );
+        let receipt_to_tx_ids: Vec<CryptoHash> =
+            apply_result.receipt_to_tx.iter().map(|(id, _)| *id).collect();
+        self.chain_store_update.save_processed_receipt_ids(
+            block_header.hash(),
+            shard_id,
+            apply_result.processed_receipts,
+            receipt_to_tx_ids,
+        );
+        self.chain_store_update.save_receipt_to_tx(apply_result.receipt_to_tx);
         // Saving all incoming receipts.
         for receipt_proof_response in receipt_proof_responses {
             self.chain_store_update.save_incoming_receipt(

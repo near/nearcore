@@ -28,7 +28,7 @@ create_sub_accounts:
         --nonce 1 \
         --sub-account-prefix 'a' \
         --num-sub-accounts 10000 \
-        --deposit 953060601875000000010000 \
+        --deposit 200002488684649026500000000 \
         --channel-buffer-size 1200 \
         --requests-per-second 1250 \
         --user-data-dir user-data

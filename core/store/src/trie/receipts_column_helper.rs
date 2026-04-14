@@ -377,9 +377,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::borrow::Cow;
-    use std::collections::VecDeque;
-
     use super::*;
     use crate::Trie;
     use crate::test_utils::{TestTriesBuilder, gen_receipts};
@@ -388,6 +385,8 @@ mod tests {
     use rand::seq::SliceRandom;
     use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha20Rng;
+    use std::borrow::Cow;
+    use std::collections::VecDeque;
 
     #[test]
     fn test_delayed_receipts_queue() {

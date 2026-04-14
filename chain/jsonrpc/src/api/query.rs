@@ -1,13 +1,11 @@
+use super::{Params, RpcFrom, RpcRequest};
 use near_async::messaging::AsyncSendError;
-use serde_json::Value;
-
 use near_client_primitives::types::QueryError;
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::query::{RpcQueryError, RpcQueryRequest, RpcQueryResponse};
 use near_primitives::types::BlockReference;
 use near_primitives::views::{QueryRequest, QueryResponse};
-
-use super::{Params, RpcFrom, RpcRequest};
+use serde_json::Value;
 
 /// Max size of the query path (soft-deprecated)
 const QUERY_DATA_MAX_SIZE: usize = 10 * 1024;
@@ -118,11 +116,14 @@ impl RpcFrom<QueryError> for RpcQueryError {
             QueryError::UnknownAccessKey { public_key, block_height, block_hash } => {
                 Self::UnknownAccessKey { public_key, block_height, block_hash }
             }
-            QueryError::ContractExecutionError { vm_error, block_height, block_hash } => {
-                Self::ContractExecutionError { vm_error, block_height, block_hash }
+            QueryError::UnknownGasKey { public_key, block_height, block_hash } => {
+                Self::UnknownGasKey { public_key, block_height, block_hash }
+            }
+            QueryError::ContractExecutionError { vm_error, error, block_height, block_hash } => {
+                Self::ContractExecutionError { vm_error, error, block_height, block_hash }
             }
             QueryError::Unreachable { ref error_message } => {
-                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", error_message);
+                tracing::warn!(target: "jsonrpc", %error_message, "unreachable error occurred");
                 crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
                     .with_label_values(&["RpcQueryError"])
                     .inc();
@@ -170,6 +171,9 @@ impl RpcFrom<near_primitives::views::QueryResponseKind>
             }
             near_primitives::views::QueryResponseKind::AccessKeyList(access_key_list) => {
                 Self::AccessKeyList(access_key_list)
+            }
+            near_primitives::views::QueryResponseKind::GasKeyNonces(nonces) => {
+                Self::GasKeyNonces(nonces)
             }
         }
     }

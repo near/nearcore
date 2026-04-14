@@ -1,6 +1,4 @@
-use std::collections::BTreeMap;
-use std::num::NonZeroU64;
-
+use crate::ApplyState;
 use near_primitives::bandwidth_scheduler::{
     BandwidthSchedulerParams, BandwidthSchedulerState, BandwidthSchedulerStateV1,
 };
@@ -11,8 +9,8 @@ use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::types::{EpochInfoProvider, ShardId, ShardIndex, StateChangeCause};
 use near_store::{TrieUpdate, get_bandwidth_scheduler_state, set_bandwidth_scheduler_state};
 use scheduler::{BandwidthScheduler, GrantedBandwidth, ShardStatus};
-
-use crate::ApplyState;
+use std::collections::BTreeMap;
+use std::num::NonZeroU64;
 
 mod distribute_remaining;
 mod scheduler;
@@ -61,7 +59,7 @@ pub fn run_bandwidth_scheduler(
     let mut scheduler_state = match get_bandwidth_scheduler_state(state_update)? {
         Some(prev_state) => prev_state,
         None => {
-            tracing::debug!(target: "runtime", "Bandwidth scheduler state not found - initializing");
+            tracing::debug!(target: "runtime", "bandwidth scheduler state not found - initializing");
             BandwidthSchedulerState::V1(BandwidthSchedulerStateV1 {
                 link_allowances: Vec::new(),
                 sanity_check_hash: CryptoHash::default(),

@@ -2,11 +2,9 @@ use std::{
     sync::{Arc, RwLock},
     time::Duration,
 };
-
 use near_jsonrpc_client::JsonRpcClient;
 use near_primitives::{hash::CryptoHash, views::BlockView};
 use tokio::time;
-
 use crate::rpc::get_latest_block;
 
 pub struct BlockService {

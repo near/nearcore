@@ -11,33 +11,25 @@ use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::state_sync::ReceiptProofResponse;
 use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
 use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use std::sync::Arc;
 
 /// Get full chunk from header with `height_included` taken from `header`, with
 /// possible error that contains the header for further retrieval.
-/// TODO: consider less hacky way to set `height_included` for chunks.
 pub fn get_chunk_clone_from_header(
-    chain_store: &ChainStoreAdapter,
+    chunk_store: &ChunkStoreAdapter,
     header: &ShardChunkHeader,
 ) -> Result<ShardChunk, Error> {
-    let shard_chunk_result = chain_store.get_chunk(&header.chunk_hash());
-    match shard_chunk_result {
-        Err(_) => {
-            return Err(Error::ChunksMissing(vec![header.clone()]));
-        }
-        Ok(shard_chunk) => {
-            byzantine_assert!(header.height_included() > 0 || header.height_created() == 0);
-            if header.height_included() == 0 && header.height_created() > 0 {
-                return Err(Error::Other(format!(
-                    "Invalid header: {:?} for chunk {:?}",
-                    header, shard_chunk
-                )));
-            }
-            let mut shard_chunk_clone = ShardChunk::clone(&shard_chunk);
-            shard_chunk_clone.set_height_included(header.height_included());
-            Ok(shard_chunk_clone)
-        }
+    let mut shard_chunk = chunk_store.get_chunk(&header.chunk_hash())?;
+    byzantine_assert!(header.height_included() > 0 || header.height_created() == 0);
+    if header.height_included() == 0 && header.height_created() > 0 {
+        return Err(Error::Other(format!(
+            "Invalid header: {:?} for chunk {:?}",
+            header, shard_chunk
+        )));
     }
+    shard_chunk.set_height_included(header.height_included());
+    Ok(shard_chunk)
 }
 
 /// Returns block header from the current chain defined by `sync_hash` for given height if present.

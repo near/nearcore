@@ -1,8 +1,10 @@
-use std::collections::{HashMap, HashSet};
-
+use crate::{
+    FISHERMEN_THRESHOLD, Genesis, GenesisConfig, GenesisContents, GenesisRecords,
+    PROTOCOL_UPGRADE_STAKE_THRESHOLD,
+};
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account, AccountContract};
-use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
+use near_primitives::epoch_manager::{EpochConfig, EpochConfigBuilder, EpochConfigStore};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
@@ -14,11 +16,7 @@ use near_primitives::utils::from_timestamp;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_time::Clock;
 use num_rational::Rational32;
-
-use crate::{
-    FISHERMEN_THRESHOLD, Genesis, GenesisConfig, GenesisContents, GenesisRecords,
-    PROTOCOL_UPGRADE_STAKE_THRESHOLD,
-};
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone)]
 pub struct TestEpochConfigBuilder {
@@ -28,7 +26,6 @@ pub struct TestEpochConfigBuilder {
     num_chunk_producer_seats: NumSeats,
     num_chunk_validator_seats: NumSeats,
     target_validator_mandates_per_shard: NumSeats,
-    avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
     minimum_validators_per_shard: NumSeats,
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
@@ -44,8 +41,6 @@ pub struct TestEpochConfigBuilder {
     shuffle_shard_assignment_for_chunk_producers: bool,
     max_inflation_rate: Rational32,
 
-    // not used any more
-    num_block_producer_seats_per_shard: Vec<NumSeats>,
     genesis_protocol_version: Option<ProtocolVersion>,
 }
 
@@ -74,7 +69,7 @@ pub struct TestGenesisBuilder {
     min_gas_price: Balance,
     max_gas_price: Balance,
     gas_limit: Gas,
-    transaction_validity_period: NumBlocks,
+    transaction_validity_period: Option<NumBlocks>,
     protocol_treasury_account: String,
     max_inflation_rate: Rational32,
     dynamic_resharding: bool,
@@ -86,6 +81,7 @@ pub struct TestGenesisBuilder {
     protocol_reward_rate: Rational32,
     max_kickout_stake_perc: u8,
     minimum_stake_divisor: u64,
+    minimum_stake_ratio: Rational32,
     protocol_upgrade_stake_threshold: Rational32,
     chunk_producer_assignment_changes_limit: NumSeats,
     user_accounts: Vec<UserAccount>,
@@ -124,7 +120,6 @@ impl Default for TestEpochConfigBuilder {
             num_chunk_producer_seats: 1,
             num_chunk_validator_seats: 1,
             target_validator_mandates_per_shard: 68,
-            avg_hidden_validator_seats_per_shard: vec![],
             minimum_validators_per_shard: 1,
             block_producer_kickout_threshold: 0,
             chunk_producer_kickout_threshold: 0,
@@ -139,8 +134,6 @@ impl Default for TestEpochConfigBuilder {
             chunk_producer_assignment_changes_limit: 5,
             shuffle_shard_assignment_for_chunk_producers: false,
             max_inflation_rate: Rational32::new(1, 40),
-            // consider them ineffective
-            num_block_producer_seats_per_shard: vec![1],
             genesis_protocol_version: None,
         }
     }
@@ -159,6 +152,9 @@ impl TestEpochConfigBuilder {
         builder.num_chunk_producer_seats = genesis.config.num_chunk_producer_seats;
         builder.num_chunk_validator_seats = genesis.config.num_chunk_validator_seats;
         builder.genesis_protocol_version = Some(genesis.config.protocol_version);
+        builder.max_inflation_rate = genesis.config.max_inflation_rate;
+        builder.minimum_stake_divisor = genesis.config.minimum_stake_divisor;
+        builder.minimum_stake_ratio = genesis.config.minimum_stake_ratio;
         builder
     }
 
@@ -229,33 +225,32 @@ impl TestEpochConfigBuilder {
     }
 
     pub fn build(self) -> EpochConfig {
-        let epoch_config = EpochConfig {
-            epoch_length: self.epoch_length,
-            shard_layout: self.shard_layout,
-            num_block_producer_seats: self.num_block_producer_seats,
-            num_chunk_producer_seats: self.num_chunk_producer_seats,
-            num_chunk_validator_seats: self.num_chunk_validator_seats,
-            num_chunk_only_producer_seats: 300,
-            target_validator_mandates_per_shard: self.target_validator_mandates_per_shard,
-            avg_hidden_validator_seats_per_shard: self.avg_hidden_validator_seats_per_shard,
-            minimum_validators_per_shard: self.minimum_validators_per_shard,
-            block_producer_kickout_threshold: self.block_producer_kickout_threshold,
-            chunk_producer_kickout_threshold: self.chunk_producer_kickout_threshold,
-            chunk_validator_only_kickout_threshold: self.chunk_validator_only_kickout_threshold,
-            validator_max_kickout_stake_perc: self.validator_max_kickout_stake_perc,
-            online_min_threshold: self.online_min_threshold,
-            online_max_threshold: self.online_max_threshold,
-            fishermen_threshold: self.fishermen_threshold,
-            protocol_upgrade_stake_threshold: self.protocol_upgrade_stake_threshold,
-            minimum_stake_divisor: self.minimum_stake_divisor,
-            minimum_stake_ratio: self.minimum_stake_ratio,
-            chunk_producer_assignment_changes_limit: self.chunk_producer_assignment_changes_limit,
-            shuffle_shard_assignment_for_chunk_producers: self
-                .shuffle_shard_assignment_for_chunk_producers,
-            num_block_producer_seats_per_shard: self.num_block_producer_seats_per_shard,
-            max_inflation_rate: self.max_inflation_rate,
-        };
-        tracing::debug!("Epoch config: {:#?}", epoch_config);
+        let epoch_config = EpochConfigBuilder::default()
+            .epoch_length(self.epoch_length)
+            .shard_layout(self.shard_layout)
+            .num_block_producer_seats(self.num_block_producer_seats)
+            .num_chunk_producer_seats(self.num_chunk_producer_seats)
+            .num_chunk_validator_seats(self.num_chunk_validator_seats)
+            .target_validator_mandates_per_shard(self.target_validator_mandates_per_shard)
+            .minimum_validators_per_shard(self.minimum_validators_per_shard)
+            .block_producer_kickout_threshold(self.block_producer_kickout_threshold)
+            .chunk_producer_kickout_threshold(self.chunk_producer_kickout_threshold)
+            .chunk_validator_only_kickout_threshold(self.chunk_validator_only_kickout_threshold)
+            .validator_max_kickout_stake_perc(self.validator_max_kickout_stake_perc)
+            .online_min_threshold(self.online_min_threshold)
+            .online_max_threshold(self.online_max_threshold)
+            .fishermen_threshold(self.fishermen_threshold)
+            .protocol_upgrade_stake_threshold(self.protocol_upgrade_stake_threshold)
+            .minimum_stake_divisor(self.minimum_stake_divisor)
+            .minimum_stake_ratio(self.minimum_stake_ratio)
+            .chunk_producer_assignment_changes_limit(self.chunk_producer_assignment_changes_limit)
+            .shuffle_shard_assignment_for_chunk_producers(
+                self.shuffle_shard_assignment_for_chunk_producers,
+            )
+            .max_inflation_rate(self.max_inflation_rate)
+            .build()
+            .expect("field init missing");
+        tracing::debug!(?epoch_config);
         epoch_config
     }
 
@@ -288,7 +283,7 @@ impl Default for TestGenesisBuilder {
             min_gas_price: Balance::ZERO,
             max_gas_price: Balance::ZERO,
             gas_limit: Gas::from_teragas(1000),
-            transaction_validity_period: 100,
+            transaction_validity_period: None,
             protocol_treasury_account: "near".to_string().parse().unwrap(),
             max_inflation_rate: Rational32::new(1, 1),
             user_accounts: vec![],
@@ -301,6 +296,7 @@ impl Default for TestGenesisBuilder {
             protocol_reward_rate: Rational32::new(0, 1),
             max_kickout_stake_perc: 100,
             minimum_stake_divisor: 10,
+            minimum_stake_ratio: Rational32::new(1, 6250),
             protocol_upgrade_stake_threshold: Rational32::new(8, 10),
             chunk_producer_assignment_changes_limit: 5,
         }
@@ -368,7 +364,7 @@ impl TestGenesisBuilder {
     }
 
     pub fn transaction_validity_period(mut self, transaction_validity_period: NumBlocks) -> Self {
-        self.transaction_validity_period = transaction_validity_period;
+        self.transaction_validity_period = Some(transaction_validity_period);
         self
     }
 
@@ -384,6 +380,16 @@ impl TestGenesisBuilder {
 
     pub fn protocol_reward_rate(mut self, protocol_reward_rate: Rational32) -> Self {
         self.protocol_reward_rate = protocol_reward_rate;
+        self
+    }
+
+    pub fn minimum_stake_divisor(mut self, minimum_stake_divisor: u64) -> Self {
+        self.minimum_stake_divisor = minimum_stake_divisor;
+        self
+    }
+
+    pub fn minimum_stake_ratio(mut self, minimum_stake_ratio: Rational32) -> Self {
+        self.minimum_stake_ratio = minimum_stake_ratio;
         self
     }
 
@@ -445,9 +451,8 @@ impl TestGenesisBuilder {
         let mut user_accounts = self.user_accounts;
         if user_accounts.iter().all(|account| &account.account_id != &protocol_treasury_account) {
             tracing::warn!(
-                "Protocol treasury account {:?} not found in user accounts;
-                to keep genesis valid, adding it as a user account with zero balance.",
-                protocol_treasury_account
+                ?protocol_treasury_account,
+                "protocol treasury account not found in user accounts, to keep genesis valid, adding it as a user account with zero balance"
             );
             user_accounts.push(UserAccount {
                 account_id: protocol_treasury_account.clone(),
@@ -509,7 +514,9 @@ impl TestGenesisBuilder {
             gas_limit: self.gas_limit,
             dynamic_resharding: self.dynamic_resharding,
             fishermen_threshold: self.fishermen_threshold,
-            transaction_validity_period: self.transaction_validity_period,
+            transaction_validity_period: self
+                .transaction_validity_period
+                .unwrap_or(self.epoch_length * 2),
             protocol_version: self.protocol_version,
             protocol_treasury_account,
             online_min_threshold: self.online_min_threshold,
@@ -522,12 +529,8 @@ impl TestGenesisBuilder {
             validators,
             shard_layout: self.shard_layout.clone(),
             num_block_producer_seats,
-            num_block_producer_seats_per_shard: self
-                .shard_layout
-                .shard_ids()
-                .map(|_| num_block_producer_seats)
-                .collect(),
             minimum_stake_divisor: self.minimum_stake_divisor,
+            minimum_stake_ratio: self.minimum_stake_ratio,
             max_inflation_rate: self.max_inflation_rate,
             protocol_upgrade_stake_threshold: self.protocol_upgrade_stake_threshold,
             num_chunk_producer_seats,
@@ -535,7 +538,7 @@ impl TestGenesisBuilder {
             chunk_producer_assignment_changes_limit: self.chunk_producer_assignment_changes_limit,
             ..Default::default()
         };
-        tracing::debug!("Genesis config: {:#?}", genesis_config);
+        tracing::debug!(?genesis_config);
 
         Genesis {
             config: genesis_config,

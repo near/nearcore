@@ -149,7 +149,7 @@ impl Trie {
             idx,
             total,
             ?boundaries_read_duration,
-            "Found state part boundaries",
+            "found state part boundaries",
         );
         Ok((recorded_trie.nodes, path_begin, path_end))
     }
@@ -193,17 +193,14 @@ impl Trie {
         let mut value_refs = vec![];
         let mut values_inlined = 0;
         let mut all_state_part_items: Vec<_> = flat_state_iter
-            .filter_map(|result| {
-                let (k, v) = result.expect("failed to read FlatState entry");
-                match v {
-                    FlatStateValue::Ref(value_ref) => {
-                        value_refs.push((k, value_ref.hash));
-                        None
-                    }
-                    FlatStateValue::Inlined(value) => {
-                        values_inlined += 1;
-                        Some((k, Some(value)))
-                    }
+            .filter_map(|(k, v)| match v {
+                FlatStateValue::Ref(value_ref) => {
+                    value_refs.push((k, value_ref.hash));
+                    None
+                }
+                FlatStateValue::Inlined(value) => {
+                    values_inlined += 1;
+                    Some((k, Some(value)))
                 }
             })
             .collect::<Vec<_>>();
@@ -279,7 +276,7 @@ impl Trie {
             ?lookup_values_duration,
             ?local_trie_creation_duration,
             ?final_part_creation_duration,
-            "Created state part",
+            "created state part",
         );
 
         metrics::GET_STATE_PART_WITH_FS_VALUES_INLINED
@@ -501,28 +498,24 @@ impl Trie {
 
 #[cfg(test)]
 mod tests {
-    use assert_matches::assert_matches;
-    use std::collections::{HashMap, HashSet};
-    use std::fmt::Debug;
-    use std::hash::Hash;
-    use std::sync::Arc;
-
-    use rand::Rng;
-    use rand::prelude::ThreadRng;
-    use rand::seq::SliceRandom;
-
-    use near_primitives::hash::{CryptoHash, hash};
-
+    use super::*;
+    use crate::MissingTrieValue;
+    use crate::MissingTrieValueContext;
     use crate::adapter::StoreUpdateAdapter;
     use crate::test_utils::{TestTriesBuilder, gen_changes, test_populate_trie};
     use crate::trie::ops::iter::CrumbStatus;
     use crate::trie::trie_tests::merge_trie_changes;
     use crate::trie::{TrieRefcountAddition, ValueHandle};
-
-    use super::*;
-    use crate::MissingTrieValue;
-    use crate::MissingTrieValueContext;
+    use assert_matches::assert_matches;
+    use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::shard_layout::ShardUId;
+    use rand::Rng;
+    use rand::prelude::ThreadRng;
+    use rand::seq::SliceRandom;
+    use std::collections::{HashMap, HashSet};
+    use std::fmt::Debug;
+    use std::hash::Hash;
+    use std::sync::Arc;
 
     /// Checks that sampling state boundaries always gives valid state keys
     /// even if trie contains intermediate nodes.
@@ -1018,7 +1011,7 @@ mod tests {
         let trie_changes = trie.update(changes_for_trie, AccessOptions::DEFAULT).unwrap();
         let mut store_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        store_update.commit().unwrap();
+        store_update.commit();
 
         let trie = tries.get_view_trie_for_shard(shard_uid, root);
         let PartialState::TrieValues(trie_values) = trie
@@ -1133,7 +1126,7 @@ mod tests {
         let trie_changes = trie.update(changes_for_trie, AccessOptions::DEFAULT).unwrap();
         let mut store_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        store_update.commit().unwrap();
+        store_update.commit();
 
         // Get correct state part using trie without flat storage.
         let trie_without_flat = tries.get_view_trie_for_shard(shard_uid, root);
@@ -1160,7 +1153,7 @@ mod tests {
         let delta = FlatStateChanges::from(changes_for_delta);
         let mut store_update = tries.store_update();
         delta.apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
-        store_update.commit().unwrap();
+        store_update.commit();
 
         let view_chunk_trie =
             tries.get_trie_with_block_hash_for_shard(shard_uid, root, &block_hash, true);
@@ -1175,7 +1168,7 @@ mod tests {
         let store_value = vec![5; value_len];
         let value_hash = hash(&store_value);
         store_update.decrement_refcount(shard_uid, &value_hash);
-        store_update.commit().unwrap();
+        store_update.commit();
 
         assert_eq!(
             trie_without_flat.get_trie_nodes_for_part_without_flat_storage(part_id),
@@ -1196,7 +1189,7 @@ mod tests {
         let mut store_update = tries.store_update();
         let delta = FlatStateChanges::from(vec![(b"ba".to_vec(), None)]);
         delta.apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
-        store_update.commit().unwrap();
+        store_update.commit();
 
         assert_matches!(
             view_chunk_trie.get_trie_nodes_for_part_with_flat_storage(part_id, &trie_without_flat,),

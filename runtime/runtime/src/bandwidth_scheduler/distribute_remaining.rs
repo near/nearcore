@@ -1,8 +1,7 @@
+use super::scheduler::{ShardIndexMap, ShardLink, ShardLinkMap};
 use near_primitives::bandwidth_scheduler::Bandwidth;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::ShardIndex;
-
-use super::scheduler::{ShardIndexMap, ShardLink, ShardLinkMap};
 
 /// After bandwidth scheduler processes all of the bandwidth requests, there's usually some leftover
 /// budget for sending and receiving data between shards. This function is responsible for
@@ -113,16 +112,14 @@ impl EndpointInfo {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{BTreeMap, BTreeSet};
-
+    use crate::bandwidth_scheduler::distribute_remaining::distribute_remaining_bandwidth;
+    use crate::bandwidth_scheduler::scheduler::{ShardIndexMap, ShardLink, ShardLinkMap};
     use near_primitives::bandwidth_scheduler::Bandwidth;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::ShardIndex;
     use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha20Rng;
-
-    use crate::bandwidth_scheduler::distribute_remaining::distribute_remaining_bandwidth;
-    use crate::bandwidth_scheduler::scheduler::{ShardIndexMap, ShardLink, ShardLinkMap};
+    use std::collections::{BTreeMap, BTreeSet};
     use testlib::bandwidth_scheduler::estimate_link_throughputs;
 
     fn run_distribute_remaining(

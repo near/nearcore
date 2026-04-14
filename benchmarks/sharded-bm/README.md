@@ -280,7 +280,6 @@ The idea is to gradually increase the load (TPS) in small steps, starting from a
 
 ### Known issues
 
-- It is not possible to configure the number of RPC nodes
 - There is no support for Chunk Validator nodes at all
 
 ## Transaction injection

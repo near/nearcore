@@ -1,10 +1,9 @@
+use super::{Params, RpcFrom, RpcRequest};
 use near_async::messaging::AsyncSendError;
 use near_client_primitives::types::GetProtocolConfigError;
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::config::{RpcProtocolConfigError, RpcProtocolConfigRequest};
 use serde_json::Value;
-
-use super::{Params, RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcProtocolConfigRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
@@ -26,7 +25,7 @@ impl RpcFrom<GetProtocolConfigError> for RpcProtocolConfigError {
             }
             GetProtocolConfigError::IOError(error_message) => Self::InternalError { error_message },
             GetProtocolConfigError::Unreachable(ref error_message) => {
-                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", error_message);
+                tracing::warn!(target: "jsonrpc", %error_message, "unreachable error occurred");
                 crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
                     .with_label_values(&["RpcProtocolConfigError"])
                     .inc();

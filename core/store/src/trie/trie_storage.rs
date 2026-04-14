@@ -722,14 +722,6 @@ mod trie_cache_tests {
         check_cache_size(&trie_config, 0, ShardId::new(0), true, S0_VIEW_SIZE);
     }
 
-    #[test]
-    fn test_default_per_shard_max_bytes() {
-        let store_config = StoreConfig::default();
-        let trie_config = TrieConfig::from_store_config(&store_config);
-        check_cache_size(&trie_config, 3, ShardId::new(1), false, bytesize::ByteSize::mb(50));
-        check_cache_size(&trie_config, 3, ShardId::new(5), false, bytesize::ByteSize::gb(3));
-    }
-
     #[track_caller]
     fn check_cache_size(
         trie_config: &TrieConfig,

@@ -10,13 +10,11 @@
 //! of the scheduler algorithm itself, check out `ChainSimulator` which tests the scheduler on
 //! various scenarios and is able to run for much longer while using less CPU time.
 
-use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap};
-use std::convert::Infallible;
-use std::rc::Rc;
-use std::sync::Arc;
-use std::task::Poll;
-
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::drop_condition::DropCondition;
+use crate::setup::state::NodeExecutionData;
+use crate::utils::receipts::action_receipt_v1_to_latest;
+use crate::utils::transactions::{TransactionRunner, run_txs_parallel};
 use bytesize::ByteSize;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
@@ -25,7 +23,7 @@ use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain::{ChainStoreAccess, ReceiptFilter, get_incoming_receipts_for_shard};
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_client::{Client, RpcHandler};
+use near_client::{Client, RpcHandlerActor};
 use near_crypto::Signer;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::action::{Action, FunctionCallAction};
@@ -40,6 +38,7 @@ use near_primitives::receipt::{
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::Balance;
 use near_primitives::types::{AccountId, BlockHeight, Gas, Nonce, ShardId, ShardIndex};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter;
@@ -49,21 +48,21 @@ use near_store::{ShardUId, Trie, TrieDBStorage};
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
+use std::cell::RefCell;
+use std::collections::{BTreeMap, HashMap};
+use std::convert::Infallible;
+use std::rc::Rc;
+use std::sync::Arc;
+use std::task::Poll;
 use testlib::bandwidth_scheduler::{
     ChunkBandwidthStats, LinkGenerators, RandomReceiptSizeGenerator, TestBandwidthStats,
     TestScenario, TestScenarioBuilder, TestSummary,
 };
 
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::drop_condition::DropCondition;
-use crate::setup::env::TestLoopEnv;
-use crate::setup::state::NodeExecutionData;
-use crate::utils::receipts::action_receipt_v1_to_latest;
-use crate::utils::transactions::{TransactionRunner, run_txs_parallel};
-use near_primitives::types::Balance;
-
 /// 3 shards, random receipt sizes
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_bandwidth_scheduler_three_shards_random_receipts() {
     let scenario = TestScenarioBuilder::new()
         .num_shards(3)
@@ -158,14 +157,14 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
         .validators_spec(validators_spec)
         .add_user_accounts_simple(&all_accounts, Balance::from_near(1_000_000))
         .genesis_height(10000)
-        .transaction_validity_period(1000)
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
 
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = TestLoopBuilder::new()
+    let mut env = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(vec![node_account])
+        .delay_warmup()
         .build()
         .drop(DropCondition::ChunksProducedByHeight(missing_chunks_map))
         .warmup();
@@ -174,15 +173,15 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
     let mut workload_generator = WorkloadGenerator::init(
         shard_accounts,
         tx_concurrency,
-        &mut test_loop,
-        &node_datas,
+        &mut env.test_loop,
+        &env.node_datas,
         0,
         scenario.link_generators,
     );
 
-    let client_handle = node_datas[0].client_sender.actor_handle();
-    let tx_processor_sender = node_datas[0].rpc_handler_sender.clone();
-    let future_spawner = test_loop.future_spawner("WorkloadGenerator");
+    let client_handle = env.node_datas[0].client_sender.actor_handle();
+    let tx_processor_sender = env.node_datas[0].rpc_handler_sender.clone();
+    let future_spawner = env.test_loop.future_spawner("WorkloadGenerator");
 
     // Run the workload for a number of blocks and verify that the bandwidth requests are generated correctly.
     let mut last_height: Option<BlockHeight> = None;
@@ -201,7 +200,7 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
         }
         last_height = Some(tip.height);
 
-        tracing::info!(target: "scheduler_test", "Height: {}", tip.height);
+        tracing::info!(target: "scheduler_test", height = %tip.height);
 
         if tip.height - first_height.unwrap() > workload_blocks {
             return true;
@@ -212,16 +211,13 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
 
         false
     };
-    test_loop.run_until(testloop_func, Duration::seconds(300));
+    env.test_loop.run_until(testloop_func, Duration::seconds(300));
 
-    tracing::info!(target: "scheduler_test", "Total transactions completed: {}", workload_generator.txs_done());
+    tracing::info!(target: "scheduler_test", txs_done = %workload_generator.txs_done(), "total transactions completed");
 
-    let client = &test_loop.data.get(&client_handle).client;
+    let client = &env.test_loop.data.get(&client_handle).client;
     let bandwidth_stats =
         analyze_workload_blocks(first_height.unwrap(), last_height.unwrap(), client);
-
-    TestLoopEnv { test_loop, node_datas, shared_state }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
 
     let summary = bandwidth_stats.summarize(&active_links);
     println!("{}", summary);
@@ -505,14 +501,14 @@ impl WorkloadGenerator {
                 ));
             }
         }
-        tracing::info!(target: "scheduler_test", "Workload senders: {}", generator.workload_senders.len());
+        tracing::info!(target: "scheduler_test", workload_senders = %generator.workload_senders.len(), "workload senders");
 
         generator
     }
 
     /// Deploy the test contract on all workload accounts
     fn deploy_contracts(&self, test_loop: &mut TestLoopV2, node_datas: &[NodeExecutionData]) {
-        tracing::info!(target: "scheduler_test", "Deploying contracts...");
+        tracing::info!(target: "scheduler_test", "deploying contracts");
         let (last_block_hash, nonce) = get_last_block_and_nonce(test_loop, node_datas);
         let deploy_contracts_txs: Vec<SignedTransaction> = self
             .shard_accounts
@@ -528,7 +524,7 @@ impl WorkloadGenerator {
             })
             .collect();
         run_txs_parallel(test_loop, deploy_contracts_txs, &node_datas, Duration::seconds(30));
-        tracing::info!(target: "scheduler_test", "Contracts deployed");
+        tracing::info!(target: "scheduler_test", "contracts deployed");
     }
 
     /// Add `concurrency` many access keys to the workload accounts.
@@ -540,7 +536,7 @@ impl WorkloadGenerator {
         node_datas: &[NodeExecutionData],
         concurrency: usize,
     ) -> BTreeMap<AccountId, Vec<Signer>> {
-        tracing::info!(target: "scheduler_test", "Adding access keys...");
+        tracing::info!(target: "scheduler_test", "adding access keys");
 
         // Signers with access keys that were already added to the accounts
         let mut available_signers: BTreeMap<AccountId, Vec<Signer>> = self
@@ -573,7 +569,7 @@ impl WorkloadGenerator {
             let mut new_signers = Vec::new();
 
             let (last_block_hash, nonce) = get_last_block_and_nonce(test_loop, node_datas);
-            tracing::info!(target: "scheduler_test", "Adding access keys with nonce {}", nonce);
+            tracing::info!(target: "scheduler_test", %nonce, "adding access keys with nonce");
 
             for (account, usable_signers) in &available_signers {
                 let Some(to_add) = signers_to_add.get_mut(account) else {
@@ -600,7 +596,7 @@ impl WorkloadGenerator {
 
             run_txs_parallel(test_loop, add_key_txs, node_datas, Duration::seconds(20));
 
-            tracing::info!(target: "scheduler_test", "Added {} access keys", new_signers.len());
+            tracing::info!(target: "scheduler_test", access_keys = %new_signers.len(), "added access keys");
             for (account, new_signer) in new_signers {
                 available_signers.entry(account).or_insert_with(Vec::new).push(new_signer);
             }
@@ -611,7 +607,7 @@ impl WorkloadGenerator {
 
     pub fn run(
         &mut self,
-        client_sender: &TestLoopSender<RpcHandler>,
+        client_sender: &TestLoopSender<RpcHandlerActor>,
         client: &Client,
         future_spawner: &TestLoopFutureSpawner,
     ) {
@@ -662,7 +658,7 @@ impl WorkloadSender {
 
     pub fn run(
         &mut self,
-        client_sender: &TestLoopSender<RpcHandler>,
+        client_sender: &TestLoopSender<RpcHandlerActor>,
         client: &Client,
         future_spawner: &TestLoopFutureSpawner,
         rng: &mut ChaCha20Rng,
@@ -683,7 +679,7 @@ impl WorkloadSender {
 
     pub fn start_new_transaction(
         &mut self,
-        client_sender: &TestLoopSender<RpcHandler>,
+        client_sender: &TestLoopSender<RpcHandlerActor>,
         client: &Client,
         future_spawner: &TestLoopFutureSpawner,
         rng: &mut ChaCha20Rng,

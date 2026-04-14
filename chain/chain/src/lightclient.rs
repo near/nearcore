@@ -1,3 +1,4 @@
+use crate::ChainStoreAccess;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::BlockHeader;
@@ -5,8 +6,6 @@ use near_primitives::hash::hash;
 use near_primitives::types::EpochId;
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{BlockHeaderInnerLiteView, LightClientBlockView};
-
-use crate::ChainStoreAccess;
 
 pub fn get_epoch_block_producers_view(
     epoch_id: &EpochId,

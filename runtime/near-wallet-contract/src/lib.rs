@@ -19,25 +19,55 @@ static OLD_TESTNET: WalletContract =
 static LOCALNET: WalletContract =
     WalletContract::new(include_bytes!("../res/wallet_contract_localnet.wasm"));
 
+/// Identifies a legacy ETH wallet contract variant by chain.
+#[derive(Clone, Debug)]
+pub enum LegacyEthWallet {
+    Mainnet,
+    /// Current testnet wallet contract (from protocol version 71+).
+    Testnet,
+    /// Initial wallet contract released to testnet at protocol version 70,
+    /// before it was updated. Never deployed to mainnet.
+    OldTestnet,
+    Localnet,
+}
+
+impl LegacyEthWallet {
+    /// Resolve a code hash to a legacy ETH wallet variant, if it matches any
+    /// known wallet contract magic bytes.
+    pub fn resolve(code_hash: CryptoHash) -> Option<Self> {
+        if MAINNET.check_magic_bytes(&code_hash) {
+            return Some(LegacyEthWallet::Mainnet);
+        }
+        if TESTNET.check_magic_bytes(&code_hash) {
+            return Some(LegacyEthWallet::Testnet);
+        }
+        if OLD_TESTNET.check_magic_bytes(&code_hash) {
+            return Some(LegacyEthWallet::OldTestnet);
+        }
+        if LOCALNET.check_magic_bytes(&code_hash) {
+            return Some(LegacyEthWallet::Localnet);
+        }
+        None
+    }
+
+    fn wallet_contract(&self) -> &'static WalletContract {
+        match self {
+            LegacyEthWallet::Mainnet => &MAINNET,
+            LegacyEthWallet::Testnet => &TESTNET,
+            LegacyEthWallet::OldTestnet => &OLD_TESTNET,
+            LegacyEthWallet::Localnet => &LOCALNET,
+        }
+    }
+
+    /// Return the contract code for this legacy ETH wallet variant.
+    pub fn contract(&self) -> Arc<ContractCode> {
+        self.wallet_contract().read_contract()
+    }
+}
+
 /// Get wallet contract code for different Near chains.
 pub fn wallet_contract(code_hash: CryptoHash) -> Option<Arc<ContractCode>> {
-    fn check(code_hash: &CryptoHash, contract: &WalletContract) -> Option<Arc<ContractCode>> {
-        let magic_bytes = contract.magic_bytes();
-        if code_hash == magic_bytes.hash() { Some(contract.read_contract()) } else { None }
-    }
-    if let Some(c) = check(&code_hash, &MAINNET) {
-        return Some(c);
-    }
-    if let Some(c) = check(&code_hash, &TESTNET) {
-        return Some(c);
-    }
-    if let Some(c) = check(&code_hash, &OLD_TESTNET) {
-        return Some(c);
-    }
-    if let Some(c) = check(&code_hash, &LOCALNET) {
-        return Some(c);
-    }
-    return None;
+    LegacyEthWallet::resolve(code_hash).map(|w| w.contract())
 }
 
 /// near[wallet contract hash]
@@ -46,6 +76,31 @@ pub fn wallet_contract_magic_bytes(chain_id: &str) -> Arc<ContractCode> {
         chains::MAINNET => MAINNET.magic_bytes(),
         chains::TESTNET => TESTNET.magic_bytes(),
         _ => LOCALNET.magic_bytes(),
+    }
+}
+
+/// Returns the global contract hash for the ETH wallet contract on a given chain.
+/// This is the hash of the deployed global contract that ETH implicit accounts
+/// should use when the EthImplicitGlobalContract protocol feature is enabled.
+///
+/// For other chains (localnet, test chains): Uses the hash of the embedded
+/// wallet contract WASM, allowing tests to deploy the same contract as a
+/// global contract.
+pub fn eth_wallet_global_contract_hash(chain_id: &str) -> CryptoHash {
+    match chain_id {
+        // 2zodJZK2e4nnv5AqwCRnenNSmkikXhEd7PPY6BmfTmW4
+        chains::MAINNET | chains::MOCKNET => CryptoHash([
+            0x1d, 0xaa, 0x83, 0x5c, 0x46, 0x37, 0xf7, 0xae, 0x3d, 0x92, 0x40, 0x95, 0xba, 0x3f,
+            0x0b, 0xf2, 0x82, 0x9b, 0xcf, 0xa1, 0x7b, 0x10, 0x68, 0xcd, 0x58, 0xbd, 0x85, 0x3d,
+            0xca, 0xd7, 0xce, 0xb5,
+        ]),
+        // 3PpYvRxBfC5BkZxTw8ZFG3D52w1ZRhvDDWirKoxphMDn
+        chains::TESTNET => CryptoHash([
+            0x23, 0x8f, 0xea, 0xc1, 0xf8, 0x6c, 0xc9, 0xf9, 0xf4, 0x00, 0x3e, 0x3f, 0x6d, 0x5a,
+            0xeb, 0xc0, 0x4e, 0xae, 0xa9, 0xc3, 0x94, 0x03, 0x2b, 0xd2, 0x94, 0x70, 0xe9, 0x60,
+            0x9b, 0x67, 0xf6, 0xc5,
+        ]),
+        _ => *LOCALNET.read_contract().hash(),
     }
 }
 
@@ -85,6 +140,10 @@ impl WalletContract {
         self.contract.get_or_init(|| Arc::new(ContractCode::new(self.code.to_vec(), None))).clone()
     }
 
+    fn check_magic_bytes(&self, code_hash: &CryptoHash) -> bool {
+        code_hash == self.magic_bytes().hash()
+    }
+
     fn magic_bytes(&self) -> Arc<ContractCode> {
         self.magic_bytes
             .get_or_init(|| {
@@ -98,9 +157,12 @@ impl WalletContract {
 
 #[cfg(test)]
 mod tests {
-    use crate::{OLD_TESTNET, code_hash_matches_wallet_contract, wallet_contract_magic_bytes};
+    use crate::{
+        OLD_TESTNET, code_hash_matches_wallet_contract, eth_wallet_global_contract_hash,
+        wallet_contract_magic_bytes,
+    };
     use near_primitives_core::{
-        chains::{MAINNET, TESTNET},
+        chains::{MAINNET, MOCKNET, TESTNET},
         hash::CryptoHash,
     };
     use std::str::FromStr;
@@ -126,5 +188,16 @@ mod tests {
                 "Other code hashes do not match wallet contract"
             );
         }
+    }
+
+    #[test]
+    fn test_eth_wallet_global_contract_hash_values() {
+        let mainnet_expected: CryptoHash =
+            "2zodJZK2e4nnv5AqwCRnenNSmkikXhEd7PPY6BmfTmW4".parse().unwrap();
+        let testnet_expected: CryptoHash =
+            "3PpYvRxBfC5BkZxTw8ZFG3D52w1ZRhvDDWirKoxphMDn".parse().unwrap();
+        assert_eq!(eth_wallet_global_contract_hash(MAINNET), mainnet_expected);
+        assert_eq!(eth_wallet_global_contract_hash(MOCKNET), mainnet_expected);
+        assert_eq!(eth_wallet_global_contract_hash(TESTNET), testnet_expected);
     }
 }

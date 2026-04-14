@@ -64,7 +64,7 @@ impl GCActor {
         // *and* that the migration to split storage is finished we can check
         // the store kind. It's only set to hot after the migration is finished.
         let store = self.store.store();
-        let kind = store.get_db_kind()?;
+        let kind = store.get_db_kind();
         if kind == Some(DbKind::Hot) {
             return self.store.clear_data(
                 &self.gc_config,
@@ -85,13 +85,13 @@ impl GCActor {
             return;
         }
         if self.store.head().is_err() {
-            tracing::warn!(target: "garbage collection", "State not initialized yet. Head doesn't exist.");
+            tracing::warn!(target: "garbage collection", "state not initialized yet, head doesn't exist");
             return;
         }
 
         let timer = metrics::GC_TIME.start_timer();
         if let Err(e) = self.clear_data() {
-            tracing::error!(target: "garbage collection", "Error in gc: {}", e);
+            tracing::error!(target: "garbage collection", ?e, "error in gc");
             debug_assert!(false, "Error in GCActor");
         }
         timer.observe_duration();

@@ -1,7 +1,7 @@
 version: "3"
 services:
   mongo:
-    image: mongo
+    image: mongo:8.2.1
     restart: always
     ports:
       - 27017:27017
@@ -12,7 +12,7 @@ services:
       - ${MONGO_DATA_DIR:-./tracing-data}:/data/db
 
   mongo-express:
-    image: mongo-express
+    image: mongo-express:1.0.2
     restart: always
     ports:
       - ${MONGO_EXPRESS_PORT:-8081}:8081

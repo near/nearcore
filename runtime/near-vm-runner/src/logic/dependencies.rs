@@ -4,7 +4,7 @@ use super::types::{GlobalContractDeployMode, GlobalContractIdentifier, ReceiptIn
 use crate::logic::types::ActionIndex;
 use near_crypto::PublicKey;
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce};
+use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce, NonceIndex};
 use std::borrow::Cow;
 
 /// Representation of the address slice of guest memory.
@@ -325,10 +325,7 @@ pub trait External {
     /// # Panics
     ///
     /// Panics if the `receipt_index` does not refer to a known receipt.
-    fn append_action_create_account(
-        &mut self,
-        receipt_index: ReceiptIndex,
-    ) -> Result<(), VMLogicError>;
+    fn append_action_create_account(&mut self, receipt_index: ReceiptIndex);
 
     /// Attach the [`DeployContractAction`] action to an existing receipt.
     ///
@@ -340,11 +337,7 @@ pub trait External {
     /// # Panics
     ///
     /// Panics if the `receipt_index` does not refer to a known receipt.
-    fn append_action_deploy_contract(
-        &mut self,
-        receipt_index: ReceiptIndex,
-        code: Vec<u8>,
-    ) -> Result<(), VMLogicError>;
+    fn append_action_deploy_contract(&mut self, receipt_index: ReceiptIndex, code: Vec<u8>);
 
     /// Attach the [`DeployGlobalContractAction`] action to an existing receipt.
     ///
@@ -362,7 +355,7 @@ pub trait External {
         receipt_index: ReceiptIndex,
         code: Vec<u8>,
         mode: GlobalContractDeployMode,
-    ) -> Result<(), VMLogicError>;
+    );
 
     /// Attach the [`UseGlobalContractAction`] action to an existing receipt.
     ///
@@ -378,7 +371,7 @@ pub trait External {
         &mut self,
         receipt_index: ReceiptIndex,
         contract_id: GlobalContractIdentifier,
-    ) -> Result<(), VMLogicError>;
+    );
 
     /// Attach the [`DeterministicStateInit`] action to an existing receipt.
     ///
@@ -401,7 +394,7 @@ pub trait External {
         receipt_index: ReceiptIndex,
         contract_id: GlobalContractIdentifier,
         amount: Balance,
-    ) -> Result<ActionIndex, VMLogicError>;
+    ) -> ActionIndex;
 
     /// Set a data entry to an existing [`DeterministicStateInit`] action.
     ///
@@ -463,10 +456,68 @@ pub trait External {
     /// # Panics
     ///
     /// Panics if the `receipt_index` does not refer to a known receipt.
-    fn append_action_transfer(
+    fn append_action_transfer(&mut self, receipt_index: ReceiptIndex, deposit: Balance);
+
+    /// Attach the [`TransferToGasKeyAction`] action to an existing receipt.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - an index of Receipt to append an action
+    /// * `public_key` - the public key of the gas key to fund
+    /// * `deposit` - amount of tokens to transfer to the gas key
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    fn append_action_transfer_to_gas_key(
         &mut self,
         receipt_index: ReceiptIndex,
+        public_key: PublicKey,
         deposit: Balance,
+    );
+
+    /// Attach the [`AddKeyAction`] action to an existing receipt, creating a gas key with
+    /// full access permission.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - an index of Receipt to append an action
+    /// * `public_key` - a public key for the gas key
+    /// * `num_nonces` - number of nonce slots for the gas key
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    fn append_action_add_gas_key_with_full_access(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        public_key: PublicKey,
+        num_nonces: NonceIndex,
+    );
+
+    /// Attach the [`AddKeyAction`] action to an existing receipt, creating a gas key with
+    /// function call permission.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - an index of Receipt to append an action
+    /// * `public_key` - a public key for the gas key
+    /// * `num_nonces` - number of nonce slots for the gas key
+    /// * `allowance` - amount of tokens allowed to spend by this access key
+    /// * `receiver_id` - a contract which will be allowed to call with this access key
+    /// * `method_names` - a list of method names allowed to call with this access key (empty = any method)
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    fn append_action_add_gas_key_with_function_call(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        public_key: PublicKey,
+        num_nonces: NonceIndex,
+        allowance: Option<Balance>,
+        receiver_id: AccountId,
+        method_names: Vec<Vec<u8>>,
     ) -> Result<(), VMLogicError>;
 
     /// Attach the [`StakeAction`] action to an existing receipt.
@@ -558,7 +609,7 @@ pub trait External {
         &mut self,
         receipt_index: ReceiptIndex,
         beneficiary_id: AccountId,
-    ) -> Result<(), VMLogicError>;
+    );
 
     /// # Panic
     ///

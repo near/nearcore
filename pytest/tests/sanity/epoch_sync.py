@@ -34,7 +34,7 @@ class EpochSyncTest(unittest.TestCase):
 
         node_config['epoch_sync'] = {
             "enabled": True,
-            "epoch_sync_horizon": EPOCH_LENGTH * 3,
+            "epoch_sync_horizon_num_epochs": 3,
             "timeout_for_epoch_sync": {
                 "secs": 5,
                 "nanos": 0

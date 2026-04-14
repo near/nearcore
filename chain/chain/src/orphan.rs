@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use tracing::{debug, debug_span};
+use tracing::debug_span;
 
 /// Maximum number of orphans chain can store.
 const MAX_ORPHAN_SIZE: usize = 1024;
@@ -221,7 +221,8 @@ impl OrphanBlockPool {
         let mut queue = vec![(parent_hash, 0)];
         while let Some((prev_hash, depth)) = queue.pop() {
             if depth == target_depth {
-                break;
+                // Don't process the children of this block, their depth will be above target_depth.
+                continue;
             }
             if let Some(block_hashes) = self.prev_hash_idx.get(&prev_hash) {
                 for hash in block_hashes {
@@ -231,13 +232,6 @@ impl OrphanBlockPool {
                     debug_assert!(_visited.insert(*hash));
                 }
             }
-
-            // probably something serious went wrong here because there shouldn't be so many forks
-            assert!(
-                res.len() <= 100 * target_depth as usize,
-                "found too many orphans {:?}, probably something is wrong with the chain",
-                res
-            );
         }
         res
     }
@@ -291,16 +285,12 @@ impl Chain {
             );
         }
 
-        debug!(
+        tracing::debug!(
             target: "chain",
-            "Process block: orphan: {:?}, # orphans {}{}",
-            block_hash,
-            self.orphans.len(),
-            if self.orphans.len_evicted() > 0 {
-                format!(", # evicted {}", self.orphans.len_evicted())
-            } else {
-                String::new()
-            },
+            ?block_hash,
+            orphans_count = %self.orphans.len(),
+            evicted_count = %self.orphans.len_evicted(),
+            "process block: orphan"
         );
     }
 
@@ -350,7 +340,11 @@ impl Chain {
                         if let Err(e) = self.ping_missing_chunks(block_hash, orphan) {
                             return match e {
                                 Error::ChunksMissing(missing_chunks) => {
-                                    debug!(target:"chain", "Request missing chunks for orphan {:?} {:?}", orphan.hash(), missing_chunks.iter().map(|chunk|{(chunk.shard_id(), chunk.chunk_hash())}).collect::<Vec<_>>());
+                                    let missing_chunks_list = missing_chunks
+                                        .iter()
+                                        .map(|chunk| (chunk.shard_id(), chunk.chunk_hash()))
+                                        .collect::<Vec<_>>();
+                                    tracing::debug!(target: "chain", orphan_hash = ?orphan.hash(), ?missing_chunks_list, "request missing chunks for orphan");
                                     Some(OrphanMissingChunks {
                                         missing_chunks,
                                         epoch_id,
@@ -407,7 +401,7 @@ impl Chain {
             }
         }
         if let Some(orphans) = self.orphans.remove_by_prev_hash(prev_hash) {
-            debug!(target: "chain", found_orphans = orphans.len(), "Check orphans");
+            tracing::debug!(target: "chain", found_orphans = orphans.len(), "check orphans");
             for orphan in orphans {
                 let block_hash = orphan.hash();
                 self.blocks_delay_tracker.mark_block_unorphaned(&block_hash);
@@ -418,17 +412,17 @@ impl Chain {
                     apply_chunks_done_sender.clone(),
                 );
                 if let Err(err) = res {
-                    debug!(target: "chain", "Orphan {:?} declined, error: {:?}", block_hash, err);
+                    tracing::debug!(target: "chain", ?block_hash, ?err, "orphan declined");
                 }
             }
-            debug!(
+            tracing::debug!(
                 target: "chain",
                 remaining_orphans=self.orphans.len(),
-                "Check orphans",
+                "check orphans",
             );
         }
         if let Some(optimistic_block) = self.orphans.remove_optimistic(&prev_hash) {
-            debug!(target: "chain", ?optimistic_block, "Check optimistic orphan");
+            tracing::debug!(target: "chain", ?optimistic_block, "check optimistic orphan");
             self.preprocess_optimistic_block(optimistic_block, apply_chunks_done_sender);
         }
     }
@@ -443,5 +437,89 @@ impl Chain {
     #[inline]
     pub fn is_orphan(&self, hash: &CryptoHash) -> bool {
         self.orphans.contains(hash)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use near_async::time::Clock;
+    use near_async::time::Utc;
+    use near_primitives::genesis::genesis_block;
+    use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
+    use near_primitives::types::Balance;
+    use near_primitives::version::PROTOCOL_VERSION;
+
+    fn make_orphan(clock: &Clock, block: Arc<Block>) -> Orphan {
+        Orphan {
+            block: MaybeValidated::from_validated(block),
+            provenance: crate::Provenance::NONE,
+            added: clock.now(),
+        }
+    }
+
+    /// Test that `get_orphans_within_depth` collects all orphans within the
+    /// target depth when there are multiple forks.
+    ///
+    /// Tree structure:
+    ///   genesis -> block_a (depth 0) -> block_b (depth 1) -> block_d (depth 2) -> block_f (depth 3)
+    ///                               \-> block_c (depth 1) -> block_e (depth 2) -> block_g (depth 3)
+    ///
+    /// With target_depth=2, all 4 orphans (B, C, D, E) must be returned.
+    #[test]
+    fn test_get_orphans_within_depth_with_forks() {
+        let clock = Clock::real();
+        let signer = Arc::new(create_test_signer("test"));
+
+        // Create genesis block.
+        let genesis = Arc::new(genesis_block(
+            PROTOCOL_VERSION,
+            vec![],
+            Utc::now_utc(),
+            0,
+            Balance::ZERO,
+            Balance::ZERO,
+            &vec![],
+        ));
+
+        // Create block_a - the parent of the fork
+        let block_a =
+            TestBlockBuilder::from_prev_block(clock.clone(), &genesis, signer.clone()).build();
+
+        // Create two children of block_a
+        let block_b =
+            TestBlockBuilder::from_prev_block(clock.clone(), &block_a, signer.clone()).build();
+        let block_c =
+            TestBlockBuilder::from_prev_block(clock.clone(), &block_a, signer.clone()).build();
+
+        // Create children of B and C
+        let block_d =
+            TestBlockBuilder::from_prev_block(clock.clone(), &block_b, signer.clone()).build();
+        let block_e =
+            TestBlockBuilder::from_prev_block(clock.clone(), &block_c, signer.clone()).build();
+
+        // Create children of D and E
+        let block_f =
+            TestBlockBuilder::from_prev_block(clock.clone(), &block_d, signer.clone()).build();
+        let block_g = TestBlockBuilder::from_prev_block(clock.clone(), &block_e, signer).build();
+
+        // Add all 6 blocks as orphans.
+        let mut pool = OrphanBlockPool::new();
+        pool.add(make_orphan(&clock, block_b.clone()), false);
+        pool.add(make_orphan(&clock, block_c.clone()), false);
+        pool.add(make_orphan(&clock, block_d.clone()), false);
+        pool.add(make_orphan(&clock, block_e.clone()), false);
+        pool.add(make_orphan(&clock, block_f), false);
+        pool.add(make_orphan(&clock, block_g), false);
+
+        // Query for all orphans within depth 2 from block_a.
+        let result = pool.get_orphans_within_depth(*block_a.hash(), 2);
+        let result_set: HashSet<CryptoHash> = result.into_iter().collect();
+
+        assert!(result_set.contains(block_b.hash()), "missing block B (depth 1)");
+        assert!(result_set.contains(block_c.hash()), "missing block C (depth 1)");
+        assert!(result_set.contains(block_d.hash()), "missing block D (depth 2)");
+        assert!(result_set.contains(block_e.hash()), "missing block E (depth 2)");
+        assert_eq!(result_set.len(), 4);
     }
 }

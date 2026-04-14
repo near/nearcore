@@ -1,3 +1,5 @@
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, Signer};
@@ -7,9 +9,6 @@ use near_primitives::errors::{ActionsValidationError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, AddKeyAction, Transaction, TransactionV0};
 
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
-
 #[test]
 fn test_invalid_account_id() {
     // Prepare TestEnv with a contract at the old protocol version.
@@ -18,6 +17,7 @@ fn test_invalid_account_id() {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = epoch_length;
+        genesis.config.transaction_validity_period = epoch_length * 2;
         TestEnv::builder(&genesis.config)
             .nightshade_runtimes_with_runtime_config_store(
                 &genesis,

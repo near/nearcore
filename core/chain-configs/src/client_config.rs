@@ -219,17 +219,6 @@ pub enum ExternalStorageLocation {
     GCS { bucket: String },
 }
 
-impl ExternalStorageLocation {
-    /// Human-readable backend name.
-    pub fn name(&self) -> &str {
-        match self {
-            Self::S3 { .. } => "S3",
-            Self::Filesystem { .. } => "Filesystem",
-            Self::GCS { .. } => "GCS",
-        }
-    }
-}
-
 fn default_state_parts_compression_level() -> i32 {
     DEFAULT_STATE_PARTS_COMPRESSION_LEVEL
 }
@@ -404,6 +393,7 @@ pub struct StateSyncConfig {
 }
 
 impl StateSyncConfig {
+    /// Deprecated: cloud state sync is deprecated. Use peer-based state sync instead.
     pub fn gcs_with_bucket(bucket: String) -> Self {
         Self {
             sync: SyncConfig::ExternalStorage(ExternalStorageConfig {
@@ -421,24 +411,11 @@ impl StateSyncConfig {
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct EpochSyncConfig {
-    /// If true, even if the node started from genesis, it will not perform epoch sync.
-    /// There should be no reason to set this flag in production, because on both mainnet
-    /// and testnet it would be infeasible to catch up from genesis without epoch sync.
-    #[serde(default)]
-    pub disable_epoch_sync_for_bootstrapping: bool,
-    /// If true, the node will ignore epoch sync requests from the network. It is strongly
-    /// recommended not to set this flag, because it will prevent other nodes from
-    /// bootstrapping. This flag is only included as a kill-switch and may be removed in a
-    /// future release. Please note that epoch sync requests are heavily rate limited and
-    /// cached, and therefore should not affect the performance of the node or introduce
-    /// any non-negligible increase in network traffic.
-    #[serde(default)]
-    pub ignore_epoch_sync_network_requests: bool,
-    /// This serves as two purposes: (1) the node will not epoch sync and instead resort to
-    /// header sync, if the genesis block is within this many blocks from the current block;
-    /// (2) the node will reject an epoch sync proof if the provided proof is for an epoch
-    /// that is more than this many blocks behind the current block.
-    pub epoch_sync_horizon: BlockHeightDelta,
+    /// Number of epochs behind the network head beyond which the node will use
+    /// epoch sync instead of header sync. At the consumption site, this is
+    /// multiplied by epoch_length to get the horizon in blocks.
+    #[serde(default = "default_epoch_sync_horizon_num_epochs")]
+    pub epoch_sync_horizon_num_epochs: u64,
     /// Timeout for epoch sync requests. The node will continue retrying indefinitely even
     /// if this timeout is exceeded.
     #[serde(with = "near_time::serde_duration_as_std")]
@@ -446,15 +423,17 @@ pub struct EpochSyncConfig {
     pub timeout_for_epoch_sync: Duration,
 }
 
+fn default_epoch_sync_horizon_num_epochs() -> u64 {
+    2
+}
+
 impl Default for EpochSyncConfig {
     fn default() -> Self {
         Self {
-            disable_epoch_sync_for_bootstrapping: false,
-            ignore_epoch_sync_network_requests: false,
-            // Mainnet is 43200 blocks per epoch, so let's default to epoch sync if
-            // we're more than 5 epochs behind, and we accept proofs up to 2 epochs old.
-            // (Epoch sync should not be picking a target epoch more than 2 epochs old.)
-            epoch_sync_horizon: 216000,
+            // Default to epoch sync if we're more than 2 epochs behind.
+            // Note that in case we are not doing epoch sync, we would need to be within
+            // the GC period (typically 5 epochs) to be able to do header sync.
+            epoch_sync_horizon_num_epochs: default_epoch_sync_horizon_num_epochs(),
             timeout_for_epoch_sync: Duration::seconds(60),
         }
     }
@@ -633,6 +612,10 @@ pub fn default_transaction_pool_size_limit() -> Option<u64> {
     Some(100_000_000) // 100 MB.
 }
 
+pub fn default_transaction_pool_strict_nonce_ttl_blocks() -> BlockHeightDelta {
+    64
+}
+
 pub fn default_tx_routing_height_horizon() -> BlockHeightDelta {
     4
 }
@@ -663,6 +646,12 @@ pub fn default_orphan_state_witness_max_size() -> ByteSize {
 /// this enabled and disabled.
 pub fn default_enable_early_prepare_transactions() -> bool {
     cfg!(feature = "nightly")
+}
+
+/// Returns the default value for `chunks_cache_height_horizon`.
+/// A chunk is out of rear horizon if its height + chunks_cache_height_horizon < largest_seen_height.
+pub fn default_chunks_cache_height_horizon() -> BlockHeightDelta {
+    128
 }
 
 /// Config for the Chunk Distribution Network feature.
@@ -801,6 +790,10 @@ pub struct ClientConfig {
     pub save_trie_changes: bool,
     /// Whether to persist transaction outcomes to disk or not.
     pub save_tx_outcomes: bool,
+    /// Whether to persist receipt-to-tx origin mappings to disk or not.
+    pub save_receipt_to_tx: bool,
+    /// Whether to persist state changes on disk or not.
+    pub save_state_changes: bool,
     /// Whether to persist partial chunk parts for untracked shards or not.
     pub save_untracked_partial_chunks_parts: bool,
     /// Number of threads for ViewClientActor pool.
@@ -837,6 +830,10 @@ pub struct ClientConfig {
     /// Limit of the size of per-shard transaction pool measured in bytes. If not set, the size
     /// will be unbounded.
     pub transaction_pool_size_limit: Option<u64>,
+    /// TTL in blocks for gapped strict-nonce transactions in the pool. Transactions with a
+    /// nonce gap whose block_hash is older than this many blocks are evicted during
+    /// prepare_transactions.
+    pub transaction_pool_strict_nonce_ttl_blocks: BlockHeightDelta,
     // Allows more detailed logging, for example a list of orphaned blocks.
     pub enable_multiline_logging: bool,
     // Configuration for resharding.
@@ -844,6 +841,8 @@ pub struct ClientConfig {
     /// If the node is not a chunk producer within that many blocks, then route
     /// to upcoming chunk producers.
     pub tx_routing_height_horizon: BlockHeightDelta,
+    /// If true, the node won't forward transactions to next the chunk producers.
+    pub disable_tx_routing: bool,
     /// Limit the time of adding transactions to a chunk.
     /// A node produces a chunk by adding transactions from the transaction pool until
     /// some limit is reached. This time limit ensures that adding transactions won't take
@@ -882,9 +881,10 @@ pub struct ClientConfig {
     /// The current implementation increases latency on low-load chains, which will be fixed in the future.
     /// The default is disabled.
     pub enable_early_prepare_transactions: bool,
-    /// If true, the runtime will do a dynamic resharding 'dry run' at the last block of each epoch.
-    /// This means calculating tentative boundary accounts for splitting the tracked shards.
-    pub dynamic_resharding_dry_run: bool,
+    /// Height horizon for the chunk cache. A chunk is removed from the cache
+    /// if its height + chunks_cache_height_horizon < largest_seen_height.
+    /// The default value is DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON.
+    pub chunks_cache_height_horizon: BlockHeightDelta,
 }
 
 #[cfg(feature = "schemars")]

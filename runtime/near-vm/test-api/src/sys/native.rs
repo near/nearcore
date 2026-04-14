@@ -7,8 +7,6 @@
 //! let add_one = instance.exports.get_function("function_name")?;
 //! let add_one_native: NativeFunc<i32, i32> = add_one.native().unwrap();
 //! ```
-use std::marker::PhantomData;
-
 use super::externals::function::{DynamicFunction, VMDynamicFunction};
 use super::externals::{FromToNativeWasmType, Function, WasmTypeList};
 use super::store::Store;
@@ -17,6 +15,7 @@ use near_vm_types::NativeWasmType;
 use near_vm_vm::{
     ExportFunction, VMDynamicFunctionContext, VMFunctionBody, VMFunctionEnvironment, VMFunctionKind,
 };
+use std::marker::PhantomData;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// A WebAssembly function that can be called natively

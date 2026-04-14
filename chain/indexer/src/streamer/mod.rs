@@ -1,14 +1,10 @@
-use std::collections::{BTreeMap, HashMap};
-use std::sync::Arc;
-
+use self::errors::FailedToFetchData;
+use self::utils::convert_transactions_sir_into_local_receipts;
+use crate::INDEXER;
+use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
+pub use fetchers::{IndexerClientFetcher, IndexerViewClientFetcher};
 use near_async::time::{Clock, Duration};
-use near_primitives::types::Balance;
-use near_primitives::version::ProtocolFeature;
-use parking_lot::RwLock;
-use rocksdb::DB;
-use tokio::sync::mpsc;
-use tracing::{debug, error, info};
-
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_indexer_primitives::{
     IndexerChunkView, IndexerExecutionOutcomeWithOptionalReceipt,
     IndexerExecutionOutcomeWithReceipt, IndexerShard, IndexerTransactionWithOutcome,
@@ -16,15 +12,15 @@ use near_indexer_primitives::{
 };
 use near_parameters::RuntimeConfig;
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::ReceiptSource;
+use near_primitives::types::{Balance, BlockHeight, EpochId, ShardId};
+use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{BlockView, ChunkView, ExecutionStatusView, ReceiptView};
-
-use self::errors::FailedToFetchData;
-use self::utils::convert_transactions_sir_into_local_receipts;
-use crate::INDEXER;
-use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
-use near_epoch_manager::shard_tracker::ShardTracker;
-
-pub use fetchers::{IndexerClientFetcher, IndexerViewClientFetcher};
+use parking_lot::RwLock;
+use rocksdb::DB;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::mpsc;
 
 mod errors;
 mod fetchers;
@@ -61,12 +57,8 @@ pub async fn build_streamer_message(
     let runtime_config = runtime_config_store.get_config(protocol_config_view.protocol_version);
 
     let mut shards_outcomes = client.fetch_outcomes_with_receipts(block.header.hash).await?;
-    let mut state_changes = client
-        .fetch_state_changes(
-            block.header.hash,
-            near_primitives::types::EpochId(block.header.epoch_id),
-        )
-        .await?;
+    let mut state_changes =
+        client.fetch_state_changes(block.header.hash, EpochId(block.header.epoch_id)).await?;
     let mut indexer_shards = shard_ids
         .map(|shard_id| IndexerShard {
             shard_id,
@@ -76,6 +68,11 @@ pub async fn build_streamer_message(
         })
         .collect::<Vec<_>>();
 
+    // TODO(spice): Add indexer support for spice.
+    if ProtocolFeature::Spice.enabled(protocol_version) {
+        return Ok(StreamerMessage { block, shards: indexer_shards });
+    }
+
     for chunk in chunks {
         let ChunkView { transactions, author, header, receipts: chunk_prev_outgoing_receipts } =
             chunk;
@@ -84,10 +81,10 @@ pub async fn build_streamer_message(
             .remove(&header.shard_id)
             .expect("execution outcomes for given shard should be present");
         let outcome_count = outcomes.len();
-        let mut outcomes = outcomes
-            .into_iter()
-            .map(|outcome| (outcome.execution_outcome.id, outcome))
-            .collect::<BTreeMap<_, _>>();
+        let outcome_order: Vec<CryptoHash> =
+            outcomes.iter().map(|o| o.execution_outcome.id).collect();
+        let mut outcomes: HashMap<_, _> =
+            outcomes.into_iter().map(|outcome| (outcome.execution_outcome.id, outcome)).collect();
         debug_assert_eq!(outcomes.len(), outcome_count);
         let indexer_transactions = transactions
             .into_iter()
@@ -96,7 +93,7 @@ pub async fn build_streamer_message(
                 if outcome.is_none()
                     && ProtocolFeature::InvalidTxGenerateOutcomes.enabled(protocol_version)
                 {
-                    error!(
+                    tracing::error!(
                         target: INDEXER,
                         tx_hash = %transaction.hash,
                         shard_id = %header.shard_id,
@@ -121,15 +118,21 @@ pub async fn build_streamer_message(
         // Add local receipts to corresponding outcomes
         for receipt in &chunk_local_receipts {
             if let Some(outcome) = receipt_outcomes.get_mut(&receipt.receipt_id) {
-                debug_assert!(outcome.receipt.is_none());
-                outcome.receipt = Some(receipt.clone());
+                if outcome.receipt.is_none() {
+                    outcome.receipt = Some(receipt.clone());
+                }
             } else {
                 DELAYED_LOCAL_RECEIPTS_CACHE.write().insert(receipt.receipt_id, receipt.clone());
             }
         }
 
         let mut receipt_execution_outcomes: Vec<IndexerExecutionOutcomeWithReceipt> = vec![];
-        for (_, outcome) in receipt_outcomes {
+        for outcome_id in outcome_order {
+            let Some(outcome) = receipt_outcomes.remove(&outcome_id) else {
+                // outcome_id corresponds to a transaction, already handled above
+                continue;
+            };
+
             let IndexerExecutionOutcomeWithOptionalReceipt { execution_outcome, receipt } = outcome;
             let receipt = if let Some(receipt) = receipt {
                 receipt
@@ -147,8 +150,8 @@ pub async fn build_streamer_message(
                     // in the history of blocks (up to 1000 blocks back)
                     tracing::warn!(
                         target: INDEXER,
-                        "Receipt {} is missing in block and in DELAYED_LOCAL_RECEIPTS_CACHE, looking for it in up to 1000 blocks back in time",
-                        execution_outcome.id,
+                        receipt_id = ?execution_outcome.id,
+                        "receipt is missing in block and in DELAYED_LOCAL_RECEIPTS_CACHE, looking for it in up to 1000 blocks back in time",
                     );
                     lookup_delayed_local_receipt_in_previous_blocks(
                         &client,
@@ -163,6 +166,9 @@ pub async fn build_streamer_message(
             receipt_execution_outcomes
                 .push(IndexerExecutionOutcomeWithReceipt { execution_outcome, receipt });
         }
+
+        let instant_receipts =
+            fetch_instant_receipts(client, block.header.hash, header.shard_id).await;
 
         // Find the shard index for the chunk by shard_id
         let shard_index = protocol_config_view
@@ -179,6 +185,7 @@ pub async fn build_streamer_message(
             transactions: indexer_transactions,
             receipts: chunk_prev_outgoing_receipts,
             local_receipts: chunk_local_receipts,
+            instant_receipts,
         });
     }
 
@@ -203,6 +210,59 @@ pub async fn build_streamer_message(
     }
 
     Ok(StreamerMessage { block, shards: indexer_shards })
+}
+
+/// Fetches instant receipts for a given block and shard.
+///
+/// Instant receipts (e.g. PromiseYield) may not have execution outcomes in the
+/// block where they are processed (they can be postponed and executed later),
+/// so each receipt is fetched directly from `DBCol::Receipts`.
+async fn fetch_instant_receipts(
+    view_client: &IndexerViewClientFetcher,
+    block_hash: CryptoHash,
+    shard_id: ShardId,
+) -> Vec<ReceiptView> {
+    let instant_receipt_ids: Vec<CryptoHash> =
+        match view_client.fetch_processed_receipt_ids(block_hash, shard_id).await {
+            Ok(metadata) => metadata
+                .into_iter()
+                .filter(|m| matches!(m.source(), ReceiptSource::Instant))
+                .map(|m| *m.receipt_id())
+                .collect(),
+            Err(err) => {
+                tracing::warn!(
+                    target: INDEXER,
+                    ?err,
+                    %block_hash,
+                    %shard_id,
+                    "unable to fetch processed receipt ids, instant_receipts will be empty",
+                );
+                return vec![];
+            }
+        };
+
+    let mut instant_receipts: Vec<ReceiptView> = vec![];
+    for receipt_id in instant_receipt_ids {
+        match view_client.fetch_receipt_by_id(receipt_id).await {
+            Ok(Some(receipt)) => instant_receipts.push(receipt),
+            Ok(None) => {
+                tracing::warn!(
+                    target: INDEXER,
+                    ?receipt_id,
+                    "instant receipt not found in store",
+                );
+            }
+            Err(err) => {
+                tracing::warn!(
+                    target: INDEXER,
+                    ?receipt_id,
+                    ?err,
+                    "unable to fetch instant receipt",
+                );
+            }
+        }
+    }
+    instant_receipts
 }
 
 // Receipt might be missing only in case of delayed local receipt
@@ -322,7 +382,7 @@ pub async fn start(
     blocks_sink: mpsc::Sender<StreamerMessage>,
     clock: Clock,
 ) {
-    info!(target: INDEXER, "Starting Streamer...");
+    tracing::info!(target: INDEXER, "starting streamer");
     let indexer_db_path =
         near_store::NodeStorage::opener(&indexer_config.home_dir, &store_config, None, None)
             .path()
@@ -333,7 +393,7 @@ pub async fn start(
         Err(err) => panic!("Unable to open indexer db: {:?}", err),
     };
 
-    let mut last_synced_block_height: Option<near_primitives::types::BlockHeight> = None;
+    let mut last_synced_block_height: Option<BlockHeight> = None;
 
     'main: loop {
         clock.sleep(INTERVAL).await;
@@ -341,21 +401,21 @@ pub async fn start(
             AwaitForNodeSyncedEnum::WaitForFullSync => {
                 let status = client.fetch_status().await;
                 let Ok(status) = status else {
-                    tracing::error!(target: INDEXER, ?status, "Failed to fetch node status. Retrying.");
+                    tracing::error!(target: INDEXER, ?status, "failed to fetch node status, retrying");
                     continue;
                 };
                 if status.sync_info.syncing {
-                    tracing::debug!(target: INDEXER, ?status, "The node is syncing. Waiting.");
+                    tracing::debug!(target: INDEXER, ?status, "the node is syncing, waiting");
                     continue;
                 }
             }
             AwaitForNodeSyncedEnum::StreamWhileSyncing => {}
         };
 
-        tracing::debug!(target: INDEXER, "Starting streaming the next block range.");
+        tracing::debug!(target: INDEXER, "starting streaming the next block range");
         let block = view_client.fetch_latest_block(indexer_config.finality.clone()).await;
         let Ok(block) = block else {
-            tracing::error!(target: INDEXER, ?block, "Failed to fetch latest block. Retrying.");
+            tracing::error!(target: INDEXER, ?block, "failed to fetch latest block, retrying");
             continue;
         };
 
@@ -367,11 +427,11 @@ pub async fn start(
             latest_block_height,
         );
 
-        debug!(
+        tracing::debug!(
             target: INDEXER,
-            "Streaming is about to start from block #{} and the latest block is #{}",
-            start_syncing_block_height,
-            latest_block_height
+            %start_syncing_block_height,
+            %latest_block_height,
+            "streaming is about to start",
         );
         metrics::START_BLOCK_HEIGHT.set(start_syncing_block_height as i64);
         metrics::LATEST_BLOCK_HEIGHT.set(latest_block_height as i64);
@@ -393,18 +453,18 @@ pub async fn start(
             let streamer_message =
                 Box::pin(build_streamer_message(&view_client, block, &shard_tracker)).await;
             let Ok(streamer_message) = streamer_message else {
-                tracing::error!(target: INDEXER, ?block_height, ?streamer_message, "Failed to build StreamerMessage. Skipping.");
+                tracing::error!(target: INDEXER, ?block_height, ?streamer_message, "failed to build streamer message, skipping");
                 continue;
             };
 
-            debug!(target: INDEXER, ?block_height, "Sending streamer message to the listener");
+            tracing::debug!(target: INDEXER, ?block_height, "sending streamer message to the listener");
             let send_result = blocks_sink.send(streamer_message).await;
             if send_result.is_err() {
-                error!(
+                tracing::error!(
                     target: INDEXER,
                     ?block_height,
                     ?send_result,
-                    "Unable to send StreamerMessage to listener, listener doesn't listen. terminating..."
+                    "unable to send streamer message to listener, listener doesn't listen, terminating",
                 );
                 break 'main;
             };

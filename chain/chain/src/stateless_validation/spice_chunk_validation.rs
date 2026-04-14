@@ -1,6 +1,9 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-
+use crate::chain::{NewChunkData, NewChunkResult, ShardContext, StorageContext, apply_new_chunk};
+use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
+use crate::spice_chunk_application::build_spice_apply_chunk_block_context;
+use crate::store::filter_incoming_receipts_for_shard;
+use crate::types::{RuntimeAdapter, StorageDataSource};
+use crate::{Chain, ChainStore};
 use itertools::Itertools;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -14,19 +17,13 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockExecutionResults, ChunkExecutionResult, ShardId};
 use near_store::PartialStorage;
 use node_runtime::SignedValidPeriodTransactions;
+use std::collections::HashMap;
+use std::sync::Arc;
 use tracing::Span;
-
-use crate::chain::{NewChunkData, NewChunkResult, ShardContext, StorageContext, apply_new_chunk};
-use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
-use crate::spice_chunk_application::build_spice_apply_chunk_block_context;
-use crate::store::filter_incoming_receipts_for_shard;
-use crate::types::{RuntimeAdapter, StorageDataSource};
-use crate::{Chain, ChainStore};
-
-use super::chunk_validation::apply_result_to_chunk_extra;
 
 pub struct SpicePreValidationOutput {
     new_chunk_data: NewChunkData,
@@ -39,6 +36,7 @@ pub fn spice_pre_validate_chunk_state_witness(
     prev_execution_results: &BlockExecutionResults,
     epoch_manager: &dyn EpochManagerAdapter,
     store: &ChainStore,
+    prev_validator_proposals: Vec<ValidatorStake>,
 ) -> Result<SpicePreValidationOutput, Error> {
     assert_eq!(block.hash(), &state_witness.chunk_id().block_hash);
     let epoch_id = epoch_manager.get_epoch_id(block.header().hash())?;
@@ -145,7 +143,7 @@ pub fn spice_pre_validate_chunk_state_witness(
         NewChunkData {
             gas_limit: prev_chunk_chunk_extra.gas_limit(),
             prev_state_root: *prev_chunk_chunk_extra.state_root(),
-            prev_validator_proposals: prev_chunk_chunk_extra.validator_proposals().collect(),
+            prev_validator_proposals,
             chunk_hash: if chunk_header.is_new_chunk(block.header().height()) {
                 Some(chunk_header.chunk_hash().clone())
             } else {
@@ -201,7 +199,7 @@ pub fn spice_validate_chunk_state_witness(
             None,
         )?;
         let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
-        let chunk_extra = apply_result_to_chunk_extra(main_apply_result, gas_limit);
+        let chunk_extra = main_apply_result.to_chunk_extra(gas_limit);
 
         (chunk_extra, outgoing_receipts)
     };
@@ -328,17 +326,14 @@ fn validate_receipt_proof(
 
 #[cfg(test)]
 mod tests {
-    use itertools::Itertools as _;
-    use near_primitives::types::Balance;
-    use std::str::FromStr as _;
-
+    use super::*;
+    use crate::store::ChainStoreAccess;
+    use crate::test_utils::{get_chain_with_genesis, process_block_sync};
+    use crate::{BlockProcessingArtifact, Provenance};
     use near_async::time::Clock;
     use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
     use near_o11y::testonly::init_test_logger;
-    use near_primitives::bandwidth_scheduler::BandwidthRequests;
-    use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::hash::CryptoHash;
-    use near_primitives::receipt::ReceiptPriority;
     use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
     use near_primitives::state::PartialState;
     use near_primitives::stateless_validation::ChunkProductionKey;
@@ -347,20 +342,15 @@ mod tests {
         TestBlockBuilder, create_test_signer, create_user_test_signer,
     };
     use near_primitives::transaction::SignedTransaction;
+    use near_primitives::types::Balance;
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::{
         AccountId, BlockHeight, ChunkExecutionResult, ChunkExecutionResultHash, SpiceChunkId,
     };
     use near_primitives::validator_signer::ValidatorSigner;
     use near_store::get_genesis_state_roots;
+    use std::str::FromStr as _;
     use tracing::Span;
-
-    use crate::store::ChainStoreAccess;
-    use crate::test_utils::{get_chain_with_genesis, process_block_sync};
-    use crate::types::ApplyChunkResult;
-    use crate::{BlockProcessingArtifact, Provenance};
-
-    use super::*;
 
     const TEST_VALIDATORS: [&str; 2] = ["test-validator-1", "test-validator-2"];
 
@@ -582,6 +572,7 @@ mod tests {
             hash(&borsh::to_vec(receipts.as_slice()).unwrap()),
             vec![],
             ChunkExecutionResultHash(CryptoHash::default()),
+            CryptoHash::default(),
         );
 
         let result = spice_pre_validate_chunk_state_witness(
@@ -591,6 +582,7 @@ mod tests {
             &BlockExecutionResults(HashMap::new()),
             test_chain.chain.epoch_manager.as_ref(),
             test_chain.chain.chain_store(),
+            vec![],
         );
 
         let error_message = unwrap_error_message(result);
@@ -625,6 +617,7 @@ mod tests {
             hash(&borsh::to_vec(receipts.as_slice()).unwrap()),
             test_chain.transactions(),
             ChunkExecutionResultHash(CryptoHash::default()),
+            CryptoHash::default(),
         );
 
         let result = spice_pre_validate_chunk_state_witness(
@@ -634,6 +627,7 @@ mod tests {
             &BlockExecutionResults(HashMap::new()),
             test_chain.chain.epoch_manager.as_ref(),
             test_chain.chain.chain_store(),
+            vec![],
         );
 
         let error_message = unwrap_error_message(result);
@@ -766,12 +760,10 @@ mod tests {
             Receipt::new_balance_refund(
                 &AccountId::from_str(TEST_VALIDATORS[0]).unwrap(),
                 Balance::from_yoctonear(100),
-                ReceiptPriority::NoPriority,
             ),
             Receipt::new_balance_refund(
                 &AccountId::from_str(TEST_VALIDATORS[1]).unwrap(),
                 Balance::from_yoctonear(100),
-                ReceiptPriority::NoPriority,
             ),
         ]
     }
@@ -783,22 +775,14 @@ mod tests {
         signer: &ValidatorSigner,
         tx_root: CryptoHash,
     ) -> ShardChunkHeader {
-        ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+        ShardChunkHeader::V3(ShardChunkHeaderV3::new_for_spice(
             prev_block_hash,
-            Default::default(),
-            Default::default(),
             Default::default(),
             Default::default(),
             height,
             shard_id,
             Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
             tx_root,
-            Default::default(),
-            CongestionInfo::default(),
-            BandwidthRequests::empty(),
             signer,
         ))
     }
@@ -836,6 +820,7 @@ mod tests {
         applied_receipts_hash: CryptoHash,
         transactions: Vec<SignedTransaction>,
         execution_result_hash: ChunkExecutionResultHash,
+        contract_accesses_hash: CryptoHash,
     }
 
     macro_rules! builder_setter {
@@ -863,6 +848,7 @@ mod tests {
                 applied_receipts_hash: *default.applied_receipts_hash(),
                 transactions: default.transactions().to_vec(),
                 execution_result_hash: default.execution_result_hash().clone(),
+                contract_accesses_hash: *default.contract_accesses_hash(),
             }
         }
 
@@ -874,6 +860,7 @@ mod tests {
                 self.applied_receipts_hash,
                 self.transactions,
                 self.execution_result_hash,
+                self.contract_accesses_hash,
             )
         }
     }
@@ -962,7 +949,7 @@ mod tests {
                 )
                 .unwrap();
             let signer = Arc::new(create_test_signer(block_producer.account_id().as_str()));
-            TestBlockBuilder::new(Clock::real(), prev_block, signer)
+            TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer)
                 .chunks(chunks)
                 .spice_core_statements(vec![])
                 .build()
@@ -1012,7 +999,7 @@ mod tests {
             let shard_layout = self.shard_layout();
             let mut prev_execution_results = BlockExecutionResults(HashMap::new());
             let genesis_state_root =
-                get_genesis_state_roots(&self.chain.chain_store.store()).unwrap().unwrap()[0];
+                get_genesis_state_roots(&self.chain.chain_store.store()).unwrap()[0];
             for shard_id in shard_layout.shard_ids() {
                 let receipts = self.receipts_for_shard(shard_id);
                 let (root, _proofs) = Chain::create_receipts_proofs_from_outgoing_receipts(
@@ -1059,6 +1046,7 @@ mod tests {
                 receipts_hash,
                 transactions,
                 execution_result.compute_hash(),
+                CryptoHash::default(),
             )
         }
 
@@ -1079,6 +1067,7 @@ mod tests {
                 receipts_hash,
                 transactions,
                 execution_result.compute_hash(),
+                CryptoHash::default(),
             )
         }
 
@@ -1089,6 +1078,12 @@ mod tests {
             let block = self.chain.get_block(&state_witness.chunk_id().block_hash).unwrap();
             let prev_block = self.chain.get_block(block.header().prev_hash()).unwrap();
             let prev_execution_results = self.prev_execution_results();
+            let shard_id = state_witness.chunk_id().shard_id;
+            let prev_validator_proposals = self
+                .chain
+                .spice_core_reader
+                .prev_validator_proposals(prev_block.hash(), shard_id)
+                .unwrap();
             let pre_validation_output = spice_pre_validate_chunk_state_witness(
                 &state_witness,
                 &block,
@@ -1096,6 +1091,7 @@ mod tests {
                 &prev_execution_results,
                 self.chain.epoch_manager.as_ref(),
                 self.chain.chain_store(),
+                prev_validator_proposals,
             )
             .unwrap();
 
@@ -1114,6 +1110,12 @@ mod tests {
             let block = self.chain.get_block(&state_witness.chunk_id().block_hash).unwrap();
             let prev_block = self.chain.get_block(block.header().prev_hash()).unwrap();
             let prev_execution_results = self.prev_execution_results();
+            let shard_id = state_witness.chunk_id().shard_id;
+            let prev_validator_proposals = self
+                .chain
+                .spice_core_reader
+                .prev_validator_proposals(prev_block.hash(), shard_id)
+                .unwrap();
             spice_pre_validate_chunk_state_witness(
                 state_witness,
                 &block,
@@ -1121,6 +1123,7 @@ mod tests {
                 &prev_execution_results,
                 self.chain.epoch_manager.as_ref(),
                 self.chain.chain_store(),
+                prev_validator_proposals,
             )
         }
 
@@ -1156,11 +1159,17 @@ mod tests {
 
             let prev_execution_result = prev_execution_results.0.get(&self.shard_id()).unwrap();
             let prev_chunk_chunk_extra = &prev_execution_result.chunk_extra;
+            let prev_block_hash = block.header().prev_hash();
+            let prev_validator_proposals = self
+                .chain
+                .spice_core_reader
+                .prev_validator_proposals(prev_block_hash, self.shard_id())
+                .unwrap();
             let txs_validity = std::iter::repeat_n(true, transactions.len()).collect_vec();
             let new_chunk_data = NewChunkData {
                 gas_limit: prev_chunk_chunk_extra.gas_limit(),
                 prev_state_root: *prev_chunk_chunk_extra.state_root(),
-                prev_validator_proposals: prev_chunk_chunk_extra.validator_proposals().collect(),
+                prev_validator_proposals,
                 chunk_hash: None,
                 transactions: SignedValidPeriodTransactions::new(transactions, txs_validity),
                 receipts,
@@ -1182,18 +1191,7 @@ mod tests {
             )
             .unwrap();
 
-            let (outcome_root, _) =
-                ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
-            let chunk_extra = ChunkExtra::new(
-                &apply_result.new_root,
-                outcome_root,
-                apply_result.validator_proposals.clone(),
-                apply_result.total_gas_burnt,
-                gas_limit,
-                apply_result.total_balance_burnt,
-                apply_result.congestion_info,
-                apply_result.bandwidth_requests.clone(),
-            );
+            let chunk_extra = apply_result.to_chunk_extra(gas_limit);
             let shard_layout =
                 self.chain.epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
             let (outgoing_receipts_root, _) = Chain::create_receipts_proofs_from_outgoing_receipts(

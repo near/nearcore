@@ -1,7 +1,8 @@
 use crate::db::refcount::set_refcount;
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database};
 use crate::{DBCol, Store};
-use near_o11y::{log_assert, log_assert_fail};
+use near_o11y::log_assert_fail;
+use std::path::PathBuf;
 
 /// A database which provides access to the cold storage.
 ///
@@ -29,48 +30,40 @@ impl ColdDB {
         format!("Reading from column missing from cold storage. {col:?}")
     }
 
-    // Checks if the column is the cold db and returns an error if not.
-    fn check_is_in_colddb(col: DBCol) -> std::io::Result<()> {
-        if !col.is_in_colddb() {
-            return Err(std::io::Error::other(Self::err_msg(col)));
-        }
-        Ok(())
-    }
-
     // Checks if the column is the cold db and panics if not.
-    fn log_assert_is_in_colddb(col: DBCol) {
-        log_assert!(col.is_in_colddb(), "{}", Self::err_msg(col));
+    fn assert_is_in_colddb(col: DBCol) {
+        assert!(col.is_in_colddb(), "{}", Self::err_msg(col));
     }
 }
 
 impl Database for ColdDB {
     /// Returns raw bytes for given `key` ignoring any reference count decoding if any.
-    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<DBSlice<'_>>> {
-        Self::check_is_in_colddb(col)?;
+    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> Option<DBSlice<'_>> {
+        Self::assert_is_in_colddb(col);
         self.cold.get_raw_bytes(col, key)
     }
 
     /// Returns value for given `key` forcing a reference count decoding.
-    fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<DBSlice<'_>>> {
-        Self::check_is_in_colddb(col)?;
+    fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> Option<DBSlice<'_>> {
+        Self::assert_is_in_colddb(col);
         self.cold.get_with_rc_stripped(col, key)
     }
 
     /// Iterates over all values in a column.
     fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
-        Self::log_assert_is_in_colddb(col);
+        Self::assert_is_in_colddb(col);
         self.cold.iter(col)
     }
 
     /// Iterates over values in a given column whose key has given prefix.
     fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
-        Self::log_assert_is_in_colddb(col);
+        Self::assert_is_in_colddb(col);
         self.cold.iter_prefix(col, key_prefix)
     }
 
     /// Iterate over items in given column bypassing reference count decoding if any.
     fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
-        Self::log_assert_is_in_colddb(col);
+        Self::assert_is_in_colddb(col);
         self.cold.iter_raw_bytes(col)
     }
 
@@ -81,7 +74,7 @@ impl Database for ColdDB {
         lower_bound: Option<&[u8]>,
         upper_bound: Option<&[u8]>,
     ) -> DBIterator<'a> {
-        Self::log_assert_is_in_colddb(col);
+        Self::assert_is_in_colddb(col);
         self.cold.iter_range(col, lower_bound, upper_bound)
     }
 
@@ -90,7 +83,7 @@ impl Database for ColdDB {
     /// If debug assertions are enabled, panics if there are any delete
     /// operations or operations decreasing reference count of a value.  If
     /// debug assertions are not enabled, such operations are filtered out.
-    fn write(&self, mut transaction: DBTransaction) -> std::io::Result<()> {
+    fn write(&self, mut transaction: DBTransaction) {
         let mut idx = 0;
         while idx < transaction.ops.len() {
             if adjust_op(&mut transaction.ops[idx]) {
@@ -102,11 +95,11 @@ impl Database for ColdDB {
         self.cold.write(transaction)
     }
 
-    fn compact(&self) -> std::io::Result<()> {
+    fn compact(&self) {
         self.cold.compact()
     }
 
-    fn flush(&self) -> std::io::Result<()> {
+    fn flush(&self) {
         self.cold.flush()
     }
 
@@ -120,6 +113,16 @@ impl Database for ColdDB {
         columns_to_keep: Option<&[DBCol]>,
     ) -> anyhow::Result<()> {
         self.cold.create_checkpoint(path, columns_to_keep)
+    }
+
+    fn ingest_external_sst_files(
+        &self,
+        col: DBCol,
+        paths: &[PathBuf],
+        move_files: bool,
+    ) -> anyhow::Result<()> {
+        Self::assert_is_in_colddb(col);
+        self.cold.ingest_external_sst_files(col, paths, move_files)
     }
 }
 
@@ -173,9 +176,8 @@ fn adjust_op(op: &mut DBOp) -> bool {
 
 #[cfg(test)]
 mod test {
-    use near_primitives::hash::CryptoHash;
-
     use super::*;
+    use near_primitives::hash::CryptoHash;
 
     const HEIGHT_LE: &[u8] = &42u64.to_le_bytes();
     const SHARD: &[u8] = "ShardUId".as_bytes();
@@ -246,7 +248,7 @@ mod test {
         // Block -> no rc
 
         let ops = vec![set_with_rc(DBCol::State, &[SHARD, HASH].concat()), set(DBCol::Block, HASH)];
-        db.write(DBTransaction { ops }).unwrap();
+        db.write(DBTransaction { ops });
 
         // Fetch data
         let mut result = Vec::<String>::new();
@@ -259,14 +261,14 @@ mod test {
                 }
 
                 let name = if is_raw { "raw " } else { "cold" };
-                let value = db.get_raw_bytes(col, &key).unwrap();
+                let value = db.get_raw_bytes(col, &key);
                 // When fetching reference counted column ColdDB adds reference
                 // count to it.
                 let value = pretty_value(value.as_deref(), col.is_rc());
                 result.push(format!("    [{name}] get_raw_bytes        → {value}"));
 
                 if col.is_rc() {
-                    let value = db.get_with_rc_stripped(col, &key).unwrap();
+                    let value = db.get_with_rc_stripped(col, &key);
                     let value = pretty_value(value.as_deref(), false);
                     result.push(format!("    [{name}] get_with_rc_stripped → {value}"));
                 }
@@ -306,7 +308,7 @@ mod test {
 
         // Populate data
         let ops = vec![set_with_rc(DBCol::State, &[SHARD, HASH].concat()), set(DBCol::Block, HASH)];
-        db.write(DBTransaction { ops }).unwrap();
+        db.write(DBTransaction { ops });
 
         let mut result = Vec::<String>::new();
         for col in [DBCol::State, DBCol::Block] {
@@ -314,8 +316,7 @@ mod test {
             result.push(col.to_string());
             for (is_raw, db) in dbs {
                 let name = if is_raw { "raw " } else { "cold" };
-                for item in db.iter(col) {
-                    let (key, value) = item.unwrap();
+                for (key, value) in db.iter(col) {
                     let value = pretty_value(Some(value.as_ref()), false);
                     let key = pretty_key(&key);
                     result.push(format!("[{name}] ({key}, {value})"));
@@ -344,14 +345,14 @@ mod test {
 
         let op =
             DBOp::UpdateRefcount { col, key: key.to_vec(), value: [VALUE, HEIGHT_LE].concat() };
-        db.write(DBTransaction { ops: vec![op] }).unwrap();
+        db.write(DBTransaction { ops: vec![op] });
 
         // Refcount is set to 1 in the underlying database.
-        let got = db.cold.get_raw_bytes(col, key).unwrap();
+        let got = db.cold.get_raw_bytes(col, key);
         assert_eq!(Some([VALUE, ONE].concat().as_slice()), got.as_deref());
 
         // When fetching raw bytes, refcount of 1 is returned.
-        let got = db.get_raw_bytes(col, key).unwrap();
+        let got = db.get_raw_bytes(col, key);
         assert_eq!(Some([VALUE, ONE].concat().as_slice()), got.as_deref());
     }
 }

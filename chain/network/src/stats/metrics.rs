@@ -1,5 +1,5 @@
 use crate::network_protocol::RoutedMessage;
-use crate::network_protocol::{Encoding, TieredMessageBody};
+use crate::network_protocol::TieredMessageBody;
 use crate::tcp;
 use crate::types::PeerType;
 use near_async::time;
@@ -59,14 +59,13 @@ impl Drop for GaugePoint {
 pub struct Connection {
     pub tier: tcp::Tier,
     pub type_: PeerType,
-    pub encoding: Option<Encoding>,
 }
 
 impl Labels for Connection {
-    type Array = [&'static str; 3];
-    const NAMES: Self::Array = ["tier", "peer_type", "encoding"];
+    type Array = [&'static str; 2];
+    const NAMES: Self::Array = ["tier", "peer_type"];
     fn values(&self) -> Self::Array {
-        [self.tier.into(), self.type_.into(), self.encoding.map(|e| e.into()).unwrap_or("unknown")]
+        [self.tier.into(), self.type_.into()]
     }
 }
 
@@ -315,6 +314,15 @@ pub(crate) static ROUTED_MESSAGE_DROPPED: LazyLock<IntCounterVec> = LazyLock::ne
     .unwrap()
 });
 
+pub(crate) static TIER3_PUBLIC_ADDR: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "near_tier3_public_addr",
+        "Own public address advertised in tier3 state sync requests",
+        &["addr"],
+    )
+    .unwrap()
+});
+
 pub(crate) static PEER_REACHABLE: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_peer_reachable",
@@ -390,18 +398,6 @@ pub(crate) static ACCOUNT_TO_PEER_LOOKUPS: LazyLock<IntCounterVec> = LazyLock::n
     .unwrap()
 });
 
-pub(crate) static NETWORK_ROUTED_MSG_DISTANCES: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "near_network_routed_msg_distances",
-        "compares routing distance by protocol (V1 vs V2)",
-        // Compares the routing distances for the V1 and V2 routing protocols.
-        // We are currently running both while validating performance of V2.
-        // Eventually we want to deprecate V1 and run only V2.
-        &["cmp"],
-    )
-    .unwrap()
-});
-
 /// Updated the prometheus metrics about the received routed message `msg`.
 /// `tier` indicates the network over which the message was transmitted.
 /// `fastest` indicates whether this message is the first copy of `msg` received -
@@ -432,13 +428,16 @@ fn record_routed_msg_latency(
     tier: tcp::Tier,
     fastest: bool,
 ) {
-    if let Some(created_at) = msg.created_at() {
-        let now = clock.now_utc().unix_timestamp();
-        let duration = now - created_at;
-        NETWORK_ROUTED_MSG_LATENCY
-            .with_label_values(&[msg.body_variant(), tier.as_ref(), bool_to_str(fastest)])
-            .observe(duration as f64);
-    }
+    let Some(created_at) = msg.created_at() else {
+        return;
+    };
+    let now = clock.now_utc().unix_timestamp();
+    let Some(duration) = now.checked_sub(created_at) else {
+        return;
+    };
+    NETWORK_ROUTED_MSG_LATENCY
+        .with_label_values(&[msg.body_variant(), tier.as_ref(), bool_to_str(fastest)])
+        .observe(duration as f64);
 }
 
 // The routed message reached its destination. If the number of hops is known, then update the

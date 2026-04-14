@@ -113,8 +113,6 @@ without relying on other components.
 
 For example, see tests for doomslug
 [here](https://github.com/near/nearcore/blob/master/chain/chain/src/tests/doomslug.rs),
-for network cache
-[here](https://github.com/near/nearcore/blob/master/chain/network/src/routing/edge_cache/tests.rs),
 or for promises in runtime
 [here](https://github.com/near/nearcore/blob/master/runtime/near-vm-runner/src/logic/tests/promises.rs).
 
@@ -152,9 +150,6 @@ cluster with multiple nodes, and doing RPC calls.
 
 See `pytest/tests/sanity/deploy_call_smart_contract.py` to see how contracts can
 be deployed, or transactions called.
-
-See `pytest/tests/sanity/staking1.py` to see how staking transactions can be
-issued.
 
 See `pytest/tests/sanity/state_sync.py` to see how to delay the launch of the
 whole cluster by using `init_cluster` instead of `start_cluster`, and then

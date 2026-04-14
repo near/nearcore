@@ -28,7 +28,7 @@ pub fn load_memtrie_in_parallel(
 ) -> Result<(STArena, MemTrieNodeId), StorageError> {
     let reader = ParallelMemTrieLoader::new(store, shard_uid, root, num_subtrees_desired);
     let plan = reader.make_loading_plan()?;
-    tracing::info!("Loading {} subtrees in parallel", plan.subtrees_to_load.len());
+    tracing::info!(num_subtrees = plan.subtrees_to_load.len(), "loading subtrees in parallel");
     reader.load_in_parallel(plan, name)
 }
 
@@ -192,12 +192,9 @@ impl ParallelMemTrieLoader {
 
         // Load all the keys in this range from the FlatState column.
         let mut recon = TrieConstructor::new(arena);
-        for item in self.store.store().iter_range(DBCol::FlatState, Some(&start), Some(&end)) {
-            let (key, value) = item.map_err(|err| {
-                FlatStorageError::StorageInternalError(format!(
-                    "Error iterating over FlatState: {err}"
-                ))
-            })?;
+        for (key, value) in
+            self.store.store().iter_range(DBCol::FlatState, Some(&start), Some(&end))
+        {
             let key = NibbleSlice::new(&key[8..]).mid(subtree_to_load.num_nibbles());
             let value = FlatStateValue::try_from_slice(&value).map_err(|err| {
                 FlatStorageError::StorageInternalError(format!(

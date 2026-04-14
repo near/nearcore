@@ -1,20 +1,13 @@
-use std::iter::repeat_with;
-
+use crate::setup::builder::TestLoopBuilder;
+use crate::utils::account::create_account_id;
 use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain::Error;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::gas::Gas;
-use near_primitives::test_utils::create_user_test_signer;
-use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
-use near_primitives::types::{Balance, Nonce};
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::{
-    create_account_id, create_validators_spec, validators_spec_clients_with_rpc,
-};
-use crate::utils::node::TestLoopNode;
+use near_primitives::transaction::ExecutionStatus;
+use near_primitives::types::Balance;
 
 /// Example test that creates a chunk which, when applied, creates a delayed receipt.
 /// Requires "test_features" feature to be enabled in order to use `burn_gas_raw`
@@ -24,70 +17,47 @@ fn delayed_receipt_example_test() {
     init_test_logger();
 
     let user_account = create_account_id("user");
-    let validators_spec = create_validators_spec(1, 0);
-    let clients = validators_spec_clients_with_rpc(&validators_spec);
     let gas_limit = Gas::from_teragas(300);
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .shard_layout_single_shard()
-        .validators_spec(validators_spec)
-        .gas_limit(gas_limit)
-        .add_user_account_simple(user_account.clone(), Balance::from_near(10))
-        .build();
     let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .build()
-        .warmup();
+        .gas_limit(gas_limit)
+        .add_user_account(&user_account, Balance::from_near(10))
+        .enable_rpc()
+        .build();
 
-    let rpc_node = TestLoopNode::rpc(&env.node_datas);
-    let mut nonce: Nonce = 0;
-    let mut next_nonce = || {
-        nonce += 1;
-        nonce
-    };
-
-    let deploy_test_contract_tx = SignedTransaction::deploy_contract(
-        next_nonce(),
-        &user_account,
-        near_test_contracts::rs_contract().to_vec(),
-        &create_user_test_signer(&user_account),
-        rpc_node.head(env.test_loop_data()).last_block_hash,
-    );
-    rpc_node.run_tx(&mut env.test_loop, deploy_test_contract_tx, Duration::seconds(2));
+    let deploy_tx = env.rpc_node().tx_deploy_test_contract(&user_account);
+    env.rpc_runner().run_tx(deploy_tx, Duration::seconds(2));
 
     // Each transaction generates local receipt consuming more than a half
     // the chunk space, so chunk can only fit 2 such receipts.
     let gas_to_burn = gas_limit.checked_div(2).unwrap().checked_add(Gas::from_gas(1)).unwrap();
-    let txs = repeat_with(|| {
-        SignedTransaction::call(
-            next_nonce(),
-            user_account.clone(),
-            user_account.clone(),
-            &create_user_test_signer(&user_account),
-            Balance::ZERO,
-            "burn_gas_raw".to_owned(),
-            gas_to_burn.as_gas().to_le_bytes().to_vec(),
-            gas_limit,
-            rpc_node.head(env.test_loop_data()).last_block_hash,
-        )
-    })
-    .take(3)
-    .collect_vec();
+    let txs = (0..3)
+        .map(|_| {
+            env.rpc_node().tx_call(
+                &user_account,
+                &user_account,
+                "burn_gas_raw",
+                gas_to_burn.as_gas().to_le_bytes().to_vec(),
+                Balance::ZERO,
+                gas_limit,
+            )
+        })
+        .collect_vec();
     for tx in &txs {
-        rpc_node.submit_tx(tx.clone());
+        env.rpc_node().submit_tx(tx.clone());
     }
-    env.test_loop.run_until(
-        |test_loop_data| {
-            let head_block = rpc_node.head_block(test_loop_data);
-            let chunk = rpc_node.block_chunks(test_loop_data, &head_block).pop().unwrap();
+    env.rpc_runner().run_until(
+        |node| {
+            let head_block = node.head_block();
+            let chunk = node.block_chunks(&head_block).pop().unwrap();
             chunk.to_transactions() == &txs
         },
         Duration::seconds(2),
     );
+    let block_with_txs = env.rpc_node().head_block();
 
-    let tx_included_height = rpc_node.head(env.test_loop_data()).height;
-    let chain = &rpc_node.client(env.test_loop_data()).chain;
+    env.rpc_runner().run_until_block_executed(block_with_txs.header(), Duration::seconds(2));
+    let rpc_node = env.rpc_node();
+    let chain = &rpc_node.client().chain;
     let tx_receipt_ids = txs
         .iter()
         .map(|tx| {
@@ -107,13 +77,11 @@ fn delayed_receipt_example_test() {
     assert!(receipt_outcomes[1].is_ok());
     assert_matches!(receipt_outcomes[2], Err(Error::DBNotFoundErr(_)));
 
-    rpc_node.run_until_outcome_available(
-        &mut env.test_loop,
-        tx_receipt_ids[2],
-        Duration::seconds(1),
-    );
-    let last_receipts_executed_height = rpc_node.head(env.test_loop_data()).height;
-    assert_eq!(last_receipts_executed_height, tx_included_height + 1);
+    env.rpc_runner().run_until_outcome_available(tx_receipt_ids[2], Duration::seconds(1));
 
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+    let last_receipts_executed_block = env.rpc_node().last_executed_block();
+    assert_eq!(
+        block_with_txs.header().height(),
+        last_receipts_executed_block.header().prev_height().unwrap()
+    );
 }

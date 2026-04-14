@@ -2,25 +2,9 @@ use crate::DBCol;
 use crate::trie::{
     DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY, DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
 };
-use near_primitives::chains::MAINNET;
-use near_primitives::epoch_manager::EpochConfigStore;
-use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::types::AccountId;
-use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION};
+use near_primitives::shard_layout::ShardUId;
 use near_time::Duration;
-use std::{collections::HashMap, str::FromStr};
-
-// known cache access patterns per prominent contract account
-// used to derive config `per_account_max_bytes`
-const PER_ACCOUNT_CACHE_SIZE: &[(&'static str, bytesize::ByteSize)] = &[
-    // aurora has its dedicated shard and it had very few cache misses even with
-    // cache size of only 50MB
-    ("aurora", bytesize::ByteSize::mb(50)),
-    // size was chosen by the estimation of the largest contract (token.sweat) storage size
-    // we are aware as of 23/08/2022
-    // Note: on >= 1.34 nearcore version use 1gb if you have minimal hardware
-    ("token.sweat", bytesize::ByteSize::gb(3)),
-];
+use std::collections::HashMap;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
@@ -205,32 +189,6 @@ impl StoreConfig {
             _ => bytesize::ByteSize::mib(32),
         }
     }
-
-    fn default_per_shard_max_bytes() -> HashMap<ShardUId, bytesize::ByteSize> {
-        let epoch_config_store = EpochConfigStore::for_chain_id(MAINNET, None).unwrap();
-        let mut shard_layouts: Vec<ShardLayout> = Vec::new();
-
-        // MIN_SUPPORTED_PROTOCOL_VERSION to ensure cache limits for old shard layout are included.
-        for protocol_version in MIN_SUPPORTED_PROTOCOL_VERSION..=PROTOCOL_VERSION {
-            let epoch_config = epoch_config_store.get_config(protocol_version);
-            let shard_layout = epoch_config.shard_layout.clone();
-            // O(n) is fine as list is short
-            if !shard_layouts.contains(&shard_layout) {
-                shard_layouts.push(shard_layout);
-            }
-        }
-
-        let mut per_shard_max_bytes: HashMap<ShardUId, bytesize::ByteSize> = HashMap::new();
-        for (account_id, bytes) in PER_ACCOUNT_CACHE_SIZE {
-            let account_id = AccountId::from_str(account_id)
-                .expect("the hardcoded account id should guarantee to be valid");
-            for shard_layout in &shard_layouts {
-                let shard_uid = shard_layout.account_id_to_shard_uid(&account_id);
-                per_shard_max_bytes.insert(shard_uid, *bytes);
-            }
-        }
-        per_shard_max_bytes
-    }
 }
 
 impl Default for StoreConfig {
@@ -268,7 +226,7 @@ impl Default for StoreConfig {
 
             trie_cache: TrieCacheConfig {
                 default_max_bytes: bytesize::ByteSize::mb(500),
-                per_shard_max_bytes: Self::default_per_shard_max_bytes(),
+                per_shard_max_bytes: Default::default(),
                 shard_cache_deletions_queue_capacity: DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY,
             },
 
@@ -380,12 +338,6 @@ pub struct SplitStorageConfig {
     #[serde(default = "default_enable_split_storage_view_client")]
     pub enable_split_storage_view_client: bool,
 
-    #[serde(default = "default_cold_store_initial_migration_batch_size")]
-    pub cold_store_initial_migration_batch_size: usize,
-    #[serde(default = "default_cold_store_initial_migration_loop_sleep_duration")]
-    #[serde(with = "near_time::serde_duration_as_std")]
-    pub cold_store_initial_migration_loop_sleep_duration: Duration,
-
     #[serde(default = "default_cold_store_loop_sleep_duration")]
     #[serde(with = "near_time::serde_duration_as_std")]
     pub cold_store_loop_sleep_duration: Duration,
@@ -398,10 +350,6 @@ impl Default for SplitStorageConfig {
     fn default() -> Self {
         SplitStorageConfig {
             enable_split_storage_view_client: default_enable_split_storage_view_client(),
-            cold_store_initial_migration_batch_size:
-                default_cold_store_initial_migration_batch_size(),
-            cold_store_initial_migration_loop_sleep_duration:
-                default_cold_store_initial_migration_loop_sleep_duration(),
             cold_store_loop_sleep_duration: default_cold_store_loop_sleep_duration(),
             num_cold_store_read_threads: default_num_cold_store_read_threads(),
         }
@@ -410,14 +358,6 @@ impl Default for SplitStorageConfig {
 
 fn default_enable_split_storage_view_client() -> bool {
     false
-}
-
-fn default_cold_store_initial_migration_batch_size() -> usize {
-    500_000_000
-}
-
-fn default_cold_store_initial_migration_loop_sleep_duration() -> Duration {
-    Duration::seconds(30)
 }
 
 fn default_num_cold_store_read_threads() -> usize {

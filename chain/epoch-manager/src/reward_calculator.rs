@@ -1,13 +1,10 @@
-use std::collections::HashMap;
-
-use num_rational::Rational32;
-use primitive_types::{U256, U512};
-
+use crate::validator_stats::get_validator_online_ratio;
 use near_chain_configs::GenesisConfig;
 use near_primitives::types::{AccountId, Balance, BlockChunkValidatorStats};
 use near_primitives::version::{PROD_GENESIS_PROTOCOL_VERSION, ProtocolVersion};
-
-use crate::validator_stats::get_validator_online_ratio;
+use num_rational::Rational32;
+use primitive_types::{U256, U512};
+use std::collections::HashMap;
 
 pub(crate) const NUM_NS_IN_SECOND: u64 = 1_000_000_000;
 pub const NUM_SECONDS_IN_A_YEAR: u64 = 24 * 60 * 60 * 365;
@@ -50,7 +47,7 @@ impl RewardCalculator {
 
     /// Calculate validator reward for an epoch based on their block and chunk production stats.
     /// Returns map of validators with their rewards and amount of newly minted tokens including to protocol's treasury.
-    /// See spec <https://nomicon.io/Economics/Economic#validator-rewards-calculation>.
+    /// See spec <https://nomicon.io/Economics/Economics.html#validator-rewards-calculation>.
     pub fn calculate_reward(
         &self,
         validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,

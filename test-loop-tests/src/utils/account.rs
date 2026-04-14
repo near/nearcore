@@ -21,6 +21,10 @@ pub fn rpc_account_id() -> AccountId {
     "rpc".parse().unwrap()
 }
 
+pub fn archival_account_id() -> AccountId {
+    "archival".parse().unwrap()
+}
+
 pub fn create_validators_spec(
     num_block_and_chunk_producers: usize,
     num_chunk_validators_only: usize,

@@ -4,11 +4,10 @@ use near_client_primitives::debug::{
 };
 #[cfg(feature = "debug_types")]
 use near_primitives::views::{
-    CatchupStatusView, ChainProcessingInfo, NetworkGraphView, NetworkRoutesView, PeerStoreView,
+    CatchupStatusView, ChainProcessingInfo, NetworkGraphView, PeerStoreView,
     RecentOutboundConnectionsView, RequestedStatePartsView, SnapshotHostsView,
     SplitStorageInfoView, SyncStatusView,
 };
-
 #[cfg(feature = "schemars")]
 use near_time::DurationSchemarsProvider;
 
@@ -37,7 +36,6 @@ pub enum DebugStatusResponse {
     RequestedStateParts(Vec<RequestedStatePartsView>),
     NetworkGraph(NetworkGraphView),
     RecentOutboundConnections(RecentOutboundConnectionsView),
-    Routes(NetworkRoutesView),
     SnapshotHosts(SnapshotHostsView),
     SplitStoreStatus(SplitStorageInfoView),
     InstrumentedThreads(serde_json::Value), // Directly use the serialized form here to avoid dependency on near-async.

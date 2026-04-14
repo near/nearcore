@@ -1,4 +1,5 @@
 use super::{InputMemTrieNode, MemTrieNodeId, MemTrieNodePtr, MemTrieNodeView};
+use crate::trie::NUM_CHILDREN;
 use crate::trie::mem::arena::{ArenaMemory, ArenaMemoryMut, ArenaMut, ArenaPos, ArenaWithDealloc};
 use crate::trie::mem::flexible_data::FlexibleDataHeader;
 use crate::trie::mem::flexible_data::children::EncodedChildrenHeader;
@@ -7,10 +8,8 @@ use crate::trie::mem::flexible_data::extension::EncodedExtensionHeader;
 use crate::trie::mem::flexible_data::value::EncodedValueHeader;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::hash::CryptoHash;
-use std::mem::size_of;
-
-use crate::trie::NUM_CHILDREN;
 use smallvec::SmallVec;
+use std::mem::size_of;
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug, BorshSerialize, BorshDeserialize)]
 #[borsh(use_discriminant = true)]

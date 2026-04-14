@@ -1,10 +1,13 @@
 //! This file contains helper functions for initialization of genesis data in store
 //! We first check if store has the genesis state_roots, if not, we go ahead with initialization
 
-use std::collections::{BTreeMap, HashSet};
-use std::fs;
-use std::path::Path;
-
+use crate::adapter::StoreAdapter;
+use crate::flat::FlatStorageManager;
+use crate::genesis::GenesisStateApplier;
+use crate::{
+    ShardTries, StateSnapshotConfig, Store, TrieConfig, get_genesis_height,
+    get_genesis_state_roots, set_genesis_height, set_genesis_state_roots,
+};
 use borsh::BorshDeserialize;
 use near_chain_configs::{Genesis, GenesisContents};
 use near_parameters::RuntimeConfigStore;
@@ -16,14 +19,9 @@ use near_primitives::state_record::{
 };
 use near_primitives::types::{AccountId, ShardId, StateRoot};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-
-use crate::adapter::StoreAdapter;
-use crate::flat::FlatStorageManager;
-use crate::genesis::GenesisStateApplier;
-use crate::{
-    ShardTries, StateSnapshotConfig, Store, TrieConfig, get_genesis_height,
-    get_genesis_state_roots, set_genesis_height, set_genesis_state_roots,
-};
+use std::collections::{BTreeMap, HashSet};
+use std::fs;
+use std::path::Path;
 
 const STATE_DUMP_FILE: &str = "state_dump";
 const GENESIS_ROOTS_FILE: &str = "genesis_roots";
@@ -34,17 +32,17 @@ pub fn initialize_sharded_genesis_state(
     genesis_epoch_config: &EpochConfig,
     home_dir: Option<&Path>,
 ) {
-    let state_roots = if let Some(state_roots) =
-        get_genesis_state_roots(&store).expect("Store failed on genesis initialization")
-    {
+    let shard_layout = genesis_epoch_config
+        .static_shard_layout()
+        .expect("genesis config must have static shard layout");
+    let state_roots = if let Some(state_roots) = get_genesis_state_roots(&store) {
         // TODO: with 2.6 release, remove storing genesis height
         let mut store_update: crate::StoreUpdate = store.store_update();
         set_genesis_height(&mut store_update, &genesis.config.genesis_height);
-        store_update.commit().expect("Store failed on genesis initialization");
+        store_update.commit();
 
-        let genesis_height = get_genesis_height(&store)
-            .expect("Store failed on genesis initialization")
-            .expect("Genesis height not found in storage");
+        let genesis_height =
+            get_genesis_height(&store).expect("Genesis height not found in storage");
         assert_eq!(
             genesis_height, genesis.config.genesis_height,
             "Genesis height in store is different from the one in genesis config"
@@ -54,16 +52,16 @@ pub fn initialize_sharded_genesis_state(
         let has_dump = home_dir.is_some_and(|dir| dir.join(STATE_DUMP_FILE).exists());
         let state_roots = if has_dump {
             if let GenesisContents::Records { .. } = &genesis.contents {
-                tracing::warn!(target: "store", "Found both records in genesis config and the state dump file. Will ignore the records.");
+                tracing::warn!(target: "store", "found both records in genesis config and the state dump file, will ignore the records");
             }
             genesis_state_from_dump(store.clone(), home_dir.unwrap())
         } else {
-            genesis_state_from_genesis(store.clone(), genesis, &genesis_epoch_config.shard_layout)
+            genesis_state_from_genesis(store.clone(), genesis, &shard_layout)
         };
         let mut store_update = store.store_update();
         set_genesis_state_roots(&mut store_update, &state_roots);
         set_genesis_height(&mut store_update, &genesis.config.genesis_height);
-        store_update.commit().expect("Store failed on genesis initialization");
+        store_update.commit();
         state_roots
     };
 
@@ -75,12 +73,6 @@ pub fn initialize_sharded_genesis_state(
     if &genesis.config.chain_id == TESTNET {
         assert_eq!(format!("{state_roots:?}"), "[7EAgMRCrBWcb3ZS6SZJ7Dm71VZ1jaBpgGiewAEvFqPT1]");
     }
-
-    assert_eq!(
-        genesis_epoch_config.shard_layout.shard_ids().count(),
-        genesis_epoch_config.num_block_producer_seats_per_shard.len(),
-        "genesis config shard_layout and num_block_producer_seats_per_shard indicate inconsistent number of shards",
-    );
 }
 
 pub fn initialize_genesis_state(store: Store, genesis: &Genesis, home_dir: Option<&Path>) {
@@ -88,7 +80,7 @@ pub fn initialize_genesis_state(store: Store, genesis: &Genesis, home_dir: Optio
 }
 
 fn genesis_state_from_dump(store: Store, home_dir: &Path) -> Vec<StateRoot> {
-    tracing::error!(target: "near", "Loading genesis from a state dump file. Do not use this outside of genesis-tools");
+    tracing::error!(target: "near", "loading genesis from a state dump file, do not use this outside of genesis-tools");
     let mut state_file = home_dir.to_path_buf();
     state_file.push(STATE_DUMP_FILE);
     store.load_state_from_file(state_file.as_path()).expect("Failed to read state dump");
@@ -109,8 +101,8 @@ fn genesis_state_from_genesis(
         GenesisContents::Records { records } => {
             tracing::info!(
                 target: "runtime",
-                "genesis state has {} records, computing state roots",
-                records.0.len(),
+                num_records = records.0.len(),
+                "genesis state has records, computing state roots"
             )
         }
         GenesisContents::RecordsFile { records_file } => {
@@ -151,7 +143,6 @@ fn genesis_state_from_genesis(
     let tries = ShardTries::new(
         store.trie_store(),
         TrieConfig::default(),
-        &shard_uids,
         FlatStorageManager::new(store.flat_store()),
         StateSnapshotConfig::Disabled,
     );

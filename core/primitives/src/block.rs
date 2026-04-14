@@ -3,7 +3,7 @@ use crate::block::BlockValidityError::{
     InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot, InvalidStateRoot,
     InvalidTransactionRoot,
 };
-use crate::block_body::SpiceCoreStatement;
+use crate::block_body::SpiceCoreStatements;
 use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures};
 pub use crate::block_header::*;
 use crate::challenge::Challenge;
@@ -14,7 +14,9 @@ use crate::num_rational::Rational32;
 #[cfg(feature = "clock")]
 use crate::optimistic_block::OptimisticBlock;
 use crate::sharding::{ChunkHashHeight, ShardChunkHeader, ShardChunkHeaderV1};
-use crate::types::{Balance, BlockHeight, EpochId, Gas};
+#[cfg(feature = "clock")]
+use crate::types::AccountId;
+use crate::types::{Balance, BlockExecutionResults, BlockHeight, EpochId, Gas};
 #[cfg(feature = "clock")]
 use crate::{
     stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap,
@@ -24,6 +26,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 #[cfg(feature = "clock")]
 use near_primitives_core::types::ProtocolVersion;
+#[cfg(feature = "clock")]
+use near_primitives_core::types::ShardId;
 use near_schema_checker_lib::ProtocolSchema;
 use primitive_types::U256;
 use std::collections::BTreeMap;
@@ -94,15 +98,16 @@ impl Block {
         // We should not expect BlockV4 to have BlockBodyV1
         match body {
             BlockBody::V1(_) => {
-                panic!("Attempted to include BlockBodyV1 in new protocol version")
+                panic!("attempted to include BlockBodyV1 in new protocol version")
             }
-            _ => Block::BlockV4(BlockV4 { header, body }),
+            BlockBody::V2(_) | BlockBody::V3(_) => Block::BlockV4(BlockV4 { header, body }),
         }
     }
 
     /// Produces new block from header of previous block, current state root and set of transactions.
     #[cfg(feature = "clock")]
     pub fn produce(
+        current_protocol_version: ProtocolVersion,
         latest_protocol_version: ProtocolVersion,
         prev: &BlockHeader,
         height: BlockHeight,
@@ -123,10 +128,10 @@ impl Block {
         clock: near_time::Clock,
         sandbox_delta_time: Option<near_time::Duration>,
         optimistic_block: Option<OptimisticBlock>,
-        // TODO(spice): Change type to Vec<SpiceCoreStatement> once spice feature is tied to
-        // protocol version. We use option for now to indicate whether spice feature is enabled to
-        // allow creating non-spice blocks for tests.
-        core_statements: Option<Vec<SpiceCoreStatement>>,
+        shard_split: Option<(ShardId, AccountId)>,
+        // TODO(spice): Once spice is released remove Option.
+        // Spice block is created IFF this is Some.
+        spice_info: Option<SpiceNewBlockProductionInfo>,
     ) -> Self {
         // Collect aggregate of validators and gas usage/limits from chunks.
 
@@ -138,23 +143,47 @@ impl Block {
         let mut gas_limit = Gas::ZERO;
         for chunk in &chunks {
             if chunk.height_included() == height {
-                prev_validator_proposals.extend(chunk.prev_validator_proposals());
                 gas_used = gas_used.checked_add(chunk.prev_gas_used()).unwrap();
-                gas_limit = gas_limit.checked_add(chunk.gas_limit()).unwrap();
+                if spice_info.is_none() {
+                    prev_validator_proposals.extend(chunk.prev_validator_proposals());
+                    gas_limit = gas_limit.checked_add(chunk.gas_limit()).unwrap();
+                }
                 balance_burnt = balance_burnt.checked_add(chunk.prev_balance_burnt()).unwrap();
                 chunk_mask.push(true);
             } else {
                 chunk_mask.push(false);
             }
         }
-        let next_gas_price = Self::compute_next_gas_price(
+        if let Some(ref spice_info) = spice_info {
+            prev_validator_proposals.extend(
+                spice_info.core_statements.iter_execution_results().flat_map(
+                    |(_chunk_id, execution_result)| {
+                        execution_result.chunk_extra.validator_proposals()
+                    },
+                ),
+            );
+        }
+
+        // TODO(spice): Use gas_used and other relevant fields from spice_info last
+        // certified block execution results.
+        if let Some(ref spice_info) = spice_info {
+            for (_shard_id, execution_result) in
+                &spice_info.last_certified_block_execution_results.0
+            {
+                gas_limit =
+                    gas_limit.checked_add(execution_result.chunk_extra.gas_limit()).unwrap();
+            }
+        }
+
+        let next_gas_price = Self::compute_next_gas_price_checked(
             prev.next_gas_price(),
             gas_used,
             gas_limit,
             gas_price_adjustment_rate,
             min_gas_price,
             max_gas_price,
-        );
+        )
+        .unwrap();
 
         let new_total_supply = prev
             .total_supply()
@@ -167,7 +196,7 @@ impl Block {
         let (time, vrf_value, vrf_proof, random_value) = optimistic_block
             .as_ref()
             .map(|ob| {
-                tracing::debug!(target: "client", "Taking metadata from optimistic block");
+                tracing::debug!(target: "client", "taking metadata from optimistic block");
                 (
                     ob.inner.block_timestamp,
                     ob.inner.vrf_value,
@@ -183,12 +212,7 @@ impl Block {
         let last_ds_final_block =
             if height == prev.height() + 1 { prev.hash() } else { prev.last_ds_final_block() };
 
-        let last_final_block =
-            if height == prev.height() + 1 && prev.last_ds_final_block() == prev.prev_hash() {
-                prev.prev_hash()
-            } else {
-                prev.last_final_block()
-            };
+        let last_final_block = prev.last_final_block_for_height(height);
 
         match prev {
             BlockHeader::BlockHeaderV1(_) | BlockHeader::BlockHeaderV2(_) => {
@@ -196,7 +220,8 @@ impl Block {
             }
             BlockHeader::BlockHeaderV3(_)
             | BlockHeader::BlockHeaderV4(_)
-            | BlockHeader::BlockHeaderV5(_) => {
+            | BlockHeader::BlockHeaderV5(_)
+            | BlockHeader::BlockHeaderV6(_) => {
                 debug_assert_eq!(prev.block_ordinal() + 1, block_ordinal)
             }
         };
@@ -218,7 +243,7 @@ impl Block {
         ));
 
         let chunks_wrapper = Chunks::from_chunk_headers(&chunks, height);
-        let prev_state_root = if cfg!(feature = "protocol_feature_spice") {
+        let prev_state_root = if spice_info.is_some() {
             // TODO(spice): include state root from the relevant previous executed block.
             CryptoHash::default()
         } else {
@@ -230,13 +255,14 @@ impl Block {
         let chunk_tx_root = chunks_wrapper.compute_chunk_tx_root();
         let outcome_root = chunks_wrapper.compute_outcome_root();
 
-        let body = if let Some(core_statements) = core_statements {
-            BlockBody::new_for_spice(chunks, vrf_value, vrf_proof, core_statements)
+        let body = if let Some(spice_info) = spice_info {
+            BlockBody::new_for_spice(chunks, vrf_value, vrf_proof, spice_info.core_statements)
         } else {
             BlockBody::new(chunks, vrf_value, vrf_proof, chunk_endorsements)
         };
 
         let header = BlockHeader::new(
+            current_protocol_version,
             latest_protocol_version,
             height,
             *prev.hash(),
@@ -264,53 +290,95 @@ impl Block {
             block_merkle_root,
             prev.height(),
             chunk_endorsements_bitmap,
+            shard_split,
         );
 
         Self::new_block(header, body)
     }
 
+    #[deprecated(note = "use `verify_total_supply_checked` to avoid overflow panic")]
     pub fn verify_total_supply(
         &self,
         prev_total_supply: Balance,
         minted_amount: Option<Balance>,
     ) -> bool {
+        self.verify_total_supply_checked(prev_total_supply, minted_amount).unwrap()
+    }
+
+    pub fn verify_total_supply_checked(
+        &self,
+        prev_total_supply: Balance,
+        minted_amount: Option<Balance>,
+    ) -> Option<bool> {
         let mut balance_burnt = Balance::ZERO;
 
         for chunk in self.chunks().iter_new() {
-            balance_burnt = balance_burnt.checked_add(chunk.prev_balance_burnt()).unwrap();
+            balance_burnt = balance_burnt.checked_add(chunk.prev_balance_burnt())?;
         }
 
-        let new_total_supply = prev_total_supply
-            .checked_add(minted_amount.unwrap_or(Balance::ZERO))
-            .unwrap()
+        let Some(new_total_supply) = prev_total_supply
+            .checked_add(minted_amount.unwrap_or(Balance::ZERO))?
             .checked_sub(balance_burnt)
-            .unwrap();
-        self.header().total_supply() == new_total_supply
+        else {
+            // This corresponds to balance_burnt > prev_total_supply + minted_amount
+            // which indicates invalid balance burnt, not arithmetic overflow
+            return Some(false);
+        };
+        Some(self.header().total_supply() == new_total_supply)
     }
 
+    #[deprecated(note = "use `verify_gas_price_checked` to avoid overflow panic")]
     pub fn verify_gas_price(
         &self,
         gas_price: Balance,
         min_gas_price: Balance,
         max_gas_price: Balance,
         gas_price_adjustment_rate: Rational32,
+        // TODO(spice): Once spice v1 is released remove Option.
+        last_certified_block_execution_results: Option<&BlockExecutionResults>,
     ) -> bool {
-        let gas_used = self.chunks().compute_gas_used();
-        let gas_limit = self.chunks().compute_gas_limit();
-        let expected_price = Self::compute_next_gas_price(
+        self.verify_gas_price_checked(
+            gas_price,
+            min_gas_price,
+            max_gas_price,
+            gas_price_adjustment_rate,
+            last_certified_block_execution_results,
+        )
+        .unwrap()
+    }
+
+    pub fn verify_gas_price_checked(
+        &self,
+        gas_price: Balance,
+        min_gas_price: Balance,
+        max_gas_price: Balance,
+        gas_price_adjustment_rate: Rational32,
+        // TODO(spice): Once spice v1 is released remove Option.
+        last_certified_block_execution_results: Option<&BlockExecutionResults>,
+    ) -> Option<bool> {
+        let gas_used = self.chunks().compute_gas_used_checked()?;
+        let gas_limit = if let Some(last_certified_block_execution_results) =
+            last_certified_block_execution_results
+        {
+            last_certified_block_execution_results.compute_gas_limit_checked()?
+        } else {
+            self.chunks().compute_gas_limit_checked()?
+        };
+        let expected_price = Self::compute_next_gas_price_checked(
             gas_price,
             gas_used,
             gas_limit,
             gas_price_adjustment_rate,
             min_gas_price,
             max_gas_price,
-        );
-        self.header().next_gas_price() == expected_price
+        )?;
+        Some(self.header().next_gas_price() == expected_price)
     }
 
     /// Computes gas price for applying chunks in the next block according to the formula:
     ///   next_gas_price = gas_price * (1 + (gas_used/gas_limit - 1/2) * adjustment_rate)
     /// and clamped between min_gas_price and max_gas_price.
+    #[deprecated(note = "use `compute_next_gas_price_checked` to avoid overflow panic")]
     pub fn compute_next_gas_price(
         gas_price: Balance,
         gas_used: Gas,
@@ -319,9 +387,28 @@ impl Block {
         min_gas_price: Balance,
         max_gas_price: Balance,
     ) -> Balance {
+        Self::compute_next_gas_price_checked(
+            gas_price,
+            gas_used,
+            gas_limit,
+            gas_price_adjustment_rate,
+            min_gas_price,
+            max_gas_price,
+        )
+        .unwrap()
+    }
+
+    pub fn compute_next_gas_price_checked(
+        gas_price: Balance,
+        gas_used: Gas,
+        gas_limit: Gas,
+        gas_price_adjustment_rate: Rational32,
+        min_gas_price: Balance,
+        max_gas_price: Balance,
+    ) -> Option<Balance> {
         // If block was skipped, the price does not change.
         if gas_limit == Gas::ZERO {
-            return gas_price;
+            return Some(gas_price);
         }
 
         let gas_used = u128::from(gas_used.as_gas());
@@ -331,21 +418,23 @@ impl Block {
 
         // This number can never be negative as long as gas_used <= gas_limit and
         // adjustment_rate_numer <= adjustment_rate_denom.
-        let numerator = 2 * adjustment_rate_denom * gas_limit
-            + 2 * adjustment_rate_numer * gas_used
-            - adjustment_rate_numer * gas_limit;
-        let denominator = 2 * adjustment_rate_denom * gas_limit;
+        let numerator = 2u128
+            .checked_mul(adjustment_rate_denom)?
+            .checked_mul(gas_limit)?
+            .checked_add(2u128.checked_mul(adjustment_rate_numer)?.checked_mul(gas_used)?)?
+            .checked_sub(adjustment_rate_numer.checked_mul(gas_limit)?)?;
+        let denominator = 2u128.checked_mul(adjustment_rate_denom)?.checked_mul(gas_limit)?;
         let next_gas_price =
             U256::from(gas_price.as_yoctonear()) * U256::from(numerator) / U256::from(denominator);
 
-        Balance::from_yoctonear(
+        Some(Balance::from_yoctonear(
             next_gas_price
                 .clamp(
                     U256::from(min_gas_price.as_yoctonear()),
                     U256::from(max_gas_price.as_yoctonear()),
                 )
                 .as_u128(),
-        )
+        ))
     }
 
     pub fn validate_chunk_header_proof(
@@ -403,9 +492,11 @@ impl Block {
     }
 
     #[inline]
-    pub fn spice_core_statements(&self) -> &[SpiceCoreStatement] {
+    pub fn spice_core_statements(&self) -> &SpiceCoreStatements {
         match self {
-            Block::BlockV1(_) | Block::BlockV2(_) | Block::BlockV3(_) => &[],
+            Block::BlockV1(_) | Block::BlockV2(_) | Block::BlockV3(_) => {
+                SpiceCoreStatements::empty()
+            }
             Block::BlockV4(block) => block.body.spice_core_statements(),
         }
     }
@@ -445,7 +536,7 @@ impl Block {
         // With spice chunks wouldn't contain prev_state_roots.
         // TODO(spice): check that block's state_root matches state_root corresponding to chunks of
         // the appropriate executed block from the past.
-        if !cfg!(feature = "protocol_feature_spice") {
+        if !self.is_spice_block() {
             let state_root = self.chunks().compute_state_root();
             if self.header().prev_state_root() != &state_root {
                 return Err(InvalidStateRoot);
@@ -484,6 +575,11 @@ impl Block {
 
         Ok(())
     }
+}
+
+pub struct SpiceNewBlockProductionInfo {
+    pub core_statements: SpiceCoreStatements,
+    pub last_certified_block_execution_results: BlockExecutionResults,
 }
 
 /// Distinguishes between new and old chunks.
@@ -661,13 +757,22 @@ impl<'a> Chunks<'a> {
         merklize(&self.iter().map(|chunk| *chunk.prev_outcome_root()).collect_vec()).0
     }
 
+    #[deprecated(note = "use `compute_gas_used_checked` to avoid overflow panic")]
     pub fn compute_gas_used(&self) -> Gas {
-        self.iter_new()
-            .fold(Gas::ZERO, |acc, chunk| acc.checked_add(chunk.prev_gas_used()).unwrap())
+        self.compute_gas_used_checked().unwrap()
     }
 
+    pub fn compute_gas_used_checked(&self) -> Option<Gas> {
+        self.iter_new().try_fold(Gas::ZERO, |acc, chunk| acc.checked_add(chunk.prev_gas_used()))
+    }
+
+    #[deprecated(note = "use `compute_gas_limit_checked` to avoid overflow panic")]
     pub fn compute_gas_limit(&self) -> Gas {
-        self.iter_new().fold(Gas::ZERO, |acc, chunk| acc.checked_add(chunk.gas_limit()).unwrap())
+        self.compute_gas_limit_checked().unwrap()
+    }
+
+    pub fn compute_gas_limit_checked(&self) -> Option<Gas> {
+        self.iter_new().try_fold(Gas::ZERO, |acc, chunk| acc.checked_add(chunk.gas_limit()))
     }
 }
 

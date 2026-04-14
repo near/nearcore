@@ -1,6 +1,5 @@
-use near_async::messaging::Sender;
-
 use super::event_type::ReshardingSplitShardParams;
+use near_async::messaging::Sender;
 
 /// Request to schedule a resharding task. The resharding actor will wait till the resharding
 /// block is finalized before starting resharding.

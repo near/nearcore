@@ -1,25 +1,22 @@
+use crate::block_iterators::{
+    CommandArgs, LastNBlocksIterator, make_block_iterator_from_command_args,
+};
 use clap::Parser;
-use near_store::adapter::StoreAdapter;
-use near_store::flat::FlatStorageManager;
-use near_store::{ShardTries, StateSnapshotConfig, TrieConfig, get_delayed_receipt_indices};
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::rc::Rc;
-
 use near_chain::ChainStore;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
-use nearcore::config::load_config;
-
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::BlockHeight;
-
-use crate::block_iterators::{
-    CommandArgs, LastNBlocksIterator, make_block_iterator_from_command_args,
-};
+use near_store::adapter::StoreAdapter;
+use near_store::flat::FlatStorageManager;
+use near_store::{ShardTries, StateSnapshotConfig, TrieConfig, get_delayed_receipt_indices};
+use nearcore::config::load_config;
 use nearcore::open_storage;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::rc::Rc;
 
 /// Analyze delayed receipts in a piece of history of the blockchain to understand congestion of each shard
 #[derive(Parser)]
@@ -56,11 +53,9 @@ impl AnalyzeDelayedReceiptCommand {
 
         let tip = chain_store.head().unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
-        let shard_uids = shard_layout.shard_uids().collect::<Vec<_>>();
         let shard_tries = ShardTries::new(
             store.trie_store(),
             TrieConfig::default(),
-            &shard_uids,
             FlatStorageManager::new(store.flat_store()),
             StateSnapshotConfig::Disabled,
         );

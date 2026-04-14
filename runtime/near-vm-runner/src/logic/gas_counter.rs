@@ -2,7 +2,7 @@ use super::dependencies::StorageAccessTracker;
 use super::dependencies::sealed::StorageAccessTrackerSeal;
 use super::errors::{HostError, VMLogicError};
 use crate::ProfileDataV3;
-use near_parameters::{ActionCosts, ExtCosts, ExtCostsConfig};
+use near_parameters::{ActionCosts, ExtCosts, ExtCostsConfig, GasKeyAddFee};
 use near_primitives_core::types::Gas;
 use std::collections::HashMap;
 
@@ -330,6 +330,25 @@ impl GasCounter {
             Gas::from_gas(self.fast_counter.burnt_gas.saturating_sub(old_burnt_gas)),
         );
         deduct_gas_result
+    }
+
+    /// Pay the gas key fees for an add_key action, split into two cost categories:
+    /// - `gas_key_nonce_write_base`: exec-only fee for writing nonce trie entries
+    /// - `gas_key_byte`: send fee for serialized GasKeyInfo + exec fee for nonce key/value bytes
+    pub(crate) fn pay_gas_key_add_key_fees(
+        &mut self,
+        send_fee: Gas,
+        exec_fee: &GasKeyAddFee,
+    ) -> Result<()> {
+        self.pay_action_accumulated(
+            Gas::ZERO,
+            exec_fee.base,
+            ActionCosts::gas_key_nonce_write_base,
+        )?;
+        let burn_gas = send_fee;
+        let use_gas = burn_gas.checked_add(exec_fee.per_byte).ok_or(HostError::IntegerOverflow)?;
+        self.pay_action_accumulated(burn_gas, use_gas, ActionCosts::gas_key_byte)?;
+        Ok(())
     }
 
     pub(crate) fn prepay_gas(&mut self, use_gas: Gas) -> Result<()> {

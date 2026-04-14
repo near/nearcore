@@ -328,12 +328,63 @@ pub enum ProtocolFeature {
     IncreaseMaxCongestionMissedChunks,
 
     Wasmtime,
-    SaturatingFloatToInt,
-    ChunkPartChecks,
+    #[deprecated]
+    _DeprecatedSaturatingFloatToInt,
+    #[deprecated]
+    _DeprecatedChunkPartChecks,
     StatePartsCompression,
     /// NEP: https://github.com/near/NEPs/pull/616
     DeterministicAccountIds,
     InvalidTxGenerateOutcomes,
+    DynamicResharding,
+    GasKeys,
+    /// Fix access key allowance mutation in verify_and_charge_tx_ephemeral.
+    /// Previously, the allowance was decremented in-place before later checks
+    /// (storage stake, function call permission) that could return an error,
+    /// violating the documented contract of no mutation on error.
+    FixAccessKeyAllowanceCharging,
+    /// Fix missing early return on DepositWithFunctionCall error path in
+    /// validate_delegate_action_key. Previously the error could be
+    /// overwritten by a subsequent receiver_id or method_name check.
+    FixDelegateActionDepositWithFunctionCallError,
+    Spice,
+    ContinuousEpochSync,
+    /// Apply PromiseYield receipts immediately after emitting them. Allows to perform the resume
+    /// sooner, without waiting for the PromiseYield receipt to pass through outgoing receipts.
+    InstantPromiseYield,
+    /// Improve functionality of Yield/Resume. Keep the current status of yielded receipt in the
+    /// trie state. Allows to call yield and resume in two actions within the same transaction.
+    /// Keeping the status in the state could allow to query it from contracts.
+    YieldResumeImprovements,
+    /// Includes tokens burnt as part of global contract deploys into corresponding
+    /// execution outcome's `tokens_burnt`.
+    IncludeDeployGlobalContractOutcomeBurntStorage,
+    /// Fix deterministic account ID creation to allow creation by any incoming transfer
+    /// (unless it's a refund) and fix `account_is_implicit()` to correctly check if
+    /// deterministic account IDs are enabled.
+    /// NEP: https://github.com/near/NEPs/pull/616
+    FixDeterministicAccountIdCreation,
+    /// Nonce-based idempotency for global contract distribution receipts. Each
+    /// distribution carries an auto-incremented nonce. Any distribution receipt
+    /// with a nonce less than the one already stored will be dropped. This
+    /// prevents race conditions in the case of multiple distribution attempts
+    /// for the same contract.
+    GlobalContractDistributionNonce,
+    /// Use global contract for ETH implicit accounts instead of embedded WASM.
+    EthImplicitGlobalContract,
+    /// Process action receipts containing a single DeleteAccount action as
+    /// instant receipts, executing them immediately after the receipt that
+    /// produced them rather than sending them as outgoing receipts.
+    InstantDeleteAccount,
+    /// Opt-in strict nonce mode for transactions. When enabled, TransactionV1
+    /// can carry `NonceMode::Strict` which requires `tx_nonce == ak_nonce + 1`
+    /// (sequential ordering). Transactions with a nonce gap are held in the
+    /// pool rather than discarded.
+    StrictNonce,
+    /// Pre-compute and persist chunk producer assignments in `DBCol::ChunkProducers`
+    /// during header sync and block processing. Foundation for early chunk producer
+    /// kickout without epoch manager recomputation.
+    EarlyKickout,
 }
 
 impl ProtocolFeature {
@@ -427,25 +478,43 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedProduceOptimisticBlock => 77,
             ProtocolFeature::_DeprecatedSimpleNightshadeV6
             | ProtocolFeature::_DeprecatedVersionedStateWitness
-            | ProtocolFeature::ChunkPartChecks
-            | ProtocolFeature::SaturatingFloatToInt
+            | ProtocolFeature::_DeprecatedChunkPartChecks
+            | ProtocolFeature::_DeprecatedSaturatingFloatToInt
             | ProtocolFeature::_DeprecatedReducedGasRefunds => 78,
             ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
             ProtocolFeature::StatePartsCompression | ProtocolFeature::DeterministicAccountIds => 82,
-            ProtocolFeature::Wasmtime => 83,
+            ProtocolFeature::InvalidTxGenerateOutcomes
+            | ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen
+            | ProtocolFeature::FixAccessKeyAllowanceCharging
+            | ProtocolFeature::IncludeDeployGlobalContractOutcomeBurntStorage
+            | ProtocolFeature::FixDeterministicAccountIdCreation
+            | ProtocolFeature::GlobalContractDistributionNonce
+            | ProtocolFeature::InstantPromiseYield
+            | ProtocolFeature::YieldResumeImprovements
+            | ProtocolFeature::EthImplicitGlobalContract
+            | ProtocolFeature::InstantDeleteAccount => 83,
+            ProtocolFeature::Wasmtime => 84,
+            ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
+            | ProtocolFeature::ContinuousEpochSync => 85,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
-            ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
-            ProtocolFeature::InvalidTxGenerateOutcomes => 151,
+            ProtocolFeature::GasKeys => 149,
+            ProtocolFeature::DynamicResharding => 150,
+            ProtocolFeature::StrictNonce => 151,
+            ProtocolFeature::EarlyKickout => 152,
+
+            // Spice is setup to include nightly, but not be part of it for now so that features
+            // that are released before spice can be tested properly.
+            ProtocolFeature::Spice => 180,
             // Place features that are not yet in Nightly below this line.
         }
     }
 
-    pub fn enabled(&self, protocol_version: ProtocolVersion) -> bool {
+    pub const fn enabled(&self, protocol_version: ProtocolVersion) -> bool {
         protocol_version >= self.protocol_version()
     }
 }
@@ -457,11 +526,22 @@ pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 80;
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 83;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 85;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 151;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 152;
+
+// TODO(spice): Once spice is mature and close to release make it part of nightly - at the point in
+// time cargo feature for spice should be removed as well.
+// For spice we want to include all nightly features, but for now we don't want nightly to run with
+// spice.
+const SPICE_PROTOCOL_VERSION: ProtocolVersion = 200;
 
 /// Largest protocol version supported by the current binary.
-pub const PROTOCOL_VERSION: ProtocolVersion =
-    if cfg!(feature = "nightly") { NIGHTLY_PROTOCOL_VERSION } else { STABLE_PROTOCOL_VERSION };
+pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "protocol_feature_spice") {
+    SPICE_PROTOCOL_VERSION
+} else if cfg!(feature = "nightly") {
+    NIGHTLY_PROTOCOL_VERSION
+} else {
+    STABLE_PROTOCOL_VERSION
+};

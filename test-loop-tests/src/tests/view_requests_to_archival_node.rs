@@ -1,5 +1,6 @@
-use std::collections::{HashMap, HashSet};
-
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::state::NodeExecutionData;
+use crate::utils::transactions::execute_money_transfers_with_delay;
 use itertools::Itertools;
 use near_async::messaging::Handler;
 use near_async::test_loop::TestLoopV2;
@@ -9,7 +10,7 @@ use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::{
     GetBlock, GetChunk, GetExecutionOutcomesForBlock, GetProtocolConfig, GetShardChunk,
     GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
-    ViewClientActorInner,
+    ViewClientActor,
 };
 use near_network::client::BlockHeadersRequest;
 use near_o11y::testonly::init_test_logger;
@@ -24,11 +25,7 @@ use near_primitives::views::{
     BlockView, ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
     StateChangeCauseView, StateChangeKindView, StateChangeValueView, StateChangesRequestView,
 };
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::env::TestLoopEnv;
-use crate::setup::state::NodeExecutionData;
-use crate::utils::transactions::execute_money_transfers_with_delay;
+use std::collections::HashMap;
 
 const NUM_VALIDATORS: usize = 2;
 const NUM_ACCOUNTS: usize = 20;
@@ -45,6 +42,8 @@ const NUM_SHARDS: usize = 4;
 /// The goal is to exercise the codepath that answers the requests, rather than checking
 /// it returns a fully correct response.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_view_requests_to_archival_node() {
     init_test_logger();
     let builder = TestLoopBuilder::new();
@@ -60,8 +59,7 @@ fn slow_test_view_requests_to_archival_node() {
     let all_clients: Vec<AccountId> =
         accounts.iter().take(NUM_VALIDATORS + 1).cloned().collect_vec();
     // Contains the account of the non-validator archival node.
-    let archival_clients: HashSet<AccountId> =
-        vec![all_clients[NUM_VALIDATORS].clone()].into_iter().collect();
+    let archival_clients: Vec<AccountId> = vec![all_clients[NUM_VALIDATORS].clone()];
     let boundary_accounts =
         ["account3", "account5", "account7"].iter().map(|a| a.parse().unwrap()).collect();
     let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
@@ -73,26 +71,25 @@ fn slow_test_view_requests_to_archival_node() {
         .genesis_height(GENESIS_HEIGHT)
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder
+    let mut env = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(all_clients)
         .cold_storage_archival_clients(archival_clients)
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
-        .build()
-        .warmup();
+        .build();
 
     let non_validator_accounts = accounts.iter().skip(NUM_VALIDATORS).cloned().collect_vec();
-    let client_handle = node_datas[ARCHIVAL_CLIENT].client_sender.actor_handle();
-    let client = &test_loop.data.get(&client_handle).client;
+    let client_handle = env.node_datas[ARCHIVAL_CLIENT].client_sender.actor_handle();
+    let client = &env.test_loop.data.get(&client_handle).client;
     let transaction_delay = if client.config.enable_early_prepare_transactions {
         Duration::milliseconds(100)
     } else {
         Duration::milliseconds(300)
     };
     execute_money_transfers_with_delay(
-        &mut test_loop,
-        &node_datas,
+        &mut env.test_loop,
+        &env.node_datas,
         &non_validator_accounts,
         transaction_delay,
     )
@@ -100,7 +97,7 @@ fn slow_test_view_requests_to_archival_node() {
 
     // Run the chain until it garbage collects blocks from the first epoch.
     let target_height: u64 = EPOCH_LENGTH * (GC_NUM_EPOCHS_TO_KEEP + 2) + 6;
-    test_loop.run_until(
+    env.test_loop.run_until(
         |test_loop_data| {
             let chain = &test_loop_data.get(&client_handle).client.chain;
             chain.head().unwrap().height >= target_height
@@ -108,18 +105,15 @@ fn slow_test_view_requests_to_archival_node() {
         Duration::seconds(target_height as i64),
     );
 
-    let mut view_client_tester = ViewClientTester::new(&mut test_loop, &node_datas);
+    let mut view_client_tester = ViewClientTester::new(&mut env.test_loop, &env.node_datas);
     view_client_tester.run_tests(&shard_layout);
-
-    TestLoopEnv { test_loop, node_datas, shared_state }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 struct ViewClientTester<'a> {
     test_loop: &'a mut TestLoopV2,
     /// List of data handles to the view client senders for sending the requests.
     /// Used to locate the right view client to send a request (by index).
-    handles: Vec<TestLoopDataHandle<ViewClientActorInner>>,
+    handles: Vec<TestLoopDataHandle<ViewClientActor>>,
     /// Cache of block height to Blocks (as they are called in multiple checks).
     block_cache: HashMap<BlockHeight, BlockView>,
 }
@@ -142,7 +136,7 @@ impl<'a> ViewClientTester<'a> {
     where
         M: Send + 'static,
         R: Send,
-        ViewClientActorInner: Handler<M, R>,
+        ViewClientActor: Handler<M, R>,
     {
         let view_client = self.test_loop.data.get_mut(&self.handles[idx]);
         view_client.handle(request)

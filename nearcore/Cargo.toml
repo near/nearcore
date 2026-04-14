@@ -25,6 +25,7 @@ num-rational.workspace = true
 parking_lot.workspace = true
 rand.workspace = true
 reqwest.workspace = true
+rocksdb.workspace = true
 serde.workspace = true
 serde_ignored.workspace = true
 serde_json.workspace = true
@@ -51,17 +52,18 @@ near-jsonrpc-primitives = { workspace = true, optional = true }
 near-mainnet-res.workspace = true
 near-network.workspace = true
 near-o11y.workspace = true
-near-performance-metrics.workspace = true
 near-pool.workspace = true
 near-parameters.workspace = true
 near-primitives.workspace = true
 near-rosetta-rpc = { workspace = true, optional = true }
 near-store.workspace = true
 near-telemetry.workspace = true
+near-rpc-probe = { workspace = true, optional = true }
 near-transactions-generator = { workspace = true, optional = true }
 near-vm-runner.workspace = true
 node-runtime.workspace = true
 near-config-utils.workspace = true
+near-chain-primitives.workspace = true
 
 [dev-dependencies]
 near-time.workspace = true
@@ -92,10 +94,6 @@ harness = false
 [features]
 default = ["json_rpc", "rosetta_rpc"]
 
-performance_stats = [
-    "near-performance-metrics/performance_stats",
-]
-c_memory_stats = ["near-performance-metrics/c_memory_stats"]
 test_features = [
     "near-client/test_features",
     "near-network/test_features",
@@ -146,6 +144,7 @@ sandbox = [
 io_trace = ["node-runtime/io_trace"]
 
 calimero_zero_storage = ["near-primitives/calimero_zero_storage"]
+rpc_probe = ["near-rpc-probe"]
 tx_generator = ["near-transactions-generator"]
 actor_instrumentation_testing = ["near-async/actor_instrumentation_testing"]
 
@@ -153,7 +152,6 @@ actor_instrumentation_testing = ["near-async/actor_instrumentation_testing"]
 ignored = [
     "near-client-primitives",
     "near-parameters",
-    "near-performance-metrics",
     "near-pool",
     "node-runtime",
 ]

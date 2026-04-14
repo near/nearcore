@@ -13,18 +13,24 @@ use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
-    TransactionV0, TransactionV1, TransferAction,
+    DeployContractAction, FunctionCallAction, NonceMode, SignedTransaction, StakeAction,
+    Transaction, TransactionNonce, TransactionV0, TransactionV1, TransferAction,
 };
+#[cfg(feature = "clock")]
+use crate::types::chunk_extra::ChunkExtra;
 use crate::types::validator_stake::ValidatorStake;
-use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
+use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce, ShardId};
+#[cfg(feature = "clock")]
+use crate::types::{BlockExecutionResults, ChunkExecutionResult, StateRoot};
 use crate::validator_signer::ValidatorSigner;
 use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
+use itertools::Itertools;
 use near_crypto::vrf::Value;
 use near_crypto::{EmptySigner, PublicKey, SecretKey, Signature, Signer};
 use near_primitives_core::account::AccountContract;
 use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives_core::types::{BlockHeight, MerkleHash, ProtocolVersion};
+use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use std::collections::HashMap;
 #[cfg(feature = "clock")]
 use std::sync::Arc;
@@ -62,16 +68,15 @@ impl Transaction {
         receiver_id: AccountId,
         nonce: Nonce,
         block_hash: CryptoHash,
-        priority_fee: u64,
     ) -> Self {
         Transaction::V1(TransactionV1 {
             signer_id,
             public_key,
-            nonce,
+            nonce: TransactionNonce::from_nonce(nonce),
             receiver_id,
             block_hash,
             actions: vec![],
-            priority_fee,
+            nonce_mode: NonceMode::Monotonic,
         })
     }
 
@@ -85,7 +90,10 @@ impl Transaction {
     pub fn nonce_mut(&mut self) -> &mut Nonce {
         match self {
             Transaction::V0(tx) => &mut tx.nonce,
-            Transaction::V1(tx) => &mut tx.nonce,
+            Transaction::V1(tx) => match &mut tx.nonce {
+                TransactionNonce::Nonce { nonce } => nonce,
+                TransactionNonce::GasKeyNonce { nonce_index: _, nonce } => nonce,
+            },
         }
     }
 
@@ -156,7 +164,6 @@ impl SignedTransaction {
         signer: &Signer,
         actions: Vec<Action>,
         block_hash: CryptoHash,
-        _priority_fee: u64,
     ) -> Self {
         Transaction::V0(TransactionV0 {
             nonce,
@@ -169,15 +176,13 @@ impl SignedTransaction {
         .sign(signer)
     }
 
-    /// Explicitly create v1 transaction to test in cases where errors are expected.
     pub fn from_actions_v1(
-        nonce: Nonce,
+        nonce: TransactionNonce,
         signer_id: AccountId,
         receiver_id: AccountId,
         signer: &Signer,
         actions: Vec<Action>,
         block_hash: CryptoHash,
-        priority_fee: u64,
     ) -> Self {
         Transaction::V1(TransactionV1 {
             nonce,
@@ -186,7 +191,27 @@ impl SignedTransaction {
             receiver_id,
             block_hash,
             actions,
-            priority_fee,
+            nonce_mode: NonceMode::Monotonic,
+        })
+        .sign(signer)
+    }
+
+    pub fn from_actions_v1_strict(
+        nonce: TransactionNonce,
+        signer_id: AccountId,
+        receiver_id: AccountId,
+        signer: &Signer,
+        actions: Vec<Action>,
+        block_hash: CryptoHash,
+    ) -> Self {
+        Transaction::V1(TransactionV1 {
+            nonce,
+            signer_id,
+            public_key: signer.public_key(),
+            receiver_id,
+            block_hash,
+            actions,
+            nonce_mode: NonceMode::Strict,
         })
         .sign(signer)
     }
@@ -206,7 +231,24 @@ impl SignedTransaction {
             signer,
             vec![Action::Transfer(TransferAction { deposit })],
             block_hash,
-            0,
+        )
+    }
+
+    pub fn send_money_v1(
+        nonce: TransactionNonce,
+        signer_id: AccountId,
+        receiver_id: AccountId,
+        signer: &Signer,
+        deposit: Balance,
+        block_hash: CryptoHash,
+    ) -> Self {
+        Self::from_actions_v1(
+            nonce,
+            signer_id,
+            receiver_id,
+            signer,
+            vec![Action::Transfer(TransferAction { deposit })],
+            block_hash,
         )
     }
 
@@ -225,7 +267,6 @@ impl SignedTransaction {
             signer,
             vec![Action::Stake(Box::new(StakeAction { stake, public_key }))],
             block_hash,
-            0,
         )
     }
 
@@ -252,7 +293,6 @@ impl SignedTransaction {
                 Action::Transfer(TransferAction { deposit: amount }),
             ],
             block_hash,
-            0,
         )
     }
 
@@ -272,7 +312,6 @@ impl SignedTransaction {
             signer,
             vec![Action::DeployContract(DeployContractAction { code })],
             block_hash,
-            0,
         )
     }
 
@@ -296,7 +335,6 @@ impl SignedTransaction {
                 deploy_mode,
             })],
             block_hash,
-            0,
         )
     }
 
@@ -318,7 +356,6 @@ impl SignedTransaction {
                 contract_identifier,
             }))],
             block_hash,
-            0,
         )
     }
 
@@ -347,7 +384,6 @@ impl SignedTransaction {
                 Action::DeployContract(DeployContractAction { code }),
             ],
             block_hash,
-            0,
         )
     }
 
@@ -374,7 +410,6 @@ impl SignedTransaction {
                 deposit,
             }))],
             block_hash,
-            0,
         )
     }
 
@@ -393,7 +428,6 @@ impl SignedTransaction {
             signer,
             vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })],
             block_hash,
-            0,
         )
     }
 
@@ -405,7 +439,6 @@ impl SignedTransaction {
             &EmptySigner::new().into(),
             vec![],
             block_hash,
-            0,
         )
     }
 
@@ -424,7 +457,6 @@ impl SignedTransaction {
             signer,
             vec![Action::AddKey(Box::new(AddKeyAction { public_key, access_key }))],
             block_hash,
-            0,
         )
     }
 
@@ -447,7 +479,6 @@ impl SignedTransaction {
                 deposit,
             }))],
             block_hash,
-            0,
         )
     }
 }
@@ -468,6 +499,9 @@ impl BlockHeader {
                 header.inner_rest.latest_protocol_version = latest_protocol_version;
             }
             BlockHeader::BlockHeaderV5(header) => {
+                header.inner_rest.latest_protocol_version = latest_protocol_version;
+            }
+            BlockHeader::BlockHeaderV6(header) => {
                 header.inner_rest.latest_protocol_version = latest_protocol_version;
             }
         }
@@ -501,6 +535,10 @@ impl BlockHeader {
                 header.hash = hash;
                 header.signature = signature;
             }
+            BlockHeader::BlockHeaderV6(header) => {
+                header.hash = hash;
+                header.signature = signature;
+            }
         }
     }
 
@@ -513,6 +551,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.init(),
             BlockHeader::BlockHeaderV5(header) => header.init(),
+            BlockHeader::BlockHeaderV6(header) => header.init(),
         }
     }
 
@@ -525,6 +564,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.prev_hash = value,
             BlockHeader::BlockHeaderV5(header) => header.prev_hash = value,
+            BlockHeader::BlockHeaderV6(header) => header.prev_hash = value,
         }
     }
 
@@ -537,6 +577,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.inner_lite.height = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_lite.height = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_lite.height = value,
         }
     }
 
@@ -549,6 +590,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.inner_lite.epoch_id = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_lite.epoch_id = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_lite.epoch_id = value,
         }
     }
 
@@ -561,6 +603,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.inner_lite.prev_state_root = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_lite.prev_state_root = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_lite.prev_state_root = value,
         }
     }
 
@@ -577,6 +620,9 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV5(header) => {
                 header.inner_rest.prev_chunk_outgoing_receipts_root = value
             }
+            BlockHeader::BlockHeaderV6(header) => {
+                header.inner_rest.prev_chunk_outgoing_receipts_root = value
+            }
         }
     }
 
@@ -589,6 +635,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.inner_rest.chunk_headers_root = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_rest.chunk_headers_root = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_rest.chunk_headers_root = value,
         }
     }
 
@@ -601,6 +648,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.inner_rest.chunk_tx_root = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_rest.chunk_tx_root = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_rest.chunk_tx_root = value,
         }
     }
 
@@ -613,6 +661,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.inner_rest.chunk_mask = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_rest.chunk_mask = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_rest.chunk_mask = value,
         }
     }
 
@@ -627,6 +676,20 @@ impl BlockHeader {
                 // BlockHeaderV4 can appear in tests but setting chunk endorsements will be no-op.
             }
             BlockHeader::BlockHeaderV5(header) => header.inner_rest.chunk_endorsements = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_rest.chunk_endorsements = value,
+        }
+    }
+
+    pub fn set_shard_split(&mut self, value: Option<(ShardId, AccountId)>) {
+        match self {
+            BlockHeader::BlockHeaderV1(_)
+            | BlockHeader::BlockHeaderV2(_)
+            | BlockHeader::BlockHeaderV3(_)
+            | BlockHeader::BlockHeaderV4(_)
+            | BlockHeader::BlockHeaderV5(_) => {
+                unreachable!("shard_split is only available in BlockHeaderV6")
+            }
+            BlockHeader::BlockHeaderV6(header) => header.inner_rest.shard_split = value,
         }
     }
 
@@ -639,6 +702,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.inner_lite.prev_outcome_root = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_lite.prev_outcome_root = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_lite.prev_outcome_root = value,
         }
     }
 
@@ -651,6 +715,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.inner_lite.timestamp = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_lite.timestamp = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_lite.timestamp = value,
         }
     }
 
@@ -667,6 +732,9 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV5(header) => {
                 header.inner_rest.prev_validator_proposals = value
             }
+            BlockHeader::BlockHeaderV6(header) => {
+                header.inner_rest.prev_validator_proposals = value
+            }
         }
     }
 
@@ -679,6 +747,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.inner_rest.next_gas_price = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_rest.next_gas_price = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_rest.next_gas_price = value,
         }
     }
 
@@ -691,6 +760,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.inner_lite.block_merkle_root = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_lite.block_merkle_root = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_lite.block_merkle_root = value,
         }
     }
 
@@ -703,6 +773,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.inner_rest.approvals = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_rest.approvals = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_rest.approvals = value,
         }
     }
 
@@ -715,6 +786,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.inner_rest.block_body_hash = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_rest.block_body_hash = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_rest.block_body_hash = value,
         }
     }
 
@@ -727,6 +799,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.signature = value,
             BlockHeader::BlockHeaderV5(header) => header.signature = value,
+            BlockHeader::BlockHeaderV6(header) => header.signature = value,
         }
     }
 }
@@ -771,7 +844,9 @@ impl BlockBody {
         match self {
             BlockBody::V1(_) => unreachable!("old body should not appear in tests"),
             BlockBody::V2(body) => body.chunk_endorsements = chunk_endorsements,
-            BlockBody::V3(_) => unreachable!("block body for spice should not appear in tests"),
+            // We treat it as a noop since chunk endorsements aren't part of the block anymore but
+            // some tests still use it.
+            BlockBody::V3(_) => {}
         }
     }
 }
@@ -785,43 +860,85 @@ impl BlockBody {
 #[cfg(feature = "clock")]
 pub struct TestBlockBuilder {
     clock: near_time::Clock,
-    prev: Block,
+    prev_header: BlockHeader,
     signer: Arc<ValidatorSigner>,
     height: u64,
     epoch_id: EpochId,
     next_epoch_id: EpochId,
     next_bp_hash: CryptoHash,
     approvals: Vec<Option<Box<near_crypto::Signature>>>,
+    max_gas_price: Balance,
     block_merkle_root: CryptoHash,
     chunks: Vec<ShardChunkHeader>,
+    chunk_endorsements: Vec<ChunkEndorsementSignatures>,
+    // TODO(spice): Once spice is released remove Option.
     /// Iff `Some` spice block will be created.
-    spice_core_statements: Option<Vec<crate::block_body::SpiceCoreStatement>>,
+    spice_core_statements: Option<crate::block_body::SpiceCoreStatements>,
 }
 
 #[cfg(feature = "clock")]
 impl TestBlockBuilder {
-    pub fn new(clock: near_time::Clock, prev: &Block, signer: Arc<ValidatorSigner>) -> Self {
+    fn new(
+        clock: near_time::Clock,
+        signer: Arc<ValidatorSigner>,
+        prev_header: BlockHeader,
+        prev_chunks: Vec<ShardChunkHeader>,
+    ) -> Self {
         let mut tree = crate::merkle::PartialMerkleTree::default();
-        tree.insert(*prev.hash());
-        let next_epoch_id = if prev.header().is_genesis() {
-            EpochId(*prev.hash())
+        tree.insert(*prev_header.hash());
+        let next_epoch_id = if prev_header.is_genesis() {
+            EpochId(*prev_header.hash())
         } else {
-            *prev.header().next_epoch_id()
+            *prev_header.next_epoch_id()
         };
+        let chunks_len = prev_chunks.len();
         Self {
             clock,
-            prev: Block::clone(prev),
             signer,
-            height: prev.header().height() + 1,
-            epoch_id: *prev.header().epoch_id(),
+            height: prev_header.height() + 1,
+            epoch_id: *prev_header.epoch_id(),
             next_epoch_id,
-            next_bp_hash: *prev.header().next_bp_hash(),
+            next_bp_hash: *prev_header.next_bp_hash(),
             approvals: vec![],
+            max_gas_price: Balance::ZERO,
             block_merkle_root: tree.root(),
-            chunks: prev.chunks().iter_raw().cloned().collect(),
-            spice_core_statements: None,
+            chunks: prev_chunks,
+            chunk_endorsements: vec![vec![]; chunks_len],
+            prev_header,
+            spice_core_statements: if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+                Some(crate::block_body::SpiceCoreStatements::new(vec![]))
+            } else {
+                None
+            },
         }
     }
+
+    pub fn from_prev_block_view(
+        clock: near_time::Clock,
+        prev_block_view: &crate::views::BlockView,
+        signer: Arc<ValidatorSigner>,
+    ) -> Self {
+        Self::new(
+            clock,
+            signer,
+            prev_block_view.header.clone().into(),
+            prev_block_view.chunks.iter().cloned().map(Into::into).collect(),
+        )
+    }
+
+    pub fn from_prev_block(
+        clock: near_time::Clock,
+        prev_block: &Block,
+        signer: Arc<ValidatorSigner>,
+    ) -> Self {
+        Self::new(
+            clock,
+            signer,
+            prev_block.header().clone(),
+            prev_block.chunks().iter_raw().cloned().collect(),
+        )
+    }
+
     pub fn height(mut self, height: u64) -> Self {
         self.height = height;
         self
@@ -843,12 +960,17 @@ impl TestBlockBuilder {
         self
     }
 
+    pub fn max_gas_price(mut self, max_gas_price: Balance) -> Self {
+        self.max_gas_price = max_gas_price;
+        self
+    }
+
     /// Updates the merkle tree by adding the previous hash, and updates the new block's merkle_root.
     pub fn block_merkle_tree(
         mut self,
         block_merkle_tree: &mut crate::merkle::PartialMerkleTree,
     ) -> Self {
-        block_merkle_tree.insert(*self.prev.hash());
+        block_merkle_tree.insert(*self.prev_header.hash());
         self.block_merkle_root = block_merkle_tree.root();
         self
     }
@@ -858,33 +980,59 @@ impl TestBlockBuilder {
         self
     }
 
+    pub fn non_spice_block(mut self) -> Self {
+        self.spice_core_statements = None;
+        self
+    }
+
     pub fn spice_core_statements(
         mut self,
         spice_core_statements: Vec<crate::block_body::SpiceCoreStatement>,
     ) -> Self {
-        self.spice_core_statements = Some(spice_core_statements);
+        self.spice_core_statements =
+            Some(crate::block_body::SpiceCoreStatements::new(spice_core_statements));
+        self
+    }
+
+    pub fn chunk_endorsements(
+        mut self,
+        chunk_endorsements: Vec<ChunkEndorsementSignatures>,
+    ) -> Self {
+        self.chunk_endorsements = chunk_endorsements;
         self
     }
 
     pub fn build(self) -> Arc<Block> {
-        use crate::version::PROTOCOL_VERSION;
-
         tracing::debug!(target: "test", height=self.height, ?self.epoch_id, "produce block");
-        let chunks_len = self.chunks.len();
+        let last_certified_block_execution_results = BlockExecutionResults(
+            self.chunks
+                .iter()
+                .map(|chunk| {
+                    (
+                        chunk.shard_id(),
+                        Arc::new(ChunkExecutionResult {
+                            chunk_extra: ChunkExtra::new_with_only_state_root(&StateRoot::new()),
+                            outgoing_receipts_root: CryptoHash::default(),
+                        }),
+                    )
+                })
+                .collect(),
+        );
         Arc::new(Block::produce(
             PROTOCOL_VERSION,
-            self.prev.header(),
+            PROTOCOL_VERSION,
+            &self.prev_header,
             self.height,
-            self.prev.header().block_ordinal() + 1,
+            self.prev_header.block_ordinal() + 1,
             self.chunks,
-            vec![vec![]; chunks_len],
+            self.chunk_endorsements,
             self.epoch_id,
             self.next_epoch_id,
             None,
             self.approvals,
             num_rational::Ratio::new(0, 1),
             Balance::ZERO,
-            Balance::ZERO,
+            self.max_gas_price,
             Some(Balance::ZERO),
             self.signer.as_ref(),
             self.next_bp_hash,
@@ -892,7 +1040,13 @@ impl TestBlockBuilder {
             self.clock,
             None,
             None,
-            self.spice_core_statements,
+            None,
+            self.spice_core_statements.map(|core_statements| {
+                crate::block::SpiceNewBlockProductionInfo {
+                    core_statements,
+                    last_certified_block_execution_results,
+                }
+            }),
         ))
     }
 }
@@ -967,6 +1121,32 @@ impl Block {
                 body.body.set_chunk_endorsements(chunk_endorsements);
             }
         };
+    }
+
+    pub fn recompute_fields_derived_from_chunks(&mut self) {
+        let chunks = self.chunks();
+        let headers_root = chunks.compute_chunk_headers_root().0;
+        let tx_root = chunks.compute_chunk_tx_root();
+        let prev_outgoing_receipts_root = chunks.compute_chunk_prev_outgoing_receipts_root();
+        let prev_state_root = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+            CryptoHash::default()
+        } else {
+            chunks.compute_state_root()
+        };
+        let chunk_mask = chunks
+            .iter_raw()
+            .map(|chunk| chunk.height_included() == self.header().height())
+            .collect_vec();
+        let prev_outcome_root = chunks.compute_outcome_root();
+        let body_hash = self.compute_block_body_hash().unwrap();
+
+        self.mut_header().set_chunk_headers_root(headers_root);
+        self.mut_header().set_chunk_tx_root(tx_root);
+        self.mut_header().set_prev_chunk_outgoing_receipts_root(prev_outgoing_receipts_root);
+        self.mut_header().set_prev_state_root(prev_state_root);
+        self.mut_header().set_chunk_mask(chunk_mask);
+        self.mut_header().set_prev_outcome_root(prev_outcome_root);
+        self.mut_header().set_block_body_hash(body_hash);
     }
 }
 

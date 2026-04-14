@@ -113,6 +113,7 @@ impl StandaloneRuntime {
             config: Arc::new(runtime_config),
             cache: None,
             is_new_chunk: true,
+            save_receipt_to_tx: false,
             congestion_info,
             bandwidth_requests: BlockBandwidthRequests::empty(),
             trie_access_tracker_state: Default::default(),
@@ -157,7 +158,7 @@ impl StandaloneRuntime {
 
         let mut store_update = self.tries.store_update();
         self.root = self.tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
-        store_update.commit().unwrap();
+        store_update.commit();
         self.apply_state.block_height += 1;
 
         self.apply_state.bandwidth_requests = BlockBandwidthRequests {

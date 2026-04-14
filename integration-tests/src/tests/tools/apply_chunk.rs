@@ -10,9 +10,9 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::Balance;
-use near_primitives::utils::get_num_seats_per_shard;
 use near_state_viewer::cli::StorageSource;
 use near_state_viewer::{apply_chunk_fn, apply_receipt, apply_tx};
+use near_store::adapter::StoreAdapter;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use nearcore::NightshadeRuntime;
@@ -37,6 +37,8 @@ fn send_txs(env: &TestEnv, signers: &[Signer], height: u64, hash: CryptoHash) {
 }
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_apply_chunk() {
     let genesis = Genesis::test_sharded(
         Clock::real(),
@@ -47,7 +49,7 @@ fn test_apply_chunk() {
             "test3".parse().unwrap(),
         ],
         1,
-        get_num_seats_per_shard(4, 1),
+        4,
     );
 
     let store = create_test_store();
@@ -127,6 +129,8 @@ fn test_apply_chunk() {
 }
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_apply_tx_apply_receipt() {
     let genesis = Genesis::test_sharded(
         Clock::real(),
@@ -137,7 +141,7 @@ fn test_apply_tx_apply_receipt() {
             "test3".parse().unwrap(),
         ],
         1,
-        get_num_seats_per_shard(4, 1),
+        4,
     );
 
     let store = create_test_store();
@@ -237,8 +241,8 @@ fn test_apply_tx_apply_receipt() {
     // in the loop above are produced by env.process_block() but
     // there was no corresponding env.clients[0].produce_block() after
 
-    let chunks = chain_store.get_all_chunk_hashes_by_height(5).unwrap();
-    let blocks = chain_store.get_all_header_hashes_by_height(5).unwrap();
+    let chunks = store.chunk_store().get_all_chunk_hashes_by_height(5);
+    let blocks = chain_store.get_all_header_hashes_by_height(5);
     assert_ne!(chunks.len(), 0);
     assert_eq!(blocks.len(), 0);
 

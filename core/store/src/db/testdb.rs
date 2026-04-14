@@ -1,11 +1,9 @@
-use parking_lot::RwLock;
-use std::collections::BTreeMap;
-use std::io;
-use std::ops::Bound;
-use std::sync::Arc;
-
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, refcount};
 use crate::{DBCol, StoreStatistics, deserialized_column};
+use parking_lot::RwLock;
+use std::collections::BTreeMap;
+use std::ops::Bound;
+use std::sync::Arc;
 
 /// An in-memory database intended for tests and IO-agnostic estimations.
 pub struct TestDB {
@@ -45,8 +43,8 @@ impl TestDB {
 }
 
 impl Database for TestDB {
-    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
-        Ok(self.db.read()[col].get(key).cloned().map(DBSlice::from_vec))
+    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> Option<DBSlice<'_>> {
+        self.db.read()[col].get(key).cloned().map(DBSlice::from_vec)
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
@@ -58,7 +56,7 @@ impl Database for TestDB {
         let iterator = self.db.read()[col]
             .clone()
             .into_iter()
-            .map(|(k, v)| Ok((k.into_boxed_slice(), v.into_boxed_slice())));
+            .map(|(k, v)| (k.into_boxed_slice(), v.into_boxed_slice()));
         Box::new(iterator)
     }
 
@@ -66,8 +64,8 @@ impl Database for TestDB {
         let iterator = self.db.read()[col]
             .range(key_prefix.to_vec()..)
             .take_while(move |(k, _)| k.starts_with(&key_prefix))
-            .map(|(k, v)| Ok((k.clone().into_boxed_slice(), v.clone().into_boxed_slice())))
-            .collect::<Vec<io::Result<_>>>();
+            .map(|(k, v)| (k.clone().into_boxed_slice(), v.clone().into_boxed_slice()))
+            .collect::<Vec<_>>();
         refcount::iter_with_rc_logic(col, iterator)
     }
 
@@ -82,12 +80,12 @@ impl Database for TestDB {
 
         let iterator = self.db.read()[col]
             .range((lower, upper))
-            .map(|(k, v)| Ok((k.clone().into_boxed_slice(), v.clone().into_boxed_slice())))
-            .collect::<Vec<io::Result<_>>>();
+            .map(|(k, v)| (k.clone().into_boxed_slice(), v.clone().into_boxed_slice()))
+            .collect::<Vec<_>>();
         refcount::iter_with_rc_logic(col, iterator)
     }
 
-    fn write(&self, transaction: DBTransaction) -> io::Result<()> {
+    fn write(&self, transaction: DBTransaction) {
         let mut db = self.db.write();
         for op in transaction.ops {
             match op {
@@ -125,16 +123,11 @@ impl Database for TestDB {
                 }
             };
         }
-        Ok(())
     }
 
-    fn flush(&self) -> io::Result<()> {
-        Ok(())
-    }
+    fn flush(&self) {}
 
-    fn compact(&self) -> io::Result<()> {
-        Ok(())
-    }
+    fn compact(&self) {}
 
     fn get_store_statistics(&self) -> Option<StoreStatistics> {
         self.stats.read().clone()

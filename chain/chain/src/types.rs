@@ -1,7 +1,3 @@
-use std::collections::HashSet;
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time::{Duration, Utc};
 use near_chain_configs::GenesisConfig;
@@ -25,7 +21,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, merklize};
 use near_primitives::optimistic_block::OptimisticBlockKeySource;
-use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
+use near_primitives::receipt::{ProcessedReceipt, PromiseYieldTimeout, Receipt, ReceiptToTxInfo};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
@@ -33,10 +29,12 @@ use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::ValidatedTransaction;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
+use near_primitives::trie_split::TrieSplit;
+use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
-    Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, NumBlocks, ShardId,
-    StateRoot, StateRootNode,
+    Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, NumBlocks, NumShards,
+    ShardId, StateRoot, StateRootNode,
 };
 use near_primitives::utils::to_timestamp;
 use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
@@ -51,6 +49,9 @@ use near_vm_runner::ContractRuntimeCache;
 use node_runtime::PostStateReadyCallback;
 use node_runtime::SignedValidPeriodTransactions;
 use num_rational::Rational32;
+use std::collections::HashSet;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use tracing::instrument;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -85,6 +86,18 @@ pub enum Provenance {
     PRODUCED,
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum StatePartValidationResult {
+    Valid,
+    Invalid,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum StateRootNodeValidationResult {
+    Valid,
+    Invalid,
+}
+
 /// Information about processed block.
 #[derive(Debug, Clone)]
 pub struct AcceptedBlock {
@@ -103,7 +116,7 @@ pub struct ApplyChunkResult {
     pub total_gas_burnt: Gas,
     pub total_balance_burnt: Balance,
     pub proof: Option<PartialStorage>,
-    pub processed_delayed_receipts: Vec<Receipt>,
+    pub processed_receipts: Vec<ProcessedReceipt>,
     pub processed_yield_timeouts: Vec<PromiseYieldTimeout>,
     /// Hash of Vec<Receipt> which were applied in a chunk, later used for
     /// chunk validation with state witness.
@@ -122,6 +135,10 @@ pub struct ApplyChunkResult {
     pub contract_updates: ContractUpdates,
     /// Extra information gathered during chunk application.
     pub stats: ChunkApplyStatsV0,
+    /// Proposed split of this shard (dynamic resharding).
+    pub proposed_split: Option<TrieSplit>,
+    /// Mapping from receipt_id to its origin (parent receipt or originating transaction).
+    pub receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
 }
 
 impl ApplyChunkResult {
@@ -137,6 +154,25 @@ impl ApplyChunkResult {
             result.push(outcome_with_id.to_hashes());
         }
         merklize(&result)
+    }
+
+    pub fn outcome_root(&self) -> MerkleHash {
+        let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&self.outcomes);
+        outcome_root
+    }
+
+    pub fn to_chunk_extra(&self, gas_limit: Gas) -> ChunkExtra {
+        ChunkExtra::new(
+            &self.new_root,
+            self.outcome_root(),
+            self.validator_proposals.clone(),
+            self.total_gas_burnt,
+            gas_limit,
+            self.total_balance_burnt,
+            self.congestion_info,
+            self.bandwidth_requests.clone(),
+            self.proposed_split.clone(),
+        )
     }
 }
 
@@ -211,6 +247,10 @@ pub struct ChainConfig {
     pub save_trie_changes: bool,
     /// Whether to persist transaction outcomes on disk or not.
     pub save_tx_outcomes: bool,
+    /// Whether to persist receipt-to-tx origin mappings on disk or not.
+    pub save_receipt_to_tx: bool,
+    /// Whether to persist state changes on disk or not.
+    pub save_state_changes: bool,
     /// Number of threads to execute background migration work.
     /// Currently used for flat storage background creation.
     pub background_migration_threads: usize,
@@ -225,6 +265,8 @@ impl ChainConfig {
         Self {
             save_trie_changes: true,
             save_tx_outcomes: true,
+            save_receipt_to_tx: true,
+            save_state_changes: true,
             background_migration_threads: 1,
             resharding_config: MutableConfigValue::new(
                 ReshardingConfig::test(),
@@ -361,8 +403,17 @@ pub struct ApplyChunkShardContext<'a> {
 pub struct PreparedTransactions {
     /// Prepared transactions
     pub transactions: Vec<ValidatedTransaction>,
-    /// Describes which limit was hit when preparing the transactions.
-    pub limited_by: Option<PrepareTransactionsLimit>,
+    /// Describes what limited the number of prepared transactions.
+    pub limited_by: PrepareTransactionsLimit,
+}
+
+impl PreparedTransactions {
+    pub fn new() -> PreparedTransactions {
+        PreparedTransactions {
+            transactions: Vec::new(),
+            limited_by: PrepareTransactionsLimit::NoMoreTxsInPool,
+        }
+    }
 }
 
 /// Transactions that were taken out of the pool in prepare_transactions,
@@ -375,11 +426,17 @@ pub struct SkippedTransactions(pub Vec<ValidatedTransaction>);
 /// This enum describes which limit was hit when preparing transactions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::AsRefStr)]
 pub enum PrepareTransactionsLimit {
+    /// No more transactions to pick from the transaction pool.
+    NoMoreTxsInPool,
+    /// Gas limit hit.
     Gas,
+    /// Total transactions size limit hit.
     Size,
+    /// Time limit hit.
     Time,
-    ReceiptCount,
+    /// Recorded storage size limit hit.
     StorageProofSize,
+    /// Transaction preparation was cancelled.
     Cancelled,
 }
 
@@ -440,7 +497,10 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn get_flat_storage_manager(&self) -> FlatStorageManager;
 
-    fn get_shard_layout(&self, protocol_version: ProtocolVersion) -> ShardLayout;
+    /// Get maximum number of shards for the given `protocol_version`. If a static layout is
+    /// defined for this protocol version, returns the number of shards in that layout. If dynamic
+    /// resharding is enabled, returns the maximum number of shards allowed.
+    fn get_shard_limit(&self, protocol_version: ProtocolVersion) -> NumShards;
 
     #[allow(clippy::result_large_err)]
     fn validate_tx(
@@ -474,6 +534,7 @@ pub trait RuntimeAdapter: Send + Sync {
         prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
+        validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
         time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error>;
 
@@ -495,6 +556,7 @@ pub trait RuntimeAdapter: Send + Sync {
         prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
+        validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
         skip_tx_hashes: HashSet<CryptoHash>,
         time_limit: Option<Duration>,
         cancel: Option<Arc<AtomicBool>>,
@@ -553,7 +615,7 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: &StateRoot,
         part_id: PartId,
         part: &StatePart,
-    ) -> bool;
+    ) -> StatePartValidationResult;
 
     /// Should be executed after accepting all the parts to set up a new state.
     fn apply_state_part(
@@ -581,7 +643,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         state_root_node: &StateRootNode,
         state_root: &StateRoot,
-    ) -> bool;
+    ) -> StateRootNodeValidationResult;
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
 
@@ -609,6 +671,7 @@ pub struct LatestKnown {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use near_async::time::{Clock, Utc};
     use near_primitives::block::Approval;
     use near_primitives::genesis::{genesis_block, genesis_chunks};
@@ -618,8 +681,6 @@ mod tests {
     use near_primitives::transaction::{ExecutionMetadata, ExecutionOutcome, ExecutionStatus};
     use near_primitives::version::PROTOCOL_VERSION;
     use std::sync::Arc;
-
-    use super::*;
 
     #[test]
     fn test_block_produce() {
@@ -643,13 +704,14 @@ mod tests {
             &genesis_bps,
         );
         let signer = Arc::new(create_test_signer("other"));
-        let b1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build();
+        let b1 = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone()).build();
         assert!(b1.header().verify_block_producer(&signer.public_key()));
         let other_signer = create_test_signer("other2");
         let approvals =
             vec![Some(Box::new(Approval::new(*b1.hash(), 1, 2, &other_signer).signature))];
-        let b2 =
-            TestBlockBuilder::new(Clock::real(), &b1, signer.clone()).approvals(approvals).build();
+        let b2 = TestBlockBuilder::from_prev_block(Clock::real(), &b1, signer.clone())
+            .approvals(approvals)
+            .build();
         b2.header().verify_block_producer(&signer.public_key());
     }
 

@@ -10,8 +10,8 @@ use near_primitives::borsh;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
-use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::ProcessedReceiptMetadata;
 use near_primitives::shard_layout::get_block_shard_uid_rev;
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, ShardChunk, StateSyncInfo};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
@@ -19,12 +19,12 @@ use near_primitives::transaction::ExecutionOutcomeWithProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::utils::{get_block_shard_id_rev, get_outcome_id_block_hash_rev};
+use near_store::adapter::StoreAdapter;
 use near_store::db::refcount;
 use near_store::{DBCol, Store, TrieChanges};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use strum::IntoEnumIterator;
-use tracing::warn;
 use validate::StoreValidatorError;
 
 mod validate;
@@ -40,10 +40,14 @@ pub struct StoreValidatorCache {
     receipt_refcount: HashMap<CryptoHash, u64>,
     block_refcount: HashMap<CryptoHash, u64>,
     genesis_blocks: Vec<CryptoHash>,
+
+    // If present, the node was bootstrapped with epoch sync, and this block height
+    // represents the first block of the target epoch that we epoch synced to.
+    epoch_sync_boundary: Option<BlockHeight>,
 }
 
 impl StoreValidatorCache {
-    fn new() -> Self {
+    fn new(epoch_sync_boundary: Option<BlockHeight>) -> Self {
         Self {
             head: 0,
             header_head: 0,
@@ -54,7 +58,12 @@ impl StoreValidatorCache {
             receipt_refcount: HashMap::new(),
             block_refcount: HashMap::new(),
             genesis_blocks: vec![],
+            epoch_sync_boundary,
         }
+    }
+
+    pub fn is_height_below_epoch_sync_boundary(&self, height: &BlockHeight) -> bool {
+        if let Some(boundary) = self.epoch_sync_boundary { height < &boundary } else { false }
     }
 }
 
@@ -75,10 +84,6 @@ pub struct StoreValidator {
     timeout: Option<i64>,
     start_time: Instant,
     pub is_archival: bool,
-    // If present, the node was bootstrapped with epoch sync, and this block height
-    // represents the first block of the target epoch that we epoch synced to.
-    epoch_sync_boundary: Option<BlockHeight>,
-
     pub errors: Vec<ErrorMessage>,
     tests: u64,
 }
@@ -92,23 +97,20 @@ impl StoreValidator {
         store: Store,
         is_archival: bool,
     ) -> Self {
-        let epoch_sync_boundary = store
-            .get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[])
-            .expect("Store IO error when getting EpochSyncProof")
-            .map(|epoch_sync_proof| {
-                epoch_sync_proof.into_v1().current_epoch.first_block_header_in_epoch.height()
+        let epoch_sync_boundary =
+            store.epoch_store().get_epoch_sync_proof().unwrap().map(|epoch_sync_proof| {
+                epoch_sync_proof.current_epoch.first_block_header_in_epoch.height()
             });
         StoreValidator {
             config,
             epoch_manager,
             shard_tracker,
             runtime,
-            store: store,
-            inner: StoreValidatorCache::new(),
+            store,
+            inner: StoreValidatorCache::new(epoch_sync_boundary),
             timeout: None,
             start_time: Clock::real().now(),
             is_archival,
-            epoch_sync_boundary,
             errors: vec![],
             tests: 0,
         }
@@ -129,8 +131,7 @@ impl StoreValidator {
         self.errors.push(ErrorMessage { key: format!("{key:?}"), col: col.to_string(), err })
     }
     fn validate_col(&mut self, col: DBCol) -> Result<(), StoreValidatorError> {
-        for item in self.store.clone().iter_raw_bytes(col) {
-            let (key, value) = item?;
+        for (key, value) in self.store.clone().iter_raw_bytes(col) {
             let key_ref = key.as_ref();
             let value_ref = value.as_ref();
             match col {
@@ -302,6 +303,17 @@ impl StoreValidator {
                         self.check(&validate::epoch_validity, &epoch_id, &epoch_info, col);
                     }
                 }
+                DBCol::ProcessedReceiptIds => {
+                    let (block_hash, shard_id) = get_block_shard_id_rev(key_ref)?;
+                    let metadata: Vec<ProcessedReceiptMetadata> =
+                        BorshDeserialize::try_from_slice(value_ref)?;
+                    self.check(
+                        &validate::processed_receipt_ids_exist_in_receipts,
+                        &(block_hash, shard_id),
+                        metadata.as_slice(),
+                        col,
+                    );
+                }
                 DBCol::Transactions => {
                     let (_value, rc) = refcount::decode_value_with_rc(value_ref);
                     let tx_hash = CryptoHash::try_from(key_ref)?;
@@ -346,14 +358,22 @@ impl StoreValidator {
             self.process_error(e, "HEAD / HEADER_HEAD / TAIL / CHUNK_TAIL", DBCol::BlockMisc)
         }
 
-        // Main loop
-        for col in DBCol::iter() {
+        // Main loop.
+        // Custom sort: PartialChunks and ProcessedReceiptIds must be
+        // validated before Receipts so that receipt refcounts are fully
+        // populated before we check them against the Receipts column.
+        let mut cols: Vec<DBCol> = DBCol::iter().collect();
+        cols.sort_by_key(|col| match col {
+            DBCol::PartialChunks | DBCol::ProcessedReceiptIds => 0,
+            other => 1 + other.into_usize(),
+        });
+        for col in cols {
             if let Err(e) = self.validate_col(col) {
                 self.process_error(e, col.to_string(), col)
             }
             if let Some(timeout) = self.timeout {
                 if self.start_time.elapsed() > Duration::milliseconds(timeout) {
-                    warn!(target: "adversary", "Store validator hit timeout at {col} ({}/{})", col.into_usize(), DBCol::LENGTH);
+                    tracing::warn!(target: "adversary", %col, col_index = %col.into_usize(), col_length = %DBCol::LENGTH, "store validator hit timeout");
                     return;
                 }
             }
@@ -361,7 +381,7 @@ impl StoreValidator {
         if let Some(timeout) = self.timeout {
             // We didn't complete all Column checks and cannot do final checks, returning here
             if self.start_time.elapsed() > Duration::milliseconds(timeout) {
-                warn!(target: "adversary", "Store validator hit timeout before final checks");
+                tracing::warn!(target: "adversary", "store validator hit timeout before final checks");
                 return;
             }
         }
@@ -400,18 +420,16 @@ impl StoreValidator {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::runtime::NightshadeRuntime;
+    use crate::types::ChainConfig;
+    use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
+    use near_async::messaging::{IntoMultiSender, noop};
     use near_async::time::Clock;
     use near_chain_configs::{Genesis, MutableConfigValue};
     use near_epoch_manager::EpochManager;
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
-
-    use crate::runtime::NightshadeRuntime;
-    use crate::types::ChainConfig;
-    use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
-
-    use super::*;
-    use near_async::messaging::{IntoMultiSender, noop};
 
     fn init() -> (Chain, StoreValidator) {
         let store = create_test_store();
@@ -468,7 +486,7 @@ mod tests {
             chain.get_block_by_height(0).unwrap().hash().as_ref(),
             &[123],
         );
-        store_update.commit().unwrap();
+        store_update.commit();
         match sv.validate_col(DBCol::Block) {
             Err(StoreValidatorError::IOError(_)) => {}
             _ => assert!(false),
@@ -480,8 +498,8 @@ mod tests {
         let (chain, mut sv) = init();
         let mut store_update = chain.chain_store().store().store_update();
         assert!(sv.validate_col(DBCol::TrieChanges).is_ok());
-        store_update.set_ser::<[u8]>(DBCol::TrieChanges, "567".as_ref(), &[123]).unwrap();
-        store_update.commit().unwrap();
+        store_update.set_ser::<[u8]>(DBCol::TrieChanges, "567".as_ref(), &[123]);
+        store_update.commit();
         match sv.validate_col(DBCol::TrieChanges) {
             Err(StoreValidatorError::DBCorruption(_)) => {}
             _ => assert!(false),

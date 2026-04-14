@@ -1,17 +1,16 @@
 use futures::future;
+use near_async::multithread::MultithreadRuntimeHandle;
+use near_async::tokio::TokioRuntimeHandle;
+use near_async::{ActorSystem, shutdown_all_actors};
 use near_chain_configs::{Genesis, TrackedShardsConfig};
+use near_client::ViewClientActor;
+use near_client::client_actor::ClientActor;
 use near_network::tcp;
 use near_network::test_utils::convert_boot_nodes;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards};
-use nearcore::{load_test_config, start_with_config};
-
-use near_async::multithread::MultithreadRuntimeHandle;
-use near_async::tokio::TokioRuntimeHandle;
-use near_async::{ActorSystem, shutdown_all_actors};
-use near_client::ViewClientActorInner;
-use near_client::client_actor::ClientActorInner;
 use near_store::db::RocksDB;
+use nearcore::{load_test_config, start_with_config};
 
 async fn start_nodes(
     temp_dir: &std::path::Path,
@@ -25,7 +24,7 @@ async fn start_nodes(
 ) -> (
     Genesis,
     Vec<String>,
-    Vec<(TokioRuntimeHandle<ClientActorInner>, MultithreadRuntimeHandle<ViewClientActorInner>)>,
+    Vec<(TokioRuntimeHandle<ClientActor>, MultithreadRuntimeHandle<ViewClientActor>)>,
 ) {
     init_integration_logger();
 
@@ -34,9 +33,10 @@ async fn start_nodes(
     let mut genesis = Genesis::test_sharded_new_version(
         seeds.iter().map(|s| s.parse().unwrap()).collect(),
         num_validator_seats,
-        (0..num_shards).map(|_| num_validator_seats).collect(),
+        num_shards,
     );
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     genesis.config.genesis_height = genesis_height;
 
     let validators = (0..num_validator_seats).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
@@ -130,10 +130,7 @@ impl NodeCluster {
         F: FnOnce(
                 near_chain_configs::Genesis,
                 Vec<String>,
-                Vec<(
-                    TokioRuntimeHandle<ClientActorInner>,
-                    MultithreadRuntimeHandle<ViewClientActorInner>,
-                )>,
+                Vec<(TokioRuntimeHandle<ClientActor>, MultithreadRuntimeHandle<ViewClientActor>)>,
             ) -> R
             + 'static,
     {

@@ -263,10 +263,9 @@ fn verify_path_matches_index(path: &MerklePath, part_idx: u64, num_merklized_par
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
-
-    use super::*;
 
     fn test_with_len(n: u32, rng: &mut StdRng) {
         let mut arr: Vec<u32> = vec![];

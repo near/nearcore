@@ -1,12 +1,11 @@
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
+use crate::utils::process_blocks::create_account;
 use near_chain_configs::Genesis;
 use near_primitives::errors::{ActionError, ActionErrorKind};
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::version::PROTOCOL_VERSION;
-
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
-use crate::utils::process_blocks::create_account;
 
 #[test]
 fn test_create_top_level_accounts() {
@@ -14,6 +13,7 @@ fn test_create_top_level_accounts() {
     let account: AccountId = "test0".parse().unwrap();
     let mut genesis = Genesis::test(vec![account.clone()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     genesis.config.protocol_version = PROTOCOL_VERSION;
     let runtime_config = near_parameters::RuntimeConfigStore::new(None);
     let mut env = TestEnv::builder(&genesis.config)

@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode};
-use near_crypto::{InMemorySigner, PublicKey, SecretKey};
+use near_crypto::{PublicKey, SecretKey};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_mirror::key_mapping::{map_account, map_key};
 use near_o11y::default_subscriber_with_opentelemetry;
@@ -14,7 +14,7 @@ use near_parameters::RuntimeConfig;
 use near_primitives::account::id::AccountType;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountContract};
 use near_primitives::borsh;
-use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
+use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore, ShardLayoutConfig};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::FlatStateValue;
@@ -226,7 +226,7 @@ impl ForkNetworkCommand {
             self.run_impl(&mut near_config, verbose_target, o11y_opts, home_dir).await.unwrap();
             near_async::shutdown_all_actors();
         });
-        tracing::info!("Waiting for RocksDB to gracefully shutdown");
+        tracing::info!("waiting for rocksdb to gracefully shutdown");
         RocksDB::block_until_all_instances_are_dropped();
         tracing::info!("exit");
         Ok(())
@@ -315,10 +315,10 @@ impl ForkNetworkCommand {
         let fork_snapshot_path = store_path.join("fork-snapshot");
 
         if fork_snapshot_path.exists() && fork_snapshot_path.is_dir() {
-            tracing::info!(?fork_snapshot_path, "Found a DB snapshot");
+            tracing::info!(?fork_snapshot_path, "found a DB snapshot");
             Ok(false)
         } else {
-            tracing::info!(destination = ?fork_snapshot_path, "Creating snapshot of original DB");
+            tracing::info!(destination = ?fork_snapshot_path, "creating snapshot of original DB");
             // checkpointing only hot storage, because cold storage will not be changed
             checkpoint_hot_storage_and_cleanup_columns(&store, &fork_snapshot_path, None)?;
             Ok(true)
@@ -344,13 +344,17 @@ impl ForkNetworkCommand {
             &near_config.genesis.config,
             Some(home_dir),
         );
-        let head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?.unwrap();
+        let head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY).unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id)?;
         let all_shard_uids: Vec<_> = shard_layout.shard_uids().collect();
-        // get_epoch_config_from_protocol_version
+
         let target_shard_layout = match shard_layout_override {
             ShardLayoutOverride::UseShardLayoutFromProtocolVersion(protocol_version) => {
-                epoch_manager.get_epoch_config_from_protocol_version(*protocol_version).shard_layout
+                // TODO(dynamic_resharding): decide how to support dynamic resharding in fork network
+                epoch_manager
+                    .get_epoch_config_from_protocol_version(*protocol_version)
+                    .static_shard_layout()
+                    .context("dynamic resharding not supported")?
             }
             ShardLayoutOverride::UseShardLayoutFromFile(shard_layout_file) => {
                 let layout = std::fs::read_to_string(&shard_layout_file).with_context(|| {
@@ -403,17 +407,17 @@ impl ForkNetworkCommand {
             ?desired_flat_head,
             ?state_roots,
             ?epoch_id,
-            "Moved flat heads to a common block"
+            "moved flat heads to a common block"
         );
 
         let mut store_update = store.store_update();
-        store_update.set_ser(DBCol::Misc, EPOCH_ID_KEY, epoch_id)?;
-        store_update.set_ser(DBCol::Misc, FLAT_HEAD_KEY, &desired_flat_head)?;
-        store_update.set_ser(DBCol::Misc, SHARD_LAYOUT_KEY, &target_shard_layout)?;
+        store_update.set_ser(DBCol::Misc, EPOCH_ID_KEY, epoch_id);
+        store_update.set_ser(DBCol::Misc, FLAT_HEAD_KEY, &desired_flat_head);
+        store_update.set_ser(DBCol::Misc, SHARD_LAYOUT_KEY, &target_shard_layout);
         for (shard_uid, state_root) in &state_roots {
-            store_update.set_ser(DBCol::Misc, &make_state_roots_key(*shard_uid), state_root)?;
+            store_update.set_ser(DBCol::Misc, &make_state_roots_key(*shard_uid), state_root);
         }
-        store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 
@@ -470,11 +474,7 @@ impl ForkNetworkCommand {
         let runtime =
             NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager)
                 .context("could not create the transaction runtime")?;
-        // TODO: add an option to not load them all at once. As is, this takes an insane amount of memory for mainnet state.
-        runtime
-            .get_tries()
-            .load_memtries_for_enabled_shards(&all_shard_uids, &[].into(), true)
-            .unwrap();
+        runtime.get_tries().load_memtries_for_enabled_shards(&all_shard_uids, None, true)?;
 
         let shard_tries = runtime.get_tries();
         let target_shard_layout2 = target_shard_layout.clone();
@@ -537,7 +537,7 @@ impl ForkNetworkCommand {
                 Ok(())
             }
         }?;
-        tracing::info!("Validators set");
+        tracing::info!("validators set");
         Ok(())
     }
 
@@ -583,7 +583,9 @@ impl ForkNetworkCommand {
         );
 
         // 2. Update the epoch configs.
-        // We only fork mainnet for now, so we use mainnet epoch configs as base ones.
+        // We always use mainnet epoch configs as the base, then override the shard
+        // layout to match the actual state (the source chain may have a different
+        // shard layout than mainnet).
         let base_epoch_config_store =
             EpochConfigStore::for_chain_id(near_primitives::chains::MAINNET, None)
                 .expect("Could not load the EpochConfigStore for mainnet.");
@@ -591,6 +593,7 @@ impl ForkNetworkCommand {
             base_epoch_config_store,
             protocol_version,
             num_seats,
+            Some(&target_shard_layout),
             home_dir,
         )?;
 
@@ -618,7 +621,7 @@ impl ForkNetworkCommand {
             storage_mutator,
         )?;
         let new_state_roots = update_state.into_iter().map(|u| u.state_root()).collect::<Vec<_>>();
-        tracing::info!("Creating a new genesis");
+        tracing::info!("creating a new genesis");
         backup_genesis_file(home_dir, &near_config)?;
 
         // 4. Create new genesis with updated state roots and validators.
@@ -640,9 +643,7 @@ impl ForkNetworkCommand {
     }
 
     /// Reads configuration patches for sharded benchmark.
-    /// For now reads only epoch config and number of accounts per shard to
-    /// benchmark.
-    fn read_patches(patches_path: &Path) -> anyhow::Result<(EpochConfig, u64)> {
+    fn read_patches(patches_path: &Path) -> anyhow::Result<(EpochConfig, u64, u64, u64)> {
         let epoch_config_path = patches_path.join("epoch_configs/template.json");
         let epoch_config: EpochConfig =
             serde_json::from_str(&std::fs::read_to_string(epoch_config_path)?)?;
@@ -650,7 +651,12 @@ impl ForkNetworkCommand {
         let params: HashMap<String, serde_json::Value> =
             serde_json::from_str(&std::fs::read_to_string(params_path)?)?;
         let num_accounts = params["num_accounts"].as_u64().unwrap();
-        Ok((epoch_config, num_accounts))
+        let chunk_producers = params["chunk_producers"].as_u64().unwrap();
+        let num_rpcs = match params.get("rpcs") {
+            Some(v) => v.as_u64().expect("\"rpcs\" in params.json must be a valid u64"),
+            None => 0,
+        };
+        Ok((epoch_config, num_accounts, chunk_producers, num_rpcs))
     }
 
     /// Sets genesis block to be able to write accounts to the state.
@@ -674,7 +680,7 @@ impl ForkNetworkCommand {
                 genesis_block.header().height(),
             );
         }
-        store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 
@@ -694,8 +700,11 @@ impl ForkNetworkCommand {
         let store = storage.get_hot_store();
 
         // 1. Create default genesis and override its fields with given parameters.
-        let (epoch_config, num_accounts_per_shard) = Self::read_patches(patches_path)?;
-        let target_shard_layout = &epoch_config.shard_layout;
+        let (epoch_config, num_accounts_per_shard, chunk_producers, num_rpcs) =
+            Self::read_patches(patches_path)?;
+        // TODO(dynamic_resharding): decide how to support dynamic resharding in fork network
+        let target_shard_layout =
+            &epoch_config.static_shard_layout().context("dynamic resharding not supported")?;
         let validators = Self::read_validators(validators, home_dir)?;
         let num_seats = num_seats.unwrap_or(validators.len() as NumSeats);
         let mut genesis = Genesis::from_account_infos(
@@ -716,17 +725,18 @@ impl ForkNetworkCommand {
 
         // 2. Initialize chain and state storage so we can add benchmark
         // accounts there.
-        let prev_state_roots = get_genesis_state_roots(&store).unwrap().unwrap();
-        let shard_uids = epoch_config.shard_layout.shard_uids().collect::<Vec<_>>();
+        let prev_state_roots = get_genesis_state_roots(&store).unwrap();
+        let shard_uids: Vec<_> = target_shard_layout.shard_uids().collect();
 
         let base_epoch_config_store = EpochConfigStore::test(BTreeMap::from([(
             genesis_protocol_version,
-            Arc::new(epoch_config.clone()),
+            Arc::new(epoch_config),
         )]));
         let epoch_config = self.override_epoch_configs(
             base_epoch_config_store,
             genesis_protocol_version,
             &Some(num_seats),
+            None,
             home_dir,
         )?;
         let epoch_manager =
@@ -752,8 +762,10 @@ impl ForkNetworkCommand {
             home_dir,
             target_shard_layout,
             num_accounts_per_shard,
+            chunk_producers,
+            num_rpcs,
         )?;
-        tracing::info!("Creating a new genesis");
+        tracing::info!("creating a new genesis");
         backup_genesis_file(home_dir, &near_config)?;
         self.make_and_write_genesis(
             home_dir,
@@ -774,7 +786,7 @@ impl ForkNetworkCommand {
 
     /// Deletes DB columns that are not needed in the new chain.
     fn finalize(&self, near_config: &NearConfig, home_dir: &Path) -> anyhow::Result<()> {
-        tracing::info!("Delete unneeded columns in the original DB");
+        tracing::info!("delete unneeded columns in the original DB");
         let mut unwanted_cols = Vec::new();
         for col in DBCol::iter() {
             if !COLUMNS_TO_KEEP.contains(&col) {
@@ -799,9 +811,9 @@ impl ForkNetworkCommand {
         store: Store,
         epoch_manager: &dyn EpochManagerAdapter,
     ) -> anyhow::Result<(HashMap<ShardUId, StateRoot>, BlockInfo, EpochId, ShardLayout)> {
-        let epoch_id = EpochId(store.get_ser(DBCol::Misc, EPOCH_ID_KEY)?.unwrap());
-        let block_hash = store.get_ser(DBCol::Misc, b"FORK_TOOL_BLOCK_HASH")?.unwrap();
-        let block_height = store.get(DBCol::Misc, b"FORK_TOOL_BLOCK_HEIGHT")?.unwrap();
+        let epoch_id = EpochId(store.get_ser(DBCol::Misc, EPOCH_ID_KEY).unwrap());
+        let block_hash = store.get_ser(DBCol::Misc, b"FORK_TOOL_BLOCK_HASH").unwrap();
+        let block_height = store.get(DBCol::Misc, b"FORK_TOOL_BLOCK_HEIGHT").unwrap();
         let block_height = u64::from_le_bytes(block_height.as_slice().try_into().unwrap());
 
         let flat_head = BlockInfo {
@@ -818,8 +830,9 @@ impl ForkNetworkCommand {
             .with_context(|| format!("Failed getting shard layout for epoch {}", &epoch_id.0))?;
 
         let mut state_roots = HashMap::new();
-        for item in store.iter_prefix(DBCol::Misc, LEGACY_FORKED_ROOTS_KEY_PREFIX.as_bytes()) {
-            let (key, value) = item?;
+        for (key, value) in
+            store.iter_prefix(DBCol::Misc, LEGACY_FORKED_ROOTS_KEY_PREFIX.as_bytes())
+        {
             let shard_id = parse_legacy_state_roots_key(&key)?;
             let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
             let state_root: StateRoot = borsh::from_slice(&value)?;
@@ -843,14 +856,13 @@ impl ForkNetworkCommand {
         store: Store,
         epoch_manager: &dyn EpochManagerAdapter,
     ) -> anyhow::Result<(HashMap<ShardUId, StateRoot>, BlockInfo, EpochId, ShardLayout)> {
-        let Some(flat_head) = store.get_ser(DBCol::Misc, FLAT_HEAD_KEY)? else {
+        let Some(flat_head) = store.get_ser(DBCol::Misc, FLAT_HEAD_KEY) else {
             return self.legacy_get_state_roots_and_hash(store, epoch_manager);
         };
-        let epoch_id = EpochId(store.get_ser(DBCol::Misc, EPOCH_ID_KEY)?.unwrap());
-        let shard_layout = store.get_ser(DBCol::Misc, SHARD_LAYOUT_KEY)?.unwrap();
+        let epoch_id = EpochId(store.get_ser(DBCol::Misc, EPOCH_ID_KEY).unwrap());
+        let shard_layout = store.get_ser(DBCol::Misc, SHARD_LAYOUT_KEY).unwrap();
         let mut state_roots = HashMap::new();
-        for item in store.iter_prefix(DBCol::Misc, FORKED_ROOTS_KEY_PREFIX) {
-            let (key, value) = item?;
+        for (key, value) in store.iter_prefix(DBCol::Misc, FORKED_ROOTS_KEY_PREFIX) {
             let shard_uid = parse_state_roots_key(&key)?;
             let state_root: StateRoot = borsh::from_slice(&value)?;
 
@@ -873,23 +885,23 @@ impl ForkNetworkCommand {
         if !Path::new(&fork_snapshot_path).exists() {
             panic!("Fork snapshot does not exist");
         }
-        tracing::info!("Removing all current data");
+        tracing::info!("removing all current data");
         for entry in std::fs::read_dir(&store_path)? {
             let entry = entry?;
             if entry.file_type()?.is_file() {
                 std::fs::remove_file(&entry.path())?;
             }
         }
-        tracing::info!("Restoring fork snapshot");
+        tracing::info!("restoring fork snapshot");
         for entry in std::fs::read_dir(&fork_snapshot_path)? {
             let entry = entry?;
             std::fs::rename(&entry.path(), &store_path.join(entry.file_name()))?;
         }
         std::fs::remove_dir(&fork_snapshot_path)?;
 
-        tracing::info!("Restoring genesis file");
+        tracing::info!("restoring genesis file");
         restore_backup_genesis_file(home_dir, &near_config)?;
-        tracing::info!("Reset complete");
+        tracing::info!("reset complete");
         return Ok(());
     }
 
@@ -900,6 +912,7 @@ impl ForkNetworkCommand {
         base_epoch_config_store: EpochConfigStore,
         first_version: ProtocolVersion,
         num_seats: &Option<NumSeats>,
+        shard_layout_override: Option<&ShardLayout>,
         home_dir: &Path,
     ) -> anyhow::Result<EpochConfig> {
         let epoch_config_dir = home_dir.join("epoch_configs");
@@ -918,6 +931,12 @@ impl ForkNetworkCommand {
                 config.num_chunk_producer_seats = *num_seats;
                 config.num_chunk_validator_seats = *num_seats;
             }
+            if let Some(shard_layout) = shard_layout_override {
+                if config.static_shard_layout().is_some() {
+                    config.shard_layout_config =
+                        ShardLayoutConfig::Static { shard_layout: shard_layout.clone() };
+                }
+            }
             new_epoch_configs.insert(version, Arc::new(config));
         }
         let first_config = new_epoch_configs.get(&first_version).unwrap().as_ref().clone();
@@ -928,7 +947,7 @@ impl ForkNetworkCommand {
             None,
             &epoch_config_dir,
         );
-        tracing::info!(target: "near", "Generated epoch configs files in {}", epoch_config_dir.display());
+        tracing::info!(target: "near", epoch_config_dir = %epoch_config_dir.display(), "generated epoch configs files");
         Ok(first_config)
     }
 
@@ -961,14 +980,13 @@ impl ForkNetworkCommand {
         let mut records_not_parsed = 0;
         let mut records_parsed = 0;
 
-        for item in store.flat_store().iter(shard_uid) {
-            let (key, value) = match item {
-                Ok((key, FlatStateValue::Ref(ref_value))) => {
+        for (key, flat_value) in store.flat_store().iter(shard_uid) {
+            let (key, value) = match flat_value {
+                FlatStateValue::Ref(ref_value) => {
                     ref_keys_retrieved += 1;
                     (key, trie_storage.retrieve_raw_bytes(&ref_value.hash)?.to_vec())
                 }
-                Ok((key, FlatStateValue::Inlined(value))) => (key, value),
-                otherwise => panic!("Unexpected flat state value: {otherwise:?}"),
+                FlatStateValue::Inlined(value) => (key, value),
             };
             if let Some(sr) = StateRecord::from_raw_key_value(&key, value.clone()) {
                 match sr {
@@ -992,28 +1010,6 @@ impl ForkNetworkCommand {
                             new_account_id,
                             replacement.public_key(),
                             access_key.clone(),
-                        )?;
-                    }
-                    StateRecord::GasKey { account_id, public_key, gas_key } => {
-                        // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
-                        if account_id.get_account_type() != AccountType::NearImplicitAccount
-                            && gas_key.permission == AccessKeyPermission::FullAccess
-                        {
-                            has_full_key.insert(account_id.clone());
-                        }
-                        let new_account_id = map_account(&account_id, None);
-                        let replacement = map_key(&public_key, None);
-                        let new_shard_id =
-                            target_shard_layout.account_id_to_shard_id(&new_account_id);
-                        let new_shard_idx =
-                            target_shard_layout.get_shard_index(new_shard_id).unwrap();
-
-                        storage_mutator.remove_gas_key(shard_uid, account_id, public_key)?;
-                        storage_mutator.set_gas_key(
-                            new_shard_idx,
-                            new_account_id,
-                            replacement.public_key(),
-                            gas_key,
                         )?;
                     }
                     StateRecord::GasKeyNonce { account_id, public_key, index, nonce } => {
@@ -1102,7 +1098,7 @@ impl ForkNetworkCommand {
             records_parsed,
             records_not_parsed,
             num_has_full_key = has_full_key.len(),
-            "Pass 1 done"
+            "pass 1 done"
         );
 
         // Now do another pass to ensure all accounts have full access keys.
@@ -1111,51 +1107,49 @@ impl ForkNetworkCommand {
         // TODO: Just remember what accounts we saw in the above iteration
         let mut num_added = 0;
         let mut num_accounts = 0;
-        for item in store.flat_store().iter(shard_uid) {
-            if let Ok((key, _)) = item {
-                if key[0] == col::ACCOUNT {
-                    num_accounts += 1;
-                    let account_id = match parse_account_id_from_account_key(&key) {
-                        Ok(account_id) => account_id,
-                        Err(err) => {
-                            tracing::error!(
-                                ?err,
-                                "Failed to parse account id {}",
-                                hex::encode(&key)
-                            );
-                            continue;
-                        }
-                    };
-                    if account_id.get_account_type() == AccountType::NearImplicitAccount
-                        || has_full_key.contains(&account_id)
-                    {
+        for (key, _) in store.flat_store().iter(shard_uid) {
+            if key[0] == col::ACCOUNT {
+                num_accounts += 1;
+                let account_id = match parse_account_id_from_account_key(&key) {
+                    Ok(account_id) => account_id,
+                    Err(err) => {
+                        tracing::error!(
+                            ?err,
+                            key = %hex::encode(&key),
+                            "failed to parse account id"
+                        );
                         continue;
                     }
-                    let shard_id = source_shard_layout.account_id_to_shard_id(&account_id);
-                    if shard_id != shard_uid.shard_id() {
-                        tracing::warn!(
-                            "Account {} belongs to shard {} but was found in flat storage for shard {}",
-                            &account_id,
-                            shard_id,
-                            shard_uid.shard_id(),
-                        );
-                    }
-                    let shard_idx = source_shard_layout.get_shard_index(shard_id).unwrap();
-                    storage_mutator.set_access_key(
-                        shard_idx,
-                        account_id,
-                        default_key.clone(),
-                        AccessKey::full_access(),
-                    )?;
-                    num_added += 1;
-                    if storage_mutator.should_commit(batch_size) {
-                        storage_mutator.commit()?;
-                        storage_mutator = make_storage_mutator(update_state.clone())?;
-                    }
+                };
+                if account_id.get_account_type() == AccountType::NearImplicitAccount
+                    || has_full_key.contains(&account_id)
+                {
+                    continue;
+                }
+                let shard_id = source_shard_layout.account_id_to_shard_id(&account_id);
+                if shard_id != shard_uid.shard_id() {
+                    tracing::warn!(
+                        %account_id,
+                        %shard_id,
+                        found_in_shard = %shard_uid.shard_id(),
+                        "account belongs to shard but was found in flat storage for different shard"
+                    );
+                }
+                let shard_idx = source_shard_layout.get_shard_index(shard_id).unwrap();
+                storage_mutator.set_access_key(
+                    shard_idx,
+                    account_id,
+                    default_key.clone(),
+                    AccessKey::full_access(),
+                )?;
+                num_added += 1;
+                if storage_mutator.should_commit(batch_size) {
+                    storage_mutator.commit()?;
+                    storage_mutator = make_storage_mutator(update_state.clone())?;
                 }
             }
         }
-        tracing::info!(?shard_uid, num_accounts, num_added, "Pass 2 done");
+        tracing::info!(?shard_uid, num_accounts, num_added, "pass 2 done");
         storage_mutator.commit()?;
         Ok(receipts_tracker)
     }
@@ -1262,7 +1256,7 @@ impl ForkNetworkCommand {
         )?;
 
         let state_roots = update_state.into_iter().map(|u| u.state_root()).collect();
-        tracing::info!(?state_roots, "All done");
+        tracing::info!(?state_roots, "all done");
         Ok(state_roots)
     }
 
@@ -1327,6 +1321,20 @@ impl ForkNetworkCommand {
         Ok(new_validator_accounts)
     }
 
+    /// Returns one account prefix per shard, suitable for generating accounts
+    /// that land in the correct shard.
+    fn shard_account_prefixes(shard_layout: &ShardLayout) -> Vec<AccountId> {
+        let boundary_account_ids = shard_layout.boundary_accounts().clone();
+        if boundary_account_ids.is_empty() {
+            // Single shard — return one prefix that lands in the only shard.
+            return vec!["00".parse::<AccountId>().unwrap()];
+        }
+        let first_boundary_account_id = boundary_account_ids[0].clone();
+        let first_account_id =
+            "0".repeat(first_boundary_account_id.len()).parse::<AccountId>().unwrap();
+        vec![first_account_id].into_iter().chain(boundary_account_ids).collect()
+    }
+
     /// Adds `num_accounts_per_shard` accounts to each shard.
     /// Writes them to state and to the disk.
     /// Returns the new state roots.
@@ -1339,8 +1347,10 @@ impl ForkNetworkCommand {
         home_dir: &Path,
         shard_layout: &ShardLayout,
         num_accounts_per_shard: u64,
+        chunk_producers: u64,
+        num_rpcs: u64,
     ) -> anyhow::Result<Vec<StateRoot>> {
-        #[derive(serde::Serialize)]
+        #[derive(serde::Serialize, Clone)]
         struct AccountData {
             account_id: AccountId,
             public_key: String,
@@ -1356,19 +1366,12 @@ impl ForkNetworkCommand {
 
         let liquid_balance = Balance::from_near(100_000_000);
         let storage_bytes = runtime_config.fees.storage_usage_config.num_bytes_account;
-        let boundary_account_ids = shard_layout.boundary_accounts().clone();
-        let first_boundary_account_id = boundary_account_ids[0].clone();
-        let first_account_id =
-            "0".repeat(first_boundary_account_id.len()).parse::<AccountId>().unwrap();
-        let account_prefixes = vec![first_account_id]
-            .into_iter()
-            .chain(boundary_account_ids.into_iter())
-            .collect::<Vec<_>>();
+        let account_prefixes = Self::shard_account_prefixes(shard_layout);
         for (account_prefix_idx, account_prefix) in account_prefixes.into_iter().enumerate() {
             tracing::info!(
-                "Creating accounts for shard: {} {}",
-                account_prefix_idx,
-                account_prefix
+                %account_prefix_idx,
+                %account_prefix,
+                "creating accounts for shard"
             );
             let state_roots_map: HashMap<ShardUId, StateRoot> = shard_uids
                 .iter()
@@ -1388,15 +1391,20 @@ impl ForkNetworkCommand {
             )?;
 
             let shard_id = shard_layout.get_shard_id(account_prefix_idx).unwrap();
-            let shard_accounts_path = accounts_path.join(format!("shard_{}.json", shard_id));
-            let mut account_infos = vec![];
+            let num_shards = shard_layout.num_shards();
+            assert!(
+                chunk_producers % num_shards == 0,
+                "chunk_producers ({}) must be divisible by the number of shards ({})",
+                chunk_producers,
+                num_shards
+            );
+            let cps_per_shard = chunk_producers / num_shards;
+
+            // Create separate account files for each CP
+            let mut cp_account_infos: Vec<Vec<AccountData>> = vec![vec![]; cps_per_shard as usize];
 
             for i in 0..num_accounts_per_shard {
                 let account_id = format!("{account_prefix}_user_{i}").parse::<AccountId>().unwrap();
-                let secret_key =
-                    SecretKey::from_seed(near_crypto::KeyType::ED25519, account_id.as_str());
-                let signer =
-                    InMemorySigner::from_secret_key(account_id.clone(), secret_key.clone());
                 let shard_id = shard_layout.account_id_to_shard_id(&account_id);
                 let shard_idx = shard_layout.get_shard_index(shard_id).unwrap();
                 assert!(
@@ -1413,26 +1421,127 @@ impl ForkNetworkCommand {
                         storage_bytes,
                     ),
                 )?;
-                storage_mutator.set_access_key(
-                    shard_idx,
-                    account_id.clone(),
-                    signer.public_key(),
-                    AccessKey::full_access(),
-                )?;
-                let account_data = AccountData {
-                    account_id: account_id.clone(),
-                    public_key: signer.public_key().to_string(),
-                    secret_key: secret_key.to_string(),
-                    nonce: 0,
-                };
-                account_infos.push(account_data);
+
+                // Create multiple access keys for this account (one per CP)
+                for cp_idx in 0..cps_per_shard {
+                    let key_seed = format!("{account_id}_cp_{cp_idx}");
+                    let secret_key = SecretKey::from_seed(near_crypto::KeyType::ED25519, &key_seed);
+                    let public_key = secret_key.public_key();
+
+                    storage_mutator.set_access_key(
+                        shard_idx,
+                        account_id.clone(),
+                        public_key.clone(),
+                        AccessKey::full_access(),
+                    )?;
+
+                    let account_data = AccountData {
+                        account_id: account_id.clone(),
+                        public_key: public_key.to_string(),
+                        secret_key: secret_key.to_string(),
+                        nonce: 0,
+                    };
+                    cp_account_infos[cp_idx as usize].push(account_data);
+                }
             }
 
-            let account_file = File::create(shard_accounts_path)?;
-            let account_writer = BufWriter::new(account_file);
-            serde_json::to_writer(account_writer, &account_infos)?;
+            // Write one file per CP
+            for (cp_idx, account_infos) in cp_account_infos.iter().enumerate() {
+                let shard_accounts_path =
+                    accounts_path.join(format!("shard_{}_cp_{}.json", shard_id, cp_idx));
+                let account_file = File::create(shard_accounts_path)?;
+                let account_writer = BufWriter::new(account_file);
+                serde_json::to_writer(account_writer, &account_infos)?;
+            }
 
             state_roots = storage_mutator.commit()?;
+        }
+
+        // Create probe accounts (2 per shard) for the RPC probe.
+        // Each probe account gets one access key per RPC node so that write
+        // probes on multiple RPC nodes don't collide on nonces.
+        if num_rpcs > 0 {
+            let state_roots_map: HashMap<ShardUId, StateRoot> = shard_uids
+                .iter()
+                .enumerate()
+                .map(|(idx, shard_uid)| (*shard_uid, state_roots[idx]))
+                .collect();
+            let update_state = ShardUpdateState::new_update_state(
+                &flat_store,
+                &shard_layout,
+                &shard_layout,
+                &state_roots_map,
+            )?;
+            let mut storage_mutator =
+                StorageMutator::new(runtime.get_tries(), update_state, shard_layout.clone())?;
+
+            let probe_prefixes = Self::shard_account_prefixes(shard_layout);
+
+            // per_rpc_accounts[rpc_idx] = vec of AccountData for that RPC's file.
+            let mut per_rpc_accounts: Vec<Vec<AccountData>> =
+                (0..num_rpcs).map(|_| Vec::new()).collect();
+
+            for (shard_idx, account_prefix) in probe_prefixes.into_iter().enumerate() {
+                for probe_idx in 0..2 {
+                    let account_id =
+                        format!("{account_prefix}_probe_{probe_idx}").parse::<AccountId>().unwrap();
+                    let actual_shard_idx = shard_layout
+                        .get_shard_index(shard_layout.account_id_to_shard_id(&account_id))
+                        .unwrap();
+                    assert!(
+                        actual_shard_idx == shard_idx,
+                        "probe account {account_id} landed in shard {actual_shard_idx}, expected {shard_idx}"
+                    );
+                    storage_mutator.set_account(
+                        shard_idx,
+                        account_id.clone(),
+                        Account::new(
+                            liquid_balance,
+                            Balance::ZERO,
+                            AccountContract::None,
+                            storage_bytes,
+                        ),
+                    )?;
+
+                    // Create one access key per RPC node.
+                    for rpc_idx in 0..num_rpcs {
+                        let key_seed = format!("{account_id}_rpc_{rpc_idx}");
+                        let secret_key =
+                            SecretKey::from_seed(near_crypto::KeyType::ED25519, &key_seed);
+                        let public_key = secret_key.public_key();
+
+                        storage_mutator.set_access_key(
+                            shard_idx,
+                            account_id.clone(),
+                            public_key.clone(),
+                            AccessKey::full_access(),
+                        )?;
+
+                        per_rpc_accounts[rpc_idx as usize].push(AccountData {
+                            account_id: account_id.clone(),
+                            public_key: public_key.to_string(),
+                            secret_key: secret_key.to_string(),
+                            nonce: 0,
+                        });
+                    }
+                }
+            }
+
+            state_roots = storage_mutator.commit()?;
+
+            // Write one probe accounts file per RPC node.
+            for rpc_idx in 0..num_rpcs {
+                let filename = format!("probe_accounts_rpc_{rpc_idx}.json");
+                let path = accounts_path.join(&filename);
+                let file = File::create(&path)?;
+                let writer = BufWriter::new(file);
+                serde_json::to_writer(writer, &per_rpc_accounts[rpc_idx as usize])?;
+            }
+            tracing::info!(
+                num_probe_accounts = per_rpc_accounts[0].len(),
+                num_rpcs,
+                "created probe accounts with per-rpc access keys"
+            );
         }
 
         Ok(state_roots)
@@ -1450,29 +1559,15 @@ impl ForkNetworkCommand {
         new_state_roots: Vec<StateRoot>,
         new_validator_accounts: Vec<AccountInfo>,
     ) -> anyhow::Result<()> {
-        // TODO: deprecate these fields as unused.
-        let num_block_producer_seats_per_shard =
-            vec![
-                original_config.num_block_producer_seats_per_shard[0];
-                epoch_config.shard_layout.num_shards() as usize
-            ];
-        let avg_hidden_validator_seats_per_shard =
-            if original_config.avg_hidden_validator_seats_per_shard.is_empty() {
-                Vec::new()
-            } else {
-                vec![
-                    original_config.avg_hidden_validator_seats_per_shard[0];
-                    epoch_config.shard_layout.num_shards() as usize
-                ]
-            };
+        let shard_layout = epoch_config
+            .static_shard_layout()
+            .context("dynamic resharding epoch config is not supported")?;
         let new_config = GenesisConfig {
             chain_id: original_config.chain_id,
             genesis_height: original_config.genesis_height,
             genesis_time: original_config.genesis_time,
             epoch_length: original_config.epoch_length,
             num_block_producer_seats: epoch_config.num_block_producer_seats,
-            num_block_producer_seats_per_shard,
-            avg_hidden_validator_seats_per_shard,
             block_producer_kickout_threshold: 0,
             chunk_producer_kickout_threshold: 0,
             chunk_validator_only_kickout_threshold: 0,
@@ -1483,8 +1578,7 @@ impl ForkNetworkCommand {
             fishermen_threshold: epoch_config.fishermen_threshold,
             minimum_stake_divisor: epoch_config.minimum_stake_divisor,
             protocol_upgrade_stake_threshold: epoch_config.protocol_upgrade_stake_threshold,
-            shard_layout: epoch_config.shard_layout,
-            num_chunk_only_producer_seats: epoch_config.num_chunk_only_producer_seats,
+            shard_layout,
             minimum_validators_per_shard: epoch_config.minimum_validators_per_shard,
             minimum_stake_ratio: epoch_config.minimum_stake_ratio,
             shuffle_shard_assignment_for_chunk_producers: epoch_config
@@ -1512,7 +1606,7 @@ impl ForkNetworkCommand {
         let genesis = Genesis::new_from_state_roots(new_config, new_state_roots);
         let original_genesis_file = home_dir.join(&genesis_file);
 
-        tracing::info!(?original_genesis_file, "Writing new genesis");
+        tracing::info!(?original_genesis_file, "writing new genesis");
         genesis.to_file(&original_genesis_file);
 
         Ok(())
@@ -1530,7 +1624,7 @@ fn get_fork_heads(all_shard_uids: &[ShardUId], store: Store) -> anyhow::Result<V
     // Iterate over each shard to check that flat storage is Ready.
     let flat_heads :Vec<BlockInfo> = all_shard_uids.iter().map(|shard_uid|{
         let flat_storage_status = store
-            .get_ser::<FlatStorageStatus>(DBCol::FlatStorageStatus, &shard_uid.to_bytes()).unwrap()
+            .get_ser::<FlatStorageStatus>(DBCol::FlatStorageStatus, &shard_uid.to_bytes())
             .unwrap();
         if let FlatStorageStatus::Ready(ready) = &flat_storage_status {
             ready.flat_head
@@ -1545,7 +1639,7 @@ fn backup_genesis_file(home_dir: &Path, near_config: &NearConfig) -> anyhow::Res
     let genesis_file = &near_config.config.genesis_file;
     let original_genesis_file = home_dir.join(&genesis_file);
     let backup_genesis_file = backup_genesis_file_path(home_dir, &genesis_file);
-    tracing::info!(?original_genesis_file, ?backup_genesis_file, "Backing up old genesis.");
+    tracing::info!(?original_genesis_file, ?backup_genesis_file, "backing up old genesis");
     std::fs::rename(&original_genesis_file, &backup_genesis_file)?;
     Ok(())
 }
@@ -1554,7 +1648,7 @@ fn restore_backup_genesis_file(home_dir: &Path, near_config: &NearConfig) -> any
     let genesis_file = &near_config.config.genesis_file;
     let backup_genesis_file = backup_genesis_file_path(home_dir, &genesis_file);
     let original_genesis_file = home_dir.join(&genesis_file);
-    tracing::info!(?backup_genesis_file, ?original_genesis_file, "Restoring genesis from a backup");
+    tracing::info!(?backup_genesis_file, ?original_genesis_file, "restoring genesis from a backup");
     std::fs::rename(&backup_genesis_file, &original_genesis_file)?;
     Ok(())
 }

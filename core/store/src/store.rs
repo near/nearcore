@@ -49,12 +49,12 @@ impl Store {
     /// returns the data as [`DBSlice`] object.  The object dereferences into
     /// a slice, for cases when caller doesn’t need to own the value, and
     /// provides conversion into a vector or an Arc.
-    pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
+    pub fn get(&self, column: DBCol, key: &[u8]) -> Option<DBSlice<'_>> {
         let value = if column.is_rc() {
             self.storage.get_with_rc_stripped(column, &key)
         } else {
             self.storage.get_raw_bytes(column, &key)
-        }?;
+        };
         tracing::trace!(
             target: "store",
             db_op = "get",
@@ -62,30 +62,31 @@ impl Store {
             key = %StorageKey(key),
             size = value.as_deref().map(<[u8]>::len)
         );
-        Ok(value)
+        value
     }
 
-    pub fn get_ser<T: BorshDeserialize>(&self, column: DBCol, key: &[u8]) -> io::Result<Option<T>> {
-        self.get(column, key)?.as_deref().map(T::try_from_slice).transpose()
+    pub fn get_ser<T: BorshDeserialize>(&self, column: DBCol, key: &[u8]) -> Option<T> {
+        self.get(column, key)
+            .map(|bytes| T::try_from_slice(&bytes).expect("borsh deserialization should not fail"))
     }
 
     pub fn caching_get_ser<T: BorshDeserialize + Send + Sync + 'static>(
         &self,
         column: DBCol,
         key: &[u8],
-    ) -> io::Result<Option<Arc<T>>> {
+    ) -> Option<Arc<T>> {
         let Some(cache) = self.cache.work_with(column) else {
-            return self.get_ser::<T>(column, key).map(|v| v.map(Into::into));
+            return self.get_ser::<T>(column, key).map(Into::into);
         };
 
-        {
+        let cached_generation = {
             let mut lock = cache.lock();
             if let Some(value) = lock.values.get(key) {
                 if let Some(value) = value {
                     // If the value is already cached, try to downcast it to the requested type.
                     // If it fails, we log a debug message and continue to fetch from the database.
                     match Arc::downcast::<T>(Arc::clone(value)) {
-                        Ok(result) => return Ok(Some(result)),
+                        Ok(result) => return Some(result),
                         Err(_) => {
                             tracing::debug!(
                                 target: "store",
@@ -97,19 +98,20 @@ impl Store {
                 } else {
                     // Value is cached as `None`, which means it was previously fetched
                     // but was not found in the database.
-                    return Ok(None);
+                    return None;
                 }
             }
-        }
-
-        let value = match self.get_ser::<T>(column, key) {
-            Ok(Some(value)) => Some(Arc::from(value)),
-            Ok(None) => None,
-            Err(e) => return Err(e),
+            // If a writer is in progress (active_flushes > 0) the DB may contain
+            // stale data, so we must not cache. Otherwise, we snapshot the
+            // generation counter and will verify it hasn't changed after the
+            // (potentially slow) DB read completes.
+            if lock.active_flushes > 0 { None } else { Some(lock.generation) }
         };
 
+        let value = self.get_ser::<T>(column, key).map(Arc::from);
+
         let mut lock = cache.lock();
-        if lock.active_flushes == 0 {
+        if cached_generation == Some(lock.generation) {
             if let Some(v) = value.as_ref() {
                 lock.values.put(key.into(), Some(Arc::clone(v) as _));
             } else if lock.store_none_values() {
@@ -117,11 +119,11 @@ impl Store {
                 lock.values.put(key.into(), None);
             }
         }
-        Ok(value)
+        value
     }
 
-    pub fn exists(&self, column: DBCol, key: &[u8]) -> io::Result<bool> {
-        self.get(column, key).map(|value| value.is_some())
+    pub fn exists(&self, column: DBCol, key: &[u8]) -> bool {
+        self.get(column, key).is_some()
     }
 
     pub fn store_update(&self) -> StoreUpdate {
@@ -135,10 +137,10 @@ impl Store {
     pub fn iter_ser<'a, T: BorshDeserialize>(
         &'a self,
         col: DBCol,
-    ) -> impl Iterator<Item = io::Result<(Box<[u8]>, T)>> + 'a {
-        self.storage
-            .iter(col)
-            .map(|item| item.and_then(|(key, value)| Ok((key, T::try_from_slice(value.as_ref())?))))
+    ) -> impl Iterator<Item = (Box<[u8]>, T)> + 'a {
+        self.storage.iter(col).map(|(key, value)| {
+            (key, T::try_from_slice(value.as_ref()).expect("borsh deserialization"))
+        })
     }
 
     /// Fetches raw key/value pairs from the database.
@@ -172,11 +174,11 @@ impl Store {
         &'a self,
         col: DBCol,
         key_prefix: &'a [u8],
-    ) -> impl Iterator<Item = io::Result<(Box<[u8]>, T)>> + 'a {
+    ) -> impl Iterator<Item = (Box<[u8]>, T)> + 'a {
         assert!(col != DBCol::State, "can't iter prefix ser of State column");
-        self.storage
-            .iter_prefix(col, key_prefix)
-            .map(|item| item.and_then(|(key, value)| Ok((key, T::try_from_slice(value.as_ref())?))))
+        self.storage.iter_prefix(col, key_prefix).map(|(key, value)| {
+            (key, T::try_from_slice(value.as_ref()).expect("borsh deserialization"))
+        })
     }
 
     /// Saves state (`State` and `FlatState` columns) to given file.
@@ -191,8 +193,7 @@ impl Store {
         for (column_index, &column) in STATE_COLUMNS.iter().enumerate() {
             assert!(column_index < STATE_FILE_END_MARK.into());
             let column_index: u8 = column_index.try_into().unwrap();
-            for item in self.storage.iter_raw_bytes(column) {
-                let (key, value) = item?;
+            for (key, value) in self.storage.iter_raw_bytes(column) {
                 (column_index, key, value).serialize(&mut file)?;
             }
         }
@@ -223,10 +224,11 @@ impl Store {
             let (key, value) = BorshDeserialize::deserialize_reader(&mut file)?;
             transaction.set(STATE_COLUMNS[usize::from(column)], key, value);
         }
-        self.write(transaction)
+        self.write(transaction);
+        Ok(())
     }
 
-    pub fn write(&self, transaction: DBTransaction) -> io::Result<()> {
+    pub fn write(&self, transaction: DBTransaction) {
         let mut keys_flushed = EnumMap::<DBCol, u64>::from_fn(|_| 0);
 
         for op in &transaction.ops {
@@ -241,6 +243,7 @@ impl Store {
                     let Some(cache) = self.cache.work_with(*col) else { continue };
                     let mut lock = cache.lock();
                     lock.active_flushes += 1;
+                    lock.generation += 1;
                     keys_flushed[*col] += 1;
                     lock.values.pop(key);
                 }
@@ -248,12 +251,13 @@ impl Store {
                     let Some(cache) = self.cache.work_with(*col) else { continue };
                     let mut lock = cache.lock();
                     lock.active_flushes += 1;
+                    lock.generation += 1;
                     keys_flushed[*col] += 1;
                     lock.values.clear();
                 }
             }
         }
-        let result = self.storage.write(transaction);
+        self.storage.write(transaction);
         for col in DBCol::iter() {
             let flushed = keys_flushed[col];
             if flushed != 0 {
@@ -261,17 +265,16 @@ impl Store {
                 cache.lock().active_flushes -= flushed;
             }
         }
-        result
     }
 
     /// If the storage is backed by disk, flushes any in-memory data to disk.
-    pub fn flush(&self) -> io::Result<()> {
-        self.storage.flush()
+    pub fn flush(&self) {
+        self.storage.flush();
     }
 
     /// Blocking compaction request if supported by storage.
-    pub fn compact(&self) -> io::Result<()> {
-        self.storage.compact()
+    pub fn compact(&self) {
+        self.storage.compact();
     }
 
     pub fn get_store_statistics(&self) -> Option<StoreStatistics> {
@@ -280,24 +283,24 @@ impl Store {
 }
 
 impl Store {
-    pub fn get_db_version(&self) -> io::Result<Option<DbVersion>> {
+    pub fn get_db_version(&self) -> Option<DbVersion> {
         DbMetadata::maybe_read_version(self.storage.as_ref())
     }
 
-    pub fn set_db_version(&self, version: DbVersion) -> io::Result<()> {
+    pub fn set_db_version(&self, version: DbVersion) {
         let mut store_update = self.store_update();
         store_update.set(DBCol::DbVersion, VERSION_KEY, version.to_string().as_bytes());
-        store_update.commit()
+        store_update.commit();
     }
 
-    pub fn get_db_kind(&self) -> io::Result<Option<DbKind>> {
+    pub fn get_db_kind(&self) -> Option<DbKind> {
         DbMetadata::maybe_read_kind(self.storage.as_ref())
     }
 
-    pub fn set_db_kind(&self, kind: DbKind) -> io::Result<()> {
+    pub fn set_db_kind(&self, kind: DbKind) {
         let mut store_update = self.store_update();
         store_update.set(DBCol::DbVersion, KIND_KEY, <&str>::from(kind).as_bytes());
-        store_update.commit()
+        store_update.commit();
     }
 }
 
@@ -338,16 +341,10 @@ impl StoreUpdate {
     /// `CryptoHash` as key, which has the data in a small fixed-sized array.
     /// Copying and allocating that is not prohibitively expensive and we have
     /// to do it either way. Thus, we take a slice for the key for the nice API.
-    pub fn insert_ser<T: BorshSerialize>(
-        &mut self,
-        column: DBCol,
-        key: &[u8],
-        value: &T,
-    ) -> io::Result<()> {
+    pub fn insert_ser<T: BorshSerialize>(&mut self, column: DBCol, key: &[u8], value: &T) {
         assert!(column.is_insert_only(), "can't insert_ser: {column}");
-        let data = borsh::to_vec(&value)?;
+        let data = borsh::to_vec(&value).expect("borsh serialization should not fail");
         self.insert(column, key.to_vec(), data);
-        Ok(())
     }
 
     /// Inserts a new reference-counted value or increases its reference count
@@ -416,16 +413,10 @@ impl StoreUpdate {
     ///
     /// Must not be used for reference-counted columns; use
     /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
-    pub fn set_ser<T: BorshSerialize + ?Sized>(
-        &mut self,
-        column: DBCol,
-        key: &[u8],
-        value: &T,
-    ) -> io::Result<()> {
+    pub fn set_ser<T: BorshSerialize + ?Sized>(&mut self, column: DBCol, key: &[u8], value: &T) {
         assert!(!(column.is_rc() || column.is_insert_only()), "can't set_ser: {column}");
-        let data = borsh::to_vec(&value)?;
+        let data = borsh::to_vec(&value).expect("borsh serialization should not fail");
         self.set(column, key, &data);
-        Ok(())
     }
 
     /// Modify raw value stored in the database, without doing any sanity checks
@@ -489,7 +480,7 @@ impl StoreUpdate {
             delete_range_ops
         )
     )]
-    pub fn commit(self) -> io::Result<()> {
+    pub fn commit(self) {
         debug_assert!(
             {
                 let non_refcount_keys = self
@@ -584,7 +575,7 @@ impl StoreUpdate {
                 }
             }
         }
-        self.store.write(self.transaction)
+        self.store.write(self.transaction);
     }
 }
 
@@ -606,5 +597,147 @@ impl fmt::Debug for StoreUpdate {
             }
         }
         writeln!(f, "}}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::TestDB;
+    use crate::deserialized_column::Cache;
+    use parking_lot::Mutex;
+
+    const COL: DBCol = DBCol::BlockMisc;
+    type Hook = Box<dyn FnOnce() + Send>;
+
+    /// Database wrapper that runs a callback between reading from the DB and
+    /// returning the value, allowing a test to inject writes at that exact point.
+    struct HookDatabase {
+        inner: TestDB,
+        hook: Mutex<Option<Hook>>,
+    }
+
+    impl HookDatabase {
+        fn new() -> Self {
+            Self { inner: TestDB::default(), hook: Mutex::new(None) }
+        }
+        fn set_hook(&self, f: Hook) {
+            *self.hook.lock() = Some(f);
+        }
+    }
+
+    impl Database for HookDatabase {
+        fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> Option<DBSlice<'_>> {
+            let value = self.inner.get_raw_bytes(col, key);
+            if let Some(hook) = self.hook.lock().take() {
+                hook();
+            }
+            value
+        }
+        fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
+            self.inner.iter(col)
+        }
+        fn iter_prefix<'a>(&'a self, col: DBCol, p: &'a [u8]) -> DBIterator<'a> {
+            self.inner.iter_prefix(col, p)
+        }
+        fn iter_range<'a>(
+            &'a self,
+            col: DBCol,
+            lo: Option<&[u8]>,
+            hi: Option<&[u8]>,
+        ) -> DBIterator<'a> {
+            self.inner.iter_range(col, lo, hi)
+        }
+        fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
+            self.inner.iter_raw_bytes(col)
+        }
+        fn write(&self, batch: DBTransaction) {
+            self.inner.write(batch)
+        }
+        fn flush(&self) {}
+        fn compact(&self) {}
+        fn get_store_statistics(&self) -> Option<StoreStatistics> {
+            None
+        }
+        fn create_checkpoint(
+            &self,
+            _: &std::path::Path,
+            _: Option<&[DBCol]>,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn deserialized_column_cache(&self) -> Arc<Cache> {
+            self.inner.deserialized_column_cache()
+        }
+    }
+
+    fn new_store() -> (Arc<HookDatabase>, Store) {
+        let db = Arc::new(HookDatabase::new());
+        let store = Store::new(db.clone() as Arc<dyn Database>);
+        (db, store)
+    }
+
+    fn set_and_write(store: &Store, key: &[u8], val: u64) {
+        let mut su = store.store_update();
+        su.set_ser(COL, key, &val);
+        store.write(su.transaction);
+    }
+
+    fn read_cached(store: &Store, key: &[u8]) -> u64 {
+        *store.caching_get_ser::<u64>(COL, key).unwrap()
+    }
+
+    /// Writer completes a full write cycle while the reader is between its DB
+    /// read and cache store. Without the generation counter the reader would
+    /// cache the stale value it read.
+    #[test]
+    fn test_caching_race_stale_value() {
+        let key = b"test_key";
+        let (db, store) = new_store();
+        set_and_write(&store, key, 1);
+
+        // The hook fires after the DB read returns 1 but before caching_get_ser
+        // tries to store it in the cache. We write value 2 in this window.
+        let store2 = store.clone();
+        db.set_hook(Box::new(move || {
+            set_and_write(&store2, key, 2);
+        }));
+
+        // This call reads 1 from DB, the hook writes 2, then it tries to cache.
+        assert_eq!(read_cached(&store, key), 1);
+        // A fresh read must see 2, not a stale cached 1.
+        assert_eq!(read_cached(&store, key), 2, "cache returned stale value");
+    }
+
+    /// Writer is already in progress (active_flushes > 0) when the reader
+    /// snapshots the generation, so the reader must skip caching entirely.
+    #[test]
+    fn test_caching_race_writer_starts_first() {
+        let key = b"test_key2";
+        let (db, store) = new_store();
+        set_and_write(&store, key, 1);
+
+        // Simulate writer's pre-write phase: pop key, bump generation.
+        {
+            let mut lock = store.cache.work_with(COL).unwrap().lock();
+            lock.values.pop(key.as_ref());
+            lock.active_flushes += 1;
+            lock.generation += 1;
+        }
+
+        // The hook fires after the DB read (returning stale 1). We simulate the
+        // writer finishing: write 2 to DB and decrement active_flushes.
+        let db2 = db.clone();
+        let store2 = store.clone();
+        db.set_hook(Box::new(move || {
+            let data = borsh::to_vec(&2u64).unwrap();
+            db2.inner.write(DBTransaction {
+                ops: vec![DBOp::Set { col: COL, key: key.to_vec(), value: data }],
+            });
+            store2.cache.work_with(COL).unwrap().lock().active_flushes -= 1;
+        }));
+
+        assert_eq!(read_cached(&store, key), 1);
+        assert_eq!(read_cached(&store, key), 2, "cache returned stale value");
     }
 }

@@ -1,6 +1,7 @@
-#[cfg(feature = "test_features")]
-use std::sync::Arc;
-
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::drop_condition::DropCondition;
+use crate::setup::env::TestLoopEnv;
+use crate::setup::peer_manager_actor::HandlerResult;
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
@@ -14,10 +15,8 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, Balance, BlockHeight};
 #[cfg(feature = "test_features")]
 use near_primitives::validator_signer::ValidatorSigner;
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::drop_condition::DropCondition;
-use crate::setup::env::TestLoopEnv;
+#[cfg(feature = "test_features")]
+use std::sync::Arc;
 
 fn get_builder(num_shards: usize) -> TestLoopBuilder {
     init_test_logger();
@@ -45,9 +44,11 @@ fn get_builder(num_shards: usize) -> TestLoopBuilder {
 }
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_optimistic_block() {
     let num_shards = 3;
-    let mut env: TestLoopEnv = get_builder(num_shards).build().warmup();
+    let mut env: TestLoopEnv = get_builder(num_shards).build();
     env.test_loop.run_for(Duration::seconds(10));
 
     {
@@ -67,8 +68,6 @@ fn test_optimistic_block() {
         let expected_hits = chain.head().map_or(0, |t| t.height - 2);
         assert!(chain.apply_chunk_results_cache.hits() >= (expected_hits as usize));
     }
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[cfg(feature = "test_features")]
@@ -107,7 +106,7 @@ fn make_invalid_ob(env: &TestLoopEnv, adv_type: OptimisticBlockAdvType) -> Optim
 #[cfg(feature = "test_features")]
 /// Check if validation fails on malformed optimistic blocks.
 fn test_invalid_optimistic_block() {
-    let mut env = get_builder(3).build().warmup();
+    let mut env = get_builder(3).build();
     env.test_loop.run_for(Duration::seconds(10));
     let chain =
         &env.test_loop.data.get(&env.node_datas[0].client_sender.actor_handle()).client.chain;
@@ -158,8 +157,6 @@ fn test_invalid_optimistic_block() {
             .check_optimistic_block(&make_invalid_ob(&env, OptimisticBlockAdvType::Normal))
             .is_ok()
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Returns the block height within the epoch where the next producer is not the same.
@@ -195,21 +192,20 @@ fn get_height_to_skip_and_producers(
 
 #[test]
 /// Test that the optimistic block production does not break after a missing block.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_optimistic_block_after_missing_block() {
     let num_shards = 3;
-    let mut env: TestLoopEnv = get_builder(num_shards).build().warmup();
+    let mut env: TestLoopEnv = get_builder(num_shards).build();
 
     env.test_loop.run_for(Duration::seconds(10));
 
     let (height_to_skip, producer, next_producer) = get_height_to_skip_and_producers(&env);
-    tracing::info!(target: "test", ?height_to_skip, ?producer, "Skipping block at height");
+    tracing::info!(target: "test", ?height_to_skip, ?producer, "skipping block at height");
     env = env.drop(DropCondition::BlocksByHeight([height_to_skip].into_iter().collect()));
 
-    let client_handle = &env
-        .get_node_data_by_account_id(next_producer.account_id())
-        .unwrap()
-        .client_sender
-        .actor_handle();
+    let client_handle =
+        &env.get_node_data_by_account_id(next_producer.account_id()).client_sender.actor_handle();
 
     let (hit_count_before_skip, height_before_skip) =
         get_hit_count_and_height(&env, &next_producer);
@@ -235,8 +231,6 @@ fn test_optimistic_block_after_missing_block() {
         hit_delta,
         height_delta,
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[cfg(feature = "test_features")]
@@ -263,29 +257,28 @@ fn alter_optimistic_block_at_height(
                                 optimistic_block.block_timestamp() - 15000000,
                             ),
                         );
-                        return Some(NetworkRequests::OptimisticBlock {
+                        return HandlerResult::Unhandled(NetworkRequests::OptimisticBlock {
                             chunk_producers: chunk_producers.clone(),
                             optimistic_block: altered_ob,
                         });
                     }
                 };
-                Some(request)
+                HandlerResult::Unhandled(request)
             }
         }));
     }
 }
 
 fn get_hit_count_and_height(env: &TestLoopEnv, producer: &ValidatorStake) -> (usize, BlockHeight) {
-    let client_handler = &env
-        .get_node_data_by_account_id(producer.account_id())
-        .unwrap()
-        .client_sender
-        .actor_handle();
+    let client_handler =
+        &env.get_node_data_by_account_id(producer.account_id()).client_sender.actor_handle();
     let chain = &env.test_loop.data.get(&client_handler).client.chain;
     (chain.apply_chunk_results_cache.hits(), chain.head().unwrap().height)
 }
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 #[cfg(feature = "test_features")]
 /// Test that the optimistic block outcome is dropped on other nodes when
 /// the optimistic block content is different than the block.
@@ -293,24 +286,18 @@ fn get_hit_count_and_height(env: &TestLoopEnv, producer: &ValidatorStake) -> (us
 /// is shared with the other nodes.
 fn test_optimistic_block_with_invalidated_outcome() {
     let num_shards = 3;
-    let mut env: TestLoopEnv = get_builder(num_shards).build().warmup();
+    let mut env: TestLoopEnv = get_builder(num_shards).build();
 
     env.test_loop.run_for(Duration::seconds(10));
 
     let (height_to_skip, producer, next_producer) = get_height_to_skip_and_producers(&env);
 
-    tracing::info!(target: "test", ?height_to_skip, ?producer, "Alter optimistic block at height");
+    tracing::info!(target: "test", ?height_to_skip, ?producer, "alter optimistic block at height");
 
-    let producer_client_handle = &env
-        .get_node_data_by_account_id(producer.account_id())
-        .unwrap()
-        .client_sender
-        .actor_handle();
-    let affected_client_handle = &env
-        .get_node_data_by_account_id(next_producer.account_id())
-        .unwrap()
-        .client_sender
-        .actor_handle();
+    let producer_client_handle =
+        &env.get_node_data_by_account_id(producer.account_id()).client_sender.actor_handle();
+    let affected_client_handle =
+        &env.get_node_data_by_account_id(next_producer.account_id()).client_sender.actor_handle();
 
     let client = &env.test_loop.data.get(&producer_client_handle).client;
     let signer = client.validator_signer.get().unwrap();
@@ -353,6 +340,4 @@ fn test_optimistic_block_with_invalidated_outcome() {
         producer_node_hit_delta >= producer_node_height_delta,
         "Producer of the invalid OptimisticBlock must have all hits because it itself uses correct OptimisticBlock"
     );
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

@@ -3,7 +3,6 @@ use crate::config::{PrefetchConfig, TrieCacheConfig};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::AccountId;
 use std::str::FromStr;
-use tracing::error;
 
 /// Default memory limit, if nothing else is configured.
 /// It is chosen to correspond roughly to the old limit, which was
@@ -51,13 +50,13 @@ impl TrieConfig {
         for account in &config.sweat_prefetch_receivers {
             match AccountId::from_str(account) {
                 Ok(account_id) => this.sweat_prefetch_receivers.push(account_id),
-                Err(e) => error!(target: "config", "invalid account id {account}: {e}"),
+                Err(e) => tracing::error!(target: "config", %account, %e, "invalid account id"),
             }
         }
         for account in &config.sweat_prefetch_senders {
             match AccountId::from_str(account) {
                 Ok(account_id) => this.sweat_prefetch_senders.push(account_id),
-                Err(e) => error!(target: "config", "invalid account id {account}: {e}"),
+                Err(e) => tracing::error!(target: "config", %account, %e, "invalid account id"),
             }
         }
         this.claim_sweat_prefetch_config.clone_from(&config.claim_sweat_prefetch_config);

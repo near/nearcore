@@ -18,7 +18,7 @@ use std::sync::Arc;
 fn test_latest_trie_state() {
     near_o11y::testonly::init_test_logger();
     let validators = vec!["test0".parse::<AccountId>().unwrap()];
-    let genesis = Genesis::test_sharded_new_version(validators, 1, vec![1]);
+    let genesis = Genesis::test_sharded_new_version(validators, 1, 1);
 
     let tmp_dir = tempfile::tempdir().unwrap();
     let home_dir = tmp_dir.path();

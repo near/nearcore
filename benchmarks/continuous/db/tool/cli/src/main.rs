@@ -1,8 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
-
 use clap::{Parser, Subcommand};
-
 use orm::{check_connection, establish_connection, insert_ft_transfer};
 
 fn main() -> anyhow::Result<()> {

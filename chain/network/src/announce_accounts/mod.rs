@@ -32,7 +32,7 @@ impl Inner {
 
         match self.store.get_account_announcement(&account_id) {
             Err(err) => {
-                tracing::warn!(target: "network", "Error loading announce account from store: {:?}", err);
+                tracing::warn!(target: "network", ?err, "error loading announce account from store");
                 None
             }
             Ok(None) => None,
@@ -80,10 +80,8 @@ impl AnnounceAccountCache {
             inner.account_peers.put(account_id.clone(), announcement.clone());
             inner.account_peers_broadcasted.put(account_id.clone(), announcement.clone());
 
-            // Add account to store. Best effort
-            if let Err(e) = inner.store.set_account_announcement(account_id, &announcement) {
-                tracing::warn!(target: "network", "Error saving announce account to store: {:?}", e);
-            }
+            // Add account to store.
+            inner.store.set_account_announcement(account_id, &announcement);
             res.push(announcement);
         }
         res

@@ -1,5 +1,5 @@
-use std::collections::HashMap;
-
+use crate::Store;
+use crate::adapter::StoreAdapter;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_primitives::Error;
 use near_primitives::block::Block;
@@ -8,9 +8,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::ExecutionOutcomeWithProof;
 use near_primitives::types::BlockHeight;
 use near_schema_checker_lib::ProtocolSchema;
-
-use crate::Store;
-use crate::adapter::StoreAdapter;
+use std::collections::HashMap;
 
 /// Versioned container for block-related data stored in the cloud archival.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
@@ -42,4 +40,18 @@ pub fn build_block_data(store: &Store, block_height: BlockHeight) -> Result<Bloc
     let block_data =
         BlockDataV1 { block, block_info, next_block_hash, transaction_result_for_block };
     Ok(BlockData::V1(block_data))
+}
+
+impl BlockData {
+    pub fn block(&self) -> &Block {
+        match self {
+            BlockData::V1(data) => &data.block,
+        }
+    }
+
+    pub fn block_info(&self) -> &BlockInfo {
+        match self {
+            BlockData::V1(data) => &data.block_info,
+        }
+    }
 }

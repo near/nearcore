@@ -21,7 +21,6 @@ use std::sync::Arc;
 pub struct PeerConfig {
     pub chain: Arc<data::Chain>,
     pub network: NetworkConfig,
-    pub force_encoding: Option<crate::network_protocol::Encoding>,
 }
 
 impl PeerConfig {
@@ -107,11 +106,8 @@ impl PeerHandle {
             noop().into_multi_sender(),
             noop().into_sender(),
         ));
-        let actor = AutoStopActor(
-            PeerActor::spawn(clock, actor_system, stream, cfg.force_encoding, network_state)
-                .unwrap()
-                .0,
-        );
+        let actor =
+            AutoStopActor(PeerActor::spawn(clock, actor_system, stream, network_state).unwrap().0);
         Self { actor, cfg, events: recv, edge: None }
     }
 }

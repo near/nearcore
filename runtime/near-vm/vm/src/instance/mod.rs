@@ -10,9 +10,6 @@
 mod allocator;
 mod r#ref;
 
-pub use allocator::InstanceAllocator;
-pub use r#ref::{InstanceRef, WeakOrStrongInstanceRef};
-
 use crate::func_data_registry::VMFuncRef;
 use crate::global::Global;
 use crate::imports::Imports;
@@ -28,6 +25,7 @@ use crate::vmcontext::{
 };
 use crate::{Artifact, VMOffsets, VMTrampoline, near_vm_call_trampoline};
 use crate::{VMExtern, VMFunction, VMGlobal};
+pub use allocator::InstanceAllocator;
 use memoffset::offset_of;
 use more_asserts::assert_lt;
 use near_vm_types::entity::{BoxedSlice, EntityRef, PrimaryMap, packed_option::ReservedValue};
@@ -36,6 +34,7 @@ use near_vm_types::{
     GlobalInit, InstanceConfig, LocalGlobalIndex, LocalMemoryIndex, LocalTableIndex, MemoryIndex,
     OwnedTableInitializer, Pages, TableIndex,
 };
+pub use r#ref::{InstanceRef, WeakOrStrongInstanceRef};
 use std::any::Any;
 use std::cell::RefCell;
 use std::collections::BTreeMap;

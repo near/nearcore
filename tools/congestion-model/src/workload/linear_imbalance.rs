@@ -1,6 +1,5 @@
-use crate::{GAS_LIMIT, GGas, ReceiptDefinition, ShardId, TGAS, TransactionBuilder};
-
 use super::{Producer, utils};
+use crate::{GAS_LIMIT, GGas, ReceiptDefinition, ShardId, TGAS, TransactionBuilder};
 
 /// Shards X sends transactions to all shards >= X.
 ///

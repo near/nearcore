@@ -1,9 +1,8 @@
-use std::cell::RefCell;
-use std::collections::HashSet;
-
 use near_primitives::trie_key::{SmallKeyVec, TrieKey};
 use near_store::trie::AccessOptions;
 use near_store::{StorageError, TrieAccess, TrieUpdate};
+use std::cell::RefCell;
+use std::collections::HashSet;
 
 /// Wraps TrieUpdate and estimates recorded storage proof size for all reads as if the reads were
 /// done on a real Trie, not TrieUpdate.
@@ -116,8 +115,8 @@ impl TrieAccess for TrieUpdateWitnessSizeWrapper {
 
                     recorded.additional_storage_proof_size = recorded
                         .additional_storage_proof_size
-                        .saturating_add(trie_val_len)
-                        .saturating_sub(update_val_len);
+                        .saturating_sub(trie_val_len)
+                        .saturating_add(update_val_len);
                 }
 
                 Some(update_val)
@@ -135,8 +134,8 @@ impl TrieAccess for TrieUpdateWitnessSizeWrapper {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
+    use super::TrieUpdateWitnessSizeWrapper;
+    use crate::runtime::trie_update_wrapper::TRIE_INSERT_BASE_SIZE_ESTIMATION;
     use near_crypto::{ED25519PublicKey, PublicKey};
     use near_primitives::account::AccessKey;
     use near_primitives::shard_layout::ShardLayout;
@@ -145,10 +144,7 @@ mod tests {
     use near_store::test_utils::{TestTriesBuilder, test_populate_trie};
     use near_store::trie::AccessOptions;
     use near_store::{Trie, TrieAccess, TrieUpdate};
-
-    use crate::runtime::trie_update_wrapper::TRIE_INSERT_BASE_SIZE_ESTIMATION;
-
-    use super::TrieUpdateWitnessSizeWrapper;
+    use std::str::FromStr;
 
     fn make_wrapper_for_test(
         initial_trie: Vec<(TrieKey, Vec<u8>)>,
@@ -370,6 +366,22 @@ mod tests {
 
         // The difference should be less than 10%
         assert!(trie_recorded_size.abs_diff(wrapper_recorded_size) < trie_recorded_size / 10);
+    }
+
+    #[test]
+    fn test_wrapper_different_value_sizes() {
+        let key = int_key(0);
+        let small_value = vec![0xAA; 8];
+        let large_value = vec![0xBB; 1024];
+        let wrapper = make_wrapper_for_test(
+            vec![(key.clone(), small_value.clone())],
+            vec![(key.clone(), Some(large_value.clone()))],
+        );
+        let result = wrapper.get(&key, AccessOptions::DEFAULT).unwrap();
+        assert_eq!(result.unwrap(), large_value);
+
+        let additional = wrapper.recorded.borrow().additional_storage_proof_size;
+        assert_eq!(additional, (large_value.len() - small_value.len()) as i64);
     }
 
     /// Test the worst-case scenario that `TrieUpdateWitnessSizeWrapper` protects from.

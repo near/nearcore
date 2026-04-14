@@ -7,9 +7,9 @@ use crate::chunk_producer::ProduceChunkResult;
 use crate::client::CatchupState;
 use itertools::Itertools;
 use near_async::messaging::Sender;
-use near_chain::chain::{BlockCatchUpRequest, do_apply_chunks};
+use near_chain::chain::{BlockCatchUpRequest, do_apply_chunks_sequential};
 use near_chain::test_utils::{wait_for_all_blocks_in_processing, wait_for_block_in_processing};
-use near_chain::{ApplyChunksIterationMode, ChainStoreAccess, Provenance};
+use near_chain::{ChainStoreAccess, Provenance};
 use near_client_primitives::types::Error;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Block;
@@ -18,13 +18,13 @@ use near_primitives::merkle::{PartialMerkleTree, merklize};
 use near_primitives::optimistic_block::BlockToApply;
 use near_primitives::sharding::{EncodedShardChunk, ShardChunk, ShardChunkWithEncoding};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::transaction::ValidatedTransaction;
 use near_primitives::types::{Balance, BlockHeight, EpochId, ShardId};
 use near_primitives::utils::MaybeValidated;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::ShardUId;
-use num_rational::Ratio;
-use parking_lot::RwLock;
+use parking_lot::Mutex;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::mem::swap;
 use std::sync::Arc;
@@ -141,6 +141,7 @@ fn create_chunk_on_height_for_shard(
             shard_id,
             &signer,
             &client.chain.transaction_validity_check(last_block.header().clone().into()),
+            &|_| true,
         )
         .unwrap()
         .unwrap()
@@ -169,6 +170,7 @@ pub fn create_chunk(
                 ShardId::new(0),
                 &signer,
                 &client.chain.transaction_validity_check(last_block.header().clone().into()),
+                &|_| true,
             )
             .unwrap()
             .unwrap();
@@ -190,25 +192,42 @@ pub fn create_chunk(
         let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
 
         let header = encoded_chunk.cloned_header();
-        let (new_chunk, mut new_merkle_paths) = ShardChunkWithEncoding::new(
-            *header.prev_block_hash(),
-            header.prev_state_root(),
-            *header.prev_outcome_root(),
-            header.height_created(),
-            header.shard_id(),
-            header.prev_gas_used(),
-            header.gas_limit(),
-            header.prev_balance_burnt(),
-            header.prev_validator_proposals().collect(),
-            validated_txs,
-            decoded_chunk.prev_outgoing_receipts().to_vec(),
-            *header.prev_outgoing_receipts_root(),
-            tx_root,
-            header.congestion_info(),
-            header.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
-            &*signer,
-            &rs,
-        );
+        let (new_chunk, mut new_merkle_paths) = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
+        {
+            ShardChunkWithEncoding::new_for_spice(
+                *header.prev_block_hash(),
+                header.height_created(),
+                header.shard_id(),
+                validated_txs,
+                decoded_chunk.prev_outgoing_receipts().to_vec(),
+                *header.prev_outgoing_receipts_root(),
+                tx_root,
+                &*signer,
+                &rs,
+            )
+        } else {
+            ShardChunkWithEncoding::new(
+                *header.prev_block_hash(),
+                header.prev_state_root(),
+                *header.prev_outcome_root(),
+                header.height_created(),
+                header.shard_id(),
+                header.prev_gas_used(),
+                header.gas_limit(),
+                header.prev_balance_burnt(),
+                header.prev_validator_proposals().collect(),
+                validated_txs,
+                decoded_chunk.prev_outgoing_receipts().to_vec(),
+                *header.prev_outgoing_receipts_root(),
+                tx_root,
+                header.congestion_info(),
+                header.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
+                None,
+                &*signer,
+                &rs,
+                PROTOCOL_VERSION,
+            )
+        };
         let mut new_encoded_chunk = new_chunk.into_parts().1;
         swap(&mut encoded_chunk, &mut new_encoded_chunk);
         swap(&mut merkle_paths, &mut new_merkle_paths);
@@ -228,30 +247,13 @@ pub fn create_chunk(
     let signer = client.validator_signer.get().unwrap();
     let endorsement =
         ChunkEndorsement::new(EpochId::default(), &encoded_chunk.cloned_header(), signer.as_ref());
-    block_merkle_tree.insert(*last_block.hash());
-    let block = Arc::new(Block::produce(
-        PROTOCOL_VERSION,
-        last_block.header(),
-        next_height,
-        last_block.header().block_ordinal() + 1,
-        vec![encoded_chunk.cloned_header()],
-        vec![vec![Some(Box::new(endorsement.signature()))]],
-        *last_block.header().epoch_id(),
-        *last_block.header().next_epoch_id(),
-        None,
-        vec![],
-        Ratio::new(0, 1),
-        Balance::ZERO,
-        Balance::from_yoctonear(100),
-        None,
-        &*client.validator_signer.get().unwrap(),
-        *last_block.header().next_bp_hash(),
-        block_merkle_tree.root(),
-        client.clock.clone(),
-        None,
-        None,
-        None,
-    ));
+    let block = TestBlockBuilder::from_prev_block(client.clock.clone(), &last_block, signer)
+        .height(next_height)
+        .chunks(vec![encoded_chunk.cloned_header()])
+        .chunk_endorsements(vec![vec![Some(Box::new(endorsement.signature()))]])
+        .max_gas_price(Balance::from_yoctonear(100))
+        .block_merkle_tree(&mut block_merkle_tree)
+        .build();
     let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk).unwrap();
     (ProduceChunkResult { chunk, encoded_chunk_parts_paths: merkle_paths, receipts }, block)
 }
@@ -261,17 +263,16 @@ pub fn create_chunk(
 /// It's possible that some blocks that need to be caught up are still being processed
 /// and the catchup process can't catch up on these blocks yet.
 pub fn run_catchup(client: &mut Client) -> Result<(), Error> {
-    let block_messages = Arc::new(RwLock::new(vec![]));
+    let block_messages = Arc::new(Mutex::new(Vec::<BlockCatchUpRequest>::new()));
     let block_inside_messages = block_messages.clone();
     let block_catch_up = Sender::from_fn(move |msg: BlockCatchUpRequest| {
-        block_inside_messages.write().push(msg);
+        block_inside_messages.lock().push(msg);
     });
     loop {
         client.run_catchup(&block_catch_up, None)?;
         let mut catchup_done = true;
-        for msg in block_messages.write().drain(..) {
-            let results = do_apply_chunks(
-                ApplyChunksIterationMode::Sequential,
+        for msg in block_messages.lock().drain(..) {
+            let results = do_apply_chunks_sequential(
                 BlockToApply::Normal(msg.block_hash),
                 msg.block_height,
                 msg.work,

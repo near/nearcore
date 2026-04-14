@@ -1,3 +1,4 @@
+use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::MerklePath;
 use near_primitives::network::PeerId;
@@ -7,13 +8,13 @@ use near_primitives::types::{
     TransactionOrReceiptId,
 };
 use near_primitives::views::{
-    ExecutionOutcomeWithIdView, LightClientBlockLiteView, QueryRequest, StateChangesRequestView,
-    StateSyncStatusView, SyncStatusView,
+    EpochSyncStatusView, ExecutionOutcomeWithIdView, LightClientBlockLiteView, QueryRequest,
+    StateChangesRequestView, StateSyncStatusView, SyncStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use near_time::Duration;
 use std::collections::HashMap;
-use tracing::debug_span;
+use std::sync::Arc;
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug, thiserror::Error)]
@@ -37,12 +38,12 @@ impl From<near_primitives::errors::EpochError> for Error {
 }
 
 /// Various status of syncing a specific shard.
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum ShardSyncStatus {
     StateDownloadHeader,
-    StateDownloadParts,
+    StateDownloadParts { done: u64, total: u64 },
     StateApplyScheduling,
-    StateApplyInProgress,
+    StateApplyInProgress { done: u64, total: u64 },
     StateApplyFinalizing,
     StateSyncDone,
 }
@@ -50,10 +51,14 @@ pub enum ShardSyncStatus {
 impl ShardSyncStatus {
     pub fn repr(&self) -> u8 {
         match self {
+            // NOTE: This is used in metrics.
+            // Do not alter the order of existing values.
+            // Avoid reusing values for different states.
+            // When introducing a new state, always assign a unique, new value to prevent confusion.
             ShardSyncStatus::StateDownloadHeader => 0,
-            ShardSyncStatus::StateDownloadParts => 1,
+            ShardSyncStatus::StateDownloadParts { .. } => 1,
             ShardSyncStatus::StateApplyScheduling => 2,
-            ShardSyncStatus::StateApplyInProgress => 3,
+            ShardSyncStatus::StateApplyInProgress { .. } => 3,
             ShardSyncStatus::StateApplyFinalizing => 4,
             ShardSyncStatus::StateSyncDone => 5,
         }
@@ -73,9 +78,13 @@ impl ToString for ShardSyncStatus {
     fn to_string(&self) -> String {
         match self {
             ShardSyncStatus::StateDownloadHeader => "header".to_string(),
-            ShardSyncStatus::StateDownloadParts => "parts".to_string(),
+            ShardSyncStatus::StateDownloadParts { done, total } => {
+                format!("parts ({done}/{total})")
+            }
             ShardSyncStatus::StateApplyScheduling => "apply scheduling".to_string(),
-            ShardSyncStatus::StateApplyInProgress => "apply in progress".to_string(),
+            ShardSyncStatus::StateApplyInProgress { done, total } => {
+                format!("apply in progress ({done}/{total})")
+            }
             ShardSyncStatus::StateApplyFinalizing => "apply finalizing".to_string(),
             ShardSyncStatus::StateSyncDone => "done".to_string(),
         }
@@ -102,10 +111,17 @@ impl StateSyncStatus {
 }
 
 #[derive(Clone, Debug)]
-pub struct EpochSyncStatus {
-    pub source_peer_height: BlockHeight,
-    pub source_peer_id: PeerId,
-    pub attempt_time: near_time::Utc,
+pub enum EpochSyncStatus {
+    /// Epoch sync decided but no request sent yet.
+    NotStarted,
+    /// Awaiting response from peer.
+    InProgress {
+        source_peer_height: BlockHeight,
+        source_peer_id: PeerId,
+        attempt_time: near_time::Utc,
+    },
+    /// Epoch sync proof applied successfully.
+    Done,
 }
 
 /// Various status sync can be in, whether it's fast sync or archival.
@@ -115,12 +131,12 @@ pub enum SyncStatus {
     AwaitingPeers,
     /// Not syncing / Done syncing.
     NoSync,
-    /// Syncing using light-client headers to a recent epoch
+    /// Syncing using light-client headers to a recent epoch.
+    /// The inner status tracks the sub-state of epoch sync.
     EpochSync(EpochSyncStatus),
-    EpochSyncDone,
     /// Downloading block headers for fast sync.
     HeaderSync {
-        /// Head height at the beginning. Not the header head height!
+        /// Height at the beginning of header sync.
         /// Used only for reporting the progress of the sync.
         start_height: BlockHeight,
         /// Current header head height.
@@ -160,11 +176,14 @@ impl SyncStatus {
 
     pub fn repr(&self) -> u8 {
         match self {
+            // NOTE: This is used in metrics.
+            // Do not alter the order of existing values.
+            // Avoid reusing values for different states.
+            // When introducing a new state, always assign a unique, new value to prevent confusion.
             // Represent NoSync as 0 because it is the state of a normal well-behaving node.
             SyncStatus::NoSync => 0,
             SyncStatus::AwaitingPeers => 1,
-            SyncStatus::EpochSync { .. } => 2,
-            SyncStatus::EpochSyncDone { .. } => 3,
+            SyncStatus::EpochSync(_) => 2,
             SyncStatus::HeaderSync { .. } => 4,
             SyncStatus::StateSync(_) => 5,
             SyncStatus::StateSyncDone => 6,
@@ -182,9 +201,40 @@ impl SyncStatus {
 
     pub fn update(&mut self, new_value: Self) {
         let _span =
-            debug_span!(target: "sync", "update_sync_status", old_value = ?self, ?new_value)
+            tracing::debug_span!(target: "sync", "update_sync_status", old_value = ?self, ?new_value)
                 .entered();
         *self = new_value;
+    }
+}
+
+impl From<EpochSyncStatus> for EpochSyncStatusView {
+    fn from(status: EpochSyncStatus) -> Self {
+        match status {
+            EpochSyncStatus::NotStarted => EpochSyncStatusView::NotStarted,
+            EpochSyncStatus::InProgress { source_peer_height, source_peer_id, attempt_time } => {
+                EpochSyncStatusView::InProgress {
+                    source_peer_height,
+                    source_peer_id: source_peer_id.to_string(),
+                    attempt_time: attempt_time.to_string(),
+                }
+            }
+            EpochSyncStatus::Done => EpochSyncStatusView::Done,
+        }
+    }
+}
+
+impl From<StateSyncStatus> for StateSyncStatusView {
+    fn from(status: StateSyncStatus) -> Self {
+        StateSyncStatusView {
+            sync_hash: status.sync_hash,
+            shard_sync_status: status
+                .sync_status
+                .iter()
+                .map(|(shard_id, shard_sync_status)| (*shard_id, shard_sync_status.to_string()))
+                .collect(),
+            download_tasks: status.download_tasks,
+            computation_tasks: status.computation_tasks,
+        }
     }
 }
 
@@ -193,29 +243,11 @@ impl From<SyncStatus> for SyncStatusView {
         match status {
             SyncStatus::AwaitingPeers => SyncStatusView::AwaitingPeers,
             SyncStatus::NoSync => SyncStatusView::NoSync,
-            SyncStatus::EpochSync(status) => SyncStatusView::EpochSync {
-                source_peer_height: status.source_peer_height,
-                source_peer_id: status.source_peer_id.to_string(),
-                attempt_time: status.attempt_time.to_string(),
-            },
-            SyncStatus::EpochSyncDone => SyncStatusView::EpochSyncDone,
+            SyncStatus::EpochSync(status) => SyncStatusView::EpochSync(status.into()),
             SyncStatus::HeaderSync { start_height, current_height, highest_height } => {
                 SyncStatusView::HeaderSync { start_height, current_height, highest_height }
             }
-            SyncStatus::StateSync(state_sync_status) => {
-                SyncStatusView::StateSync(StateSyncStatusView {
-                    sync_hash: state_sync_status.sync_hash,
-                    shard_sync_status: state_sync_status
-                        .sync_status
-                        .iter()
-                        .map(|(shard_id, shard_sync_status)| {
-                            (*shard_id, shard_sync_status.to_string())
-                        })
-                        .collect(),
-                    download_tasks: state_sync_status.download_tasks,
-                    computation_tasks: state_sync_status.computation_tasks,
-                })
-            }
+            SyncStatus::StateSync(status) => SyncStatusView::StateSync(status.into()),
             SyncStatus::StateSyncDone => SyncStatusView::StateSyncDone,
             SyncStatus::BlockSync { start_height, current_height, highest_height } => {
                 SyncStatusView::BlockSync { start_height, current_height, highest_height }
@@ -384,9 +416,17 @@ pub enum QueryError {
         block_hash: near_primitives::hash::CryptoHash,
     },
     #[error(
-        "Access key for public key {public_key} has never been observed on the node at block #{block_height}"
+        "Access key for public key {public_key} does not exist while viewing at block #{block_height}"
     )]
     UnknownAccessKey {
+        public_key: near_crypto::PublicKey,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
+    #[error(
+        "Gas key for public key {public_key} does not exist while viewing at block #{block_height}"
+    )]
+    UnknownGasKey {
         public_key: near_crypto::PublicKey,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
@@ -394,6 +434,7 @@ pub enum QueryError {
     #[error("Function call returned an error: {vm_error}")]
     ContractExecutionError {
         vm_error: String,
+        error: near_primitives::errors::FunctionCallError,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
@@ -774,6 +815,39 @@ pub struct GetExecutionOutcomesForBlock {
 }
 
 #[derive(Debug)]
+pub struct GetProcessedReceiptIds {
+    pub block_hash: CryptoHash,
+    pub shard_id: ShardId,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetProcessedReceiptIdsError {
+    #[error("IO Error: {error_message}")]
+    IOError { error_message: String },
+    #[error("Block or shard data not found: {error_message}")]
+    UnknownBlock { error_message: String },
+    #[error(
+        "It is a bug if you receive this error type, please, report this incident: \
+         https://github.com/near/nearcore/issues/new/choose. Details: {error_message}"
+    )]
+    Unreachable { error_message: String },
+}
+
+impl From<near_chain_primitives::error::Error> for GetProcessedReceiptIdsError {
+    fn from(error: near_chain_primitives::error::Error) -> Self {
+        match error {
+            near_chain_primitives::Error::IOErr(error) => {
+                Self::IOError { error_message: error.to_string() }
+            }
+            near_chain_primitives::Error::DBNotFoundErr(error_message) => {
+                Self::UnknownBlock { error_message }
+            }
+            _ => Self::Unreachable { error_message: error.to_string() },
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct GetBlockProof {
     pub block_hash: CryptoHash,
     pub head_block_hash: CryptoHash,
@@ -844,6 +918,27 @@ impl From<near_chain_primitives::Error> for GetReceiptError {
             _ => Self::Unreachable(error.to_string()),
         }
     }
+}
+
+#[derive(Debug)]
+pub struct GetReceiptToTx {
+    pub receipt_id: CryptoHash,
+}
+
+#[derive(Debug)]
+pub struct GetReceiptToTxResponse {
+    pub transaction_hash: CryptoHash,
+    pub sender_account_id: AccountId,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetReceiptToTxError {
+    #[error("Receipt with id {0} has never been observed on this node")]
+    UnknownReceipt(CryptoHash),
+    #[error("depth limit {limit} exceeded when resolving receipt {receipt_id}")]
+    DepthExceeded { receipt_id: CryptoHash, limit: u32 },
+    #[error("this node does not support receipt-to-tx lookup: {0}")]
+    Unsupported(String),
 }
 
 #[derive(Debug)]
@@ -973,4 +1068,10 @@ pub enum SandboxResponse {
     SandboxFastForwardFinished(bool),
     SandboxFastForwardFailed(String),
     SandboxNoResponse,
+}
+
+/// Notification that a new block has been postprocessed by Client.
+#[derive(Debug, Clone)]
+pub struct BlockNotificationMessage {
+    pub block: Arc<Block>,
 }

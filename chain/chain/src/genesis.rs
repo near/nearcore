@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::types::RuntimeAdapter;
 use crate::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use itertools::Itertools;
@@ -19,11 +17,12 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::types::chunk_extra::{ChunkExtra, ChunkExtraV2};
 use near_primitives::types::{Balance, EpochId, Gas, ShardId, StateRoot};
-use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
+use near_primitives::version::{PROD_GENESIS_PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::{Store, get_genesis_state_roots};
 use near_vm_runner::logic::ProtocolVersion;
 use node_runtime::bootstrap_congestion_info;
+use std::sync::Arc;
 
 impl Chain {
     /// Builds genesis block and chunks from the current configuration obtained through the arguments.
@@ -125,14 +124,32 @@ impl Chain {
         for chunk in genesis_chunks {
             store_update.save_chunk(chunk.clone());
         }
-        store_update.merge(epoch_manager.add_validator_proposals(
-            BlockInfo::from_header(
-                genesis.header(),
-                // genesis height is considered final
-                genesis.header().height(),
-            ),
-            *genesis.header().random_value(),
-        )?);
+        let genesis_protocol_version =
+            epoch_manager.get_epoch_protocol_version(genesis.header().epoch_id())?;
+        let block_info = BlockInfo::from_header(
+            genesis.header(),
+            // genesis height is considered final
+            genesis.header().height(),
+            genesis_protocol_version,
+        );
+        store_update.merge(
+            epoch_manager
+                .add_validator_proposals(block_info, *genesis.header().random_value())?
+                .into(),
+        );
+        // Save chunk producers for height 1 (next height after genesis).
+        store_update.save_chunk_producers_for_header(
+            epoch_manager,
+            genesis.header(),
+            genesis_protocol_version,
+        )?;
+        // Save chunk producers for the genesis chunks themselves (height 0).
+        // Genesis chunks have prev_block_hash = CryptoHash::default().
+        store_update.save_genesis_chunk_producers(
+            epoch_manager,
+            genesis_protocol_version,
+            genesis.header().height(),
+        )?;
         store_update.save_block_header(genesis.header().clone())?;
         store_update.save_block(genesis.clone().into());
         Self::save_genesis_chunk_extras(&genesis, &state_roots, epoch_manager, &mut store_update)?;
@@ -141,6 +158,10 @@ impl Chain {
         let header_head = block_head.clone();
         store_update.save_head(&block_head)?;
         store_update.save_final_head(&header_head)?;
+        if ProtocolFeature::Spice.enabled(genesis_protocol_version) {
+            store_update.save_spice_execution_head(block_head.clone())?;
+            store_update.save_spice_final_execution_head(&block_head)?;
+        }
 
         // Set the root block of flat state to be the genesis block. Later, when we
         // init FlatStorages, we will read the from this column in storage, so it
@@ -154,11 +175,11 @@ impl Chain {
                 shard_uid,
                 genesis.hash(),
                 genesis.header().height(),
-            )
+            );
         }
         store_update.merge(tmp_store_update);
         store_update.commit()?;
-        tracing::info!(target: "chain", "Init: saved genesis: #{} {} / {:?}", block_head.height, block_head.last_block_hash, state_roots);
+        tracing::info!(target: "chain", height = %block_head.height, ?block_head.last_block_hash, ?state_roots, "genesis has been saved");
         Ok(())
     }
 
@@ -176,6 +197,7 @@ impl Chain {
             Balance::ZERO,
             congestion_info,
             BandwidthRequests::empty(),
+            None,
         )
     }
 
@@ -196,22 +218,7 @@ impl Chain {
         shard_layout: &ShardLayout,
         shard_id: ShardId,
     ) -> Result<ChunkExtra, Error> {
-        Self::build_genesis_chunk_extra(&chain_store.store(), shard_layout, shard_id, &genesis)
-    }
-
-    pub fn build_genesis_chunk_extra(
-        store: &Store,
-        shard_layout: &ShardLayout,
-        shard_id: ShardId,
-        genesis: &Block,
-    ) -> Result<ChunkExtra, Error> {
         let shard_index = shard_layout.get_shard_index(shard_id)?;
-        let state_root = *get_genesis_state_roots(store)?
-            .ok_or_else(|| Error::Other("genesis state roots do not exist in the db".to_owned()))?
-            .get(shard_index)
-            .ok_or_else(|| {
-                Error::Other(format!("genesis state root does not exist for shard id {shard_id} shard index {shard_index}"))
-            })?;
         let gas_limit = genesis
             .chunks()
             .get(shard_index)
@@ -221,9 +228,29 @@ impl Chain {
                 ))
             })?
             .gas_limit();
-        let congestion_info =
-            genesis.block_congestion_info().get(&shard_id).map(|info| info.congestion_info);
-        Ok(Self::create_genesis_chunk_extra(&state_root, gas_limit, congestion_info))
+        Self::build_genesis_chunk_extra(&chain_store.store(), shard_layout, shard_id, gas_limit)
+    }
+
+    pub fn build_genesis_chunk_extra(
+        store: &Store,
+        shard_layout: &ShardLayout,
+        shard_id: ShardId,
+        gas_limit: Gas,
+    ) -> Result<ChunkExtra, Error> {
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
+        let state_root = *get_genesis_state_roots(store)
+            .ok_or_else(|| Error::Other("genesis state roots do not exist in the db".to_owned()))?
+            .get(shard_index)
+            .ok_or_else(|| {
+                Error::Other(format!("genesis state root does not exist for shard id {shard_id} shard index {shard_index}"))
+            })?;
+        let congestion_info = *near_store::get_genesis_congestion_infos(store)
+            .ok_or_else(|| Error::Other("genesis congestion infos do not exist in the db".to_owned()))?
+            .get(shard_index)
+            .ok_or_else(|| {
+                Error::Other(format!("genesis congestion infos do not exist for shard id {shard_id} shard index {shard_index}"))
+            })?;
+        Ok(Self::create_genesis_chunk_extra(&state_root, gas_limit, Some(congestion_info)))
     }
 
     /// Saves the `[ChunkExtra]`s for all shards in the genesis block.
@@ -270,7 +297,7 @@ pub fn get_genesis_congestion_infos(
     state_roots: &Vec<CryptoHash>,
 ) -> Result<Vec<CongestionInfo>, Error> {
     get_genesis_congestion_infos_impl(epoch_manager, runtime, state_roots).map_err(|err| {
-        tracing::error!(target: "chain", ?err, "Failed to get the genesis congestion infos.");
+        tracing::error!(target: "chain", ?err, "failed to get the genesis congestion infos");
         err
     })
 }
@@ -286,8 +313,8 @@ fn get_genesis_congestion_infos_impl(
     let genesis_shard_layout = epoch_manager.get_shard_layout(&genesis_epoch_id)?;
 
     // Check we had already computed the congestion infos from the genesis state roots.
-    if let Some(saved_infos) = near_store::get_genesis_congestion_infos(runtime.store())? {
-        tracing::debug!(target: "chain", "Reading genesis congestion infos from database.");
+    if let Some(saved_infos) = near_store::get_genesis_congestion_infos(runtime.store()) {
+        tracing::debug!(target: "chain", "reading genesis congestion infos from database");
         return Ok(saved_infos);
     }
 
@@ -306,7 +333,7 @@ fn get_genesis_congestion_infos_impl(
                 tracing::info!(
                     target: "chain",
                     %shard_id,
-                    "Genesis state unavailable, using default congestion info"
+                    "genesis state unavailable, using default congestion info"
                 );
                 CongestionInfo::default()
             }
@@ -317,10 +344,10 @@ fn get_genesis_congestion_infos_impl(
     // Store it in DB so that we can read it later, instead of recomputing from genesis state roots.
     // Note that this is necessary because genesis state roots will be garbage-collected and will not
     // be available, for example, when the node restarts later.
-    tracing::debug!(target: "chain", "Saving genesis congestion infos to database.");
+    tracing::debug!(target: "chain", "saving genesis congestion infos to database");
     let mut store_update = runtime.store().store_update();
     near_store::set_genesis_congestion_infos(&mut store_update, &new_infos);
-    store_update.commit()?;
+    store_update.commit();
 
     Ok(new_infos)
 }
@@ -337,15 +364,14 @@ fn get_genesis_congestion_info(
     let trie = runtime.get_view_trie_for_shard(shard_id, prev_hash, state_root)?;
     let runtime_config = runtime.get_runtime_config(protocol_version);
     let congestion_info = bootstrap_congestion_info(&trie, runtime_config, shard_id)?;
-    tracing::debug!(target: "chain", %shard_id, ?state_root, ?congestion_info, "Computed genesis congestion info.");
+    tracing::debug!(target: "chain", %shard_id, ?state_root, ?congestion_info, "computed genesis congestion info");
     Ok(congestion_info)
 }
 
 #[cfg(test)]
 mod test {
-    use std::path::Path;
-    use std::str::FromStr;
-
+    use crate::runtime::NightshadeRuntime;
+    use crate::{Chain, ChainGenesis};
     use near_async::time::FakeClock;
     use near_chain_configs::test_genesis::{TestEpochConfigBuilder, TestGenesisBuilder};
     use near_epoch_manager::EpochManager;
@@ -354,9 +380,8 @@ mod test {
     use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
     use num_rational::Rational32;
-
-    use crate::runtime::NightshadeRuntime;
-    use crate::{Chain, ChainGenesis};
+    use std::path::Path;
+    use std::str::FromStr;
 
     #[test]
     fn test_prod_genesis_protocol_version_block_consistency() {

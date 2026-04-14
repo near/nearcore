@@ -1,6 +1,7 @@
 ---
 source: core/parameters/src/config_store.rs
 expression: config_view
+snapshot_kind: text
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
@@ -200,14 +201,16 @@ expression: config_view
     "linear_op_unit_cost": 300000000000000,
     "vm_kind": "<REDACTED>",
     "discard_custom_sections": false,
-    "saturating_float_to_int": false,
     "global_contract_host_fns": false,
     "reftypes_bulk_memory": false,
     "deterministic_account_ids": false,
+    "gas_key_host_fns": false,
+    "one_yocto_on_promise": false,
     "storage_get_mode": "FlatStorage",
     "fix_contract_loading_cost": false,
     "implicit_account_creation": true,
     "eth_implicit_accounts": false,
+    "eth_implicit_global_contract": false,
     "limit_config": {
       "max_gas_burnt": 300000000000000,
       "max_stack_height": 16384,

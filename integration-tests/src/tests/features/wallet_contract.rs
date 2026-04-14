@@ -1,3 +1,6 @@
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
+use crate::utils::process_blocks::produce_blocks_from_height;
 use assert_matches::assert_matches;
 use aurora_engine_transactions::EthTransactionKind;
 use aurora_engine_transactions::eip_2930::Transaction2930;
@@ -8,6 +11,7 @@ use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signer};
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
+use near_primitives::action::GlobalContractDeployMode;
 use near_primitives::errors::{InvalidAccessKeyError, InvalidTxError};
 use near_primitives::test_utils::{create_user_test_signer, eth_implicit_test_account};
 use near_primitives::transaction::{
@@ -16,20 +20,19 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{Balance, Gas};
 use near_primitives::utils::derive_eth_implicit_account_id;
+use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{
     FinalExecutionStatus, QueryRequest, QueryResponse, QueryResponseKind,
 };
 use near_primitives_core::{account::AccessKey, types::BlockHeight};
 use near_store::ShardUId;
 use near_vm_runner::ContractCode;
-use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
+use near_wallet_contract::{
+    eth_wallet_global_contract_hash, wallet_contract, wallet_contract_magic_bytes,
+};
 use node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
 use node_runtime::config::total_prepaid_gas;
 use testlib::runtime_utils::{alice_account, bob_account};
-
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
-use crate::utils::process_blocks::produce_blocks_from_height;
 
 /// Try to process tx in the next blocks, check that tx and all generated receipts succeed.
 /// Return height of the next block.
@@ -51,11 +54,15 @@ fn check_tx_processing(
 fn view_request(env: &TestEnv, request: QueryRequest) -> QueryResponse {
     let head = env.clients[0].chain.head().unwrap();
     let head_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
+    let prev_chunk_extra = env.clients[0]
+        .chain
+        .get_chunk_extra(head_block.header().prev_hash(), &ShardUId::single_shard())
+        .unwrap();
     env.clients[0]
         .runtime_adapter
         .query(
             ShardUId::single_shard(),
-            &head_block.chunks()[0].prev_state_root(),
+            prev_chunk_extra.state_root(),
             head.height,
             0,
             &head.prev_block_hash,
@@ -93,6 +100,9 @@ fn test_eth_implicit_account_creation() {
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let eth_implicit_account_id = eth_implicit_test_account();
 
+    let uses_global_contract =
+        ProtocolFeature::EthImplicitGlobalContract.enabled(genesis.config.protocol_version);
+
     // Make zero-transfer to ETH-implicit account, invoking its creation.
     let transfer_tx = SignedTransaction::send_money(
         1,
@@ -118,26 +128,37 @@ fn test_eth_implicit_account_creation() {
     match view_request(&env, request).kind {
         QueryResponseKind::ViewAccount(view) => {
             assert!(view.amount.is_zero());
-            assert_eq!(view.code_hash, *magic_bytes.hash());
+            if uses_global_contract {
+                assert_eq!(
+                    view.global_contract_hash,
+                    Some(eth_wallet_global_contract_hash(chain_id))
+                );
+            } else {
+                assert_eq!(view.code_hash, *magic_bytes.hash());
+            }
             assert!(view.storage_usage <= ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT)
         }
         _ => panic!("wrong query response"),
     }
 
-    // Verify that contract code deployed to the ETH-implicit account is near[wallet contract hash].
-    let request = QueryRequest::ViewCode { account_id: eth_implicit_account_id };
-    match view_request(&env, request).kind {
-        QueryResponseKind::ViewCode(view) => {
-            let contract_code = ContractCode::new(view.code, None);
-            assert_eq!(contract_code.hash(), magic_bytes.hash());
-            assert_eq!(contract_code.code(), magic_bytes.code());
+    // Verify contract code for non-global contract path.
+    if !uses_global_contract {
+        let request = QueryRequest::ViewCode { account_id: eth_implicit_account_id };
+        match view_request(&env, request).kind {
+            QueryResponseKind::ViewCode(view) => {
+                let contract_code = ContractCode::new(view.code, None);
+                assert_eq!(contract_code.hash(), magic_bytes.hash());
+                assert_eq!(contract_code.code(), magic_bytes.code());
+            }
+            _ => panic!("wrong query response"),
         }
-        _ => panic!("wrong query response"),
     }
 }
 
 /// Test that transactions from ETH-implicit accounts are rejected.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_transaction_from_eth_implicit_account_fail() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
@@ -211,7 +232,6 @@ fn test_transaction_from_eth_implicit_account_fail() {
             access_key: AccessKey::full_access(),
         }))],
         *block.hash(),
-        0,
     );
     let response =
         env.rpc_handlers[0].process_tx(add_access_key_to_eth_implicit_account_tx, false, false);
@@ -227,7 +247,6 @@ fn test_transaction_from_eth_implicit_account_fail() {
         &eth_implicit_account_signer,
         vec![Action::DeployContract(DeployContractAction { code: wallet_contract_code })],
         *block.hash(),
-        0,
     );
     let response =
         env.rpc_handlers[0].process_tx(add_access_key_to_eth_implicit_account_tx, false, false);
@@ -240,6 +259,7 @@ fn test_wallet_contract_interaction() {
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let chain_id = &genesis.config.chain_id;
     let mut height = 1;
     let blocks_number = 10;
 
@@ -251,6 +271,23 @@ fn test_wallet_contract_interaction() {
     // Bob will receive a $NEAR transfer from the eth implicit account
     let receiver = bob_account();
 
+    // Deploy global contract if the feature is enabled.
+    let uses_global_contract =
+        ProtocolFeature::EthImplicitGlobalContract.enabled(genesis.config.protocol_version);
+    if uses_global_contract {
+        let magic_bytes = wallet_contract_magic_bytes(chain_id);
+        let wallet_code = wallet_contract(*magic_bytes.hash()).unwrap();
+        let deploy_tx = SignedTransaction::deploy_global_contract(
+            1,
+            relayer.clone(),
+            wallet_code.code().to_vec(),
+            &relayer_signer.signer,
+            *genesis_block.hash(),
+            GlobalContractDeployMode::CodeHash,
+        );
+        height = check_tx_processing(&mut env, deploy_tx, height, blocks_number);
+    }
+
     // Generate an eth implicit account for the user
     let secret_key = SecretKey::from_seed(KeyType::SECP256K1, "test");
     let public_key = secret_key.public_key();
@@ -261,8 +298,8 @@ fn test_wallet_contract_interaction() {
     // here in order to make transfer later from this account.
     let deposit_for_account_creation = Balance::from_near(1);
     let actions = vec![Action::Transfer(TransferAction { deposit: deposit_for_account_creation })];
-    let nonce = view_nonce(&env, relayer_signer.account_id, relayer_signer.signer.public_key()) + 1;
     let block_hash = *genesis_block.hash();
+    let nonce = if uses_global_contract { 2 } else { 1 };
     let signed_transaction = SignedTransaction::from_actions(
         nonce,
         relayer.clone(),
@@ -270,7 +307,6 @@ fn test_wallet_contract_interaction() {
         &relayer_signer.signer.clone().into(),
         actions,
         block_hash,
-        0,
     );
     height = check_tx_processing(&mut env, signed_transaction, height, blocks_number);
 
@@ -407,7 +443,6 @@ pub fn create_rlp_execute_tx(
         &near_signer.signer.clone(),
         actions,
         block_hash,
-        0,
     )
 }
 
@@ -441,6 +476,9 @@ fn abi_encode(target: String, action: Action) -> Vec<u8> {
                         permission.receiver_id,
                         permission.method_names,
                     ),
+                    // TODO(gas-keys): do we need to support GasKey permissions here?
+                    AccessKeyPermission::GasKeyFullAccess(_) => unimplemented!(),
+                    AccessKeyPermission::GasKeyFunctionCall(_, _) => unimplemented!(),
                 };
             // cspell:ignore ethabi
             let tokens = &[

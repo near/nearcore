@@ -153,11 +153,16 @@ impl NearVM {
         Self::new_for_target(config, Target::new(Triple::host(), target_features))
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        target = "vm",
+        name = "NearVM::compile_uncached",
+        skip_all
+    )]
     pub(crate) fn compile_uncached(
         &self,
         code: &ContractCode,
     ) -> Result<UniversalExecutable, CompilationError> {
-        let _span = tracing::debug_span!(target: "vm", "NearVM::compile_uncached").entered();
         let start = std::time::Instant::now();
         let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::NearVm)
             .map_err(CompilationError::PrepareError)?;
@@ -174,14 +179,27 @@ impl NearVM {
                 CompilationError::WasmerCompileError { msg: err.to_string() }
             })?;
         crate::metrics::compilation_duration(VMKind::NearVm, start.elapsed());
+
+        tracing::debug!(
+            target: "vm",
+            original_size = %code.code().len(),
+            prepared_size = %prepared_code.len(),
+            "compiled contract",
+        );
         Ok(executable)
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        target = "vm",
+        name = "NearVM::compile_and_cache",
+        skip_all
+    )]
     fn compile_and_cache(
         &self,
         code: &ContractCode,
         cache: &dyn ContractRuntimeCache,
-    ) -> Result<Result<UniversalExecutable, CompilationError>, CacheError> {
+    ) -> Result<(u64, Result<UniversalExecutable, CompilationError>), CacheError> {
         let executable_or_error = self.compile_uncached(code);
         let key = get_contract_cache_key(*code.hash(), &self.config, near_vm_vm_hash());
         let record = CompiledContractInfo {
@@ -196,8 +214,16 @@ impl NearVM {
                 Err(err) => CompiledContract::CompileModuleError(err.clone()),
             },
         };
+        let compiled_size = record.compiled_size();
+
+        tracing::debug!(
+            target: "vm",
+            compiled_size,
+            "caching compiled contract",
+        );
         cache.put(&key, record).map_err(CacheError::WriteError)?;
-        Ok(executable_or_error)
+
+        Ok((compiled_size, executable_or_error))
     }
 
     #[tracing::instrument(
@@ -229,6 +255,10 @@ impl NearVM {
                 // Caches also cache _compilation_ errors, so that we don't have to
                 // re-parse invalid code (invalid code, in a sense, is a normal
                 // outcome). And `cache`, being a database, can fail with an `io::Error`.
+                //
+                // TODO(slavas): That feels fishy. This function is only called when contract is
+                // called. The first time we compile the contract is when we deploy it. So this
+                // should not normally get called with the contract which does not compile.
                 let _span =
                     tracing::debug_span!(target: "vm", "NearVM::fetch_from_cache").entered();
                 let cache_record = cache.get(&key).map_err(CacheError::ReadError)?;
@@ -239,24 +269,35 @@ impl NearVM {
                     let _span =
                         tracing::debug_span!(target: "vm", "NearVM::build_from_source").entered();
                     is_cache_hit = false;
-                    return Ok(to_any((
-                        code.code().len() as u64,
-                        match self.compile_and_cache(&code, cache)? {
-                            Ok(executable) => Ok(self
-                                .engine
-                                .load_universal_executable(&executable)
-                                .map(Arc::new)
-                                .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?),
-                            Err(err) => Err(err),
-                        },
-                    )));
+                    let (compiled_size, maybe_universal_executable) =
+                        self.compile_and_cache(&code, cache)?;
+
+                    let item_weight = match &maybe_universal_executable {
+                        Ok(_) => compiled_size,
+                        Err(err) => err.size_bytes_approximate() as u64,
+                    };
+
+                    return Ok((
+                        item_weight,
+                        to_any((
+                            code.code().len() as u64,
+                            match maybe_universal_executable {
+                                Ok(executable) => Ok(self
+                                    .engine
+                                    .load_universal_executable(&executable)
+                                    .map(Arc::new)
+                                    .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?),
+                                Err(err) => Err(err),
+                            },
+                        )),
+                    ));
                 };
 
                 match &compiled_contract_info.compiled {
-                    CompiledContract::CompileModuleError(err) => Ok::<_, VMRunnerError>(to_any((
-                        compiled_contract_info.wasm_bytes,
-                        Err(err.clone()),
-                    ))),
+                    CompiledContract::CompileModuleError(err) => Ok::<_, VMRunnerError>((
+                        compiled_contract_info.compiled_size(),
+                        to_any((compiled_contract_info.wasm_bytes, Err(err.clone()))),
+                    )),
                     CompiledContract::Code(serialized_module) => {
                         let _span =
                             tracing::debug_span!(target: "vm", "NearVM::load_from_fs_cache")
@@ -280,7 +321,10 @@ impl NearVM {
                                 .load_universal_executable_ref(&executable)
                                 .map(Arc::new)
                                 .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?;
-                            Ok(to_any((compiled_contract_info.wasm_bytes, Ok(artifact))))
+                            Ok((
+                                compiled_contract_info.compiled_size(),
+                                to_any((compiled_contract_info.wasm_bytes, Ok(artifact))),
+                            ))
                         }
                     }
                 }
@@ -628,9 +672,10 @@ impl crate::runner::VM for NearVM {
         if self.contract_cached(cache, *code.hash())? {
             return Ok(Ok(ContractPrecompilatonResult::ContractAlreadyInCache));
         }
-        Ok(self
-            .compile_and_cache(code, cache)?
-            .map(|_| ContractPrecompilatonResult::ContractCompiled))
+        match self.compile_and_cache(code, cache)? {
+            (_, Err(err)) => Ok(Err(err)),
+            _ => Ok(Ok(ContractPrecompilatonResult::ContractCompiled)),
+        }
     }
 }
 

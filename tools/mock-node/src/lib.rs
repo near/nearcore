@@ -16,8 +16,8 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::ProtocolVersion;
+use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::future::Future;
 use std::path::Path;
@@ -110,7 +110,7 @@ fn retrieve_starting_chunk_hash(
     head_height: BlockHeight,
 ) -> anyhow::Result<ChunkHash> {
     let mut last_err = None;
-    for height in (chain.tail().context("failed fetching chain tail")? + 1..=head_height).rev() {
+    for height in (chain.tail() + 1..=head_height).rev() {
         match chain
             .get_block_hash_by_height(height)
             .and_then(|hash| chain.get_block(&hash))
@@ -138,7 +138,7 @@ fn get_head_block(
     chain: &ChainStoreAdapter,
     max_height: BlockHeight,
 ) -> anyhow::Result<Arc<Block>> {
-    let tail = chain.tail().context("failed fetching chain tail")?;
+    let tail = chain.tail();
     for height in (tail + 1..=max_height).rev() {
         let hash = match chain.get_block_hash_by_height(height) {
             Ok(h) => h,
@@ -195,8 +195,8 @@ impl IncomingRequests {
                     }
                     Err(e) => {
                         tracing::error!(
-                            "Can't construct chunk part request suitable for mock messages: {:?}",
-                            e
+                            ?e,
+                            "can't construct chunk part request suitable for mock messages"
                         );
                     }
                 };
@@ -251,9 +251,9 @@ impl InFlightMessages {
             me.next_delivery.reset(now + *me.response_delay);
         }
         tracing::debug!(
-            "mock peer queueing up message {} to be delivered in {:?}",
-            &message,
-            me.response_delay
+            %message,
+            response_delay = ?me.response_delay,
+            "mock peer queueing up message to be delivered"
         );
         me.messages.push_back(InFlightMessage { message, sent_at: now });
     }
@@ -324,14 +324,14 @@ impl MockPeer {
             Ok(m) => m,
             Err(e) => {
                 if e.kind() == std::io::ErrorKind::UnexpectedEof {
-                    tracing::info!("{:?} disconnected", &conn);
+                    tracing::info!(?conn, "disconnected");
                     return Ok(false);
                 }
                 return Err(e)
                     .with_context(|| format!("failed receiving message from {:?}", &conn));
             }
         };
-        tracing::debug!("mock peer received message: {}", &message);
+        tracing::debug!(%message, "mock peer received message");
         match message {
             Message::Direct(msg) => {
                 match msg {
@@ -433,7 +433,7 @@ impl MockPeer {
                     }
                 }
                 msg = &mut messages => {
-                    tracing::debug!("mock peer sending message {}", &msg);
+                    tracing::debug!(%msg, "mock peer sending message");
                     match msg {
                         Message::Direct(msg) => conn.send_message(msg).await?,
                         Message::Routed(msg) => conn.send_routed_message(msg, conn.peer_id().clone(), 100).await?,
@@ -508,7 +508,7 @@ impl MockNode {
                     return Err(e).context("error accepting from TCP socket");
                 }
                 Err(e) => {
-                    tracing::warn!("Error accepting incoming connection: {:?}", &e);
+                    tracing::warn!(?e, "error accepting incoming connection");
                     continue;
                 }
             };
@@ -523,7 +523,7 @@ impl MockNode {
 
             tokio::spawn(async move {
                 if let Err(e) = peer.serve_peer(conn, target_height).await {
-                    tracing::error!("error serving requests: {:?}", e);
+                    tracing::error!(?e, "error serving requests");
                 }
             });
         }
@@ -539,7 +539,7 @@ fn retrieve_partial_encoded_chunk(
     request: &PartialEncodedChunkRequestMsg,
 ) -> Result<PartialEncodedChunkResponseMsg, Error> {
     let num_total_parts = epoch_manager.num_total_parts();
-    let partial_chunk = chain.get_partial_chunk(&request.chunk_hash)?;
+    let partial_chunk = chain.chunk_store().get_partial_chunk(&request.chunk_hash)?;
     let present_parts: HashMap<u64, _> =
         partial_chunk.parts().iter().map(|part| (part.part_ord, part)).collect();
     assert_eq!(

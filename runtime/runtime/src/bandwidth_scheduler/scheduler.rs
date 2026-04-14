@@ -140,8 +140,6 @@
 //!
 //! It's doable, but it's out of scope for the initial version of the scheduler.
 
-use std::collections::{BTreeMap, VecDeque};
-
 use near_primitives::bandwidth_scheduler::{
     Bandwidth, BandwidthRequest, BandwidthRequestValues, BandwidthRequests,
     BandwidthSchedulerParams, BandwidthSchedulerState, BandwidthSchedulerStateV1,
@@ -152,6 +150,7 @@ use near_primitives::types::{ShardId, ShardIndex};
 use rand::SeedableRng;
 use rand::seq::SliceRandom;
 use rand_chacha::ChaCha20Rng;
+use std::collections::{BTreeMap, VecDeque};
 
 /// How many bytes of outgoing receipts can be sent from one shard to another at the current height.
 /// Produced by the bandwidth scheduler.
@@ -492,7 +491,7 @@ impl BandwidthScheduler {
     fn grant_more_bandwidth(&mut self, link: &ShardLink, bandwidth: Bandwidth) {
         let current_granted = self.granted_bandwidth.get(link).copied().unwrap_or(0);
         let new_granted = current_granted.checked_add(bandwidth).unwrap_or_else(|| {
-            tracing::warn!(target: "runtime", "Granting bandwidth on link {:?} would overflow, this is unexpected. Granting max bandwidth instead", link);
+            tracing::warn!(target: "runtime", ?link, "granting bandwidth on link would overflow, this is unexpected, granting max bandwidth instead");
             Bandwidth::MAX
         });
         self.granted_bandwidth.insert(*link, new_granted);
@@ -743,8 +742,8 @@ impl<T> ShardLinkMap<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
+    use super::BandwidthScheduler;
+    use crate::bandwidth_scheduler::scheduler::ShardStatus;
     use near_primitives::bandwidth_scheduler::{
         BandwidthRequest, BandwidthRequestBitmap, BandwidthRequests, BandwidthRequestsV1,
         BandwidthSchedulerParams, BandwidthSchedulerState, BandwidthSchedulerStateV1,
@@ -753,10 +752,7 @@ mod tests {
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::ShardId;
-
-    use crate::bandwidth_scheduler::scheduler::ShardStatus;
-
-    use super::BandwidthScheduler;
+    use std::collections::BTreeMap;
 
     /// Run bandwidth scheduler on worst-case scenario that should take as much CPU time as possible.
     /// Measures the time and prints it to stdout.

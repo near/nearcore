@@ -1,11 +1,10 @@
+use super::RpcFrom;
 use near_async::messaging::AsyncSendError;
 use near_client_primitives::types::StatusError;
 use near_jsonrpc_primitives::types::status::{
     RpcHealthResponse, RpcStatusError, RpcStatusResponse,
 };
 use near_primitives::views::StatusResponse;
-
-use super::RpcFrom;
 
 impl RpcFrom<AsyncSendError> for RpcStatusError {
     fn rpc_from(error: AsyncSendError) -> Self {
@@ -68,9 +67,6 @@ impl RpcFrom<near_network::debug::DebugStatus>
             near_network::debug::DebugStatus::RecentOutboundConnections(x) => {
                 near_jsonrpc_primitives::types::status::DebugStatusResponse::RecentOutboundConnections(x)
             }
-            near_network::debug::DebugStatus::Routes(x) => {
-                near_jsonrpc_primitives::types::status::DebugStatusResponse::Routes(x)
-            }
             near_network::debug::DebugStatus::SnapshotHosts(x) => {
                 near_jsonrpc_primitives::types::status::DebugStatusResponse::SnapshotHosts(x)
             }
@@ -92,7 +88,7 @@ impl RpcFrom<StatusError> for RpcStatusError {
             StatusError::NoNewBlocks { elapsed } => Self::NoNewBlocks { elapsed },
             StatusError::EpochOutOfBounds { epoch_id } => Self::EpochOutOfBounds { epoch_id },
             StatusError::Unreachable { ref error_message } => {
-                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", error_message);
+                tracing::warn!(target: "jsonrpc", %error_message, "unreachable error occurred");
                 crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
                     .with_label_values(&["RpcStatusError"])
                     .inc();

@@ -1,5 +1,6 @@
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use crate::tests::features::wallet_contract::{NearSigner, create_rlp_execute_tx, view_balance};
-
 use near_chain::Error;
 use near_chain::Provenance;
 use near_chain::chain::ChunkStateWitnessMessage;
@@ -10,6 +11,7 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::account::{AccessKeyPermission, AccountContract, FunctionCallPermission};
+use near_primitives::action::GlobalContractDeployMode;
 use near_primitives::action::{Action, AddKeyAction, TransferAction};
 use near_primitives::epoch_manager::AllEpochConfigTestOverrides;
 use near_primitives::num_rational::Rational32;
@@ -20,18 +22,17 @@ use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountInfo, Balance, EpochId, Gas, ShardId};
 use near_primitives::utils::derive_eth_implicit_account_id;
+use near_primitives::version::ProtocolFeature;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::account::{AccessKey, Account};
 use near_primitives_core::types::{AccountId, NumSeats};
 use near_store::test_utils::create_test_store;
+use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
 use node_runtime::config::total_prepaid_gas;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::{HashMap, HashSet};
-
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
 
 fn run_chunk_validation_test(
     seed: u64,
@@ -49,7 +50,6 @@ fn run_chunk_validation_test(
     let num_validators = 8;
     let (accounts, shard_layout) = get_accounts_and_shard_layout(num_accounts, num_validators);
 
-    let num_shards = shard_layout.shard_ids().count();
     let mut genesis_config = GenesisConfig {
         // Use the latest protocol version. Otherwise, the version may be too
         // old that e.g. blocks don't even store previous heights.
@@ -68,18 +68,14 @@ fn run_chunk_validation_test(
             .collect(),
         // Ensures 4 epoch transitions.
         epoch_length: 10,
+        transaction_validity_period: 20,
         // The genesis requires this, so set it to something arbitrary.
         protocol_treasury_account: accounts[num_validators].clone(),
         // Simply make all validators block producers.
         num_block_producer_seats: num_validators as NumSeats,
         // Each shard has 2 chunk producers, so 4 shards, 8 chunk producers total.
         minimum_validators_per_shard: 2,
-        // Even though not used for the most recent protocol version,
-        // this must still have the same length as the number of shards,
-        // or else the genesis fails validation.
-        num_block_producer_seats_per_shard: vec![8; num_shards],
         gas_limit: Gas::from_teragas(1000),
-        transaction_validity_period: 120,
         // Needed to completely avoid validator kickouts as we want to test
         // missing chunks functionality.
         block_producer_kickout_threshold: 0,
@@ -174,7 +170,7 @@ fn run_chunk_validation_test(
         let block_producer = env.get_block_producer_at_offset(&tip, height_offset);
         tracing::debug!(
             target: "client",
-            "Producing block at height {} by {}", height, block_producer
+            %height, %block_producer, "producing block at height by block producer"
         );
         let block = env.client(&block_producer).produce_block(height).unwrap().unwrap();
 
@@ -183,7 +179,7 @@ fn run_chunk_validation_test(
             let validator_id = env.get_client_id(i);
             tracing::debug!(
                 target: "client",
-                "Applying block at height {} at {}", block.header().height(), validator_id
+                height = %block.header().height(), %validator_id, "applying block at height at validator"
             );
             let blocks_processed = if rng.gen_bool(prob_missing_chunk) {
                 env.clients[i]
@@ -249,16 +245,22 @@ fn run_chunk_validation_test(
 }
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_chunk_validation_no_missing_chunks() {
     run_chunk_validation_test(42, 0.0, 0.0, PROTOCOL_VERSION);
 }
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_chunk_validation_low_missing_chunks() {
     run_chunk_validation_test(43, 0.3, 0.0, PROTOCOL_VERSION);
 }
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_chunk_validation_high_missing_chunks() {
     run_chunk_validation_test(44, 0.81, 0.0, PROTOCOL_VERSION);
 }
@@ -273,7 +275,6 @@ fn test_protocol_upgrade_81() {
 
     let (accounts, shard_layout) = get_accounts_and_shard_layout(num_accounts, num_validators);
 
-    let num_shards = shard_layout.shard_ids().count();
     let genesis_config = GenesisConfig {
         protocol_version: PROTOCOL_VERSION,
         chain_id: "mocknet".to_string(),
@@ -291,7 +292,6 @@ fn test_protocol_upgrade_81() {
         protocol_treasury_account: accounts[num_validators].clone(),
         num_block_producer_seats: num_validators as NumSeats,
         minimum_validators_per_shard: num_validators as NumSeats,
-        num_block_producer_seats_per_shard: vec![8; num_shards],
         block_producer_kickout_threshold: 90,
         chunk_producer_kickout_threshold: 90,
         ..Default::default()
@@ -344,7 +344,7 @@ fn test_chunk_state_witness_bad_shard_id() {
     // Run the client for a few blocks
     let upper_height = 6;
     for height in 1..upper_height {
-        tracing::info!(target: "test", "Producing block at height: {height}");
+        tracing::info!(target: "test", %height, "producing block at height");
         let block = env.clients[0].produce_block(height).unwrap().unwrap();
         env.process_block(0, block, Provenance::PRODUCED);
     }
@@ -356,7 +356,7 @@ fn test_chunk_state_witness_bad_shard_id() {
     let witness_size = borsh::object_length(&witness).unwrap();
 
     // Test chunk validation actor rejects witness with invalid shard ID
-    tracing::info!(target: "test", "Processing invalid ChunkStateWitness");
+    tracing::info!(target: "test", "processing invalid chunk state witness");
     let witness_message = ChunkStateWitnessMessage {
         witness,
         raw_witness_size: witness_size,
@@ -391,7 +391,33 @@ fn test_eth_implicit_accounts() {
         .nightshade_runtimes(&genesis)
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let chain_id = &genesis.config.chain_id;
     let signer = create_user_test_signer(AccountIdRef::new("test2").unwrap());
+
+    // Deploy global contract if the feature is enabled.
+    let uses_global_contract =
+        ProtocolFeature::EthImplicitGlobalContract.enabled(genesis.config.protocol_version);
+    let mut next_nonce = 1;
+    if uses_global_contract {
+        let magic_bytes = wallet_contract_magic_bytes(chain_id);
+        let wallet_code = wallet_contract(*magic_bytes.hash()).unwrap();
+        let deploy_tx = SignedTransaction::deploy_global_contract(
+            next_nonce,
+            signer.get_account_id(),
+            wallet_code.code().to_vec(),
+            &signer.clone().into(),
+            *genesis_block.hash(),
+            GlobalContractDeployMode::CodeHash,
+        );
+        next_nonce += 1;
+        assert_eq!(
+            env.rpc_handlers[0].process_tx(deploy_tx, false, false),
+            ProcessTxResponse::ValidTx
+        );
+        for _ in 0..5 {
+            produce_block(&mut env);
+        }
+    }
 
     // 1. Create two eth-implicit accounts
     let secret_key = SecretKey::from_seed(KeyType::SECP256K1, "test");
@@ -401,17 +427,18 @@ fn test_eth_implicit_accounts() {
 
     let alice_init_balance = Balance::from_near(3);
     let create_alice_tx = SignedTransaction::send_money(
-        1,
+        next_nonce,
         signer.get_account_id(),
         alice_eth_account.clone(),
         &signer.clone().into(),
         alice_init_balance,
         *genesis_block.hash(),
     );
+    next_nonce += 1;
 
     let bob_init_balance = Balance::ZERO;
     let create_bob_tx = SignedTransaction::send_money(
-        2,
+        next_nonce,
         signer.get_account_id(),
         bob_eth_account.clone(),
         &signer.clone().into(),
@@ -543,11 +570,14 @@ fn produce_block(env: &mut TestEnv) {
         let validator_id = env.get_client_id(i);
         tracing::debug!(
             target: "client",
-            "Applying block at height {} at {}", block.header().height(), validator_id
+            height = %block.header().height(), %validator_id, "applying block at height at validator"
         );
         let blocks_processed =
             env.clients[i].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
         assert_eq!(blocks_processed, vec![*block.hash()]);
+        if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+            env.spice_execute_block(i, *block.hash());
+        }
     }
 
     env.process_partial_encoded_chunks();

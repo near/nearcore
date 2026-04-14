@@ -1,6 +1,3 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-
 use crate::EpochManagerAdapter;
 use itertools::Itertools;
 use near_cache::SyncLruCache;
@@ -13,6 +10,8 @@ use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::validator_signer::EmptyValidatorSigner;
 use near_store::ShardUId;
 use parking_lot::Mutex;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 // bit mask for which shard to track
 type BitMask = Vec<bool>;
@@ -73,6 +72,14 @@ impl ShardTracker {
         Self::new(TrackedShardsConfig::NoShards, epoch_manager, empty_validator_signer)
     }
 
+    /// Returns the shadow-tracked validator ID if the node is a shadow validator; otherwise, returns None.
+    pub fn get_shadow_validator_id(&self) -> Option<&AccountId> {
+        match &self.tracked_shards_config {
+            TrackedShardsConfig::ShadowValidator(validator_id) => Some(validator_id),
+            _ => None,
+        }
+    }
+
     fn tracks_shard_at_epoch(
         &self,
         shard_id: ShardId,
@@ -101,6 +108,33 @@ impl ShardTracker {
                 self.epoch_manager.cares_about_shard_in_epoch(epoch_id, account_id, shard_id)
             }
         }
+    }
+
+    /// Check if this RPC node tracks some shard in this epoch.
+    /// TODO(sharded-rpc): this could probably be a more generic function, maybe
+    /// `node_tracks_shard_at_epoch`? Could other ShardTracker methods be implemented using it?
+    pub fn rpc_tracks_shard_at_epoch(
+        &self,
+        shard_id: ShardId,
+        epoch_id: &EpochId,
+    ) -> Result<bool, EpochError> {
+        // Does this node track the shard based on the TrackedShardsConfig?
+        if self.tracks_shard_at_epoch(shard_id, epoch_id)? {
+            return Ok(true);
+        }
+
+        // Does this node track the shard because it's a validator node?
+        if let Some(vs) = self.validator_signer.get() {
+            if self.epoch_manager.cares_about_shard_in_epoch(
+                epoch_id,
+                vs.validator_id(),
+                shard_id,
+            )? {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
     }
 
     fn tracks_shard(&self, shard_id: ShardId, prev_hash: &CryptoHash) -> Result<bool, EpochError> {
@@ -280,15 +314,24 @@ impl ShardTracker {
         cares_about_shard || will_care_about_shard
     }
 
+    pub fn tracked_shards_config(&self) -> &TrackedShardsConfig {
+        &self.tracked_shards_config
+    }
+
+    pub fn epoch_manager(&self) -> &Arc<dyn EpochManagerAdapter> {
+        &self.epoch_manager
+    }
+
     /// Returns whether the node is configured for all shards tracking.
     pub fn tracks_all_shards(&self) -> bool {
         self.tracked_shards_config.tracks_all_shards()
     }
 
-    /// Returns whether the tracker configuration is valid for cold store. Currently it is only valid if it
-    /// tracks given non-empty subset of shards. Tracking based on `Accounts` is likely to work as well, but
-    /// this hasn't been fully tested or verified yet. Consider enabling support after proper validation.
-    pub fn is_valid_for_cold_store(&self) -> bool {
+    /// Returns whether the tracker is configured to track a non-empty subset of
+    /// shards. Currently only `AllShards` or a non-empty `Shards` list qualify.
+    /// Tracking based on `Accounts` is likely to work as well, but this hasn't
+    /// been fully tested or verified yet.
+    pub fn tracks_non_empty_subset_of_shards(&self) -> bool {
         self.tracked_shards_config.tracks_non_empty_subset_of_shards()
     }
 
@@ -340,7 +383,7 @@ impl ShardTracker {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
         let mut shards_to_sync = Vec::new();
         for shard_id in self.epoch_manager.shard_ids(&epoch_id)? {
-            if self.should_catch_up_shard(parent_hash, shard_id)? {
+            if self.should_catch_up_shard(parent_hash, shard_id) {
                 shards_to_sync.push(shard_id)
             }
         }
@@ -355,18 +398,14 @@ impl ShardTracker {
     /// We check that we didn't track it in T-1 because if so, and we're in the relatively rare case
     /// where we'll go from tracking it to not tracking it and back to tracking it in consecutive epochs,
     /// then we can just continue to apply chunks as if we were tracking it in epoch T, and there's no need to state sync.
-    fn should_catch_up_shard(
-        &self,
-        prev_hash: &CryptoHash,
-        shard_id: ShardId,
-    ) -> Result<bool, Error> {
+    fn should_catch_up_shard(&self, prev_hash: &CryptoHash, shard_id: ShardId) -> bool {
         // Won't care about it next epoch, no need to state sync it.
         if !self.will_care_about_shard(prev_hash, shard_id) {
-            return Ok(false);
+            return false;
         }
         // Currently tracking the shard, so no need to state sync it.
         if self.cares_about_shard(prev_hash, shard_id) {
-            return Ok(false);
+            return false;
         }
 
         // Now we need to state sync it unless we were tracking the parent in the previous epoch,
@@ -374,7 +413,7 @@ impl ShardTracker {
 
         let tracked_before =
             self.cared_about_shard_in_prev_epoch_from_prev_hash(prev_hash, shard_id);
-        Ok(!tracked_before)
+        !tracked_before
     }
 
     /// Return a StateSyncInfo that includes the information needed for syncing state for shards needed
@@ -388,7 +427,7 @@ impl ShardTracker {
         if shards_to_state_sync.is_empty() {
             Ok(None)
         } else {
-            tracing::debug!(target: "chain", "Downloading state for {:?}", shards_to_state_sync);
+            tracing::debug!(target: "chain", ?shards_to_state_sync, "downloading state");
             // Note that this block is the first block in an epoch because this function is only called
             // in get_catchup_and_state_sync_infos() when that is the case.
             let state_sync_info = StateSyncInfo::new(*block_hash, shards_to_state_sync);
@@ -454,6 +493,7 @@ impl ShardTracker {
             &epoch_id,
             &self.epoch_manager,
         )?;
+
         self.descendant_of_tracked_shard_cache.lock().insert(shard_id, is_tracked);
         Ok(is_tracked)
     }
@@ -481,42 +521,39 @@ fn check_if_descendant_of_tracked_shard_impl(
     epoch_id: &EpochId,
     epoch_manager: &Arc<dyn EpochManagerAdapter>,
 ) -> Result<bool, EpochError> {
-    let mut protocol_version = epoch_manager.get_epoch_protocol_version(epoch_id)?;
-    let mut shard_layout = epoch_manager.get_shard_layout_from_protocol_version(protocol_version);
+    let tracked_shards: HashSet<ShardUId> = tracked_shards.into_iter().cloned().collect();
+    let protocol_version = epoch_manager.get_epoch_protocol_version(epoch_id)?;
+    let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+
+    // `ShardLayoutV3` stores all ancestor shards, no need to iterate through protocol versions
+    if let Some(ancestors) = shard_layout.ancestor_uids(shard_id) {
+        let ancestors = HashSet::from_iter(ancestors);
+        return Ok(!ancestors.is_disjoint(&tracked_shards));
+    }
+
     let mut shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
     if tracked_shards.contains(&shard_uid) {
         // We explicitly track `shard_id` (the shard is a descendant of itself).
         return Ok(true);
     }
+
     // `shard_uid` does not belong to `tracked_shards`, but it might be a descendant of one.
-    // Iterate through all ancestors of `shard_uid` to see if any belong to `tracked_shards`.
-    let tracked_shards: HashSet<ShardUId> = tracked_shards.into_iter().cloned().collect();
-    let genesis_protocol_version = epoch_manager.genesis_protocol_version();
-    while protocol_version > genesis_protocol_version {
-        protocol_version -= 1;
-        let previous_protocol_version_shard_layout =
-            epoch_manager.get_shard_layout_from_protocol_version(protocol_version);
-        if previous_protocol_version_shard_layout == shard_layout {
-            // The `ShardLayout` hasn't changed, so we keep decrementing `protocol_version`.
-            continue;
-        }
-        // The `ShardLayout` changed after this protocol version — get the parent shard of `shard_uid`.
-        let Some(parent_shard_id) = shard_layout.try_get_parent_shard_id(shard_uid.shard_id())?
+    // Iterate through consecutive pairs of historical shard layouts (newest to oldest) to trace
+    // the ancestry. Each pair represents a resharding transition.
+    let layout_history = epoch_manager.get_shard_layout_history(protocol_version, None);
+    for window in layout_history.windows(2) {
+        let current_layout = &window[0];
+        let prev_layout = &window[1];
+        let Some(parent_shard_id) = current_layout.try_get_parent_shard_id(shard_uid.shard_id())?
         else {
             debug_assert!(
                 false,
-                "Parent shard is missing for shard {} in shard layout {:?}, protocol version {}",
-                shard_uid, shard_layout, protocol_version
+                "Parent shard is missing for shard {} in shard layout {:?}",
+                shard_uid, current_layout,
             );
             return Ok(false);
         };
-        // Update `shard_uid` and `shard_layout` to their parent `ShardUId` and `ShardLayout`.
-        shard_uid = ShardUId::from_shard_id_and_layout(
-            parent_shard_id,
-            &previous_protocol_version_shard_layout,
-        );
-        shard_layout = previous_protocol_version_shard_layout;
-        // Check whether the ancestor shard belongs to `tracked_shards`.
+        shard_uid = ShardUId::from_shard_id_and_layout(parent_shard_id, &prev_layout);
         if tracked_shards.contains(&shard_uid) {
             return Ok(true);
         }
@@ -537,6 +574,7 @@ mod tests {
     use near_primitives::epoch_manager::EpochConfigStore;
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
+    use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::types::{
         AccountInfo, Balance, BlockHeight, EpochId, ProtocolVersion, ShardId,
@@ -579,10 +617,10 @@ mod tests {
                 &first_split_shard_layout,
                 "abcd".parse().unwrap(),
             );
-            let mut first_split_epoch_config = base_epoch_config;
-            first_split_epoch_config.shard_layout = first_split_shard_layout;
-            let mut second_split_epoch_config = first_split_epoch_config.clone();
-            second_split_epoch_config.shard_layout = second_split_shard_layout;
+            let first_split_epoch_config =
+                base_epoch_config.clone().with_shard_layout(first_split_shard_layout);
+            let second_split_epoch_config =
+                base_epoch_config.with_shard_layout(second_split_shard_layout);
             epoch_configs.push((PROTOCOL_VERSION - 1, Arc::new(first_split_epoch_config)));
             epoch_configs.push((PROTOCOL_VERSION, Arc::new(second_split_epoch_config)));
         }
@@ -591,7 +629,7 @@ mod tests {
         EpochManager::new_arc_handle_from_epoch_config_store(store, &genesis_config, config_store)
     }
 
-    pub fn record_block(
+    fn record_block(
         epoch_manager: &mut EpochManager,
         prev_h: CryptoHash,
         cur_h: CryptoHash,
@@ -599,6 +637,19 @@ mod tests {
         proposals: Vec<ValidatorStake>,
         protocol_version: ProtocolVersion,
     ) {
+        let epoch_id = epoch_manager.get_epoch_id(&prev_h).unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let chunk_endorsements = ChunkEndorsementsBitmap::from_endorsements(
+            shard_layout
+                .shard_ids()
+                .map(|shard_id| {
+                    let assignments = epoch_manager
+                        .get_chunk_validator_assignments(&epoch_id, shard_id, height)
+                        .unwrap();
+                    vec![true; assignments.assignments().iter().len()]
+                })
+                .collect(),
+        );
         epoch_manager
             .record_block_info(
                 BlockInfo::new(
@@ -611,14 +662,15 @@ mod tests {
                     vec![],
                     DEFAULT_TOTAL_SUPPLY,
                     protocol_version,
+                    protocol_version,
                     height * 10u64.pow(9),
+                    chunk_endorsements,
                     None,
                 ),
                 [0; 32],
             )
             .unwrap()
-            .commit()
-            .unwrap();
+            .commit();
     }
 
     // Simulates block production over the given height range using the specified protocol version and block hashes.

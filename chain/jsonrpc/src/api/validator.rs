@@ -1,14 +1,12 @@
+use super::{Params, RpcFrom, RpcRequest};
 use near_async::messaging::AsyncSendError;
-use serde_json::Value;
-
 use near_client_primitives::types::GetValidatorInfoError;
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::validator::{
     RpcValidatorError, RpcValidatorRequest, RpcValidatorsOrderedRequest,
 };
 use near_primitives::types::EpochReference;
-
-use super::{Params, RpcFrom, RpcRequest};
+use serde_json::Value;
 
 impl RpcRequest for RpcValidatorRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
@@ -41,7 +39,7 @@ impl RpcFrom<GetValidatorInfoError> for RpcValidatorError {
             GetValidatorInfoError::ValidatorInfoUnavailable => Self::ValidatorInfoUnavailable,
             GetValidatorInfoError::IOError(error_message) => Self::InternalError { error_message },
             GetValidatorInfoError::Unreachable(ref error_message) => {
-                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", error_message);
+                tracing::warn!(target: "jsonrpc", %error_message, "unreachable error occurred");
                 crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
                     .with_label_values(&["RpcValidatorError"])
                     .inc();

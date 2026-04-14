@@ -4,10 +4,6 @@ use crate::StorageError;
 use crate::contract::ContractStorage;
 use crate::trie::TrieAccess;
 use crate::trie::{KeyLookupMode, TrieChanges};
-use near_primitives::account::AccountContract;
-use near_primitives::action::GlobalContractIdentifier;
-use near_primitives::apply::ApplyChunkReason;
-use near_primitives::global_contract::ContractIsLocalError;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::trie_key::{SmallKeyVec, TrieKey};
@@ -115,9 +111,8 @@ impl TrieUpdate {
         &self.trie
     }
 
-    /// Gets a clone of the `ContractStorage`` (which internally points to the same storage).
-    pub fn contract_storage(&self) -> ContractStorage {
-        self.contract_storage.clone()
+    pub fn contract_storage(&self) -> &ContractStorage {
+        &self.contract_storage
     }
 
     pub fn get_ref(
@@ -303,55 +298,6 @@ impl TrieUpdate {
     pub fn record_contract_deploy(&self, code: ContractCode) {
         self.contract_storage.record_deploy(code);
     }
-
-    /// Records an access to the contract code due to a function call.
-    ///
-    /// The contract code is either included in the state witness or distributed
-    /// separately from the witness (see `ExcludeContractCodeFromStateWitness` feature).
-    /// In the former case, we record a Trie read from the `TrieKey::ContractCode` for each contract.
-    /// In the latter case, the Trie read does not happen and the code-size does not contribute to
-    /// the storage-proof limit. Instead we just record that the code with the given hash was called,
-    /// so that we can identify which contract-code to distribute to the validators.
-    pub fn record_contract_call(
-        &self,
-        account_id: AccountId,
-        code_hash: CryptoHash,
-        account_contract: &AccountContract,
-        apply_reason: ApplyChunkReason,
-    ) -> Result<(), StorageError> {
-        // The recording of contracts when they are excluded from the witness are only for
-        // distributing them to the validators, and not needed for validating the chunks, thus we
-        // skip the recording if we are not applying the chunk for updating the shard.
-        if apply_reason != ApplyChunkReason::UpdateTrackedShard {
-            return Ok(());
-        }
-
-        // Only record the call if trie contains the contract (with the given hash) being called
-        // deployed to the given account. This avoids recording contracts that do not exist or are
-        // newly-deployed to the account. Note that the check below to see if the contract exists
-        // has no side effects (not charging gas or recording trie nodes)
-        let trie_key = match GlobalContractIdentifier::try_from(account_contract.clone()) {
-            Err(ContractIsLocalError::NotDeployed) => return Ok(()),
-            Err(ContractIsLocalError::Deployed(_)) => TrieKey::ContractCode { account_id },
-            Ok(identifier) => TrieKey::GlobalContractCode { identifier: identifier.into() },
-        };
-        let mut key = SmallKeyVec::new_const();
-        trie_key.append_into(&mut key);
-        let contract_ref = self
-            .trie
-            .get_optimized_ref(&key, KeyLookupMode::MemOrFlatOrTrie, AccessOptions::NO_SIDE_EFFECTS)
-            .or_else(|err| {
-                // If the value for the trie key is not found, we treat it as if the contract does not exist.
-                // In this case, we ignore the error and skip recording the contract call below.
-                if matches!(err, StorageError::MissingTrieValue(_)) { Ok(None) } else { Err(err) }
-            })?;
-        let contract_exists =
-            contract_ref.is_some_and(|value_ref| value_ref.value_hash() == code_hash);
-        if contract_exists {
-            self.contract_storage.record_call(code_hash);
-        }
-        Ok(())
-    }
 }
 
 impl TrieAccess for TrieUpdate {
@@ -393,7 +339,7 @@ mod tests {
         let trie_changes = trie_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
         let new_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        store_update.commit().unwrap();
+        store_update.commit();
         let trie_update2 = tries.new_trie_update(shard_uid, new_root);
         assert_eq!(
             trie_update2.get(&test_key(b"dog".to_vec()), AccessOptions::DEFAULT),
@@ -424,7 +370,7 @@ mod tests {
         let trie_changes = trie_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
         let new_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        store_update.commit().unwrap();
+        store_update.commit();
         assert_eq!(new_root, Trie::EMPTY_ROOT);
 
         // Add and right away delete element.
@@ -442,7 +388,7 @@ mod tests {
         let trie_changes = trie_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
         let new_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        store_update.commit().unwrap();
+        store_update.commit();
         assert_eq!(new_root, Trie::EMPTY_ROOT);
 
         // Add, apply changes and then delete element.
@@ -453,7 +399,7 @@ mod tests {
         let trie_changes = trie_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
         let new_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        store_update.commit().unwrap();
+        store_update.commit();
         assert_ne!(new_root, Trie::EMPTY_ROOT);
         let mut trie_update = tries.new_trie_update(shard_uid, new_root);
         trie_update.remove(test_key(b"dog".to_vec()));
@@ -462,7 +408,7 @@ mod tests {
         let trie_changes = trie_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
         let new_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        store_update.commit().unwrap();
+        store_update.commit();
         assert_eq!(new_root, Trie::EMPTY_ROOT);
     }
 
@@ -477,7 +423,7 @@ mod tests {
         let trie_changes = trie_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
         let new_root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
-        store_update.commit().unwrap();
+        store_update.commit();
 
         let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), new_root);
         trie_update.set(test_key(b"dog2".to_vec()), b"puppy".to_vec());

@@ -9,7 +9,7 @@ pub(crate) use crate::trie::config::{
 pub use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::prefetching_trie_storage::{PrefetchApi, PrefetchError};
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
-pub use crate::trie::split::{FindSplitError, TrieSplit, find_trie_split, total_mem_usage};
+pub use crate::trie::split::{FindSplitError, find_trie_split, total_mem_usage};
 pub use crate::trie::state_snapshot::{
     STATE_SNAPSHOT_COLUMNS, SnapshotError, StateSnapshot, StateSnapshotConfig,
 };
@@ -1870,17 +1870,15 @@ pub mod estimator {
 #[cfg(test)]
 mod tests {
     // cspell:ignore cataa catbb docu dogaa dogax dogbb
-    use assert_matches::assert_matches;
-    use near_primitives::shard_layout::ShardLayout;
-    use rand::Rng;
-
+    use super::*;
     use crate::test_utils::{
         TestTriesBuilder, create_test_store, gen_changes, simplify_changes,
         test_populate_flat_storage, test_populate_trie,
     };
     use crate::{MissingTrieValue, MissingTrieValueContext};
-
-    use super::*;
+    use assert_matches::assert_matches;
+    use near_primitives::shard_layout::ShardLayout;
+    use rand::Rng;
 
     type TrieChanges = Vec<(Vec<u8>, Option<Vec<u8>>)>;
     const SHARD_VERSION: u32 = 1;
@@ -1900,7 +1898,7 @@ mod tests {
         let mut store_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         let trie = tries.get_trie_for_shard(shard_uid, root);
-        store_update.commit().unwrap();
+        store_update.commit();
         for (key, _) in changes {
             assert_eq!(trie.get(&key, AccessOptions::DEFAULT), Ok(None));
         }
@@ -2361,12 +2359,11 @@ mod tests {
 
 #[cfg(test)]
 mod borsh_compatibility_test {
+    use crate::TrieChanges;
+    use crate::trie::{TrieRefcountAddition, TrieRefcountSubtraction};
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::types::StateRoot;
-
-    use crate::TrieChanges;
-    use crate::trie::{TrieRefcountAddition, TrieRefcountSubtraction};
 
     #[test]
     fn test_trie_changes_compatibility() {

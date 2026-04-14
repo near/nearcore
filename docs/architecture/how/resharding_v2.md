@@ -13,7 +13,7 @@ number of shards.
 
 The resharding is described in more detail in the following NEPs:
 
-* [NEP-0040](https://github.com/near/NEPs/blob/master/specs/Proposals/0040-split-states.md)
+* [NEP-0040](https://github.com/near/NEPs/blob/master/neps/archive/0040-split-states.md)
 * [NEP-0508](https://github.com/near/NEPs/blob/master/neps/nep-0508.md)
 
 ## Shard layout

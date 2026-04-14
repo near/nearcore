@@ -1,6 +1,7 @@
-use crate::archive::cloud_storage::config::CloudStorageConfig;
+use crate::archive::cloud_storage::config::CloudStorageContext;
 use crate::archive::cloud_storage::opener::CloudStorageOpener;
 use crate::config::StateSnapshotType;
+use crate::db::ColdDB;
 use crate::db::rocksdb::RocksDB;
 use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
 use crate::metadata::{DB_VERSION, DbKind, DbMetadata, DbVersion};
@@ -181,6 +182,14 @@ pub struct StoreOpener<'a> {
 
     /// Opener for an instance of cloud storage if one was configured.
     cloud: Option<CloudStorageOpener>,
+
+    /// Whether this opener is for a state snapshot database.
+    ///
+    /// State snapshot DBs only contain a subset of columns (see
+    /// `STATE_SNAPSHOT_COLUMNS`) and lack epoch/chain data needed by most
+    /// migrations. This flag is passed through to `StoreMigrator::migrate`
+    /// so individual migrations can skip steps that require missing data.
+    is_snapshot: bool,
 }
 
 /// Opener for a single RocksDB instance.
@@ -208,13 +217,13 @@ impl<'a> StoreOpener<'a> {
         home_dir: &std::path::Path,
         store_config: &'a StoreConfig,
         cold_store_config: Option<&'a StoreConfig>,
-        cloud_storage_config: Option<&'a CloudStorageConfig>,
+        cloud_storage_context: Option<CloudStorageContext>,
     ) -> Self {
         let hot = DBOpener::new(home_dir, store_config, Temperature::Hot);
         let cold =
             cold_store_config.map(|config| DBOpener::new(home_dir, config, Temperature::Cold));
-        let cloud = cloud_storage_config.map(|config| CloudStorageOpener::new(config.clone()));
-        Self { hot, cold, migrator: None, cloud }
+        let cloud = cloud_storage_context.map(|context| CloudStorageOpener::new(context));
+        Self { hot, cold, migrator: None, cloud, is_snapshot: false }
     }
 
     /// Returns true if this opener is for an archival node.
@@ -229,6 +238,15 @@ impl<'a> StoreOpener<'a> {
     /// attempt to perform migrations.
     pub fn with_migrator(mut self, migrator: &'a dyn StoreMigrator) -> Self {
         self.migrator = Some(migrator);
+        self
+    }
+
+    /// Marks this opener as opening a state snapshot database.
+    ///
+    /// State snapshot DBs lack most chain/epoch data. This flag is forwarded
+    /// to `StoreMigrator::migrate` so migrations can skip inapplicable steps.
+    pub fn as_snapshot(mut self) -> Self {
+        self.is_snapshot = true;
         self
     }
 
@@ -256,7 +274,7 @@ impl<'a> StoreOpener<'a> {
         let hot_db = self.hot.open_unsafe(mode)?;
         let cold_db = self.cold.as_ref().map(|cold| cold.open_unsafe(mode)).transpose()?;
         let mut storage = NodeStorage::from_rocksdb(hot_db, cold_db);
-        let cloud_storage = self.cloud.as_ref().map(|cloud| cloud.open());
+        let cloud_storage = self.cloud.as_ref().map(|cloud| cloud.open()).transpose()?;
         storage.cloud_storage = cloud_storage;
         Ok(storage)
     }
@@ -273,7 +291,7 @@ impl<'a> StoreOpener<'a> {
     /// - If the state snapshot is already migrated
     fn migrate_state_snapshots(&self) -> Result<(), StoreOpenerError> {
         if self.migrator.is_none() {
-            tracing::debug!(target: "db_opener", "No migrator found, skipping state snapshots migration");
+            tracing::debug!(target: "db_opener", "no migrator found, skipping state snapshots migration");
             return Ok(());
         }
 
@@ -284,7 +302,7 @@ impl<'a> StoreOpener<'a> {
                 config.state_snapshots_dir().unwrap().to_path_buf()
             }
             StateSnapshotType::Disabled => {
-                tracing::debug!(target: "db_opener", "State snapshots are disabled, skipping state snapshots migration");
+                tracing::debug!(target: "db_opener", "state snapshots are disabled, skipping state snapshots migration");
                 return Ok(());
             }
         };
@@ -293,7 +311,7 @@ impl<'a> StoreOpener<'a> {
             tracing::debug!(
                 target: "db_opener",
                 ?state_snapshots_dir,
-                "State snapshots directory does not exist, skipping state snapshots migration"
+                "state snapshots directory does not exist, skipping state snapshots migration"
             );
             return Ok(());
         }
@@ -306,13 +324,14 @@ impl<'a> StoreOpener<'a> {
                 tracing::trace!(
                     target: "db_opener",
                     ?snapshot_path,
-                    "This entry is not a directory, skipping"
+                    "this entry is not a directory, skipping"
                 );
                 continue;
             }
 
             let opener = NodeStorage::opener(&snapshot_path, &config, None, None)
-                .with_migrator(self.migrator.unwrap());
+                .with_migrator(self.migrator.unwrap())
+                .as_snapshot();
             let _ = opener.open_in_mode(Mode::ReadWrite)?;
         }
         Ok(())
@@ -328,26 +347,27 @@ impl<'a> StoreOpener<'a> {
                 Some(cold) => cold.path.display().to_string(),
                 None => String::from("none"),
             };
-            tracing::info!(target: "db_opener", path=hot_path, cold_path=cold_path, "Opening NodeStorage");
+            tracing::info!(target: "db_opener", path=hot_path, cold_path=cold_path, "opening node storage");
         }
 
-        let hot_snapshot = {
-            Self::ensure_created(mode, &self.hot)?;
-            Self::ensure_kind(mode, &self.hot, self.is_archive(), Temperature::Hot)?;
-            Self::ensure_version(mode, &self.hot, &self.migrator)?
-        };
-
-        let cold_snapshot = if let Some(cold) = &self.cold {
+        Self::ensure_created(mode, &self.hot)?;
+        Self::ensure_kind(mode, &self.hot, self.is_archive(), Temperature::Hot)?;
+        if let Some(cold) = &self.cold {
             Self::ensure_created(mode, cold)?;
             Self::ensure_kind(mode, cold, self.is_archive(), Temperature::Cold)?;
-            Self::ensure_version(mode, cold, &self.migrator)?
-        } else {
-            Snapshot::none()
-        };
+        }
+
+        let (hot_snapshot, cold_snapshot) = Self::ensure_version(
+            mode,
+            &self.hot,
+            self.cold.as_ref(),
+            &self.migrator,
+            self.is_snapshot,
+        )?;
 
         if let Err(error) = self.migrate_state_snapshots() {
             // If migration fails the node may not be able to share state parts.
-            tracing::error!(target: "db_opener", ?error, "Error migrating state snapshots");
+            tracing::error!(target: "db_opener", ?error, "error migrating state snapshots");
         }
 
         let (hot_db, _) = self.hot.open(mode, DB_VERSION)?;
@@ -370,7 +390,7 @@ impl<'a> StoreOpener<'a> {
     pub fn open_in_mode(&self, mode: Mode) -> Result<crate::NodeStorage, StoreOpenerError> {
         let (hot_db, hot_snapshot, cold_db, cold_snapshot) = self.open_dbs(mode)?;
         let mut storage: NodeStorage = NodeStorage::from_rocksdb(hot_db, cold_db);
-        let cloud_storage = self.cloud.as_ref().map(|cloud| cloud.open());
+        let cloud_storage = self.cloud.as_ref().map(|cloud| cloud.open()).transpose()?;
         storage.cloud_storage = cloud_storage;
 
         hot_snapshot.remove()?;
@@ -386,23 +406,32 @@ impl<'a> StoreOpener<'a> {
                 Some(cold) => cold.path.display().to_string(),
                 None => String::from("none"),
             };
-            tracing::info!(target: "db_opener", path=hot_path, cold_path=cold_path, "Creating NodeStorage snapshots");
+            tracing::info!(target: "db_opener", path=hot_path, cold_path=cold_path, "creating node storage snapshots");
         }
 
-        let hot_snapshot = {
-            Self::ensure_created(mode, &self.hot)?;
-            Self::ensure_kind(mode, &self.hot, self.is_archive(), Temperature::Hot)?;
-            let snapshot = Self::ensure_version(mode, &self.hot, &self.migrator)?;
-            if snapshot.0.is_none() { self.hot.snapshot()? } else { snapshot }
-        };
-
-        let cold_snapshot = if let Some(cold) = &self.cold {
+        Self::ensure_created(mode, &self.hot)?;
+        Self::ensure_kind(mode, &self.hot, self.is_archive(), Temperature::Hot)?;
+        if let Some(cold) = &self.cold {
             Self::ensure_created(mode, cold)?;
             Self::ensure_kind(mode, cold, self.is_archive(), Temperature::Cold)?;
-            let snapshot = Self::ensure_version(mode, cold, &self.migrator)?;
-            if snapshot.0.is_none() { cold.snapshot()? } else { snapshot }
+        }
+
+        let (hot_snapshot, cold_snapshot) = Self::ensure_version(
+            mode,
+            &self.hot,
+            self.cold.as_ref(),
+            &self.migrator,
+            self.is_snapshot,
+        )?;
+
+        // If ensure_version didn't create snapshots (no migration needed), create them now
+        let hot_snapshot =
+            if hot_snapshot.0.is_none() { self.hot.snapshot()? } else { hot_snapshot };
+
+        let cold_snapshot = if cold_snapshot.0.is_none() {
+            if let Some(cold) = &self.cold { cold.snapshot()? } else { Snapshot::none() }
         } else {
-            Snapshot::none()
+            cold_snapshot
         };
 
         Ok((hot_snapshot, cold_snapshot))
@@ -413,18 +442,18 @@ impl<'a> StoreOpener<'a> {
         let meta = opener.get_metadata()?;
         match meta {
             Some(_) if !mode.must_create() => {
-                tracing::info!(target: "db_opener", path=%opener.path.display(), "The database exists.");
+                tracing::info!(target: "db_opener", path=%opener.path.display(), "the database exists");
                 return Ok(());
             }
             Some(_) => {
                 return Err(StoreOpenerError::DbAlreadyExists);
             }
             None if mode.can_create() => {
-                tracing::info!(target: "db_opener", path=%opener.path.display(), "The database doesn't exist, creating it.");
+                tracing::info!(target: "db_opener", path=%opener.path.display(), "the database doesn't exist, creating it");
 
                 let db = opener.create()?;
                 let store = Store::new(Arc::new(db));
-                store.set_db_version(DB_VERSION)?;
+                store.set_db_version(DB_VERSION);
                 return Ok(());
             }
             None => {
@@ -442,10 +471,10 @@ impl<'a> StoreOpener<'a> {
         temp: Temperature,
     ) -> Result<(), StoreOpenerError> {
         let which: &'static str = temp.into();
-        tracing::debug!(target: "db_opener", path = %opener.path.display(), archive, which, "Ensure db kind is correct and set.");
+        tracing::debug!(target: "db_opener", path = %opener.path.display(), archive, which, "ensure db kind is correct and set");
         let store = Self::open_store_unsafe(mode, opener)?;
 
-        let current_kind = store.get_db_kind()?;
+        let current_kind = store.get_db_kind();
         let default_kind = get_default_kind(archive, temp);
         let err =
             Err(StoreOpenerError::DbKindMismatch { which, got: current_kind, want: default_kind });
@@ -463,9 +492,9 @@ impl<'a> StoreOpener<'a> {
 
         // Kind is not set, set it.
         if mode.read_write() {
-            tracing::info!(target: "db_opener", archive,  which, "Setting the db DbKind to {default_kind:#?}");
+            tracing::info!(target: "db_opener", archive, which, ?default_kind, "setting the db kind");
 
-            store.set_db_kind(default_kind)?;
+            store.set_db_kind(default_kind);
             return Ok(());
         }
 
@@ -475,27 +504,51 @@ impl<'a> StoreOpener<'a> {
     /// Ensures that the db has the correct - most recent - version. If the
     /// version is lower, it performs migrations up until the most recent
     /// version, if mode allows or returns an error.
+    ///
+    /// This function handles both hot and cold stores together in lockstep,
+    /// ensuring they stay synchronized during migration.
     fn ensure_version(
         mode: Mode,
-        opener: &DBOpener,
+        hot_opener: &DBOpener,
+        cold_opener: Option<&DBOpener>,
         migrator: &Option<&dyn StoreMigrator>,
-    ) -> Result<Snapshot, StoreOpenerError> {
-        tracing::debug!(target: "db_opener", path=%opener.path.display(), "Ensure db version");
+        is_snapshot: bool,
+    ) -> Result<(Snapshot, Snapshot), StoreOpenerError> {
+        tracing::debug!(
+            target: "db_opener",
+            hot_path = %hot_opener.path.display(),
+            cold_path = ?cold_opener.map(|opener| opener.path.display()),
+            "ensure db version",
+        );
 
-        let metadata = opener.get_metadata()?;
-        let metadata = metadata.ok_or(StoreOpenerError::DbDoesNotExist {})?;
-        let DbMetadata { version, .. } = metadata;
+        // Get metadata from both stores
+        let hot_metadata = hot_opener.get_metadata()?.ok_or(StoreOpenerError::DbDoesNotExist {})?;
+        let hot_version = hot_metadata.version;
 
+        let cold_version = if let Some(cold_opener) = cold_opener {
+            let cold_metadata =
+                cold_opener.get_metadata()?.ok_or(StoreOpenerError::DbDoesNotExist {})?;
+            Some(cold_metadata.version)
+        } else {
+            None
+        };
+
+        // Check version consistency between hot and cold stores
+        if let Some(cold_version) = cold_version {
+            if hot_version != cold_version {
+                return Err(StoreOpenerError::HotColdVersionMismatch { hot_version, cold_version });
+            }
+        }
+
+        let version = hot_version;
         if version == DB_VERSION {
-            return Ok(Snapshot::none());
+            return Ok((Snapshot::none(), Snapshot::none()));
         }
         if version > DB_VERSION {
             return Err(StoreOpenerError::DbVersionTooNew { got: version, want: DB_VERSION });
         }
 
-        // If we’re opening for reading, we cannot perform migrations thus we
-        // must fail if the database has old version (even if we support
-        // migration from that version).
+        // If we're opening for reading, we cannot perform migrations
         if mode.read_only() {
             return Err(StoreOpenerError::DbVersionMismatchOnRead {
                 got: version,
@@ -514,35 +567,63 @@ impl<'a> StoreOpener<'a> {
             });
         }
 
-        let snapshot = opener.snapshot()?;
+        // Create snapshots upfront for both stores
+        let hot_snapshot = hot_opener.snapshot()?;
+        let cold_snapshot = if let Some(cold_opener) = cold_opener {
+            cold_opener.snapshot()?
+        } else {
+            Snapshot::none()
+        };
 
+        // Migrate both stores in lockstep
         for version in version..DB_VERSION {
-            tracing::info!(target: "db_opener", path=%opener.path.display(),
-                           "Migrating the database from version {} to {}",
-                           version, version + 1);
+            tracing::info!(
+                target: "db_opener",
+                hot_path = %hot_opener.path.display(),
+                cold_path = ?cold_opener.map(|opener| opener.path.display()),
+                %version,
+                next_version = %(version + 1),
+                "migrating the database from version to next version",
+            );
 
-            // Note: here we open the cold store as a regular Store object
-            // backed by RocksDB. It doesn't matter today as we don't expect any
-            // old migrations on the cold storage. In the future however it may
-            // be better to wrap it in the ColdDB object instead.
+            // Open hot store at current version
+            let hot_store = Self::open_store(mode, hot_opener, version)?;
 
-            let store = Self::open_store(mode, opener, version)?;
-            migrator.migrate(&store, version).map_err(StoreOpenerError::MigrationError)?;
-            store.set_db_version(version + 1)?;
+            // Open cold store at current version (if exists) and wrap in ColdDB
+            let cold_db = if let Some(cold_opener) = cold_opener {
+                let (cold_rocksdb, _) = cold_opener.open(mode, version)?;
+                Some(ColdDB::new(Arc::new(cold_rocksdb)))
+            } else {
+                None
+            };
+
+            // Run migration on both stores
+            migrator
+                .migrate(&hot_store, cold_db.as_ref(), version, is_snapshot)
+                .map_err(StoreOpenerError::MigrationError)?;
+
+            // Update versions in both stores
+            hot_store.set_db_version(version + 1);
+            if let Some(ref cold) = cold_db {
+                cold.as_store().set_db_version(version + 1);
+            }
         }
 
+        // Handle nightly version for both stores
         if cfg!(feature = "nightly") {
             let version = 10000;
-            tracing::info!(target: "db_opener", path=%opener.path.display(),
-            "Setting the database version to {version} for nightly");
+            tracing::info!(target: "db_opener", %version, "setting the database version for nightly");
 
-            // Set some dummy value to avoid conflict with other migrations from
-            // nightly features.
-            let store = Self::open_store(mode, opener, DB_VERSION)?;
-            store.set_db_version(version)?;
+            let hot_store = Self::open_store(mode, hot_opener, DB_VERSION)?;
+            hot_store.set_db_version(version);
+
+            if let Some(cold_opener) = cold_opener {
+                let cold_store = Self::open_store(mode, cold_opener, DB_VERSION)?;
+                cold_store.set_db_version(version);
+            }
         }
 
-        Ok(snapshot)
+        Ok((hot_snapshot, cold_snapshot))
     }
 
     fn open_store(
@@ -604,7 +685,7 @@ impl<'a> DBOpener<'a> {
     /// Use [`Self::create`] to create a new database.
     fn open(&self, mode: Mode, want_version: DbVersion) -> std::io::Result<(RocksDB, DbMetadata)> {
         let db = RocksDB::open(&self.path, &self.config, mode, self.temp)?;
-        let metadata = DbMetadata::read(&db)?;
+        let metadata = DbMetadata::read(&db);
         if want_version != metadata.version {
             let msg = format!("unexpected DbVersion {}; expected {want_version}", metadata.version);
             Err(std::io::Error::other(msg))
@@ -648,13 +729,24 @@ pub trait StoreMigrator {
     /// Performs database migration from given version to the next one.
     ///
     /// The function only does single migration from `version` to `version + 1`.
-    /// It doesn’t update database’s metadata (i.e. what version is stored in
+    /// It doesn't update database's metadata (i.e. what version is stored in
     /// the database) which is responsibility of the caller.
     ///
+    /// When `is_snapshot` is true, the store being migrated is a state snapshot
+    /// database which only contains a subset of columns (see
+    /// `STATE_SNAPSHOT_COLUMNS`). Migrations should skip steps that depend on
+    /// data not present in snapshot DBs (e.g. epoch/chain data).
+    ///
     /// **Panics** if `version` is not supported (the caller is supposed to
-    /// check support via [`Self::check_support`] method) or if it’s greater or
+    /// check support via [`Self::check_support`] method) or if it's greater or
     /// equal to [`DB_VERSION`].
-    fn migrate(&self, store: &Store, version: DbVersion) -> anyhow::Result<()>;
+    fn migrate(
+        &self,
+        hot_store: &Store,
+        cold_db: Option<&ColdDB>,
+        version: DbVersion,
+        is_snapshot: bool,
+    ) -> anyhow::Result<()>;
 }
 
 /// Creates checkpoint of hot storage in `home_dir.join(checkpoint_relative_path)`
@@ -702,7 +794,7 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
             <&str>::from(DbKind::RPC).as_bytes().to_vec(),
         );
 
-        node_storage.hot_storage.write(transaction)?;
+        node_storage.hot_storage.write(transaction);
     }
 
     Ok(node_storage)
@@ -747,7 +839,7 @@ mod tests {
 
     fn check_keys_existence(store: &Store, column: &DBCol, keys: &Vec<Vec<u8>>, expected: bool) {
         for key in keys {
-            assert_eq!(store.exists(*column, &key).unwrap(), expected, "Column {:?}", column);
+            assert_eq!(store.exists(*column, &key), expected, "Column {:?}", column);
         }
     }
 
@@ -756,7 +848,7 @@ mod tests {
         let (home_dir, opener) = NodeStorage::test_opener();
         let node_storage = opener.open().unwrap();
         let hot_store = Store::new(node_storage.hot_storage.clone());
-        assert_eq!(hot_store.get_db_kind().unwrap(), Some(DbKind::RPC));
+        assert_eq!(hot_store.get_db_kind(), Some(DbKind::RPC));
 
         let keys = vec![vec![0], vec![1], vec![2], vec![3]];
         let columns = vec![DBCol::Block, DBCol::Chunks, DBCol::BlockHeader];
@@ -767,7 +859,7 @@ mod tests {
                 store_update.insert(column, key.clone(), vec![42]);
             }
         }
-        store_update.commit().unwrap();
+        store_update.commit();
 
         let store = checkpoint_hot_storage_and_cleanup_columns(
             &hot_store,

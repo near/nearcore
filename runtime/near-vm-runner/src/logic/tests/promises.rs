@@ -1,18 +1,49 @@
-use crate::logic::mocks::mock_external::MockedExternal;
+use crate::logic::mocks::mock_external::MockAction;
 use crate::logic::tests::helpers::*;
 use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
-use crate::logic::types::PromiseResult;
+use crate::logic::types::{GlobalContractDeployMode, GlobalContractIdentifier, PromiseResult};
 use crate::map;
-
 use near_crypto::PublicKey;
 use near_parameters::{ActionCosts, ExtCosts};
+use near_primitives_core::config::AccountIdValidityRulesVersion;
+use near_primitives_core::deterministic_account_id::{
+    DeterministicAccountStateInit, DeterministicAccountStateInitV1,
+};
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::Gas;
+use near_primitives_core::types::{Balance, Gas, GasWeight};
 use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
-use serde_json;
 
-fn vm_receipts<'a>(ext: &'a MockedExternal) -> Vec<impl serde::Serialize + 'a> {
-    ext.action_log.clone()
+fn test_public_key() -> PublicKey {
+    "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf".parse().unwrap()
+}
+
+/// Asserts the common promise_create preamble (CreateReceipt + FunctionCallWeight) in the
+/// action log. Returns the remaining actions after the preamble.
+#[track_caller]
+fn assert_promise_create_preamble<'a>(
+    action_log: &'a [MockAction],
+    expected_receiver: &str,
+) -> &'a [MockAction] {
+    assert!(action_log.len() >= 2, "expected at least 2 actions, got {}", action_log.len());
+    assert_eq!(
+        action_log[0],
+        MockAction::CreateReceipt {
+            receipt_indices: vec![],
+            receiver_id: expected_receiver.parse().unwrap(),
+        }
+    );
+    assert_eq!(
+        action_log[1],
+        MockAction::FunctionCallWeight {
+            receipt_index: 0,
+            method_name: b"promise_create".to_vec(),
+            args: b"args".to_vec(),
+            attached_deposit: Balance::ZERO,
+            prepaid_gas: Gas::ZERO,
+            gas_weight: GasWeight(0),
+        }
+    );
+    &action_log[2..]
 }
 
 #[test]
@@ -77,103 +108,42 @@ fn test_promise_batch_action_function_call() {
 
     promise_batch_action_function_call(&mut logic, index, 0, Gas::ZERO)
         .expect("should add an action to receipt");
-    expect_test::expect![[r#"
-        [
-          {
-            "CreateReceipt": {
-              "receipt_indices": [],
-              "receiver_id": "rick.test"
-            }
-          },
-          {
-            "FunctionCallWeight": {
-              "receipt_index": 0,
-              "method_name": [
-                112,
-                114,
-                111,
-                109,
-                105,
-                115,
-                101,
-                95,
-                99,
-                114,
-                101,
-                97,
-                116,
-                101
-              ],
-              "args": [
-                97,
-                114,
-                103,
-                115
-              ],
-              "attached_deposit": "0",
-              "prepaid_gas": 0,
-              "gas_weight": 0
-            }
-          },
-          {
-            "FunctionCallWeight": {
-              "receipt_index": 0,
-              "method_name": [
-                112,
-                114,
-                111,
-                109,
-                105,
-                115,
-                101,
-                95,
-                98,
-                97,
-                116,
-                99,
-                104,
-                95,
-                97,
-                99,
-                116,
-                105,
-                111,
-                110
-              ],
-              "args": [
-                112,
-                114,
-                111,
-                109,
-                105,
-                115,
-                101,
-                95,
-                98,
-                97,
-                116,
-                99,
-                104,
-                95,
-                97,
-                99,
-                116,
-                105,
-                111,
-                110,
-                95,
-                97,
-                114,
-                103,
-                115
-              ],
-              "attached_deposit": "0",
-              "prepaid_gas": 0,
-              "gas_weight": 0
-            }
-          }
-        ]"#]]
-    .assert_eq(&serde_json::to_string_pretty(&vm_receipts(&logic_builder.ext)).unwrap());
+    let actions = assert_promise_create_preamble(&logic_builder.ext.action_log, "rick.test");
+    assert_eq!(
+        actions,
+        &[MockAction::FunctionCallWeight {
+            receipt_index: 0,
+            method_name: b"promise_batch_action".to_vec(),
+            args: b"promise_batch_action_args".to_vec(),
+            attached_deposit: Balance::ZERO,
+            prepaid_gas: Gas::ZERO,
+            gas_weight: GasWeight(0),
+        }]
+    );
+}
+
+#[test]
+fn test_promise_batch_action_use_global_contract_by_account_id_with_invalid_account() {
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.limit_config.account_id_validity_rules_version =
+        AccountIdValidityRulesVersion::V2;
+    let mut logic = logic_builder.build();
+    let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
+
+    let invalid_account_id = logic.internal_mem_write(b"not a valid account id");
+
+    let err = logic
+        .promise_batch_action_use_global_contract_by_account_id(
+            index,
+            invalid_account_id.len,
+            invalid_account_id.ptr,
+        )
+        .expect_err("should reject invalid account id when strict validation is enabled");
+
+    assert!(matches!(
+        err,
+        crate::logic::VMLogicError::HostError(crate::logic::HostError::InvalidAccountId)
+    ));
 }
 
 #[test]
@@ -195,51 +165,8 @@ fn test_promise_batch_action_create_account() {
         .promise_batch_action_create_account(index)
         .expect("should add an action to create account");
     assert_eq!(logic.used_gas().unwrap(), 12578263688564);
-    expect_test::expect![[r#"
-        [
-          {
-            "CreateReceipt": {
-              "receipt_indices": [],
-              "receiver_id": "rick.test"
-            }
-          },
-          {
-            "FunctionCallWeight": {
-              "receipt_index": 0,
-              "method_name": [
-                112,
-                114,
-                111,
-                109,
-                105,
-                115,
-                101,
-                95,
-                99,
-                114,
-                101,
-                97,
-                116,
-                101
-              ],
-              "args": [
-                97,
-                114,
-                103,
-                115
-              ],
-              "attached_deposit": "0",
-              "prepaid_gas": 0,
-              "gas_weight": 0
-            }
-          },
-          {
-            "CreateAccount": {
-              "receipt_index": 0
-            }
-          }
-        ]"#]]
-    .assert_eq(&serde_json::to_string_pretty(&vm_receipts(&logic_builder.ext)).unwrap());
+    let actions = assert_promise_create_preamble(&logic_builder.ext.action_log, "rick.test");
+    assert_eq!(actions, &[MockAction::CreateAccount { receipt_index: 0 }]);
 }
 
 #[test]
@@ -264,59 +191,11 @@ fn test_promise_batch_action_deploy_contract() {
         .promise_batch_action_deploy_contract(index, code.len, code.ptr)
         .expect("should add an action to deploy contract");
     assert_eq!(logic.used_gas().unwrap(), 5255774958146);
-    expect_test::expect![[r#"
-        [
-          {
-            "CreateReceipt": {
-              "receipt_indices": [],
-              "receiver_id": "rick.test"
-            }
-          },
-          {
-            "FunctionCallWeight": {
-              "receipt_index": 0,
-              "method_name": [
-                112,
-                114,
-                111,
-                109,
-                105,
-                115,
-                101,
-                95,
-                99,
-                114,
-                101,
-                97,
-                116,
-                101
-              ],
-              "args": [
-                97,
-                114,
-                103,
-                115
-              ],
-              "attached_deposit": "0",
-              "prepaid_gas": 0,
-              "gas_weight": 0
-            }
-          },
-          {
-            "DeployContract": {
-              "receipt_index": 0,
-              "code": [
-                115,
-                97,
-                109,
-                112,
-                108,
-                101
-              ]
-            }
-          }
-        ]"#]]
-    .assert_eq(&serde_json::to_string_pretty(&vm_receipts(&logic_builder.ext)).unwrap());
+    let actions = assert_promise_create_preamble(&logic_builder.ext.action_log, "rick.test");
+    assert_eq!(
+        actions,
+        &[MockAction::DeployContract { receipt_index: 0, code: b"sample".to_vec() }]
+    );
 }
 
 #[test]
@@ -341,60 +220,15 @@ fn test_promise_batch_action_deploy_global_contract() {
         .promise_batch_action_deploy_global_contract(index, code.len, code.ptr)
         .expect("should add an action to deploy contract");
     assert_eq!(logic.used_gas().unwrap(), 5256154080152);
-    expect_test::expect![[r#"
-        [
-          {
-            "CreateReceipt": {
-              "receipt_indices": [],
-              "receiver_id": "rick.test"
-            }
-          },
-          {
-            "FunctionCallWeight": {
-              "receipt_index": 0,
-              "method_name": [
-                112,
-                114,
-                111,
-                109,
-                105,
-                115,
-                101,
-                95,
-                99,
-                114,
-                101,
-                97,
-                116,
-                101
-              ],
-              "args": [
-                97,
-                114,
-                103,
-                115
-              ],
-              "attached_deposit": "0",
-              "prepaid_gas": 0,
-              "gas_weight": 0
-            }
-          },
-          {
-            "DeployGlobalContract": {
-              "receipt_index": 0,
-              "code": [
-                115,
-                97,
-                109,
-                112,
-                108,
-                101
-              ],
-              "mode": "CodeHash"
-            }
-          }
-        ]"#]]
-    .assert_eq(&serde_json::to_string_pretty(&vm_receipts(&logic_builder.ext)).unwrap());
+    let actions = assert_promise_create_preamble(&logic_builder.ext.action_log, "rick.test");
+    assert_eq!(
+        actions,
+        &[MockAction::DeployGlobalContract {
+            receipt_index: 0,
+            code: b"sample".to_vec(),
+            mode: GlobalContractDeployMode::CodeHash,
+        }]
+    );
 }
 
 #[test]
@@ -427,54 +261,14 @@ fn test_promise_batch_action_use_global_contract() {
         .promise_batch_action_use_global_contract(index, code_hash.len, code_hash.ptr)
         .expect("should add an action to deploy contract");
     assert_eq!(logic.used_gas().unwrap(), 5262559186522);
-    expect_test::expect![[r#"
-        [
-          {
-            "CreateReceipt": {
-              "receipt_indices": [],
-              "receiver_id": "rick.test"
-            }
-          },
-          {
-            "FunctionCallWeight": {
-              "receipt_index": 0,
-              "method_name": [
-                112,
-                114,
-                111,
-                109,
-                105,
-                115,
-                101,
-                95,
-                99,
-                114,
-                101,
-                97,
-                116,
-                101
-              ],
-              "args": [
-                97,
-                114,
-                103,
-                115
-              ],
-              "attached_deposit": "0",
-              "prepaid_gas": 0,
-              "gas_weight": 0
-            }
-          },
-          {
-            "UseGlobalContract": {
-              "receipt_index": 0,
-              "contract_id": {
-                "CodeHash": "A6buRpeED4eLGiYvbboigf7WSicK52xwKtdRNFwKcFgv"
-              }
-            }
-          }
-        ]"#]]
-    .assert_eq(&serde_json::to_string_pretty(&vm_receipts(&logic_builder.ext)).unwrap());
+    let actions = assert_promise_create_preamble(&logic_builder.ext.action_log, "rick.test");
+    assert_eq!(
+        actions,
+        &[MockAction::UseGlobalContract {
+            receipt_index: 0,
+            contract_id: GlobalContractIdentifier::CodeHash(CryptoHash::hash_bytes(b"arbitrary")),
+        }]
+    );
 }
 
 #[test]
@@ -501,52 +295,49 @@ fn test_promise_batch_action_transfer() {
         .expect("should add an action to transfer money");
     logic.promise_batch_action_transfer(index, num_1u128.ptr).expect_err("not enough money");
     assert_eq!(logic.used_gas().unwrap(), 5349703444787);
-    expect_test::expect![[r#"
-        [
-          {
-            "CreateReceipt": {
-              "receipt_indices": [],
-              "receiver_id": "rick.test"
-            }
-          },
-          {
-            "FunctionCallWeight": {
-              "receipt_index": 0,
-              "method_name": [
-                112,
-                114,
-                111,
-                109,
-                105,
-                115,
-                101,
-                95,
-                99,
-                114,
-                101,
-                97,
-                116,
-                101
-              ],
-              "args": [
-                97,
-                114,
-                103,
-                115
-              ],
-              "attached_deposit": "0",
-              "prepaid_gas": 0,
-              "gas_weight": 0
-            }
-          },
-          {
-            "Transfer": {
-              "receipt_index": 0,
-              "deposit": "110"
-            }
-          }
-        ]"#]]
-    .assert_eq(&serde_json::to_string_pretty(&vm_receipts(&logic_builder.ext)).unwrap());
+    let actions = assert_promise_create_preamble(&logic_builder.ext.action_log, "rick.test");
+    assert_eq!(
+        actions,
+        &[MockAction::Transfer { receipt_index: 0, deposit: Balance::from_yoctonear(110) }]
+    );
+}
+
+#[test]
+fn test_promise_batch_action_transfer_to_gas_key() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build();
+    let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
+    let key = borsh::to_vec(&test_public_key()).unwrap();
+
+    let key = logic.internal_mem_write(&key);
+    let index_ptr = logic.internal_mem_write(&index.to_le_bytes()).ptr;
+    let num_110u128 = logic.internal_mem_write(&110u128.to_le_bytes());
+    let num_1u128 = logic.internal_mem_write(&1u128.to_le_bytes());
+
+    logic
+        .promise_batch_action_transfer_to_gas_key(123, key.len, key.ptr, num_110u128.ptr)
+        .expect_err("shouldn't accept not existent promise index");
+    let non_receipt =
+        logic.promise_and(index_ptr, 1u64).expect("should create a non-receipt promise");
+    logic
+        .promise_batch_action_transfer_to_gas_key(non_receipt, key.len, key.ptr, num_110u128.ptr)
+        .expect_err("shouldn't accept non-receipt promise index");
+
+    logic
+        .promise_batch_action_transfer_to_gas_key(index, key.len, key.ptr, num_110u128.ptr)
+        .expect("should add an action to transfer to gas key");
+    logic
+        .promise_batch_action_transfer_to_gas_key(index, key.len, key.ptr, num_1u128.ptr)
+        .expect_err("not enough money");
+    let actions = assert_promise_create_preamble(&logic_builder.ext.action_log, "rick.test");
+    assert_eq!(
+        actions,
+        &[MockAction::TransferToGasKey {
+            receipt_index: 0,
+            public_key: test_public_key(),
+            deposit: Balance::from_yoctonear(110),
+        }]
+    );
 }
 
 #[test]
@@ -554,10 +345,7 @@ fn test_promise_batch_action_stake() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build();
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
-    let key = borsh::to_vec(
-        &"ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf".parse::<PublicKey>().unwrap(),
-    )
-    .unwrap();
+    let key = borsh::to_vec(&test_public_key()).unwrap();
 
     let key = logic.internal_mem_write(&key);
     let index_ptr = logic.internal_mem_write(&index.to_le_bytes()).ptr;
@@ -576,53 +364,15 @@ fn test_promise_batch_action_stake() {
         .promise_batch_action_stake(index, num_110u128.ptr, key.len, key.ptr)
         .expect("should add an action to stake");
     assert_eq!(logic.used_gas().unwrap(), 5138414976215);
-    expect_test::expect![[r#"
-        [
-          {
-            "CreateReceipt": {
-              "receipt_indices": [],
-              "receiver_id": "rick.test"
-            }
-          },
-          {
-            "FunctionCallWeight": {
-              "receipt_index": 0,
-              "method_name": [
-                112,
-                114,
-                111,
-                109,
-                105,
-                115,
-                101,
-                95,
-                99,
-                114,
-                101,
-                97,
-                116,
-                101
-              ],
-              "args": [
-                97,
-                114,
-                103,
-                115
-              ],
-              "attached_deposit": "0",
-              "prepaid_gas": 0,
-              "gas_weight": 0
-            }
-          },
-          {
-            "Stake": {
-              "receipt_index": 0,
-              "stake": "110",
-              "public_key": "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf"
-            }
-          }
-        ]"#]]
-    .assert_eq(&serde_json::to_string_pretty(&vm_receipts(&logic_builder.ext)).unwrap());
+    let actions = assert_promise_create_preamble(&logic_builder.ext.action_log, "rick.test");
+    assert_eq!(
+        actions,
+        &[MockAction::Stake {
+            receipt_index: 0,
+            stake: Balance::from_yoctonear(110),
+            public_key: test_public_key(),
+        }]
+    );
 }
 
 #[test]
@@ -631,10 +381,7 @@ fn test_promise_batch_action_add_key_with_function_call() {
     let mut logic = logic_builder.build();
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
     let index_ptr = logic.internal_mem_write(&index.to_le_bytes()).ptr;
-    let key = borsh::to_vec(
-        &"ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf".parse::<PublicKey>().unwrap(),
-    )
-    .unwrap();
+    let key = borsh::to_vec(&test_public_key()).unwrap();
     let nonce = 1;
     let allowance = 999u128;
     let receiver_id = b"sam";
@@ -674,67 +421,18 @@ fn test_promise_batch_action_add_key_with_function_call() {
     )
     .expect("should add allowance");
     assert_eq!(logic.used_gas().unwrap(), 5126680499695);
-    expect_test::expect![[r#"
-        [
-          {
-            "CreateReceipt": {
-              "receipt_indices": [],
-              "receiver_id": "rick.test"
-            }
-          },
-          {
-            "FunctionCallWeight": {
-              "receipt_index": 0,
-              "method_name": [
-                112,
-                114,
-                111,
-                109,
-                105,
-                115,
-                101,
-                95,
-                99,
-                114,
-                101,
-                97,
-                116,
-                101
-              ],
-              "args": [
-                97,
-                114,
-                103,
-                115
-              ],
-              "attached_deposit": "0",
-              "prepaid_gas": 0,
-              "gas_weight": 0
-            }
-          },
-          {
-            "AddKeyWithFunctionCall": {
-              "receipt_index": 0,
-              "public_key": "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf",
-              "nonce": 1,
-              "allowance": "999",
-              "receiver_id": "sam",
-              "method_names": [
-                [
-                  102,
-                  111,
-                  111
-                ],
-                [
-                  98,
-                  97,
-                  114
-                ]
-              ]
-            }
-          }
-        ]"#]]
-    .assert_eq(&serde_json::to_string_pretty(&vm_receipts(&logic_builder.ext)).unwrap());
+    let actions = assert_promise_create_preamble(&logic_builder.ext.action_log, "rick.test");
+    assert_eq!(
+        actions,
+        &[MockAction::AddKeyWithFunctionCall {
+            receipt_index: 0,
+            public_key: test_public_key(),
+            nonce: 1,
+            allowance: Some(Balance::from_yoctonear(999)),
+            receiver_id: "sam".parse().unwrap(),
+            method_names: vec![b"foo".to_vec(), b"bar".to_vec()],
+        }]
+    );
 }
 
 #[test]
@@ -761,62 +459,12 @@ fn test_promise_batch_then() {
         .promise_batch_then(index, account_id.len, account_id.ptr)
         .expect("promise batch should run ok");
     assert_eq!(logic.used_gas().unwrap(), 24124999601771);
-    expect_test::expect![[r#"
-        [
-          {
-            "CreateReceipt": {
-              "receipt_indices": [],
-              "receiver_id": "rick.test"
-            }
-          },
-          {
-            "FunctionCallWeight": {
-              "receipt_index": 0,
-              "method_name": [
-                112,
-                114,
-                111,
-                109,
-                105,
-                115,
-                101,
-                95,
-                99,
-                114,
-                101,
-                97,
-                116,
-                101
-              ],
-              "args": [
-                97,
-                114,
-                103,
-                115
-              ],
-              "attached_deposit": "0",
-              "prepaid_gas": 0,
-              "gas_weight": 0
-            }
-          },
-          {
-            "CreateReceipt": {
-              "receipt_indices": [
-                0
-              ],
-              "receiver_id": "rick.test"
-            }
-          },
-          {
-            "CreateReceipt": {
-              "receipt_indices": [
-                0
-              ],
-              "receiver_id": "rick.test"
-            }
-          }
-        ]"#]]
-    .assert_eq(&serde_json::to_string_pretty(&vm_receipts(&logic_builder.ext)).unwrap());
+    let actions = assert_promise_create_preamble(&logic_builder.ext.action_log, "rick.test");
+    let expected_receipt = MockAction::CreateReceipt {
+        receipt_indices: vec![0],
+        receiver_id: "rick.test".parse().unwrap(),
+    };
+    assert_eq!(actions, &[expected_receipt.clone(), expected_receipt]);
 }
 
 #[test]
@@ -936,31 +584,197 @@ fn test_promise_batch_action_state_init() {
         "unexpected action gas usage {profile:?}"
     );
 
-    expect_test::expect![[r#"
-        [
-          {
-            "CreateReceipt": {
-              "receipt_indices": [],
-              "receiver_id": "rick.test"
-            }
-          },
-          {
-            "DeterministicStateInit": {
-              "receipt_index": 0,
-              "state_init": {
-                "V1": {
-                  "code": {
-                    "AccountId": "global.near"
-                  },
-                  "data": {
-                    "a2V5": "dmFsdWU=",
-                    "a2V5Mg==": "dmFsdWUy"
-                  }
-                }
-              },
-              "amount": "110"
-            }
-          }
-        ]"#]]
-    .assert_eq(&serde_json::to_string_pretty(&vm_receipts(&logic_builder.ext)).unwrap());
+    assert_eq!(
+        logic_builder.ext.action_log,
+        &[
+            MockAction::CreateReceipt {
+                receipt_indices: vec![],
+                receiver_id: "rick.test".parse().unwrap(),
+            },
+            MockAction::DeterministicStateInit {
+                receipt_index: 0,
+                state_init: DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+                    code:
+                        near_primitives_core::global_contract::GlobalContractIdentifier::AccountId(
+                            "global.near".parse().unwrap(),
+                        ),
+                    data: [
+                        (b"key".to_vec(), b"value".to_vec()),
+                        (b"key2".to_vec(), b"value2".to_vec()),
+                    ]
+                    .into(),
+                }),
+                amount: Balance::from_yoctonear(110),
+            },
+        ]
+    );
+}
+
+#[test]
+fn test_promise_batch_action_add_gas_key_with_full_access() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build();
+    let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
+    let index_ptr = logic.internal_mem_write(&index.to_le_bytes()).ptr;
+    let key = borsh::to_vec(&test_public_key()).unwrap();
+    let num_nonces = 4u64;
+
+    promise_batch_action_add_gas_key_with_full_access(&mut logic, 123, &key, num_nonces)
+        .expect_err("shouldn't accept non-existent promise index");
+    let non_receipt =
+        logic.promise_and(index_ptr, 1u64).expect("should create a non-receipt promise");
+    promise_batch_action_add_gas_key_with_full_access(&mut logic, non_receipt, &key, num_nonces)
+        .expect_err("shouldn't accept non-receipt promise index");
+
+    promise_batch_action_add_gas_key_with_full_access(&mut logic, index, &key, num_nonces)
+        .expect("should add gas key");
+    let actions = assert_promise_create_preamble(&logic_builder.ext.action_log, "rick.test");
+    assert_eq!(
+        actions,
+        &[MockAction::AddGasKeyWithFullAccess {
+            receipt_index: 0,
+            public_key: test_public_key(),
+            num_nonces: 4,
+        }]
+    );
+}
+
+#[test]
+fn test_promise_batch_action_add_gas_key_with_function_call() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build();
+    let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
+    let index_ptr = logic.internal_mem_write(&index.to_le_bytes()).ptr;
+    let key = borsh::to_vec(&test_public_key()).unwrap();
+    let num_nonces = 2u64;
+    let allowance = 999u128;
+    let receiver_id = b"sam";
+    let method_names = b"foo,bar";
+
+    promise_batch_action_add_gas_key_with_function_call(
+        &mut logic,
+        123,
+        &key,
+        num_nonces,
+        allowance,
+        receiver_id,
+        method_names,
+    )
+    .expect_err("shouldn't accept non-existent promise index");
+    let non_receipt =
+        logic.promise_and(index_ptr, 1u64).expect("should create a non-receipt promise");
+    promise_batch_action_add_gas_key_with_function_call(
+        &mut logic,
+        non_receipt,
+        &key,
+        num_nonces,
+        allowance,
+        receiver_id,
+        method_names,
+    )
+    .expect_err("shouldn't accept non-receipt promise index");
+
+    promise_batch_action_add_gas_key_with_function_call(
+        &mut logic,
+        index,
+        &key,
+        num_nonces,
+        allowance,
+        receiver_id,
+        method_names,
+    )
+    .expect("should add gas key");
+    let actions = assert_promise_create_preamble(&logic_builder.ext.action_log, "rick.test");
+    assert_eq!(
+        actions,
+        &[MockAction::AddGasKeyWithFunctionCall {
+            receipt_index: 0,
+            public_key: test_public_key(),
+            num_nonces: 2,
+            allowance: Some(Balance::from_yoctonear(999)),
+            receiver_id: "sam".parse().unwrap(),
+            method_names: vec![b"foo".to_vec(), b"bar".to_vec()],
+        }]
+    );
+}
+
+#[test]
+fn test_one_yocto_on_promise_enabled() {
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.one_yocto_on_promise = true;
+    logic_builder.context.account_balance = Balance::ZERO;
+    logic_builder.context.attached_deposit = Balance::ZERO;
+    let mut logic = logic_builder.build();
+
+    let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
+
+    // 1 yoctoNEAR should succeed even with zero balance
+    promise_batch_action_function_call_weight(&mut logic, index, 1, Gas::ZERO, 0)
+        .expect("1 yoctoNEAR should succeed with feature enabled");
+
+    // 2 yoctoNEAR should still fail
+    promise_batch_action_function_call_weight(&mut logic, index, 2, Gas::ZERO, 0)
+        .expect_err("2 yoctoNEAR should fail with zero balance");
+
+    // Transfer with 1 yoctoNEAR should still fail (feature only applies to function calls)
+    let num_1u128 = logic.internal_mem_write(&1u128.to_le_bytes());
+    logic
+        .promise_batch_action_transfer(index, num_1u128.ptr)
+        .expect_err("transfer should still fail with zero balance");
+
+    assert_eq!(
+        logic.result_state().subsidized_amount,
+        Balance::from_yoctonear(1),
+        "subsidized_amount should track the skipped deduction"
+    );
+}
+
+/// When the contract has non-zero balance, 1 yoctoNEAR is deducted normally.
+#[test]
+fn test_one_yocto_on_promise_deducts_with_nonzero_balance() {
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.one_yocto_on_promise = true;
+    logic_builder.context.account_balance = Balance::from_yoctonear(1);
+    logic_builder.context.attached_deposit = Balance::ZERO;
+    let mut logic = logic_builder.build();
+
+    let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
+
+    // Deducts the 1 yoctoNEAR from balance
+    promise_batch_action_function_call_weight(&mut logic, index, 1, Gas::ZERO, 0)
+        .expect("should succeed with sufficient balance");
+    assert!(
+        logic.result_state().current_account_balance.is_zero(),
+        "balance should be zero after deduction"
+    );
+    assert_eq!(
+        logic.result_state().subsidized_amount,
+        Balance::ZERO,
+        "the first call should not be subsidized"
+    );
+
+    // Balance is now zero, so the skip kicks in
+    promise_batch_action_function_call_weight(&mut logic, index, 1, Gas::ZERO, 0)
+        .expect("should succeed via zero-balance exemption");
+
+    assert_eq!(
+        logic.result_state().subsidized_amount,
+        Balance::from_yoctonear(1),
+        "subsidized balance should be tracked correctly"
+    );
+}
+
+#[test]
+fn test_one_yocto_on_promise_disabled() {
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.one_yocto_on_promise = false;
+    logic_builder.context.account_balance = Balance::ZERO;
+    logic_builder.context.attached_deposit = Balance::ZERO;
+    let mut logic = logic_builder.build();
+
+    let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
+
+    // 1 yoctoNEAR should fail when feature is disabled and balance is zero
+    promise_batch_action_function_call_weight(&mut logic, index, 1, Gas::ZERO, 0)
+        .expect_err("1 yoctoNEAR should fail with feature disabled and zero balance");
 }

@@ -1,11 +1,10 @@
-use std::collections::{BTreeMap, BTreeSet};
-
 use bytesize::ByteSize;
 use near_primitives::bandwidth_scheduler::{Bandwidth, BandwidthSchedulerParams};
 use near_primitives::types::{BlockHeight, ShardIndex};
 use rand::Rng;
 use rand::seq::SliceRandom;
 use rand_chacha::ChaCha20Rng;
+use std::collections::{BTreeMap, BTreeSet};
 
 const MAX_RECEIPT_SIZE: u64 = 4 * 1024 * 1024;
 

@@ -1,8 +1,3 @@
-use std::collections::HashSet;
-use std::num::NonZeroUsize;
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-
 use near_async::time::Duration;
 use near_chain::types::{
     PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions, RuntimeAdapter,
@@ -16,6 +11,10 @@ use near_primitives::types::ShardId;
 use near_store::adapter::StoreAdapter;
 use near_store::{ShardUId, TrieUpdate};
 use parking_lot::Mutex;
+use std::collections::HashSet;
+use std::num::NonZeroUsize;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 /// Inputs required to create a `PrepareTransactionsJob`.
 pub struct PrepareTransactionsJobInputs {
@@ -25,6 +24,7 @@ pub struct PrepareTransactionsJobInputs {
     pub prev_block_context: PrepareTransactionsBlockContext,
     pub tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     pub tx_validity_period_check: Box<dyn Fn(&SignedTransaction) -> bool + Send + 'static>,
+    pub validate_tx_ttl: Box<dyn Fn(&SignedTransaction) -> bool + Send + 'static>,
     pub prev_chunk_tx_hashes: HashSet<CryptoHash>,
     pub time_limit: Option<Duration>,
 }
@@ -51,6 +51,7 @@ impl PrepareTransactionsJobInputs {
             prev_block_context,
             tx_pool,
             tx_validity_period_check: Box::new(|_| true),
+            validate_tx_ttl: Box::new(|_| true),
             prev_chunk_tx_hashes: HashSet::new(),
             time_limit: None,
         }
@@ -125,7 +126,7 @@ impl PrepareTransactionsJob {
         // Run the job. The state is locked so no other methods will read or modify it
         // until the preparation finishes.
         let Some(mut iter) = tx_pool_guard.get_pool_iterator(inputs.shard_uid) else {
-            let result = PreparedTransactions { transactions: Vec::new(), limited_by: None };
+            let result = PreparedTransactions::new();
             *state = PrepareTransactionsJobState::Finished(Ok(result));
             return;
         };
@@ -135,6 +136,7 @@ impl PrepareTransactionsJob {
             inputs.prev_block_context,
             &mut iter,
             &inputs.tx_validity_period_check,
+            &inputs.validate_tx_ttl,
             inputs.prev_chunk_tx_hashes,
             inputs.time_limit,
             Some((&self).cancel.clone()),
@@ -142,7 +144,7 @@ impl PrepareTransactionsJob {
         drop(iter);
         match result {
             Ok((prepared, skipped)) => {
-                *state = if prepared.limited_by == Some(PrepareTransactionsLimit::Cancelled) {
+                *state = if prepared.limited_by == PrepareTransactionsLimit::Cancelled {
                     // In case of cancelled preparation discard the result
                     PrepareTransactionsJobState::Cancelled
                 } else {
@@ -249,10 +251,12 @@ impl PrepareTransactionsManager {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
+    use crate::prepare_transactions::{
+        PrepareTransactionsJob, PrepareTransactionsJobInputs, PrepareTransactionsJobKey,
+        PrepareTransactionsJobState, PrepareTransactionsManager,
+    };
     use near_chain::runtime::NightshadeRuntime;
-    use near_chain::types::PrepareTransactionsBlockContext;
+    use near_chain::types::{PrepareTransactionsBlockContext, PrepareTransactionsLimit};
     use near_chain_configs::test_genesis::TestGenesisBuilder;
     use near_chunks::client::ShardedTransactionPool;
     use near_epoch_manager::EpochManager;
@@ -267,11 +271,7 @@ mod tests {
     use near_store::test_utils::{TestTriesBuilder, create_test_store};
     use near_store::{ShardUId, TrieUpdate, get_genesis_state_roots};
     use parking_lot::Mutex;
-
-    use crate::prepare_transactions::{
-        PrepareTransactionsJob, PrepareTransactionsJobInputs, PrepareTransactionsJobKey,
-        PrepareTransactionsJobState, PrepareTransactionsManager,
-    };
+    use std::sync::Arc;
 
     fn insert_tx(
         pool: &mut ShardedTransactionPool,
@@ -288,7 +288,6 @@ mod tests {
                 "other".parse().unwrap(),
                 nonce,
                 CryptoHash::default(),
-                0,
             ),
         );
         let validated_tx = ValidatedTransaction::new_for_test(signed_tx);
@@ -311,9 +310,7 @@ mod tests {
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime =
             NightshadeRuntime::test(tempdir.path(), store.clone(), &genesis.config, epoch_manager);
-        let roots = get_genesis_state_roots(&store)
-            .expect("Error getting genesis state roots")
-            .expect("Genesis state roots must exist");
+        let roots = get_genesis_state_roots(&store).expect("Genesis state roots must exist");
         let root = roots.iter().next().expect("Genesis state root for shard must exist");
         let tries = TestTriesBuilder::new().with_store(store).build();
         (runtime, tries.new_trie_update(ShardUId::single_shard(), *root))
@@ -361,7 +358,7 @@ mod tests {
             .take_result()
             .expect("result must be available after running the job")
             .expect("job must succeed");
-        assert_eq!(None, result.limited_by);
+        assert_eq!(PrepareTransactionsLimit::NoMoreTxsInPool, result.limited_by);
         assert_eq!(1, result.transactions.len());
 
         // Taking again returns None

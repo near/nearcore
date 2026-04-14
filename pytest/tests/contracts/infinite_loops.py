@@ -14,21 +14,20 @@ from utils import load_test_contract
 
 nodes = start_cluster(
     4, 0, 1, None,
-    [["epoch_length", 40], ["block_producer_kickout_threshold", 80],
-     ["transaction_validity_period", 10000]], {
-         0: {
-             "tracked_shards_config": "AllShards"
-         },
-         1: {
-             "tracked_shards_config": "AllShards"
-         },
-         2: {
-             "tracked_shards_config": "AllShards"
-         },
-         3: {
-             "tracked_shards_config": "AllShards"
-         },
-     })
+    [["epoch_length", 40], ["block_producer_kickout_threshold", 80]], {
+        0: {
+            "tracked_shards_config": "AllShards"
+        },
+        1: {
+            "tracked_shards_config": "AllShards"
+        },
+        2: {
+            "tracked_shards_config": "AllShards"
+        },
+        3: {
+            "tracked_shards_config": "AllShards"
+        },
+    })
 
 hash_ = nodes[0].get_latest_block().hash_bytes
 tx = sign_deploy_contract_tx(nodes[0].signer_key, load_test_contract(), 10,

@@ -64,7 +64,7 @@ fn secp256k1_from_slice(buf: &mut [u8], public: &Secp256K1PublicKey) -> secp256k
     match secp256k1::SecretKey::from_slice(buf) {
         Ok(s) => s,
         Err(_) => {
-            tracing::warn!(target: "mirror", "Something super unlikely occurred! SECP256K1 key mapped from {:?} is too large. Flipping most significant bit.", public);
+            tracing::warn!(target: "mirror", ?public, "something super unlikely occurred, secp256k1 key mapped from is too large, flipping most significant bit");
             // If we got an error, it means that either `buf` is all zeros, or that when interpreted as a 256-bit
             // int, it is larger than the order of the secp256k1 curve. Since the order of the curve starts with 0xFF,
             // in either case flipping the first bit should work, and we can unwrap() below.

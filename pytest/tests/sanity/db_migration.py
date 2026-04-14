@@ -72,6 +72,7 @@ def unstake_and_stake(node, tx_sender_node):
     utils.wait_for_blocks(tx_sender_node, count=EPOCH_LENGTH * 2)
 
     logging.info(f'Restaking {node.signer_key.account_id}...')
+    hash_ = tx_sender_node.get_latest_block().hash_bytes
     tx = sign_staking_tx(node.signer_key, node.validator_key, full_balance // 2,
                          nonce, hash_)
     nonce += 10

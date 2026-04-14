@@ -34,20 +34,20 @@ impl tcp::Tier {
     /// TIER1 is reserved exclusively for BFT consensus messages.
     /// Each validator establishes a lot of TIER1 connections, so bandwidth shouldn't be
     /// wasted on broadcasting or periodic state syncs on TIER1 connections.
-    pub(crate) fn is_allowed(self, msg: &PeerMessage) -> bool {
+    pub(crate) fn is_allowed_receive(self, msg: &PeerMessage) -> bool {
         match msg {
             PeerMessage::Tier1Handshake(_) => self == tcp::Tier::T1,
             PeerMessage::Tier2Handshake(_) => self == tcp::Tier::T2,
             PeerMessage::Tier3Handshake(_) => self == tcp::Tier::T3,
             PeerMessage::HandshakeFailure(_, _) => true,
             PeerMessage::LastEdge(_) => true,
+            PeerMessage::Disconnect(..) => true,
             PeerMessage::VersionedStateResponse(_) => {
                 self == tcp::Tier::T2 || self == tcp::Tier::T3
             }
             PeerMessage::OptimisticBlock(..) => true,
-            PeerMessage::Routed(msg) => self.is_allowed_routed(msg.body()),
+            PeerMessage::Routed(msg) => self.is_allowed_receive_routed(msg.body()),
             PeerMessage::SyncRoutingTable(..)
-            | PeerMessage::DistanceVector(..)
             | PeerMessage::RequestUpdateNonce(..)
             | PeerMessage::SyncAccountsData(..)
             | PeerMessage::PeersRequest(..)
@@ -57,7 +57,6 @@ impl tcp::Tier {
             | PeerMessage::BlockRequest(..)
             | PeerMessage::Block(..)
             | PeerMessage::Transaction(..)
-            | PeerMessage::Disconnect(..)
             | PeerMessage::Challenge(..)
             | PeerMessage::SyncSnapshotHosts(..)
             | PeerMessage::StateRequestHeader(..)
@@ -67,7 +66,14 @@ impl tcp::Tier {
         }
     }
 
-    pub(crate) fn is_allowed_routed(self, body: &TieredMessageBody) -> bool {
+    pub(crate) fn is_allowed_receive_routed(self, body: &TieredMessageBody) -> bool {
+        match body {
+            TieredMessageBody::T1(_) => true,
+            TieredMessageBody::T2(_) => self == tcp::Tier::T2,
+        }
+    }
+
+    pub(crate) fn is_allowed_send_routed(self, body: &TieredMessageBody) -> bool {
         match body {
             TieredMessageBody::T1(_) => true,
             TieredMessageBody::T2(_) => self == tcp::Tier::T2,
@@ -158,7 +164,7 @@ impl Connection {
     // so that we can skip the actor queue when sending messages.
     pub fn send_message(&self, msg: Arc<PeerMessage>) {
         let msg_kind = msg.msg_variant().to_string();
-        tracing::trace!(target: "network", ?msg_kind, "Send message");
+        tracing::trace!(target: "network", ?msg_kind, "sending message");
         self.handle.send(SendMessage { message: msg }.span_wrap());
     }
 
@@ -199,8 +205,8 @@ impl Connection {
                 .await;
             if res.is_err() {
                 tracing::debug!(
-                    "peer {} disconnected, while sending SyncAccountsData",
-                    this.peer_info.id
+                    peer_id = %this.peer_info.id,
+                    "peer disconnected while sending sync accounts data"
                 );
             }
         }
@@ -251,8 +257,8 @@ impl Connection {
                 .await;
             if res.is_err() {
                 tracing::debug!(
-                    "peer {} disconnected, while sending SyncSnapshotHosts",
-                    this.peer_info.id
+                    peer_id = %this.peer_info.id,
+                    "peer disconnected while sending sync snapshot hosts"
                 );
             }
         }
@@ -410,22 +416,8 @@ impl Pool {
                 // Only 1 connection per account key is allowed.
                 // Having 2 peers use the same account key is an invalid setup,
                 // which violates the BFT consensus anyway.
-                // TODO(gprusak): an incorrectly closed TCP connection may remain in ESTABLISHED
-                // state up to minutes/hours afterwards. This may cause problems in
-                // case a validator is restarting a node after crash and the new node has the same
-                // peer_id/account_key/IP:port as the old node. What is the desired behavior is
-                // such a case? Linux TCP implementation supports:
-                // TCP_USER_TIMEOUT - timeout for ACKing the sent data
-                // TCP_KEEPIDLE - idle connection time after which a KEEPALIVE is sent
-                // TCP_KEEPINTVL - interval between subsequent KEEPALIVE probes
-                // TCP_KEEPCNT - number of KEEPALIVE probes before closing the connection.
-                // If it ever becomes a problem, we can either:
-                // 1. replace TCP with sth else, like QUIC.
-                // 2. use some lower level API than tokio::net to be able to set the linux flags.
-                // 3. implement KEEPALIVE equivalent manually on top of TCP to resolve conflicts.
-                // 4. allow overriding old connections by new connections, but that will require
-                //    a deeper thought to make sure that the connections will be eventually stable
-                //    and that incorrect setups will be detectable.
+                // NOTE: write timeouts are enforced in the send loop (see peer/stream.rs)
+                // to detect half-open connections within ~120s instead of minutes/hours.
                 if let Some(conn) = pool
                     .ready_by_account_key
                     .insert(owned_account.account_key.clone(), peer.clone())
@@ -441,7 +433,7 @@ impl Pool {
                     // however conflicting connections with the same account key indicate an
                     // incorrect validator setup, so we log it here as a warn!, rather than just
                     // info!.
-                    tracing::warn!(target:"network", "Pool::register({id}): {err}");
+                    tracing::warn!(target:"network", %id, ?err, "pool register failed");
                     metrics::ALREADY_CONNECTED_ACCOUNT.inc();
                     return Err(err);
                 }
@@ -506,7 +498,7 @@ impl Pool {
            to = ?peer_id,
            num_connected_peers = pool.ready.len(),
            ?msg,
-           "Failed sending message: peer not connected"
+           "failed sending message: peer not connected"
         );
         false
     }

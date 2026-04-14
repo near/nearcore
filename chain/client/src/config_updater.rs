@@ -42,14 +42,14 @@ impl ConfigUpdater {
                     if let Some(client_config) = updatable_configs.client_config {
                         update_result.client_config_updated |=
                             update_client_config_fn(client_config);
-                        tracing::info!(target: "config", "Updated ClientConfig");
+                        tracing::info!(target: "config", "updated client config");
                     }
                     if let UpdatableValidatorSigner::MaybeKey(validator_signer) =
                         updatable_configs.validator_signer
                     {
                         update_result.validator_signer_updated |=
                             update_validator_signer_fn(validator_signer);
-                        tracing::info!(target: "config", "Updated validator key");
+                        tracing::info!(target: "config", "updated validator key");
                     }
                     self.updatable_configs_error = None;
                 }
@@ -66,8 +66,9 @@ impl ConfigUpdater {
         if let Some(updatable_configs_error) = &self.updatable_configs_error {
             tracing::warn!(
                 target: "stats",
-                "Dynamically updatable configs are not valid. Please fix this ASAP otherwise the node will probably crash after restart: {}",
-                *updatable_configs_error);
+                error = %*updatable_configs_error,
+                "dynamically updated configs are not valid, please fix this ASAP otherwise the node will probably crash after restart"
+            );
         }
     }
 }

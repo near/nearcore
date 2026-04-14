@@ -18,7 +18,6 @@ mod log_counter;
 pub mod metrics;
 mod opentelemetry;
 mod reload;
-mod skip_ansi_escaping_message;
 pub mod span_wrapped_msg;
 mod subscriber;
 pub mod testonly;

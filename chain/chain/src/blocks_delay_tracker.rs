@@ -1,3 +1,4 @@
+use crate::{Chain, ChainStoreAccess, metrics};
 use lru::LruCache;
 use near_async::time::{Clock, Instant, Utc};
 use near_epoch_manager::EpochManagerAdapter;
@@ -5,7 +6,6 @@ use near_primitives::block::{Block, ChunkType, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::views::{
     BlockProcessingInfo, BlockProcessingStatus, ChainProcessingInfo, ChunkProcessingInfo,
@@ -15,9 +15,6 @@ use std::collections::{BTreeMap, HashMap, hash_map::Entry};
 use std::mem;
 use std::num::NonZeroUsize;
 use time::ext::InstantExt as _;
-use tracing::error;
-
-use crate::{Chain, ChainStoreAccess, metrics};
 
 const BLOCK_DELAY_TRACKING_COUNT: u64 = 50;
 
@@ -145,16 +142,8 @@ impl ChunkTrackingStats {
             ChunkProcessingStatus::NeedToRequest
         };
         let created_by = epoch_manager
-            .get_epoch_id_from_prev_block(&self.prev_block_hash)
-            .and_then(|epoch_id| {
-                epoch_manager
-                    .get_chunk_producer_info(&ChunkProductionKey {
-                        epoch_id,
-                        height_created: self.height_created,
-                        shard_id: self.shard_id,
-                    })
-                    .map(|info| info.take_account_id())
-            })
+            .get_chunk_producer_info_db(&self.prev_block_hash, self.shard_id)
+            .map(|info| info.take_account_id())
             .ok();
         let request_duration = if let Some(requested_timestamp) = self.requested_timestamp {
             if let Some(completed_timestamp) = self.completed_timestamp {
@@ -245,7 +234,7 @@ impl BlocksDelayTracker {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.dropped = Some(reason);
         } else {
-            error!(target:"blocks_delay_tracker", "block {:?} was dropped but was not marked received", block_hash);
+            tracing::error!(target: "blocks_delay_tracker", ?block_hash, "block was dropped but was not marked received");
         }
     }
 
@@ -253,7 +242,7 @@ impl BlocksDelayTracker {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.error = Some(err);
         } else {
-            error!(target:"blocks_delay_tracker", "block {:?} was errored but was not marked received", block_hash);
+            tracing::error!(target: "blocks_delay_tracker", ?block_hash, "block was errored but was not marked received");
         }
     }
 
@@ -261,7 +250,7 @@ impl BlocksDelayTracker {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.orphaned_timestamp = Some(self.clock.now());
         } else {
-            error!(target:"blocks_delay_tracker", "block {:?} was orphaned but was not marked received", block_hash);
+            tracing::error!(target: "blocks_delay_tracker", ?block_hash, "block was orphaned but was not marked received");
         }
     }
 
@@ -269,7 +258,7 @@ impl BlocksDelayTracker {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.removed_from_orphan_timestamp = Some(self.clock.now());
         } else {
-            error!(target:"blocks_delay_tracker", "block {:?} was unorphaned but was not marked received", block_hash);
+            tracing::error!(target: "blocks_delay_tracker", ?block_hash, "block was unorphaned but was not marked received");
         }
     }
 
@@ -277,7 +266,7 @@ impl BlocksDelayTracker {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.missing_chunks_timestamp = Some(self.clock.now());
         } else {
-            error!(target:"blocks_delay_tracker", "block {:?} was marked as having missing chunks but was not marked received", block_hash);
+            tracing::error!(target: "blocks_delay_tracker", ?block_hash, "block was marked as having missing chunks but was not marked received");
         }
     }
 
@@ -285,7 +274,7 @@ impl BlocksDelayTracker {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.pending_execution_timestamp = Some(self.clock.now());
         } else {
-            error!(target:"blocks_delay_tracker", "block {:?} was marked as pending execution but was not marked received", block_hash);
+            tracing::error!(target: "blocks_delay_tracker", ?block_hash, "block was marked as pending execution but was not marked received");
         }
     }
 
@@ -293,7 +282,7 @@ impl BlocksDelayTracker {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.removed_from_pending_timestamp = Some(self.clock.now());
         } else {
-            error!(target:"blocks_delay_tracker", "block {:?} was marked as completed pending execution but was not marked received", block_hash);
+            tracing::error!(target: "blocks_delay_tracker", ?block_hash, "block was marked as completed pending execution but was not marked received");
         }
     }
 
@@ -301,7 +290,7 @@ impl BlocksDelayTracker {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.removed_from_missing_chunks_timestamp = Some(self.clock.now());
         } else {
-            error!(target:"blocks_delay_tracker", "block {:?} was marked as having no missing chunks but was not marked received", block_hash);
+            tracing::error!(target: "blocks_delay_tracker", ?block_hash, "block was marked as having no missing chunks but was not marked received");
         }
     }
 
@@ -361,7 +350,7 @@ impl BlocksDelayTracker {
                     }
                 } else {
                     debug_assert!(false);
-                    error!(target:"block_delay_tracker", "block {:?} in height map but not in blocks", block_hash);
+                    tracing::error!(target: "block_delay_tracker", ?block_hash, "block in height map but not in blocks");
                 }
             }
 
@@ -531,7 +520,7 @@ impl Chain {
         if self.is_in_processing(block_hash) {
             return BlockProcessingStatus::InProcessing;
         }
-        if self.chain_store().block_exists(block_hash).unwrap_or_default() {
+        if self.chain_store().block_exists(block_hash) {
             return BlockProcessingStatus::Accepted;
         }
         if let Some(dropped_reason) = &block_info.dropped {

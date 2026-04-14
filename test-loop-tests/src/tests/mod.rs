@@ -1,6 +1,10 @@
 mod bandwidth_scheduler;
+#[cfg(feature = "test_features")]
+mod block_chunk_signature;
 mod bug_repro;
 mod catching_up;
+mod chunk_producers;
+mod chunk_validator_failover;
 mod chunk_validator_kickout;
 mod chunks_management;
 mod cloud_archival;
@@ -13,26 +17,44 @@ mod create_delete_account;
 mod cross_shard_tx;
 mod deterministic_account_id;
 mod early_prepare_transactions;
-mod epoch_sync;
+#[cfg(feature = "test_features")]
+mod eth_implicit_global_contract;
 mod fix_chunk_producer_stake_threshold;
 mod fix_stake_threshold;
 mod garbage_collection;
+mod gas_keys;
 mod global_contracts;
 mod global_contracts_distribution;
 mod in_memory_tries;
 mod increase_max_congestion_missing_chunks;
 #[cfg(feature = "test_features")]
 mod indexer;
+mod jsonrpc;
 mod malicious_chunk_producer;
 mod max_receipt_size;
 mod multinode_stateless_validators;
+#[cfg(feature = "test_features")]
+mod network_drop;
 mod optimistic_block;
 mod process_blocks;
+mod processed_receipts_gc;
 mod protocol_upgrade;
+mod receipt_to_tx;
 mod reject_outdated_blocks;
 mod resharding_v3;
+mod sharded_rpc;
+mod sharded_rpc_reliability;
+mod sharded_rpc_resharding;
+mod shutdown_signal;
 mod single_shard_tracking;
 mod spice;
-mod state_sync;
-mod syncing;
+mod spice_resharding;
+mod spice_utils;
+mod split_storage;
+mod stake_nodes;
+mod sync;
+mod validator_key_check;
+mod view_requests;
 mod view_requests_to_archival_node;
+mod yield_resume;
+mod yield_timeouts;

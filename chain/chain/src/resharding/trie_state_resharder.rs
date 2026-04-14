@@ -1,9 +1,12 @@
-use std::fmt::Debug;
-use std::ops::Bound;
-use std::sync::Arc;
-
+use crate::resharding::event_type::ReshardingSplitShardParams;
+use crate::types::RuntimeAdapter;
 use borsh::{BorshDeserialize, BorshSerialize};
+use itertools::Itertools;
+use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
+use near_chain_primitives::Error;
+use near_o11y::metrics::IntGauge;
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_store::adapter::trie_store::{TrieStoreUpdateAdapter, get_shard_uid_mapping};
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
@@ -11,14 +14,9 @@ use near_store::db::TRIE_STATE_RESHARDING_STATUS_KEY;
 use near_store::metrics::resharding::trie_state_metrics;
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::{DBCol, StorageError};
-
-use crate::resharding::event_type::ReshardingSplitShardParams;
-use crate::types::RuntimeAdapter;
-use itertools::Itertools;
-use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
-use near_chain_primitives::Error;
-use near_o11y::metrics::IntGauge;
-use near_primitives::shard_layout::ShardUId;
+use std::fmt::Debug;
+use std::ops::Bound;
+use std::sync::Arc;
 
 #[derive(BorshSerialize, BorshDeserialize, Debug)]
 /// Represents the status of one child shard during trie state resharding.
@@ -118,7 +116,7 @@ impl TrieStateResharder {
         let resharder = Self { runtime, handle, resharding_config };
         if resume_allowed == ResumeAllowed::No {
             // Load the status to check if resharding is in progress
-            if let Some(status) = resharder.load_status().unwrap() {
+            if let Some(status) = resharder.load_status() {
                 panic!(
                     "TrieStateReshardingStatus already exists for shard {}, must run resume_resharding to continue interrupted resharding operation before starting node.",
                     status.parent_shard_uid
@@ -180,10 +178,10 @@ impl TrieStateResharder {
             store_update.set(
                 DBCol::Misc,
                 TRIE_STATE_RESHARDING_STATUS_KEY,
-                &borsh::to_vec(status)?,
+                &borsh::to_vec(status).unwrap(),
             );
         }
-        store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 
@@ -240,11 +238,10 @@ impl TrieStateResharder {
         Ok(next_key)
     }
 
-    fn load_status(&self) -> Result<Option<TrieStateReshardingStatus>, Error> {
-        Ok(self
-            .runtime
+    fn load_status(&self) -> Option<TrieStateReshardingStatus> {
+        self.runtime
             .store()
-            .get_ser::<TrieStateReshardingStatus>(DBCol::Misc, TRIE_STATE_RESHARDING_STATUS_KEY)?)
+            .get_ser::<TrieStateReshardingStatus>(DBCol::Misc, TRIE_STATE_RESHARDING_STATUS_KEY)
     }
 
     /// Initializes the trie state resharding status for a new resharding operation.
@@ -255,7 +252,7 @@ impl TrieStateResharder {
         &self,
         event: &ReshardingSplitShardParams,
     ) -> Result<(), Error> {
-        if let Some(status) = self.load_status()? {
+        if let Some(status) = self.load_status() {
             panic!(
                 "TrieStateReshardingStatus already exists for shard {}, cannot start a new resharding operation. Run resume_resharding to continue.",
                 status.parent_shard_uid
@@ -264,7 +261,7 @@ impl TrieStateResharder {
 
         // Get state root from the chunk extra of the child shard.
         let block_hash = event.resharding_block.hash;
-        let store = self.runtime.store().chain_store();
+        let store = self.runtime.store().chunk_store();
         let left_state_root =
             *store.get_chunk_extra(&block_hash, &event.left_child_shard)?.state_root();
         let right_state_root =
@@ -279,10 +276,10 @@ impl TrieStateResharder {
             ?left_state_root,
             ?right_state_root,
             ?parent_state_root,
-            ?event.left_child_shard,
-            ?event.right_child_shard,
-            ?event.parent_shard,
-            "TrieStateResharding: child and parent state roots"
+            left_child_shard = ?event.left_child_shard,
+            right_child_shard = ?event.right_child_shard,
+            parent_shard = ?event.parent_shard,
+            "trie state resharding: child and parent state roots"
         );
 
         // If the child shard_uid mapping doesn't exist, it means we are not tracking the child shard.
@@ -310,8 +307,12 @@ impl TrieStateResharder {
         );
 
         let mut store_update = self.runtime.store().store_update();
-        store_update.set(DBCol::Misc, TRIE_STATE_RESHARDING_STATUS_KEY, &borsh::to_vec(&status)?);
-        store_update.commit()?;
+        store_update.set(
+            DBCol::Misc,
+            TRIE_STATE_RESHARDING_STATUS_KEY,
+            &borsh::to_vec(&status).unwrap(),
+        );
+        store_update.commit();
 
         Ok(())
     }
@@ -322,7 +323,7 @@ impl TrieStateResharder {
         &self,
         event: &ReshardingSplitShardParams,
     ) -> Result<(), Error> {
-        let Some(status) = self.load_status()? else {
+        let Some(status) = self.load_status() else {
             panic!(
                 "TrieStateReshardingStatus not found. Have we called initialize_trie_state_resharding_status?"
             );
@@ -336,8 +337,8 @@ impl TrieStateResharder {
 
     /// Resume an interrupted resharding operation.
     pub fn resume(&self, parent_shard_uid: ShardUId) -> Result<(), Error> {
-        let Some(status) = self.load_status()? else {
-            tracing::info!(target: "resharding", "Resharding status not found, nothing to resume.");
+        let Some(status) = self.load_status() else {
+            tracing::info!(target: "resharding", "resharding status not found, nothing to resume");
             return Ok(());
         };
 
@@ -391,7 +392,7 @@ impl TrieStateResharder {
                 target: "resharding",
                 ?parent_shard_uid,
                 parent_state_root = ?status.parent_state_root,
-                "Parent memtrie not loaded, loading it now"
+                "parent memtrie not loaded, loading it now"
             );
             tries.load_memtrie(&parent_shard_uid, None, true).map_err(|e| {
                 Error::Other(format!(
@@ -419,7 +420,7 @@ impl TrieStateResharder {
                 ?boundary_account,
                 ?retain_mode,
                 ?block_height,
-                "Recreating child memtrie from parent"
+                "recreating child memtrie from parent"
             );
 
             // Perform the shard split operation.
@@ -432,11 +433,11 @@ impl TrieStateResharder {
                 target: "resharding",
                 ?child_shard_uid,
                 new_root = ?trie_changes.new_root,
-                "Successfully recreated child memtrie from parent"
+                "successfully recreated child memtrie from parent"
             );
         }
 
-        store_update.commit().unwrap();
+        store_update.commit();
 
         // After creating all the child memtries, freeze the parent.
         let children_shard_uids = missing_children.into_iter().map(|(uid, _)| uid).collect_vec();
@@ -466,7 +467,7 @@ impl TrieStateResharder {
         tracing::info!(
             target: "resharding",
             ?parent_shard_uid,
-            "Trie state resharding complete, cleaning up parent flat storage"
+            "trie state resharding complete, cleaning up parent flat storage"
         );
 
         let flat_store = self.runtime.store().flat_store();
@@ -481,7 +482,7 @@ impl TrieStateResharder {
             store_update.remove_flat_storage(parent_shard_uid);
         }
 
-        store_update.commit().unwrap();
+        store_update.commit();
     }
 }
 
@@ -511,29 +512,24 @@ impl TrieStateResharderMetrics {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::runtime::NightshadeRuntime;
+    use crate::types::ChainConfig;
     use bytesize::ByteSize;
     use itertools::Itertools;
     use near_async::time::Clock;
     use near_chain_configs::Genesis;
     use near_epoch_manager::EpochManager;
     use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
+    use near_primitives::state::FlatStateValue;
     use near_primitives::trie_key::TrieKey;
-    use near_primitives::types::{Balance, Gas};
+    use near_primitives::types::chunk_extra::ChunkExtra;
     use near_store::Trie;
+    use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
     use near_store::test_utils::{
         TestTriesBuilder, create_test_store, simplify_changes, test_populate_trie,
     };
     use near_store::trie::ops::resharding::RetainMode;
-
-    use crate::runtime::NightshadeRuntime;
-    use crate::types::ChainConfig;
-
-    use super::*;
-    use near_primitives::bandwidth_scheduler::BandwidthRequests;
-    use near_primitives::congestion_info::CongestionInfo;
-    use near_primitives::state::FlatStateValue;
-    use near_primitives::types::chunk_extra::ChunkExtra;
-    use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 
     type KeyValues = Vec<(Vec<u8>, Option<Vec<u8>>)>;
     struct TestSetup {
@@ -643,7 +639,7 @@ mod tests {
         // disk. Adding here just to test they will be removed.
         store_update.set_shard_uid_mapping(left_shard, parent_shard);
         store_update.set_shard_uid_mapping(right_shard, parent_shard);
-        store_update.commit().unwrap();
+        store_update.commit();
 
         if create_memtries {
             tries.freeze_parent_memtrie(parent_shard, children).unwrap();
@@ -675,25 +671,18 @@ mod tests {
                     },
                 }),
             );
-            store_update.commit().unwrap();
+            store_update.commit();
 
             // Fourth, create ChunkExtra for the flat storage head so load_memtrie can find the state root.
             let mut chain_store_update = runtime.store().store_update();
-            let chunk_extra = ChunkExtra::new(
-                &parent_root,
-                CryptoHash::default(),
-                Vec::new(),
-                Gas::ZERO,
-                Gas::ZERO,
-                Balance::ZERO,
-                Some(CongestionInfo::default()),
-                BandwidthRequests::empty(),
-            );
+            let chunk_extra = ChunkExtra::new_with_only_state_root(&parent_root);
             let block_shard_uid = get_block_shard_uid(&parent_root, &parent_shard);
-            chain_store_update
-                .set_ser(near_store::DBCol::ChunkExtra, &block_shard_uid, &chunk_extra)
-                .unwrap();
-            chain_store_update.commit().unwrap();
+            chain_store_update.set_ser(
+                near_store::DBCol::ChunkExtra,
+                &block_shard_uid,
+                &chunk_extra,
+            );
+            chain_store_update.commit();
 
             // Now unload the parent memtrie, so the test can verify
             // it will get loaded correctly during resume.
@@ -729,7 +718,7 @@ mod tests {
         let mut update_status = test.as_status();
         resharder.resharding_blocking_impl(&mut update_status).unwrap();
         // The resharding status should be None after completion.
-        assert!(resharder.load_status().unwrap().is_none());
+        assert!(resharder.load_status().is_none());
         check_child_tries_contain_all_keys(&test);
         // StateShardUIdMapping should be removed after resharding.
         assert_eq!(0, test.runtime.store().iter(DBCol::StateShardUIdMapping).count());
@@ -771,10 +760,8 @@ mod tests {
 
         resharder.process_batch_and_update_status(&mut update_status, !missing_memtries).unwrap();
 
-        let got_status = resharder
-            .load_status()
-            .unwrap()
-            .expect("status should not be empty after processing one batch");
+        let got_status =
+            resharder.load_status().expect("status should not be empty after processing one batch");
         assert_eq!(update_status, got_status);
         // The persisted status should indicate continuing from the expected next key,
         // which is the first key in the left child.
@@ -819,7 +806,7 @@ mod tests {
         }
 
         // The resharding status should be None after completion.
-        assert!(resharder.load_status().unwrap().is_none());
+        assert!(resharder.load_status().is_none());
         check_child_tries_contain_all_keys(&test);
         // StateShardUIdMapping should be removed after resharding.
         assert_eq!(0, test.runtime.store().iter(DBCol::StateShardUIdMapping).count());

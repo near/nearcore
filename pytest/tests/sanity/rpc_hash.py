@@ -29,6 +29,7 @@ BLOCK_HEADER_V2_PROTOCOL_VERSION = 42
 BLOCK_HEADER_V3_PROTOCOL_VERSION = 50
 BLOCK_HEADER_V4_PROTOCOL_VERSION = 63
 BLOCK_HEADER_V5_PROTOCOL_VERSION = 72
+BLOCK_HEADER_V6_PROTOCOL_VERSION = 150
 
 
 def serialize(msg: typing.Any) -> bytes:
@@ -85,6 +86,7 @@ def compute_block_hash(header: typing.Dict[str, typing.Any],
         3: messages.block.BlockHeaderInnerRestV3,
         4: messages.block.BlockHeaderInnerRestV4,
         5: messages.block.BlockHeaderInnerRestV5,
+        6: messages.block.BlockHeaderInnerRestV6,
     }[msg_version]
 
     inner_rest = inner_rest_msg()
@@ -117,6 +119,11 @@ def compute_block_hash(header: typing.Dict[str, typing.Any],
     inner_rest.latest_protocol_version = get_int('latest_protocol_version')
     inner_rest.chunk_endorsements = messages.block.ChunkEndorsementsBitmap()
     inner_rest.chunk_endorsements.inner = header['chunk_endorsements']
+    shard_split = header.get('shard_split')
+    if shard_split is not None:
+        inner_rest.shard_split = (shard_split[0], shard_split[1])
+    else:
+        inner_rest.shard_split = None
     inner_rest_blob = serialize(inner_rest)
     inner_rest_hash = sha256(inner_rest_blob)
 
@@ -205,6 +212,8 @@ class HashTestCase(unittest.TestCase):
             'latest_protocol_version':
                 50,
             'chunk_endorsements': [[]],
+            'shard_split':
+                None,
         }
 
         for msg_ver, block_hash in (
@@ -213,6 +222,7 @@ class HashTestCase(unittest.TestCase):
             (3, 'Finjr87adnUqpFHVXbmAWiVAY12EA9G4DfUw27XYHox'),
             (4, '2QfdGyGWByEeL2ZSy8u2LoBa4pdDwf5KoDrr94W6oeB6'),
             (5, '6mpkU5y79KpUKDkZKNiur1aTyynkaZ1AGjEAF7bhTZM6'),
+            (6, '3zTkbCdJPxEFDikE1MkNGTGWY3JAm3Yjqj2Q3BrCq7n3'),
         ):
             self.assertEqual(block_hash, compute_block_hash(header, msg_ver))
 
@@ -225,6 +235,7 @@ class HashTestCase(unittest.TestCase):
             (3, 'Finjr87adnUqpFHVXbmAWiVAY12EA9G4DfUw27XYHox'),
             (4, '3Cdm4sS9b4jdypMezP8ta6p2ecyRSJC9uaGUJTY18MUH'),
             (5, 'Gm93EbKp6NWvvxAKW61GL6Nbbysw2J8qw1fgQDBw5aVh'),
+            (6, 'ATd3cMF6gZhZvF2TJPBke76QwZ1Mr9YyRr7r1EiPh469'),
         ):
             self.assertEqual(block_hash, compute_block_hash(header, msg_ver))
 
@@ -236,6 +247,7 @@ class HashTestCase(unittest.TestCase):
             (3, '82v8RAc66tWpdjRCsoSrgnzpU6JMhpjbWKmUEcfkzX6T'),
             (4, '9BYhkbWkKTLJj46goq5WPEzUJDf5juHJnBu2jjoHL7yc'),
             (5, 'Hcx3Gwet25riHMKQzmERn7cAprrgRrBba199vrGBjyxd'),
+            (6, 'CZLuCYdBUZYprXwHYQ7J9Pm32S4wbxdQkoJUNn3kWp8P'),
         ):
             self.assertEqual(block_hash, compute_block_hash(header, msg_ver))
 
@@ -247,6 +259,7 @@ class HashTestCase(unittest.TestCase):
             (3, '3bx6vfbH8GrYp8UFMagiBgYyKMH63D7Qo5J7jCsNbh9o'),
             (4, 'CTDBpUpCdhdCjCMfaFD5r96PyKDK756aXw69toLYEaSH'),
             (5, '5Mc2zDdXCrjMFKiBYtqyi8gsDQpaZHb9S7fvDppYR64c'),
+            (6, '5UeMqXCfGiDtATEFFp1epMUT3WHGpEMguGZBhF2hYZQC'),
         ):
             self.assertEqual(block_hash, compute_block_hash(header, msg_ver))
 
@@ -307,7 +320,10 @@ class HashTestCase(unittest.TestCase):
         BlockHeaderInnerRest message has been introduced and this test needs to
         be updated to support it.
         """
-        self._test_block_hash(5)
+        if binary_protocol_version >= BLOCK_HEADER_V6_PROTOCOL_VERSION:
+            self._test_block_hash(6)
+        else:
+            self._test_block_hash(5)
 
 
 if __name__ == '__main__':

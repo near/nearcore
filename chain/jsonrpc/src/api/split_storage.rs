@@ -1,3 +1,4 @@
+use super::{Params, RpcFrom, RpcRequest};
 use near_async::messaging::AsyncSendError;
 use near_client_primitives::types::GetSplitStorageInfoError;
 use near_jsonrpc_primitives::{
@@ -5,8 +6,6 @@ use near_jsonrpc_primitives::{
     types::split_storage::{RpcSplitStorageInfoError, RpcSplitStorageInfoRequest},
 };
 use serde_json::Value;
-
-use super::{Params, RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcSplitStorageInfoRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
@@ -27,7 +26,7 @@ impl RpcFrom<GetSplitStorageInfoError> for RpcSplitStorageInfoError {
                 Self::InternalError { error_message }
             }
             GetSplitStorageInfoError::Unreachable(ref error_message) => {
-                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", error_message);
+                tracing::warn!(target: "jsonrpc", %error_message, "unreachable error occurred");
                 crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
                     .with_label_values(&["RpcSplitStorageInfoError"])
                     .inc();

@@ -1,8 +1,6 @@
-use std::sync::Arc;
-
-use near_time::Duration;
-
 use super::data::TestLoopData;
+use near_time::Duration;
+use std::sync::Arc;
 
 type TestLoopCallback = Box<dyn FnOnce(&mut TestLoopData) + Send>;
 

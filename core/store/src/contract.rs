@@ -184,11 +184,7 @@ impl ContractStorage {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::{HashMap, HashSet},
-        sync::Arc,
-    };
-
+    use crate::{TrieStorage, contract::ContractStorage};
     use itertools::Itertools;
     use near_primitives::{
         errors::{MissingTrieValue, MissingTrieValueContext, StorageError},
@@ -196,8 +192,10 @@ mod tests {
         stateless_validation::contract_distribution::CodeHash,
     };
     use near_vm_runner::ContractCode;
-
-    use crate::{TrieStorage, contract::ContractStorage};
+    use std::{
+        collections::{HashMap, HashSet},
+        sync::Arc,
+    };
 
     struct MockTrieStorage {
         store: HashMap<CryptoHash, Arc<[u8]>>,

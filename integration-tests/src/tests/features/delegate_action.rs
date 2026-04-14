@@ -3,6 +3,10 @@
 //! NEP: https://github.com/near/NEPs/pull/366
 //! This is the module for its integration tests.
 
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
+use crate::node::{Node, RuntimeNode};
+use crate::tests::standard_cases::fee_helper;
 use near_chain_configs::Genesis;
 use near_crypto::{KeyType, PublicKey};
 use near_parameters::ActionCosts;
@@ -32,11 +36,6 @@ use testlib::runtime_utils::{
     carol_account, eve_dot_alice_account,
 };
 
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
-use crate::node::{Node, RuntimeNode};
-use crate::tests::standard_cases::fee_helper;
-
 /// For test adding a function access key with allowance.
 const INITIAL_ALLOWANCE: Balance = Balance::from_near(1);
 /// Commonly used method in the test contract.
@@ -55,6 +54,7 @@ fn exec_meta_transaction(
     let mut genesis =
         Genesis::test(vec![validator, user.clone(), receiver.clone(), relayer.clone()], 1);
     genesis.config.epoch_length = 1000;
+    genesis.config.transaction_validity_period = 2000;
     genesis.config.protocol_version = protocol_version;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 

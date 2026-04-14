@@ -1,5 +1,6 @@
 use near_o11y::metrics::{
-    HistogramVec, IntCounterVec, try_create_histogram_vec, try_create_int_counter_vec,
+    HistogramVec, IntCounterVec, IntGaugeVec, try_create_histogram_vec, try_create_int_counter_vec,
+    try_create_int_gauge_vec,
 };
 use std::sync::LazyLock;
 use std::{cell::RefCell, time::Duration};
@@ -28,6 +29,20 @@ static COMPILED_CONTRACT_CACHE_LOOKUPS_TOTAL: LazyLock<IntCounterVec> = LazyLock
         "near_vm_compiled_contract_cache_lookups_total",
         "The number of times the runtime looks up for an entry in the compiled-contract cache for the given caller context and shard_id",
         &["context", "shard_id"],
+    )
+    .unwrap()
+});
+
+static COMPILED_CONTRACT_CACHE_ITEMS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    try_create_int_gauge_vec("near_any_cache_items", "Number of AnyCache items", &["cache_id"])
+        .unwrap()
+});
+
+static COMPILED_CONTRACT_CACHE_WEIGHT_BYTES: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "near_any_cache_weight_bytes",
+        "Total weight in bytes of AnyCache items",
+        &["cache_id"],
     )
     .unwrap()
 });
@@ -78,6 +93,11 @@ pub fn reset_metrics() {
     METRICS.with_borrow_mut(|m| *m = Metrics::default());
 }
 
+pub(crate) fn set_compiled_contract_cache_metrics(cache_id: &str, items: usize, weight: u64) {
+    COMPILED_CONTRACT_CACHE_ITEMS.with_label_values(&[cache_id]).set(items as i64);
+    COMPILED_CONTRACT_CACHE_WEIGHT_BYTES.with_label_values(&[cache_id]).set(weight as i64);
+}
+
 /// Reports the current metrics at the end of a single VM invocation (eg. to run a function call).
 pub fn report_metrics(shard_id: &str, caller_context: &str) {
     METRICS.with_borrow_mut(|m| {
@@ -99,7 +119,7 @@ pub fn report_metrics(shard_id: &str, caller_context: &str) {
         if m.compiled_contract_cache_hits > 0 {
             COMPILED_CONTRACT_CACHE_HITS_TOTAL
                 .with_label_values(&[caller_context, shard_id])
-                .inc_by(m.compiled_contract_cache_lookups);
+                .inc_by(m.compiled_contract_cache_hits);
         }
 
         *m = Metrics::default();

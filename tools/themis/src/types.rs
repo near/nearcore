@@ -1,9 +1,7 @@
+use super::style;
+use cargo_metadata::camino::Utf8PathBuf;
 use std::fmt;
 use std::rc::Rc;
-
-use cargo_metadata::camino::Utf8PathBuf;
-
-use super::style;
 
 #[derive(Debug)]
 pub struct Package {

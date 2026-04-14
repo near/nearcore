@@ -77,6 +77,19 @@ macro_rules! imports {
                 }
             )*}
         }
+
+        #[allow(unused_macros)]
+        /// Like `for_each_available_import!` but without runtime config gating,
+        /// so that `$M!` invocations appear at item position (useful for
+        /// generating method definitions). Unlike `for_each_available_import`,
+        /// this calls `$M!` directly (not via `call_with_name`) so that the
+        /// trailing `;` is preserved for item-position expansion.
+        macro_rules! for_each_import_item {
+            ($M:ident) => {$(
+                $(#[cfg(feature = $feature_name)])?
+                $M!($( @in $mod : )? $( @as $name : )? $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >);
+            )*}
+        }
     }
 }
 
@@ -241,6 +254,34 @@ imports! {
         beneficiary_id_len: u64,
         beneficiary_id_ptr: u64
     ] -> []>,
+    #[gas_key_host_fns] promise_batch_action_transfer_to_gas_key<[
+        promise_index: u64,
+        public_key_len: u64,
+        public_key_ptr: u64,
+        amount_ptr: u64
+    ] -> []>,
+    #[gas_key_host_fns] promise_batch_action_add_gas_key_with_full_access<[
+        promise_index: u64,
+        public_key_len: u64,
+        public_key_ptr: u64,
+        num_nonces: u64
+    ] -> []>,
+    #[gas_key_host_fns] promise_batch_action_add_gas_key_with_function_call<[
+        promise_index: u64,
+        public_key_len: u64,
+        public_key_ptr: u64,
+        num_nonces: u64,
+        allowance_ptr: u64,
+        receiver_id_len: u64,
+        receiver_id_ptr: u64,
+        method_names_len: u64,
+        method_names_ptr: u64
+    ] -> []>,
+    // NOTE: There are intentionally no promise batch actions for
+    // WithdrawFromGasKey. Actions that reduce gas key balance must only be
+    // initiated via transactions, not by contracts. Otherwise, they will not be
+    // visible to the pending transaction queue. Do not add host functions for
+    // them. See NEP-611 for details.
     // #######################
     // # Promise API yield/resume #
     // #######################
@@ -318,6 +359,8 @@ imports! {
     #[["test_features"]] burn_gas<[gas: u64] -> []>,
 }
 
+#[cfg(test)]
+pub(crate) use for_each_import_item;
 pub(crate) use {call_with_name, for_each_available_import};
 
 pub(crate) const fn should_trace_host_function(host_function: &str) -> bool {

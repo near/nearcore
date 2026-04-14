@@ -84,6 +84,7 @@ wasm-smith.workspace = true
 wat.workspace = true
 
 [features]
+default = ["wasmtime_vm"]
 wasmtime_vm = ["wasmtime", "anyhow", "prepare"]
 near_vm = [
     "near-vm-compiler",
@@ -124,6 +125,11 @@ protocol_schema = [
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = []
+
+[[bin]]
+name = "bench-contracts-compilation"
+path = "benchmarks/compile_contracts.rs"
+required-features = ["wasmtime_vm"]
 
 [package.metadata.cargo-machete]
 ignored = ["prometheus"]

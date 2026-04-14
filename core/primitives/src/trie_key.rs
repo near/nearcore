@@ -2,6 +2,7 @@ use crate::types::AccountId;
 use crate::{action::GlobalContractIdentifier, hash::CryptoHash};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
+use near_primitives_core::trie_key::access_key_key_len;
 use near_primitives_core::types::{NonceIndex, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 use std::mem::size_of;
@@ -65,9 +66,10 @@ pub mod col {
     /// Global contract code instance. Values are contract blobs,
     /// the same as for `CONTRACT_CODE`.
     pub const GLOBAL_CONTRACT_CODE: u8 = 18;
-    /// Gas key is used to store the gas key or a single nonce ID for the gas key.
-    /// If index is None, the value is of type `GasKey`; otherwise it is of type u64.
-    pub const GAS_KEY: u8 = 19;
+    /// Global contract deployment nonce. Values are u64.
+    pub const GLOBAL_CONTRACT_NONCE: u8 = 19;
+    /// Status of a yielded receipt. Values are of type `PromiseYieldStatus`.
+    pub const PROMISE_YIELD_STATUS: u8 = 20;
 
     /// All columns except those used for the delayed receipts queue, the yielded promises
     /// queue, and the outgoing receipts buffer, which are global state for the shard.
@@ -81,10 +83,10 @@ pub mod col {
         (POSTPONED_RECEIPT, "PostponedReceipt"),
         (CONTRACT_DATA, "ContractData"),
         (PROMISE_YIELD_RECEIPT, "PromiseYieldReceipt"),
-        (GAS_KEY, "GasKey"),
+        (PROMISE_YIELD_STATUS, "PromiseYieldStatus"),
     ];
 
-    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 19] = [
+    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 20] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -103,7 +105,8 @@ pub mod col {
         (BUFFERED_RECEIPT_GROUPS_QUEUE_DATA, "BufferedReceiptGroupsQueueData"),
         (BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM, "BufferedReceiptGroupsQueueItem"),
         (GLOBAL_CONTRACT_CODE, "GlobalContractCode"),
-        (GAS_KEY, "GasKey"),
+        (GLOBAL_CONTRACT_NONCE, "GlobalContractNonce"),
+        (PROMISE_YIELD_STATUS, "PromiseYieldStatus"),
     ];
 }
 
@@ -244,13 +247,24 @@ pub enum TrieKey {
     GlobalContractCode {
         identifier: GlobalContractCodeIdentifier,
     } = col::GLOBAL_CONTRACT_CODE,
-    /// Represents a gas key or a single nonce ID for the gas key.
-    /// If index is None, the value is of type `GasKey`; otherwise it is of type u64.
-    GasKey {
+    /// Global contract deployment nonce. Stores the nonce of the last
+    /// deployment for nonce-based idempotency during distribution.
+    GlobalContractNonce {
+        identifier: GlobalContractCodeIdentifier,
+    } = col::GLOBAL_CONTRACT_NONCE,
+    PromiseYieldStatus {
+        receiver_id: AccountId,
+        data_id: CryptoHash,
+    } = col::PROMISE_YIELD_STATUS,
+    /// Represents a single nonce for a gas key. Stored under `col::ACCESS_KEY`
+    /// with a special key format: If an access key is used as a gas key, the
+    /// keys used to store its nonces extend the access key trie key with a
+    /// `NonceIndex` suffix.
+    GasKeyNonce {
         account_id: AccountId,
         public_key: PublicKey,
-        index: Option<NonceIndex>,
-    } = col::GAS_KEY,
+        index: NonceIndex,
+    } = 21,
 }
 
 /// Provides `len` function.
@@ -271,13 +285,18 @@ impl Byte for u8 {
 /// Convenience common alias for storage of encoded `TrieKey`s in `SmallVec`s.
 pub type SmallKeyVec = smallvec::SmallVec<[u8; 64]>;
 
+/// Returns the length of the trie key for a gas key nonce.
+pub fn gas_key_nonce_key_len(account_id: &AccountId, public_key: &PublicKey) -> usize {
+    access_key_key_len(account_id.len(), public_key.len()) + size_of::<NonceIndex>()
+}
+
 impl TrieKey {
     pub fn len(&self) -> usize {
         match self {
             TrieKey::Account { account_id } => col::ACCOUNT.len() + account_id.len(),
             TrieKey::ContractCode { account_id } => col::CONTRACT_CODE.len() + account_id.len(),
             TrieKey::AccessKey { account_id, public_key } => {
-                col::ACCESS_KEY.len() * 2 + account_id.len() + public_key.len()
+                access_key_key_len(account_id.len(), public_key.len())
             }
             TrieKey::ReceivedData { receiver_id, data_id } => {
                 col::RECEIVED_DATA.len()
@@ -341,12 +360,17 @@ impl TrieKey {
             TrieKey::GlobalContractCode { identifier } => {
                 col::GLOBAL_CONTRACT_CODE.len() + identifier.len()
             }
-            TrieKey::GasKey { account_id, public_key, index } => {
-                col::GAS_KEY.len()
-                    + account_id.len()
+            TrieKey::GasKeyNonce { account_id, public_key, index: _index } => {
+                gas_key_nonce_key_len(account_id, public_key)
+            }
+            TrieKey::GlobalContractNonce { identifier } => {
+                col::GLOBAL_CONTRACT_NONCE.len() + identifier.len()
+            }
+            TrieKey::PromiseYieldStatus { receiver_id, data_id } => {
+                col::PROMISE_YIELD_STATUS.len()
+                    + receiver_id.len()
                     + ACCOUNT_DATA_SEPARATOR.len()
-                    + public_key.len()
-                    + borsh::object_length(index).unwrap()
+                    + data_id.as_ref().len()
             }
         }
     }
@@ -445,12 +469,22 @@ impl TrieKey {
                 buf.push(col::GLOBAL_CONTRACT_CODE);
                 identifier.append_into(buf);
             }
-            TrieKey::GasKey { account_id, public_key, index } => {
-                buf.push(col::GAS_KEY);
+            TrieKey::GasKeyNonce { account_id, public_key, index: nonce_index } => {
+                buf.push(col::ACCESS_KEY);
                 buf.extend(account_id.as_bytes());
-                buf.push(ACCOUNT_DATA_SEPARATOR);
+                buf.push(ACCESS_KEY_SEPARATOR);
                 borsh::to_writer(buf.borsh_writer(), &public_key).unwrap();
-                borsh::to_writer(buf.borsh_writer(), &index).unwrap();
+                buf.extend(&nonce_index.to_le_bytes());
+            }
+            TrieKey::GlobalContractNonce { identifier } => {
+                buf.push(col::GLOBAL_CONTRACT_NONCE);
+                identifier.append_into(buf);
+            }
+            TrieKey::PromiseYieldStatus { receiver_id, data_id } => {
+                buf.push(col::PROMISE_YIELD_STATUS);
+                buf.extend(receiver_id.as_bytes());
+                buf.push(ACCOUNT_DATA_SEPARATOR);
+                buf.extend(data_id.as_ref());
             }
         };
         debug_assert_eq!(expected_len, buf.len() - start_len);
@@ -468,6 +502,7 @@ impl TrieKey {
             TrieKey::Account { account_id, .. } => Some(account_id.clone()),
             TrieKey::ContractCode { account_id, .. } => Some(account_id.clone()),
             TrieKey::AccessKey { account_id, .. } => Some(account_id.clone()),
+            TrieKey::GasKeyNonce { account_id, .. } => Some(account_id.clone()),
             TrieKey::ReceivedData { receiver_id, .. } => Some(receiver_id.clone()),
             TrieKey::PostponedReceiptId { receiver_id, .. } => Some(receiver_id.clone()),
             TrieKey::PendingDataCount { receiver_id, .. } => Some(receiver_id.clone()),
@@ -486,7 +521,8 @@ impl TrieKey {
             // Even though global contract code might be deployed under account id, it doesn't
             // correspond to the data stored for that account id, so always returning None here.
             TrieKey::GlobalContractCode { .. } => None,
-            TrieKey::GasKey { account_id, .. } => Some(account_id.clone()),
+            TrieKey::GlobalContractNonce { .. } => None,
+            TrieKey::PromiseYieldStatus { receiver_id, .. } => Some(receiver_id.clone()),
         }
     }
 }
@@ -562,38 +598,27 @@ pub mod trie_key_parsers {
                 "raw key is too short for TrieKey::AccessKey",
             ));
         }
-        PublicKey::try_from_slice(&raw_key[prefix_len..])
+        let mut buf = &raw_key[prefix_len..];
+        PublicKey::deserialize(&mut buf)
     }
 
-    pub fn parse_public_key_from_gas_key_key(
-        raw_key: &[u8],
-        account_id: &AccountId,
-    ) -> Result<PublicKey, std::io::Error> {
-        let prefix_len = col::GAS_KEY.len() + account_id.len() + ACCOUNT_DATA_SEPARATOR.len();
-        if raw_key.len() < prefix_len {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "raw key is too short for TrieKey::GasKey",
-            ));
-        }
-        let mut buffer = &raw_key[prefix_len..];
-        PublicKey::deserialize(&mut buffer)
-    }
-
+    /// Parses the nonce index from a gas key raw key. Note that each nonce gas key
+    /// extends the corresponding access key trie key with a `NonceIndex` suffix.
     pub fn parse_nonce_index_from_gas_key_key(
         raw_key: &[u8],
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Option<u32>, std::io::Error> {
-        let prefix_len =
-            col::GAS_KEY.len() + account_id.len() + ACCOUNT_DATA_SEPARATOR.len() + public_key.len();
+    ) -> Result<Option<NonceIndex>, std::io::Error> {
+        let prefix_len = access_key_key_len(account_id.len(), public_key.len());
         if raw_key.len() < prefix_len {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                "raw key is too short for TrieKey::GasKey",
+                "raw key is too short for TrieKey::GasKeyNonce",
             ));
+        } else if raw_key.len() == prefix_len {
+            return Ok(None);
         }
-        Option::<u32>::try_from_slice(&raw_key[prefix_len..])
+        NonceIndex::try_from_slice(&raw_key[prefix_len..]).map(Some)
     }
 
     pub fn parse_data_key_from_contract_data_key<'a>(
@@ -690,18 +715,6 @@ pub mod trie_key_parsers {
         }
     }
 
-    pub fn parse_account_id_from_gas_key_key(raw_key: &[u8]) -> Result<AccountId, std::io::Error> {
-        let account_id_prefix = parse_account_id_prefix(col::GAS_KEY, raw_key)?;
-        if let Some(account_id) = next_token(account_id_prefix, ACCOUNT_DATA_SEPARATOR) {
-            parse_account_id_from_slice(account_id, "GasKey")
-        } else {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "raw key does not have public key to be TrieKey::GasKey",
-            ))
-        }
-    }
-
     pub fn parse_index_from_delayed_receipt_key(raw_key: &[u8]) -> Result<u64, std::io::Error> {
         // The length of TrieKey::DelayedReceipt { .. } should be 9 since it's a single byte for the
         // column and then 8 bytes for a u64 index.
@@ -720,21 +733,6 @@ pub mod trie_key_parsers {
     ) -> Result<AccountId, std::io::Error> {
         let account_id = parse_account_id_prefix(col::CONTRACT_CODE, raw_key)?;
         parse_account_id_from_slice(account_id, "ContractCode")
-    }
-
-    pub fn parse_trie_key_access_key_from_raw_key(
-        raw_key: &[u8],
-    ) -> Result<TrieKey, std::io::Error> {
-        let account_id = parse_account_id_from_access_key_key(raw_key)?;
-        let public_key = parse_public_key_from_access_key_key(raw_key, &account_id)?;
-        Ok(TrieKey::AccessKey { account_id, public_key })
-    }
-
-    pub fn parse_trie_key_gas_key_from_raw_key(raw_key: &[u8]) -> Result<TrieKey, std::io::Error> {
-        let account_id = parse_account_id_from_gas_key_key(raw_key)?;
-        let public_key = parse_public_key_from_gas_key_key(raw_key, &account_id)?;
-        let index = parse_nonce_index_from_gas_key_key(raw_key, &account_id, &public_key)?;
-        Ok(TrieKey::GasKey { account_id, public_key, index })
     }
 
     pub fn parse_account_id_from_raw_key(
@@ -804,27 +802,6 @@ pub mod trie_key_parsers {
         res
     }
 
-    pub fn get_raw_prefix_for_gas_key(account_id: &AccountId, public_key: &PublicKey) -> Vec<u8> {
-        let mut res = Vec::with_capacity(
-            col::GAS_KEY.len() + account_id.len() + ACCOUNT_DATA_SEPARATOR.len() + public_key.len(),
-        );
-        res.push(col::GAS_KEY);
-        res.extend(account_id.as_bytes());
-        res.push(ACCOUNT_DATA_SEPARATOR);
-        borsh::to_writer(&mut res, public_key).unwrap();
-        res
-    }
-
-    pub fn get_raw_prefix_for_gas_keys(account_id: &AccountId) -> Vec<u8> {
-        let mut res = Vec::with_capacity(
-            col::GAS_KEY.len() + account_id.len() + ACCOUNT_DATA_SEPARATOR.len(),
-        );
-        res.push(col::GAS_KEY);
-        res.extend(account_id.as_bytes());
-        res.push(ACCOUNT_DATA_SEPARATOR);
-        res
-    }
-
     pub fn get_raw_prefix_for_contract_data(account_id: &AccountId, prefix: &[u8]) -> Vec<u8> {
         let mut res = Vec::with_capacity(
             col::CONTRACT_DATA.len()
@@ -842,11 +819,8 @@ pub mod trie_key_parsers {
 
 #[cfg(test)]
 mod tests {
-    use crate::shard_layout::ShardLayout;
-    use near_crypto::KeyType;
-    use near_primitives_core::version::PROTOCOL_VERSION;
-
     use super::*;
+    use near_crypto::KeyType;
 
     // cspell:ignore cheapaccounts lols skidanov
     const OK_ACCOUNT_IDS: &[&str] = &[
@@ -904,10 +878,6 @@ mod tests {
             };
             let raw_key = key.to_vec();
             assert_eq!(raw_key.len(), key.len());
-            assert_eq!(
-                trie_key_parsers::parse_trie_key_access_key_from_raw_key(&raw_key).unwrap(),
-                key
-            );
             assert_eq!(
                 trie_key_parsers::parse_account_id_from_access_key_key(&raw_key).unwrap(),
                 account_id
@@ -1151,14 +1121,89 @@ mod tests {
     }
 
     #[test]
-    fn test_shard_id_u16_optimization() {
-        let shard_layout = ShardLayout::for_protocol_version(PROTOCOL_VERSION);
-        let max_id = shard_layout.shard_ids().max().unwrap();
-        let max_id: u64 = max_id.into();
-        assert!(
-            max_id <= u16::MAX as u64,
-            "buffered receipt trie key optimization broken, must fit in a u16"
-        );
+    fn test_key_for_gas_key_nonce_consistency() {
+        let public_key = PublicKey::empty(KeyType::ED25519);
+        let nonce_index: NonceIndex = 2; // Arbitrary nonce index for testing.
+        for account_id in OK_ACCOUNT_IDS.iter().map(|x| x.parse::<AccountId>().unwrap()) {
+            let access_key = TrieKey::AccessKey {
+                account_id: account_id.clone(),
+                public_key: public_key.clone(),
+            };
+            let gas_key_nonce = TrieKey::GasKeyNonce {
+                account_id: account_id.clone(),
+                public_key: public_key.clone(),
+                index: nonce_index,
+            };
+            let raw_key = gas_key_nonce.to_vec();
+            assert_eq!(raw_key.len(), gas_key_nonce.len());
+
+            // Gas key nonce raw key extends access key raw key with a NonceIndex suffix.
+            let access_key_raw = access_key.to_vec();
+            assert!(raw_key.starts_with(&access_key_raw));
+            assert_eq!(raw_key.len(), access_key_raw.len() + size_of::<NonceIndex>());
+
+            // Parsing the account id from a gas key nonce raw key should work.
+            assert_eq!(
+                trie_key_parsers::parse_account_id_from_access_key_key(&raw_key).unwrap(),
+                account_id
+            );
+
+            // Parsing the public key from a gas key nonce raw key should work.
+            // This is important: the raw key has extra bytes (the nonce index)
+            // after the public key.
+            assert_eq!(
+                trie_key_parsers::parse_public_key_from_access_key_key(&raw_key, &account_id)
+                    .unwrap(),
+                public_key
+            );
+
+            // Parsing the nonce index from a gas key nonce raw key should work.
+            assert_eq!(
+                trie_key_parsers::parse_nonce_index_from_gas_key_key(
+                    &raw_key,
+                    &account_id,
+                    &public_key
+                )
+                .unwrap(),
+                Some(nonce_index)
+            );
+
+            // Parsing nonce index from an access key raw key should return None.
+            assert_eq!(
+                trie_key_parsers::parse_nonce_index_from_gas_key_key(
+                    &access_key_raw,
+                    &account_id,
+                    &public_key
+                )
+                .unwrap(),
+                None
+            );
+
+            // GasKeyNonce should return the account id.
+            assert_eq!(gas_key_nonce.get_account_id(), Some(account_id.clone()));
+        }
+    }
+
+    /// Verifies that `near_primitives_core::trie_key::access_key_key_len` matches
+    /// the actual serialized `TrieKey::AccessKey` length. This guards against the
+    /// primitives-core function getting out of sync with the trie key format.
+    #[test]
+    fn test_access_key_key_len_matches_trie_key() {
+        for key_type in [KeyType::ED25519, KeyType::SECP256K1] {
+            let public_key = PublicKey::empty(key_type);
+            for account_id in OK_ACCOUNT_IDS.iter().map(|x| x.parse::<AccountId>().unwrap()) {
+                let key = TrieKey::AccessKey {
+                    account_id: account_id.clone(),
+                    public_key: public_key.clone(),
+                };
+                let raw_key = key.to_vec();
+                assert_eq!(
+                    raw_key.len(),
+                    access_key_key_len(account_id.len(), public_key.len()),
+                    "access_key_key_len mismatch for account_id={account_id}, key_type={key_type:?}"
+                );
+            }
+        }
     }
 
     #[test]

@@ -15,9 +15,8 @@
 
 //! An ed25519 signature.
 
-use core::fmt::Debug;
-
 use crate::errors::{InternalError, SignatureError};
+use core::fmt::Debug;
 use curve25519_dalek::edwards::CompressedEdwardsY;
 use curve25519_dalek::scalar::Scalar;
 use ed25519_dalek::{SIGNATURE_LENGTH, ed25519};

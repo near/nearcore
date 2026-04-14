@@ -20,8 +20,6 @@ tracing.workspace = true
 
 near-async.workspace = true
 near-o11y.workspace = true
-near-performance-metrics.workspace = true
-near-performance-metrics-macros.workspace = true
 
 [features]
 nightly = [

@@ -1,14 +1,12 @@
-use std::collections::HashMap;
-use std::sync::atomic::Ordering;
-
-use serde::Serialize;
-
 use crate::instrumentation::data::{InstrumentedThread, MessageTypeRegistry};
 use crate::instrumentation::instrumented_window::{
     AggregatedMessageTypeStats, InstrumentedEvent, InstrumentedEventBuffer, InstrumentedWindow,
     InstrumentedWindowSummary,
 };
 use crate::instrumentation::{NUM_WINDOWS, WINDOW_SIZE_NS};
+use serde::Serialize;
+use std::collections::HashMap;
+use std::sync::atomic::Ordering;
 
 #[derive(Serialize, Debug)]
 pub struct InstrumentedThreadsView {

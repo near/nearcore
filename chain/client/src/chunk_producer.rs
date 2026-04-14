@@ -7,7 +7,8 @@ use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::{
-    PrepareTransactionsBlockContext, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
+    PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
+    RuntimeAdapter, RuntimeStorageConfig,
 };
 use near_chain::{Block, Chain, ChainStore};
 use near_chain_configs::MutableConfigValue;
@@ -24,13 +25,15 @@ use near_primitives::merkle::{MerklePath, merklize};
 use near_primitives::optimistic_block::{CachedShardUpdateKey, OptimisticBlockKeySource};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkWithEncoding};
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::version::ProtocolFeature;
+use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::{ShardUId, TrieUpdate};
+use near_vm_runner::logic::ProtocolVersion;
 use parking_lot::Mutex;
 #[cfg(feature = "test_features")]
 use rand::{Rng, SeedableRng};
@@ -39,7 +42,7 @@ use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use time::ext::InstantExt as _;
-use tracing::{debug, instrument};
+use tracing::instrument;
 
 #[cfg(feature = "test_features")]
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -52,6 +55,8 @@ pub enum AdvProduceChunksMode {
     ProduceWithoutTx,
     // Produce chunks but do not bother checking if included transactions pass validity check.
     ProduceWithoutTxValidityCheck,
+    // Include all pool transactions without running runtime verification.
+    ProduceWithoutTxVerification,
     // Randomly skip multiple chunks in a row.
     SkipWindow {
         // Size of the window in which to randomly pick a skip start.
@@ -147,18 +152,14 @@ impl ChunkProducer {
         shard_id: ShardId,
         signer: &Arc<ValidatorSigner>,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
+        validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
     ) -> Result<Option<ProduceChunkResult>, Error> {
         let chunk_proposer = self
             .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
-                epoch_id: *epoch_id,
-                height_created: next_height,
-                shard_id,
-            })
-            .unwrap()
+            .get_chunk_producer_info_db(prev_block.hash(), shard_id)?
             .take_account_id();
         if signer.validator_id() != &chunk_proposer {
-            debug!(
+            tracing::debug!(
                 target: "client",
                 ?chunk_proposer,
                 "not a chunk producer for this height"
@@ -168,7 +169,7 @@ impl ChunkProducer {
 
         #[cfg(feature = "test_features")]
         if self.should_skip_chunk_production(next_height, shard_id) {
-            debug!(target: "client", "skip chunk production");
+            tracing::debug!(target: "client", "skip chunk production");
             return Ok(None);
         }
 
@@ -180,6 +181,7 @@ impl ChunkProducer {
             shard_id,
             signer,
             chain_validate,
+            validate_tx_ttl,
         )
     }
 
@@ -198,7 +200,6 @@ impl ChunkProducer {
                     "other".parse().unwrap(),
                     3,
                     prev_block_hash,
-                    0,
                 ),
             );
             let validated_tx =
@@ -249,6 +250,7 @@ impl ChunkProducer {
         shard_id: ShardId,
         validator_signer: &Arc<ValidatorSigner>,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
+        validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
     ) -> Result<Option<ProduceChunkResult>, Error> {
         let span = tracing::Span::current();
         let timer = Instant::now();
@@ -260,9 +262,9 @@ impl ChunkProducer {
             // If we are to start new epoch, check if the previous block is
             // caught up. If it is not the case, we wouldn't be able to
             // apply block with the new chunk, so we also skip chunk production.
-            if !ChainStore::prev_block_is_caught_up(&self.chain, &prev_prev_hash, &prev_block_hash)?
+            if !ChainStore::prev_block_is_caught_up(&self.chain, &prev_prev_hash, &prev_block_hash)
             {
-                debug!(target: "client", "prev block is not caught up");
+                tracing::debug!(target: "client", "prev block is not caught up");
                 return Err(Error::ChunkProducer(
                     "State for the epoch is not downloaded yet, skipping chunk production"
                         .to_string(),
@@ -270,14 +272,16 @@ impl ChunkProducer {
             }
         }
 
-        debug!(target: "client", "start producing the chunk");
+        tracing::debug!(target: "client", "start producing the chunk");
 
         let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
-        let chunk_extra = if cfg!(feature = "protocol_feature_spice") {
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
+        let chunk_extra = if ProtocolFeature::Spice.enabled(protocol_version) {
             // TODO(spice): using default values as a placeholder is a temporary hack
             Arc::new(ChunkExtra::new_with_only_state_root(&Default::default()))
         } else {
             self.chain
+                .chunk_store()
                 .get_chunk_extra(&prev_block_hash, &shard_uid)
                 .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?
         };
@@ -286,9 +290,7 @@ impl ChunkProducer {
         let prepared_transactions = {
             #[cfg(feature = "test_features")]
             match self.adversarial.produce_mode {
-                Some(AdvProduceChunksMode::ProduceWithoutTx) => {
-                    PreparedTransactions { transactions: Vec::new(), limited_by: None }
-                }
+                Some(AdvProduceChunksMode::ProduceWithoutTx) => PreparedTransactions::new(),
                 _ => match cached_transactions {
                     Some(txs) => txs,
                     None => self.prepare_transactions(
@@ -296,6 +298,8 @@ impl ChunkProducer {
                         prev_block,
                         chunk_extra.as_ref(),
                         chain_validate,
+                        validate_tx_ttl,
+                        protocol_version,
                     )?,
                 },
             }
@@ -307,6 +311,8 @@ impl ChunkProducer {
                     prev_block,
                     chunk_extra.as_ref(),
                     chain_validate,
+                    validate_tx_ttl,
+                    protocol_version,
                 )?,
             }
         };
@@ -344,30 +350,48 @@ impl ChunkProducer {
             bandwidth_requests.is_some(),
             "Expected bandwidth_request to be Some after BandwidthScheduler feature enabled"
         );
-        let (chunk, merkle_paths) = ShardChunkWithEncoding::new(
-            prev_block_hash,
-            *chunk_extra.state_root(),
-            *chunk_extra.outcome_root(),
-            next_height,
-            shard_id,
-            gas_used,
-            chunk_extra.gas_limit(),
-            chunk_extra.balance_burnt(),
-            chunk_extra.validator_proposals().collect(),
-            prepared_transactions.transactions,
-            outgoing_receipts.clone(),
-            outgoing_receipts_root,
-            tx_root,
-            congestion_info,
-            bandwidth_requests.cloned().unwrap_or_else(BandwidthRequests::empty),
-            &*validator_signer,
-            &mut self.reed_solomon_encoder,
-        );
+
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
+        let (chunk, merkle_paths) = if ProtocolFeature::Spice.enabled(protocol_version) {
+            ShardChunkWithEncoding::new_for_spice(
+                prev_block_hash,
+                next_height,
+                shard_id,
+                prepared_transactions.transactions,
+                outgoing_receipts.clone(),
+                outgoing_receipts_root,
+                tx_root,
+                &*validator_signer,
+                &mut self.reed_solomon_encoder,
+            )
+        } else {
+            ShardChunkWithEncoding::new(
+                prev_block_hash,
+                *chunk_extra.state_root(),
+                *chunk_extra.outcome_root(),
+                next_height,
+                shard_id,
+                gas_used,
+                chunk_extra.gas_limit(),
+                chunk_extra.balance_burnt(),
+                chunk_extra.validator_proposals().collect(),
+                prepared_transactions.transactions,
+                outgoing_receipts.clone(),
+                outgoing_receipts_root,
+                tx_root,
+                congestion_info,
+                bandwidth_requests.cloned().unwrap_or_else(BandwidthRequests::empty),
+                chunk_extra.proposed_split().cloned(),
+                &*validator_signer,
+                &mut self.reed_solomon_encoder,
+                protocol_version,
+            )
+        };
 
         let encoded_chunk = chunk.to_encoded_shard_chunk();
         span.record("chunk_hash", tracing::field::debug(encoded_chunk.chunk_hash()));
         span.record("transactions_num", tracing::field::display(num_filtered_transactions));
-        debug!(
+        tracing::debug!(
             target: "client",
             num_filtered_transactions,
             num_outgoing_receipts = outgoing_receipts.len(),
@@ -390,12 +414,10 @@ impl ChunkProducer {
                 ),
             },
         );
-        if let Some(limit) = prepared_transactions.limited_by {
-            // When some transactions from the pool didn't fit into the chunk due to a limit, it's reported in a metric.
-            metrics::PRODUCED_CHUNKS_SOME_POOL_TRANSACTIONS_DID_NOT_FIT
-                .with_label_values(&[&shard_id.to_string(), limit.as_ref()])
-                .inc();
-        }
+        // When some transactions from the pool didn't fit into the chunk due to a limit, it's reported in a metric.
+        metrics::PRODUCE_CHUNK_TRANSACTIONS_LIMITED_BY
+            .with_label_values(&[&shard_id.to_string(), prepared_transactions.limited_by.as_ref()])
+            .inc();
 
         Ok(Some(ProduceChunkResult {
             chunk,
@@ -422,38 +444,52 @@ impl ChunkProducer {
         prev_block: &Block,
         chunk_extra: &ChunkExtra,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
+        validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
+        protocol_version: ProtocolVersion,
     ) -> Result<PreparedTransactions, Error> {
         let shard_id = shard_uid.shard_id();
         let mut pool_guard = self.sharded_tx_pool.lock();
         let prepared_transactions = if let Some(mut iter) = pool_guard.get_pool_iterator(shard_uid)
         {
-            if cfg!(feature = "protocol_feature_spice") {
+            #[cfg(feature = "test_features")]
+            let skip_verification = matches!(
+                self.adversarial.produce_mode,
+                Some(AdvProduceChunksMode::ProduceWithoutTxVerification)
+            );
+            #[cfg(not(feature = "test_features"))]
+            let skip_verification = false;
+
+            if skip_verification || ProtocolFeature::Spice.enabled(protocol_version) {
                 // TODO(spice): properly implement transaction preparation to respect limits
                 let mut res = vec![];
                 while let Some(iter) = iter.next() {
                     res.push(iter.next().unwrap());
                 }
-                return Ok(PreparedTransactions { transactions: res, limited_by: None });
+                PreparedTransactions {
+                    transactions: res,
+                    limited_by: PrepareTransactionsLimit::NoMoreTxsInPool,
+                }
+            } else {
+                let storage_config = RuntimeStorageConfig {
+                    state_root: *chunk_extra.state_root(),
+                    use_flat_storage: true,
+                    source: near_chain::types::StorageDataSource::Db,
+                    state_patch: Default::default(),
+                };
+                let prev_block_context =
+                    PrepareTransactionsBlockContext::new(prev_block, &*self.epoch_manager)?;
+                self.runtime_adapter.prepare_transactions(
+                    storage_config,
+                    shard_id,
+                    prev_block_context,
+                    &mut iter,
+                    chain_validate,
+                    validate_tx_ttl,
+                    self.chunk_transactions_time_limit.get(),
+                )?
             }
-
-            let storage_config = RuntimeStorageConfig {
-                state_root: *chunk_extra.state_root(),
-                use_flat_storage: true,
-                source: near_chain::types::StorageDataSource::Db,
-                state_patch: Default::default(),
-            };
-            let prev_block_context =
-                PrepareTransactionsBlockContext::new(prev_block, &*self.epoch_manager)?;
-            self.runtime_adapter.prepare_transactions(
-                storage_config,
-                shard_id,
-                prev_block_context,
-                &mut iter,
-                chain_validate,
-                self.chunk_transactions_time_limit.get(),
-            )?
         } else {
-            PreparedTransactions { transactions: Vec::new(), limited_by: None }
+            PreparedTransactions::new()
         };
         // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
         // included into the block.
@@ -461,7 +497,7 @@ impl ChunkProducer {
             .reintroduce_transactions(shard_uid, prepared_transactions.transactions.clone());
 
         if reintroduced_count < prepared_transactions.transactions.len() {
-            debug!(
+            tracing::debug!(
                 target: "client",
                 reintroduced_count,
                 num_tx = prepared_transactions.transactions.len(),
@@ -485,7 +521,7 @@ impl ChunkProducer {
                 tracing::info!(
                     target: "adversary",
                     next_block_height,
-                    "Skipping chunk production due to adversary configuration"
+                    "skipping chunk production due to adversary configuration"
                 );
                 true
             }
@@ -498,7 +534,8 @@ impl ChunkProducer {
                 ),
             AdvProduceChunksMode::Valid
             | AdvProduceChunksMode::ProduceWithoutTx
-            | AdvProduceChunksMode::ProduceWithoutTxValidityCheck => false,
+            | AdvProduceChunksMode::ProduceWithoutTxValidityCheck
+            | AdvProduceChunksMode::ProduceWithoutTxVerification => false,
         }
     }
 
@@ -530,7 +567,7 @@ impl ChunkProducer {
             window_start,
             skip_start,
             skip_end,
-            "Computed chunk skipping window"
+            "computed chunk skipping window"
         );
         let should_skip = next_block_height >= skip_start && next_block_height < skip_end;
         if should_skip {
@@ -539,7 +576,7 @@ impl ChunkProducer {
                 next_block_height,
                 skip_start,
                 skip_end,
-                "Skipping chunk production in skip window"
+                "skipping chunk production in skip window"
             );
         }
         should_skip
@@ -555,13 +592,24 @@ impl ChunkProducer {
         prev_block_context: PrepareTransactionsBlockContext,
         prev_chunk_tx_hashes: HashSet<CryptoHash>,
         tx_validity_period_check: impl Fn(&SignedTransaction) -> bool + Send + 'static,
+        validate_tx_ttl: impl Fn(&SignedTransaction) -> bool + Send + 'static,
     ) {
-        if cfg!(feature = "protocol_feature_spice") {
+        // next_epoch_id is epoch_id of the current block (block for which height we are preparing
+        // transactions).
+        let protocol_version = self
+            .epoch_manager
+            .get_epoch_protocol_version(&prev_block_context.next_epoch_id)
+            .unwrap();
+        if ProtocolFeature::Spice.enabled(protocol_version) {
             return;
         }
 
         #[cfg(feature = "test_features")]
-        if matches!(self.adversarial.produce_mode, Some(AdvProduceChunksMode::ProduceWithoutTx)) {
+        if matches!(
+            self.adversarial.produce_mode,
+            Some(AdvProduceChunksMode::ProduceWithoutTx)
+                | Some(AdvProduceChunksMode::ProduceWithoutTxVerification)
+        ) {
             return;
         }
 
@@ -596,6 +644,7 @@ impl ChunkProducer {
             prev_block_context,
             tx_pool: self.sharded_tx_pool.clone(),
             tx_validity_period_check: Box::new(tx_validity_period_check),
+            validate_tx_ttl: Box::new(validate_tx_ttl),
             prev_chunk_tx_hashes,
             time_limit: self.chunk_transactions_time_limit.get(),
         };
@@ -632,7 +681,7 @@ impl ChunkProducer {
         };
         let shard_id = shard_uid.shard_id();
         let prev_chunk_shard_update_key: CachedShardUpdateKey =
-            Chain::get_cached_shard_update_key(&prev_block_context, &chunks, shard_id).unwrap();
+            Chain::get_cached_shard_update_key(&prev_block_context, &chunks, shard_id);
 
         let prepare_job_key = PrepareTransactionsJobKey {
             shard_uid,
@@ -650,7 +699,7 @@ impl ChunkProducer {
                 %next_height,
                 %shard_id,
                 ?prev_chunk_shard_update_key,
-                "Cached prepared transactions not found"
+                "cached prepared transactions not found"
             );
             metrics::PREPARE_TRANSACTIONS_JOB_RESULT_NOT_FOUND_TOTAL
                 .with_label_values(&[&shard_id.to_string()])
@@ -665,7 +714,7 @@ impl ChunkProducer {
                     %shard_id,
                     ?prev_chunk_shard_update_key,
                     ?err,
-                    "Error preparing transactions",
+                    "error preparing transactions",
                 );
                 metrics::PREPARE_TRANSACTIONS_JOB_ERROR_TOTAL
                     .with_label_values(&[&shard_id.to_string()])
@@ -679,7 +728,7 @@ impl ChunkProducer {
                     %shard_id,
                     ?prev_chunk_shard_update_key,
                     num_txs = txs.transactions.len(),
-                    "Found cached prepared transactions"
+                    "found cached prepared transactions"
                 );
                 metrics::PREPARE_TRANSACTIONS_JOB_RESULT_USED_TOTAL
                     .with_label_values(&[&shard_id.to_string()])

@@ -16,4 +16,4 @@ For each awaited `DataReceipt` we store
 *key = `receiver_id`,`data_id`*
 *value = `receipt_id`*
 
-Runtime saves incoming [ActionReceipt](Receipts.md#actionreceipt) until all ``
+Runtime saves incoming [ActionReceipt](Receipts.md#actionreceipt) until all required `DataReceipt` items for the same `receiver_id` have been received and matched, so that the postponed `receipt_id` receipt can be executed once its data dependencies are fully satisfied. See the [Receipt Case](Receipts.md#case-1-call-to-multiple-contracts-and-await-responses) for more details.

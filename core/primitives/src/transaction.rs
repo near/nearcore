@@ -12,7 +12,8 @@ use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_parameters::RuntimeConfig;
 use near_primitives_core::serialize::{from_base64, to_base64};
-use near_primitives_core::types::Compute;
+use near_primitives_core::types::{Compute, NonceIndex, ProtocolVersion};
+use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 #[cfg(feature = "schemars")]
 use schemars::json_schema;
@@ -45,6 +46,62 @@ pub struct TransactionV0 {
     pub actions: Vec<Action>,
 }
 
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone, Copy, ProtocolSchema)]
+pub enum TransactionNonce {
+    /// Simple nonce without index, used by ordinary access keys
+    Nonce { nonce: Nonce },
+    /// Nonce with index, used by gas keys
+    GasKeyNonce { nonce: Nonce, nonce_index: NonceIndex },
+}
+
+impl TransactionNonce {
+    pub fn from_nonce(nonce: Nonce) -> Self {
+        TransactionNonce::Nonce { nonce }
+    }
+
+    pub fn from_nonce_and_index(nonce: Nonce, nonce_index: NonceIndex) -> Self {
+        TransactionNonce::GasKeyNonce { nonce, nonce_index }
+    }
+
+    pub fn nonce(&self) -> Nonce {
+        match self {
+            TransactionNonce::Nonce { nonce } => *nonce,
+            TransactionNonce::GasKeyNonce { nonce, .. } => *nonce,
+        }
+    }
+
+    pub fn nonce_index(&self) -> Option<NonceIndex> {
+        match self {
+            TransactionNonce::Nonce { .. } => None,
+            TransactionNonce::GasKeyNonce { nonce_index, .. } => Some(*nonce_index),
+        }
+    }
+}
+
+/// Controls how the transaction nonce is validated against the access key nonce.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Default,
+    ProtocolSchema,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub enum NonceMode {
+    /// Any nonce strictly greater than the current access key nonce (default behavior).
+    #[default]
+    Monotonic,
+    /// Nonce must be exactly `ak_nonce + 1` (sequential ordering).
+    Strict,
+}
+
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone, ProtocolSchema)]
 pub struct TransactionV1 {
     /// An account on which behalf transaction is signed
@@ -53,16 +110,17 @@ pub struct TransactionV1 {
     /// Access key holds permissions for calling certain kinds of actions.
     pub public_key: PublicKey,
     /// Nonce is used to determine order of transaction in the pool.
-    /// It increments for a combination of `signer_id` and `public_key`
-    pub nonce: Nonce,
+    /// It increments for a combination of `signer_id` and `public_key`,
+    /// and for gas key it also includes a `nonce_index`.
+    pub nonce: TransactionNonce,
     /// Receiver account for this transaction
     pub receiver_id: AccountId,
     /// The hash of the block in the blockchain on top of which the given transaction is valid
     pub block_hash: CryptoHash,
     /// A list of actions to be applied
     pub actions: Vec<Action>,
-    /// Priority fee. Unit is 10^12 yoctoNEAR
-    pub priority_fee: u64,
+    /// Controls nonce validation mode (monotonic or strict sequential).
+    pub nonce_mode: NonceMode,
 }
 
 impl Transaction {
@@ -101,9 +159,9 @@ impl Transaction {
         }
     }
 
-    pub fn nonce(&self) -> Nonce {
+    pub fn nonce(&self) -> TransactionNonce {
         match self {
-            Transaction::V0(tx) => tx.nonce,
+            Transaction::V0(tx) => TransactionNonce::from_nonce(tx.nonce),
             Transaction::V1(tx) => tx.nonce,
         }
     }
@@ -129,10 +187,18 @@ impl Transaction {
         }
     }
 
-    pub fn priority_fee(&self) -> Option<u64> {
+    /// Check if this transaction version requires the GasKeys protocol feature to be enabled.
+    pub fn gas_keys_required(&self) -> bool {
         match self {
-            Transaction::V0(_) => None,
-            Transaction::V1(tx) => Some(tx.priority_fee),
+            Transaction::V0(_) => false,
+            Transaction::V1(_) => true,
+        }
+    }
+
+    pub fn nonce_mode(&self) -> NonceMode {
+        match self {
+            Transaction::V0(_) => NonceMode::Monotonic,
+            Transaction::V1(tx) => tx.nonce_mode,
         }
     }
 }
@@ -151,66 +217,42 @@ impl BorshSerialize for Transaction {
 }
 
 impl BorshDeserialize for Transaction {
-    /// Deserialize based on the first and second bytes of the stream. For V0, we do backward compatible deserialization by deserializing
-    /// the entire stream into V0. For V1, we consume the first byte and then deserialize the rest.
+    /// Deserialize based on the first and second bytes of the stream. For V0, we do backward
+    /// compatible deserialization by deserializing the entire stream into V0. For V1, we consume
+    /// the first byte and then deserialize the rest.
     fn deserialize_reader<R: Read>(reader: &mut R) -> std::io::Result<Self> {
+        // Read the first two bytes in order to discriminate between V0 and V1.
+        //
+        // The first field in `TransactionV0` is an `AccountId` whose borsh encoding starts with
+        // a 4-byte little-endian length. Since an AccountId is at most 64 bytes, the second byte
+        // of the length is always 0.
+        //
+        // `TransactionV1` is prefixed with a 1_u8 tag byte followed by the borsh-encoded
+        // `TransactionV1` struct, whose first field is also an `AccountId` with nonzero length,
+        // making the second byte nonzero.
+        //
+        // Therefore u2 == 0 implies V0 and u1 == 1 with u2 != 0 implies V1.
         let u1 = u8::deserialize_reader(reader)?;
         let u2 = u8::deserialize_reader(reader)?;
-        let u3 = u8::deserialize_reader(reader)?;
-        let u4 = u8::deserialize_reader(reader)?;
-        // This is a ridiculous hackery: because the first field in `TransactionV0` is an `AccountId`
-        // and an account id is at most 64 bytes, for all valid `TransactionV0` the second byte must be 0
-        // because of the little endian encoding of the length of the account id.
-        // On the other hand, for `TransactionV1`, since the first byte is 1 and an account id must have nonzero
-        // length, so the second byte must not be zero. Therefore, we can distinguish between the two versions
-        // by looking at the second byte.
-
-        let read_signer_id = |buf: [u8; 4], reader: &mut R| -> std::io::Result<AccountId> {
-            let str_len = u32::from_le_bytes(buf);
-            let mut str_vec = Vec::with_capacity(str_len as usize);
-            for _ in 0..str_len {
-                str_vec.push(u8::deserialize_reader(reader)?);
-            }
-            AccountId::try_from(String::from_utf8(str_vec).map_err(|_| {
-                Error::new(ErrorKind::InvalidData, "Failed to parse AccountId from bytes")
-            })?)
-            .map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))
-        };
 
         if u2 == 0 {
-            let signer_id = read_signer_id([u1, u2, u3, u4], reader)?;
-            let public_key = PublicKey::deserialize_reader(reader)?;
-            let nonce = Nonce::deserialize_reader(reader)?;
-            let receiver_id = AccountId::deserialize_reader(reader)?;
-            let block_hash = CryptoHash::deserialize_reader(reader)?;
-            let actions = Vec::<Action>::deserialize_reader(reader)?;
-            Ok(Transaction::V0(TransactionV0 {
-                signer_id,
-                public_key,
-                nonce,
-                receiver_id,
-                block_hash,
-                actions,
-            }))
-        } else {
-            let u5 = u8::deserialize_reader(reader)?;
-            let signer_id = read_signer_id([u2, u3, u4, u5], reader)?;
-            let public_key = PublicKey::deserialize_reader(reader)?;
-            let nonce = Nonce::deserialize_reader(reader)?;
-            let receiver_id = AccountId::deserialize_reader(reader)?;
-            let block_hash = CryptoHash::deserialize_reader(reader)?;
-            let actions = Vec::<Action>::deserialize_reader(reader)?;
-            let priority_fee = u64::deserialize_reader(reader)?;
-            Ok(Transaction::V1(TransactionV1 {
-                signer_id,
-                public_key,
-                nonce,
-                receiver_id,
-                block_hash,
-                actions,
-                priority_fee,
-            }))
+            // V0: put both bytes back and deserialize TransactionV0.
+            let prefix = [u1, u2];
+            let mut reader = prefix.chain(reader);
+            let tx = TransactionV0::deserialize_reader(&mut reader)?;
+            return Ok(Transaction::V0(tx));
         }
+
+        if u1 == 1 {
+            // V1: u1 is the version tag, u2 is the first byte of TransactionV1.
+            // Put u2 back and deserialize TransactionV1.
+            let prefix = [u2];
+            let mut reader = prefix.chain(reader);
+            let tx = TransactionV1::deserialize_reader(&mut reader)?;
+            return Ok(Transaction::V1(tx));
+        }
+
+        Err(Error::new(ErrorKind::InvalidData, format!("invalid transaction version tag: {}", u1)))
     }
 }
 
@@ -226,8 +268,9 @@ impl ValidatedTransaction {
     pub fn new(
         config: &RuntimeConfig,
         signed_tx: SignedTransaction,
+        protocol_version: ProtocolVersion,
     ) -> Result<Self, (InvalidTxError, SignedTransaction)> {
-        match Self::check_valid_for_config(config, &signed_tx) {
+        match Self::check_valid_for_config(config, &signed_tx, protocol_version) {
             Ok(()) => {}
             Err(err) => return Err((err, signed_tx)),
         }
@@ -246,9 +289,16 @@ impl ValidatedTransaction {
     pub fn check_valid_for_config(
         config: &RuntimeConfig,
         signed_tx: &SignedTransaction,
+        protocol_version: ProtocolVersion,
     ) -> Result<(), InvalidTxError> {
-        // Don't allow V1 currently. This will be changed when the new protocol version is introduced.
-        if matches!(signed_tx.transaction, Transaction::V1(_)) {
+        if !ProtocolFeature::GasKeys.enabled(protocol_version)
+            && signed_tx.transaction.gas_keys_required()
+        {
+            return Err(InvalidTxError::InvalidTransactionVersion);
+        }
+        if signed_tx.transaction.nonce_mode() == NonceMode::Strict
+            && !ProtocolFeature::StrictNonce.enabled(protocol_version)
+        {
             return Err(InvalidTxError::InvalidTransactionVersion);
         }
         let tx_size = signed_tx.get_size();
@@ -298,7 +348,7 @@ impl ValidatedTransaction {
         self.to_tx().receiver_id()
     }
 
-    pub fn nonce(&self) -> Nonce {
+    pub fn nonce(&self) -> TransactionNonce {
         self.to_tx().nonce()
     }
 
@@ -308,6 +358,10 @@ impl ValidatedTransaction {
 
     pub fn actions(&self) -> &[Action] {
         self.to_tx().actions()
+    }
+
+    pub fn nonce_mode(&self) -> NonceMode {
+        self.to_tx().nonce_mode()
     }
 }
 
@@ -509,9 +563,14 @@ pub struct ExecutionOutcome {
     // set and any code that attempts to use it will crash.
     #[borsh(skip)]
     pub compute_usage: Option<Compute>,
-    /// The amount of tokens burnt corresponding to the burnt gas amount.
-    /// This value doesn't always equal to the `gas_burnt` multiplied by the gas price, because
-    /// the prepaid gas price might be lower than the actual gas price and it creates a deficit.
+    /// Sum of tokens burnt for:
+    /// - Gas: This value doesn't always equal to the `gas_burnt` multiplied by the gas price,
+    ///   because the prepaid gas price might be lower than the actual gas price and it creates
+    ///   a deficit.
+    /// - Deleted gas keys: When a gas key or an account with gas keys is deleted, the remaining
+    ///   balance on the gas key(s) is burnt.
+    /// - Deployed global contracts: Tokens are burnt when deploying a global contract to
+    ///   compensate for permanently storing contract code in the state.
     pub tokens_burnt: Balance,
     /// The id of the account on which the execution happens. For transaction this is signer_id,
     /// for receipt this is receiver_id.
@@ -569,11 +628,23 @@ pub struct ExecutionOutcomeWithId {
 
 impl ExecutionOutcomeWithId {
     pub fn failed(transaction: &SignedTransaction, error: InvalidTxError) -> Self {
+        Self::failed_with_gas_burnt(transaction, error, Gas::ZERO, Balance::ZERO)
+    }
+
+    pub fn failed_with_gas_burnt(
+        transaction: &SignedTransaction,
+        error: InvalidTxError,
+        gas_burnt: Gas,
+        tokens_burnt: Balance,
+    ) -> Self {
         Self {
             id: transaction.get_hash(),
             outcome: ExecutionOutcome {
                 executor_id: transaction.transaction.signer_id().clone(),
                 status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(error)),
+                gas_burnt,
+                compute_usage: Some(gas_burnt.as_gas()),
+                tokens_burnt,
                 ..Default::default()
             },
         }
@@ -699,7 +770,7 @@ mod tests {
         TransactionV1 {
             signer_id: "test.near".parse().unwrap(),
             public_key: public_key.clone(),
-            nonce: 1,
+            nonce: TransactionNonce::from_nonce(1),
             receiver_id: "123".parse().unwrap(),
             block_hash: Default::default(),
             actions: vec![
@@ -732,7 +803,7 @@ mod tests {
                     beneficiary_id: "123".parse().unwrap(),
                 }),
             ],
-            priority_fee: 1,
+            nonce_mode: NonceMode::Monotonic,
         }
     }
 
@@ -762,6 +833,45 @@ mod tests {
         let serialized_tx_v1 = borsh::to_vec(&transaction_v1).unwrap();
         let deserialized_tx_v1 = Transaction::try_from_slice(&serialized_tx_v1).unwrap();
         assert_eq!(transaction_v1, deserialized_tx_v1);
+    }
+
+    #[test]
+    fn test_deserialize_invalid_account_id() {
+        // Create a serialized V0 transaction with an invalid account ID (all null bytes).
+        // The first 4 bytes are the little-endian length of the account ID string.
+        let mut serialized_tx = vec![];
+        serialized_tx.extend_from_slice(&10u32.to_le_bytes());
+        serialized_tx.extend_from_slice(&[0u8; 10]); // Placeholder bytes
+
+        let result = Transaction::try_from_slice(&serialized_tx);
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        assert!(err.to_string().contains("the Account ID contains an invalid character"));
+    }
+
+    #[test]
+    fn test_deserialize_invalid_account_id_length() {
+        // Create a serialized V0 transaction with an account ID length exceeding the maximum.
+        // The first 4 bytes are the little-endian length of the account ID string.
+        let mut serialized_tx = vec![];
+        serialized_tx.extend_from_slice(&100u32.to_le_bytes()); // 100 > AccountId::MAX_LEN (64)
+        serialized_tx.extend_from_slice(&[b'a'; 100]); // Placeholder bytes
+
+        let result = Transaction::try_from_slice(&serialized_tx);
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        assert!(err.to_string().contains("the Account ID is too long"));
+    }
+
+    #[test]
+    fn test_deserialize_invalid_version_tag() {
+        // First byte is 2 (invalid tag), second byte is nonzero (so not V0).
+        let serialized_tx = vec![2, 5, 0, 0, 0, 0, 0, 0];
+
+        let result = Transaction::try_from_slice(&serialized_tx);
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidData);
+        assert!(err.to_string().contains("invalid transaction version tag: 2"));
     }
 
     #[test]

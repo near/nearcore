@@ -2,7 +2,6 @@
 
 export DOCKER_BUILDKIT = 1
 export CARGO_BUILD_RUSTFLAGS = -D warnings
-export NEAR_RELEASE_BUILD = no
 export OPENSSL_STATIC = 1
 export CARGO_TARGET_DIR = target
 
@@ -34,7 +33,6 @@ release: neard-release
 neard: neard-release
 	@echo 'neard binary ready in ./target/release/neard'
 
-neard-release: NEAR_RELEASE_BUILD=release
 neard-release:
 	cargo build -p neard --release
 
@@ -47,37 +45,24 @@ debug: neard-debug
 	cargo build -p genesis-populate
 	$(MAKE) sandbox
 
-#? perf-release: build release version of neard and store-validator with performance_stats feature
-perf-release: NEAR_RELEASE_BUILD=release
-perf-release:
-	CARGO_PROFILE_RELEASE_DEBUG=true cargo build -p neard --release --features performance_stats
-	cargo build -p store-validator --release --features nearcore/performance_stats
-
-
-#? perf-debug: build debug version of neard and store-validator with performance_stats feature
-perf-debug:
-	cargo build -p neard --features performance_stats
-	cargo build -p store-validator --features nearcore/performance_stats
-
-#? nightly-release: build release version of neard, store-validator and genesis-populate with nightly and performance_stats features
+#? nightly-release: build release version of neard, store-validator and genesis-populate with nightly features
 nightly-release: neard-nightly-release
-	cargo build -p store-validator --release --features nearcore/nightly,nearcore/performance_stats
-	cargo build -p genesis-populate --release --features nearcore/nightly,nearcore/performance_stats
+	cargo build -p store-validator --release --features nearcore/nightly
+	cargo build -p genesis-populate --release --features nearcore/nightly
 
 neard-nightly-release:
-	cargo build -p neard --release --features nightly,performance_stats
+	cargo build -p neard --release --features nightly
 
 
-#? nightly-debug: build debug version of neard, store-validator and genesis-populate with nightly and performance_stats features
+#? nightly-debug: build debug version of neard, store-validator and genesis-populate with nightly features
 nightly-debug:
-	cargo build -p neard --features nightly,performance_stats
-	cargo build -p store-validator --features nearcore/nightly,nearcore/performance_stats
-	cargo build -p genesis-populate --features nearcore/nightly,nearcore/performance_stats
+	cargo build -p neard --features nightly
+	cargo build -p store-validator --features nearcore/nightly
+	cargo build -p genesis-populate --features nearcore/nightly
 
-#? assertions-release: build release version of neard with performance_stats feature and open debug_assertions
-assertions-release: NEAR_RELEASE_BUILD=release
+#? assertions-release: build release version of neard with open debug_assertions
 assertions-release:
-	CARGO_PROFILE_RELEASE_DEBUG=true CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=true cargo build -p neard --release --features performance_stats
+	CARGO_PROFILE_RELEASE_DEBUG=true CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=true cargo build -p neard --release
 
 #? sandbox: build debug version of neard with sandbox feature
 sandbox: CARGO_TARGET_DIR=sandbox
@@ -100,13 +85,12 @@ neard-sandbox-release:
 	cargo build -p neard --features sandbox --release
 
 #? test-features-release: build release version of neard with test_features feature
-test-features-release: NEAR_RELEASE_BUILD=release
 test-features-release:
 	cargo build -p neard --release --features test_features
 
 
 .PHONY: docker-nearcore docker-nearcore-nightly release neard debug
-.PHONY: perf-release perf-debug nightly-release nightly-debug assertions-release sandbox
+.PHONY: nightly-release nightly-debug assertions-release sandbox
 .PHONY: sandbox-release
 
 #? help: get this help message

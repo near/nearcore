@@ -1,7 +1,7 @@
 use crate::client::{StatePartOrHeader, StateRequestHeader, StateRequestPart};
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
-    Disconnect, Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
+    Disconnect, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
     SignedAccountData,
 };
 /// Exported types, which are part of network protocol.
@@ -27,14 +27,15 @@ use near_primitives::spice_partial_data::SpicePartialData;
 use near_primitives::state_sync::{PartIdOrHeader, StateRequestAckBody};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse, PartialEncodedContractDeploys,
+    ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse,
+    PartialEncodedContractDeploys, SpiceChunkContractAccesses, SpiceContractCodeRequest,
+    SpiceContractCodeResponse,
 };
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, EpochHeight, ShardId};
-use near_schema_checker_lib::ProtocolSchema;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::net::SocketAddr;
@@ -63,33 +64,22 @@ pub struct KnownProducer {
 }
 
 /// Ban reason.
-#[derive(
-    borsh::BorshSerialize,
-    borsh::BorshDeserialize,
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Copy,
-    ProtocolSchema,
-)]
-#[borsh(use_discriminant = false)]
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub enum ReasonForBan {
-    None = 0,
-    BadBlock = 1,
-    BadBlockHeader = 2,
-    HeightFraud = 3,
-    BadHandshake = 4,
-    BadBlockApproval = 5,
-    Abusive = 6,
-    InvalidSignature = 7,
-    InvalidPeerId = 8,
-    InvalidHash = 9,
-    InvalidEdge = 10,
-    InvalidDistanceVector = 11,
-    Blacklisted = 14,
-    ProvidedNotEnoughHeaders = 15,
-    BadChunkStateWitness = 16,
+    None,
+    BadBlock,
+    BadBlockHeader,
+    HeightFraud,
+    BadHandshake,
+    BadBlockApproval,
+    Abusive,
+    InvalidSignature,
+    InvalidPeerId,
+    InvalidHash,
+    InvalidEdge,
+    Blacklisted,
+    ProvidedNotEnoughHeaders,
+    BadChunkStateWitness,
 }
 
 /// Banning signal sent from Peer instance to PeerManager
@@ -237,6 +227,14 @@ impl From<NetworkResponses> for PeerManagerMessageResponse {
     }
 }
 
+#[derive(Clone, strum::AsRefStr, Debug, Eq, PartialEq)]
+pub enum SnapshotHostEvent {
+    /// Triggered when the chain head progresses. Updates the epoch height threshold for discarding old snapshot infos.
+    ChainProgressed { epoch_height: EpochHeight },
+    /// Triggers the network to broadcast the snapshot host info to all peers.
+    SnapshotCreated { sync_hash: CryptoHash, epoch_height: EpochHeight, shards: Vec<ShardId> },
+}
+
 // TODO(#1313): Use Box
 #[derive(Clone, strum::AsRefStr, Debug, Eq, PartialEq)]
 #[allow(clippy::large_enum_variant)]
@@ -273,7 +271,7 @@ pub enum NetworkRequests {
     /// Announce account
     AnnounceAccount(AnnounceAccount),
     /// Broadcast information about a hosted snapshot.
-    SnapshotHostInfo { sync_hash: CryptoHash, epoch_height: EpochHeight, shards: Vec<ShardId> },
+    SnapshotHostEvent(SnapshotHostEvent),
 
     /// Request chunk parts and/or receipts
     PartialEncodedChunkRequest {
@@ -324,6 +322,12 @@ pub enum NetworkRequests {
     SpiceChunkEndorsement(AccountId, SpiceChunkEndorsement),
     /// Message requesting spice partial data.
     SpicePartialDataRequest { request: SpicePartialDataRequest, producer: AccountId },
+    /// SPICE: Message from chunk producer to chunk validators with code-hashes of accessed contracts.
+    SpiceChunkContractAccesses(Vec<AccountId>, SpiceChunkContractAccesses),
+    /// SPICE: Message from chunk validator to chunk producer requesting missing contract code.
+    SpiceContractCodeRequest(AccountId, SpiceContractCodeRequest),
+    /// SPICE: Message from chunk producer to chunk validator with requested contract code.
+    SpiceContractCodeResponse(AccountId, SpiceContractCodeResponse),
 }
 
 #[derive(Debug, strum::IntoStaticStr)]

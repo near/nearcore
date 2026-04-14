@@ -1,10 +1,9 @@
+use crate::state::PartialState;
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::MIB;
 use near_primitives_core::types::ProtocolVersion;
 use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
-
-use crate::state::PartialState;
 
 /// Upper bound for a decompressed part size.
 ///
@@ -143,13 +142,11 @@ impl StatePart {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use itertools::Itertools;
-    use near_primitives_core::version::ProtocolFeature;
-
     use crate::state::PartialState;
     use crate::state_part::{PART_SIZE_LIMIT, StatePart};
+    use itertools::Itertools;
+    use near_primitives_core::version::ProtocolFeature;
+    use std::sync::Arc;
 
     // Some values with low entropy, to benefit from compression.
     fn dummy_partial_state() -> PartialState {

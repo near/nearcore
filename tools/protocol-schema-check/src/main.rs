@@ -13,11 +13,10 @@ use near_jsonrpc_primitives::errors::*;
 use near_network::*;
 use near_parameters::*;
 use near_primitives::*;
-use near_store::*;
-use near_vm_runner::*;
-
 use near_schema_checker_lib::{FieldName, FieldTypeInfo, ProtocolSchema, ProtocolSchemaInfo};
 use near_stable_hasher::StableHasher;
+use near_store::*;
+use near_vm_runner::*;
 use std::any::TypeId;
 use std::collections::{BTreeMap, HashSet};
 use std::fs;

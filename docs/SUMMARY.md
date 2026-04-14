@@ -47,8 +47,8 @@
   - [Runtime](./RuntimeSpec/Runtime.md)
   - [Transactions](./RuntimeSpec/Transactions.md)
   - [Scenarios](./RuntimeSpec/Scenarios/Scenarios.md)
-    - [Cross-ContractCall](./RuntimeSpec/Scenarios/CrossContractCall.md)
     - [Financial Transaction](./RuntimeSpec/Scenarios/FinancialTransaction.md)
+    - [Cross-ContractCall](./RuntimeSpec/Scenarios/CrossContractCall.md)
  - [Economics](./Economics/Economics.md)
  - [GenesisConfig](./GenesisConfig/GenesisConfig.md)
    - [ExtCostsConfig](./GenesisConfig/ExtCostsConfig.md)
@@ -127,7 +127,8 @@
 
 # Custom test networks
 
-- [Starting a network from mainnet state](./test_networks/mainnet_spoon.md)
+- [Forknet scenarios](../pytest/tests/mocknet/docs/forknet_scenario.md)
+- [Mirror tool](../pytest/tests/mocknet/docs/mirror.md)
 
 # Misc
 

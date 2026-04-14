@@ -420,7 +420,7 @@ impl ReceiptSinkV2 {
                 receipt_id=?receipt.receipt_id(),
                 size,
                 max_receipt_size,
-                "try_forward observed a receipt with size exceeding the size limit!",
+                "try_forward observed a receipt with size exceeding the size limit",
             );
             size = max_receipt_size;
         }
@@ -953,7 +953,7 @@ pub(crate) fn receipt_size(
 /// The calculation is part of protocol and should only be modified with a
 /// protocol upgrade.
 pub(crate) fn compute_receipt_size(receipt: &Receipt) -> Result<u64, IntegerOverflowError> {
-    let size = borsh::object_length(&receipt).map_err(|_| IntegerOverflowError)?;
+    let size = borsh::object_length(&receipt).unwrap();
     size.try_into().map_err(|_| IntegerOverflowError)
 }
 

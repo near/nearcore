@@ -12,11 +12,8 @@ use near_primitives::types::BlockHeight;
 use near_primitives::version::ProtocolVersion;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-
 use near_time::Clock;
-
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
-
 use std::cmp::min;
 use std::path::Path;
 use std::sync::Arc;
@@ -91,7 +88,7 @@ pub fn setup_mock_node(
         home_dir,
         &near_config.config.store,
         near_config.config.cold_store.as_ref(),
-        near_config.config.cloud_storage_config(),
+        near_config.cloud_storage_context(),
     )
     .open()
     .context("failed opening storage")?

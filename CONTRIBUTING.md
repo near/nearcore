@@ -82,6 +82,7 @@ following steps when creating a PR:
       - `test` for changes that introduce new tests.
       - `chore` for grunt tasks like updating dependencies.
       - `perf` for performance-related changes and benchmarks.
+      - `revert` for reverting existing PRs.
    - `project` is a short non-capitalized project or area name such as `spice`, `resharding`, `state-sync`, `ci`, etc.
    - `title` should not be capitalized.
    - examples:
@@ -175,3 +176,13 @@ testnet.  The process for feature stabilization can be found in [this
 document](docs/practices/protocol_upgrade.md).  After the release candidate has been
 running on testnet for four weeks and no issues are observed, we stabilize and
 publish the release for mainnet.
+
+## Coding Agents
+
+When using AI coding agents (e.g. Claude Code, Cursor, Copilot), general
+instructions for working with this codebase are maintained in the root
+[`AGENTS.md`](AGENTS.md) file following the [agents.md](https://agents.md/)
+convention.
+
+Individual modules or subprojects may provide their own `AGENTS.md` files with
+module-specific instructions. These are referenced from the root `AGENTS.md`.

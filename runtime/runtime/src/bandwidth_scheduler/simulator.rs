@@ -8,10 +8,7 @@
 //! blockchain. It's also much faster to run a lightweight simulation than a whole chain, allowing
 //! us to test more scenarios without being constrained by the available resources.
 
-use std::collections::{BTreeMap, VecDeque};
-use std::convert::Infallible;
-use std::rc::Rc;
-
+use super::scheduler::{BandwidthScheduler, ShardStatus};
 use borsh::BorshSerialize;
 use bytesize::ByteSize;
 use near_primitives::bandwidth_scheduler::{
@@ -23,8 +20,9 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{BlockHeight, ShardId, ShardIndex};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
-
-use super::scheduler::{BandwidthScheduler, ShardStatus};
+use std::collections::{BTreeMap, VecDeque};
+use std::convert::Infallible;
+use std::rc::Rc;
 use testlib::bandwidth_scheduler::{
     ChunkBandwidthStats, LargeReceiptSizeGenerator, MaxReceiptSizeGenerator,
     MediumReceiptSizeGenerator, RandomReceiptSizeGenerator, SmallReceiptSizeGenerator,

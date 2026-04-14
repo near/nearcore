@@ -86,10 +86,8 @@ impl StateSyncDownloadSourcePeerSharedState {
         let key = PendingPeerRequestKey { shard_id, sync_hash: msg.sync_hash(), part_id_or_header };
 
         let Some(request) = self.pending_requests.get_mut(&key) else {
-            tracing::debug!(target: "sync", "Received {:?} from {}", key, peer_id);
-            return Err(near_chain::Error::Other(
-                "Unexpected state response (request may have timed out)".to_owned(),
-            ));
+            tracing::debug!(target: "sync", ?key, %peer_id, "unexpected state response, request may have timed out");
+            return Ok(());
         };
 
         if request.peer_id != peer_id {
@@ -144,13 +142,13 @@ impl StateSyncDownloadSourcePeer {
         // We compute it here to pass as part of the network request.
         // TODO(saketh): it would be nice to migrate the network layer to the same hash.
         let prev_hash = *store
-            .get_ser::<BlockHeader>(DBCol::BlockHeader, key.sync_hash.as_bytes())?
+            .get_ser::<BlockHeader>(DBCol::BlockHeader, key.sync_hash.as_bytes())
             .ok_or_else(|| {
                 near_chain::Error::DBNotFoundErr(format!("No block header {}", key.sync_hash))
             })?
             .prev_hash();
         let prev_prev_hash = *store
-            .get_ser::<BlockHeader>(DBCol::BlockHeader, prev_hash.as_bytes())?
+            .get_ser::<BlockHeader>(DBCol::BlockHeader, prev_hash.as_bytes())
             .ok_or_else(|| {
                 near_chain::Error::DBNotFoundErr(format!("No block header {}", prev_hash))
             })?

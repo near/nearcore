@@ -1,9 +1,8 @@
+use super::contract_distribution::{CodeBytes, CodeHash};
 use crate::state::PartialState;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
 use near_schema_checker_lib::ProtocolSchema;
-
-use super::contract_distribution::{CodeBytes, CodeHash};
 
 /// Stored on disk for each chunk, including missing chunks, in order to
 /// produce a chunk state witness when needed.

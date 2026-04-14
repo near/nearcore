@@ -11,79 +11,112 @@ use axum::routing::{get, post};
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::instrumentation::all_actor_instrumentations_view;
 use near_async::messaging::{AsyncSendError, AsyncSender, CanSend, CanSendAsync, Sender};
-use near_async::time::Clock;
+use near_async::time::{Clock, Duration};
 use near_chain_configs::{ClientConfig, GenesisConfig, ProtocolConfigView};
 use near_client::{
     DebugStatus, GetBlock, GetBlockProof, GetBlockProofResponse, GetChunk, GetClientConfig,
     GetExecutionOutcome, GetExecutionOutcomeResponse, GetGasPrice, GetMaintenanceWindows,
-    GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetStateChanges,
-    GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, ProcessTxRequest,
-    ProcessTxResponse, Query as ClientQuery, QueryError, Status, StatusResponse, TxStatus,
-    TxStatusError,
+    GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetReceiptToTx,
+    GetReceiptToTxResponse, GetStateChanges, GetStateChangesInBlock, GetValidatorInfo,
+    GetValidatorOrdered, ProcessTxRequest, ProcessTxResponse, Query as ClientQuery, QueryError,
+    Status, StatusResponse, TxStatus, TxStatusError,
 };
 use near_client_primitives::debug::{
     DebugBlockStatusQuery, DebugBlocksStartingMode, DebugStatusResponse,
 };
 use near_client_primitives::types::{
-    GetBlockError, GetBlockProofError, GetChunkError, GetClientConfigError,
-    GetExecutionOutcomeError, GetGasPriceError, GetMaintenanceWindowsError,
-    GetNextLightClientBlockError, GetProtocolConfigError, GetReceiptError, GetSplitStorageInfo,
-    GetSplitStorageInfoError, GetStateChangesError, GetValidatorInfoError, NetworkInfoResponse,
-    StatusError,
+    BlockNotificationMessage, GetBlockError, GetBlockProofError, GetChunkError,
+    GetClientConfigError, GetExecutionOutcomeError, GetGasPriceError, GetMaintenanceWindowsError,
+    GetNextLightClientBlockError, GetProtocolConfigError, GetReceiptError, GetReceiptToTxError,
+    GetSplitStorageInfo, GetSplitStorageInfoError, GetStateChangesError, GetValidatorInfoError,
+    NetworkInfoResponse, StatusError,
 };
 pub use near_jsonrpc_client_internal as client;
+use near_jsonrpc_client_internal::SHARDED_RPC_COORDINATOR_HEADER;
 pub use near_jsonrpc_primitives as primitives;
 use near_jsonrpc_primitives::errors::{RpcError, RpcErrorKind};
 use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::blocks::RpcBlockRequest;
+use near_jsonrpc_primitives::types::call_function::{
+    RpcCallFunctionError, RpcCallFunctionRequest, RpcCallFunctionResponse,
+};
+use near_jsonrpc_primitives::types::chunks::ChunkReference;
 use near_jsonrpc_primitives::types::config::{RpcProtocolConfigError, RpcProtocolConfigResponse};
 use near_jsonrpc_primitives::types::entity_debug::{EntityDebugHandler, EntityQueryWithParams};
-use near_jsonrpc_primitives::types::query::RpcQueryRequest;
+use near_jsonrpc_primitives::types::query::{RpcQueryError, RpcQueryRequest};
+use near_jsonrpc_primitives::types::receipts::{
+    RpcReceiptError, RpcReceiptRequest, RpcReceiptResponse, RpcReceiptToTxError,
+    RpcReceiptToTxRequest, RpcReceiptToTxResponse,
+};
 use near_jsonrpc_primitives::types::split_storage::{
     RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse,
 };
 use near_jsonrpc_primitives::types::transactions::{
-    RpcSendTransactionRequest, RpcTransactionResponse,
+    RpcSendTransactionRequest, RpcTransactionError, RpcTransactionResponse,
+};
+use near_jsonrpc_primitives::types::view_access_key::{
+    RpcViewAccessKeyError, RpcViewAccessKeyRequest, RpcViewAccessKeyResponse,
+};
+use near_jsonrpc_primitives::types::view_access_key_list::{
+    RpcViewAccessKeyListError, RpcViewAccessKeyListRequest, RpcViewAccessKeyListResponse,
+};
+use near_jsonrpc_primitives::types::view_account::{
+    RpcViewAccountError, RpcViewAccountRequest, RpcViewAccountResponse,
+};
+use near_jsonrpc_primitives::types::view_code::{
+    RpcViewCodeError, RpcViewCodeRequest, RpcViewCodeResponse,
+};
+use near_jsonrpc_primitives::types::view_gas_key_nonces::{
+    RpcViewGasKeyNoncesError, RpcViewGasKeyNoncesRequest, RpcViewGasKeyNoncesResponse,
+};
+use near_jsonrpc_primitives::types::view_state::{
+    RpcViewStateError, RpcViewStateRequest, RpcViewStateResponse,
 };
 use near_network::debug::GetDebugStatus;
 use near_network::tcp::{self, ListenerAddr};
 use near_o11y::metrics::{Encoder, TextEncoder, prometheus};
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockId, BlockReference};
+use near_primitives::types::{AccountId, BlockId, BlockReference, ShardId};
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, GasPriceView, LightClientBlockView,
     MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, SplitStorageInfoView,
     StateChangesKindsView, StateChangesView, TxExecutionStatus, TxStatusView,
 };
+use parking_lot::RwLock;
 use serde_json::{Value, json};
+use sharded_rpc::{
+    BlockHint, CoordinatorRequestStrategy, RequestSource, RpcNodeHandle, ShardHint, ShardedRpcPool,
+};
 use std::future::Future;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::time::{sleep, timeout};
+use std::time::Instant;
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
-use tracing::{error, info};
 
 mod api;
 mod metrics;
+pub mod sharded_rpc;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub polling_interval: Duration,
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub polling_timeout: Duration,
 }
 
 impl Default for RpcPollingConfig {
     fn default() -> Self {
         Self {
-            polling_interval: Duration::from_millis(500),
-            polling_timeout: Duration::from_secs(10),
+            polling_interval: Duration::milliseconds(200),
+            polling_timeout: Duration::seconds(10),
         }
     }
 }
@@ -104,6 +137,21 @@ fn default_enable_debug_rpc() -> bool {
     false
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct ShardedRpcConfig {
+    /// All nodes in a sharded rpc pool, might include information about this node as well.
+    pub nodes: Vec<ShardedRpcNodeConfig>,
+}
+
+/// Information about a single node in a sharded rpc pool
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct ShardedRpcNodeConfig {
+    /// The jsonrpc address (e.g "http://127.0.0.1:3030")
+    pub address: String,
+    /// Shards that this node tracks (static configuration for now)
+    pub tracked_shards: Vec<ShardId>,
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct RpcConfig {
     pub addr: tcp::ListenerAddr,
@@ -121,6 +169,8 @@ pub struct RpcConfig {
     // be read from this directory, instead of the contents compiled into the binary. This allows
     // for quick iterative development.
     pub experimental_debug_pages_src_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sharded_rpc: Option<ShardedRpcConfig>,
 }
 
 impl Default for RpcConfig {
@@ -133,6 +183,7 @@ impl Default for RpcConfig {
             limits_config: Default::default(),
             enable_debug_rpc: false,
             experimental_debug_pages_src_path: None,
+            sharded_rpc: None,
         }
     }
 }
@@ -170,6 +221,28 @@ where
     Box::pin(async move { serialize_response(callback(R::parse(request.params)?).await?) })
 }
 
+/// Like `process_method_call`, but dispatches between a sharded handler (for
+/// user requests) and a local handler (for coordinator-forwarded requests).
+async fn process_sharded_method_call<'a, R, FSharded, FLocal, E, V>(
+    request: Request,
+    source: RequestSource,
+    sharded_handler: impl FnOnce(R) -> FSharded + 'a,
+    local_handler: impl FnOnce(R) -> FLocal + 'a,
+) -> Result<Value, RpcError>
+where
+    R: RpcRequest + Send,
+    FSharded: Future<Output = Result<Value, RpcError>>,
+    FLocal: Future<Output = Result<V, E>> + Send,
+    V: serde::ser::Serialize,
+    RpcError: From<E>,
+{
+    let request = R::parse(request.params)?;
+    match source {
+        RequestSource::User => sharded_handler(request).await,
+        RequestSource::Coordinator => serialize_response(local_handler(request).await?),
+    }
+}
+
 #[easy_ext::ext(FromNetworkClientResponses)]
 impl near_jsonrpc_primitives::types::transactions::RpcTransactionError {
     pub fn from_network_client_responses(resp: ProcessTxResponse) -> Self {
@@ -200,6 +273,7 @@ fn process_query_response(
         Err(err) => match err {
             near_jsonrpc_primitives::types::query::RpcQueryError::ContractExecutionError {
                 vm_error,
+                error: _,
                 block_height,
                 block_hash,
             } => Ok(json!({
@@ -282,6 +356,7 @@ pub struct ViewClientSenderForRpc(
     >,
     AsyncSender<GetProtocolConfig, Result<ProtocolConfigView, GetProtocolConfigError>>,
     AsyncSender<GetReceipt, Result<Option<ReceiptView>, GetReceiptError>>,
+    AsyncSender<GetReceiptToTx, Result<GetReceiptToTxResponse, GetReceiptToTxError>>,
     AsyncSender<GetSplitStorageInfo, Result<SplitStorageInfoView, GetSplitStorageInfoError>>,
     AsyncSender<GetStateChanges, Result<StateChangesView, GetStateChangesError>>,
     AsyncSender<GetStateChangesInBlock, Result<StateChangesKindsView, GetStateChangesError>>,
@@ -300,6 +375,7 @@ pub struct GCSenderForRpc(AsyncSender<near_client::gc_actor::NetworkAdversarialM
 pub struct PeerManagerSenderForRpc(AsyncSender<GetDebugStatus, near_network::debug::DebugStatus>);
 
 struct JsonRpcHandler {
+    clock: Clock,
     client_sender: ClientSenderForRpc,
     view_client_sender: ViewClientSenderForRpc,
     process_tx_sender: ProcessTxSenderForRpc,
@@ -311,13 +387,17 @@ struct JsonRpcHandler {
     enable_debug_rpc: bool,
     debug_pages_src_path: Option<PathBuf>,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
+    block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
+    pool: Arc<RwLock<ShardedRpcPool>>,
 }
 
 impl JsonRpcHandler {
-    async fn process(&self, message: Message) -> Message {
+    async fn process(&self, message: Message, source: RequestSource) -> Message {
         let id = message.id();
         match message {
-            Message::Request(request) => Message::response(id, self.process_request(request).await),
+            Message::Request(request) => {
+                Message::response(id, self.process_request(request, source).await)
+            }
             _ => Message::error(RpcError::parse_error(
                 "JSON RPC Request format was expected".to_owned(),
             )),
@@ -326,9 +406,13 @@ impl JsonRpcHandler {
 
     // `process_request` increments affected metrics but the request processing is done by
     // `process_request_internal`.
-    async fn process_request(&self, request: Request) -> Result<Value, RpcError> {
+    async fn process_request(
+        &self,
+        request: Request,
+        source: RequestSource,
+    ) -> Result<Value, RpcError> {
         let timer = Instant::now();
-        let (metrics_name, response) = self.process_request_internal(request).await;
+        let (metrics_name, response) = self.process_request_internal(request, source).await;
 
         metrics::HTTP_RPC_REQUEST_COUNT.with_label_values(&[&metrics_name]).inc();
         metrics::RPC_PROCESSING_TIME
@@ -350,6 +434,7 @@ impl JsonRpcHandler {
     async fn process_request_internal(
         &self,
         request: Request,
+        source: RequestSource,
     ) -> (String, Result<Value, RpcError>) {
         let method_name = request.method.to_string();
         let request = match self.process_adversarial_request_internal(request).await {
@@ -357,7 +442,7 @@ impl JsonRpcHandler {
             Err(request) => request,
         };
 
-        let request = match self.process_basic_requests_internal(request).await {
+        let request = match self.process_basic_requests_internal(request, source).await {
             Ok(response) => return (method_name, response),
             Err(request) => request,
         };
@@ -368,11 +453,11 @@ impl JsonRpcHandler {
                     Ok(params) => params,
                     Err(err) => return (method_name, Err(RpcError::from(err))),
                 };
-                let metrics_name = match params.request {
+                let metrics_name = match &params.request {
                     QueryRequest::ViewAccount { .. } => "query_view_account",
                     QueryRequest::ViewCode { .. } => "query_view_code",
                     QueryRequest::ViewState { include_proof, .. } => {
-                        if include_proof {
+                        if *include_proof {
                             "query_view_state_with_proof"
                         } else {
                             "query_view_state"
@@ -380,6 +465,7 @@ impl JsonRpcHandler {
                     }
                     QueryRequest::ViewAccessKey { .. } => "query_view_access_key",
                     QueryRequest::ViewAccessKeyList { .. } => "query_view_access_key_list",
+                    QueryRequest::ViewGasKeyNonces { .. } => "query_view_gas_key_nonces",
                     QueryRequest::CallFunction { .. } => "query_call_function",
                     QueryRequest::ViewGlobalContractCode { .. } => {
                         "query_view_global_contract_code"
@@ -388,7 +474,11 @@ impl JsonRpcHandler {
                         "query_view_global_contract_code_by_account_id"
                     }
                 };
-                (metrics_name.to_string(), process_query_response(self.query(params).await))
+                let result = match source {
+                    RequestSource::User => self.query_sharded(params).await,
+                    RequestSource::Coordinator => process_query_response(self.query(params).await),
+                };
+                (metrics_name.to_string(), result)
             }
             _ => {
                 ("UNSUPPORTED_METHOD".to_string(), Err(RpcError::method_not_found(request.method)))
@@ -399,6 +489,7 @@ impl JsonRpcHandler {
     async fn process_basic_requests_internal(
         &self,
         request: Request,
+        source: RequestSource,
     ) -> Result<Result<Value, RpcError>, Request> {
         Ok(match request.method.as_ref() {
             // Handlers ordered alphabetically
@@ -419,7 +510,15 @@ impl JsonRpcHandler {
             "changes" | "EXPERIMENTAL_changes" => {
                 process_method_call(request, |params| self.changes_in_block_by_type(params)).await
             }
-            "chunk" => process_method_call(request, |params| self.chunk(params)).await,
+            "chunk" => {
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| self.chunk_sharded(params),
+                    |params| self.chunk_local(params),
+                )
+                .await
+            }
             "gas_price" => process_method_call(request, |params| self.gas_price(params)).await,
 
             "genesis_config" | "EXPERIMENTAL_genesis_config" => {
@@ -451,8 +550,77 @@ impl JsonRpcHandler {
             "client_config" => {
                 process_method_call(request, |_params: ()| self.client_config()).await
             }
+            "EXPERIMENTAL_view_account" => {
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| self.view_account_sharded(params),
+                    |params| self.view_account_local(params),
+                )
+                .await
+            }
+            "EXPERIMENTAL_view_code" => {
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| self.view_code_sharded(params),
+                    |params| self.view_code_local(params),
+                )
+                .await
+            }
+            "EXPERIMENTAL_view_state" => {
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| self.view_state_sharded(params),
+                    |params| self.view_state_local(params),
+                )
+                .await
+            }
+            "EXPERIMENTAL_view_access_key" => {
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| self.view_access_key_sharded(params),
+                    |params| self.view_access_key_local(params),
+                )
+                .await
+            }
+            "EXPERIMENTAL_view_access_key_list" => {
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| self.view_access_key_list_sharded(params),
+                    |params| self.view_access_key_list_local(params),
+                )
+                .await
+            }
+            "EXPERIMENTAL_view_gas_key_nonces" => {
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| self.view_gas_key_nonces_sharded(params),
+                    |params| self.view_gas_key_nonces_local(params),
+                )
+                .await
+            }
+            "EXPERIMENTAL_call_function" => {
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| self.call_function_sharded(params),
+                    |params| self.call_function_local(params),
+                )
+                .await
+            }
             "EXPERIMENTAL_congestion_level" => {
-                process_method_call(request, |params| self.congestion_level(params)).await
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| self.congestion_level_sharded(params),
+                    |params| self.congestion_level_local(params),
+                )
+                .await
             }
             "EXPERIMENTAL_light_client_proof" => {
                 process_method_call(request, |params| {
@@ -467,7 +635,16 @@ impl JsonRpcHandler {
                 process_method_call(request, |params| self.protocol_config(params)).await
             }
             "EXPERIMENTAL_receipt" => {
-                process_method_call(request, |params| self.receipt(params)).await
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| self.receipt_sharded(params),
+                    |params| self.receipt_local(params),
+                )
+                .await
+            }
+            "EXPERIMENTAL_receipt_to_tx" => {
+                process_method_call(request, |params| self.receipt_to_tx(params)).await
             }
             "EXPERIMENTAL_tx_status" => {
                 process_method_call(request, |params| self.tx_status_common(params, true)).await
@@ -576,7 +753,11 @@ impl JsonRpcHandler {
         tx_hash: CryptoHash,
         signer_account_id: &AccountId,
     ) -> Result<bool, near_jsonrpc_primitives::types::transactions::RpcTransactionError> {
-        timeout(self.polling_config.polling_timeout, async {
+        self.clock.timeout(self.polling_config.polling_timeout, async {
+            // Create a new watch::Receiver to watch for new blocks. Mark the current block as seen.
+            let mut new_block_watcher = self.block_notification_watcher.clone();
+            new_block_watcher.mark_unchanged();
+
             loop {
                 // TODO(optimization): Introduce a view_client method to only get transaction
                 // status without the information about execution outcomes.
@@ -600,16 +781,17 @@ impl JsonRpcHandler {
                     }
                     _ => {}
                 }
-                sleep(self.polling_config.polling_interval).await;
+                new_block_watcher.changed().await.map_err(|_| RpcTransactionError::InternalError { debug_info: "Block notification channel closed".to_string() })?;
             }
         })
         .await
         .map_err(|_| {
             metrics::RPC_TIMEOUT_TOTAL.inc();
             tracing::warn!(
-                target: "jsonrpc", "Timeout: tx_exists method. tx_hash {:?} signer_account_id {:?}",
-                tx_hash,
-                signer_account_id
+                target: "jsonrpc",
+                ?tx_hash,
+                ?signer_account_id,
+                "timeout: tx_exists method"
             );
             near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError
         })?
@@ -630,7 +812,11 @@ impl JsonRpcHandler {
         let (tx_hash, account_id) = tx_info.to_tx_hash_and_account();
         let mut tx_status_result =
             Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError);
-        timeout(self.polling_config.polling_timeout, async {
+        self.clock.timeout(self.polling_config.polling_timeout, async {
+            // Create a new watch::Receiver to watch for new blocks. Mark the current block as seen.
+            let mut new_block_watcher = self.block_notification_watcher.clone();
+            new_block_watcher.mark_unchanged();
+
             loop {
                 tx_status_result = self.view_client_send( TxStatus {
                     tx_hash,
@@ -665,18 +851,19 @@ impl JsonRpcHandler {
                     }
                     Err(err) => break Err(err),
                 }
-                sleep(self.polling_config.polling_interval).await;
+                new_block_watcher.changed().await.map_err(|_| RpcTransactionError::InternalError { debug_info: "Block notification channel closed".to_string() })?;
             }
         })
         .await
         .map_err(|_| {
             metrics::RPC_TIMEOUT_TOTAL.inc();
             tracing::warn!(
-                target: "jsonrpc", "Timeout: tx_status_fetch method. tx_info {:?} fetch_receipt {:?} result {:?} timeout {:?}",
-                tx_info,
-                fetch_receipt,
-                tx_status_result,
-                self.polling_config.polling_timeout,
+                target: "jsonrpc",
+                ?tx_info,
+                ?fetch_receipt,
+                ?tx_status_result,
+                timeout = ?self.polling_config.polling_timeout,
+                "timeout: tx_status_fetch method"
             );
             near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError
         })?
@@ -721,6 +908,8 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
+        metrics::report_wait_until_metric("send_tx", &request_data.wait_until);
+
         if request_data.wait_until == TxExecutionStatus::None {
             self.send_tx_async(request_data);
             return Ok(RpcTransactionResponse {
@@ -849,11 +1038,6 @@ impl JsonRpcHandler {
                         )
                         .await?
                         .rpc_into(),
-                    #[cfg(feature = "distance_vector_routing")]
-                    "/debug/api/network_routes" => self
-                        .peer_manager_send(near_network::debug::GetDebugStatus::Routes)
-                        .await?
-                        .rpc_into(),
                     "/debug/api/snapshot_hosts" => self
                         .peer_manager_send(near_network::debug::GetDebugStatus::SnapshotHosts)
                         .await?
@@ -959,6 +1143,544 @@ impl JsonRpcHandler {
         Ok(query_response.rpc_into())
     }
 
+    async fn query_sharded(&self, request_data: RpcQueryRequest) -> Result<Value, RpcError> {
+        match &request_data.request {
+            QueryRequest::ViewAccount { account_id, .. }
+            | QueryRequest::ViewCode { account_id, .. }
+            | QueryRequest::ViewState { account_id, .. }
+            | QueryRequest::ViewAccessKey { account_id, .. }
+            | QueryRequest::ViewAccessKeyList { account_id, .. }
+            | QueryRequest::ViewGasKeyNonces { account_id, .. }
+            | QueryRequest::CallFunction { account_id, .. } => {
+                let block_hint = request_data.block_reference.clone().into();
+                let shard_hint = ShardHint::Account(account_id.clone());
+                self.run_coordinator_request(
+                    "query",
+                    request_data,
+                    block_hint,
+                    shard_hint,
+                    CoordinatorRequestStrategy::Sequential,
+                )
+                .await
+            }
+            // Global contract code is replicated to all shards, no shard routing needed.
+            QueryRequest::ViewGlobalContractCode { .. }
+            | QueryRequest::ViewGlobalContractCodeByAccountId { .. } => {
+                let block_hint = request_data.block_reference.clone().into();
+                self.run_coordinator_request(
+                    "query",
+                    request_data,
+                    block_hint,
+                    ShardHint::None,
+                    CoordinatorRequestStrategy::Sequential,
+                )
+                .await
+            }
+        }
+    }
+
+    async fn view_account_sharded(
+        &self,
+        request_data: RpcViewAccountRequest,
+    ) -> Result<Value, RpcError> {
+        let block_hint = request_data.block_reference.clone().into();
+        let shard_hint = ShardHint::Account(request_data.account_id.clone());
+        self.run_coordinator_request(
+            "EXPERIMENTAL_view_account",
+            request_data,
+            block_hint,
+            shard_hint,
+            CoordinatorRequestStrategy::Sequential,
+        )
+        .await
+    }
+
+    async fn view_code_sharded(&self, request_data: RpcViewCodeRequest) -> Result<Value, RpcError> {
+        let block_hint = request_data.block_reference.clone().into();
+        let shard_hint = ShardHint::Account(request_data.account_id.clone());
+        self.run_coordinator_request(
+            "EXPERIMENTAL_view_code",
+            request_data,
+            block_hint,
+            shard_hint,
+            CoordinatorRequestStrategy::Sequential,
+        )
+        .await
+    }
+
+    async fn view_state_sharded(
+        &self,
+        request_data: RpcViewStateRequest,
+    ) -> Result<Value, RpcError> {
+        let block_hint = request_data.block_reference.clone().into();
+        let shard_hint = ShardHint::Account(request_data.account_id.clone());
+        self.run_coordinator_request(
+            "EXPERIMENTAL_view_state",
+            request_data,
+            block_hint,
+            shard_hint,
+            CoordinatorRequestStrategy::Sequential,
+        )
+        .await
+    }
+
+    async fn view_access_key_sharded(
+        &self,
+        request_data: RpcViewAccessKeyRequest,
+    ) -> Result<Value, RpcError> {
+        let block_hint = request_data.block_reference.clone().into();
+        let shard_hint = ShardHint::Account(request_data.account_id.clone());
+        self.run_coordinator_request(
+            "EXPERIMENTAL_view_access_key",
+            request_data,
+            block_hint,
+            shard_hint,
+            CoordinatorRequestStrategy::Sequential,
+        )
+        .await
+    }
+
+    async fn view_access_key_list_sharded(
+        &self,
+        request_data: RpcViewAccessKeyListRequest,
+    ) -> Result<Value, RpcError> {
+        let block_hint = request_data.block_reference.clone().into();
+        let shard_hint = ShardHint::Account(request_data.account_id.clone());
+        self.run_coordinator_request(
+            "EXPERIMENTAL_view_access_key_list",
+            request_data,
+            block_hint,
+            shard_hint,
+            CoordinatorRequestStrategy::Sequential,
+        )
+        .await
+    }
+
+    async fn view_gas_key_nonces_sharded(
+        &self,
+        request_data: RpcViewGasKeyNoncesRequest,
+    ) -> Result<Value, RpcError> {
+        let block_hint = request_data.block_reference.clone().into();
+        let shard_hint = ShardHint::Account(request_data.account_id.clone());
+        self.run_coordinator_request(
+            "EXPERIMENTAL_view_gas_key_nonces",
+            request_data,
+            block_hint,
+            shard_hint,
+            CoordinatorRequestStrategy::Sequential,
+        )
+        .await
+    }
+
+    async fn call_function_sharded(
+        &self,
+        request_data: RpcCallFunctionRequest,
+    ) -> Result<Value, RpcError> {
+        let block_hint = request_data.block_reference.clone().into();
+        let shard_hint = ShardHint::Account(request_data.account_id.clone());
+        self.run_coordinator_request(
+            "EXPERIMENTAL_call_function",
+            request_data,
+            block_hint,
+            shard_hint,
+            CoordinatorRequestStrategy::Sequential,
+        )
+        .await
+    }
+
+    async fn congestion_level_sharded(
+        &self,
+        request_data: near_jsonrpc_primitives::types::congestion::RpcCongestionLevelRequest,
+    ) -> Result<Value, RpcError> {
+        let (block_hint, shard_hint, strategy) = match &request_data.chunk_reference {
+            ChunkReference::BlockShardId { block_id, shard_id } => {
+                let block_hint = BlockReference::BlockId(block_id.clone()).into();
+                (block_hint, ShardHint::Id(*shard_id), CoordinatorRequestStrategy::Sequential)
+            }
+            ChunkReference::ChunkHash { chunk_id } => {
+                let chunk_hash = ChunkHash::from(*chunk_id);
+                match self.pool.read().try_resolve_chunk_block_and_shard(&chunk_hash) {
+                    Some((height, shard_id)) => (
+                        BlockHint::Height(height),
+                        ShardHint::Id(shard_id),
+                        CoordinatorRequestStrategy::Sequential,
+                    ),
+                    None => (
+                        BlockHint::None,
+                        ShardHint::None,
+                        CoordinatorRequestStrategy::ParallelTakeFirst,
+                    ),
+                }
+            }
+        };
+        self.run_coordinator_request(
+            "EXPERIMENTAL_congestion_level",
+            request_data,
+            block_hint,
+            shard_hint,
+            strategy,
+        )
+        .await
+    }
+
+    async fn receipt_sharded(
+        &self,
+        request_data: near_jsonrpc_primitives::types::receipts::RpcReceiptRequest,
+    ) -> Result<Value, RpcError> {
+        self.run_coordinator_request(
+            "EXPERIMENTAL_receipt",
+            request_data,
+            BlockHint::None,
+            ShardHint::None,
+            CoordinatorRequestStrategy::ParallelTakeFirst,
+        )
+        .await
+    }
+
+    /// Run a sharded-rpc coordinator sub-request.
+    /// Automatically routes the request to the nodes that will be able to handle it based on the
+    /// provided block and shard hints. Automatically takes care of retries.
+    /// The `strategy` parameter controls how nodes are queried:
+    /// - `Sequential`: try nodes one by one (default for targeted shard queries).
+    /// - `ParallelTakeFirst`: fan out to all nodes, return the first success.
+    async fn run_coordinator_request(
+        &self,
+        method: &str,
+        params: impl serde::Serialize,
+        block_hint: BlockHint,
+        shard_hint: ShardHint,
+        strategy: CoordinatorRequestStrategy,
+    ) -> Result<Value, RpcError> {
+        // Find the nodes that might be able to answer the query.
+        let rpc_nodes = {
+            let pool_read_guard = self.pool.read();
+            pool_read_guard.nodes_for_query(block_hint, shard_hint)?
+        };
+
+        // Prepare the request.
+        let request = match Message::request(
+            method.to_string(),
+            serde_json::to_value(params)
+                .map_err(|e| RpcError::serialization_error(e.to_string()))?,
+        ) {
+            Message::Request(r) => r,
+            _ => {
+                return Err(RpcError::new_internal_error(
+                    None,
+                    "run_coordinator_request: failed to create a request".to_string(),
+                ));
+            }
+        };
+
+        match strategy {
+            CoordinatorRequestStrategy::Sequential => {
+                self.run_coordinator_request_sequential(request, rpc_nodes).await
+            }
+            CoordinatorRequestStrategy::ParallelTakeFirst => {
+                self.run_coordinator_request_parallel_take_first(request, rpc_nodes).await
+            }
+        }
+    }
+
+    /// Try nodes one by one in order. Return on first success.
+    async fn run_coordinator_request_sequential(
+        &self,
+        request: Request,
+        rpc_nodes: Vec<RpcNodeHandle>,
+    ) -> Result<Value, RpcError> {
+        let mut last_error = None;
+        for node in rpc_nodes {
+            match self.run_coordinator_request_on_node(request.clone(), node).await {
+                Ok(val) => return Ok(val),
+                Err(e) => {
+                    match e.error_struct.as_ref() {
+                        Some(RpcErrorKind::RequestValidationError(_)) => return Err(e), // request invalid, don't retry
+                        Some(RpcErrorKind::HandlerError(_))
+                        | Some(RpcErrorKind::InternalError(_))
+                        | None => last_error = Some(e), // Save the error and try another node
+                    };
+                }
+            }
+        }
+        Err(last_error.unwrap_or_else(|| {
+            RpcError::new_internal_error(None, "no nodes available to handle the query".to_string())
+        }))
+    }
+
+    /// Fan out to all nodes concurrently. Return the first success, cancel the rest.
+    async fn run_coordinator_request_parallel_take_first(
+        &self,
+        request: Request,
+        rpc_nodes: Vec<RpcNodeHandle>,
+    ) -> Result<Value, RpcError> {
+        use futures::stream::{FuturesUnordered, StreamExt};
+
+        let futures: FuturesUnordered<_> = rpc_nodes
+            .into_iter()
+            .map(|node| self.run_coordinator_request_on_node(request.clone(), node))
+            .collect();
+        futures::pin_mut!(futures);
+
+        let mut last_error = None;
+        while let Some(result) = futures.next().await {
+            match result {
+                Ok(val) => return Ok(val),
+                Err(e) => match e.error_struct.as_ref() {
+                    Some(RpcErrorKind::RequestValidationError(_)) => return Err(e),
+                    _ => last_error = Some(e),
+                },
+            }
+        }
+        Err(last_error.unwrap_or_else(|| {
+            RpcError::new_internal_error(None, "no nodes available to handle the query".to_string())
+        }))
+    }
+
+    async fn run_coordinator_request_on_node(
+        &self,
+        request: Request,
+        node: RpcNodeHandle,
+    ) -> Result<Value, RpcError> {
+        match node {
+            RpcNodeHandle::RemoteNode(client) => {
+                let message =
+                    client.transport.send_jsonrpc_request(Message::Request(request), true).await?;
+
+                match message {
+                    Message::Response(resp) => resp.result,
+                    _ => {
+                        Err(RpcError::parse_error("failed to parse JSON RPC response".to_string()))
+                    }
+                }
+            }
+            RpcNodeHandle::LocalNode => {
+                // Box::pin is required because of async recursion
+                Box::pin(
+                    async move { self.process_request(request, RequestSource::Coordinator).await },
+                )
+                .await
+            }
+        }
+    }
+
+    async fn view_account_local(
+        &self,
+        request_data: RpcViewAccountRequest,
+    ) -> Result<RpcViewAccountResponse, RpcViewAccountError> {
+        let result = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::ViewAccount { account_id: request_data.account_id },
+            ))
+            .await;
+        let query_response: QueryResponse =
+            result.map_err(<RpcQueryError as Into<RpcViewAccountError>>::into)?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::ViewAccount(account) => {
+                Ok(RpcViewAccountResponse {
+                    account,
+                    block_height: query_response.block_height,
+                    block_hash: query_response.block_hash,
+                })
+            }
+            _ => Err(RpcQueryError::InternalError {
+                error_message: format!(
+                    "Unexpected response kind from near client. Expected: ViewAccount, found: {:?}",
+                    query_response.kind
+                ),
+            }
+            .into()),
+        }
+    }
+
+    async fn view_code_local(
+        &self,
+        request_data: RpcViewCodeRequest,
+    ) -> Result<RpcViewCodeResponse, RpcViewCodeError> {
+        let result = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::ViewCode { account_id: request_data.account_id },
+            ))
+            .await;
+        let query_response: QueryResponse =
+            result.map_err(<RpcQueryError as Into<RpcViewCodeError>>::into)?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::ViewCode(code) => Ok(RpcViewCodeResponse {
+                code,
+                block_height: query_response.block_height,
+                block_hash: query_response.block_hash,
+            }),
+            _ => Err(RpcQueryError::InternalError {
+                error_message: format!(
+                    "Unexpected response kind from near client. Expected: ViewCode, found: {:?}",
+                    query_response.kind
+                ),
+            }
+            .into()),
+        }
+    }
+
+    async fn view_state_local(
+        &self,
+        request_data: RpcViewStateRequest,
+    ) -> Result<RpcViewStateResponse, RpcViewStateError> {
+        let result = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::ViewState {
+                    account_id: request_data.account_id,
+                    prefix: request_data.prefix,
+                    include_proof: request_data.include_proof,
+                },
+            ))
+            .await;
+        let query_response: QueryResponse =
+            result.map_err(<RpcQueryError as Into<RpcViewStateError>>::into)?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::ViewState(state) => {
+                Ok(RpcViewStateResponse {
+                    state,
+                    block_height: query_response.block_height,
+                    block_hash: query_response.block_hash,
+                })
+            }
+            _ => Err(RpcQueryError::InternalError {
+                error_message: format!(
+                    "Unexpected response kind from near client. Expected: ViewState, found: {:?}",
+                    query_response.kind
+                ),
+            }
+            .into()),
+        }
+    }
+
+    async fn view_access_key_local(
+        &self,
+        request_data: RpcViewAccessKeyRequest,
+    ) -> Result<RpcViewAccessKeyResponse, RpcViewAccessKeyError> {
+        let result = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::ViewAccessKey {
+                    account_id: request_data.account_id,
+                    public_key: request_data.public_key,
+                },
+            ))
+            .await;
+        let query_response: QueryResponse =
+            result.map_err(<RpcQueryError as Into<RpcViewAccessKeyError>>::into)?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::AccessKey(access_key) => {
+                Ok(RpcViewAccessKeyResponse {
+                    access_key,
+                    block_height: query_response.block_height,
+                    block_hash: query_response.block_hash,
+                })
+            }
+            _ => Err(RpcQueryError::InternalError {
+                error_message: format!(
+                    "Unexpected response kind from near client. Expected: AccessKey, found: {:?}",
+                    query_response.kind
+                ),
+            }
+            .into()),
+        }
+    }
+
+    async fn view_access_key_list_local(
+        &self,
+        request_data: RpcViewAccessKeyListRequest,
+    ) -> Result<RpcViewAccessKeyListResponse, RpcViewAccessKeyListError> {
+        let result = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::ViewAccessKeyList { account_id: request_data.account_id },
+            ))
+            .await;
+        let query_response: QueryResponse =
+            result.map_err(<RpcQueryError as Into<RpcViewAccessKeyListError>>::into)?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::AccessKeyList(access_key_list) => {
+                Ok(RpcViewAccessKeyListResponse {
+                    access_key_list,
+                    block_height: query_response.block_height,
+                    block_hash: query_response.block_hash,
+                })
+            }
+            _ => Err(RpcQueryError::InternalError {
+                error_message: format!("Unexpected response kind from near client. Expected: AccessKeyList, found: {:?}", query_response.kind),
+            }
+            .into()),
+        }
+    }
+
+    async fn view_gas_key_nonces_local(
+        &self,
+        request_data: RpcViewGasKeyNoncesRequest,
+    ) -> Result<RpcViewGasKeyNoncesResponse, RpcViewGasKeyNoncesError> {
+        let result = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::ViewGasKeyNonces {
+                    account_id: request_data.account_id,
+                    public_key: request_data.public_key,
+                },
+            ))
+            .await;
+        let query_response: QueryResponse =
+            result.map_err(<RpcQueryError as Into<RpcViewGasKeyNoncesError>>::into)?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::GasKeyNonces(gas_key_nonces) => {
+                Ok(RpcViewGasKeyNoncesResponse {
+                    nonces: gas_key_nonces.nonces,
+                    block_height: query_response.block_height,
+                    block_hash: query_response.block_hash,
+                })
+            }
+            _ => Err(RpcQueryError::InternalError {
+                error_message: format!(
+                    "Unexpected response kind from near client. Expected: GasKeyNonces, found: {:?}",
+                    query_response.kind
+                ),
+            }
+            .into()),
+        }
+    }
+
+    async fn call_function_local(
+        &self,
+        request_data: RpcCallFunctionRequest,
+    ) -> Result<RpcCallFunctionResponse, RpcCallFunctionError> {
+        let result = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::CallFunction {
+                    account_id: request_data.account_id,
+                    method_name: request_data.method_name,
+                    args: request_data.args,
+                },
+            ))
+            .await;
+        let query_response = result.map_err(<RpcQueryError as Into<RpcCallFunctionError>>::into)?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::CallResult(result) => {
+                Ok(RpcCallFunctionResponse {
+                    result,
+                    block_height: query_response.block_height,
+                    block_hash: query_response.block_hash,
+                })
+            }
+            _ => Err(RpcQueryError::InternalError {
+                error_message: format!(
+                    "Unexpected response kind from near client. Expected: CallResult, found: {:?}",
+                    query_response.kind
+                ),
+            }
+            .into()),
+        }
+    }
+
     async fn tx_status_common(
         &self,
         request_data: near_jsonrpc_primitives::types::transactions::RpcTransactionStatusRequest,
@@ -967,6 +1689,8 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
+        metrics::report_wait_until_metric("tx_status", &request_data.wait_until);
+
         let tx_status = self
             .tx_status_fetch(request_data.transaction_info, request_data.wait_until, fetch_receipt)
             .await?;
@@ -984,7 +1708,35 @@ impl JsonRpcHandler {
         Ok(near_jsonrpc_primitives::types::blocks::RpcBlockResponse { block_view })
     }
 
-    async fn chunk(
+    async fn chunk_sharded(
+        &self,
+        request_data: near_jsonrpc_primitives::types::chunks::RpcChunkRequest,
+    ) -> Result<Value, RpcError> {
+        let (block_hint, shard_hint, strategy) = match &request_data.chunk_reference {
+            ChunkReference::BlockShardId { block_id, shard_id } => {
+                let block_hint = BlockReference::BlockId(block_id.clone()).into();
+                (block_hint, ShardHint::Id(*shard_id), CoordinatorRequestStrategy::Sequential)
+            }
+            ChunkReference::ChunkHash { chunk_id } => {
+                let chunk_hash = ChunkHash::from(*chunk_id);
+                match self.pool.read().try_resolve_chunk_block_and_shard(&chunk_hash) {
+                    Some((height, shard_id)) => (
+                        BlockHint::Height(height),
+                        ShardHint::Id(shard_id),
+                        CoordinatorRequestStrategy::Sequential,
+                    ),
+                    None => (
+                        BlockHint::None,
+                        ShardHint::None,
+                        CoordinatorRequestStrategy::ParallelTakeFirst,
+                    ),
+                }
+            }
+        };
+        self.run_coordinator_request("chunk", request_data, block_hint, shard_hint, strategy).await
+    }
+
+    async fn chunk_local(
         &self,
         request_data: near_jsonrpc_primitives::types::chunks::RpcChunkRequest,
     ) -> Result<
@@ -996,7 +1748,7 @@ impl JsonRpcHandler {
         Ok(near_jsonrpc_primitives::types::chunks::RpcChunkResponse { chunk_view })
     }
 
-    async fn congestion_level(
+    async fn congestion_level_local(
         &self,
         request_data: near_jsonrpc_primitives::types::congestion::RpcCongestionLevelRequest,
     ) -> Result<
@@ -1031,26 +1783,32 @@ impl JsonRpcHandler {
         })
     }
 
-    async fn receipt(
+    async fn receipt_local(
         &self,
-        request_data: near_jsonrpc_primitives::types::receipts::RpcReceiptRequest,
-    ) -> Result<
-        near_jsonrpc_primitives::types::receipts::RpcReceiptResponse,
-        near_jsonrpc_primitives::types::receipts::RpcReceiptError,
-    > {
+        request_data: RpcReceiptRequest,
+    ) -> Result<RpcReceiptResponse, RpcReceiptError> {
         match self
             .view_client_send(GetReceipt { receipt_id: request_data.receipt_reference.receipt_id })
             .await?
         {
-            Some(receipt_view) => {
-                Ok(near_jsonrpc_primitives::types::receipts::RpcReceiptResponse { receipt_view })
-            }
-            None => {
-                Err(near_jsonrpc_primitives::types::receipts::RpcReceiptError::UnknownReceipt {
-                    receipt_id: request_data.receipt_reference.receipt_id,
-                })
-            }
+            Some(receipt_view) => Ok(RpcReceiptResponse { receipt_view }),
+            None => Err(RpcReceiptError::UnknownReceipt {
+                receipt_id: request_data.receipt_reference.receipt_id,
+            }),
         }
+    }
+
+    async fn receipt_to_tx(
+        &self,
+        request: RpcReceiptToTxRequest,
+    ) -> Result<RpcReceiptToTxResponse, RpcReceiptToTxError> {
+        let response = self
+            .view_client_send(GetReceiptToTx { receipt_id: request.receipt_reference.receipt_id })
+            .await?;
+        Ok(RpcReceiptToTxResponse {
+            transaction_hash: response.transaction_hash,
+            sender_account_id: response.sender_account_id,
+        })
     }
 
     async fn changes_in_block(
@@ -1278,7 +2036,7 @@ impl JsonRpcHandler {
             .await
             .map_err(RpcFrom::rpc_from)?;
 
-        timeout(self.polling_config.polling_timeout, async {
+        let future = async {
             loop {
                 let patch_state_finished = self
                     .client_sender
@@ -1292,11 +2050,14 @@ impl JsonRpcHandler {
                 {
                     break;
                 }
-                let _ = sleep(self.polling_config.polling_interval).await;
+                self.clock.sleep(self.polling_config.polling_interval).await;
             }
-        })
-        .await
-        .expect("patch state should happen at next block, never timeout");
+        };
+
+        self.clock
+            .timeout(self.polling_config.polling_timeout, future)
+            .await
+            .expect("patch state should happen at next block, never timeout");
 
         Ok(near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateResponse {})
     }
@@ -1319,7 +2080,7 @@ impl JsonRpcHandler {
 
         // Hard limit the request to timeout at an hour, since fast forwarding can take a while,
         // where we can leave it to the rpc clients to set their own timeouts if necessary.
-        timeout(Duration::from_secs(60 * 60), async {
+        let future = async {
             loop {
                 let fast_forward_finished = self
                     .client_sender
@@ -1334,22 +2095,25 @@ impl JsonRpcHandler {
                     _ => (),
                 }
 
-                let _ = sleep(self.polling_config.polling_interval).await;
+                self.clock.sleep(self.polling_config.polling_interval).await;
             }
             Ok(())
-        })
-        .await
-        .map_err(|_| {
-            near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardError::InternalError {
-                error_message: "sandbox failed to fast forward within reasonable time of an hour"
-                    .to_string(),
-            }
-        })?
-        .map_err(|err| {
-            near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardError::InternalError {
-                error_message: format!("sandbox failed to fast forward due to: {:?}", err),
-            }
-        })?;
+        };
+        self.clock
+            .timeout(Duration::seconds(3600), future)
+            .await
+            .map_err(|_| {
+                near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardError::InternalError {
+                    error_message:
+                        "sandbox failed to fast forward within reasonable time of an hour"
+                            .to_string(),
+                }
+            })?
+            .map_err(|err| {
+                near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardError::InternalError {
+                    error_message: format!("sandbox failed to fast forward due to: {:?}", err),
+                }
+            })?;
 
         Ok(near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardResponse {})
     }
@@ -1468,9 +2232,15 @@ async fn handle_unknown_block(request: Message, handler: State<Arc<JsonRpcHandle
 
 async fn rpc_handler(
     State(handler): State<Arc<JsonRpcHandler>>,
+    headers: axum::http::HeaderMap,
     Json(request): Json<Message>,
 ) -> Response {
-    let message = handler.process(request.clone()).await;
+    let source = if headers.contains_key(SHARDED_RPC_COORDINATOR_HEADER) {
+        RequestSource::Coordinator
+    } else {
+        RequestSource::User
+    };
+    let message = handler.process(request.clone(), source).await;
     let Message::Response(response) = &message else {
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     };
@@ -1585,18 +2355,13 @@ async fn deprecated_debug_block_status_handler(
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
-
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub struct DebugRpcEpochInfoRequest {
-    #[serde(flatten)]
-    pub epoch_id: near_primitives::types::EpochId,
-}
-
 async fn debug_epoch_info_handler(
     State(handler): State<Arc<JsonRpcHandler>>,
     Path(epoch_id_str): Path<String>,
 ) -> Response {
-    let epoch_id: near_primitives::types::EpochId = epoch_id_str.parse().unwrap();
+    let Ok(epoch_id) = epoch_id_str.parse::<near_primitives::types::EpochId>() else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
     match handler.debug_epoch_info(Some(epoch_id)).await {
         Ok(Some(value)) => (StatusCode::OK, Json(value)).into_response(),
         Ok(None) => StatusCode::METHOD_NOT_ALLOWED.into_response(),
@@ -1629,6 +2394,16 @@ pub async fn prometheus_handler() -> Response {
         Ok(text) => (StatusCode::OK, [(CONTENT_TYPE, "text/plain")], text).into_response(),
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
+}
+
+pub async fn openapi_json_handler() -> impl IntoResponse {
+    let bytes = include_bytes!("../../../chain/jsonrpc/openapi/openapi.json");
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "application/json; charset=utf-8")
+        .body(axum::body::Body::from(bytes.to_vec()))
+        .unwrap()
 }
 
 async fn client_config_handler(State(handler): State<Arc<JsonRpcHandler>>) -> Response {
@@ -1702,14 +2477,17 @@ async fn display_debug_html(
 /// routes and middleware but does not start an HTTP server. Useful for testing
 /// or when you need the Router for custom server setup.
 pub fn create_jsonrpc_app(
+    clock: Clock,
     config: RpcConfig,
     genesis_config: GenesisConfig,
     client_sender: ClientSenderForRpc,
     view_client_sender: ViewClientSenderForRpc,
     process_tx_sender: ProcessTxSenderForRpc,
     peer_manager_sender: PeerManagerSenderForRpc,
+    block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
     #[cfg(feature = "test_features")] gc_sender: GCSenderForRpc,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
+    pool: Arc<RwLock<ShardedRpcPool>>,
 ) -> Router {
     let RpcConfig {
         cors_allowed_origins,
@@ -1722,6 +2500,7 @@ pub fn create_jsonrpc_app(
 
     // Create shared state
     let handler = Arc::new(JsonRpcHandler {
+        clock,
         client_sender,
         view_client_sender,
         process_tx_sender,
@@ -1733,6 +2512,8 @@ pub fn create_jsonrpc_app(
         entity_debug_handler,
         #[cfg(feature = "test_features")]
         gc_sender,
+        block_notification_watcher,
+        pool,
     });
 
     // Build router
@@ -1741,7 +2522,8 @@ pub fn create_jsonrpc_app(
         .route("/status", get(status_handler).head(status_handler))
         .route("/health", get(health_handler).head(health_handler))
         .route("/network_info", get(network_info_handler))
-        .route("/metrics", get(prometheus_handler));
+        .route("/metrics", get(prometheus_handler))
+        .route("/openapi.json", get(openapi_json_handler));
 
     if enable_debug_rpc {
         app = app
@@ -1774,32 +2556,38 @@ pub fn create_jsonrpc_app(
 ///
 /// Starts HTTP server(s) listening for RPC requests using the provided future spawner.
 pub async fn start_http(
+    clock: Clock,
     config: RpcConfig,
     genesis_config: GenesisConfig,
     client_sender: ClientSenderForRpc,
     view_client_sender: ViewClientSenderForRpc,
     process_tx_sender: ProcessTxSenderForRpc,
     peer_manager_sender: PeerManagerSenderForRpc,
+    block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
     #[cfg(feature = "test_features")] gc_sender: GCSenderForRpc,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
+    pool: Arc<RwLock<ShardedRpcPool>>,
     future_spawner: &dyn FutureSpawner,
 ) {
     let addr = config.addr;
     let prometheus_addr = config.prometheus_addr.clone().filter(|it| it != &addr.to_string());
     let cors_allowed_origins = config.cors_allowed_origins.clone();
-    info!(target:"network", "Starting http server at {}", addr);
+    tracing::info!(target: "network", %addr, "starting http server");
 
     // Create the axum app using the extracted function
     let app = create_jsonrpc_app(
+        clock,
         config,
         genesis_config,
         client_sender,
         view_client_sender,
         process_tx_sender,
         peer_manager_sender,
+        block_notification_watcher,
         #[cfg(feature = "test_features")]
         gc_sender,
         entity_debug_handler,
+        pool,
     );
 
     // Bind to socket here, so callers can be sure they can connect once this function returns.
@@ -1810,12 +2598,12 @@ pub async fn start_http(
     // Start main server
     future_spawner.spawn("JSON RPC", async move {
         if let Err(e) = axum::serve(listener, app).await {
-            error!(target:"network", "HTTP server error: {:?}", e);
+            tracing::error!(target: "network", ?e, "HTTP server error");
         }
     });
 
     if let Some(prometheus_addr) = prometheus_addr {
-        info!(target:"network", "Starting http monitoring server at {}", prometheus_addr);
+        tracing::info!(target: "network", %prometheus_addr, "starting http monitoring server");
         // Export only the /metrics service. It's a read-only service and can have very relaxed
         // access restrictions.
         let prometheus_app = Router::new()
@@ -1830,7 +2618,7 @@ pub async fn start_http(
         // Start Prometheus server
         future_spawner.spawn("Prometheus Metrics", async move {
             if let Err(e) = axum::serve(listener, prometheus_app).await {
-                error!(target:"network", "Prometheus server error: {:?}", e);
+                tracing::error!(target: "network", ?e, "prometheus server error");
             }
         });
     }
@@ -1841,9 +2629,9 @@ pub async fn start_http_for_readonly_debug_querying(
     addr: ListenerAddr,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
 ) -> Result<(), std::io::Error> {
-    info!("Starting readonly debug API server at {}", addr);
-    info!(
-        "Use tools/debug-ui, use localhost as the node, and go to the Entity Debug tab to start querying."
+    tracing::info!(%addr, "starting readonly debug API server");
+    tracing::info!(
+        "use tools/debug-ui, use localhost as the node, and go to the `Entity Debug` tab to start querying"
     );
 
     let app = Router::new()

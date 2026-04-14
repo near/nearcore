@@ -1,12 +1,10 @@
+use crate::instrumentation::metrics::QUEUE_PENDING_MESSAGES;
 use core::str;
+use near_o11y::metrics::prometheus;
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
-
-use parking_lot::RwLock;
-
-use crate::instrumentation::metrics::QUEUE_PENDING_MESSAGES;
-use near_o11y::metrics::prometheus;
 
 /// InstrumentedQueue keeps track of the number of pending messages of each type in the queue.
 pub struct InstrumentedQueue {

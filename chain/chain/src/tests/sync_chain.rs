@@ -13,7 +13,7 @@ fn chain_sync_headers() {
     let mut block_merkle_tree = PartialMerkleTree::default();
     for i in 0..4 {
         blocks.push(
-            TestBlockBuilder::new(Clock::real(), &blocks[i], bls_signer.clone())
+            TestBlockBuilder::from_prev_block(Clock::real(), &blocks[i], bls_signer.clone())
                 .block_merkle_tree(&mut block_merkle_tree)
                 .build(),
         )

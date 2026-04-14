@@ -1,9 +1,8 @@
+use crate::{config::Config, gas_cost::GasCost};
 use rand::{Rng, prelude::SliceRandom};
 use rand_xorshift::XorShiftRng;
 use rocksdb::DB;
 use std::{io::prelude::*, iter, path::PathBuf};
-
-use crate::{config::Config, gas_cost::GasCost};
 
 #[derive(Debug, Clone, clap::Parser)]
 pub struct RocksDBTestConfig {

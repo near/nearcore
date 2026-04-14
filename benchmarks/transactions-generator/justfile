@@ -4,6 +4,7 @@ near_localnet_home := script_dir / ".near"
 near_accounts_path := script_dir / "user-data"
 near_config_file := near_localnet_home / "config.json"
 near_genesis_file := near_localnet_home / "genesis.json"
+near_ft_contract_path := script_dir / "./fungible_token.wasm"
 rpc_url := "http://127.0.0.1:4040"
 
 
@@ -13,15 +14,13 @@ init-localnet:
     jq '.chain_id="benchmarknet"' {{near_genesis_file}} > tmp_genesis.json && mv tmp_genesis.json {{near_genesis_file}}
     jq '.rpc.addr="0.0.0.0:4040"' {{near_config_file}} > tmp_config.json && mv tmp_config.json {{near_config_file}}
 
-
 run-localnet loglevel="info":
     RUST_LOG={{loglevel}} \
     {{neard}} --home {{near_localnet_home}} run
 
-create-accounts num_accounts="50000":
+create-accounts num_accounts="500":
     #!/usr/bin/env bash
-    {{neard}} --home {{near_localnet_home}} run &
-    NEARD_PID=$!
+    {{neard}} --home {{near_localnet_home}} run & NEARD_PID=$!
     sleep 5
     RUST_LOG=info \
     ../synth-bm/target/release/near-synth-bm create-sub-accounts \
@@ -30,24 +29,29 @@ create-accounts num_accounts="50000":
         --nonce 1 \
         --sub-account-prefix 'a' \
         --num-sub-accounts {{num_accounts}} \
-        --deposit 953060601875000000010000 \
+        --deposit 200002488684649026500000000 \
         --channel-buffer-size 1200 \
         --requests-per-second 200  \
         --user-data-dir user-data
     kill ${NEARD_PID}
     sleep 3
 
+# Enables the transaction generator in the localnet config.
+# Updates the accounts_path field to point to the created accounts and merges the `tx-generator-settings.json` into config file
+# If `tx-generator-settings.json` does not exist, it is copied from `tx-generator-settings.json.in` .
 enable-tx:
     cp -n tx-generator-settings.json.in tx-generator-settings.json
-    jq '.tx_generator={ \
-        "accounts_path": "{{near_accounts_path}}"}' {{near_config_file}} > tmp_config.json && mv tmp_config.json {{near_config_file}}
-    jq --slurpfile patch tx-generator-settings.json ' \
-      . as $orig \
-      | $patch[0].tx_generator.schedule as $sched    \
-      | .["tx_generator"] += { "schedule": $sched }  \
-      | $patch[0].tx_generator.controller as $ctrl   \
-      | .["tx_generator"] += { "controller": $ctrl } \
-    ' {{near_config_file}} > tmp_config.json && mv tmp_config.json {{near_config_file}}
+    jq '.tx_generator.accounts_path = "{{near_accounts_path}}"' tx-generator-settings.json > {{near_localnet_home}}/tx-generator-settings.tmp.json
+    jq -s '.[0] * .[1]' {{near_config_file}} {{near_localnet_home}}/tx-generator-settings.tmp.json > tmp_config.json && mv tmp_config.json {{near_config_file}}
+    rm {{near_localnet_home}}/tx-generator-settings.tmp.json
+
+enable-ft:
+    cp -n tx-generator-settings.json.in tx-generator-settings.json
+    jq '.tx_generator.accounts_path = "{{near_accounts_path}}" \
+     |  .tx_generator.transaction_type.FungibleToken.wasm_path = "{{near_ft_contract_path}}" \
+       ' tx-generator-settings.json > {{near_localnet_home}}/tx-generator-settings.tmp.json
+    jq -s '.[0] * .[1]' {{near_config_file}} {{near_localnet_home}}/tx-generator-settings.tmp.json > tmp_config.json && mv tmp_config.json {{near_config_file}}
+    rm {{near_localnet_home}}/tx-generator-settings.tmp.json
 
 unlimit:
     jq '.gas_limit=20000000000000000' {{near_genesis_file}} > tmp_genesis.json && mv tmp_genesis.json {{near_genesis_file}}
@@ -64,4 +68,12 @@ do-it:
     just unlimit
     just create-accounts
     just enable-tx
+    just run-localnet
+
+do-ft:
+    #!/usr/bin/env bash
+    just init-localnet
+    just unlimit
+    just create-accounts
+    just enable-ft
     just run-localnet

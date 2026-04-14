@@ -2,8 +2,9 @@ use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::messaging::{Actor, CanSend, Handler, HandlerWithContext, Sender};
 use near_async::time::Duration;
 use near_async::{MultiSend, MultiSenderFrom};
-use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
-use near_performance_metrics_macros::perf;
+use near_network::types::{
+    NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, SnapshotHostEvent,
+};
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
@@ -79,13 +80,13 @@ impl StateSnapshotActor {
         &self,
         min_chunk_prev_height: BlockHeight,
         shard_indexes_and_uids: &[(ShardIndex, ShardUId)],
-    ) -> anyhow::Result<bool> {
+    ) -> bool {
         let shard_uids = shard_indexes_and_uids.iter().map(|(_idx, uid)| *uid);
         let Some(min_height) =
-            self.flat_storage_manager.resharding_catchup_height_reached(shard_uids)?
+            self.flat_storage_manager.resharding_catchup_height_reached(shard_uids)
         else {
             // No flat storage split + catchup is in progress, ok to proceed
-            return Ok(false);
+            return false;
         };
         let Some(min_height) = min_height else {
             // storage split + catchup is in progress and not all shards have reached the catchup phase yet. Can't proceed
@@ -101,19 +102,19 @@ impl StateSnapshotActor {
                     }
                 })
                 .collect();
-            tracing::debug!(target: "state_snapshot", ?not_ready_shards, "Waiting for resharding: shards not in catchup phase");
-            return Ok(true);
+            tracing::debug!(target: "state_snapshot", ?not_ready_shards, "waiting for resharding: shards not in catchup phase");
+            return true;
         };
         // Proceed if the catchup code is already reasonably close to being finished. This is not a correctness issue,
-        // as this line of code could just be replaced with Ok(false), and things would work. But in that case, if there are for
+        // as this line of code could just be replaced with false, and things would work. But in that case, if there are for
         // some reason lots of deltas to apply (e.g. the sync hash is 1000s of blocks past the start of the epoch because of missed
         // chunks), then we'll duplicate a lot of work that's being done by the resharding catchup code. So we might as well just
         // come back later after most of that work has already been done.
         let should_wait = min_height + 10 < min_chunk_prev_height;
         if should_wait {
-            tracing::debug!(target: "state_snapshot", min_height, min_chunk_prev_height, "Waiting for resharding catchup");
+            tracing::debug!(target: "state_snapshot", min_height, min_chunk_prev_height, "waiting for resharding catchup");
         }
-        Ok(should_wait)
+        should_wait
     }
 
     pub fn handle_create_snapshot_request(
@@ -121,30 +122,30 @@ impl StateSnapshotActor {
         msg: CreateSnapshotRequest,
         ctx: &mut dyn DelayedActionRunner<Self>,
     ) {
+        let chain_progressed_msg =
+            SnapshotHostEvent::ChainProgressed { epoch_height: msg.epoch_height };
+        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::SnapshotHostEvent(chain_progressed_msg),
+        ));
+
         if let StateSnapshotConfig::Disabled = self.tries.state_snapshot_config() {
-            tracing::info!(target: "state_snapshot", ?msg, "Snapshots are disabled");
+            tracing::info!(target: "state_snapshot", ?msg, "snapshots are disabled");
             return;
         }
         if let Some(last_requested_hash) = self.flat_storage_manager.snapshot_hash_wanted() {
             if last_requested_hash != msg.prev_block_hash {
-                tracing::info!(target: "state_snapshot", ?msg, %last_requested_hash, "Skipping state snapshot in favor of more recent request");
+                tracing::info!(target: "state_snapshot", ?msg, %last_requested_hash, "skipping state snapshot in favor of more recent request");
                 return;
             }
         }
-        let should_wait = match self.should_wait_for_resharding_split(
+        let should_wait = self.should_wait_for_resharding_split(
             msg.min_chunk_prev_height,
             &msg.shard_indexes_and_uids,
-        ) {
-            Ok(s) => s,
-            Err(err) => {
-                tracing::error!(target: "state_snapshot", ?err, "State Snapshot Actor failed to check resharding status. Not making snapshot");
-                return;
-            }
-        };
+        );
         // TODO: instead of resending the same message over and over, wait on a Condvar.
         // This would require making testloop work with Condvars that normally are meant to be woken up by another thread
         if should_wait {
-            tracing::debug!(target: "state_snapshot", prev_block_hash=?&msg.prev_block_hash, "Postpone CreateSnapshotRequest");
+            tracing::debug!(target: "state_snapshot", prev_block_hash = ?&msg.prev_block_hash, "postpone create snapshot request");
             ctx.run_later(
                 "ReshardingActor FlatStorageSplitShard",
                 Duration::seconds(1),
@@ -155,7 +156,7 @@ impl StateSnapshotActor {
             return;
         }
 
-        tracing::debug!(target: "state_snapshot", prev_block_hash=?&msg.prev_block_hash, "Handle CreateSnapshotRequest");
+        tracing::debug!(target: "state_snapshot", prev_block_hash = ?&msg.prev_block_hash, "handle create snapshot request");
         let CreateSnapshotRequest {
             prev_block_hash,
             epoch_height,
@@ -179,29 +180,27 @@ impl StateSnapshotActor {
                 };
 
                 self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::SnapshotHostInfo {
+                    NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::SnapshotCreated {
                         sync_hash: prev_block_hash,
                         epoch_height,
                         shards: res_shard_uids.iter().map(|uid| uid.shard_id.into()).collect(),
-                    },
+                    }),
                 ));
             }
             Err(err) => {
-                tracing::error!(target: "state_snapshot", ?err, "State snapshot creation failed")
+                tracing::error!(target: "state_snapshot", ?err, "state snapshot creation failed")
             }
         }
     }
 }
 
 impl Handler<DeleteSnapshotRequest> for StateSnapshotActor {
-    #[perf]
     fn handle(&mut self, msg: DeleteSnapshotRequest) {
         self.handle_delete_snapshot_request(msg)
     }
 }
 
 impl HandlerWithContext<CreateSnapshotRequest> for StateSnapshotActor {
-    #[perf]
     fn handle(&mut self, msg: CreateSnapshotRequest, ctx: &mut dyn DelayedActionRunner<Self>) {
         self.handle_create_snapshot_request(msg, ctx)
     }

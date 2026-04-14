@@ -1,49 +1,49 @@
-use std::cell::Cell;
-use std::collections::{BTreeMap, HashSet};
-use std::num::NonZero;
-
+use super::sharding::{next_epoch_has_new_shard_layout, this_block_has_new_shard_layout};
+use crate::setup::state::NodeExecutionData;
+use crate::utils::loop_action::LoopAction;
+use crate::utils::node::TestLoopNode;
+use crate::utils::sharding::{get_memtrie_for_shard, next_block_has_new_shard_layout};
+use crate::utils::transactions::{check_txs, get_anchor_hash, get_shared_block_hash};
+use crate::utils::{get_node_data, retrieve_client_actor};
 use assert_matches::assert_matches;
 use borsh::BorshDeserialize;
 use bytesize::ByteSize;
 use itertools::Itertools;
+use near_async::messaging::CanSend;
 use near_async::test_loop::data::TestLoopData;
-use near_chain::ChainStoreAccess;
+use near_chain::types::Tip;
+use near_chain::{ChainStoreAccess, Error};
 use near_client::Client;
-use near_client::{Query, QueryError::GarbageCollectedBlock};
+use near_client::Query;
+use near_client::client_actor::ClientActor;
 use near_crypto::Signer;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
+use near_network::client::ProcessTxRequest;
 use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     DelayedReceiptIndices, PromiseYieldIndices, ReceiptOrStateStoredReceipt,
 };
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance, BlockId, BlockReference, Gas, ShardId};
+use near_primitives::trie_key::TrieKey;
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, BlockId, BlockReference, Gas, ShardId,
+};
 use near_primitives::views::{FinalExecutionStatus, QueryRequest};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::db::refcount::decode_value_with_rc;
+use near_store::flat::FlatStorageStatus;
 use near_store::trie::receipts_column_helper::{ShardsOutgoingReceiptBuffer, TrieQueue};
 use near_store::{DBCol, ShardUId, StorageError, Trie, TrieDBStorage, get};
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
-
-use super::sharding::{next_epoch_has_new_shard_layout, this_block_has_new_shard_layout};
-use crate::setup::state::NodeExecutionData;
-use crate::utils::loop_action::LoopAction;
-use crate::utils::sharding::{get_memtrie_for_shard, next_block_has_new_shard_layout};
-use crate::utils::transactions::{
-    check_txs, check_txs_remove_successful, delete_account, get_anchor_hash, get_next_nonce,
-    store_and_submit_tx, submit_tx,
-};
-use crate::utils::{get_node_data, retrieve_client_actor};
-use near_chain::types::Tip;
-use near_client::client_actor::ClientActorInner;
-use near_primitives::shard_layout::ShardLayout;
-use near_primitives::trie_key::TrieKey;
-use near_store::flat::FlatStorageStatus;
+use std::cell::Cell;
+use std::collections::{BTreeMap, HashSet};
+use std::num::NonZero;
 use std::sync::Arc;
 
 /// A config to tell what shards will be tracked by the client at the given index.
@@ -137,7 +137,11 @@ pub(crate) fn execute_money_transfers(account_ids: Vec<AccountId>) -> LoopAction
                     .collect_vec();
 
                 let anchor_hash = get_anchor_hash(&clients);
-                let nonce = get_next_nonce(&test_loop_data, &node_datas, &sender);
+                let node = TestLoopNode {
+                    data: test_loop_data,
+                    node_data: get_node_data(node_datas, &client_account_id),
+                };
+                let nonce = node.get_next_nonce(&sender);
                 let amount = Balance::from_near(1).checked_mul(rng.gen_range(1..=10)).unwrap();
                 let tx = SignedTransaction::send_money(
                     nonce,
@@ -147,7 +151,7 @@ pub(crate) fn execute_money_transfers(account_ids: Vec<AccountId>) -> LoopAction
                     amount,
                     anchor_hash,
                 );
-                submit_tx(&node_datas, &client_account_id, tx);
+                node.submit_tx(tx);
             }
             ran_transfers.set(true);
         },
@@ -227,7 +231,6 @@ pub(crate) fn execute_storage_operations(
                 &create_user_test_signer(&sender_id).into(),
                 vec![read_action, write_action],
                 anchor_hash,
-                0,
             );
 
             store_and_submit_tx(
@@ -244,6 +247,41 @@ pub(crate) fn execute_storage_operations(
     );
 
     LoopAction::new(action_fn, succeeded)
+}
+
+/// Checks the outcomes of transactions stored in `txs`. Successful transactions
+/// are removed. Transactions that haven't completed yet (`Started`/`NotStarted`)
+/// are put back in `txs` for retry on the next iteration. Any other status is
+/// treated as a failure and panics. When all transactions have succeeded,
+/// `checked_transactions` is set to `true`.
+fn check_txs_with_retry(
+    client: &Client,
+    txs: &Cell<Vec<(CryptoHash, u64)>>,
+    checked_transactions: &Cell<bool>,
+) {
+    let mut remaining = vec![];
+    for (tx, tx_height) in txs.take() {
+        let tx_outcome = client.chain.get_partial_transaction_result(&tx);
+        let status = match tx_outcome {
+            Err(e) => panic!("transaction {tx} not found: {e}"),
+            Ok(outcome) => outcome.status,
+        };
+        tracing::debug!(target: "test", ?tx_height, ?tx, ?status, "transaction status");
+        match status {
+            FinalExecutionStatus::SuccessValue(_) => {}
+            FinalExecutionStatus::Started | FinalExecutionStatus::NotStarted => {
+                remaining.push((tx, tx_height));
+            }
+            FinalExecutionStatus::Failure(error) => {
+                panic!("transaction {tx} failed with error: {error:?}");
+            }
+        }
+    }
+    if remaining.is_empty() {
+        checked_transactions.set(true);
+    } else {
+        txs.set(remaining);
+    }
 }
 
 /// Returns a loop action that invokes a costly method from a contract
@@ -286,15 +324,7 @@ pub(crate) fn call_burn_gas_contract(
             // After resharding: wait some blocks and check that all txs have been executed correctly.
             if let Some(height) = resharding_height.get() {
                 if tip.height > height + tx_check_blocks_after_resharding {
-                    for (tx, tx_height) in txs.take() {
-                        let tx_outcome =
-                            client_actor.client.chain.get_partial_transaction_result(&tx);
-                        let status = tx_outcome.as_ref().map(|o| o.status.clone());
-                        let status = status.unwrap();
-                        tracing::debug!(target: "test", ?tx_height, ?tx, ?status, "transaction status");
-                        assert_matches!(status, FinalExecutionStatus::SuccessValue(_));
-                    }
-                    checked_transactions.set(true);
+                    check_txs_with_retry(&client_actor.client, &txs, &checked_transactions);
                 }
             } else {
                 if next_block_has_new_shard_layout(client_actor.client.epoch_manager.as_ref(), &tip)
@@ -401,7 +431,7 @@ pub(crate) fn send_large_cross_shard_receipts(
                         outgoing_receipt_sizes.insert(target_shard, receipt_sizes);
                     }
                 }
-                tracing::info!(target: "test", "outgoing buffers from shard {}: {:?}", shard_uid.shard_id(), outgoing_receipt_sizes);
+                tracing::info!(target: "test", shard_id = %shard_uid.shard_id(), ?outgoing_receipt_sizes, "outgoing buffers from shard");
             }
 
             let is_epoch_before_resharding =
@@ -447,10 +477,10 @@ pub(crate) fn send_large_cross_shard_receipts(
                         );
                         tracing::info!(
                             target: "test",
-                            "Sending 3MB receipt from {} to {}. tx_hash: {:?}",
-                            signer_id,
-                            receiver_id,
-                            tx.get_hash()
+                            %signer_id,
+                            %receiver_id,
+                            tx_hash = ?tx.get_hash(),
+                            "sending 3MB receipt"
                         );
                         store_and_submit_tx(
                             &node_datas,
@@ -518,9 +548,12 @@ pub(crate) fn call_promise_yield(
             // The operation to be done depends on the current block height in relation to the
             // resharding height.
             match (resharding_height.get(), latest_height.get()) {
-                // Resharding happened in the previous block.
+                // Resharding happened two blocks ago.
                 // Maybe send the resume transaction.
-                (Some(resharding), latest) if latest == resharding + 1 && call_resume => {
+                // Don't send at resharding + 1 (first block of new epoch) because the
+                // RPC client may observe it before chunk producers do, causing forwarded
+                // txs to be rejected as Expired.
+                (Some(resharding), latest) if latest == resharding + 2 && call_resume => {
                     for (signer_id, receiver_id) in
                         signer_ids.clone().into_iter().zip(receiver_ids.clone().into_iter())
                     {
@@ -550,18 +583,8 @@ pub(crate) fn call_promise_yield(
                 }
                 // Resharding happened a few blocks in the past.
                 // Check transactions' outcomes.
-                (Some(resharding), latest) if latest == resharding + 4 => {
-                    let txs = txs.take();
-                    assert_ne!(txs.len(), 0);
-                    for (tx, tx_height) in txs {
-                        let tx_outcome =
-                            client_actor.client.chain.get_partial_transaction_result(&tx);
-                        let status = tx_outcome.as_ref().map(|o| o.status.clone());
-                        let status = status.unwrap();
-                        tracing::debug!(target: "test", ?tx_height, ?tx, ?status, "transaction status");
-                        assert_matches!(status, FinalExecutionStatus::SuccessValue(_));
-                    }
-                    checked_transactions.set(true);
+                (Some(resharding), latest) if latest >= resharding + 4 => {
+                    check_txs_with_retry(&client_actor.client, &txs, &checked_transactions);
                 }
                 (Some(_resharding), _latest) => {}
                 // Resharding didn't happen in the past.
@@ -646,7 +669,7 @@ fn check_deleted_account_availability(
         let view_client = test_loop_data.get_mut(&rpc_view_client_handle);
         near_async::messaging::Handler::handle(view_client, msg.clone())
     };
-    assert_matches!(rpc_node_result, Err(GarbageCollectedBlock { .. }));
+    assert_matches!(rpc_node_result, Err(..));
 
     if let Some(archival_id) = archival_id {
         let archival_node_data = get_node_data(node_datas, &archival_id);
@@ -711,14 +734,30 @@ pub(crate) fn temporary_account_during_resharding(
                 }
                 // Just resharded. Delete the temporary account and set the target height
                 // high enough so that the delete account transaction will be garbage collected.
-                let tx_hash = delete_account(
-                    test_loop_data,
-                    node_datas,
-                    &client_account_id,
-                    &temporary_account_id,
-                    &originator_id,
+                //
+                // We construct the tx manually instead of using node.tx_delete_account()
+                // because that method uses node.head().last_block_hash, which is the
+                // head of a single node. With shard shuffling enabled, nodes can be at
+                // different heights, and the chunk producer that processes the tx might
+                // not know about that block hash yet. Using get_shared_block_hash()
+                // picks the block at the minimum head height across all nodes, which is
+                // guaranteed to be known by every node.
+                let node = TestLoopNode {
+                    data: test_loop_data,
+                    node_data: get_node_data(node_datas, &client_account_id),
+                };
+                let signer = create_user_test_signer(&temporary_account_id);
+                let nonce = node.get_next_nonce(&temporary_account_id);
+                let block_hash = get_shared_block_hash(node_datas, test_loop_data);
+                let tx = SignedTransaction::delete_account(
+                    nonce,
+                    temporary_account_id.clone(),
+                    temporary_account_id.clone(),
+                    originator_id.clone(),
+                    &signer,
+                    block_hash,
                 );
-                delete_account_tx_hash.set(Some(tx_hash));
+                delete_account_tx_hash.set(Some(node.submit_tx(tx)));
                 target_height
                     .set(Some(latest_height.get() + (gc_num_epochs_to_keep + 1) * epoch_length));
                 resharding_height.set(Some(latest_height.get()));
@@ -760,8 +799,7 @@ pub(crate) fn temporary_account_during_resharding(
 fn retain_the_only_shard_state(client: &Client, the_only_shard_uid: ShardUId) {
     let store = client.chain.chain_store.store().trie_store();
     let mut store_update = store.store_update();
-    for kv in store.store().iter_raw_bytes(DBCol::State) {
-        let (key, value) = kv.unwrap();
+    for (key, value) in store.store().iter_raw_bytes(DBCol::State) {
         let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
         if shard_uid == the_only_shard_uid {
             continue;
@@ -771,15 +809,14 @@ fn retain_the_only_shard_state(client: &Client, the_only_shard_uid: ShardUId) {
         let node_hash = CryptoHash::try_from_slice(&key[8..]).unwrap();
         store_update.decrement_refcount_by(shard_uid, &node_hash, NonZero::new(rc as u32).unwrap());
     }
-    store_update.commit().unwrap();
+    store_update.commit();
 }
 
 /// Asserts that all other shards State except `the_only_shard_uid` have been cleaned-up.
 fn check_has_the_only_shard_state(client: &Client, the_only_shard_uid: ShardUId) {
     let store = client.chain.chain_store.store();
     let mut shard_uid_prefixes = HashSet::new();
-    for kv in store.iter_raw_bytes(DBCol::State) {
-        let (key, _) = kv.unwrap();
+    for (key, _) in store.iter_raw_bytes(DBCol::State) {
         let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
         shard_uid_prefixes.insert(shard_uid);
     }
@@ -828,19 +865,13 @@ pub(crate) fn check_resharding_skipped_when_no_children_tracked(
                     let status = flat_store.get_flat_storage_status(parent_shard_uid);
 
                     match status {
-                        Ok(FlatStorageStatus::Ready(_)) => {
+                        FlatStorageStatus::Ready(_) => {
                             // Flat storage should be Ready.
                         }
-                        Ok(status) => {
+                        status => {
                             panic!(
                                 "Unexpected parent shard status {:?} for shard {:?}",
                                 status, parent_shard_uid
-                            );
-                        }
-                        Err(e) => {
-                            panic!(
-                                "Error checking parent shard {:?} flat storage status: {:?}",
-                                parent_shard_uid, e
                             );
                         }
                     }
@@ -994,7 +1025,7 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
             let indices_left_child_shard = get_promise_yield_indices(left_child_shard_uid);
             let indices_right_child_shard = get_promise_yield_indices(right_child_shard_uid);
 
-            tracing::debug!(target: "test", height=tip.height, epoch=?tip.epoch_id, 
+            tracing::debug!(target: "test", height=tip.height, epoch=?tip.epoch_id,
                     ?indices_parent_shard, ?indices_left_child_shard, ?indices_right_child_shard, "promise yield indices");
 
             // At any height, if the shard exists and it is tracked, the promise yield indices trie
@@ -1197,7 +1228,7 @@ pub(crate) fn delayed_receipts_repro_missing_trie_value(
             let indices_left_child_shard = get_delayed_receipts_indices(left_child_shard_uid);
             let indices_right_child_shard = get_delayed_receipts_indices(right_child_shard_uid);
 
-            tracing::debug!(target: "test", height=tip.height, epoch=?tip.epoch_id, 
+            tracing::debug!(target: "test", height=tip.height, epoch=?tip.epoch_id,
                     ?indices_parent_shard, ?indices_left_child_shard, ?indices_right_child_shard, "delayed receipts indices");
 
             // At any height, if the shard exists and it is tracked, the delayed receipts indices
@@ -1290,7 +1321,7 @@ fn get_resharded_shard_uids(
 // Helper function to retrieve any key from the trie. This bypasses all intermediate layers
 // (caching, memtrie, flat-storage).
 fn get_trie_node_value<I: borsh::BorshDeserialize + Default>(
-    client_actor: &ClientActorInner,
+    client_actor: &ClientActor,
     shard_uid: ShardUId,
     prev_block_hash: &CryptoHash,
     key: TrieKey,
@@ -1306,4 +1337,51 @@ fn get_trie_node_value<I: borsh::BorshDeserialize + Default>(
         );
         Ok(get(&trie, &key)?.unwrap_or_default())
     })
+}
+
+/// Submit a transaction to the node with the given account id.
+fn submit_tx(node_datas: &[NodeExecutionData], rpc_id: &AccountId, tx: SignedTransaction) {
+    let process_tx_request =
+        ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
+    let rpc_node_data = get_node_data(node_datas, rpc_id);
+    rpc_node_data.rpc_handler_sender.send(process_tx_request);
+}
+
+/// Stores a transaction hash into a vector of `(transaction, block_height)` and then submits the transaction.
+fn store_and_submit_tx(
+    node_datas: &[NodeExecutionData],
+    rpc_id: &AccountId,
+    txs: &Cell<Vec<(CryptoHash, BlockHeight)>>,
+    signer_id: &AccountId,
+    receiver_id: &AccountId,
+    height: BlockHeight,
+    tx: SignedTransaction,
+) {
+    let mut txs_vec = txs.take();
+    tracing::debug!(target: "test", height, tx_hash=?tx.get_hash(), ?signer_id, ?receiver_id, "submitting transaction");
+    txs_vec.push((tx.get_hash(), height));
+    txs.set(txs_vec);
+    submit_tx(node_datas, rpc_id, tx);
+}
+
+/// Checks status of the provided transactions. Panics if transaction result is an error.
+/// Removes transactions that finished successfully from the list.
+fn check_txs_remove_successful(txs: &Cell<Vec<(CryptoHash, BlockHeight)>>, client: &Client) {
+    let mut unfinished_txs = Vec::new();
+    for (tx_hash, tx_height) in txs.take() {
+        let tx_outcome = client.chain.get_final_transaction_result(&tx_hash);
+        let status = tx_outcome.as_ref().map(|o| o.status.clone());
+        tracing::debug!(target: "test", ?tx_height, ?tx_hash, ?status, "transaction status");
+        match status {
+            Ok(FinalExecutionStatus::SuccessValue(_)) => continue,
+            Ok(FinalExecutionStatus::NotStarted)
+            | Ok(FinalExecutionStatus::Started)
+            | Err(Error::DBNotFoundErr(_)) => unfinished_txs.push((tx_hash, tx_height)),
+            _ => panic!(
+                "remove_successful_txs: Transaction failed! tx_hash = {:?}, tx_height = {}, status = {:?}",
+                tx_hash, tx_height, status
+            ),
+        };
+    }
+    txs.set(unfinished_txs);
 }

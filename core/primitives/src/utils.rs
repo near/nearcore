@@ -1,7 +1,7 @@
 #[cfg(feature = "clock")]
 use crate::block::BlockHeader;
 use crate::hash::{CryptoHash, hash};
-use crate::types::{ChunkExecutionResultHash, NumSeats, NumShards, ShardId};
+use crate::types::{ChunkExecutionResultHash, ShardId};
 use chrono;
 use chrono::DateTime;
 use near_crypto::{ED25519PublicKey, Secp256K1PublicKey};
@@ -9,7 +9,6 @@ use near_primitives_core::account::id::{AccountId, AccountType};
 use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives_core::types::BlockHeight;
 use serde;
-use std::cmp::max;
 use std::convert::AsRef;
 use std::fmt;
 use std::mem::size_of;
@@ -177,6 +176,14 @@ pub fn get_block_shard_id(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8>
     res.extend_from_slice(block_hash.as_ref());
     res.extend_from_slice(&shard_id.to_le_bytes());
     res
+}
+
+pub fn get_witnesses_key(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8> {
+    get_block_shard_id(block_hash, shard_id)
+}
+
+pub fn get_contract_accesses_key(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8> {
+    get_block_shard_id(block_hash, shard_id)
 }
 
 pub fn get_receipt_proof_key(
@@ -369,7 +376,7 @@ macro_rules! unwrap_or_return {
         match $obj {
             Ok(value) => value,
             Err(err) => {
-                tracing::error!(target: "near", "Unwrap error: {}", err);
+                tracing::error!(target: "near", ?err, "unwrap error");
                 return $ret;
             }
         }
@@ -378,7 +385,7 @@ macro_rules! unwrap_or_return {
         match $obj {
             Ok(value) => value,
             Err(err) => {
-                tracing::error!(target: "near", "Unwrap error: {}", err);
+                tracing::error!(target: "near", ?err, "unwrap error");
                 return;
             }
         }
@@ -397,22 +404,6 @@ pub fn from_timestamp(timestamp: u64) -> DateTime<chrono::Utc> {
 pub fn to_timestamp(time: DateTime<chrono::Utc>) -> u64 {
     // The unwrap will be safe for all dates between 1678 and 2261.
     time.timestamp_nanos_opt().unwrap() as u64
-}
-
-/// Compute number of seats per shard for given total number of seats and number of shards.
-pub fn get_num_seats_per_shard(num_shards: NumShards, num_seats: NumSeats) -> Vec<NumSeats> {
-    (0..num_shards)
-        .map(|shard_id| {
-            let remainder =
-                num_seats.checked_rem(num_shards).expect("num_shards ≠ 0 is guaranteed here");
-            let quotient =
-                num_seats.checked_div(num_shards).expect("num_shards ≠ 0 is guaranteed here");
-            let num = quotient
-                .checked_add(if shard_id < remainder { 1 } else { 0 })
-                .expect("overflow is impossible here");
-            max(num, 1)
-        })
-        .collect()
 }
 
 /// Generate random string of given length
@@ -449,14 +440,18 @@ where
     Serializable(object)
 }
 
-/// From `near-account-id` version `1.0.0-alpha.2`, `is_implicit` returns true for ETH-implicit accounts.
 /// This function is a wrapper for `is_implicit` method so that we can easily differentiate its behavior
-/// based on whether ETH-implicit accounts are enabled.
-pub fn account_is_implicit(account_id: &AccountId, eth_implicit_accounts_enabled: bool) -> bool {
-    if eth_implicit_accounts_enabled {
-        account_id.get_account_type().is_implicit()
-    } else {
-        account_id.get_account_type() == AccountType::NearImplicitAccount
+/// based on whether specific implicit accounts are enabled.
+pub fn account_is_implicit(
+    account_id: &AccountId,
+    eth_implicit_accounts_enabled: bool,
+    deterministic_account_ids_enabled: bool,
+) -> bool {
+    match account_id.get_account_type() {
+        AccountType::NamedAccount => false,
+        AccountType::NearImplicitAccount => true,
+        AccountType::EthImplicitAccount => eth_implicit_accounts_enabled,
+        AccountType::NearDeterministicAccount => deterministic_account_ids_enabled,
     }
 }
 
@@ -532,13 +527,36 @@ mod tests {
     }
 
     #[test]
-    fn test_num_chunk_producers() {
-        for num_seats in 1..50 {
-            for num_shards in 1..50 {
-                let assignment = get_num_seats_per_shard(num_shards, num_seats);
-                assert_eq!(assignment.iter().sum::<u64>(), max(num_seats, num_shards));
-            }
-        }
+    fn test_account_is_implicit() {
+        // Named accounts are never implicit
+        let named: AccountId = "alice.near".parse().unwrap();
+        assert!(!account_is_implicit(&named, false, false));
+        assert!(!account_is_implicit(&named, true, false));
+        assert!(!account_is_implicit(&named, false, true));
+        assert!(!account_is_implicit(&named, true, true));
+
+        // NEAR implicit accounts are always implicit (64 hex chars)
+        let near_implicit: AccountId =
+            "bb4dc639b212e075a751685b26bdcea5920a504181ff2910e8549742127092a0".parse().unwrap();
+        assert!(account_is_implicit(&near_implicit, false, false));
+        assert!(account_is_implicit(&near_implicit, true, false));
+        assert!(account_is_implicit(&near_implicit, false, true));
+        assert!(account_is_implicit(&near_implicit, true, true));
+
+        // ETH implicit accounts depend on eth_implicit_accounts_enabled flag
+        let eth_implicit: AccountId = "0x96791e923f8cf697ad9c3290f2c9059f0231b24c".parse().unwrap();
+        assert!(!account_is_implicit(&eth_implicit, false, false));
+        assert!(account_is_implicit(&eth_implicit, true, false));
+        assert!(!account_is_implicit(&eth_implicit, false, true));
+        assert!(account_is_implicit(&eth_implicit, true, true));
+
+        // Deterministic accounts depend on deterministic_account_ids_enabled flag (0s prefix)
+        let deterministic: AccountId =
+            "0s1234567890123456789012345678901234567890".parse().unwrap();
+        assert!(!account_is_implicit(&deterministic, false, false));
+        assert!(!account_is_implicit(&deterministic, true, false));
+        assert!(account_is_implicit(&deterministic, false, true));
+        assert!(account_is_implicit(&deterministic, true, true));
     }
 
     #[test]

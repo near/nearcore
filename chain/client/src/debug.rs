@@ -1,7 +1,7 @@
 //! Structs in this file are used for debug purposes, and might change at any time
 //! without backwards compatibility.
 use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
-use crate::client_actor::ClientActorInner;
+use crate::client_actor::ClientActor;
 use itertools::Itertools;
 use near_async::messaging::Handler;
 use near_async::time::{Clock, Instant};
@@ -12,21 +12,26 @@ use near_client_primitives::debug::{
     DebugBlockStatusQuery, DebugBlocksStartingMode, DebugStatus, DebugStatusResponse,
     MissedHeightInfo, ProductionAtHeight, ValidatorStatus,
 };
+use near_client_primitives::debug::{DebugBlockStatus, DebugChunkStatus};
 use near_client_primitives::types::Error;
 use near_client_primitives::{
     debug::{EpochInfoView, TrackedShardsView},
     types::StatusError,
 };
 use near_epoch_manager::EpochManagerAdapter;
+use near_network::types::{ConnectedPeerInfo, NetworkInfo, PeerType};
 use near_o11y::log_assert;
-use near_performance_metrics_macros::perf;
 use near_primitives::congestion_info::CongestionControl;
 use near_primitives::errors::EpochError;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::state_sync::get_num_state_parts;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::types::{
     AccountId, BlockHeight, NumShards, ShardId, ShardIndex, ValidatorInfoIdentifier,
+};
+use near_primitives::views::{
+    AccountDataView, KnownProducerView, NetworkInfoView, PeerInfoView, Tier1ProxyView,
 };
 use near_primitives::{
     hash::CryptoHash,
@@ -40,13 +45,6 @@ use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use time::ext::InstantExt as _;
-
-use near_client_primitives::debug::{DebugBlockStatus, DebugChunkStatus};
-use near_network::types::{ConnectedPeerInfo, NetworkInfo, PeerType};
-use near_primitives::sharding::ChunkHash;
-use near_primitives::views::{
-    AccountDataView, KnownProducerView, NetworkInfoView, PeerInfoView, Tier1ProxyView,
-};
 
 // Maximum number of blocks to search for the first block to display.
 const DEBUG_MAX_BLOCKS_TO_SEARCH: u64 = 10000;
@@ -171,8 +169,7 @@ impl BlockProductionTracker {
     }
 }
 
-impl Handler<DebugStatus, Result<DebugStatusResponse, StatusError>> for ClientActorInner {
-    #[perf]
+impl Handler<DebugStatus, Result<DebugStatusResponse, StatusError>> for ClientActor {
     fn handle(&mut self, msg: DebugStatus) -> Result<DebugStatusResponse, StatusError> {
         match msg {
             DebugStatus::SyncStatus => Ok(DebugStatusResponse::SyncStatus(
@@ -209,11 +206,7 @@ fn get_block_hashes_to_fetch(
     final_height: BlockHeight,
 ) -> Vec<CryptoHash> {
     if height_to_fetch >= final_height {
-        chain_store
-            .get_all_header_hashes_by_height(height_to_fetch)
-            .unwrap_or_default()
-            .into_iter()
-            .collect()
+        chain_store.get_all_header_hashes_by_height(height_to_fetch).into_iter().collect()
     } else {
         chain_store.get_block_hash_by_height(height_to_fetch).ok().into_iter().collect()
     }
@@ -231,7 +224,7 @@ fn find_first_height_to_fetch(
 
     let min_height_to_search = max(
         height_to_fetch as i64 - DEBUG_MAX_BLOCKS_TO_SEARCH as i64,
-        chain_store.genesis_height() as i64,
+        chain_store.get_genesis_height() as i64,
     ) as u64;
     while height_to_fetch > min_height_to_search {
         let block_hashes = get_block_hashes_to_fetch(chain_store, height_to_fetch, final_height);
@@ -302,7 +295,7 @@ fn get_prev_epoch_identifier(
     Some(ValidatorInfoIdentifier::EpochId(*prev_epoch_last_block_header.epoch_id()))
 }
 
-impl ClientActorInner {
+impl ClientActor {
     // Gets a list of block producers, chunk producers and chunk validators for a given epoch.
     fn get_validators_for_epoch(
         &self,
@@ -363,7 +356,7 @@ impl ClientActorInner {
                     .enumerate()
                     .map(|(shard_index, chunk)| {
                         // TODO(spice): chunks in spice no longer contain prev state root.
-                        if cfg!(feature = "protocol_feature_spice") {
+                        if chunk.is_spice_chunk() {
                             return (0, 0);
                         }
                         let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
@@ -399,7 +392,7 @@ impl ClientActorInner {
                                 .chain_store()
                                 .store()
                                 .get_ser::<ShardStateSyncResponseHeader>(DBCol::StateHeaders, &key),
-                            Ok(Some(_))
+                            Some(_)
                         )
                     }
                     Err(_) => false,
@@ -549,9 +542,10 @@ impl ClientActorInner {
         let mut height_to_fetch = starting_height.unwrap_or(header_head.height);
         height_to_fetch =
             find_first_height_to_fetch(chain_store, height_to_fetch, mode, final_head.height)?;
-        let min_height_to_fetch =
-            max(height_to_fetch as i64 - num_blocks as i64, chain_store.genesis_height() as i64)
-                as u64;
+        let min_height_to_fetch = max(
+            height_to_fetch as i64 - num_blocks as i64,
+            chain_store.get_genesis_height() as i64,
+        ) as u64;
 
         let mut block_hashes_to_force_fetch = HashSet::new();
         while height_to_fetch > min_height_to_fetch || !block_hashes_to_force_fetch.is_empty() {

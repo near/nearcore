@@ -1,5 +1,7 @@
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use assert_matches::assert_matches;
-
+use near_async::futures::TokioRuntimeFutureSpawner;
 use near_async::time::{Clock, Duration};
 use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
@@ -22,18 +24,17 @@ use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use nearcore::state_sync::StateSyncDumper;
 use std::sync::Arc;
 
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
-use near_async::futures::TokioRuntimeFutureSpawner;
-
 #[test]
 /// Produce several blocks, wait for the state dump thread to notice and
 /// write files to a temp dir.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_dump() {
     init_test_logger();
 
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = 25;
+    genesis.config.transaction_validity_period = 50;
 
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(1)
@@ -73,7 +74,7 @@ fn slow_test_state_dump() {
         validator,
         future_spawner: Arc::new(TokioRuntimeFutureSpawner(tokio_runtime)),
     };
-    state_sync_dumper.start().unwrap();
+    state_sync_dumper.start();
 
     const MAX_HEIGHT: BlockHeight = 37;
     for i in 1..=MAX_HEIGHT {
@@ -102,7 +103,7 @@ fn slow_test_state_dump() {
                     &StateFileType::StatePart { part_id, num_parts },
                 ));
                 if std::fs::read(&path).is_err() {
-                    tracing::info!("Missing {:?}", path);
+                    tracing::info!(?path, "missing");
                     all_parts_present = false;
                 }
             }
@@ -133,15 +134,16 @@ fn run_state_sync_with_dumped_parts(
     init_test_logger();
     if is_final_block_in_new_epoch {
         tracing::info!(
-            "Testing for case when both head and final block of the dumping node are in new epoch..."
+            "testing for case when both head and final block of the dumping node are in new epoch"
         );
     } else {
         tracing::info!(
-            "Testing for case when head is in new epoch, but final block isn't for the dumping node..."
+            "testing for case when head is in new epoch, but final block isn't for the dumping node"
         );
     }
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let num_clients = 2;
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(num_clients)
@@ -155,8 +157,6 @@ fn run_state_sync_with_dumped_parts(
         Some(Arc::new(InMemoryValidatorSigner::from_signer(signer.clone()))),
         "validator_signer",
     );
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let genesis_hash = *genesis_block.hash();
 
     let mut blocks = vec![];
     let chain = &env.clients[0].chain;
@@ -184,7 +184,7 @@ fn run_state_sync_with_dumped_parts(
         validator,
         future_spawner: Arc::new(TokioRuntimeFutureSpawner(tokio_runtime)),
     };
-    state_sync_dumper.start().unwrap();
+    state_sync_dumper.start();
 
     let account_creation_at_height = (account_creation_at_epoch_height - 1) * epoch_length + 2;
 
@@ -196,6 +196,7 @@ fn run_state_sync_with_dumped_parts(
 
     for i in 1..=dump_node_head_height {
         if i == account_creation_at_height {
+            let head = env.clients[0].chain.head().unwrap();
             let tx = SignedTransaction::create_account(
                 1,
                 "test0".parse().unwrap(),
@@ -203,7 +204,7 @@ fn run_state_sync_with_dumped_parts(
                 Balance::from_near(1),
                 signer.public_key(),
                 &signer,
-                genesis_hash,
+                head.prev_block_hash,
             );
             assert_eq!(
                 env.rpc_handlers[0].process_tx(tx, false, false),
@@ -243,7 +244,7 @@ fn run_state_sync_with_dumped_parts(
     tracing::info!(
         dump_node_head_height,
         final_block_height = final_block_header.height(),
-        "Dumping node state"
+        "dumping node state"
     );
 
     // check if final block is in the same epoch as head for dumping node
@@ -283,10 +284,10 @@ fn run_state_sync_with_dumped_parts(
                     &StateFileType::StatePart { part_id, num_parts },
                 ));
                 if std::fs::read(&path).is_err() {
-                    tracing::info!("dumping node: Missing {:?}", path);
+                    tracing::info!(?path, "dumping node: missing");
                     all_parts_present = false;
                 } else {
-                    tracing::info!("dumping node: Populated {:?}", path);
+                    tracing::info!(?path, "dumping node: populated");
                 }
             }
         }
@@ -300,7 +301,7 @@ fn run_state_sync_with_dumped_parts(
     }
 
     // Simulate state sync by reading the dumped parts from the external storage and applying them to the other node
-    tracing::info!("syncing node: simulating state sync..");
+    tracing::info!("syncing node: simulating state sync");
     env.clients[1]
         .chain
         .state_sync_adapter
@@ -317,7 +318,7 @@ fn run_state_sync_with_dumped_parts(
             )
             .unwrap()
     );
-    store_update.commit().unwrap();
+    store_update.commit();
     let shard_id = ShardId::new(0);
     let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
     for part_id in 0..num_parts {
@@ -336,7 +337,7 @@ fn run_state_sync_with_dumped_parts(
             .unwrap();
     }
     env.clients[1].chain.set_state_finalize(shard_id, sync_hash).unwrap();
-    tracing::info!("syncing node: state sync finished.");
+    tracing::info!("syncing node: state sync finished");
 
     let synced_block = env.clients[1].chain.get_block(&sync_hash).unwrap();
     let synced_block_header = env.clients[1].chain.get_block_header(&sync_hash).unwrap();
@@ -353,7 +354,7 @@ fn run_state_sync_with_dumped_parts(
     );
 
     if is_final_block_in_new_epoch {
-        tracing::info!(?response, "New Account should exist");
+        tracing::info!(?response, "new account should exist");
         assert_matches!(
             response.unwrap().kind,
             QueryResponseKind::ViewAccount(_),
@@ -371,7 +372,7 @@ fn run_state_sync_with_dumped_parts(
             assert_eq!(num_ref_before, num_ref_after);
         }
     } else {
-        tracing::info!(?response, "New Account shouldn't exist");
+        tracing::info!(?response, "new account shouldn't exist");
         assert!(response.is_err());
         assert_matches!(
             response.unwrap_err(),
@@ -397,36 +398,48 @@ fn run_state_sync_with_dumped_parts(
 /// - the dumping node's head is in new epoch but final block is not;
 /// - the dumping node's head and final block are in same epoch
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_with_dumped_parts_2_non_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(false, 2, 8);
 }
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_with_dumped_parts_2_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(true, 2, 8);
 }
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_with_dumped_parts_3_non_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(false, 3, 8);
 }
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_with_dumped_parts_3_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(true, 3, 8);
 }
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_with_dumped_parts_4_non_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(false, 4, 8);
 }
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_with_dumped_parts_4_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(true, 4, 8);
@@ -435,15 +448,14 @@ fn slow_test_state_sync_with_dumped_parts_4_final() {
 fn count_flat_state_value_kinds(store: &Store) -> (u64, u64) {
     let mut num_inlined_values = 0;
     let mut num_ref_values = 0;
-    for item in store.flat_store().iter(ShardUId::single_shard()) {
-        match item {
-            Ok((_, FlatStateValue::Ref(_))) => {
+    for (_, value) in store.flat_store().iter(ShardUId::single_shard()) {
+        match value {
+            FlatStateValue::Ref(_) => {
                 num_ref_values += 1;
             }
-            Ok((_, FlatStateValue::Inlined(_))) => {
+            FlatStateValue::Inlined(_) => {
                 num_inlined_values += 1;
             }
-            _ => {}
         }
     }
     (num_inlined_values, num_ref_values)

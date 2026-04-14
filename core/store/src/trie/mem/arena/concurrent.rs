@@ -1,9 +1,8 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use super::alloc::{CHUNK_SIZE, allocation_class, allocation_size};
 use super::single_thread::STArena;
 use super::{Arena, ArenaMemory, ArenaMemoryMut, ArenaMut, ArenaPos, ArenaSliceMut};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Arena that can be allocated on from multiple threads, but still allowing conversion to a
 /// single-threaded `STArena` afterwards.

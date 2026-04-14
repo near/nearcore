@@ -1,8 +1,7 @@
 use crate::config::SocketOptions;
 use crate::network_protocol::{
-    Encoding, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash,
-    PeerMessage, Ping, Pong, RawRoutedMessage, RoutingTableUpdate, T2MessageBody,
-    TieredMessageBody,
+    Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerMessage,
+    Ping, Pong, RawRoutedMessage, RoutingTableUpdate, T2MessageBody, TieredMessageBody,
 };
 use crate::tcp;
 use crate::types::{
@@ -39,10 +38,6 @@ pub struct Connection {
     // this is used to keep track of routed messages we've sent so that when we get a reply
     // that references one of our previously sent messages, we can determine that the message is for us
     route_cache: lru::LruCache<CryptoHash, ()>,
-    // when a peer connects to us, it'll send two handshakes. One as a proto and one borsh-encoded.
-    // If this field is true, it means we expect to receive a message that won't parse as a proto, and
-    // will accept and drop one such message without giving an error.
-    borsh_message_expected: bool,
 }
 
 // The types of messages it's possible to route to a target PeerId via the connected peer as a first hop
@@ -253,7 +248,10 @@ impl Connection {
         .map_err(ConnectError::TcpConnect)?;
         tracing::info!(
             target: "network",
-            %peer_id, ?addr, latency=?start.elapsed(), "Connection established",
+            %peer_id,
+            ?addr,
+            latency = ?start.elapsed(),
+            "connection established",
         );
         let mut peer = Self {
             stream: PeerStream::new(stream, recv_timeout),
@@ -261,7 +259,6 @@ impl Connection {
             secret_key,
             my_peer_id,
             route_cache: lru::LruCache::new(NonZeroUsize::new(1_000_000).unwrap()),
-            borsh_message_expected: false,
         };
         peer.do_handshake(
             &clock,
@@ -288,12 +285,10 @@ impl Connection {
         protocol_version: Option<ProtocolVersion>,
     ) -> Result<Self, ConnectError> {
         let mut stream = PeerStream::new(stream, recv_timeout);
-        let mut borsh_message_expected = true;
         let (message, _timestamp) = match stream.recv_message().await {
             Ok(m) => m,
             Err(RecvError::Parse(len)) => {
-                tracing::debug!(target: "network", "dropping a non protobuf message of length {}. Probably an extra handshake.", len);
-                borsh_message_expected = false;
+                tracing::debug!(target: "network", %len, "dropping a non protobuf message, probably an extra handshake");
                 stream.recv_message().await?
             }
             Err(RecvError::IO(e)) => return Err(ConnectError::IO(e)),
@@ -333,7 +328,6 @@ impl Connection {
             stream,
             peer_id,
             route_cache: lru::LruCache::new(NonZeroUsize::new(1_000_000).unwrap()),
-            borsh_message_expected,
         })
     }
 
@@ -449,8 +443,11 @@ impl Connection {
     ) -> Option<RoutedMessage> {
         if !self.target_is_for_me(msg.target()) {
             tracing::debug!(
-                target: "network", "{:?} dropping routed message {} for {:?}",
-                &self, msg.body_variant(), msg.target()
+                target: "network",
+                connection = ?&self,
+                body_variant = msg.body_variant(),
+                target = ?msg.target(),
+                "dropping routed message"
             );
             return None;
         }
@@ -479,16 +476,10 @@ impl Connection {
             let (msg, timestamp) = match self.stream.recv_message().await {
                 Ok(m) => m,
                 Err(RecvError::Parse(len)) => {
-                    if self.borsh_message_expected {
-                        tracing::debug!(target: "network", "{:?} dropping a non protobuf message. Probably an extra handshake.", &self);
-                        self.borsh_message_expected = false;
-                        continue;
-                    } else {
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            format!("error parsing protobuf of length {}", len),
-                        ));
-                    }
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("error parsing protobuf of length {}", len),
+                    ));
                 }
                 Err(RecvError::IO(e)) => return Err(e),
             };
@@ -563,7 +554,7 @@ impl PeerStream {
     }
 
     async fn write_message(&mut self, msg: &PeerMessage) -> io::Result<()> {
-        let mut msg = msg.serialize(Encoding::Proto);
+        let mut msg = msg.serialize();
         let mut buf = (msg.len() as u32).to_le_bytes().to_vec();
         buf.append(&mut msg);
         self.stream.stream.write_all(&buf).await
@@ -577,7 +568,7 @@ impl PeerStream {
             read.await?
         };
 
-        tracing::trace!(target: "network", "Read {} bytes from {:?}", n, self.stream.peer_addr);
+        tracing::trace!(target: "network", %n, peer_addr = ?self.stream.peer_addr, "read bytes");
         if n == 0 {
             return Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
@@ -613,7 +604,7 @@ impl PeerStream {
         }
 
         self.buf.advance(4);
-        let msg = PeerMessage::deserialize(Encoding::Proto, &self.buf[..msg_length]);
+        let msg = PeerMessage::deserialize(&self.buf[..msg_length]);
         self.buf.advance(msg_length);
 
         // make sure we can probably read the next message in one syscall next time
@@ -622,7 +613,7 @@ impl PeerStream {
             self.buf.reserve(512 - max_len_after_next_read);
         }
         msg.map(|m| {
-            tracing::debug!(target: "network", "{:?} received PeerMessage::{} len: {}", &self, &m, msg_length);
+            tracing::debug!(target: "network", connection = ?&self, message = %&m, msg_length, "received peer message");
             (m, first_byte_time)
         })
         .map_err(|_| RecvError::Parse(msg_length))

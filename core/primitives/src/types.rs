@@ -1,3 +1,4 @@
+use self::chunk_extra::ChunkExtra;
 use crate::account::{AccessKey, Account};
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
@@ -7,7 +8,6 @@ use crate::trie_key::TrieKey;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use chunk_validator_stats::ChunkStats;
 use near_crypto::PublicKey;
-use near_primitives_core::account::GasKey;
 use near_primitives_core::hash::hash;
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
@@ -17,8 +17,6 @@ use serde_with::serde_as;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::LazyLock;
-
-use self::chunk_extra::ChunkExtra;
 
 mod chunk_validator_stats;
 
@@ -159,26 +157,23 @@ pub type StateChangesKinds = Vec<StateChangeKind>;
 #[easy_ext::ext(StateChangesKindsExt)]
 impl StateChangesKinds {
     pub fn from_changes(
-        raw_changes: &mut dyn Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
-    ) -> Result<StateChangesKinds, std::io::Error> {
+        raw_changes: &mut dyn Iterator<Item = RawStateChangesWithTrieKey>,
+    ) -> StateChangesKinds {
         raw_changes
             .filter_map(|raw_change| {
-                let RawStateChangesWithTrieKey { trie_key, .. } = match raw_change {
-                    Ok(p) => p,
-                    Err(e) => return Some(Err(e)),
-                };
+                let RawStateChangesWithTrieKey { trie_key, .. } = raw_change;
                 match trie_key {
                     TrieKey::Account { account_id } => {
-                        Some(Ok(StateChangeKind::AccountTouched { account_id }))
+                        Some(StateChangeKind::AccountTouched { account_id })
                     }
                     TrieKey::ContractCode { account_id } => {
-                        Some(Ok(StateChangeKind::ContractCodeTouched { account_id }))
+                        Some(StateChangeKind::ContractCodeTouched { account_id })
                     }
                     TrieKey::AccessKey { account_id, .. } => {
-                        Some(Ok(StateChangeKind::AccessKeyTouched { account_id }))
+                        Some(StateChangeKind::AccessKeyTouched { account_id })
                     }
                     TrieKey::ContractData { account_id, .. } => {
-                        Some(Ok(StateChangeKind::DataTouched { account_id }))
+                        Some(StateChangeKind::DataTouched { account_id })
                     }
                     _ => None,
                 }
@@ -242,13 +237,6 @@ pub struct RawStateChangesWithTrieKey {
     pub changes: Vec<RawStateChange>,
 }
 
-/// Consolidate state change of trie_key and the final value the trie key will be changed to
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, ProtocolSchema)]
-pub struct ConsolidatedStateChange {
-    pub trie_key: TrieKey,
-    pub value: Option<Vec<u8>>,
-}
-
 /// key that was updated -> list of updates with the corresponding indexing event.
 pub type RawStateChanges = std::collections::BTreeMap<Vec<u8>, RawStateChangesWithTrieKey>;
 
@@ -256,26 +244,51 @@ pub type RawStateChanges = std::collections::BTreeMap<Vec<u8>, RawStateChangesWi
 pub enum StateChangesRequest {
     AccountChanges { account_ids: Vec<AccountId> },
     SingleAccessKeyChanges { keys: Vec<AccountWithPublicKey> },
-    SingleGasKeyChanges { keys: Vec<AccountWithPublicKey> },
     AllAccessKeyChanges { account_ids: Vec<AccountId> },
-    AllGasKeyChanges { account_ids: Vec<AccountId> },
     ContractCodeChanges { account_ids: Vec<AccountId> },
     DataChanges { account_ids: Vec<AccountId>, key_prefix: StoreKey },
 }
 
 #[derive(Debug)]
 pub enum StateChangeValue {
-    AccountUpdate { account_id: AccountId, account: Account },
-    AccountDeletion { account_id: AccountId },
-    AccessKeyUpdate { account_id: AccountId, public_key: PublicKey, access_key: AccessKey },
-    AccessKeyDeletion { account_id: AccountId, public_key: PublicKey },
-    GasKeyUpdate { account_id: AccountId, public_key: PublicKey, gas_key: GasKey },
-    GasKeyNonceUpdate { account_id: AccountId, public_key: PublicKey, index: u32, nonce: u64 },
-    GasKeyDeletion { account_id: AccountId, public_key: PublicKey },
-    DataUpdate { account_id: AccountId, key: StoreKey, value: StoreValue },
-    DataDeletion { account_id: AccountId, key: StoreKey },
-    ContractCodeUpdate { account_id: AccountId, code: Vec<u8> },
-    ContractCodeDeletion { account_id: AccountId },
+    AccountUpdate {
+        account_id: AccountId,
+        account: Account,
+    },
+    AccountDeletion {
+        account_id: AccountId,
+    },
+    AccessKeyUpdate {
+        account_id: AccountId,
+        public_key: PublicKey,
+        access_key: AccessKey,
+    },
+    AccessKeyDeletion {
+        account_id: AccountId,
+        public_key: PublicKey,
+    },
+    GasKeyNonceUpdate {
+        account_id: AccountId,
+        public_key: PublicKey,
+        index: NonceIndex,
+        nonce: Nonce,
+    },
+    DataUpdate {
+        account_id: AccountId,
+        key: StoreKey,
+        value: StoreValue,
+    },
+    DataDeletion {
+        account_id: AccountId,
+        key: StoreKey,
+    },
+    ContractCodeUpdate {
+        account_id: AccountId,
+        code: Vec<u8>,
+    },
+    ContractCodeDeletion {
+        account_id: AccountId,
+    },
 }
 
 impl StateChangeValue {
@@ -285,9 +298,7 @@ impl StateChangeValue {
             | StateChangeValue::AccountDeletion { account_id }
             | StateChangeValue::AccessKeyUpdate { account_id, .. }
             | StateChangeValue::AccessKeyDeletion { account_id, .. }
-            | StateChangeValue::GasKeyUpdate { account_id, .. }
             | StateChangeValue::GasKeyNonceUpdate { account_id, .. }
-            | StateChangeValue::GasKeyDeletion { account_id, .. }
             | StateChangeValue::DataUpdate { account_id, .. }
             | StateChangeValue::DataDeletion { account_id, .. }
             | StateChangeValue::ContractCodeUpdate { account_id, .. }
@@ -307,12 +318,12 @@ pub type StateChanges = Vec<StateChangeWithCause>;
 #[easy_ext::ext(StateChangesExt)]
 impl StateChanges {
     pub fn from_changes(
-        raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
-    ) -> Result<StateChanges, std::io::Error> {
+        raw_changes: impl Iterator<Item = RawStateChangesWithTrieKey>,
+    ) -> StateChanges {
         let mut state_changes = Self::new();
 
         for raw_change in raw_changes {
-            let RawStateChangesWithTrieKey { trie_key, changes } = raw_change?;
+            let RawStateChangesWithTrieKey { trie_key, changes } = raw_change;
 
             match trie_key {
                 TrieKey::Account { account_id } => state_changes.extend(changes.into_iter().map(
@@ -350,50 +361,22 @@ impl StateChanges {
                         },
                     ))
                 }
-                TrieKey::GasKey { account_id, public_key, index } => {
-                    if let Some(index) = index {
-                        state_changes.extend(changes.into_iter().filter_map(
-                            |RawStateChange { cause, data }| {
-                                if let Some(change_data) = data {
-                                    Some(StateChangeWithCause {
-                                        cause,
-                                        value: StateChangeValue::GasKeyNonceUpdate {
-                                            account_id: account_id.clone(),
-                                            public_key: public_key.clone(),
-                                            index,
-                                            nonce: <_>::try_from_slice(&change_data).expect(
-                                                "Failed to parse internally stored gas key nonce",
-                                            ),
-                                        },
-                                    })
-                                } else {
-                                    // Deletion of a nonce can only be done with a corresponding
-                                    // deletion of the gas key, so we don't need to report these.
-                                    None
-                                }
+                TrieKey::GasKeyNonce { account_id, public_key, index } => state_changes.extend(
+                    // Deletion of a nonce can only be done with a corresponding
+                    // deletion of the gas key, so we don't need to report these.
+                    changes.into_iter().filter_map(|RawStateChange { cause, data }| {
+                        data.map(|change_data| StateChangeWithCause {
+                            cause,
+                            value: StateChangeValue::GasKeyNonceUpdate {
+                                account_id: account_id.clone(),
+                                public_key: public_key.clone(),
+                                index,
+                                nonce: Nonce::try_from_slice(&change_data)
+                                    .expect("Failed to parse internally stored gas key nonce"),
                             },
-                        ));
-                    } else {
-                        state_changes.extend(changes.into_iter().map(
-                            |RawStateChange { cause, data }| StateChangeWithCause {
-                                cause,
-                                value: if let Some(change_data) = data {
-                                    StateChangeValue::GasKeyUpdate {
-                                        account_id: account_id.clone(),
-                                        public_key: public_key.clone(),
-                                        gas_key: <_>::try_from_slice(&change_data)
-                                            .expect("Failed to parse internally stored gas key"),
-                                    }
-                                } else {
-                                    StateChangeValue::GasKeyDeletion {
-                                        account_id: account_id.clone(),
-                                        public_key: public_key.clone(),
-                                    }
-                                },
-                            },
-                        ));
-                    }
-                }
+                        })
+                    }),
+                ),
                 TrieKey::ContractCode { account_id } => {
                     state_changes.extend(changes.into_iter().map(
                         |RawStateChange { cause, data }| StateChangeWithCause {
@@ -446,17 +429,20 @@ impl StateChanges {
                 TrieKey::BufferedReceiptGroupsQueueItem { .. } => {}
                 // Global contract code is not a part of account, so ignoring it as well.
                 TrieKey::GlobalContractCode { .. } => {}
+                // Global contract nonce is internal distribution state, not account data.
+                TrieKey::GlobalContractNonce { .. } => {}
+                TrieKey::PromiseYieldStatus { .. } => {}
             }
         }
 
-        Ok(state_changes)
+        state_changes
     }
     pub fn from_account_changes(
-        raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
-    ) -> Result<StateChanges, std::io::Error> {
-        let state_changes = Self::from_changes(raw_changes)?;
+        raw_changes: impl Iterator<Item = RawStateChangesWithTrieKey>,
+    ) -> StateChanges {
+        let state_changes = Self::from_changes(raw_changes);
 
-        Ok(state_changes
+        state_changes
             .into_iter()
             .filter(|state_change| {
                 matches!(
@@ -465,50 +451,33 @@ impl StateChanges {
                         | StateChangeValue::AccountDeletion { .. }
                 )
             })
-            .collect())
+            .collect()
     }
 
     pub fn from_access_key_changes(
-        raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
-    ) -> Result<StateChanges, std::io::Error> {
-        let state_changes = Self::from_changes(raw_changes)?;
+        raw_changes: impl Iterator<Item = RawStateChangesWithTrieKey>,
+    ) -> StateChanges {
+        let state_changes = Self::from_changes(raw_changes);
 
-        Ok(state_changes
+        state_changes
             .into_iter()
             .filter(|state_change| {
                 matches!(
                     state_change.value,
                     StateChangeValue::AccessKeyUpdate { .. }
                         | StateChangeValue::AccessKeyDeletion { .. }
-                )
-            })
-            .collect())
-    }
-
-    pub fn from_gas_key_changes(
-        raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
-    ) -> Result<StateChanges, std::io::Error> {
-        let state_changes = Self::from_changes(raw_changes)?;
-
-        Ok(state_changes
-            .into_iter()
-            .filter(|state_change| {
-                matches!(
-                    state_change.value,
-                    StateChangeValue::GasKeyUpdate { .. }
                         | StateChangeValue::GasKeyNonceUpdate { .. }
-                        | StateChangeValue::GasKeyDeletion { .. }
                 )
             })
-            .collect())
+            .collect()
     }
 
     pub fn from_contract_code_changes(
-        raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
-    ) -> Result<StateChanges, std::io::Error> {
-        let state_changes = Self::from_changes(raw_changes)?;
+        raw_changes: impl Iterator<Item = RawStateChangesWithTrieKey>,
+    ) -> StateChanges {
+        let state_changes = Self::from_changes(raw_changes);
 
-        Ok(state_changes
+        state_changes
             .into_iter()
             .filter(|state_change| {
                 matches!(
@@ -517,15 +486,15 @@ impl StateChanges {
                         | StateChangeValue::ContractCodeDeletion { .. }
                 )
             })
-            .collect())
+            .collect()
     }
 
     pub fn from_data_changes(
-        raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
-    ) -> Result<StateChanges, std::io::Error> {
-        let state_changes = Self::from_changes(raw_changes)?;
+        raw_changes: impl Iterator<Item = RawStateChangesWithTrieKey>,
+    ) -> StateChanges {
+        let state_changes = Self::from_changes(raw_changes);
 
-        Ok(state_changes
+        state_changes
             .into_iter()
             .filter(|state_change| {
                 matches!(
@@ -533,7 +502,7 @@ impl StateChanges {
                     StateChangeValue::DataUpdate { .. } | StateChangeValue::DataDeletion { .. }
                 )
             })
-            .collect())
+            .collect()
     }
 }
 
@@ -608,13 +577,12 @@ pub struct ApprovalStake {
 }
 
 pub mod validator_stake {
+    pub use super::ValidatorStakeV1;
     use crate::types::ApprovalStake;
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_crypto::{KeyType, PublicKey};
     use near_primitives_core::types::{AccountId, Balance};
     use serde::Serialize;
-
-    pub use super::ValidatorStakeV1;
 
     /// Stores validator and its stake.
     #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
@@ -828,15 +796,15 @@ pub struct ValidatorStakeV1 {
 }
 
 pub mod chunk_extra {
+    pub use super::ChunkExtraV1;
     use crate::bandwidth_scheduler::BandwidthRequests;
     use crate::congestion_info::CongestionInfo;
+    use crate::trie_split::TrieSplit;
     use crate::types::StateRoot;
     use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::hash::CryptoHash;
     use near_primitives_core::types::{Balance, Gas};
-
-    pub use super::ChunkExtraV1;
 
     /// Information after chunk was processed, used to produce or check next chunk.
     #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq, serde::Serialize)]
@@ -847,6 +815,7 @@ pub mod chunk_extra {
         V2(ChunkExtraV2) = 1,
         V3(ChunkExtraV3) = 2,
         V4(ChunkExtraV4) = 3,
+        V5(ChunkExtraV5) = 4,
     }
 
     #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq, serde::Serialize)]
@@ -905,6 +874,29 @@ pub mod chunk_extra {
         pub bandwidth_requests: BandwidthRequests,
     }
 
+    /// V4 -> V5: add proposed_split (dynamic resharding)
+    #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq, serde::Serialize)]
+    pub struct ChunkExtraV5 {
+        /// Post state root after applying give chunk.
+        pub state_root: StateRoot,
+        /// Root of merklizing results of receipts (transactions) execution.
+        pub outcome_root: CryptoHash,
+        /// Validator proposals produced by given chunk.
+        pub validator_proposals: Vec<ValidatorStake>,
+        /// Actually how much gas were used.
+        pub gas_used: Gas,
+        /// Gas limit, allows to increase or decrease limit based on expected time vs real time for computing the chunk.
+        pub gas_limit: Gas,
+        /// Total balance burnt after processing the current chunk.
+        pub balance_burnt: Balance,
+        /// Congestion info about this shard after the chunk was applied.
+        congestion_info: CongestionInfo,
+        /// Requests for bandwidth to send receipts to other shards.
+        pub bandwidth_requests: BandwidthRequests,
+        /// Proposed split of this shard (dynamic resharding).
+        pub proposed_split: Option<TrieSplit>,
+    }
+
     impl ChunkExtra {
         /// This method creates a slimmed down and invalid ChunkExtra. It's used
         /// for resharding where we only need the state root. This should not be
@@ -921,6 +913,7 @@ pub mod chunk_extra {
                 Balance::ZERO,
                 congestion_control,
                 BandwidthRequests::empty(),
+                None,
             )
         }
 
@@ -933,8 +926,9 @@ pub mod chunk_extra {
             balance_burnt: Balance,
             congestion_info: Option<CongestionInfo>,
             bandwidth_requests: BandwidthRequests,
+            proposed_split: Option<TrieSplit>,
         ) -> Self {
-            Self::V4(ChunkExtraV4 {
+            Self::V5(ChunkExtraV5 {
                 state_root: *state_root,
                 outcome_root,
                 validator_proposals,
@@ -943,6 +937,7 @@ pub mod chunk_extra {
                 balance_burnt,
                 congestion_info: congestion_info.unwrap(),
                 bandwidth_requests,
+                proposed_split,
             })
         }
 
@@ -953,6 +948,7 @@ pub mod chunk_extra {
                 Self::V2(v2) => &v2.outcome_root,
                 Self::V3(v3) => &v3.outcome_root,
                 Self::V4(v4) => &v4.outcome_root,
+                Self::V5(v5) => &v5.outcome_root,
             }
         }
 
@@ -963,6 +959,7 @@ pub mod chunk_extra {
                 Self::V2(v2) => &v2.state_root,
                 Self::V3(v3) => &v3.state_root,
                 Self::V4(v4) => &v4.state_root,
+                Self::V5(v5) => &v5.state_root,
             }
         }
 
@@ -973,6 +970,7 @@ pub mod chunk_extra {
                 Self::V2(v2) => &mut v2.state_root,
                 Self::V3(v3) => &mut v3.state_root,
                 Self::V4(v4) => &mut v4.state_root,
+                Self::V5(v5) => &mut v5.state_root,
             }
         }
 
@@ -983,6 +981,7 @@ pub mod chunk_extra {
                 Self::V2(v2) => ValidatorStakeIter::new(&v2.validator_proposals),
                 Self::V3(v3) => ValidatorStakeIter::new(&v3.validator_proposals),
                 Self::V4(v4) => ValidatorStakeIter::new(&v4.validator_proposals),
+                Self::V5(v5) => ValidatorStakeIter::new(&v5.validator_proposals),
             }
         }
 
@@ -993,6 +992,7 @@ pub mod chunk_extra {
                 Self::V2(v2) => v2.gas_limit,
                 Self::V3(v3) => v3.gas_limit,
                 Self::V4(v4) => v4.gas_limit,
+                Self::V5(v5) => v5.gas_limit,
             }
         }
 
@@ -1003,6 +1003,7 @@ pub mod chunk_extra {
                 Self::V2(v2) => v2.gas_used,
                 Self::V3(v3) => v3.gas_used,
                 Self::V4(v4) => v4.gas_used,
+                Self::V5(v5) => v5.gas_used,
             }
         }
 
@@ -1013,6 +1014,7 @@ pub mod chunk_extra {
                 Self::V2(v2) => v2.balance_burnt,
                 Self::V3(v3) => v3.balance_burnt,
                 Self::V4(v4) => v4.balance_burnt,
+                Self::V5(v5) => v5.balance_burnt,
             }
         }
 
@@ -1025,6 +1027,7 @@ pub mod chunk_extra {
                 }
                 Self::V3(v3) => v3.congestion_info,
                 Self::V4(v4) => v4.congestion_info,
+                Self::V5(v5) => v5.congestion_info,
             }
         }
 
@@ -1034,6 +1037,7 @@ pub mod chunk_extra {
                 Self::V1(_) | Self::V2(_) => panic!("Calling congestion_info_mut on V1 or V2"),
                 Self::V3(v3) => &mut v3.congestion_info,
                 Self::V4(v4) => &mut v4.congestion_info,
+                Self::V5(v5) => &mut v5.congestion_info,
             }
         }
 
@@ -1041,7 +1045,16 @@ pub mod chunk_extra {
         pub fn bandwidth_requests(&self) -> Option<&BandwidthRequests> {
             match self {
                 Self::V1(_) | Self::V2(_) | Self::V3(_) => None,
-                Self::V4(extra) => Some(&extra.bandwidth_requests),
+                Self::V4(v4) => Some(&v4.bandwidth_requests),
+                Self::V5(v5) => Some(&v5.bandwidth_requests),
+            }
+        }
+
+        #[inline]
+        pub fn proposed_split(&self) -> Option<&TrieSplit> {
+            match self {
+                Self::V1(_) | Self::V2(_) | Self::V3(_) | Self::V4(_) => None,
+                ChunkExtra::V5(v5) => v5.proposed_split.as_ref(),
             }
         }
     }
@@ -1296,7 +1309,16 @@ pub struct ChunkExecutionResult {
 }
 
 /// Execution results for all shards in the block.
+#[derive(Debug, Clone, PartialEq)]
 pub struct BlockExecutionResults(pub HashMap<ShardId, Arc<ChunkExecutionResult>>);
+
+impl BlockExecutionResults {
+    pub fn compute_gas_limit_checked(&self) -> Option<Gas> {
+        self.0.iter().try_fold(Gas::ZERO, |acc, (_shard_id, execution_result)| {
+            acc.checked_add(execution_result.chunk_extra.gas_limit())
+        })
+    }
+}
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ChunkExecutionResultHash(pub CryptoHash);
@@ -1315,12 +1337,30 @@ pub struct SpiceUncertifiedChunkInfo {
     pub present_endorsements: Vec<(AccountId, SpiceStoredVerifiedEndorsement)>,
 }
 
+/// Keeps the current status of a single yield/resume operation. Before yielding and after executing
+/// the resumed receipt there's no status, it is deleted from the state when the yielded receipt is executed.
+/// Possible state transitions:
+/// 1. Happy path:
+/// None --promise_yield_create--> Yielded --promise_yield_resume--> ResumeInitiated --execute--> None
+/// 2. Timeout:
+/// None --promise_yield_create--> Yielded --trigger timeout--> Yielded --timeout arrives,execute--> None
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Copy, PartialEq, Eq, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+pub enum PromiseYieldStatus {
+    /// The contract performed `yield`. It didn't perform `resume` yet.
+    Yielded = 0,
+    /// The contract performed `resume` at least once, there are some `PromiseResume` receipts in
+    /// flight. The yielded receipt wasn't applied yet, it's still waiting for the first
+    /// `PromiseResume` receipt to arrive. Timeouts don't count as `ResumeInitiated`, the resumption
+    /// has to be coming from the contract itself.
+    ResumeInitiated = 1,
+}
+
 #[cfg(test)]
 mod tests {
+    use super::validator_stake::ValidatorStake;
     use near_crypto::{KeyType, PublicKey};
     use near_primitives_core::types::Balance;
-
-    use super::validator_stake::ValidatorStake;
 
     fn new_validator_stake(stake: Balance) -> ValidatorStake {
         ValidatorStake::new(

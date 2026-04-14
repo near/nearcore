@@ -13,6 +13,9 @@ pub enum Action {
     DeleteKey(DeleteKeyAction),
     DeleteAccount(DeleteAccountAction),
     Delegate(SignedDelegateAction),
+    DeployGlobalContract(DeployGlobalContractAction),
+    UseGlobalContract(UseGlobalContractAction),
+    DeterministicStateInit(DeterministicStateInitAction),
 }
 ```
 
@@ -423,3 +426,95 @@ DelegateActionInvalidNonce
 /// DelegateAction nonce is larger than the upper bound given by the block height (block_height * 1e6)
 DelegateActionNonceTooLarge
 ```
+
+## DeployGlobalContractAction
+
+```rust
+pub struct DeployGlobalContractAction {
+    /// WebAssembly binary
+    pub code: Vec<u8>,
+    /// How this global contract should be referenced
+    pub deploy_mode: GlobalContractDeployMode,
+}
+
+pub enum GlobalContractDeployMode {
+    /// Contract is deployed under its code hash.
+    /// Users will be able reference it by that hash.
+    /// This effectively makes the contract immutable.
+    CodeHash,
+    /// Contract is deployed under the owner account id.
+    /// Users will be able reference it by that account id.
+    /// This allows the owner to update the contract for all its users.
+    AccountId,
+}
+```
+
+**Outcome**:
+
+- First, the provided code is made available as global contract on the current shard.
+- The same code propagates globally, shard by shard.
+- Eventually, all accounts on all shards can reference the submitted code by the corresponding global contract identifier.
+
+### Errors
+
+**Validation Error**:
+
+- `ContractSizeExceeded` if the provided WebAssembly code is larger than `max_contract_size` (4MiB).
+
+**Execution Error**:
+
+- `LackBalanceForState` if the account does not hold enough NEAR to cover the added storage.
+
+## UseGlobalContractAction
+
+```rust
+pub struct UseGlobalContractAction {
+    /// References a deployed global contract to use in the receiver account.
+    pub contract_identifier: GlobalContractIdentifier,
+}
+```
+**Outcome**:
+
+### Errors
+
+**Validation Error**:
+
+- `InvalidAccountId` if the provided account id does not follow the [AccountId specification](../DataStructures/Account.md).
+
+**Execution Error**:
+
+- `GlobalContractDoesNotExist` if the referenced global contract does not exist on the shard of the receiver. (It may
+  take a while for it to propagate to all shards.)
+
+## DeterministicStateInitAction
+
+```rust
+pub struct DeterministicStateInitAction {
+    /// The data required to initialize the account.
+    pub state_init: DeterministicAccountStateInit,
+    /// A NEAR balance to cover storage requirements. Extra balance is refunded.
+    pub deposit: Balance,
+}
+```
+
+**Outcome**:
+
+- if the account was already created before:
+    - do nothing
+- if the account was not created before:
+    - creates an account with deterministic account id
+    - sets the contract code to the specified global contract
+    - stores the initial data into the contract storage
+
+### Errors
+
+**Validation Error**:
+
+- `InvalidDeterministicStateInitReceiver` if the receiver id is not derived from the provided `DeterministicAccountStateInit`
+- `DeterministicStateInitKeyLengthExceeded` if any data key is longer than `max_length_storage_key` (4MiB)
+- `DeterministicStateInitValueLengthExceeded` if any data value is longer than `max_length_storage_value` (4MiB)
+
+**Execution Error**:
+
+- `GlobalContractDoesNotExist` if the referenced global contract does not exist on the shard of the receiver. (It may
+  take a while for it to propagate to all shards.)

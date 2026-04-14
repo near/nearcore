@@ -5,28 +5,24 @@
 //! the oldest witness is removed from the database.
 //! At the moment this module is used only for debugging purposes.
 
-use std::io::ErrorKind;
-
+use super::ChainStore;
+use crate::ChainStoreAccess;
+use crate::stateless_validation;
+use borsh::{BorshDeserialize, BorshSerialize};
+use bytesize::ByteSize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::types::EpochId;
 use near_primitives::types::ShardId;
-use near_store::{DBCol, Store};
-
-use crate::ChainStoreAccess;
-use crate::stateless_validation;
-
-use super::ChainStore;
-
-use borsh::{BorshDeserialize, BorshSerialize};
-use bytesize::ByteSize;
 use near_schema_checker_lib::ProtocolSchema;
 use near_store::db::{INVALID_WITNESSES_INFO, LATEST_WITNESSES_INFO};
+use near_store::{DBCol, Store};
 use parking_lot::Mutex;
 use parking_lot::const_mutex;
 use rand::RngCore;
 use rand::rngs::OsRng;
+use std::io::ErrorKind;
 
 /// Maximum size of the latest witnesses stored in the database.
 const LATEST_WITNESSES_MAX_SIZE: ByteSize = ByteSize::gb(4);
@@ -152,15 +148,15 @@ impl ChainStore {
             witness.chunk_production_key();
         let _span = tracing::info_span!(target: "client", "save_latest_chunk_state_witness", ?height_created, %shard_id).entered();
 
-        let serialized_witness = borsh::to_vec(witness)?;
+        let serialized_witness = borsh::to_vec(witness).unwrap();
         let witness_size: u64 =
             serialized_witness.len().try_into().expect("Cannot convert usize to u64");
 
         if witness_size > SINGLE_LATEST_WITNESS_MAX_SIZE.as_u64() {
             tracing::warn!(
-                "Cannot save latest ChunkStateWitness because it's too big. Witness size: {} byte. Size limit: {} bytes.",
-                serialized_witness.len(),
-                SINGLE_LATEST_WITNESS_MAX_SIZE.as_u64()
+                witness_size = %serialized_witness.len(),
+                size_limit = %SINGLE_LATEST_WITNESS_MAX_SIZE.as_u64(),
+                "cannot save latest chunk state witness because it's too big"
             );
             return Ok(());
         }
@@ -168,7 +164,7 @@ impl ChainStore {
         // Read the current `LatestWitnessesInfo`, or create a new one if there is none.
         let mut info = self
             .store()
-            .get_ser::<LatestWitnessesInfo>(DBCol::Misc, LATEST_WITNESSES_INFO)?
+            .get_ser::<LatestWitnessesInfo>(DBCol::Misc, LATEST_WITNESSES_INFO)
             .unwrap_or_default();
 
         let new_witness_index = info.next_witness_index;
@@ -184,7 +180,7 @@ impl ChainStore {
         while !info.is_within_limits() && info.lowest_index < info.next_witness_index {
             let store = self.store();
             let key_to_delete = store
-                .get(DBCol::LatestWitnessesByIndex, &info.lowest_index.to_be_bytes())?
+                .get(DBCol::LatestWitnessesByIndex, &info.lowest_index.to_be_bytes())
                 .ok_or_else(|| {
                     std::io::Error::new(
                         ErrorKind::NotFound,
@@ -217,12 +213,12 @@ impl ChainStore {
         );
 
         // Update LatestWitnessesInfo
-        store_update.set(DBCol::Misc, &LATEST_WITNESSES_INFO, &borsh::to_vec(&info)?);
+        store_update.set(DBCol::Misc, &LATEST_WITNESSES_INFO, &borsh::to_vec(&info).unwrap());
 
         let store_update_time = start_time.elapsed();
 
         // Commit the transaction
-        store_update.commit()?;
+        store_update.commit();
 
         let store_commit_time = start_time.elapsed().saturating_sub(store_update_time);
 
@@ -241,7 +237,7 @@ impl ChainStore {
             ?store_commit_time,
             total_count = info.count,
             total_size = info.total_size,
-            "Saved latest witness",
+            "saved latest witness",
         );
 
         Ok(())
@@ -267,9 +263,9 @@ impl ChainStore {
 
         let mut result: Vec<ChunkStateWitness> = Vec::new();
 
-        for read_result in self.store().iter_prefix_ser::<ChunkStateWitness>(db_col, &key_prefix) {
-            let (key_bytes, witness) = read_result?;
-
+        for (key_bytes, witness) in
+            self.store().iter_prefix_ser::<ChunkStateWitness>(db_col, &key_prefix)
+        {
             let key = StoredWitnessesKey::deserialize(&key_bytes)?;
             if let Some(h) = height {
                 if key.height_created != h {
@@ -337,22 +333,22 @@ pub fn save_invalid_chunk_state_witness(
     )
     .entered();
 
-    let serialized_witness = borsh::to_vec(witness)?;
+    let serialized_witness = borsh::to_vec(witness).unwrap();
     let serialized_witness_size: u64 =
         serialized_witness.len().try_into().expect("Cannot convert usize to u64");
 
     if serialized_witness_size > SINGLE_INVALID_WITNESS_MAX_SIZE.as_u64() {
         tracing::warn!(
-            "Cannot save invalid ChunkStateWitness because it's too big. Witness size: {} byte. Size limit: {} bytes.",
-            serialized_witness.len(),
-            SINGLE_INVALID_WITNESS_MAX_SIZE.as_u64()
+            witness_size = %serialized_witness.len(),
+            size_limit = %SINGLE_INVALID_WITNESS_MAX_SIZE.as_u64(),
+            "cannot save invalid chunk state witness because it's too big"
         );
         return Ok(());
     }
 
     // Read the current `InvalidWitnessesInfo`, or create a new one if there is none.
     let mut info = store
-        .get_ser::<InvalidWitnessesInfo>(DBCol::Misc, INVALID_WITNESSES_INFO)?
+        .get_ser::<InvalidWitnessesInfo>(DBCol::Misc, INVALID_WITNESSES_INFO)
         .unwrap_or_default();
 
     let new_witness_index = info.next_witness_index;
@@ -370,7 +366,7 @@ pub fn save_invalid_chunk_state_witness(
         // Go over witnesses with increasing indexes and remove them until the limits are satisfied.
         while !info.is_within_limits() && info.lowest_index < info.next_witness_index {
             let key_to_delete = store
-                .get(DBCol::InvalidWitnessesByIndex, &info.lowest_index.to_be_bytes())?
+                .get(DBCol::InvalidWitnessesByIndex, &info.lowest_index.to_be_bytes())
                 .ok_or_else(|| {
                     std::io::Error::new(
                         ErrorKind::NotFound,
@@ -408,12 +404,12 @@ pub fn save_invalid_chunk_state_witness(
         );
 
         // Update InvalidWitnessesInfo
-        store_update.set(DBCol::Misc, &INVALID_WITNESSES_INFO, &borsh::to_vec(&info)?);
+        store_update.set(DBCol::Misc, &INVALID_WITNESSES_INFO, &borsh::to_vec(&info).unwrap());
 
         let store_update_time = start_time.elapsed();
 
         // Commit the transaction
-        store_update.commit()?;
+        store_update.commit();
 
         let store_commit_time = start_time.elapsed().saturating_sub(store_update_time);
 
@@ -435,7 +431,7 @@ pub fn save_invalid_chunk_state_witness(
         ?store_commit_time,
         total_count = info.count,
         total_size = info.total_size,
-        "Saved invalid witness",
+        "saved invalid witness",
     );
 
     Ok(())

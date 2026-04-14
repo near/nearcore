@@ -1,33 +1,34 @@
 use crate::ApplyState;
-use crate::actions::execute_function_call;
+use crate::contract_code::{GlobalContractAccessExt, RuntimeContractIdentifier};
 use crate::ext::RuntimeExt;
-use crate::global_contracts::{AccountContractAccessExt, GlobalContractAccessExt};
+use crate::function_call::execute_function_call;
 use crate::pipelining::ReceiptPreparationPipeline;
 use crate::receipt_manager::ReceiptManager;
+use itertools::Itertools;
 use near_crypto::{KeyType, PublicKey};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
-use near_primitives::borsh::BorshDeserialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceipt, Receipt, ReceiptEnum, ReceiptV1, VersionedActionReceipt,
+    ActionReceipt, Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt,
 };
 use near_primitives::transaction::FunctionCallAction;
-use near_primitives::trie_key::trie_key_parsers;
-use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, ShardId,
+use near_primitives::trie_key::trie_key_parsers::{
+    self, parse_nonce_index_from_gas_key_key, parse_public_key_from_access_key_key,
 };
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, Nonce, ShardId,
+};
 use near_primitives::views::{StateItem, ViewStateResult};
 use near_primitives_core::config::ViewConfig;
-use near_store::{TrieUpdate, get_access_key, get_account};
+use near_store::trie::AccessOptions;
+use near_store::{TrieAccess as _, TrieUpdate, get_access_key, get_account, get_gas_key_nonce};
 use near_vm_runner::logic::{ProtocolVersion, ReturnData};
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use std::{str, sync::Arc, time::Instant};
-use tracing::debug;
 
 pub mod errors;
 
@@ -53,26 +54,28 @@ pub struct ViewApplyState {
 }
 
 pub struct TrieViewer {
+    runtime_config_store: RuntimeConfigStore,
     /// Upper bound of the byte size of contract state that is still viewable. None is no limit
     state_size_limit: Option<u64>,
-    /// Gas limit used when handling call_function queries.
-    max_gas_burnt_view: Gas,
+    /// Gas limit used when handling call_function queries. If None, resolved
+    /// from the runtime config for the current protocol version.
+    max_gas_burnt_view: Option<Gas>,
 }
 
 impl Default for TrieViewer {
     fn default() -> Self {
-        let config_store = RuntimeConfigStore::new(None);
-        let latest_runtime_config = config_store.get_config(PROTOCOL_VERSION);
-        let max_gas_burnt = latest_runtime_config.wasm_config.limit_config.max_gas_burnt;
-        Self { state_size_limit: None, max_gas_burnt_view: max_gas_burnt }
+        let runtime_config_store = RuntimeConfigStore::new(None);
+        Self { runtime_config_store, state_size_limit: None, max_gas_burnt_view: None }
     }
 }
 
 impl TrieViewer {
-    pub fn new(state_size_limit: Option<u64>, max_gas_burnt_view: Option<Gas>) -> Self {
-        let max_gas_burnt_view =
-            max_gas_burnt_view.unwrap_or_else(|| TrieViewer::default().max_gas_burnt_view);
-        Self { state_size_limit, max_gas_burnt_view }
+    pub fn new(
+        runtime_config_store: RuntimeConfigStore,
+        state_size_limit: Option<u64>,
+        max_gas_burnt_view: Option<Gas>,
+    ) -> Self {
+        Self { runtime_config_store, state_size_limit, max_gas_burnt_view }
     }
 
     pub fn view_account(
@@ -91,12 +94,36 @@ impl TrieViewer {
         &self,
         state_update: &TrieUpdate,
         account_id: &AccountId,
+        current_protocol_version: ProtocolVersion,
+        chain_id: &str,
     ) -> Result<ContractCode, errors::ViewContractCodeError> {
         let account = self.view_account(state_update, account_id)?;
-        account.contract().into_owned().code(account_id, &state_update)?.ok_or_else(|| {
-            errors::ViewContractCodeError::NoContractCode {
-                contract_account_id: account_id.clone(),
+        let wasm_config =
+            &self.runtime_config_store.get_config(current_protocol_version).wasm_config;
+        let contract_id = RuntimeContractIdentifier::resolve(
+            account_id,
+            account.contract().into_owned(),
+            state_update,
+            wasm_config,
+            chain_id,
+            AccessOptions::DEFAULT,
+        )?;
+        let maybe_code = match contract_id {
+            RuntimeContractIdentifier::None => None,
+            RuntimeContractIdentifier::AccountLocal { code_hash, account_id } => {
+                let key = near_primitives::trie_key::TrieKey::ContractCode { account_id };
+                let code = state_update.get(&key, AccessOptions::DEFAULT)?;
+                code.map(|c| ContractCode::new(c, Some(code_hash)))
             }
+            RuntimeContractIdentifier::Global { identifier, .. } => {
+                identifier.code(state_update)?
+            }
+            RuntimeContractIdentifier::LegacyEthWallet(legacy) => {
+                Some((*legacy.contract()).clone())
+            }
+        };
+        maybe_code.ok_or_else(|| errors::ViewContractCodeError::NoContractCode {
+            contract_account_id: account_id.clone(),
         })
     }
 
@@ -128,28 +155,66 @@ impl TrieViewer {
         account_id: &AccountId,
     ) -> Result<Vec<(PublicKey, AccessKey)>, errors::ViewAccessKeyError> {
         let prefix = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
-        let raw_prefix: &[u8] = prefix.as_ref();
         let access_keys =
             state_update
                 .iter(&prefix)?
                 .map(|key| {
                     let key = key?;
-                    let public_key = &key[raw_prefix.len()..];
-                    let access_key = near_store::get_access_key_raw(state_update, &key)?
-                        .ok_or_else(|| errors::ViewAccessKeyError::InternalError {
-                            error_message: "Unexpected missing key from iterator".to_string(),
-                        })?;
-                    PublicKey::try_from_slice(public_key)
+                    let public_key = parse_public_key_from_access_key_key(&key, account_id)
                         .map_err(|_| errors::ViewAccessKeyError::InternalError {
-                            error_message: format!(
-                                "Unexpected invalid public key {:?} received from store",
-                                public_key
-                            ),
-                        })
-                        .map(|key| (key, access_key))
+                            error_message: "Unexpected invalid access key from iterator"
+                                .to_string(),
+                        })?;
+                    if let Some(_index) =
+                        parse_nonce_index_from_gas_key_key(&key, account_id, &public_key).map_err(
+                            |_| errors::ViewAccessKeyError::InternalError {
+                                error_message: "could not parse nonce index".to_string(),
+                            },
+                        )?
+                    {
+                        // This is a gas key nonce, skip it.
+                        return Ok(None);
+                    }
+                    let access_key = get_access_key(state_update, account_id, &public_key)?
+                        .ok_or_else(|| errors::ViewAccessKeyError::AccessKeyDoesNotExist {
+                            public_key: public_key.clone(),
+                        })?;
+
+                    Ok(Some((public_key, access_key)))
                 })
+                .filter_map_ok(|x| x)
                 .collect::<Result<Vec<_>, errors::ViewAccessKeyError>>();
         access_keys
+    }
+
+    pub fn view_gas_key_nonces(
+        &self,
+        state_update: &TrieUpdate,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+    ) -> Result<Vec<Nonce>, errors::ViewGasKeyNoncesError> {
+        let access_key =
+            get_access_key(state_update, account_id, public_key)?.ok_or_else(|| {
+                errors::ViewGasKeyNoncesError::GasKeyDoesNotExist { public_key: public_key.clone() }
+            })?;
+        // If the access key is not a gas key, treat as not found.
+        let Some(gas_key_info) = access_key.gas_key_info() else {
+            return Err(errors::ViewGasKeyNoncesError::GasKeyDoesNotExist {
+                public_key: public_key.clone(),
+            });
+        };
+        (0..gas_key_info.num_nonces)
+            .map(|index| {
+                get_gas_key_nonce(state_update, account_id, public_key, index)?.ok_or_else(|| {
+                errors::ViewGasKeyNoncesError::InternalError {
+                    error_message: format!(
+                        "gas key nonce at index {} does not exist for account {} and public key {}",
+                        index, account_id, public_key
+                    ),
+                }
+            })
+            })
+            .collect()
     }
 
     pub fn view_state(
@@ -218,8 +283,7 @@ impl TrieViewer {
         let public_key = PublicKey::empty(KeyType::ED25519);
         let empty_hash = CryptoHash::default();
         let mut receipt_manager = ReceiptManager::default();
-        let config_store = RuntimeConfigStore::new(None);
-        let config = config_store.get_config(PROTOCOL_VERSION);
+        let config = self.runtime_config_store.get_config(view_state.current_protocol_version);
         let apply_state = ApplyState {
             apply_reason: ApplyChunkReason::ViewTrackedShard,
             block_height: view_state.block_height,
@@ -236,6 +300,7 @@ impl TrieViewer {
             config: Arc::clone(config),
             cache: view_state.cache,
             is_new_chunk: false,
+            save_receipt_to_tx: false,
             congestion_info: Default::default(),
             bandwidth_requests: BlockBandwidthRequests::empty(),
             trie_access_tracker_state: Default::default(),
@@ -244,7 +309,7 @@ impl TrieViewer {
         let function_call = FunctionCallAction {
             method_name: method_name.to_string(),
             args: args.to_vec(),
-            gas: self.max_gas_burnt_view,
+            gas: self.max_gas_burnt_view(view_state.current_protocol_version),
             deposit: Balance::ZERO,
         };
         let action_receipt = ActionReceipt {
@@ -255,21 +320,30 @@ impl TrieViewer {
             input_data_ids: vec![],
             actions: vec![function_call.clone().into()],
         };
-        let receipt = Receipt::V1(ReceiptV1 {
+        let receipt = Receipt::V0(ReceiptV0 {
             predecessor_id: contract_id.clone(),
             receiver_id: contract_id.clone(),
             receipt_id: empty_hash,
             receipt: ReceiptEnum::Action(action_receipt.clone()),
-            priority: 0,
         });
         let pipeline = ReceiptPreparationPipeline::new(
             Arc::clone(config),
             apply_state.cache.as_ref().map(|v| v.handle()),
-            state_update.contract_storage(),
+            state_update.contract_storage().clone(),
+            epoch_info_provider.chain_id(),
         );
-        let view_config = Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view });
-        let code_hash = account.contract().into_owned().hash(&state_update)?;
-        let contract = pipeline.get_contract(&receipt, code_hash, 0, view_config.clone());
+        let max_gas_burnt_view = self.max_gas_burnt_view(view_state.current_protocol_version);
+        let view_config = Some(ViewConfig { max_gas_burnt: max_gas_burnt_view });
+        let contract_id_resolved = RuntimeContractIdentifier::resolve(
+            contract_id,
+            account.contract().into_owned(),
+            &state_update,
+            &config.wasm_config,
+            &epoch_info_provider.chain_id(),
+            AccessOptions::DEFAULT,
+        )?;
+        let contract =
+            pipeline.get_contract(&receipt, contract_id_resolved, 0, view_config.clone());
 
         let mut runtime_ext = RuntimeExt::new(
             &mut state_update,
@@ -306,10 +380,12 @@ impl TrieViewer {
         if let Some(err) = outcome.aborted {
             logs.extend(outcome.logs);
             let message = format!("wasm execution failed with error: {:?}", err);
-            debug!(target: "runtime", "(exec time {}) {}", time_str, message);
-            Err(errors::CallFunctionError::VMError { error_message: message })
+            tracing::debug!(target: "runtime", %time_str, %message, "exec time and error message");
+            let error: near_primitives::errors::FunctionCallError =
+                crate::conversions::Convert::convert(err);
+            Err(errors::CallFunctionError::VMError { error, error_message: message })
         } else {
-            debug!(target: "runtime", "(exec time {}) result of execution: {:?}", time_str, outcome);
+            tracing::debug!(target: "runtime", %time_str, ?outcome, "exec time and result of execution");
             logs.extend(outcome.logs);
             let result = match outcome.return_data {
                 ReturnData::Value(buf) => buf,
@@ -317,5 +393,15 @@ impl TrieViewer {
             };
             Ok(result)
         }
+    }
+
+    fn max_gas_burnt_view(&self, protocol_version: ProtocolVersion) -> Gas {
+        self.max_gas_burnt_view.unwrap_or_else(|| {
+            self.runtime_config_store
+                .get_config(protocol_version)
+                .wasm_config
+                .limit_config
+                .max_gas_burnt
+        })
     }
 }

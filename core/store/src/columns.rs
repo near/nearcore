@@ -1,3 +1,4 @@
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use std::fmt;
 
 /// This enum holds the information about the columns that we use within the
@@ -230,9 +231,7 @@ pub enum DBCol {
     /// - *Rows*: height (u64)
     /// - *Column type*: empty
     ProcessedBlockHeights,
-    /// Mapping from receipt hash to Receipt. Note that this doesn't store _all_
-    /// receipts. Some receipts are ephemeral and get processed after creation
-    /// without getting into the database at all.
+    /// Mapping from receipt hash to Receipt.
     /// - *Rows*: receipt (CryptoHash)
     /// - *Column type*: Receipt
     Receipts,
@@ -333,6 +332,15 @@ pub enum DBCol {
     /// - *Rows*: BlockShardId (BlockHash || ShardId) - 40 bytes
     /// - *Column type*: `ChunkApplyStats`
     ChunkApplyStats,
+    /// Mapping from Block + Shard to list of processed receipt metadata.
+    /// - *Rows*: block + shard
+    /// - *Content type*: Vec of [near_primitives::receipt::ProcessedReceiptMetadata]
+    ProcessedReceiptIds,
+    /// Mapping from receipt hash to its origin information (parent receipt or originating transaction).
+    /// Used to enable reverse lookups from receipt_id to the originating transaction hash.
+    /// - *Rows*: receipt hash (CryptoHash)
+    /// - *Content type*: [near_primitives::receipt::ReceiptToTxInfo]
+    ReceiptToTx,
     /// Mapping from Block Hash + Target Shard Id + Source Shard Id to Receipt Proof.
     /// The receipts result from applying the chunk on the source shard of the corresponding block.
     /// The key includes the target shard first to enable prefix queries for retrieving all incoming
@@ -341,6 +349,11 @@ pub enum DBCol {
     /// - *Content type*: `near_primitives::sharding::ReceiptProof`
     #[cfg(feature = "protocol_feature_spice")]
     ReceiptProofs,
+    /// Stores produces witnesses by spice executor.
+    /// - *Rows*: (BlockHash || ShardId)
+    /// - *Content type*: [near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness]
+    #[cfg(feature = "protocol_feature_spice")]
+    Witnesses,
     /// All known processed next block hashes regardless of canonical chain.
     /// - *Rows*: BlockHash (CryptoHash)
     /// - *Content type*: next block: Vec<BlockHash (CryptoHash)>
@@ -368,6 +381,23 @@ pub enum DBCol {
     /// - *Content type*: Vec<[near_primitives::types::SpiceUncertifiedChunkInfo]>
     #[cfg(feature = "protocol_feature_spice")]
     UncertifiedChunks,
+    /// Stores contract accesses (code hashes) per SPICE chunk.
+    /// Used to validate the contract code requests and accompany the witness in the catch-up
+    /// dataflow. Written atomically together with the witness.
+    /// - *Rows*: (BlockHash || ShardId)
+    /// - *Content type*: `Vec<CodeHash>`
+    #[cfg(feature = "protocol_feature_spice")]
+    ContractAccesses,
+    /// Pre-computed chunk producer for the chunk at height `prev_block.height+1` on the given shard.
+    /// Populated during header sync and block processing, gated behind `EarlyKickout` protocol feature.
+    /// Authoritative source for historical chunk producer lookups.
+    /// - *Rows*: BlockHash || ShardId (prev_block_hash, shard_id) — 40 bytes
+    /// - *Content type*: [near_primitives::types::validator_stake::ValidatorStake]
+    // TODO(early-kickout): bump DB_VERSION before moving to stable so that
+    // older databases get a proper migration and read-only opens don't fail on the
+    // missing column family.
+    #[cfg(feature = "nightly")]
+    ChunkProducers,
 }
 
 /// Defines different logical parts of a db key.
@@ -432,11 +462,14 @@ impl DBCol {
             | DBCol::Chunks
             | DBCol::InvalidChunks
             | DBCol::PartialChunks
-            | DBCol::TransactionResultForBlock => true,
+            | DBCol::TransactionResultForBlock
+            | DBCol::ReceiptToTx => true,
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::UncertifiedChunks
             | DBCol::ExecutionResults
             | DBCol::UncertifiedExecutionResults => true,
+            #[cfg(feature = "nightly")]
+            DBCol::ChunkProducers => true,
             _ => false,
         }
     }
@@ -520,9 +553,12 @@ impl DBCol {
             | DBCol::TransactionResultForBlock
             | DBCol::Transactions
             | DBCol::StateShardUIdMapping
-            | DBCol::ChunkApplyStats => true,
+            | DBCol::ChunkApplyStats
+            | DBCol::ReceiptToTx => true,
             #[cfg(feature = "protocol_feature_spice")]
             | DBCol::ReceiptProofs => true,
+            #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::Witnesses => false,
             #[cfg(feature = "protocol_feature_spice")]
             | DBCol::AllNextBlockHashes => false,
             #[cfg(feature = "protocol_feature_spice")]
@@ -533,6 +569,8 @@ impl DBCol {
             | DBCol::UncertifiedExecutionResults => false,
             #[cfg(feature = "protocol_feature_spice")]
             | DBCol::UncertifiedChunks => false,
+            #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::ContractAccesses => false,
             // TODO
             DBCol::ChallengedBlocks => false,
             DBCol::Misc => false,
@@ -564,10 +602,13 @@ impl DBCol {
             DBCol::_ReceiptIdToShardId => false,
             // This can be re-constructed from the Chunks column, so no need to store in Cold DB.
             DBCol::PartialChunks => false,
+            // Only needed to properly GC Receipts column
+            DBCol::ProcessedReceiptIds => false,
+            // BlockHeader is considered cold once ContinuousEpochSync is enabled. Before that, it is false
+            DBCol::BlockHeader => ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION),
 
             // Columns that are not GC-ed need not be copied to the cold storage.
-            DBCol::BlockHeader
-            | DBCol::_BlockExtra
+            DBCol::_BlockExtra
             | DBCol::_GCCount
             | DBCol::BlockHeight
             | DBCol::_Peers
@@ -594,7 +635,11 @@ impl DBCol {
             | DBCol::FlatStorageStatus
             | DBCol::EpochSyncProof
             | DBCol::StateSyncHashes
-            | DBCol::StateSyncNewChunks => false,
+            | DBCol::StateSyncNewChunks
+            // TODO(early-kickout): Make ChunkProducers a cold column when GC is implemented.
+            => false,
+            #[cfg(feature = "nightly")]
+            DBCol::ChunkProducers => false,
         }
     }
 
@@ -670,13 +715,17 @@ impl DBCol {
             DBCol::LatestWitnessesByIndex => &[DBKeyType::LatestWitnessIndex],
             DBCol::InvalidChunkStateWitnesses => &[DBKeyType::InvalidWitnessesKey],
             DBCol::InvalidWitnessesByIndex => &[DBKeyType::InvalidWitnessIndex],
-            DBCol::EpochSyncProof => &[DBKeyType::Empty],
+            DBCol::EpochSyncProof => &[DBKeyType::StringLiteral],
             DBCol::StateShardUIdMapping => &[DBKeyType::ShardUId],
             DBCol::StateSyncHashes => &[DBKeyType::EpochId],
             DBCol::StateSyncNewChunks => &[DBKeyType::BlockHash],
             DBCol::ChunkApplyStats => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            DBCol::ProcessedReceiptIds => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            DBCol::ReceiptToTx => &[DBKeyType::ReceiptHash],
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::ReceiptProofs => &[DBKeyType::BlockHash, DBKeyType::ShardId, DBKeyType::ShardId],
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::Witnesses => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::AllNextBlockHashes => &[DBKeyType::BlockHash],
             #[cfg(feature = "protocol_feature_spice")]
@@ -687,7 +736,18 @@ impl DBCol {
             DBCol::UncertifiedExecutionResults => &[DBKeyType::ChunkExecutionResultHash],
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::UncertifiedChunks => &[DBKeyType::BlockHash],
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::ContractAccesses => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            #[cfg(feature = "nightly")]
+            DBCol::ChunkProducers => &[DBKeyType::BlockHash, DBKeyType::ShardId],
         }
+    }
+
+    pub fn witnesses() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::Witnesses;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
     }
 
     pub fn receipt_proofs() -> DBCol {
@@ -731,6 +791,13 @@ impl DBCol {
         #[cfg(not(feature = "protocol_feature_spice"))]
         panic!("Expected protocol_feature_spice to be enabled")
     }
+
+    pub fn contract_accesses() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::ContractAccesses;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
+    }
 }
 
 impl fmt::Display for DBCol {
@@ -752,10 +819,10 @@ mod tests {
         }
     }
 
-    // In split storage archival nodes the State column and the
-    // TrieNodeOrValueHash db key type and handled separately.
-    // This implementation asserts that the TrieNodeOrValueHash key type is
-    // only use in the State column and in no other columns.
+    // In split storage archival nodes some columns are handled separately:
+    // - State column uses TrieNodeOrValueHash key type
+    // - StateChanges is the only cold column using TrieKey key type
+    // This test asserts these key types are only used in their respective columns.
     #[test]
     fn key_type_split_storage_sanity() {
         for col in DBCol::iter() {
@@ -765,6 +832,15 @@ mod tests {
             let key_types = col.key_type();
             for key_type in key_types {
                 assert_ne!(key_type, &DBKeyType::TrieNodeOrValueHash);
+            }
+        }
+        for col in DBCol::iter() {
+            if col == DBCol::StateChanges || !col.is_cold() {
+                continue;
+            }
+            let key_types = col.key_type();
+            for key_type in key_types {
+                assert_ne!(key_type, &DBKeyType::TrieKey);
             }
         }
     }

@@ -43,4 +43,6 @@ nightly = []
 
 protocol_schema = ["near-schema-checker-lib/protocol_schema"]
 
+protocol_feature_spice = []
+
 schemars = ["dep:schemars", "near-account-id/schemars-v1", "near-token/schemars-v1"]

@@ -17,7 +17,7 @@ use std::sync::Arc;
 #[allow(dead_code)] // The value is never read because this is a mock.
 struct GasWeightSer(u64);
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum MockAction {
     CreateReceipt {
         receipt_indices: Vec<ReceiptIndex>,
@@ -57,6 +57,11 @@ pub enum MockAction {
         receipt_index: ReceiptIndex,
         deposit: Balance,
     },
+    TransferToGasKey {
+        receipt_index: ReceiptIndex,
+        public_key: near_crypto::PublicKey,
+        deposit: Balance,
+    },
     Stake {
         receipt_index: ReceiptIndex,
         stake: Balance,
@@ -82,6 +87,19 @@ pub enum MockAction {
         receipt_index: ReceiptIndex,
         public_key: near_crypto::PublicKey,
         nonce: u64,
+    },
+    AddGasKeyWithFullAccess {
+        receipt_index: ReceiptIndex,
+        public_key: near_crypto::PublicKey,
+        num_nonces: u16,
+    },
+    AddGasKeyWithFunctionCall {
+        receipt_index: ReceiptIndex,
+        public_key: near_crypto::PublicKey,
+        num_nonces: u16,
+        allowance: Option<Balance>,
+        receiver_id: AccountId,
+        method_names: Vec<Vec<u8>>,
     },
     YieldCreate {
         data_id: CryptoHash,
@@ -246,21 +264,12 @@ impl External for MockedExternal {
         Ok(false)
     }
 
-    fn append_action_create_account(
-        &mut self,
-        receipt_index: ReceiptIndex,
-    ) -> Result<(), crate::logic::VMLogicError> {
+    fn append_action_create_account(&mut self, receipt_index: ReceiptIndex) {
         self.action_log.push(MockAction::CreateAccount { receipt_index });
-        Ok(())
     }
 
-    fn append_action_deploy_contract(
-        &mut self,
-        receipt_index: ReceiptIndex,
-        code: Vec<u8>,
-    ) -> Result<(), crate::logic::VMLogicError> {
+    fn append_action_deploy_contract(&mut self, receipt_index: ReceiptIndex, code: Vec<u8>) {
         self.action_log.push(MockAction::DeployContract { receipt_index, code });
-        Ok(())
     }
 
     fn append_action_deploy_global_contract(
@@ -268,18 +277,16 @@ impl External for MockedExternal {
         receipt_index: ReceiptIndex,
         code: Vec<u8>,
         mode: crate::logic::types::GlobalContractDeployMode,
-    ) -> Result<(), crate::logic::VMLogicError> {
+    ) {
         self.action_log.push(MockAction::DeployGlobalContract { receipt_index, code, mode });
-        Ok(())
     }
 
     fn append_action_use_global_contract(
         &mut self,
         receipt_index: ReceiptIndex,
         contract_id: crate::logic::types::GlobalContractIdentifier,
-    ) -> Result<(), crate::logic::VMLogicError> {
+    ) {
         self.action_log.push(MockAction::UseGlobalContract { receipt_index, contract_id });
-        Ok(())
     }
 
     fn append_action_deterministic_state_init(
@@ -287,7 +294,7 @@ impl External for MockedExternal {
         receipt_index: ReceiptIndex,
         contract_id: crate::logic::types::GlobalContractIdentifier,
         amount: Balance,
-    ) -> Result<ActionIndex, crate::logic::VMLogicError> {
+    ) -> ActionIndex {
         let action_index = self.action_log.len();
         let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
             code: contract_id.into(),
@@ -298,7 +305,7 @@ impl External for MockedExternal {
             state_init,
             amount,
         });
-        Ok(action_index as u64)
+        action_index as u64
     }
 
     fn set_deterministic_state_init_data_entry(
@@ -346,12 +353,49 @@ impl External for MockedExternal {
         Ok(())
     }
 
-    fn append_action_transfer(
+    fn append_action_transfer(&mut self, receipt_index: ReceiptIndex, deposit: Balance) {
+        self.action_log.push(MockAction::Transfer { receipt_index, deposit });
+    }
+
+    fn append_action_transfer_to_gas_key(
         &mut self,
         receipt_index: ReceiptIndex,
+        public_key: near_crypto::PublicKey,
         deposit: Balance,
+    ) {
+        self.action_log.push(MockAction::TransferToGasKey { receipt_index, public_key, deposit });
+    }
+
+    fn append_action_add_gas_key_with_full_access(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        public_key: near_crypto::PublicKey,
+        num_nonces: near_primitives_core::types::NonceIndex,
+    ) {
+        self.action_log.push(MockAction::AddGasKeyWithFullAccess {
+            receipt_index,
+            public_key,
+            num_nonces,
+        });
+    }
+
+    fn append_action_add_gas_key_with_function_call(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        public_key: near_crypto::PublicKey,
+        num_nonces: near_primitives_core::types::NonceIndex,
+        allowance: Option<Balance>,
+        receiver_id: AccountId,
+        method_names: Vec<Vec<u8>>,
     ) -> Result<(), crate::logic::VMLogicError> {
-        self.action_log.push(MockAction::Transfer { receipt_index, deposit });
+        self.action_log.push(MockAction::AddGasKeyWithFunctionCall {
+            receipt_index,
+            public_key,
+            num_nonces,
+            allowance,
+            receiver_id,
+            method_names,
+        });
         Ok(())
     }
 
@@ -405,14 +449,14 @@ impl External for MockedExternal {
         &mut self,
         receipt_index: ReceiptIndex,
         beneficiary_id: AccountId,
-    ) -> Result<(), crate::logic::VMLogicError> {
+    ) {
         self.action_log.push(MockAction::DeleteAccount { receipt_index, beneficiary_id });
-        Ok(())
     }
 
     fn get_receipt_receiver(&self, receipt_index: ReceiptIndex) -> &AccountId {
         match &self.action_log[receipt_index as usize] {
             MockAction::CreateReceipt { receiver_id, .. } => receiver_id,
+            MockAction::YieldCreate { receiver_id, .. } => receiver_id,
             _ => panic!("not a valid receipt index!"),
         }
     }

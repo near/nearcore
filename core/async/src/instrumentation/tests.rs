@@ -1,14 +1,12 @@
-use std::sync::Arc;
-use time::Duration;
-
-use near_time::FakeClock;
-
 use crate::instrumentation::NUM_WINDOWS;
 use crate::instrumentation::queue::InstrumentedQueue;
 use crate::instrumentation::writer::InstrumentedThreadWriterSharedPart;
 use crate::instrumentation::{
     WINDOW_SIZE_NS, data::InstrumentedThread, writer::InstrumentedThreadWriter,
 };
+use near_time::FakeClock;
+use std::sync::Arc;
+use time::Duration;
 
 const TEST_WINDOW_SIZE_MS: i64 = WINDOW_SIZE_NS as i64 / 1_000_000; // More convenient for tests to use milliseconds
 

@@ -8,29 +8,31 @@ use epoch_info_aggregator::EpochInfoAggregator;
 use itertools::Itertools;
 use near_cache::SyncLruCache;
 use near_chain_configs::{Genesis, GenesisConfig};
-use near_primitives::block::{BlockHeader, Tip};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::{EpochInfo, RngSeed};
 use near_primitives::epoch_manager::{
-    AGGREGATOR_KEY, AllEpochConfig, EpochConfig, EpochConfigStore, EpochSummary,
+    AllEpochConfig, DynamicReshardingConfig, EpochConfig, EpochConfigStore, EpochSummary,
+    ShardLayoutConfig,
 };
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
-pub use near_primitives::shard_layout::ShardInfo;
 use near_primitives::shard_layout::ShardLayout;
+use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
-use near_primitives::types::ProtocolVersion;
+use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, ChunkStats, EpochId,
-    EpochInfoProvider, ShardId, ValidatorId, ValidatorInfoIdentifier, ValidatorKickoutReason,
-    ValidatorStats,
+    EpochInfoProvider, ProtocolVersion, ShardId, ValidatorId, ValidatorInfoIdentifier,
+    ValidatorKickoutReason, ValidatorStats,
 };
+use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
+use near_store::Store;
 use near_store::adapter::StoreAdapter;
-use near_store::{DBCol, HEADER_HEAD_KEY, Store, StoreUpdate};
+use near_store::adapter::epoch_store::{EpochStoreAdapter, EpochStoreUpdateAdapter};
 use num_rational::BigRational;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use primitive_types::U256;
@@ -38,12 +40,12 @@ use reward_calculator::ValidatorOnlineThresholds;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
-use tracing::{debug, warn};
 pub use validator_selection::proposals_to_epoch_info;
 use validator_stats::get_sortable_validator_online_ratio;
 
 mod adapter;
 pub mod epoch_info_aggregator;
+pub mod epoch_sync;
 mod genesis;
 mod metrics;
 mod reward_calculator;
@@ -52,7 +54,6 @@ pub mod shard_tracker;
 pub mod test_utils;
 #[cfg(test)]
 mod tests;
-pub mod validate;
 mod validator_selection;
 mod validator_stats;
 
@@ -119,7 +120,7 @@ impl EpochInfoProvider for EpochManagerHandle {
 /// Tracks epoch information across different forks, such as validators.
 /// Note: that even after garbage collection, the data about genesis epoch should be in the store.
 pub struct EpochManager {
-    store: Store,
+    store: EpochStoreAdapter,
     /// Current epoch config.
     config: AllEpochConfig,
     reward_calculator: RewardCalculator,
@@ -205,8 +206,27 @@ impl EpochManager {
         genesis_config: &GenesisConfig,
         epoch_config_store: EpochConfigStore,
     ) -> Arc<EpochManagerHandle> {
+        let store = store.epoch_store();
         let epoch_length = genesis_config.epoch_length;
         let reward_calculator = RewardCalculator::new(genesis_config, epoch_length);
+
+        // Sanity check: transaction validity period should not exceed two epochs.
+        // This is required for the continuous epoch sync proof feature to work correctly.
+        //
+        // With continuous epoch sync, we update the proof to epoch T-2 while processing first block in epoch T.
+        // When a new node does epoch sync, it needs to have at least `transaction_validity_period` number
+        // of block headers.
+        // See function find_target_epoch_to_produce_proof_for for more details.
+        for (protocol_version, epoch_config) in epoch_config_store.iter() {
+            assert!(
+                genesis_config.transaction_validity_period <= epoch_config.epoch_length * 2,
+                "protocol_version: {}, tx_validity_period: {}, epoch_length: {}",
+                protocol_version,
+                genesis_config.transaction_validity_period,
+                epoch_config.epoch_length
+            );
+        }
+
         let all_epoch_config = AllEpochConfig::from_epoch_config_store(
             genesis_config.chain_id.as_str(),
             epoch_length,
@@ -221,13 +241,12 @@ impl EpochManager {
     }
 
     pub fn new(
-        store: Store,
+        store: EpochStoreAdapter,
         config: AllEpochConfig,
         reward_calculator: RewardCalculator,
         validators: Vec<ValidatorStake>,
     ) -> Result<Self, EpochError> {
-        let epoch_info_aggregator =
-            store.get_ser(DBCol::EpochInfo, AGGREGATOR_KEY)?.unwrap_or_default();
+        let epoch_info_aggregator = store.get_epoch_info_aggregator().unwrap_or_default();
         let mut epoch_manager = EpochManager {
             store,
             config,
@@ -257,7 +276,7 @@ impl EpochManager {
 
     pub fn init_after_epoch_sync(
         &mut self,
-        store_update: &mut StoreUpdate,
+        store_update: &mut EpochStoreUpdateAdapter,
         prev_epoch_first_block_info: BlockInfo,
         prev_epoch_prev_last_block_info: BlockInfo,
         prev_epoch_last_block_info: BlockInfo,
@@ -273,7 +292,7 @@ impl EpochManager {
         // blocks to compute the aggregator data. See issue for details. Consider a cleaner way.
         self.epoch_info_aggregator =
             EpochInfoAggregator::new(*prev_epoch_id, *prev_epoch_prev_last_block_info.prev_hash());
-        store_update.set_ser(DBCol::EpochInfo, AGGREGATOR_KEY, &self.epoch_info_aggregator)?;
+        store_update.set_epoch_info_aggregator(&self.epoch_info_aggregator);
 
         self.save_block_info(store_update, Arc::new(prev_epoch_first_block_info))?;
         self.save_block_info(store_update, Arc::new(prev_epoch_prev_last_block_info))?;
@@ -476,7 +495,7 @@ impl EpochManager {
             }
         }
         if all_kicked_out {
-            tracing::info!(target:"epoch_manager", "We are about to kick out all validators in the next two epochs, so we are going to save one {:?}", max_validator);
+            tracing::info!(target: "epoch_manager", ?max_validator, "we are about to kick out all validators in the next two epochs, so we are going to save one");
             if let Some(validator) = max_validator {
                 validator_kickout.remove(&validator);
             }
@@ -527,7 +546,7 @@ impl EpochManager {
                 / U256::from(total_block_producer_stake.as_yoctonear()))
             .as_u128() as i64;
             PROTOCOL_VERSION_VOTES.with_label_values(&[&version.to_string()]).set(stake_percent);
-            tracing::info!(target: "epoch_manager", ?version, ?stake_percent, "Protocol version voting.");
+            tracing::info!(target: "epoch_manager", ?version, ?stake_percent, "protocol version voting");
         }
 
         let protocol_version = next_epoch_info.protocol_version();
@@ -551,7 +570,7 @@ impl EpochManager {
         };
 
         PROTOCOL_VERSION_NEXT.set(next_next_epoch_version as i64);
-        tracing::info!(target: "epoch_manager", ?next_next_epoch_version, "Protocol version voting.");
+        tracing::info!(target: "epoch_manager", ?next_next_epoch_version, "protocol version voting");
 
         let mut validator_kickout = HashMap::new();
 
@@ -598,10 +617,13 @@ impl EpochManager {
             prev_validator_kickout,
         );
         validator_kickout.extend(kickout);
-        debug!(
+        tracing::debug!(
             target: "epoch_manager",
-            "All proposals: {:?}, Kickouts: {:?}, Block Tracker: {:?}, Shard Tracker: {:?}",
-            proposals, validator_kickout, block_validator_tracker, chunk_validator_tracker
+            ?proposals,
+            ?validator_kickout,
+            ?block_validator_tracker,
+            ?chunk_validator_tracker,
+            "all proposals, kickouts, block tracker, shard tracker"
         );
 
         Ok(EpochSummary {
@@ -613,10 +635,132 @@ impl EpochManager {
         })
     }
 
-    /// Finalizes epoch (T), where given last block hash is given, and returns next next epoch id (T + 2).
+    /// Compute the shard layout for the epoch after the next one.
+    /// If static layout is defined in `next_next_epoch_config`, that will be used.
+    /// If dynamic resharding is enabled it will either:
+    ///   a) derive a new layout based on the split defined in `block_info`, or
+    ///   b) return `next_shard_layout` (if there is no split specified there).
+    ///
+    /// Parameters:
+    ///   - `current_epoch_config`: config for the current epoch (N)
+    ///   - `current_protocol_version`: protocol version for epoch N
+    ///   - `next_next_epoch_config`: config for epoch N+2
+    ///   - `next_shard_layout`: shard layout for epoch N+1
+    ///   - `block_info`: block info for the last block of epoch N
+    pub fn next_next_shard_layout(
+        &self,
+        current_epoch_config: &EpochConfig,
+        current_protocol_version: ProtocolVersion,
+        next_next_epoch_config: &EpochConfig,
+        next_shard_layout: &ShardLayout,
+        block_info: &BlockInfo,
+    ) -> Result<ShardLayout, EpochError> {
+        // We are checking `next_next_epoch_config` for the sake of compatibility: static
+        // resharding operated under the assumption that shard layout for epoch X is stored
+        // in epoch config for epoch X. This is different from dynamic resharding approach,
+        // where resharding parameters stored in epoch config for epoch X determine the layout
+        // for epoch X+2.
+
+        // Dynamic resharding won't be enabled until epoch N+2, use the static layout.
+        if let Some(shard_layout) = next_next_epoch_config.static_shard_layout() {
+            return Ok(shard_layout);
+        }
+
+        // Dynamic resharding is not yet enabled, but will become enabled in epoch N+1 or N+2.
+        // Re-use the layout for N+1, as no resharding could happen in this transitory phase.
+        if current_epoch_config.dynamic_resharding_config().is_none() {
+            return Ok(next_shard_layout.clone());
+        }
+
+        debug_assert!(ProtocolFeature::DynamicResharding.enabled(current_protocol_version));
+
+        let Some((shard_id, boundary_account)) = block_info.shard_split() else {
+            return Ok(next_shard_layout.clone());
+        };
+
+        // Skip the split if the shard no longer exists in the next layout
+        // (e.g. it was already split in a previous epoch).
+        if !next_shard_layout.shard_ids().any(|id| id == *shard_id) {
+            tracing::info!(
+                target: "epoch_manager",
+                ?shard_id,
+                %boundary_account,
+                "dynamic resharding: shard no longer exists in next layout, skipping split"
+            );
+            return Ok(next_shard_layout.clone());
+        }
+
+        tracing::info!(
+            target: "epoch_manager",
+            ?shard_id,
+            %boundary_account,
+            "dynamic resharding: shard selected for split, deriving new layout"
+        );
+        let new_layout = next_shard_layout
+            .derive_v3(boundary_account.clone(), || {
+                self.get_shard_layout_history(current_protocol_version, None)
+            })
+            .map_err(|err| EpochError::ShardingError(err.to_string()))?;
+        Ok(new_layout)
+    }
+
+    /// Get all static shard layouts from the given `latest_protocol_version` (inclusive) back to
+    /// `earliest_protocol_version` (or genesis version if `None`), ordered from newest to oldest.
+    /// Protocol versions for which dynamic resharding is enabled are skipped.
+    fn get_shard_layout_history(
+        &self,
+        latest_protocol_version: ProtocolVersion,
+        earliest_protocol_version: Option<ProtocolVersion>,
+    ) -> Vec<ShardLayout> {
+        let mut layouts = Vec::new();
+        let earliest_protocol_version =
+            earliest_protocol_version.unwrap_or_else(|| self.config.genesis_protocol_version());
+
+        for version in (earliest_protocol_version..=latest_protocol_version).rev() {
+            // Skip protocol versions with dynamic layout
+            let Some(layout) = self.get_static_shard_layout_for_protocol_version(version) else {
+                continue;
+            };
+            // avoid duplicates if layout doesn't change
+            if layouts.last() != Some(&layout) {
+                layouts.push(layout);
+            }
+        }
+
+        layouts
+    }
+
+    /// Checks if resharding can be scheduled in 2 epochs from now (assuming `block_hash` belongs
+    /// to the current epoch), based on `min_epochs_between_resharding`.
+    ///
+    /// Returns `true` if no resharding occurred in the last N epochs (including the next one).
+    fn can_reshard(
+        &self,
+        block_hash: &CryptoHash,
+        min_epochs_between_resharding: u64,
+    ) -> Result<bool, EpochError> {
+        if min_epochs_between_resharding == 0 {
+            return Ok(true);
+        }
+
+        let block_info = self.get_block_info(block_hash)?;
+        let next_epoch_id = self.get_next_epoch_id_from_info(&block_info)?;
+        let next_epoch_info = self.get_epoch_info(&next_epoch_id)?;
+
+        // last_resharding() returns `None` if no resharding happened since dynamic resharding
+        // has been enabled. It is theoretically possible that a static resharding was scheduled
+        // right before enabling dynamic resharding, but we assume this didn't happen.
+        let can_reshard = next_epoch_info.last_resharding().is_none_or(|last_resharding| {
+            next_epoch_info.epoch_height() - last_resharding >= min_epochs_between_resharding
+        });
+        Ok(can_reshard)
+    }
+
+    /// Finalize epoch (T), where given last block hash is given
+    /// Store ID and `EpochInfo` for epoch (T + 2).
     fn finalize_epoch(
         &self,
-        store_update: &mut StoreUpdate,
+        store_update: &mut EpochStoreUpdateAdapter,
         block_info: &BlockInfo,
         last_block_hash: &CryptoHash,
         rng_seed: RngSeed,
@@ -624,11 +768,12 @@ impl EpochManager {
         let epoch_summary = self.collect_blocks_info(block_info, last_block_hash)?;
         let epoch_info = self.get_epoch_info(block_info.epoch_id())?;
         let epoch_protocol_version = epoch_info.protocol_version();
+        let epoch_config = self.get_epoch_config(epoch_protocol_version);
         let validator_stake =
             epoch_info.validators_iter().map(|r| r.account_and_stake()).collect::<HashMap<_, _>>();
         let next_epoch_id = self.get_next_epoch_id_from_info(block_info)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?;
-        self.save_epoch_validator_info(store_update, block_info.epoch_id(), &epoch_summary)?;
+        store_update.set_epoch_validator_info(block_info.epoch_id(), &epoch_summary);
 
         let EpochSummary {
             all_proposals,
@@ -655,9 +800,9 @@ impl EpochManager {
                     validator_block_chunk_stats.remove(account_id);
                 }
             }
-            let epoch_config = self.get_epoch_config(epoch_protocol_version);
-            // If ChunkEndorsementsInBlockHeader feature is enabled, we use the chunk validator kickout threshold
-            // as the cutoff threshold for the endorsement ratio to remap the ratio to 0 or 1.
+
+            // We use the chunk validator kickout threshold as the cutoff threshold for the
+            // endorsement ratio to remap the ratio to 0 or 1.
             let online_thresholds = ValidatorOnlineThresholds {
                 online_min_threshold: epoch_config.online_min_threshold,
                 online_max_threshold: epoch_config.online_max_threshold,
@@ -676,9 +821,20 @@ impl EpochManager {
             )
         };
         let next_next_epoch_config = self.config.for_protocol_version(next_next_epoch_version);
-        let next_epoch_version = next_epoch_info.protocol_version();
-        let next_shard_layout = self.config.for_protocol_version(next_epoch_version).shard_layout;
-        let has_same_shard_layout = next_shard_layout == next_next_epoch_config.shard_layout;
+        let next_shard_layout = self.get_shard_layout(&next_epoch_id)?;
+
+        let next_next_shard_layout = self.next_next_shard_layout(
+            &epoch_config,
+            epoch_protocol_version,
+            &next_next_epoch_config,
+            &next_shard_layout,
+            block_info,
+        )?;
+        let has_same_shard_layout = next_next_shard_layout == next_shard_layout;
+
+        let last_resharding = (!has_same_shard_layout)
+            .then(|| next_epoch_info.epoch_height() + 1)
+            .or_else(|| next_epoch_info.last_resharding());
 
         let next_next_epoch_info = match proposals_to_epoch_info(
             &next_next_epoch_config,
@@ -689,17 +845,19 @@ impl EpochManager {
             validator_reward,
             minted_amount,
             next_next_epoch_version,
+            next_next_shard_layout.clone(),
             has_same_shard_layout,
+            last_resharding,
         ) {
             Ok(next_next_epoch_info) => next_next_epoch_info,
             Err(EpochError::ThresholdError { stake_sum, num_seats }) => {
-                warn!(target: "epoch_manager", "Not enough stake for required number of seats (all validators tried to unstake?): amount = {} for {}", stake_sum, num_seats);
+                tracing::warn!(target: "epoch_manager", %stake_sum, %num_seats, "not enough stake for required number of seats (all validators tried to unstake?)");
                 let mut epoch_info = EpochInfo::clone(&next_epoch_info);
                 *epoch_info.epoch_height_mut() += 1;
                 epoch_info
             }
             Err(EpochError::NotEnoughValidators { num_validators, num_shards }) => {
-                warn!(target: "epoch_manager", "Not enough validators for required number of shards (all validators tried to unstake?): num_validators={} num_shards={}", num_validators, num_shards);
+                tracing::warn!(target: "epoch_manager", %num_validators, %num_shards, "not enough validators for required number of shards (all validators tried to unstake?)");
                 let mut epoch_info = EpochInfo::clone(&next_epoch_info);
                 *epoch_info.epoch_height_mut() += 1;
                 epoch_info
@@ -707,12 +865,14 @@ impl EpochManager {
             Err(err) => return Err(err),
         };
         let next_next_epoch_id = EpochId(*last_block_hash);
-        debug!(target: "epoch_manager", "next next epoch height: {}, id: {:?}, protocol version: {} shard layout: {:?} config: {:?}",
-               next_next_epoch_info.epoch_height(),
-               &next_next_epoch_id,
-               next_next_epoch_info.protocol_version(),
-               self.config.for_protocol_version(next_next_epoch_info.protocol_version()).shard_layout,
-            self.config.for_protocol_version(next_next_epoch_info.protocol_version()));
+        tracing::debug!(
+            target: "epoch_manager",
+            next_next_epoch_height = %next_next_epoch_info.epoch_height(),
+            ?next_next_epoch_id,
+            next_next_protocol_version = %next_next_epoch_info.protocol_version(),
+            ?next_next_shard_layout,
+            ?next_next_epoch_config,
+        );
         // This epoch info is computed for the epoch after next (T+2),
         // where epoch_id of it is the hash of last block in this epoch (T).
         self.save_epoch_info(store_update, &next_next_epoch_id, Arc::new(next_next_epoch_info))?;
@@ -721,9 +881,17 @@ impl EpochManager {
 
     pub fn record_block_info(
         &mut self,
+        block_info: BlockInfo,
+        rng_seed: RngSeed,
+    ) -> Result<EpochStoreUpdateAdapter<'static>, EpochError> {
+        self.record_block_info_impl(block_info, rng_seed)
+    }
+
+    fn record_block_info_impl(
+        &mut self,
         mut block_info: BlockInfo,
         rng_seed: RngSeed,
-    ) -> Result<StoreUpdate, EpochError> {
+    ) -> Result<EpochStoreUpdateAdapter<'static>, EpochError> {
         let current_hash = *block_info.hash();
         let mut store_update = self.store.store_update();
         // Check that we didn't record this block yet.
@@ -860,6 +1028,8 @@ impl EpochManager {
         if let Some(chunk_validators) = self.chunk_validators_cache.get(&cache_key) {
             return Ok(chunk_validators);
         }
+        let requested_cache_key = cache_key;
+        let mut result = None;
 
         let epoch_info = self.get_epoch_info(epoch_id)?;
         let shard_layout = self.get_shard_layout(epoch_id)?;
@@ -872,17 +1042,25 @@ impl EpochManager {
                 })
                 .collect();
             let shard_id = shard_layout.get_shard_id(shard_index)?;
+            let value = Arc::new(ChunkValidatorAssignments::new(chunk_validators));
             let cache_key = (*epoch_id, shard_id, height);
-            self.chunk_validators_cache
-                .put(cache_key, Arc::new(ChunkValidatorAssignments::new(chunk_validators)));
+            // Preserve the result on the off-chance that the cache is fully
+            // replaced before we finish populating it and try to read the
+            // result from the cache.
+            if cache_key == requested_cache_key {
+                result = Some(Arc::clone(&value));
+            }
+            self.chunk_validators_cache.put(cache_key, value);
         }
 
-        self.chunk_validators_cache.get(&cache_key).ok_or_else(|| {
-            EpochError::ChunkValidatorSelectionError(format!(
-                "Invalid shard ID {} for height {}, epoch {:?} for chunk validation",
-                shard_id, height, epoch_id,
-            ))
-        })
+        if let Some(result) = result {
+            return Ok(result);
+        }
+
+        Err(EpochError::ChunkValidatorSelectionError(format!(
+            "Invalid shard ID {} for height {}, epoch {:?} for chunk validation",
+            shard_id, height, epoch_id,
+        )))
     }
 
     pub fn get_all_block_approvers_ordered(
@@ -951,10 +1129,71 @@ impl EpochManager {
         self.get_epoch_info(&epoch_id)
     }
 
-    /// Returns true if next block after given block hash is in the new epoch.
-    pub fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
-        let block_info = self.get_block_info(parent_hash)?;
+    /// Returns true if next block after the given `block_hash` is in the new epoch.
+    pub fn is_next_block_epoch_start(&self, block_hash: &CryptoHash) -> Result<bool, EpochError> {
+        let block_info = self.get_block_info(block_hash)?;
         self.is_next_block_in_next_epoch(&block_info)
+    }
+
+    /// Like `is_next_block_epoch_start`, but works for blocks not yet in the store.
+    /// Used during block production to decide whether to include `shard_split` in the header.
+    ///
+    /// Parameters:
+    ///  - `block_height`: the height of the block being produced
+    ///  - `parent_hash`: hash of the parent block (the block we're building on top of)
+    ///  - `last_final_block_hash`: hash of the last final block after this block is produced
+    pub fn is_produced_block_last_in_epoch(
+        &self,
+        block_height: BlockHeight,
+        parent_hash: &CryptoHash,
+        last_final_block_hash: &CryptoHash,
+    ) -> Result<bool, EpochError> {
+        // If the block being produced starts a new epoch, it can't also be the
+        // last block of that epoch (the epoch just started). This check is
+        // needed because `is_next_block_in_next_epoch_impl` uses the parent's
+        // epoch boundaries and would incorrectly return true when the parent
+        // is the last block of the previous epoch.
+        if self.is_next_block_epoch_start(parent_hash)? {
+            return Ok(false);
+        }
+        let last_final_block_height = self.get_block_info(last_final_block_hash)?.height();
+        let parent_info = self.get_block_info(parent_hash)?;
+        let epoch_first_block = parent_info.epoch_first_block();
+        self.is_next_block_in_next_epoch_impl(
+            block_height,
+            last_final_block_height,
+            epoch_first_block,
+        )
+    }
+
+    /// Like `is_produced_block_last_in_epoch`, but checks if the **next** block will be last
+    /// in the epoch, not the one currently produced. Due to how block finalization works, this
+    /// method **can produce false positives**, but will never return a false negative.
+    /// Used to check if proposed_split should be computed for a shard.
+    ///
+    /// Parameters:
+    ///  - `block_height`: the height of the block being produced
+    ///  - `parent_hash`: hash of the parent block (the block we're building on top of)
+    pub fn is_next_block_possibly_last_in_epoch(
+        &self,
+        block_height: BlockHeight,
+        parent_hash: &CryptoHash,
+    ) -> Result<bool, EpochError> {
+        // Avoid checking the wrong epoch if parent is the last block of an epoch.
+        if self.is_next_block_epoch_start(parent_hash)? {
+            return Ok(false);
+        }
+        let parent_info = self.get_block_info(parent_hash)?;
+        let epoch_first_block = parent_info.epoch_first_block();
+        // At block_height+1, last_final_height is at most block_height-1.
+        // This can lead to false positive result, if previous block doesn't get finalized
+        // before the next block is produced, but it will never give a false negative.
+        let max_last_final_height = block_height.saturating_sub(1);
+        self.is_next_block_in_next_epoch_impl(
+            block_height + 1,
+            max_last_final_height,
+            epoch_first_block,
+        )
     }
 
     pub fn get_next_epoch_id_from_prev_block(
@@ -993,9 +1232,10 @@ impl EpochManager {
 
         let next_epoch_id = self.get_next_epoch_id(last_block_hash)?;
         let epoch_id = self.get_epoch_id(last_block_hash)?;
-        debug!(target: "epoch_manager",
-            "epoch id: {:?}, prev_epoch_id: {:?}, prev_prev_epoch_id: {:?}",
-            next_next_epoch_id, next_epoch_id, epoch_id
+        tracing::debug!(target: "epoch_manager",
+            epoch_id = ?next_next_epoch_id,
+            prev_epoch_id = ?next_epoch_id,
+            prev_prev_epoch_id= ?epoch_id,
         );
 
         // Since stake changes for epoch T are stored in epoch info for T+2, the one stored by epoch_id
@@ -1003,9 +1243,10 @@ impl EpochManager {
         let prev_prev_stake_change = self.get_epoch_info(&epoch_id)?.stake_change().clone();
         let prev_stake_change = self.get_epoch_info(&next_epoch_id)?.stake_change().clone();
         let stake_change = self.get_epoch_info(&next_next_epoch_id)?.stake_change().clone();
-        debug!(target: "epoch_manager",
-            "prev_prev_stake_change: {:?}, prev_stake_change: {:?}, stake_change: {:?}",
-            prev_prev_stake_change, prev_stake_change, stake_change,
+        tracing::debug!(target: "epoch_manager",
+            ?prev_prev_stake_change,
+            ?prev_stake_change,
+            ?stake_change,
         );
         let all_stake_changes =
             prev_prev_stake_change.iter().chain(&prev_stake_change).chain(&stake_change);
@@ -1020,7 +1261,7 @@ impl EpochManager {
                 vec![prev_prev_stake, prev_stake, new_stake].into_iter().max().unwrap();
             stake_info.insert(account_id.clone(), max_of_stakes);
         }
-        debug!(target: "epoch_manager", "stake_info: {:?}, validator_reward: {:?}", stake_info, validator_reward);
+        tracing::debug!(target: "epoch_manager", ?stake_info, ?validator_reward);
         Ok((stake_info, validator_reward))
     }
 
@@ -1056,7 +1297,7 @@ impl EpochManager {
                         validator_to_shard[*validator_id as usize].insert(shard_id);
                     }
                 }
-                let epoch_summary = self.get_epoch_validator_info(id)?;
+                let epoch_summary = self.store.get_epoch_validator_info(id)?;
                 let cur_validators = cur_epoch_info
                     .validators_iter()
                     .enumerate()
@@ -1260,8 +1501,8 @@ impl EpochManager {
         Ok(EpochValidatorInfo {
             current_validators,
             next_validators,
-            current_fishermen: cur_epoch_info.fishermen_iter().map(Into::into).collect(),
-            next_fishermen: next_epoch_info.fishermen_iter().map(Into::into).collect(),
+            current_fishermen: vec![],
+            next_fishermen: vec![],
             current_proposals: all_proposals,
             prev_epoch_kickout,
             epoch_start_height,
@@ -1273,11 +1514,11 @@ impl EpochManager {
         &mut self,
         block_info: BlockInfo,
         random_value: CryptoHash,
-    ) -> Result<StoreUpdate, EpochError> {
+    ) -> Result<EpochStoreUpdateAdapter<'static>, EpochError> {
         // Check that genesis block doesn't have any proposals.
         let prev_validator_proposals = block_info.proposals_iter().collect::<Vec<_>>();
         assert!(block_info.height() > 0 || prev_validator_proposals.is_empty());
-        debug!(target: "epoch_manager",
+        tracing::debug!(target: "epoch_manager",
             height = block_info.height(),
             proposals = ?prev_validator_proposals,
             "add_validator_proposals");
@@ -1302,23 +1543,43 @@ impl EpochManager {
 
 /// Private utilities for EpochManager.
 impl EpochManager {
-    /// Returns true, if given current block info, next block supposed to be in the next epoch.
-    fn is_next_block_in_next_epoch(&self, block_info: &BlockInfo) -> Result<bool, EpochError> {
-        if block_info.is_genesis() {
-            return Ok(true);
-        }
-        let protocol_version = self.get_epoch_info_from_hash(block_info.hash())?.protocol_version();
+    /// Returns true if the next block after the given block will be in the next epoch.
+    ///
+    /// Parameters:
+    /// - `block_height`: the height of the block
+    /// - `last_final_height`: the height of the last final block for the block in question
+    /// - `epoch_first_block`: the first block of the current epoch
+    fn is_next_block_in_next_epoch_impl(
+        &self,
+        block_height: BlockHeight,
+        last_final_height: BlockHeight,
+        epoch_first_block: &CryptoHash,
+    ) -> Result<bool, EpochError> {
+        let epoch_first_block_info = self.get_block_info(epoch_first_block)?;
+        let protocol_version =
+            self.get_epoch_info(&epoch_first_block_info.epoch_id())?.protocol_version();
         let epoch_length = self.config.for_protocol_version(protocol_version).epoch_length;
-        let estimated_next_epoch_start =
-            self.get_block_info(block_info.epoch_first_block())?.height() + epoch_length;
+        let estimated_next_epoch_start = epoch_first_block_info.height() + epoch_length;
 
         if epoch_length <= 3 {
             // This is here to make epoch_manager tests pass. Needs to be removed, tracked in
             // https://github.com/nearprotocol/nearcore/issues/2522
-            return Ok(block_info.height() + 1 >= estimated_next_epoch_start);
+            return Ok(block_height + 1 >= estimated_next_epoch_start);
         }
 
-        Ok(block_info.last_finalized_height() + 3 >= estimated_next_epoch_start)
+        Ok(last_final_height + 3 >= estimated_next_epoch_start)
+    }
+
+    /// Returns true if the next block after `block_info` will be in the next epoch.
+    fn is_next_block_in_next_epoch(&self, block_info: &BlockInfo) -> Result<bool, EpochError> {
+        if block_info.is_genesis() {
+            return Ok(true);
+        }
+        self.is_next_block_in_next_epoch_impl(
+            block_info.height(),
+            block_info.last_finalized_height(),
+            block_info.epoch_first_block(),
+        )
     }
 
     /// Returns true, if given current block info, next block must include the approvals from the next
@@ -1353,21 +1614,35 @@ impl EpochManager {
     }
 
     pub fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
-        let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
-        Ok(self.get_shard_layout_from_protocol_version(protocol_version))
+        let epoch_info = self.get_epoch_info(epoch_id)?;
+        if let Some(shard_layout) = epoch_info.shard_layout() {
+            Ok(shard_layout.clone())
+        } else {
+            let protocol_version = epoch_info.protocol_version();
+            self.get_static_shard_layout_for_protocol_version(protocol_version).ok_or_else(|| {
+                EpochError::ShardingError(format!(
+                    "shard layout missing. epoch_id={:?} protocol_version={}",
+                    epoch_id, protocol_version
+                ))
+            })
+        }
     }
 
-    pub fn get_shard_layout_from_protocol_version(
+    /// Get *static* shard layout for the given protocol version. If the protocol version uses
+    /// dynamic resharding, there is no specific layout assigned to that version, so this method
+    /// returns `None`.
+    ///
+    /// **Tip:** Consider using `get_shard_layout` instead.
+    pub fn get_static_shard_layout_for_protocol_version(
         &self,
         protocol_version: ProtocolVersion,
-    ) -> ShardLayout {
-        self.config.for_protocol_version(protocol_version).shard_layout
+    ) -> Option<ShardLayout> {
+        self.config.for_protocol_version(protocol_version).static_shard_layout()
     }
 
     pub fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError> {
-        self.epochs_info.get_or_try_put(*epoch_id, |epoch_id| {
-            self.store.epoch_store().get_epoch_info(epoch_id).map(Arc::new)
-        })
+        self.epochs_info
+            .get_or_try_put(*epoch_id, |epoch_id| self.store.get_epoch_info(epoch_id).map(Arc::new))
     }
 
     fn has_epoch_info(&self, epoch_id: &EpochId) -> Result<bool, EpochError> {
@@ -1380,33 +1655,13 @@ impl EpochManager {
 
     fn save_epoch_info(
         &self,
-        store_update: &mut StoreUpdate,
+        store_update: &mut EpochStoreUpdateAdapter,
         epoch_id: &EpochId,
         epoch_info: Arc<EpochInfo>,
     ) -> Result<(), EpochError> {
-        store_update.set_ser(DBCol::EpochInfo, epoch_id.as_ref(), &epoch_info)?;
+        store_update.set_epoch_info(epoch_id, &epoch_info);
         self.epochs_info.put(*epoch_id, epoch_info);
         Ok(())
-    }
-
-    pub fn get_epoch_validator_info(&self, epoch_id: &EpochId) -> Result<EpochSummary, EpochError> {
-        // We don't use cache here since this query happens rarely and only for rpc.
-        self.store
-            .get_ser(DBCol::EpochValidatorInfo, epoch_id.as_ref())?
-            .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
-    }
-
-    // Note(#6572): beware, after calling `save_epoch_validator_info`,
-    // `get_epoch_validator_info` will return stale results.
-    fn save_epoch_validator_info(
-        &self,
-        store_update: &mut StoreUpdate,
-        epoch_id: &EpochId,
-        epoch_summary: &EpochSummary,
-    ) -> Result<(), EpochError> {
-        store_update
-            .set_ser(DBCol::EpochValidatorInfo, epoch_id.as_ref(), epoch_summary)
-            .map_err(EpochError::from)
     }
 
     fn has_block_info(&self, hash: &CryptoHash) -> Result<bool, EpochError> {
@@ -1418,37 +1673,33 @@ impl EpochManager {
     }
 
     pub fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
-        self.blocks_info.get_or_try_put(*hash, |hash| {
-            self.store.epoch_store().get_block_info(hash).map(Arc::new)
-        })
+        self.blocks_info.get_or_try_put(*hash, |hash| self.store.get_block_info(hash).map(Arc::new))
     }
 
     fn save_block_info(
         &self,
-        store_update: &mut StoreUpdate,
+        store_update: &mut EpochStoreUpdateAdapter,
         block_info: Arc<BlockInfo>,
     ) -> Result<(), EpochError> {
-        let block_hash = block_info.hash();
-        store_update.insert_ser(DBCol::BlockInfo, block_hash.as_ref(), &block_info)?;
-        self.blocks_info.put(*block_hash, block_info);
+        store_update.set_block_info(&block_info);
+        self.blocks_info.put(*block_info.hash(), block_info);
         Ok(())
     }
 
     fn save_epoch_start(
         &self,
-        store_update: &mut StoreUpdate,
+        store_update: &mut EpochStoreUpdateAdapter,
         epoch_id: &EpochId,
         epoch_start: BlockHeight,
     ) -> Result<(), EpochError> {
-        store_update.set_ser(DBCol::EpochStart, epoch_id.as_ref(), &epoch_start)?;
+        store_update.set_epoch_start(epoch_id, epoch_start);
         self.epoch_id_to_start.put(*epoch_id, epoch_start);
         Ok(())
     }
 
     fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError> {
-        self.epoch_id_to_start.get_or_try_put(*epoch_id, |epoch_id| {
-            self.store.epoch_store().get_epoch_start(epoch_id)
-        })
+        self.epoch_id_to_start
+            .get_or_try_put(*epoch_id, |epoch_id| self.store.get_epoch_start(epoch_id))
     }
 
     /// Updates epoch info aggregator to state as of `last_final_block_hash`
@@ -1467,7 +1718,7 @@ impl EpochManager {
     pub fn update_epoch_info_aggregator_upto_final(
         &mut self,
         last_final_block_hash: &CryptoHash,
-        store_update: &mut StoreUpdate,
+        store_update: &mut EpochStoreUpdateAdapter,
     ) -> Result<(), EpochError> {
         if let Some((aggregator, replace)) =
             self.aggregate_epoch_info_upto(last_final_block_hash)?
@@ -1481,11 +1732,7 @@ impl EpochManager {
                 block_info.height() % AGGREGATOR_SAVE_PERIOD == 0
             };
             if save {
-                store_update.set_ser(
-                    DBCol::EpochInfo,
-                    AGGREGATOR_KEY,
-                    &self.epoch_info_aggregator,
-                )?;
+                store_update.set_epoch_info_aggregator(&self.epoch_info_aggregator);
             }
         }
         Ok(())
@@ -1587,18 +1834,11 @@ impl EpochManager {
                     // In the case of epoch sync, we may not have the BlockInfo for the last final block
                     // of the epoch. In this case, check for this special case.
                     // TODO(11931): think of a better way to do this.
-                    let tip = self
-                        .store
-                        .get_ser::<Tip>(DBCol::BlockMisc, HEADER_HEAD_KEY)?
-                        .ok_or_else(|| EpochError::IOErr("Tip not found in store".to_string()))?;
-                    let block_header = self
-                        .store
-                        .get_ser::<BlockHeader>(DBCol::BlockHeader, tip.prev_block_hash.as_bytes())?
-                        .ok_or_else(|| {
-                            EpochError::IOErr(
-                                "BlockHeader for prev block of tip not found in store".to_string(),
-                            )
-                        })?;
+                    let chain_store = self.store.chain_store();
+                    let tip = chain_store.header_head().expect("Tip not found");
+                    let block_header = chain_store
+                        .get_block_header(&tip.prev_block_hash)
+                        .expect("BlockHeader for prev block of tip not found in store");
                     if block_header.prev_hash() == block_info.hash() {
                         (block_info.height() - 1, *block_info.epoch_id())
                     } else {
@@ -1621,4 +1861,84 @@ impl EpochManager {
             cur_hash = prev_hash;
         }))
     }
+
+    /// Get the shard split to include in the block header, if any.
+    ///
+    /// This method is expected to be called during the production of the last block of an epoch.
+    /// The returned split should be included in the header of the produced block. It will be used
+    /// to derive layout for epoch `N+2` (where `N` is the current epoch).
+    ///
+    /// Parameters:
+    ///  - `protocol_version`: protocol version of the current epoch
+    ///  - `parent_hash`: hash of the parent of the block being produced
+    ///  - `chunk_headers`: chunk headers from the block, used to collect proposed shard splits
+    ///
+    /// Returns `Some((shard_id, boundary_account))` if a shard split should be scheduled.
+    pub fn get_upcoming_shard_split(
+        &self,
+        protocol_version: ProtocolVersion,
+        parent_hash: &CryptoHash,
+        chunk_headers: &[ShardChunkHeader],
+    ) -> Result<Option<(ShardId, AccountId)>, EpochError> {
+        // Check if dynamic resharding is enabled
+        let epoch_config = self.get_epoch_config(protocol_version);
+        let dynamic_resharding_config = match &epoch_config.shard_layout_config {
+            ShardLayoutConfig::Static { .. } => return Ok(None),
+            ShardLayoutConfig::Dynamic { dynamic_resharding_config } => dynamic_resharding_config,
+        };
+
+        // Check if resharding is allowed based on epoch constraints
+        let can_reshard = self
+            .can_reshard(&parent_hash, dynamic_resharding_config.min_epochs_between_resharding)?;
+        if !can_reshard {
+            return Ok(None);
+        }
+
+        // Collect proposed splits from chunk headers
+        let mut proposed_splits = HashMap::new();
+        for chunk_header in chunk_headers {
+            if let Some(split) = chunk_header.proposed_split() {
+                proposed_splits.insert(chunk_header.shard_id(), split.clone());
+            }
+        }
+
+        // Pick the shard to split
+        let Some((shard_id, split)) =
+            pick_shard_to_split(&proposed_splits, dynamic_resharding_config)
+        else {
+            return Ok(None);
+        };
+
+        Ok(Some((shard_id, split.boundary_account)))
+    }
+}
+
+/// Pick which shard to split if there are proposed splits for multiple shards.
+/// Shards in `force_split_shards` have top priority.
+/// Otherwise, the shard with the highest memory usage is selected.
+///
+/// Returns `None` if there are no proposed splits.
+pub fn pick_shard_to_split(
+    proposed_splits: &HashMap<ShardId, TrieSplit>,
+    config: &DynamicReshardingConfig,
+) -> Option<(ShardId, TrieSplit)> {
+    if proposed_splits.is_empty() {
+        return None;
+    }
+
+    for shard_id in &config.force_split_shards {
+        if let Some(split) = proposed_splits.get(shard_id) {
+            debug_assert!(!config.block_split_shards.contains(shard_id));
+            return Some((*shard_id, split.clone()));
+        }
+    }
+
+    // We're using (total_memory, shard_id) tuple as key to enforce determinism in case two shards
+    // have the exacts same memory usage (very unlikely in production, but can happen in tests).
+    proposed_splits.iter().max_by_key(|(shard_id, split)| (split.total_memory(), *shard_id)).map(
+        |(shard_id, split)| {
+            debug_assert!(!config.block_split_shards.contains(shard_id));
+            (*shard_id, split.clone())
+        },
+    )
 }

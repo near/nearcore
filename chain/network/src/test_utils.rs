@@ -17,7 +17,6 @@ use std::collections::{HashMap, VecDeque};
 use std::ops::ControlFlow;
 use std::sync::Arc;
 use tokio::sync::Notify;
-use tracing::debug;
 
 // `peer_id_from_seed` generate `PeerId` from seed for unit tests
 pub fn peer_id_from_seed(seed: &str) -> PeerId {
@@ -126,7 +125,7 @@ impl StopSignal {
 
 impl Handler<StopSignal> for PeerManagerActor {
     fn handle(&mut self, msg: StopSignal) {
-        debug!(target: "network", "Receive Stop Signal.");
+        tracing::debug!(target: "network", "received stop signal");
 
         if msg.should_panic {
             panic!("Node crashed");

@@ -3,7 +3,7 @@ use crate::store::utils::{
     get_block_header_on_chain_by_height, get_chunk_clone_from_header,
     get_incoming_receipts_for_shard,
 };
-use crate::types::RuntimeAdapter;
+use crate::types::{RuntimeAdapter, StatePartValidationResult, StateRootNodeValidationResult};
 use crate::validate::validate_chunk_proofs;
 use crate::{ReceiptFilter, byzantine_assert, metrics};
 use near_async::time::{Clock, Instant};
@@ -111,7 +111,7 @@ impl ChainStateSyncAdapter {
         assert_eq!(&chunk_headers_root, sync_prev_block.header().chunk_headers_root());
 
         // If the node was not tracking the shard it may not have the chunk in storage.
-        let chunk = get_chunk_clone_from_header(&self.chain_store, chunk_header)?;
+        let chunk = get_chunk_clone_from_header(&self.chain_store.chunk_store(), chunk_header)?;
         let chunk_proof =
             chunk_proofs.get(prev_shard_index).ok_or(Error::InvalidShardId(shard_id))?.clone();
         let block_header = get_block_header_on_chain_by_height(
@@ -259,8 +259,8 @@ impl ChainStateSyncAdapter {
         sync_hash: CryptoHash,
     ) -> Result<ShardStateSyncResponseHeader, Error> {
         // Check cache
-        let key = borsh::to_vec(&StateHeaderKey(shard_id, sync_hash))?;
-        if let Ok(Some(header)) = self.chain_store.store().get_ser(DBCol::StateHeaders, &key) {
+        let key = borsh::to_vec(&StateHeaderKey(shard_id, sync_hash)).unwrap();
+        if let Some(header) = self.chain_store.store().get_ser(DBCol::StateHeaders, &key) {
             return Ok(header);
         }
 
@@ -268,8 +268,8 @@ impl ChainStateSyncAdapter {
 
         // Saving the header data
         let mut store_update = self.chain_store.store().store_update();
-        store_update.set_ser(DBCol::StateHeaders, &key, &shard_state_header)?;
-        store_update.commit()?;
+        store_update.set_ser(DBCol::StateHeaders, &key, &shard_state_header);
+        store_update.commit();
 
         Ok(shard_state_header)
     }
@@ -295,8 +295,8 @@ impl ChainStateSyncAdapter {
         let epoch_id = block.header().epoch_id();
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         // Check cache
-        let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;
-        if let Ok(Some(bytes)) = self.chain_store.store_ref().get(DBCol::StateParts, &key) {
+        let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
+        if let Some(bytes) = self.chain_store.store_ref().get(DBCol::StateParts, &key) {
             metrics::STATE_PART_CACHE_HIT.inc();
             let state_part = StatePart::from_bytes(bytes.to_vec(), protocol_version)?;
             return Ok(state_part);
@@ -342,11 +342,18 @@ impl ChainStateSyncAdapter {
         self.requested_state_parts
             .save_state_part_elapsed(&sync_hash, &shard_id, &part_id, elapsed_ms);
 
-        // Saving the part data
-        let mut store_update = self.chain_store.store().store_update();
-        let bytes = state_part.to_bytes(protocol_version);
-        store_update.set(DBCol::StateParts, &key, &bytes);
-        store_update.commit()?;
+        // Cache the part data, but only if the corresponding header is also cached.
+        // At epoch boundaries, clear_all_downloaded_parts() deletes all cached headers
+        // and parts. Since serving runs on a separate actor, a part request can arrive
+        // after the clear and re-create a StatePartKey without its StateHeaderKey,
+        // which the storage validator treats as an inconsistency.
+        let header_key = borsh::to_vec(&StateHeaderKey(shard_id, sync_hash)).unwrap();
+        if self.chain_store.store_ref().exists(DBCol::StateHeaders, &header_key) {
+            let mut store_update = self.chain_store.store().store_update();
+            let bytes = state_part.to_bytes(protocol_version);
+            store_update.set(DBCol::StateParts, &key, &bytes);
+            store_update.commit();
+        }
 
         Ok(state_part)
     }
@@ -505,9 +512,12 @@ impl ChainStateSyncAdapter {
 
         // 5. Checking that state_root_node is valid
         let chunk_inner = chunk.take_header().take_inner();
-        if !self.runtime_adapter.validate_state_root_node(
-            shard_state_header.state_root_node(),
-            chunk_inner.prev_state_root(),
+        if matches!(
+            self.runtime_adapter.validate_state_root_node(
+                shard_state_header.state_root_node(),
+                chunk_inner.prev_state_root(),
+            ),
+            StateRootNodeValidationResult::Invalid
         ) {
             byzantine_assert!(false);
             return Err(Error::Other("set_shard_state failed: state_root_node is invalid".into()));
@@ -515,9 +525,9 @@ impl ChainStateSyncAdapter {
 
         // Saving the header data.
         let mut store_update = self.chain_store.store().store_update();
-        let key = borsh::to_vec(&StateHeaderKey(shard_id, sync_hash))?;
-        store_update.set_ser(DBCol::StateHeaders, &key, &shard_state_header)?;
-        store_update.commit()?;
+        let key = borsh::to_vec(&StateHeaderKey(shard_id, sync_hash)).unwrap();
+        store_update.set_ser(DBCol::StateHeaders, &key, &shard_state_header);
+        store_update.commit();
 
         Ok(())
     }
@@ -532,7 +542,10 @@ impl ChainStateSyncAdapter {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let chunk = shard_state_header.take_chunk();
         let state_root = *chunk.take_header().take_inner().prev_state_root();
-        if !self.runtime_adapter.validate_state_part(shard_id, &state_root, part_id, part) {
+        if matches!(
+            self.runtime_adapter.validate_state_part(shard_id, &state_root, part_id, part),
+            StatePartValidationResult::Invalid
+        ) {
             byzantine_assert!(false);
             return Err(Error::Other(format!(
                 "set_state_part failed: validate_state_part failed. state_root={:?}",
@@ -544,10 +557,10 @@ impl ChainStateSyncAdapter {
 
         // Saving the part data.
         let mut store_update = self.chain_store.store().store_update();
-        let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id.idx))?;
+        let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id.idx)).unwrap();
         let bytes = part.to_bytes(protocol_version);
         store_update.set(DBCol::StateParts, &key, &bytes);
-        store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 

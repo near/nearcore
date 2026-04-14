@@ -35,7 +35,7 @@ impl ChangeDbKindCommand {
             home_dir,
             &near_config.config.store,
             near_config.config.cold_store.as_ref(),
-            near_config.config.cloud_storage_config(),
+            near_config.cloud_storage_context(),
         );
 
         let storage = opener.open()?;
@@ -45,6 +45,7 @@ impl ChangeDbKindCommand {
                 storage.get_cold_store().ok_or_else(|| anyhow::anyhow!("No cold store"))?
             }
         };
-        Ok(store.set_db_kind(self.new_kind)?)
+        store.set_db_kind(self.new_kind);
+        Ok(())
     }
 }
