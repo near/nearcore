@@ -21,8 +21,9 @@ ignore = [
     # because ark-poly depends on it.
     "RUSTSEC-2024-0388",
 
-    # paste is no longer maintained, but it's a transitive dependency via ark-ff.
-    # It is feature complete and poses no security risk.
+    # burntsushi says the crate is feature complete and needs no maintenance, nagisa also doesn't
+    # see any security risk whatsoever to keeping this crate, so we'll be letting it to upgrade out
+    # of existence naturally.
     "RUSTSEC-2024-0436",
 
     # rustls-pemfile is no longer maintained, but it's indirectly required by rust-s3,
