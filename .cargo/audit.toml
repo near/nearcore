@@ -3,7 +3,7 @@ ignore = [
     # DO NOT ADD ANYTHING TO THIS LIST WITHOUT CAREFUL CONSIDERATION!
 
     # mach is unmaintained, but is required by near-vm-vm (via region).
-    # It cannot be a security liability in production, considering it is bindings to the OS X kernel.
+    # It cannot be a security liability in production, considering it only provides bindings to the OS X kernel.
     "RUSTSEC-2020-0168",
 
     # older versions of parking-lot are vulnerable, but used by reed-solomon-erasure.
