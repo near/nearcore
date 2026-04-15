@@ -290,10 +290,7 @@ pub(crate) fn execute_function_call(
 
     near_vm_runner::reset_metrics();
     let result = near_vm_runner::run(contract, runtime_ext, &context, Arc::clone(&config.fees));
-    near_vm_runner::report_metrics(
-        &apply_state.shard_id.to_string(),
-        &apply_state.apply_reason.to_string(),
-    );
+    near_vm_runner::report_metrics(apply_state.shard_id, &apply_state.apply_reason.to_string());
 
     // There are many specific errors that the runtime can encounter.
     // Some can be translated to the more general `RuntimeError`, which allows to pass

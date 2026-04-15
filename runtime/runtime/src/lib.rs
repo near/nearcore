@@ -516,6 +516,7 @@ impl Runtime {
                     apply_state.cache.as_deref(),
                     apply_state.current_protocol_version,
                 )?;
+                near_vm_runner::report_metrics(apply_state.shard_id, "deploy");
             }
             Action::DeployGlobalContract(deploy_global_contract) => {
                 metrics::ACTION_CALLED_COUNT.deploy_global_contract.inc();
@@ -3060,6 +3061,7 @@ impl<'a> ApplyProcessingState<'a> {
             self.apply_state.cache.as_ref().map(|v| v.handle()),
             self.state_update.contract_storage().clone(),
             self.epoch_info_provider.chain_id(),
+            self.apply_state.shard_id,
         );
         ApplyProcessingReceiptState {
             pipeline_manager,
@@ -3279,6 +3281,7 @@ pub mod estimator {
             apply_state.cache.as_ref().map(|c| c.handle()),
             state_update.contract_storage().clone(),
             epoch_info_provider.chain_id(),
+            apply_state.shard_id,
         );
         let mut receipt_to_tx = Vec::new();
         let apply_result = Runtime {}.apply_action_receipt(
