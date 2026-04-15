@@ -245,11 +245,13 @@ fn apply_distribution_current_shard(
         GlobalContractIdentifier::CodeHash(hash) => Some(*hash),
         GlobalContractIdentifier::AccountId(_) => None,
     };
+    let shard_id = apply_state.shard_id.to_string();
     let _ = precompile_contract(
         &ContractCode::new(global_contract_data.code().to_vec(), code_hash),
         config,
         apply_state.cache.as_deref(),
     );
+    near_vm_runner::report_metrics(&shard_id, "global_contract");
     Ok(())
 }
 

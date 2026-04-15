@@ -266,12 +266,14 @@ pub(crate) fn action_implicit_account_creation_transfer(
                 // Precompile Wallet Contract and store result (compiled code or error) in the database.
                 // Note this contract is shared among ETH-implicit accounts and `precompile_contract`
                 // is a no-op if the contract was already compiled.
+                let shard_id = apply_state.shard_id.to_string();
                 precompile_contract(
                     &wallet_contract(contract_hash).expect("should definitely exist"),
                     Arc::clone(&apply_state.config.wasm_config),
                     apply_state.cache.as_deref(),
                 )
                 .ok();
+                near_vm_runner::report_metrics(&shard_id, "deploy");
             }
         }
         AccountType::NearDeterministicAccount => {

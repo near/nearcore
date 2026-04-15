@@ -69,6 +69,9 @@ pub(crate) struct ReceiptPreparationPipeline {
     storage: ContractStorage,
 
     chain_id: String,
+
+    /// Pre-formatted shard ID for metric labels.
+    shard_id: String,
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
@@ -95,6 +98,7 @@ impl ReceiptPreparationPipeline {
         contract_cache: Option<Box<dyn ContractRuntimeCache>>,
         storage: ContractStorage,
         chain_id: String,
+        shard_id: String,
     ) -> Self {
         Self {
             map: Default::default(),
@@ -104,6 +108,7 @@ impl ReceiptPreparationPipeline {
             contract_cache,
             storage,
             chain_id,
+            shard_id,
         }
     }
 
@@ -213,6 +218,7 @@ impl ReceiptPreparationPipeline {
                     let task = Arc::new(PrepareTask { status, condvar: Condvar::new() });
                     entry.insert(Arc::clone(&task));
                     PIPELINING_ACTIONS_SUBMITTED.inc_by(1);
+                    let shard_id = self.shard_id.clone();
                     contract_compilation_pool().spawn_boxed(Box::new(move || {
                         let task_status = {
                             let mut status = task.status.lock();
@@ -231,6 +237,7 @@ impl ReceiptPreparationPipeline {
                             identifier,
                             &method_name,
                         );
+                        near_vm_runner::report_metrics(&shard_id, "pipelining");
                         let mut status = task.status.lock();
                         *status = PrepareTaskStatus::Prepared(contract);
                         PIPELINING_ACTIONS_TASK_WORKING_TIME.inc_by(start.elapsed().as_secs_f64());
