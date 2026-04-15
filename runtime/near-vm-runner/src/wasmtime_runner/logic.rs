@@ -1850,7 +1850,8 @@ pub fn ed25519_verify(
 ///  input_cost(num_bytes_public_key) + p256_verify_base +
 ///  p256_verify_byte * num_bytes_message`
 pub fn p256_verify(
-    caller: &mut Caller<'_, Ctx>,
+    ctx: &mut Ctx,
+    memory: &mut [u8],
     signature_len: u64,
     signature_ptr: u64,
     message_len: u64,
@@ -1860,9 +1861,6 @@ pub fn p256_verify(
 ) -> Result<u64> {
     use p256::ecdsa::signature::Verifier;
     use p256::ecdsa::{Signature, VerifyingKey};
-
-    let memory = get_memory(caller)?;
-    let (memory, ctx) = memory.data_and_store_mut(caller);
 
     ctx.result_state.gas_counter.pay_base(p256_verify_base)?;
 
