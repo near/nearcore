@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# cspell:words checkmarks ownerchecked backticked
 """Track release-branch commits that are not yet on master.
 
 Invoked from the release workflow (`release: published`). For the current
