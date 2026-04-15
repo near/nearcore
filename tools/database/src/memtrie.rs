@@ -215,7 +215,6 @@ impl SplitShardTrieCommand {
             shard_tries.clone(),
             split_params,
             false,
-            false,
         )?;
         println!("Resharding done");
 
@@ -489,7 +488,6 @@ impl ArchivalDataLossRecoveryCommand {
             shard_tries,
             split_shard_params,
             true,
-            false,
         )?;
         println!("Resharding done");
 

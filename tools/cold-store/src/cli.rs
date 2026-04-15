@@ -242,7 +242,6 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, epoch_manager: &Epo
         &shard_layout,
         &shard_uids,
         &next_height,
-        is_resharding_boundary,
         resharding_block_hash.as_deref(),
         1,
     )

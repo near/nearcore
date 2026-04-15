@@ -318,10 +318,6 @@ impl ChainStore {
         }
     }
 
-    pub fn save_trie_changes(&self) -> bool {
-        self.save_trie_changes
-    }
-
     pub fn with_save_tx_outcomes(self, save_tx_outcomes: bool) -> ChainStore {
         ChainStore { save_tx_outcomes, ..self }
     }

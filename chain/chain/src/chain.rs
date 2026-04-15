@@ -1935,13 +1935,11 @@ impl Chain {
             tracing::debug!(target: "chain", %shard_id, need_storage_update);
 
             if need_storage_update {
-                let save_trie_changes = self.chain_store.save_trie_changes();
                 self.resharding_manager.start_resharding(
                     self.chain_store.store_update(),
                     &block,
                     shard_uid,
                     self.runtime_adapter.get_tries(),
-                    save_trie_changes,
                 )?;
 
                 // Update flat storage head to be the last final block. Note that this update happens
@@ -2913,13 +2911,11 @@ impl Chain {
                 && self.shard_tracker.will_care_about_shard(block.header().prev_hash(), shard_id)
             {
                 let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
-                let save_trie_changes = self.chain_store.save_trie_changes();
                 self.resharding_manager.start_resharding(
                     self.chain_store.store_update(),
                     &block,
                     shard_uid,
                     self.runtime_adapter.get_tries(),
-                    save_trie_changes,
                 )?;
                 self.update_flat_storage_and_memtrie(&block, shard_id)?;
             }
