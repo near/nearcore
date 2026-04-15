@@ -19,6 +19,7 @@ use crate::peer;
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor::Event;
+use crate::peer_manager::tcp_transport::TcpTransport;
 use crate::snapshot_hosts::SnapshotHostsCache;
 use crate::tcp;
 use crate::test_utils;
@@ -380,7 +381,8 @@ impl ActorHandler {
     pub async fn send_ping(&self, clock: &time::Clock, nonce: u64, target: PeerId) {
         let clock = clock.clone();
         self.with_state(move |s| async move {
-            s.send_ping(&clock, tcp::Tier::T2, nonce, target);
+            let transport = TcpTransport::new(s.clone());
+            s.send_ping(&clock, tcp::Tier::T2, nonce, target, &*transport);
         })
         .await;
     }

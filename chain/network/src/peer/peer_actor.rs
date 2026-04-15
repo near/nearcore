@@ -13,9 +13,11 @@ use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{
     EdgesWithSource, NetworkState, PRUNE_EDGES_AFTER, RoutedAction,
 };
+use crate::peer_manager::network_transport::NetworkTransport;
 #[cfg(test)]
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_manager_actor::MAX_TIER2_PEERS;
+use crate::peer_manager::tcp_transport::TcpTransport;
 use crate::private_messages::{RegisterPeerError, SendMessage};
 use crate::rate_limits::messages_limits;
 use crate::routing::edge::verify_nonce;
@@ -146,6 +148,8 @@ pub(crate) struct PeerActor {
 
     /// Shared state of the network module.
     network_state: Arc<NetworkState>,
+    /// Transport for sending/broadcasting messages.
+    transport: Arc<dyn NetworkTransport>,
     /// This node's id and address (either listening or socket address).
     my_node_info: PeerInfo,
 
@@ -226,7 +230,9 @@ impl PeerActor {
         stream: tcp::Stream,
         network_state: Arc<NetworkState>,
     ) -> anyhow::Result<TokioRuntimeHandle<Self>> {
-        let (addr, handshake_signal) = Self::spawn(clock, actor_system, stream, network_state)?;
+        let transport = TcpTransport::new(network_state.clone());
+        let (addr, handshake_signal) =
+            Self::spawn(clock, actor_system, stream, network_state, transport)?;
         // Await for the handshake to complete, by awaiting the handshake_signal channel.
         // This is a receiver of Infallible, so it only completes when the channel is closed.
         handshake_signal.await.err().unwrap();
@@ -242,12 +248,13 @@ impl PeerActor {
         actor_system: ActorSystem,
         stream: tcp::Stream,
         network_state: Arc<NetworkState>,
+        transport: Arc<dyn NetworkTransport>,
     ) -> anyhow::Result<(TokioRuntimeHandle<Self>, HandshakeSignal)> {
         #[cfg(test)]
         let stream_id = stream.id();
         #[cfg(test)]
         let network_state_clone = network_state.clone();
-        match Self::spawn_inner(clock, actor_system, stream, network_state) {
+        match Self::spawn_inner(clock, actor_system, stream, network_state, transport) {
             Ok(it) => Ok(it),
             Err(reason) => {
                 #[cfg(test)]
@@ -264,6 +271,7 @@ impl PeerActor {
         actor_system: ActorSystem,
         stream: tcp::Stream,
         network_state: Arc<NetworkState>,
+        transport: Arc<dyn NetworkTransport>,
     ) -> Result<(TokioRuntimeHandle<Self>, HandshakeSignal), ClosingReason> {
         let connecting_status = match &stream.type_ {
             tcp::StreamType::Inbound => ConnectingStatus::Inbound(
@@ -368,6 +376,7 @@ impl PeerActor {
             }
             .into(),
             network_state,
+            transport,
             received_messages_rate_limits,
             registration_buffered_actions: RegistrationBufferedActions::NotRegistering,
         };
@@ -685,8 +694,9 @@ impl PeerActor {
             let network_state = self.network_state.clone();
             let clock = self.clock.clone();
             let handle = self.handle.clone();
+            let transport = self.transport.clone();
             async move {
-                let register_result = network_state.register(&clock, edge, conn.clone()).await;
+                let register_result = network_state.register(&clock, edge, conn.clone(), transport).await;
                 handle.clone().run_later("register peer followup", Duration::ZERO, move |act, _| {
                     match register_result {
                         Ok(()) => {
@@ -1103,6 +1113,7 @@ impl PeerActor {
             PeerMessage::RequestUpdateNonce(edge_info) => {
                 let clock = self.clock.clone();
                 let network_state = self.network_state.clone();
+                let transport = self.transport.clone();
                 self.handle.spawn("handle request update nonce", async move {
                     if let Err(err) = verify_nonce(&clock, edge_info.nonce) {
                         tracing::debug!(
@@ -1129,7 +1140,12 @@ impl PeerActor {
                         // Sign the edge and broadcast it to everyone (finalize_edge does both).
                         _ => {
                             if let Err(ban_reason) = network_state
-                                .finalize_edge(&clock, peer_id.clone(), edge_info)
+                                .finalize_edge(
+                                    &clock,
+                                    peer_id.clone(),
+                                    edge_info,
+                                    transport.clone(),
+                                )
                                 .await
                             {
                                 conn.stop(Some(ban_reason));
@@ -1143,9 +1159,16 @@ impl PeerActor {
             PeerMessage::SyncRoutingTable(rtu) => {
                 let clock = self.clock.clone();
                 let network_state = self.network_state.clone();
+                let transport = self.transport.clone();
                 self.handle.spawn("handle sync routing table", async move {
-                    Self::handle_sync_routing_table(&clock, &network_state, conn.clone(), rtu)
-                        .await;
+                    Self::handle_sync_routing_table(
+                        &clock,
+                        &network_state,
+                        conn.clone(),
+                        rtu,
+                        transport,
+                    )
+                    .await;
                     #[cfg(test)]
                     message_processed_event();
                 });
@@ -1282,6 +1305,7 @@ impl PeerActor {
                                         conn.tier,
                                         ping.nonce,
                                         msg.hash(),
+                                        &*self.transport,
                                     );
                                     // TODO(gprusak): deprecate Event::Ping/Pong in favor of
                                     // MessageProcessed.
@@ -1308,7 +1332,12 @@ impl PeerActor {
                         }
                     }
                     RoutedAction::Forward(msg) => {
-                        self.network_state.send_message_to_peer(&self.clock, conn.tier, msg);
+                        self.network_state.send_message_to_peer(
+                            &self.clock,
+                            conn.tier,
+                            msg,
+                            &*self.transport,
+                        );
                     }
                     RoutedAction::Dropped => {}
                 }
@@ -1328,6 +1357,7 @@ impl PeerActor {
         network_state: &Arc<NetworkState>,
         conn: Arc<connection::Connection>,
         rtu: RoutingTableUpdate,
+        transport: Arc<dyn NetworkTransport>,
     ) {
         // Ingress cap: check BEFORE dedup/verification to avoid wasted work.
         let max_edges = network_state.config.routing_graph_max_edges_per_message;
@@ -1348,6 +1378,7 @@ impl PeerActor {
                     edges: rtu.edges.clone(),
                     source: conn.peer_info.id.clone(),
                 },
+                transport.clone(),
             )
             .await
         {
@@ -1371,7 +1402,7 @@ impl PeerActor {
             .collect();
         match network_state.client.send_async(AnnounceAccountRequest(accounts)).await {
             Ok(Err(ban_reason)) => conn.stop(Some(ban_reason)),
-            Ok(Ok(accounts)) => network_state.add_accounts(accounts).await,
+            Ok(Ok(accounts)) => network_state.add_accounts(accounts, transport).await,
             Err(_) => {}
         }
     }
@@ -1445,12 +1476,14 @@ impl messaging::Actor for PeerActor {
                 let network_state = self.network_state.clone();
                 let clock = self.clock.clone();
                 let conn = conn.clone();
+                let transport = self.transport.clone();
                 network_state.unregister(
                     &clock,
                     &conn,
                     #[cfg(test)]
                     self.stream_id,
                     closing_reason,
+                    transport,
                 );
             }
         }

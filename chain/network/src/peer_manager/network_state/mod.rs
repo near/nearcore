@@ -19,9 +19,11 @@ use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connected_peers::{ConnectedPeerState, ConnectedPeers};
 use crate::peer_manager::connection;
 use crate::peer_manager::connection_store;
+use crate::peer_manager::network_transport::NetworkTransport;
 #[cfg(test)]
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
+use crate::peer_manager::tcp_transport::TcpTransport;
 use crate::private_messages::RegisterPeerError;
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
@@ -492,6 +494,7 @@ impl NetworkState {
         clock: &time::Clock,
         edge: Edge,
         info: PeerConnectionInfo,
+        transport: Arc<dyn NetworkTransport>,
     ) {
         let account_key = info.owned_account.as_ref().map(|oa| oa.account_key.clone());
         let peer_id = info.peer_info.id.clone();
@@ -530,7 +533,7 @@ impl NetworkState {
             // never fail for a pre-verified local edge. On master this was done
             // before pool_insert; now done after — the broadcast is independent
             // of whether the peer is in the pool.
-            self.add_edges(clock, EdgesWithSource::Local(vec![edge]))
+            self.add_edges(clock, EdgesWithSource::Local(vec![edge]), transport)
                 .await
                 .expect("local edge was verified in validate_new_connection");
             self.peer_store.peer_connected(clock, &peer_info);
@@ -548,6 +551,7 @@ impl NetworkState {
         info: &PeerDisconnectInfo,
         reason: ClosingReason,
         #[cfg(test)] stream_id: tcp::StreamId,
+        transport: Arc<dyn NetworkTransport>,
     ) {
         self.peers.remove(info.tier, &info.peer_info.id);
 
@@ -563,9 +567,13 @@ impl NetworkState {
                 if edge.edge_type() == EdgeState::Active {
                     let edge_update =
                         edge.remove_edge(self.config.node_id(), &self.config.node_key);
-                    self.add_edges(clock, EdgesWithSource::Local(vec![edge_update.clone()]))
-                        .await
-                        .unwrap();
+                    self.add_edges(
+                        clock,
+                        EdgesWithSource::Local(vec![edge_update.clone()]),
+                        transport.clone(),
+                    )
+                    .await
+                    .unwrap();
                 }
             }
 
@@ -610,6 +618,7 @@ impl NetworkState {
         clock: &time::Clock,
         edge: Edge,
         conn: Arc<connection::Connection>,
+        transport: Arc<dyn NetworkTransport>,
     ) -> Result<(), RegisterPeerError> {
         let this = self.clone();
         let clock = clock.clone();
@@ -622,7 +631,7 @@ impl NetworkState {
                 tcp::Tier::T3 => this.tier3.insert_ready(conn.clone()),
             }
             .map_err(RegisterPeerError::PoolError)?;
-            this.on_peer_connected(&clock, edge, info).await;
+            this.on_peer_connected(&clock, edge, info, transport).await;
             Ok(())
         })
         .await
@@ -641,6 +650,7 @@ impl NetworkState {
         conn: &Arc<connection::Connection>,
         #[cfg(test)] stream_id: tcp::StreamId,
         reason: ClosingReason,
+        transport: Arc<dyn NetworkTransport>,
     ) {
         let this = self.clone();
         let clock = clock.clone();
@@ -658,6 +668,7 @@ impl NetworkState {
                 reason,
                 #[cfg(test)]
                 stream_id,
+                transport,
             )
             .await;
         });
@@ -718,24 +729,38 @@ impl NetworkState {
     }
 
     #[cfg(test)]
-    pub fn send_ping(&self, clock: &time::Clock, tier: tcp::Tier, nonce: u64, target: PeerId) {
+    pub fn send_ping(
+        &self,
+        clock: &time::Clock,
+        tier: tcp::Tier,
+        nonce: u64,
+        target: PeerId,
+        transport: &dyn NetworkTransport,
+    ) {
         let body = T2MessageBody::Ping(crate::network_protocol::Ping {
             nonce,
             source: self.config.node_id(),
         })
         .into();
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body };
-        self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
+        self.send_message_to_peer(clock, tier, self.sign_message(clock, msg), transport);
     }
 
-    pub fn send_pong(&self, clock: &time::Clock, tier: tcp::Tier, nonce: u64, target: CryptoHash) {
+    pub fn send_pong(
+        &self,
+        clock: &time::Clock,
+        tier: tcp::Tier,
+        nonce: u64,
+        target: CryptoHash,
+        transport: &dyn NetworkTransport,
+    ) {
         let body = T2MessageBody::Pong(crate::network_protocol::Pong {
             nonce,
             source: self.config.node_id(),
         })
         .into();
         let msg = RawRoutedMessage { target: PeerIdOrHash::Hash(target), body };
-        self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
+        self.send_message_to_peer(clock, tier, self.sign_message(clock, msg), transport);
     }
 
     pub fn sign_message(&self, clock: &time::Clock, msg: RawRoutedMessage) -> Box<RoutedMessage> {
@@ -753,6 +778,7 @@ impl NetworkState {
         clock: &time::Clock,
         tier: tcp::Tier,
         msg: Box<RoutedMessage>,
+        transport: &dyn NetworkTransport,
     ) -> bool {
         let my_peer_id = self.config.node_id();
 
@@ -777,46 +803,52 @@ impl NetworkState {
                     }
                     PeerIdOrHash::PeerId(peer_id) => peer_id.clone(),
                 };
-                return self.tier1.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
+                return transport.send_message(
+                    tcp::Tier::T1,
+                    peer_id,
+                    Arc::new(PeerMessage::Routed(msg)),
+                );
             }
-            tcp::Tier::T2 => {
-                match self.tier2_find_route(&clock, msg.target()) {
-                    Ok(peer_id) => {
-                        // Remember if we expect a response for this message.
-                        if *msg.author() == my_peer_id && msg.expect_response() {
-                            tracing::trace!(target: "network", ?msg, "initiate route back");
-                            self.tier2_route_back.lock().insert(clock, msg.hash(), my_peer_id);
-                        }
-                        return self
-                            .tier2
-                            .send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
+            tcp::Tier::T2 => match self.tier2_find_route(&clock, msg.target()) {
+                Ok(peer_id) => {
+                    // Remember if we expect a response for this message.
+                    if *msg.author() == my_peer_id && msg.expect_response() {
+                        tracing::trace!(target: "network", ?msg, "initiate route back");
+                        self.tier2_route_back.lock().insert(clock, msg.hash(), my_peer_id);
                     }
-                    Err(find_route_error) => {
-                        // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-                        metrics::MessageDropped::NoRouteFound.inc(msg.body());
-
-                        tracing::debug!(target: "network",
-                              account_id = ?self.config.validator.account_id(),
-                              to = ?msg.target(),
-                              reason = ?find_route_error,
-                              known_peers = ?self.graph.routing_table.reachable_peers(),
-                              msg = ?msg.body(),
-                            "dropping signed message"
-                        );
-                        return false;
-                    }
+                    return transport.send_message(
+                        tcp::Tier::T2,
+                        peer_id,
+                        Arc::new(PeerMessage::Routed(msg)),
+                    );
                 }
-            }
+                Err(find_route_error) => {
+                    // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
+                    metrics::MessageDropped::NoRouteFound.inc(msg.body());
+                    tracing::debug!(target: "network",
+                          account_id = ?self.config.validator.account_id(),
+                          to = ?msg.target(),
+                          reason = ?find_route_error,
+                          known_peers = ?self.graph.routing_table.reachable_peers(),
+                          msg = ?msg.body(),
+                        "dropping signed message"
+                    );
+                    return false;
+                }
+            },
             tcp::Tier::T3 => {
                 let peer_id = match msg.target() {
                     PeerIdOrHash::Hash(_) => {
-                        // There is no route back cache for TIER3 as all connections are direct
                         debug_assert!(false);
                         return false;
                     }
                     PeerIdOrHash::PeerId(peer_id) => peer_id.clone(),
                 };
-                return self.tier3.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
+                return transport.send_message(
+                    tcp::Tier::T3,
+                    peer_id,
+                    Arc::new(PeerMessage::Routed(msg)),
+                );
             }
         }
     }
@@ -829,6 +861,7 @@ impl NetworkState {
         clock: &time::Clock,
         account_id: &AccountId,
         msg: TieredMessageBody,
+        transport: &dyn NetworkTransport,
     ) -> bool {
         // If the message is allowed to be sent to self, we handle it directly.
         if self.config.validator.account_id().is_some_and(|id| &id == account_id) {
@@ -914,7 +947,7 @@ impl NetworkState {
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body: msg };
         let msg = self.sign_message(clock, msg);
         for _ in 0..msg.body().message_resend_count() {
-            success |= self.send_message_to_peer(clock, tcp::Tier::T2, msg.clone());
+            success |= self.send_message_to_peer(clock, tcp::Tier::T2, msg.clone(), transport);
         }
         success
     }
@@ -1486,9 +1519,14 @@ impl NetworkState {
                             // Unwrap is safe, because new_edge is always valid.
                             let new_edge =
                                 edge.remove_edge(this.config.node_id(), &this.config.node_key);
-                            this.add_edges(&clock, EdgesWithSource::Local(vec![new_edge.clone()]))
-                                .await
-                                .unwrap()
+                            let transport = TcpTransport::new(this.clone());
+                            this.add_edges(
+                                &clock,
+                                EdgesWithSource::Local(vec![new_edge.clone()]),
+                                transport,
+                            )
+                            .await
+                            .unwrap()
                         }
                     })),
                     // OK
