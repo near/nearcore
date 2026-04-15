@@ -11,8 +11,8 @@ use crate::concurrency::demux;
 use crate::config;
 use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, RawRoutedMessage,
-    RoutedMessage, SignedAccountData, SignedOwnedAccount, SnapshotHostInfo, T1MessageBody,
-    T2MessageBody, TieredMessageBody,
+    RoutedMessage, SignedAccountData, SignedOwnedAccount, SnapshotHostInfo, SyncAccountsData,
+    SyncSnapshotHosts, T1MessageBody, T2MessageBody, TieredMessageBody,
 };
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer::peer_actor::PeerActor;
@@ -57,6 +57,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use parking_lot::{Mutex, RwLock};
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -131,6 +132,15 @@ pub(crate) struct NetworkState {
 
     /// Network-related info about the chain.
     pub chain_info: ArcSwap<Option<ChainInfo>>,
+    /// Per-peer gossip demuxes for T2 peers (moved from Connection).
+    /// Kept as two separate maps rather than a struct so
+    /// `add_accounts_data` and `add_snapshot_hosts` iterate the map
+    /// they need directly — no struct-field extraction step.
+    pub accounts_data_demuxes:
+        Mutex<HashMap<PeerId, demux::Demux<Vec<Arc<SignedAccountData>>, ()>>>,
+    pub snapshot_hosts_demuxes:
+        Mutex<HashMap<PeerId, demux::Demux<Vec<Arc<SnapshotHostInfo>>, ()>>>,
+
     /// AccountsData for TIER1 accounts.
     pub accounts_data: Arc<AccountDataCache>,
     /// AnnounceAccounts mapping TIER1 account ids to peer ids.
@@ -299,6 +309,8 @@ impl NetworkState {
             shards_manager_adapter,
             partial_witness_adapter,
             peers: ConnectedPeers::new(),
+            accounts_data_demuxes: Mutex::new(HashMap::new()),
+            snapshot_hosts_demuxes: Mutex::new(HashMap::new()),
             chain_info: Default::default(),
             tier2: connection::Pool::new(config.node_id()),
             tier1: connection::Pool::new(config.node_id()),
@@ -501,6 +513,20 @@ impl NetworkState {
             },
         );
         if tier == tcp::Tier::T2 {
+            self.accounts_data_demuxes.lock().insert(
+                peer_info.id.clone(),
+                demux::Demux::new(
+                    self.config.accounts_data_broadcast_rate_limit,
+                    &*self.ops_spawner,
+                ),
+            );
+            self.snapshot_hosts_demuxes.lock().insert(
+                peer_info.id.clone(),
+                demux::Demux::new(
+                    self.config.snapshot_hosts_broadcast_rate_limit,
+                    &*self.ops_spawner,
+                ),
+            );
             // Broadcast the edge to other peers. The edge was already verified
             // in validate_new_connection (edge.verify()), so add_edges should
             // never fail for a pre-verified local edge. On master this was done
@@ -526,6 +552,9 @@ impl NetworkState {
         #[cfg(test)] stream_id: tcp::StreamId,
     ) {
         self.peers.remove(info.tier, &info.peer_info.id);
+
+        self.accounts_data_demuxes.lock().remove(&info.peer_info.id);
+        self.snapshot_hosts_demuxes.lock().remove(&info.peer_info.id);
 
         if info.tier == tcp::Tier::T2 {
             let peer_id = info.peer_info.id.clone();
@@ -1245,6 +1274,75 @@ impl NetworkState {
         })
     }
 
+    /// Broadcast accounts data to a single peer via its gossip demux.
+    /// Deduplicates by account_key, keeping the highest version.
+    async fn gossip_accounts_data_to_peer(
+        self: Arc<Self>,
+        peer_id: PeerId,
+        demux: demux::Demux<Vec<Arc<SignedAccountData>>, ()>,
+        data: Vec<Arc<SignedAccountData>>,
+    ) {
+        let res = demux
+            .call(data, {
+                let this = self.clone();
+                let peer_id = peer_id.clone();
+                |ds: Vec<Vec<Arc<SignedAccountData>>>| async move {
+                    let res = ds.iter().map(|_| ()).collect();
+                    let mut sum = HashMap::<_, Arc<SignedAccountData>>::new();
+                    for d in ds.into_iter().flatten() {
+                        if sum.get(&d.account_key).map_or(true, |old| old.version < d.version) {
+                            sum.insert(d.account_key.clone(), d);
+                        }
+                    }
+                    let msg = Arc::new(PeerMessage::SyncAccountsData(SyncAccountsData {
+                        incremental: true,
+                        requesting_full_sync: false,
+                        accounts_data: sum.into_values().collect(),
+                    }));
+                    this.tier2.send_message(peer_id, msg);
+                    res
+                }
+            })
+            .await;
+        if res.is_err() {
+            tracing::debug!(%peer_id, "peer disconnected while sending sync accounts data");
+        }
+    }
+
+    /// Broadcast snapshot hosts to a single peer via its gossip demux.
+    /// Deduplicates by peer_id, keeping the highest epoch_height.
+    async fn gossip_snapshot_hosts_to_peer(
+        self: Arc<Self>,
+        peer_id: PeerId,
+        demux: demux::Demux<Vec<Arc<SnapshotHostInfo>>, ()>,
+        data: Vec<Arc<SnapshotHostInfo>>,
+    ) {
+        let res = demux
+            .call(data, {
+                let this = self.clone();
+                let peer_id = peer_id.clone();
+                |ds: Vec<Vec<Arc<SnapshotHostInfo>>>| async move {
+                    let res = ds.iter().map(|_| ()).collect();
+                    let mut sum = HashMap::<_, Arc<SnapshotHostInfo>>::new();
+                    for d in ds.into_iter().flatten() {
+                        if sum.get(&d.peer_id).map_or(true, |old| old.epoch_height < d.epoch_height)
+                        {
+                            sum.insert(d.peer_id.clone(), d);
+                        }
+                    }
+                    let msg = Arc::new(PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts {
+                        hosts: sum.into_values().collect(),
+                    }));
+                    this.tier2.send_message(peer_id, msg);
+                    res
+                }
+            })
+            .await;
+        if res.is_err() {
+            tracing::debug!(%peer_id, "peer disconnected while sending sync snapshot hosts");
+        }
+    }
+
     pub async fn add_accounts_data(
         self: &Arc<Self>,
         clock: &time::Clock,
@@ -1259,12 +1357,20 @@ impl NetworkState {
             // This will prevent a malicious peer from forcing us to re-verify valid
             // datasets. See accounts_data::Cache documentation for details.
             if !new_data.is_empty() {
-                let tier2 = this.tier2.load();
-                let tasks: Vec<_> = tier2
-                    .ready
-                    .values()
-                    .map(|p| {
-                        this.spawn("send_accounts_data", p.send_accounts_data(new_data.clone()))
+                let tasks: Vec<_> = this
+                    .accounts_data_demuxes
+                    .lock()
+                    .iter()
+                    .map(|(id, demux)| (id.clone(), demux.clone()))
+                    .map(|(peer_id, demux)| {
+                        this.spawn(
+                            "send_accounts_data",
+                            this.clone().gossip_accounts_data_to_peer(
+                                peer_id,
+                                demux,
+                                new_data.clone(),
+                            ),
+                        )
                     })
                     .collect();
                 for t in tasks {
@@ -1288,12 +1394,20 @@ impl NetworkState {
             // Broadcast any valid new data, even if an err was returned.
             // The presence of one invalid entry doesn't invalidate the remaining ones.
             if !new_data.is_empty() {
-                let tier2 = this.tier2.load();
-                let tasks: Vec<_> = tier2
-                    .ready
-                    .values()
-                    .map(|p| {
-                        this.spawn("send_snapshot_hosts", p.send_snapshot_hosts(new_data.clone()))
+                let tasks: Vec<_> = this
+                    .snapshot_hosts_demuxes
+                    .lock()
+                    .iter()
+                    .map(|(id, demux)| (id.clone(), demux.clone()))
+                    .map(|(peer_id, demux)| {
+                        this.spawn(
+                            "send_snapshot_hosts",
+                            this.clone().gossip_snapshot_hosts_to_peer(
+                                peer_id,
+                                demux,
+                                new_data.clone(),
+                            ),
+                        )
                     })
                     .collect();
                 for t in tasks {

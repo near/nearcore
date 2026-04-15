@@ -1,7 +1,6 @@
 use crate::accounts_data::AccountDataError;
 use crate::client::AnnounceAccountRequest;
 use crate::concurrency::atomic_cell::AtomicCell;
-use crate::concurrency::demux;
 use crate::config::PEERS_RESPONSE_MAX_PEERS;
 use crate::network_protocol::{
     Edge, EdgeState, OwnedAccount, PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo,
@@ -641,14 +640,6 @@ impl PeerActor {
             last_time_peer_requested: AtomicCell::new(None),
             last_time_received_message: AtomicCell::new(now),
             established_time: now,
-            send_accounts_data_demux: demux::Demux::new(
-                self.network_state.config.accounts_data_broadcast_rate_limit,
-                &*self.handle.future_spawner(),
-            ),
-            send_snapshot_hosts_demux: demux::Demux::new(
-                self.network_state.config.snapshot_hosts_broadcast_rate_limit,
-                &*self.handle.future_spawner(),
-            ),
         });
 
         let tracker = self.tracker.clone();
