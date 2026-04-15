@@ -18,6 +18,8 @@ use crate::peer::peer_actor::ClosingReason;
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
 use crate::peer_manager::connection_store;
+#[cfg(test)]
+use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::private_messages::RegisterPeerError;
 use crate::routing::route_back_cache::RouteBackCache;
@@ -193,6 +195,20 @@ impl EdgesWithSource {
             EdgesWithSource::Local(edges) | EdgesWithSource::Remote(edges) => edges.is_empty(),
         }
     }
+}
+
+/// Action to take after processing an incoming routed message.
+/// Returned by `NetworkState::process_incoming_routed` for the caller
+/// (PeerActor or TestLoopTransport) to execute.
+pub(crate) enum RoutedAction {
+    /// Message is for us — caller should handle (Ping/Pong synchronously,
+    /// others via `handle_peer_message`).
+    ForMe(Box<RoutedMessage>),
+    /// Not for us — caller should forward via `send_message_to_peer`.
+    /// TTL already decremented, num_hops incremented.
+    Forward(Box<RoutedMessage>),
+    /// Message dropped (TTL expired, etc). Metrics/logging already done.
+    Dropped,
 }
 
 impl NetworkState {
@@ -928,6 +944,49 @@ impl NetworkState {
                     None
                 }
             },
+        }
+    }
+
+    /// Processes an incoming routed message after per-connection checks
+    /// (signature dedup, ForwardTx rate limiting, signature verification)
+    /// have passed.
+    ///
+    /// Handles: for-me check, route-back recording, network-wide dedup,
+    /// Ping/Pong, forwarding (TTL decrement + next-hop).
+    ///
+    /// Returns a `RoutedAction` for the caller to execute.
+    pub(crate) fn process_incoming_routed(
+        &self,
+        clock: &time::Clock,
+        from: &PeerId,
+        tier: tcp::Tier,
+        mut msg: Box<RoutedMessage>,
+    ) -> RoutedAction {
+        let for_me = self.message_for_me(msg.target());
+        if for_me {
+            // Network-wide dedup: check if we already received this message
+            // (could arrive via both T1 and T2).
+            let new_hash = CryptoHash::hash_borsh(msg.body());
+            let fastest = self.recent_routed_messages.lock().put(new_hash, ()).is_none();
+            metrics::record_routed_msg_metrics(clock, &msg, tier, fastest);
+        }
+
+        self.add_route_back(clock, from, tier, &msg);
+
+        if for_me {
+            RoutedAction::ForMe(msg)
+        } else {
+            if msg.decrease_ttl() {
+                let num_hops = msg.num_hops_mut();
+                *num_hops = num_hops.saturating_add(1);
+                RoutedAction::Forward(msg)
+            } else {
+                #[cfg(test)]
+                self.config.event_sink.send(Event::RoutedMessageDropped);
+                tracing::debug!(target: "network", ?msg, from = ?from, "message dropped because ttl reached 0");
+                metrics::ROUTED_MESSAGE_DROPPED.with_label_values(&[msg.body_variant()]).inc();
+                RoutedAction::Dropped
+            }
         }
     }
 

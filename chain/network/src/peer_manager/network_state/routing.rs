@@ -2,7 +2,6 @@ use super::NetworkState;
 use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerMessage, RoutedMessage, RoutingTableUpdate,
 };
-use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{EdgesWithSource, PeerIdOrHash};
 use crate::routing::routing_table_view::FindRouteError;
 use crate::stats::metrics;
@@ -152,7 +151,8 @@ impl NetworkState {
     pub(crate) fn add_route_back(
         &self,
         clock: &time::Clock,
-        conn: &connection::Connection,
+        from: &PeerId,
+        tier: tcp::Tier,
         msg: &RoutedMessage,
     ) {
         if !msg.expect_response() {
@@ -160,9 +160,8 @@ impl NetworkState {
         }
 
         tracing::trace!(target: "network", route_back = ?msg.clone(), "received peer message that requires response");
-        let from = &conn.peer_info.id;
 
-        match conn.tier {
+        match tier {
             tcp::Tier::T1 => self.tier1_route_back.lock().insert(&clock, msg.hash(), from.clone()),
             tcp::Tier::T2 => self.tier2_route_back.lock().insert(&clock, msg.hash(), from.clone()),
             tcp::Tier::T3 => {

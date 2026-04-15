@@ -11,7 +11,9 @@ use crate::network_protocol::{
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
-use crate::peer_manager::network_state::{EdgesWithSource, NetworkState, PRUNE_EDGES_AFTER};
+use crate::peer_manager::network_state::{
+    EdgesWithSource, NetworkState, PRUNE_EDGES_AFTER, RoutedAction,
+};
 #[cfg(test)]
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_manager_actor::MAX_TIER2_PEERS;
@@ -33,7 +35,6 @@ use near_async::{ActorSystem, time};
 use near_crypto::Signature;
 use near_o11y::log_assert;
 use near_o11y::span_wrapped_msg::SpanWrapped;
-use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::EpochId;
 use near_primitives::utils::DisplayOption;
@@ -1226,25 +1227,12 @@ impl PeerActor {
                     message_processed_event();
                 });
             }
-            PeerMessage::Routed(mut msg) => {
+            PeerMessage::Routed(msg) => {
                 tracing::trace!(
                     target: "network",
                     peer_info = %self.peer_info,
                     target = ?msg.target(),
                     "received routed message");
-                let for_me = self.network_state.message_for_me(msg.target());
-                if for_me {
-                    // Check if we have already received this message.
-                    let new_hash = CryptoHash::hash_borsh(msg.body());
-                    let fastest = self
-                        .network_state
-                        .recent_routed_messages
-                        .lock()
-                        .put(new_hash, ())
-                        .is_none();
-                    // Register that the message has been received.
-                    metrics::record_routed_msg_metrics(&self.clock, &msg, conn.tier, fastest);
-                }
 
                 // Drop duplicated messages routed within DROP_DUPLICATED_MESSAGES_PERIOD ms
                 if let Some(signature) = msg.signature() {
@@ -1261,6 +1249,7 @@ impl PeerActor {
                     }
                     self.routed_message_cache.put(key, now);
                 }
+
                 if let TieredMessageBody::T2(t2) = msg.body() {
                     if let T2MessageBody::ForwardTx(_) = t2.as_ref() {
                         // Check whenever we exceeded number of transactions we got since last block.
@@ -1282,56 +1271,52 @@ impl PeerActor {
                     self.stop(ClosingReason::Ban(ReasonForBan::InvalidSignature));
                     return;
                 }
-
-                self.network_state.add_route_back(&self.clock, &conn, msg.as_ref());
-                if for_me {
-                    // Handle Ping and Pong message if they are for us without sending to client.
-                    // i.e. Return false in case of Ping and Pong
-                    match msg.body() {
-                        TieredMessageBody::T2(t2) => match t2.as_ref() {
-                            T2MessageBody::Ping(ping) => {
-                                self.network_state.send_pong(
-                                    &self.clock,
-                                    conn.tier,
-                                    ping.nonce,
-                                    msg.hash(),
-                                );
-                                // TODO(gprusak): deprecate Event::Ping/Pong in favor of
-                                // MessageProcessed.
-                                #[cfg(test)]
-                                self.network_state
-                                    .config
-                                    .event_sink
-                                    .send(Event::Ping(ping.clone()));
-                                #[cfg(test)]
-                                message_processed_event();
-                            }
-                            T2MessageBody::Pong(_pong) => {
-                                #[cfg(test)]
-                                self.network_state
-                                    .config
-                                    .event_sink
-                                    .send(Event::Pong(_pong.clone()));
-                                #[cfg(test)]
-                                message_processed_event();
-                            }
+                match self.network_state.process_incoming_routed(
+                    &self.clock,
+                    &conn.peer_info.id,
+                    conn.tier,
+                    msg,
+                ) {
+                    RoutedAction::ForMe(msg) => {
+                        // Handle Ping and Pong message if they are for us without sending
+                        // to client. i.e. Return false in case of Ping and Pong
+                        match msg.body() {
+                            TieredMessageBody::T2(t2) => match t2.as_ref() {
+                                T2MessageBody::Ping(ping) => {
+                                    self.network_state.send_pong(
+                                        &self.clock,
+                                        conn.tier,
+                                        ping.nonce,
+                                        msg.hash(),
+                                    );
+                                    // TODO(gprusak): deprecate Event::Ping/Pong in favor of
+                                    // MessageProcessed.
+                                    #[cfg(test)]
+                                    self.network_state
+                                        .config
+                                        .event_sink
+                                        .send(Event::Ping(ping.clone()));
+                                    #[cfg(test)]
+                                    message_processed_event();
+                                }
+                                T2MessageBody::Pong(_pong) => {
+                                    #[cfg(test)]
+                                    self.network_state
+                                        .config
+                                        .event_sink
+                                        .send(Event::Pong(_pong.clone()));
+                                    #[cfg(test)]
+                                    message_processed_event();
+                                }
+                                _ => self.receive_message(&conn, PeerMessage::Routed(msg)),
+                            },
                             _ => self.receive_message(&conn, PeerMessage::Routed(msg)),
-                        },
-                        _ => self.receive_message(&conn, PeerMessage::Routed(msg)),
+                        }
                     }
-                } else {
-                    if msg.decrease_ttl() {
-                        let num_hops = msg.num_hops_mut();
-                        *num_hops = num_hops.saturating_add(1);
+                    RoutedAction::Forward(msg) => {
                         self.network_state.send_message_to_peer(&self.clock, conn.tier, msg);
-                    } else {
-                        #[cfg(test)]
-                        self.network_state.config.event_sink.send(Event::RoutedMessageDropped);
-                        tracing::debug!(target: "network", ?msg, from = ?conn.peer_info.id, "message dropped because ttl reached 0");
-                        metrics::ROUTED_MESSAGE_DROPPED
-                            .with_label_values(&[msg.body_variant()])
-                            .inc();
                     }
+                    RoutedAction::Dropped => {}
                 }
             }
             msg => self.receive_message(&conn, msg),
