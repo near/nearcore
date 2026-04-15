@@ -1204,8 +1204,7 @@ async fn archival_node() {
 
     for _step in 0..10 {
         tracing::info!(target:"test", %_step, "select a node which node 0 is not connected to");
-        let pm0_connections: HashSet<PeerId> =
-            pm0.with_state(|s| async move { s.tier2.load().ready.keys().cloned().collect() }).await;
+        let pm0_connections: HashSet<PeerId> = pm0.tcp.tier2.load().ready.keys().cloned().collect();
 
         let pms = [&pm2, &pm3, &pm4];
         let chosen = pms

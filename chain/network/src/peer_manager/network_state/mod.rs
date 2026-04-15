@@ -65,9 +65,6 @@ use std::sync::atomic::AtomicUsize;
 mod routing;
 mod tier1;
 
-/// Limit number of pending Peer actors to avoid OOM.
-pub(crate) const LIMIT_PENDING_PEERS: usize = 60;
-
 /// Size of LRU cache size of recent routed messages.
 /// It should be large enough to detect duplicates (i.e. all messages received during
 /// production of 1 block should fit).
@@ -142,12 +139,6 @@ pub(crate) struct NetworkState {
     pub accounts_data: Arc<AccountDataCache>,
     /// AnnounceAccounts mapping TIER1 account ids to peer ids.
     pub account_announcements: Arc<AnnounceAccountCache>,
-    /// Connected peers (inbound and outbound) with their full peer information.
-    pub tier2: connection::Pool,
-    pub tier1: connection::Pool,
-    pub tier3: connection::Pool,
-    /// Semaphore limiting inflight inbound handshakes.
-    pub inbound_handshake_permits: Arc<tokio::sync::Semaphore>,
     /// The public IP of this node; available after connecting to any one peer.
     pub my_public_addr: Arc<RwLock<Option<std::net::SocketAddr>>>,
     /// Peer store that provides read/write access to peers.
@@ -309,10 +300,6 @@ impl NetworkState {
             accounts_data_demuxes: Mutex::new(HashMap::new()),
             snapshot_hosts_demuxes: Mutex::new(HashMap::new()),
             chain_info: Default::default(),
-            tier2: connection::Pool::new(config.node_id()),
-            tier1: connection::Pool::new(config.node_id()),
-            tier3: connection::Pool::new(config.node_id()),
-            inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             my_public_addr: Arc::new(RwLock::new(config.tier3_public_addr)),
             peer_store,
             snapshot_hosts: Arc::new(SnapshotHostsCache::new(config.snapshot_hosts.clone())),
@@ -349,7 +336,7 @@ impl NetworkState {
     /// It should be used to make the public methods cancellable: you spawn the
     /// noncancellable logic on self.runtime and just await it: in case the call is cancelled,
     /// the noncancellable logic will be run in the background anyway.
-    fn spawn<R: 'static + Send>(
+    pub(crate) fn spawn<R: 'static + Send>(
         &self,
         description: &'static str,
         fut: impl std::future::Future<Output = R> + 'static + Send,
@@ -604,74 +591,6 @@ impl NetworkState {
                 crate::peer::peer_actor::ConnectionClosedEvent { stream_id, reason },
             ),
         );
-    }
-
-    /// Register a direct connection to a new peer. Called after a handshake
-    /// completes; commits the peer to the Pool and runs the business-logic
-    /// writes (`connected_peers`, edge broadcast, peer_store).
-    ///
-    /// Builds a new edge between this pair of nodes from the two half-edge
-    /// signatures: the local half was created in the handshake exchange and
-    /// passed in via `edge`; the peer's half is stored inside `conn`.
-    pub async fn register(
-        self: &Arc<Self>,
-        clock: &time::Clock,
-        edge: Edge,
-        conn: Arc<connection::Connection>,
-        transport: Arc<dyn NetworkTransport>,
-    ) -> Result<(), RegisterPeerError> {
-        let this = self.clone();
-        let clock = clock.clone();
-        self.spawn("register_connection", async move {
-            let info: PeerConnectionInfo = conn.as_ref().into();
-            this.validate_new_connection(&info, &edge, &*transport)?;
-            match conn.tier {
-                tcp::Tier::T1 => this.tier1.insert_ready(conn.clone()),
-                tcp::Tier::T2 => this.tier2.insert_ready(conn.clone()),
-                tcp::Tier::T3 => this.tier3.insert_ready(conn.clone()),
-            }
-            .map_err(RegisterPeerError::PoolError)?;
-            this.on_peer_connected(&clock, edge, info, transport).await;
-            Ok(())
-        })
-        .await
-        .unwrap()
-    }
-
-    /// Removes the connection from the state.
-    ///
-    /// Intentionally synchronous and expected to be called from
-    /// `PeerActor::stopping`. If it was async there'd be a risk that the
-    /// unregister is cancelled before even starting — the cleanup has to
-    /// run to completion or we leak Pool / peer_store / peer_gossip state.
-    pub fn unregister(
-        self: &Arc<Self>,
-        clock: &time::Clock,
-        conn: &Arc<connection::Connection>,
-        #[cfg(test)] stream_id: tcp::StreamId,
-        reason: ClosingReason,
-        transport: Arc<dyn NetworkTransport>,
-    ) {
-        let this = self.clone();
-        let clock = clock.clone();
-        let conn = conn.clone();
-        self.spawn("unregister_connection", async move {
-            match conn.tier {
-                tcp::Tier::T1 => this.tier1.remove(&conn),
-                tcp::Tier::T2 => this.tier2.remove(&conn),
-                tcp::Tier::T3 => this.tier3.remove(&conn),
-            }
-            let info: PeerDisconnectInfo = conn.as_ref().into();
-            this.on_peer_disconnected(
-                &clock,
-                &info,
-                reason,
-                #[cfg(test)]
-                stream_id,
-                transport,
-            )
-            .await;
-        });
     }
 
     /// Attempt to connect to the given peer until successful, up to max_attempts times

@@ -880,11 +880,11 @@ impl PeerManagerActor {
                 }
             }
             NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
-                if self
-                    .state
-                    .tier2
-                    .send_message(peer_id, Arc::new(PeerMessage::BlockHeadersRequest(hashes)))
-                {
+                if self.transport.send_message(
+                    tcp::Tier::T2,
+                    peer_id,
+                    Arc::new(PeerMessage::BlockHeadersRequest(hashes)),
+                ) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
@@ -1312,11 +1312,11 @@ impl PeerManagerActor {
                 }
             }
             NetworkRequests::EpochSyncResponse { peer_id, proof } => {
-                if self
-                    .state
-                    .tier2
-                    .send_message(peer_id, PeerMessage::EpochSyncResponse(proof).into())
-                {
+                if self.transport.send_message(
+                    tcp::Tier::T2,
+                    peer_id,
+                    PeerMessage::EpochSyncResponse(proof).into(),
+                ) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound

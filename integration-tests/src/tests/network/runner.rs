@@ -49,7 +49,7 @@ pub(crate) type ActionFn =
     Box<dyn for<'a> Fn(&'a mut RunningInfo) -> BoxFuture<'a, anyhow::Result<ControlFlow>>>;
 
 /// Sets up a node with a valid Client, Peer
-fn setup_network_node(
+fn setup_network_node_with_tcp(
     actor_system: ActorSystem,
     account_id: AccountId,
     validators: Vec<AccountId>,
@@ -550,7 +550,7 @@ impl Runner {
         let validators = self.validators.clone();
         let chain_genesis = self.chain_genesis.clone();
 
-        let (actor, tcp) = setup_network_node(
+        let (actor, tcp) = setup_network_node_with_tcp(
             self.actor_system.clone(),
             account_id,
             validators,

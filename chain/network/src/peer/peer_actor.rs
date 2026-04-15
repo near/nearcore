@@ -274,15 +274,14 @@ impl PeerActor {
     ) -> Result<(TokioRuntimeHandle<Self>, HandshakeSignal), ClosingReason> {
         let connecting_status = match &stream.type_ {
             tcp::StreamType::Inbound => ConnectingStatus::Inbound(
-                network_state
-                    .inbound_handshake_permits
+                tcp.inbound_handshake_permits
                     .clone()
                     .try_acquire_owned()
                     .map_err(|_| ClosingReason::TooManyInbound)?,
             ),
             tcp::StreamType::Outbound { tier, peer_id } => ConnectingStatus::Outbound {
                 _permit: match tier {
-                    tcp::Tier::T1 => network_state
+                    tcp::Tier::T1 => tcp
                         .tier1
                         .start_outbound(peer_id.clone())
                         .map_err(ClosingReason::OutboundNotAllowed)?,
@@ -295,8 +294,7 @@ impl PeerActor {
                                 connection::PoolError::UnexpectedLoopConnection,
                             ));
                         }
-                        network_state
-                            .tier2
+                        tcp.tier2
                             .start_outbound(peer_id.clone())
                             .map_err(ClosingReason::OutboundNotAllowed)?
                     }
@@ -307,8 +305,7 @@ impl PeerActor {
                                 connection::PoolError::UnexpectedLoopConnection,
                             ));
                         }
-                        network_state
-                            .tier3
+                        tcp.tier3
                             .start_outbound(peer_id.clone())
                             .map_err(ClosingReason::OutboundNotAllowed)?
                     }
@@ -695,9 +692,24 @@ impl PeerActor {
             let network_state = self.network_state.clone();
             let clock = self.clock.clone();
             let handle = self.handle.clone();
-            let transport = self.tcp.clone();
+            let tcp = self.tcp.clone();
             async move {
-                let register_result = network_state.register(&clock, edge, conn.clone(), transport).await;
+                // Register flow (3 steps):
+                //   1. validate_new_connection (pure, no side effects)
+                //   2. tcp.pool_insert (Pool write, transport-internal)
+                //   3. on_peer_connected (business logic writes + edge
+                //      broadcast + peer_store)
+                // Each step can fail independently; nothing is written until
+                // the preceding step succeeds, so no rollback is needed.
+                let register_result: Result<(), RegisterPeerError> = async {
+                    let info: crate::peer_manager::network_state::PeerConnectionInfo =
+                        conn.as_ref().into();
+                    network_state.validate_new_connection(&info, &edge, &*tcp)?;
+                    tcp.pool_insert(conn.tier, conn.clone())?;
+                    network_state.on_peer_connected(&clock, edge, info, tcp.clone()).await;
+                    Ok(())
+                }
+                .await;
                 handle.clone().run_later("register peer followup", Duration::ZERO, move |act, _| {
                     match register_result {
                         Ok(()) => {
@@ -1477,18 +1489,31 @@ impl messaging::Actor for PeerActor {
             // test-only ConnectionClosed event is emitted inside
             // on_peer_disconnected after all state updates.
             PeerStatus::Ready(conn) => {
+                // Unregister flow (2 steps):
+                //   1. tcp.pool_remove (synchronous — stopping() is synchronous)
+                //   2. Fire-and-forget spawn of on_peer_disconnected (async
+                //      because it calls add_edges for edge removal broadcast)
                 let network_state = self.network_state.clone();
                 let clock = self.clock.clone();
                 let conn = conn.clone();
-                let transport = self.tcp.clone();
-                network_state.unregister(
-                    &clock,
-                    &conn,
-                    #[cfg(test)]
-                    self.stream_id,
-                    closing_reason,
-                    transport,
-                );
+                let tcp = self.tcp.clone();
+                tcp.pool_remove(conn.tier, &conn);
+                let info: crate::peer_manager::network_state::PeerDisconnectInfo =
+                    conn.as_ref().into();
+                #[cfg(test)]
+                let stream_id = self.stream_id;
+                network_state.clone().spawn("on_peer_disconnected", async move {
+                    network_state
+                        .on_peer_disconnected(
+                            &clock,
+                            &info,
+                            closing_reason,
+                            #[cfg(test)]
+                            stream_id,
+                            tcp,
+                        )
+                        .await;
+                });
             }
         }
     }

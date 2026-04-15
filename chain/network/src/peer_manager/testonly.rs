@@ -336,9 +336,10 @@ impl ActorHandler {
     /// This is a partial implementation, add more invariant checks
     /// if needed.
     pub async fn check_consistency(&self) {
-        self.with_state(|s| async move {
+        let tcp = self.tcp.clone();
+        self.with_state(move |s| async move {
             // Check that the set of ready connections matches the PeerStore state.
-            let tier2: HashSet<_> = s.tier2.load().ready.keys().cloned().collect();
+            let tier2: HashSet<_> = tcp.tier2.load().ready.keys().cloned().collect();
             let store: HashSet<_> = s
                 .peer_store
                 .dump()
@@ -398,8 +399,9 @@ impl ActorHandler {
 
     pub async fn disconnect(&self, peer_id: &PeerId) {
         let peer_id = peer_id.clone();
-        self.with_state(move |s| async move {
-            let num_stopped = s
+        let tcp = self.tcp.clone();
+        self.with_state(move |_s| async move {
+            let num_stopped = tcp
                 .tier2
                 .load()
                 .ready
@@ -502,10 +504,7 @@ impl ActorHandler {
     pub async fn wait_for_direct_connection(&self, target_peer_id: PeerId) {
         let mut events = self.events.from_now();
         loop {
-            let connections =
-                self.with_state(|s| async move { s.tier2.load().ready.clone() }).await;
-
-            if connections.contains_key(&target_peer_id) {
+            if self.tcp.tier2.load().ready.contains_key(&target_peer_id) {
                 return;
             }
 
@@ -558,7 +557,7 @@ impl ActorHandler {
     pub async fn wait_for_num_connected_peers(&self, wanted: usize) {
         let mut events = self.events.from_now();
         loop {
-            let got = self.with_state(|s| async move { s.tier2.load().ready.len() }).await;
+            let got = self.tcp.tier2.load().ready.len();
             if got == wanted {
                 return;
             }
