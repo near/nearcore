@@ -7,6 +7,7 @@ use crate::types::{
     StateRootNodeValidationResult, StorageDataSource, Tip,
 };
 use errors::FromStateViewerErrors;
+use near_async::thread_pool::contract_compilation_pool;
 use near_async::time::{Duration, Instant};
 use near_chain_configs::{GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig};
 use near_crypto::PublicKey;
@@ -1548,36 +1549,23 @@ impl RuntimeAdapter for NightshadeRuntime {
             "precompile_contracts",
             num_contracts = contract_codes.len())
         .entered();
+        if contract_codes.is_empty() {
+            return Ok(());
+        }
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         let runtime_config = self.runtime_config_store.get_config(protocol_version);
-        let compiled_contract_cache: Option<Box<dyn ContractRuntimeCache>> =
-            Some(Box::new(self.compiled_contract_cache.handle()));
-        // Execute precompile_contract in parallel but prevent it from using more than half of all
-        // threads so that node will still function normally.
-        rayon::scope(|scope| {
-            let (slot_sender, slot_receiver) = std::sync::mpsc::channel();
-            // Use up-to half of the threads for the compilation.
-            let max_threads = std::cmp::max(rayon::current_num_threads() / 2, 1);
-            for _ in 0..max_threads {
-                slot_sender.send(()).expect("both sender and receiver are owned here");
-            }
-            for code in contract_codes {
-                slot_receiver.recv().expect("could not receive a slot to compile contract");
-                let contract_cache = compiled_contract_cache.as_deref();
-                let slot_sender = slot_sender.clone();
-                scope.spawn(move |_| {
-                    precompile_contract(
-                        &code,
-                        Arc::clone(&runtime_config.wasm_config),
-                        contract_cache,
-                    )
-                    .ok();
-                    // If this fails, it just means there won't be any more attempts to recv the
-                    // slots
-                    let _ = slot_sender.send(());
-                });
-            }
-        });
+        let (tx, rx) = std::sync::mpsc::channel();
+        for code in contract_codes {
+            let tx = tx.clone();
+            let config = Arc::clone(&runtime_config.wasm_config);
+            let cache = self.compiled_contract_cache.handle();
+            contract_compilation_pool().spawn_boxed(Box::new(move || {
+                precompile_contract(&code, config, Some(&*cache)).ok();
+                let _ = tx.send(());
+            }));
+        }
+        drop(tx);
+        while rx.recv().is_ok() {}
         Ok(())
     }
 }

@@ -126,5 +126,10 @@ protocol_schema = [
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = []
 
+[[bin]]
+name = "bench-contracts-compilation"
+path = "benchmarks/compile_contracts.rs"
+required-features = ["wasmtime_vm"]
+
 [package.metadata.cargo-machete]
 ignored = ["prometheus"]

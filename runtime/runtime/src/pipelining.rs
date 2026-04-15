@@ -6,6 +6,7 @@ use crate::metrics::{
     PIPELINING_ACTIONS_SUBMITTED, PIPELINING_ACTIONS_TASK_DELAY_TIME,
     PIPELINING_ACTIONS_TASK_WORKING_TIME, PIPELINING_ACTIONS_WAITING_TIME,
 };
+use near_async::thread_pool::contract_compilation_pool;
 use near_parameters::RuntimeConfig;
 use near_primitives::account::{Account, AccountContract};
 use near_primitives::action::{Action, GlobalContractIdentifier};
@@ -212,7 +213,7 @@ impl ReceiptPreparationPipeline {
                     let task = Arc::new(PrepareTask { status, condvar: Condvar::new() });
                     entry.insert(Arc::clone(&task));
                     PIPELINING_ACTIONS_SUBMITTED.inc_by(1);
-                    rayon::spawn_fifo(move || {
+                    contract_compilation_pool().spawn_boxed(Box::new(move || {
                         let task_status = {
                             let mut status = task.status.lock();
                             std::mem::replace(&mut *status, PrepareTaskStatus::Working)
@@ -230,12 +231,11 @@ impl ReceiptPreparationPipeline {
                             identifier,
                             &method_name,
                         );
-
                         let mut status = task.status.lock();
                         *status = PrepareTaskStatus::Prepared(contract);
                         PIPELINING_ACTIONS_TASK_WORKING_TIME.inc_by(start.elapsed().as_secs_f64());
                         task.condvar.notify_all();
-                    });
+                    }));
                     any_function_calls = true;
                 }
                 // No need to handle this receipt as it only generates other new receipts.

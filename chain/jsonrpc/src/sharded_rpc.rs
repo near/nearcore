@@ -5,7 +5,9 @@ use near_jsonrpc_client_internal::JsonRpcClient;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{AccountId, BlockHeight, BlockId, BlockReference, EpochId, ShardId};
+use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use std::net::{IpAddr, SocketAddr, UdpSocket};
 use std::sync::Arc;
@@ -204,6 +206,35 @@ impl ShardedRpcPool {
 
                 self.nodes_for_account_in_epochs(possible_epochs, account_id)?
             }
+            (BlockHint::Hash(block_hash), ShardHint::Id(shard_id)) => {
+                let epoch_id = match self.chain_store.get_block_header(block_hash) {
+                    Ok(header) => *header.epoch_id(),
+                    Err(Error::DBNotFoundErr(_)) => return Ok(self.all_nodes()), // Unknown block, try all nodes
+                    Err(e) => return Err(make_rpc_error(e)),
+                };
+                self.nodes_for_shard_in_epochs(vec![epoch_id], *shard_id)?
+            }
+            (BlockHint::Height(height), ShardHint::Id(shard_id)) => {
+                let epoch_ids: Vec<_> = self
+                    .chain_store
+                    .get_all_block_hashes_by_height(*height)
+                    .keys()
+                    .cloned()
+                    .collect();
+                if epoch_ids.is_empty() {
+                    return Ok(self.all_nodes()); // Unknown block, try all nodes
+                }
+                self.nodes_for_shard_in_epochs(epoch_ids, *shard_id)?
+            }
+            (BlockHint::Recent, ShardHint::Id(shard_id))
+            | (BlockHint::None, ShardHint::Id(shard_id)) => {
+                let head = match self.chain_store.head() {
+                    Ok(tip) => tip,
+                    Err(Error::DBNotFoundErr(_)) => return Ok(self.all_nodes()),
+                    Err(e) => return Err(make_rpc_error(e)),
+                };
+                self.nodes_for_shard_in_epochs(vec![head.epoch_id], *shard_id)?
+            }
             _ => self.all_nodes(),
         };
 
@@ -273,6 +304,55 @@ impl ShardedRpcPool {
         }
 
         Ok(result)
+    }
+
+    /// Returns nodes that track the given shard in any of the given epochs.
+    fn nodes_for_shard_in_epochs(
+        &self,
+        epoch_ids: Vec<EpochId>,
+        shard_id: ShardId,
+    ) -> Result<Vec<RpcNodeHandle>, RpcError> {
+        let mut result = Vec::new();
+
+        // Check if the local node tracks this shard in any of the given epochs.
+        for epoch_id in &epoch_ids {
+            match self.shard_tracker.rpc_tracks_shard_at_epoch(shard_id, epoch_id) {
+                Ok(true) => {
+                    result.push(RpcNodeHandle::LocalNode);
+                    break;
+                }
+                Ok(false) => {}
+                Err(EpochError::EpochOutOfBounds(_)) => return Ok(self.all_nodes()), // Unknown epoch, try all nodes
+                Err(e) => return Err(make_rpc_error(e)),
+            }
+        }
+
+        // Check remote nodes. Their `tracked_shards` is a static config and
+        // not epoch-dependent, so a single membership check is enough.
+        for node in &self.nodes {
+            if node.tracked_shards.contains(&shard_id) {
+                result.push(RpcNodeHandle::RemoteNode(node.client.clone()));
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Try to resolve a chunk hash to its (block_height, shard_id) by looking
+    /// up the partial chunk in the store. All nodes persist partial chunks for
+    /// all shards (header-only for untracked shards), so this works regardless
+    /// of which shards the local node tracks.
+    pub fn try_resolve_chunk_block_and_shard(
+        &self,
+        chunk_hash: &ChunkHash,
+    ) -> Option<(BlockHeight, ShardId)> {
+        match self.chain_store.chunk_store().get_partial_chunk(chunk_hash) {
+            Ok(partial_chunk) => Some((partial_chunk.height_included(), partial_chunk.shard_id())),
+            Err(err) => {
+                tracing::debug!(target: "jsonrpc", ?chunk_hash, ?err, "failed to resolve chunk from partial chunk store");
+                None
+            }
+        }
     }
 }
 

@@ -428,11 +428,20 @@ pub(crate) fn prepare_contract(
         &analysis,
         config.regular_op_cost,
         config.limit_config.max_stack_height,
+        config.limit_config.max_blocks_per_function.unwrap_or(u64::MAX),
+        config.limit_config.max_blocks_per_contract.unwrap_or(u64::MAX),
     )
     .run()
     .map_err(|err| {
-        tracing::error!(target: "vm", ?err, ?kind, "instrumentation failed");
-        PrepareError::Serialization
+        use super::instrument_v3::Error;
+        match err {
+            Error::TooManyBlocksPerFunction => PrepareError::TooManyBlocksPerFunction,
+            Error::TooManyBlocksPerContract => PrepareError::TooManyBlocksPerContract,
+            err => {
+                tracing::error!(target: "vm", ?err, ?kind, "instrumentation failed");
+                PrepareError::Serialization
+            }
+        }
     })?;
     // Guard against overflowing Cranelift’s 24-bit SSA value counter. Each wasm
     // byte produces at least one SSA value, so capping the instrumented size is a
