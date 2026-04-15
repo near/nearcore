@@ -393,6 +393,7 @@ pub struct StateSyncConfig {
 }
 
 impl StateSyncConfig {
+    /// Deprecated: cloud state sync is deprecated. Use peer-based state sync instead.
     pub fn gcs_with_bucket(bucket: String) -> Self {
         Self {
             sync: SyncConfig::ExternalStorage(ExternalStorageConfig {

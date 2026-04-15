@@ -1,11 +1,16 @@
 use crate::utils::sharded_rpc::{TwoShardHarness, assert_rpc_error};
 use near_async::time::Duration;
+use near_jsonrpc::client::ChunkId;
 use near_jsonrpc_primitives::message::Message;
+use near_jsonrpc_primitives::types::chunks::{ChunkReference, RpcChunkRequest};
 use near_jsonrpc_primitives::types::query::RpcQueryRequest;
 use near_jsonrpc_primitives::types::receipts::{ReceiptReference, RpcReceiptRequest};
 use near_o11y::testonly::init_test_logger;
-use near_primitives::types::{AccountId, Balance, BlockReference, Finality};
+use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::ShardLayout;
+use near_primitives::types::{AccountId, Balance, BlockId, BlockReference, Finality};
 use near_primitives::views::QueryRequest;
+use near_store::ShardUId;
 
 /// A cross-shard query for a nonexistent account must return UNKNOWN_ACCOUNT,
 /// not UNAVAILABLE_SHARD. The latter would mean the coordinator gave up instead
@@ -88,6 +93,92 @@ fn test_rpc_coordinator_header_bypass() {
             assert_rpc_error(&err, "UNAVAILABLE_SHARD");
         }
         other => panic!("expected Response, got: {other:?}"),
+    }
+}
+
+/// Same as test_rpc_coordinator_header_bypass but for the chunk method.
+/// A coordinator chunk request sent to a node that doesn't track the shard
+/// must fail locally (UNKNOWN_CHUNK) instead of being forwarded again.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_rpc_chunk_coordinator_header_bypass() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+
+    let shard_layout = ShardLayout::multi_shard(2, 1);
+    let shard_uids: Vec<ShardUId> = shard_layout.shard_uids().collect();
+    let head_height = h.env.node_for_account(&h.validator).head().height;
+    let zoe_node = h.zoe_node.clone();
+
+    // Baseline: a normal chunk request for shard 0 from zoe's node succeeds
+    // because the pool coordinator forwards it to alice's node.
+    let normal_result = h.env.runner_for_account(&zoe_node).run_with_jsonrpc_client(
+        |client| {
+            client.chunk(ChunkId::BlockShardId(
+                BlockId::Height(head_height),
+                shard_uids[0].shard_id(),
+            ))
+        },
+        Duration::seconds(5),
+    );
+    assert!(
+        normal_result.is_ok(),
+        "baseline cross-shard chunk query should succeed via forwarding"
+    );
+
+    // Now send the same query with the coordinator header. Zoe's node doesn't
+    // track shard 0, so without forwarding it must fail.
+    let request = Message::request(
+        "chunk".to_string(),
+        serde_json::to_value(RpcChunkRequest {
+            chunk_reference: ChunkReference::BlockShardId {
+                block_id: BlockId::Height(head_height),
+                shard_id: shard_uids[0].shard_id(),
+            },
+        })
+        .unwrap(),
+    );
+
+    let response = h
+        .env
+        .runner_for_account(&zoe_node)
+        .run_with_jsonrpc_client(
+            |client| client.transport.send_jsonrpc_request(request, true),
+            Duration::seconds(5),
+        )
+        .unwrap();
+
+    match response {
+        Message::Response(resp) => {
+            let err = resp.result.expect_err("coordinator chunk request should fail locally");
+            assert_rpc_error(&err, "UNKNOWN_CHUNK");
+        }
+        other => panic!("expected Response, got: {other:?}"),
+    }
+}
+
+/// A chunk query by ChunkHash for a chunk that doesn't exist anywhere falls
+/// through the partial-chunk-store resolution and triggers the
+/// ParallelTakeFirst fallback. All nodes return UnknownChunk; the strategy
+/// must surface UNKNOWN_CHUNK rather than an unrelated error or a timeout.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_rpc_chunk_bogus_hash_parallel_fallback() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+
+    let bogus_chunk_hash = CryptoHash::hash_bytes(b"bogus chunk hash");
+
+    for node_id in [&h.alice_node.clone(), &h.zoe_node.clone()] {
+        let err = h
+            .env
+            .runner_for_account(node_id)
+            .run_with_jsonrpc_client(
+                |client| client.chunk(ChunkId::Hash(bogus_chunk_hash)),
+                Duration::seconds(5),
+            )
+            .unwrap_err();
+        assert_rpc_error(&err, "UNKNOWN_CHUNK");
     }
 }
 

@@ -3232,6 +3232,7 @@ pub mod estimator {
     use std::collections::HashMap;
     use std::collections::VecDeque;
     use std::num::NonZeroU64;
+    use std::sync::Arc;
 
     pub fn apply_action_receipt(
         state_update: &mut TrieUpdate,
@@ -3274,7 +3275,7 @@ pub mod estimator {
         let info = ReceiptSinkV2Info::new(apply_state.epoch_id, epoch_info_provider)?;
         let mut receipt_sink = ReceiptSink::V2(ReceiptSinkV2WithInfo { info, sink });
         let empty_pipeline = ReceiptPreparationPipeline::new(
-            std::sync::Arc::clone(&apply_state.config),
+            Arc::clone(&apply_state.config),
             apply_state.cache.as_ref().map(|c| c.handle()),
             state_update.contract_storage().clone(),
             epoch_info_provider.chain_id(),

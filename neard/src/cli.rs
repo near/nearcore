@@ -356,8 +356,8 @@ pub(super) struct InitCmd {
     /// from genesis configuration will be taken.
     #[clap(long)]
     max_gas_burnt_view: Option<Gas>,
-    /// Specify the cloud bucket to use for state sync.
-    #[clap(long)]
+    /// Deprecated: cloud state sync is deprecated and will be removed in a future release.
+    #[clap(long, hide = true)]
     state_sync_bucket: Option<String>,
 }
 

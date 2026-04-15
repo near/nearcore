@@ -1,3 +1,4 @@
+mod bootstrap_reader;
 pub mod cli;
 mod status;
 
