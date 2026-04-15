@@ -28,8 +28,9 @@ use std::collections::HashMap;
 /// Per-peer routing metadata. Populated by register
 /// (`on_peer_connected`), updated incrementally by message handlers
 /// (Block updates `block_info`), removed on unregister.
-#[allow(dead_code)]
+
 #[derive(Clone)]
+#[allow(dead_code)]
 pub(crate) struct ConnectedPeerState {
     pub peer_info: PeerInfo,
     /// Highest block we've heard of from this peer. `None` until the

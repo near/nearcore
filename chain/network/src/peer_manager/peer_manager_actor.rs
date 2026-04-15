@@ -11,6 +11,7 @@ use crate::network_protocol::{
 };
 use crate::network_protocol::{SyncSnapshotHosts, T1MessageBody};
 use crate::peer::peer_actor::PeerActor;
+use crate::peer_manager::connected_peers::ConnectedPeerState;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{
     NetworkState, PENDING_TIER3_REQUEST_TIMEOUT, WhitelistNode,
@@ -285,6 +286,25 @@ impl messaging::Actor for PeerManagerActor {
     }
 }
 
+/// Project a `ConnectedPeerState` to a `HighestHeightPeerInfo`, keyed by
+/// the T2 peer's latest block. Returns `None` if the peer hasn't
+/// reported a block yet (the height info is what makes the projection
+/// interesting).
+fn to_highest_height_peer_info(
+    s: &ConnectedPeerState,
+    genesis_id: &GenesisId,
+) -> Option<HighestHeightPeerInfo> {
+    let block = s.block_info.as_ref()?;
+    Some(HighestHeightPeerInfo {
+        peer_info: s.peer_info.clone(),
+        genesis_id: genesis_id.clone(),
+        highest_block_height: block.height,
+        highest_block_hash: block.hash,
+        tracked_shards: s.tracked_shards.clone(),
+        archival: s.archival,
+    })
+}
+
 impl PeerManagerActor {
     pub fn spawn(
         clock: time::Clock,
@@ -458,15 +478,15 @@ impl PeerManagerActor {
             && !self.state.config.outbound_disabled
     }
 
-    /// Returns peers close to the highest height
+    /// Returns peers close to the highest height.
     fn highest_height_peers(&self) -> Vec<HighestHeightPeerInfo> {
+        let genesis_id = self.state.genesis_id.clone();
         let infos: Vec<HighestHeightPeerInfo> = self
             .state
-            .tier2
-            .load()
-            .ready
+            .peers
+            .tier2()
             .values()
-            .filter_map(|p| p.full_peer_info().into())
+            .filter_map(|s| to_highest_height_peer_info(s, &genesis_id))
             .collect();
 
         // This finds max height among peers, and returns one peer close to such height.
@@ -500,18 +520,16 @@ impl PeerManagerActor {
         // Find all peers whose height is below `highest_peer_horizon` from max height peer(s).
         // or the ones we don't have height information yet
         self.state
-            .tier2
-            .load()
-            .ready
-            .values()
-            .filter(|p| {
-                p.last_block
-                    .load()
+            .peers
+            .tier2()
+            .into_iter()
+            .filter(|(_, s)| {
+                s.block_info
                     .as_ref()
                     .map(|x| x.height.saturating_add(UNRELIABLE_PEER_HORIZON) < my_height)
                     .unwrap_or(false)
             })
-            .map(|p| p.peer_info.id.clone())
+            .map(|(id, _)| id)
             .collect()
     }
 
@@ -823,7 +841,7 @@ impl PeerManagerActor {
         metrics::REQUEST_COUNT_BY_TYPE_TOTAL.with_label_values(&[msg.as_ref()]).inc();
         match msg {
             NetworkRequests::Block { block } => {
-                self.state.tier2.broadcast_message(Arc::new(PeerMessage::Block(block)));
+                self.transport.broadcast_message(Arc::new(PeerMessage::Block(block)));
                 NetworkResponses::NoResponse
             }
             NetworkRequests::OptimisticBlock { chunk_producers, optimistic_block } => {
@@ -848,8 +866,11 @@ impl PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BlockRequest { hash, peer_id } => {
-                if self.state.tier2.send_message(peer_id, Arc::new(PeerMessage::BlockRequest(hash)))
-                {
+                if self.transport.send_message(
+                    tcp::Tier::T2,
+                    peer_id,
+                    Arc::new(PeerMessage::BlockRequest(hash)),
+                ) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
@@ -1057,7 +1078,7 @@ impl PeerManagerActor {
                 // Insert our info to our own cache.
                 self.state.snapshot_hosts.insert_skip_verify(snapshot_host_info.clone());
 
-                self.state.tier2.broadcast_message(Arc::new(PeerMessage::SyncSnapshotHosts(
+                self.transport.broadcast_message(Arc::new(PeerMessage::SyncSnapshotHosts(
                     SyncSnapshotHosts { hosts: vec![snapshot_host_info] },
                 )));
                 NetworkResponses::NoResponse
@@ -1096,17 +1117,18 @@ impl PeerManagerActor {
                             }
                         }
                     } else {
-                        let mut matching_peers = vec![];
-                        for (peer_id, peer) in &self.state.tier2.load().ready {
-                            let last_block = peer.last_block.load();
-                            if (peer.archival || !target.only_archival)
-                                && last_block.is_some()
-                                && last_block.as_ref().unwrap().height >= target.min_height
-                                && peer.tracked_shards.contains(&target.shard_id)
-                            {
-                                matching_peers.push(peer_id.clone());
-                            }
-                        }
+                        let t2_peers = self.state.peers.tier2();
+                        let matching_peers: Vec<PeerId> = t2_peers
+                            .into_iter()
+                            .filter(|(_, s)| {
+                                (s.archival || !target.only_archival)
+                                    && s.block_info
+                                        .as_ref()
+                                        .is_some_and(|b| b.height >= target.min_height)
+                                    && s.tracked_shards.contains(&target.shard_id)
+                            })
+                            .map(|(id, _)| id)
+                            .collect();
 
                         if let Some(matching_peer) = matching_peers.iter().choose(&mut thread_rng())
                         {
@@ -1276,7 +1298,11 @@ impl PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::EpochSyncRequest { peer_id } => {
-                if self.state.tier2.send_message(peer_id, PeerMessage::EpochSyncRequest.into()) {
+                if self.transport.send_message(
+                    tcp::Tier::T2,
+                    peer_id,
+                    PeerMessage::EpochSyncRequest.into(),
+                ) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
