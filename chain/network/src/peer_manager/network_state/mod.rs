@@ -16,6 +16,7 @@ use crate::network_protocol::{
 };
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer::peer_actor::PeerActor;
+use crate::peer_manager::connected_peers::{ConnectedPeerState, ConnectedPeers};
 use crate::peer_manager::connection;
 use crate::peer_manager::connection_store;
 #[cfg(test)]
@@ -40,8 +41,9 @@ use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
 use crate::types::{
-    ChainInfo, PeerManagerSenderForNetwork, PeerType, ReasonForBan, StateHeaderRequestBody,
-    StatePartRequestBody, StateRequestSenderForNetwork, Tier3Request, Tier3RequestBody,
+    BlockInfo, ChainInfo, PeerManagerSenderForNetwork, PeerType, ReasonForBan,
+    StateHeaderRequestBody, StatePartRequestBody, StateRequestSenderForNetwork, Tier3Request,
+    Tier3RequestBody,
 };
 use anyhow::Context;
 use arc_swap::ArcSwap;
@@ -122,6 +124,10 @@ pub(crate) struct NetworkState {
     pub partial_witness_adapter: PartialWitnessSenderForNetwork,
     pub spice_data_distributor_adapter: SpiceDataDistributorSenderForNetwork,
     pub spice_core_writer_adapter: Sender<SpiceChunkEndorsementMessage>,
+
+    /// Per-peer metadata + T1 account-key index. Written by
+    /// register/unregister and the `handle_peer_message` Block branch.
+    pub peers: ConnectedPeers,
 
     /// Network-related info about the chain.
     pub chain_info: ArcSwap<Option<ChainInfo>>,
@@ -249,6 +255,7 @@ impl NetworkState {
             peer_manager_adapter,
             shards_manager_adapter,
             partial_witness_adapter,
+            peers: ConnectedPeers::new(),
             chain_info: Default::default(),
             tier2: connection::Pool::new(config.node_id()),
             tier1: connection::Pool::new(config.node_id()),
@@ -391,7 +398,7 @@ impl NetworkState {
                     if !edge.verify() {
                         return Err(RegisterPeerError::InvalidEdge);
                     }
-                    this.tier1.insert_ready(conn).map_err(RegisterPeerError::PoolError)?;
+                    this.tier1.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
                 }
                 tcp::Tier::T2 => {
                     if conn.peer_type == PeerType::Inbound {
@@ -434,9 +441,26 @@ impl NetworkState {
                             return Err(RegisterPeerError::UnexpectedTier3Connection);
                         }
                     }
-                    this.tier3.insert_ready(conn).map_err(RegisterPeerError::PoolError)?;
+                    this.tier3.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
                 }
             }
+            // Write connected_peers for all tiers. ConnectedPeers handles
+            // the T1 `account_key → peer_id` index internally as a side
+            // effect of `insert`.
+            let account_key = conn.owned_account.as_ref().map(|oa| oa.account_key.clone());
+            this.peers.insert(
+                conn.peer_info.id.clone(),
+                ConnectedPeerState {
+                    peer_info: conn.peer_info.clone(),
+                    block_info: None,
+                    tier: conn.tier,
+                    archival: conn.archival,
+                    tracked_shards: conn.tracked_shards.clone(),
+                    owned_account_key: account_key,
+                    peer_type: conn.peer_type,
+                    established_time: conn.established_time,
+                },
+            );
             Ok(())
         }).await.unwrap()
     }
@@ -461,6 +485,12 @@ impl NetworkState {
                 tcp::Tier::T2 => this.tier2.remove(&conn),
                 tcp::Tier::T3 => this.tier3.remove(&conn),
             }
+
+            // Remove from connected_peers. ConnectedPeers clears the T1
+            // `account_key → peer_id` index internally (only when the
+            // removed peer was T1, with a defensive check against
+            // account-key reuse races).
+            this.peers.remove(conn.tier, &conn.peer_info.id);
 
             // Handle banning and routing, which are applicable only for TIER2.
             if conn.tier == tcp::Tier::T2 {
@@ -1039,6 +1069,11 @@ impl NetworkState {
                 response.ok().flatten().map(PeerMessage::BlockHeaders)
             }
             PeerMessage::Block(block) => {
+                // Update connected_peers block_info (monotonic — no-op if
+                // the new height is below the stored one).
+                let hash = *block.hash();
+                let height = block.header().height();
+                self.peers.update_block_info(&peer_id, BlockInfo { height, hash });
                 self.client
                     .send_async(BlockResponse { block, peer_id, was_requested }.span_wrap())
                     .await
