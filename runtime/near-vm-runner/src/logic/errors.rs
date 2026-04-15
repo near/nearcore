@@ -183,6 +183,14 @@ pub enum PrepareError {
     TooManyTables = 9,
     /// Contract contains too many table elements.
     TooManyTableElements = 10,
+    /// A function body in the contract exceeds the size limit.
+    FunctionBodyTooLarge = 11,
+    /// The instrumented code exceeds the size limit.
+    InstrumentedCodeTooLarge = 12,
+    /// A function contains too many basic blocks.
+    TooManyBlocksPerFunction = 13,
+    /// A contract contains too many basic blocks.
+    TooManyBlocksPerContract = 14,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, strum::IntoStaticStr)]
@@ -407,6 +415,10 @@ impl fmt::Display for PrepareError {
             TooManyLocals => "Too many locals declared in the contract.",
             TooManyTables => "Too many tables declared in the contract.",
             TooManyTableElements => "Too many table elements declared in the contract.",
+            FunctionBodyTooLarge => "A function body in the contract exceeds the size limit.",
+            InstrumentedCodeTooLarge => "The instrumented code exceeds the size limit.",
+            TooManyBlocksPerFunction => "Too many basic blocks in a function.",
+            TooManyBlocksPerContract => "Too many basic blocks in a contract.",
         })
     }
 }

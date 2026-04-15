@@ -1,10 +1,12 @@
 use crate::setup::builder::TestLoopBuilder;
+use crate::setup::peer_manager_actor::HandlerResult;
 use itertools::Itertools as _;
 use near_async::messaging::CanSend as _;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::BlockResponse;
 use near_crypto::{KeyType, PublicKey};
+use near_network::types::NetworkResponses;
 use near_network::types::{NetworkRequests, ReasonForBan};
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_o11y::testonly::init_test_logger;
@@ -61,7 +63,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
 
         let peer_actor_handle = node.peer_manager_sender.actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
+        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
             let mut ban_counter = ban_counter.write();
             match request {
                 NetworkRequests::Block { mut block } => {
@@ -99,7 +101,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                             }
                         }
                     }
-                    Some(NetworkRequests::Block { block })
+                    HandlerResult::Unhandled(NetworkRequests::Block { block })
                 }
                 NetworkRequests::BanPeer { ref peer_id, ref ban_reason } => match mode {
                     InvalidBlockMode::InvalidHeader | InvalidBlockMode::IllFormed => {
@@ -108,13 +110,13 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                         if *ban_counter > 3 {
                             panic!("more bans than expected");
                         }
-                        None
+                        HandlerResult::Handled(NetworkResponses::NoResponse)
                     }
                     InvalidBlockMode::InvalidBlock => {
                         panic!("banning peer {:?} unexpectedly for {:?}", peer_id, ban_reason);
                     }
                 },
-                _ => Some(request),
+                _ => HandlerResult::Unhandled(request),
             }
         }));
     }
@@ -219,7 +221,7 @@ fn test_produce_block_with_approvals_arrived_early() {
 
         let peer_actor_handle = node.peer_manager_sender.actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
+        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
             let mut approval_counter = approval_counter.write();
             match &request {
                 NetworkRequests::Block { block } => {
@@ -247,9 +249,9 @@ fn test_produce_block_with_approvals_arrived_early() {
                             }
                             .span_wrap(),
                         );
-                        return None;
+                        return HandlerResult::Handled(NetworkResponses::NoResponse);
                     }
-                    Some(request)
+                    HandlerResult::Unhandled(request)
                 }
                 NetworkRequests::Approval { approval_message } => {
                     if approval_message.target == block_producer_for_next_height
@@ -261,9 +263,9 @@ fn test_produce_block_with_approvals_arrived_early() {
                         let block_response = block_holder.read().clone().unwrap();
                         client_senders[&block_producer_for_next_height].send(block_response);
                     }
-                    Some(request)
+                    HandlerResult::Unhandled(request)
                 }
-                _ => Some(request),
+                _ => HandlerResult::Unhandled(request),
             }
         }));
     }

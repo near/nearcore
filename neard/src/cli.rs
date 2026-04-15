@@ -1,6 +1,5 @@
 #[cfg(unix)]
 use anyhow::Context;
-use near_amend_genesis::AmendGenesisCommand;
 use near_async::ActorSystem;
 use near_chain_configs::{GenesisValidationMode, TrackedShardsConfig};
 use near_client::ConfigUpdater;
@@ -131,9 +130,6 @@ impl NeardCmd {
             NeardSubCommand::Mirror(cmd) => {
                 cmd.run()?;
             }
-            NeardSubCommand::AmendGenesis(cmd) => {
-                cmd.run()?;
-            }
             NeardSubCommand::CloudArchive(cmd) => {
                 cmd.run(&home_dir, genesis_validation)?;
             }
@@ -254,9 +250,6 @@ pub(super) enum NeardSubCommand {
     /// from it, reproducing traffic and state as closely as possible.
     Mirror(MirrorCommand),
 
-    /// Amend a genesis/records file created by `dump-state`.
-    AmendGenesis(AmendGenesisCommand),
-
     /// Cloud archive reader tools.
     #[clap(name = "cloud-archive")]
     CloudArchive(CloudArchiveCommand),
@@ -363,8 +356,8 @@ pub(super) struct InitCmd {
     /// from genesis configuration will be taken.
     #[clap(long)]
     max_gas_burnt_view: Option<Gas>,
-    /// Specify the cloud bucket to use for state sync.
-    #[clap(long)]
+    /// Deprecated: cloud state sync is deprecated and will be removed in a future release.
+    #[clap(long, hide = true)]
     state_sync_bucket: Option<String>,
 }
 

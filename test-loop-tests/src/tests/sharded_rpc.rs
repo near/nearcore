@@ -1,10 +1,7 @@
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::env::TestLoopEnv;
-use crate::utils::account::create_account_id;
+use crate::utils::sharded_rpc::{TwoShardHarness, assert_rpc_error};
 use near_async::time::Duration;
-use near_chain_configs::TrackedShardsConfig;
-use near_chain_configs::test_genesis::ValidatorsSpec;
-use near_jsonrpc_primitives::errors::{RpcError, RpcErrorKind};
+use near_jsonrpc::client::ChunkId;
+use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::Message;
 use near_jsonrpc_primitives::types::call_function::RpcCallFunctionRequest;
 use near_jsonrpc_primitives::types::chunks::ChunkReference;
@@ -23,76 +20,10 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{
-    AccountId, Balance, BlockReference, Finality, FunctionArgs, Gas, StoreKey,
+    AccountId, Balance, BlockId, BlockReference, Finality, FunctionArgs, Gas, StoreKey,
 };
 use near_primitives::views::QueryRequest;
 use near_store::ShardUId;
-
-/// Test harness for sharded RPC tests.
-///
-/// Sets up a 2-shard environment with 2 RPC nodes (each tracking one shard)
-/// and 1 validator. Two user accounts (alice, zoe) are placed on different shards.
-struct TwoShardHarness {
-    env: TestLoopEnv,
-    alice: AccountId,
-    zoe: AccountId,
-    /// RPC node that tracks alice's shard.
-    alice_node: AccountId,
-    /// RPC node that tracks zoe's shard.
-    zoe_node: AccountId,
-    /// Validator node (tracks all shards by default).
-    validator: AccountId,
-}
-
-impl TwoShardHarness {
-    fn new() -> Self {
-        let shard_layout = ShardLayout::multi_shard(2, 1);
-        let shard_uids: Vec<ShardUId> = shard_layout.shard_uids().collect();
-
-        // "alice" < "test1" (boundary) and "zoe" >= "test1", so they land on different shards.
-        let alice = create_account_id("alice");
-        let zoe = create_account_id("zoe");
-        let alice_shard = shard_layout.account_id_to_shard_id(&alice);
-        let zoe_shard = shard_layout.account_id_to_shard_id(&zoe);
-        assert_ne!(alice_shard, zoe_shard);
-
-        let validator0: AccountId = create_account_id("validator");
-        let validators_spec = ValidatorsSpec::desired_roles(&[validator0.as_str()], &[]);
-        let genesis = TestLoopBuilder::new_genesis_builder()
-            .shard_layout(shard_layout)
-            .validators_spec(validators_spec)
-            .add_user_account_simple(alice.clone(), Balance::from_near(100))
-            .add_user_account_simple(zoe.clone(), Balance::from_near(200))
-            .build();
-
-        let rpc0: AccountId = create_account_id("rpc0");
-        let rpc0_shard = shard_uids[0];
-        let rpc1: AccountId = create_account_id("rpc1");
-        let rpc1_shard = shard_uids[1];
-        let clients = vec![rpc0.clone(), rpc1.clone(), validator0.clone()];
-        let env = TestLoopBuilder::new()
-            .genesis(genesis)
-            .clients(clients)
-            .config_modifier(move |config, client_index| match client_index {
-                0 => config.tracked_shards_config = TrackedShardsConfig::Shards(vec![rpc0_shard]),
-                1 => config.tracked_shards_config = TrackedShardsConfig::Shards(vec![rpc1_shard]),
-                _ => {}
-            })
-            .add_rpc_pool([rpc0.clone(), rpc1.clone()])
-            .build();
-
-        let (alice_node, zoe_node) =
-            if alice_shard == rpc0_shard.shard_id() { (rpc0, rpc1) } else { (rpc1, rpc0) };
-
-        Self { env, alice, zoe, alice_node, zoe_node, validator: validator0 }
-    }
-
-    /// Deploy the standard test contract to alice.
-    fn deploy_contract_to_alice(&mut self) {
-        let tx = self.env.node_for_account(&self.alice_node).tx_deploy_test_contract(&self.alice);
-        self.env.runner_for_account(&self.alice_node).run_tx(tx, Duration::seconds(5));
-    }
-}
 
 /// EXPERIMENTAL_view_account queries should be forwarded to the right shard.
 #[test]
@@ -870,6 +801,105 @@ fn test_rpc_experimental_congestion_level_chunk_hash_forwarding() {
     run_congestion_level(&zoe_node, chunk_hash).unwrap();
 }
 
+/// chunk queries by BlockId::Height + ShardId should be forwarded across shards.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_rpc_chunk_block_height_shard_id_forwarding() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+
+    let shard_layout = ShardLayout::multi_shard(2, 1);
+    let shard_uids: Vec<ShardUId> = shard_layout.shard_uids().collect();
+    let head_height = h.env.node_for_account(&h.validator).head().height;
+
+    let mut run_chunk = |node_id: &AccountId, shard_uid: ShardUId| -> Result<(), RpcError> {
+        let result = h.env.runner_for_account(node_id).run_with_jsonrpc_client(
+            |client| {
+                client.chunk(ChunkId::BlockShardId(
+                    BlockId::Height(head_height),
+                    shard_uid.shard_id(),
+                ))
+            },
+            Duration::seconds(5),
+        )?;
+        assert_eq!(result.header.shard_id, shard_uid.shard_id());
+        Ok(())
+    };
+
+    // Cross-shard: query shard 1 from shard 0's node and vice versa.
+    run_chunk(&h.alice_node, shard_uids[1]).unwrap();
+    run_chunk(&h.zoe_node, shard_uids[0]).unwrap();
+    // Local.
+    run_chunk(&h.alice_node, shard_uids[0]).unwrap();
+    run_chunk(&h.zoe_node, shard_uids[1]).unwrap();
+}
+
+/// chunk queries by BlockId::Hash + ShardId should be forwarded across shards.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_rpc_chunk_block_hash_shard_id_forwarding() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+
+    let shard_layout = ShardLayout::multi_shard(2, 1);
+    let shard_uids: Vec<ShardUId> = shard_layout.shard_uids().collect();
+    let validator = h.validator.clone();
+    let head = h.env.node_for_account(&validator).head();
+    let block_hash = head.last_block_hash;
+
+    let mut run_chunk = |node_id: &AccountId, shard_uid: ShardUId| -> Result<(), RpcError> {
+        let result = h.env.runner_for_account(node_id).run_with_jsonrpc_client(
+            |client| {
+                client.chunk(ChunkId::BlockShardId(BlockId::Hash(block_hash), shard_uid.shard_id()))
+            },
+            Duration::seconds(5),
+        )?;
+        assert_eq!(result.header.shard_id, shard_uid.shard_id());
+        Ok(())
+    };
+
+    // Cross-shard: query shard 1 from shard 0's node and vice versa.
+    run_chunk(&h.alice_node, shard_uids[1]).unwrap();
+    run_chunk(&h.zoe_node, shard_uids[0]).unwrap();
+    // Local.
+    run_chunk(&h.alice_node, shard_uids[0]).unwrap();
+    run_chunk(&h.zoe_node, shard_uids[1]).unwrap();
+}
+
+/// chunk queries by ChunkHash should be forwarded across shards.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_rpc_chunk_hash_forwarding() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+
+    // Get chunk hashes from both shards in the head block.
+    let validator = h.validator.clone();
+    let head = h.env.node_for_account(&validator).head();
+    let head_block =
+        h.env.node_for_account(&validator).client().chain.get_block(&head.last_block_hash).unwrap();
+    let chunk_hash_shard0 = head_block.chunks()[0].chunk_hash().0;
+    let chunk_hash_shard1 = head_block.chunks()[1].chunk_hash().0;
+
+    let mut run_chunk = |node_id: &AccountId, chunk_id: CryptoHash| -> Result<(), RpcError> {
+        let result = h.env.runner_for_account(node_id).run_with_jsonrpc_client(
+            |client| client.chunk(ChunkId::Hash(chunk_id)),
+            Duration::seconds(5),
+        )?;
+        assert_eq!(result.header.chunk_hash, chunk_id);
+        Ok(())
+    };
+
+    // Both nodes should be able to serve ChunkHash queries for both shards
+    // (resolved via partial chunk store).
+    let alice_node = h.alice_node.clone();
+    let zoe_node = h.zoe_node.clone();
+    run_chunk(&alice_node, chunk_hash_shard0).unwrap();
+    run_chunk(&alice_node, chunk_hash_shard1).unwrap();
+    run_chunk(&zoe_node, chunk_hash_shard0).unwrap();
+    run_chunk(&zoe_node, chunk_hash_shard1).unwrap();
+}
+
 /// Cross-shard EXPERIMENTAL_view_code for an account with no contract should return a proper error.
 #[test]
 fn test_rpc_experimental_view_code_error_format() {
@@ -944,12 +974,242 @@ fn test_rpc_experimental_view_access_key_error_format() {
     assert_rpc_error(&err, "UNKNOWN_ACCESS_KEY");
 }
 
-/// Assert that an RpcError is a HandlerError with the expected error name.
-fn assert_rpc_error(err: &RpcError, expected_name: &str) {
-    match err.error_struct.as_ref().expect("expected error_struct") {
-        RpcErrorKind::HandlerError(val) => {
-            assert_eq!(val["name"].as_str(), Some(expected_name), "unexpected error: {val}");
+/// Queries with Finality::Final should be forwarded cross-shard just like
+/// Finality::None, and the response should reference the final block (not head).
+#[test]
+fn test_rpc_view_account_finality_final() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+    let (final_height, _head_height) = h.ensure_finality_lag();
+
+    let mut run_view_account = |node_id: &AccountId,
+                                account: &AccountId,
+                                expected_balance: Balance|
+     -> Result<(), RpcError> {
+        let result = h.env.runner_for_account(node_id).run_with_jsonrpc_client(
+            |client| {
+                client.EXPERIMENTAL_view_account(RpcViewAccountRequest {
+                    block_reference: BlockReference::Finality(Finality::Final),
+                    account_id: account.clone(),
+                })
+            },
+            Duration::seconds(5),
+        )?;
+        assert_eq!(result.account.amount, expected_balance, "node: {node_id}, account: {account}");
+        assert!(
+            result.block_height <= final_height,
+            "expected block_height <= final_height ({final_height}), got {}",
+            result.block_height,
+        );
+        Ok(())
+    };
+
+    // Cross-shard forwarding with Finality::Final.
+    run_view_account(&h.zoe_node, &h.alice, Balance::from_near(100)).unwrap();
+    run_view_account(&h.alice_node, &h.zoe, Balance::from_near(200)).unwrap();
+    // Local.
+    run_view_account(&h.alice_node, &h.alice, Balance::from_near(100)).unwrap();
+    run_view_account(&h.zoe_node, &h.zoe, Balance::from_near(200)).unwrap();
+}
+
+/// Queries with Finality::DoomSlug should route correctly and reference a
+/// near-final block.
+#[test]
+fn test_rpc_view_account_finality_doomslug() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+    let (final_height, head_height) = h.ensure_finality_lag();
+
+    let mut run_view_account = |node_id: &AccountId,
+                                account: &AccountId,
+                                expected_balance: Balance|
+     -> Result<(), RpcError> {
+        let result = h.env.runner_for_account(node_id).run_with_jsonrpc_client(
+            |client| {
+                client.EXPERIMENTAL_view_account(RpcViewAccountRequest {
+                    block_reference: BlockReference::Finality(Finality::DoomSlug),
+                    account_id: account.clone(),
+                })
+            },
+            Duration::seconds(5),
+        )?;
+        assert_eq!(result.account.amount, expected_balance, "node: {node_id}, account: {account}");
+        // DoomSlug finality should reference a block at or between final and head.
+        assert!(
+            result.block_height >= final_height && result.block_height <= head_height,
+            "expected final_height ({final_height}) <= block_height <= head_height ({head_height}), got {}",
+            result.block_height,
+        );
+        Ok(())
+    };
+
+    // Cross-shard forwarding with Finality::DoomSlug.
+    run_view_account(&h.zoe_node, &h.alice, Balance::from_near(100)).unwrap();
+    run_view_account(&h.alice_node, &h.zoe, Balance::from_near(200)).unwrap();
+    // Local.
+    run_view_account(&h.alice_node, &h.alice, Balance::from_near(100)).unwrap();
+    run_view_account(&h.zoe_node, &h.zoe, Balance::from_near(200)).unwrap();
+}
+
+/// Contract calls with Finality::Final should be forwarded cross-shard.
+/// Note: this test verifies routing, not that the result comes from the final
+/// block's state specifically.
+#[test]
+fn test_rpc_call_function_finality_final() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+    h.deploy_contract_to_alice();
+
+    // Advance a few blocks so the contract deploy is included in the final block.
+    let validator = h.validator.clone();
+    h.env.runner_for_account(&validator).run_for_number_of_blocks(3);
+
+    let mut run_call_function =
+        |node_id: &AccountId, account: &AccountId| -> Result<(), RpcError> {
+            let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
+                RpcQueryRequest {
+                    block_reference: BlockReference::Finality(Finality::Final),
+                    request: QueryRequest::CallFunction {
+                        account_id: account.clone(),
+                        method_name: "log_something".to_string(),
+                        args: FunctionArgs::from(vec![]),
+                    },
+                },
+                Duration::seconds(5),
+            )?;
+            match result.kind {
+                QueryResponseKind::CallResult(_) => {}
+                other => panic!("expected CallResult, got: {other:?}"),
+            }
+            Ok(())
+        };
+
+    // Cross-shard with Finality::Final.
+    run_call_function(&h.zoe_node, &h.alice).unwrap();
+    // Local.
+    run_call_function(&h.alice_node, &h.alice).unwrap();
+}
+
+/// Queries with an explicit BlockId::Height should succeed cross-shard,
+/// exercising the BlockHint::Height code path in nodes_for_query.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_rpc_query_view_account_by_block_height() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+
+    let validator = h.validator.clone();
+    let head_height = h.env.node_for_account(&validator).head().height;
+
+    let mut run_query = |node_id: &AccountId,
+                         account: &AccountId,
+                         expected_balance: Balance|
+     -> Result<(), RpcError> {
+        let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
+            RpcQueryRequest {
+                block_reference: BlockReference::BlockId(BlockId::Height(head_height)),
+                request: QueryRequest::ViewAccount { account_id: account.clone() },
+            },
+            Duration::seconds(5),
+        )?;
+        assert_eq!(
+            result.block_height, head_height,
+            "result should come from the requested height"
+        );
+        match result.kind {
+            QueryResponseKind::ViewAccount(view) => {
+                assert_eq!(view.amount, expected_balance, "node: {node_id}, account: {account}");
+            }
+            other => panic!("expected ViewAccount, got: {other:?}"),
         }
-        other => panic!("expected HandlerError({expected_name}), got: {other:?}"),
-    }
+        Ok(())
+    };
+
+    // Cross-shard forwarding with explicit block height.
+    run_query(&h.zoe_node, &h.alice, Balance::from_near(100)).unwrap();
+    run_query(&h.alice_node, &h.zoe, Balance::from_near(200)).unwrap();
+    // Local.
+    run_query(&h.alice_node, &h.alice, Balance::from_near(100)).unwrap();
+    run_query(&h.zoe_node, &h.zoe, Balance::from_near(200)).unwrap();
+}
+
+/// Queries with an explicit BlockId::Hash should succeed cross-shard,
+/// exercising the BlockHint::Hash code path in nodes_for_query.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_rpc_query_view_account_by_block_hash() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+
+    let validator = h.validator.clone();
+    let head_hash = h.env.node_for_account(&validator).head().last_block_hash;
+
+    let mut run_query = |node_id: &AccountId,
+                         account: &AccountId,
+                         expected_balance: Balance|
+     -> Result<(), RpcError> {
+        let result = h.env.runner_for_account(node_id).run_jsonrpc_query(
+            RpcQueryRequest {
+                block_reference: BlockReference::BlockId(BlockId::Hash(head_hash)),
+                request: QueryRequest::ViewAccount { account_id: account.clone() },
+            },
+            Duration::seconds(5),
+        )?;
+        assert_eq!(result.block_hash, head_hash, "result should come from the requested hash");
+        match result.kind {
+            QueryResponseKind::ViewAccount(view) => {
+                assert_eq!(view.amount, expected_balance, "node: {node_id}, account: {account}");
+            }
+            other => panic!("expected ViewAccount, got: {other:?}"),
+        }
+        Ok(())
+    };
+
+    // Cross-shard forwarding with explicit block hash.
+    run_query(&h.zoe_node, &h.alice, Balance::from_near(100)).unwrap();
+    run_query(&h.alice_node, &h.zoe, Balance::from_near(200)).unwrap();
+    // Local.
+    run_query(&h.alice_node, &h.alice, Balance::from_near(100)).unwrap();
+    run_query(&h.zoe_node, &h.zoe, Balance::from_near(200)).unwrap();
+}
+
+/// Queries referencing nonexistent blocks should fall back to trying all nodes
+/// and return UnknownBlock, not UnavailableShard or a panic.
+#[test]
+fn test_rpc_query_unknown_block_fallback() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+
+    let alice = h.alice.clone();
+    let alice_node = h.alice_node.clone();
+
+    // Unknown block hash — exercises the fallback.
+    let err = h
+        .env
+        .runner_for_account(&alice_node)
+        .run_jsonrpc_query(
+            RpcQueryRequest {
+                block_reference: BlockReference::BlockId(BlockId::Hash(CryptoHash::hash_bytes(
+                    b"bogus",
+                ))),
+                request: QueryRequest::ViewAccount { account_id: alice.clone() },
+            },
+            Duration::seconds(5),
+        )
+        .unwrap_err();
+    assert_rpc_error(&err, "UNKNOWN_BLOCK");
+
+    // Unknown block height — exercises the fallback.
+    let err = h
+        .env
+        .runner_for_account(&alice_node)
+        .run_jsonrpc_query(
+            RpcQueryRequest {
+                block_reference: BlockReference::BlockId(BlockId::Height(999_999_999)),
+                request: QueryRequest::ViewAccount { account_id: alice },
+            },
+            Duration::seconds(5),
+        )
+        .unwrap_err();
+    assert_rpc_error(&err, "UNKNOWN_BLOCK");
 }

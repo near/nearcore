@@ -16,7 +16,6 @@ anyhow.workspace = true
 borsh.workspace = true
 clap.workspace = true
 rand.workspace = true
-strum.workspace = true
 tracing.workspace = true
 
 nearcore.workspace = true

@@ -2,7 +2,7 @@ use crate::config::safe_add_compute;
 use crate::contract_code::RuntimeContractIdentifier;
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::receipt_manager::ReceiptManager;
-use crate::{ActionResult, ApplyState, metrics};
+use crate::{ActionResult, ApplyState, metrics, safe_add_balance};
 use near_parameters::RuntimeConfig;
 use near_primitives::account::Account;
 use near_primitives::apply::ApplyChunkReason;
@@ -232,6 +232,8 @@ pub(crate) fn action_function_call(
 
         account.set_amount(outcome.balance);
         account.set_storage_usage(outcome.storage_usage);
+        result.subsidized_amount =
+            safe_add_balance(result.subsidized_amount, outcome.subsidized_amount)?;
         result.result = Ok(outcome.return_data);
         result.new_receipts.extend(new_receipts);
     }

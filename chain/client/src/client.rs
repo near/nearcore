@@ -36,8 +36,9 @@ use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{ChainConfig, LatestKnown, RuntimeAdapter};
 use near_chain::{
-    ApplyChunksIterationMode, ApplyChunksSpawner, BlockProcessingArtifact, BlockStatus, Chain,
-    ChainGenesis, ChainStoreAccess, ChunksReadiness, Doomslug, DoomslugThresholdMode, Provenance,
+    ApplyChunksSpawner, BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis,
+    ChainStoreAccess, ChunksReadiness, Doomslug, DoomslugThresholdMode, MemtrieLoadingSpawner,
+    Provenance,
 };
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdatableClientConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
@@ -64,7 +65,6 @@ use near_primitives::sharding::{
     EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader, ShardChunkWithEncoding,
     StateSyncInfo, StateSyncInfoV1,
 };
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks};
 use near_primitives::unwrap_or_return;
@@ -181,6 +181,10 @@ pub struct Client {
     chunk_producer_accounts_cache: Option<(EpochId, Arc<Vec<AccountId>>)>,
     /// Reed-Solomon encoder for shadow chunk validation.
     shadow_validation_reed_solomon: OnceLock<Arc<ReedSolomon>>,
+    /// The last epoch for which the validator key was checked. Used to ensure
+    /// the check runs once per epoch on the first non-syncing head block, even
+    /// if the epoch boundary was crossed during sync.
+    last_validator_key_check_epoch: Option<EpochId>,
     /// watch::Sender used to notify watchers about new postprocessed blocks.
     pub block_notification_watch_sender:
         tokio::sync::watch::Sender<Option<BlockNotificationMessage>>,
@@ -210,6 +214,40 @@ impl Client {
         self.validator_signer.update(signer)
     }
 
+    /// Checks the validator key once per epoch on new head blocks while not syncing.
+    /// Skips if currently syncing (to avoid false positives when the key was
+    /// rotated after the node's stale local head), and skips if the current
+    /// epoch was already checked. Should be called on every new head block.
+    /// Panics if the local key does not match the key registered in the epoch.
+    pub(crate) fn check_validator_key_on_new_head(&mut self, block: &Block) {
+        if self.sync_handler.sync_status.is_syncing() {
+            return;
+        }
+        let Some(signer) = self.validator_signer.get() else { return };
+        let epoch_id = block.header().epoch_id();
+        if self.last_validator_key_check_epoch.as_ref() == Some(epoch_id) {
+            return;
+        }
+        let validator_id = signer.validator_id();
+        let Ok(epoch_info) = self.epoch_manager.get_epoch_info(epoch_id) else {
+            tracing::error!(target: "client", ?epoch_id, "failed to get epoch info for validator key check");
+            return;
+        };
+        self.last_validator_key_check_epoch = Some(*epoch_id);
+        let Some(validator_stake) = epoch_info.get_validator_by_account(validator_id) else {
+            return;
+        };
+        let local_key = signer.public_key();
+        let on_chain_key = validator_stake.public_key();
+        if &local_key != on_chain_key {
+            panic!(
+                "validator key mismatch for {}: local key {} does not match \
+                 on-chain key {}. Update validator_key.json or rotate the key on-chain.",
+                validator_id, local_key, on_chain_key,
+            );
+        }
+    }
+
     /// Returns the Reed-Solomon encoder for shadow validation, initializing it lazily if needed.
     pub(crate) fn shadow_validation_reed_solomon_encoder(&self) -> &Arc<ReedSolomon> {
         self.shadow_validation_reed_solomon.get_or_init(|| {
@@ -229,6 +267,8 @@ pub struct AsyncComputationMultiSpawner {
     epoch_sync: Arc<dyn AsyncComputationSpawner>,
     /// Spawner to run 'prepare transactions' tasks (defaults to `RayonAsyncComputationSpawner`)
     prepare_transactions: Arc<dyn AsyncComputationSpawner>,
+    /// Spawner to run background memtrie loading tasks (defaults to `StdThreadAsyncComputationSpawner`)
+    pub memtrie_loading: MemtrieLoadingSpawner,
 }
 
 impl Default for AsyncComputationMultiSpawner {
@@ -237,6 +277,7 @@ impl Default for AsyncComputationMultiSpawner {
             apply_chunks: Default::default(),
             epoch_sync: Arc::new(RayonAsyncComputationSpawner),
             prepare_transactions: Arc::new(RayonAsyncComputationSpawner),
+            memtrie_loading: Default::default(),
         }
     }
 }
@@ -247,7 +288,8 @@ impl AsyncComputationMultiSpawner {
         Self {
             apply_chunks: ApplyChunksSpawner::Custom(spawner.clone()),
             epoch_sync: spawner.clone(),
-            prepare_transactions: spawner,
+            prepare_transactions: spawner.clone(),
+            memtrie_loading: MemtrieLoadingSpawner::Custom(spawner),
         }
     }
 
@@ -273,7 +315,6 @@ impl Client {
         rng_seed: RngSeed,
         snapshot_callbacks: Option<SnapshotCallbacks>,
         multi_spawner: AsyncComputationMultiSpawner,
-        apply_chunks_iteration_mode: ApplyChunksIterationMode,
         partial_witness_adapter: PartialWitnessSenderForClient,
         resharding_sender: ReshardingSender,
         state_sync_future_spawner: Arc<dyn FutureSpawner>,
@@ -309,7 +350,7 @@ impl Client {
             chain_config,
             snapshot_callbacks,
             multi_spawner.apply_chunks,
-            apply_chunks_iteration_mode,
+            multi_spawner.memtrie_loading,
             validator_signer.clone(),
             resharding_sender.clone(),
             Some(myself_sender.on_post_state_ready.clone()),
@@ -433,6 +474,7 @@ impl Client {
             last_optimistic_block_produced: None,
             chunk_producer_accounts_cache: None,
             shadow_validation_reed_solomon: OnceLock::new(),
+            last_validator_key_check_epoch: None,
             block_notification_watch_sender,
         })
     }
@@ -1354,11 +1396,7 @@ impl Client {
             self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
         let chunk_producer = self
             .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
-                epoch_id,
-                height_created: chunk_header.height_created(),
-                shard_id: chunk_header.shard_id(),
-            })?
+            .get_chunk_producer_info_db(chunk_header.prev_block_hash(), chunk_header.shard_id())?
             .take_account_id();
         tracing::error!(
             target: "client",
@@ -1648,6 +1686,8 @@ impl Client {
             if let Err(err) = self.send_network_chain_info() {
                 tracing::error!(target: "client", ?err, "failed to update network chain info");
             }
+
+            self.check_validator_key_on_new_head(&block);
 
             // If the next block is the first of the next epoch and the shard
             // layout is changing we need to reshard the transaction pool.

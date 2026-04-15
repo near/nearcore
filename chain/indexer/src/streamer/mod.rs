@@ -12,7 +12,8 @@ use near_indexer_primitives::{
 };
 use near_parameters::RuntimeConfig;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::Balance;
+use near_primitives::receipt::ReceiptSource;
+use near_primitives::types::{Balance, BlockHeight, EpochId, ShardId};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{BlockView, ChunkView, ExecutionStatusView, ReceiptView};
 use parking_lot::RwLock;
@@ -56,12 +57,8 @@ pub async fn build_streamer_message(
     let runtime_config = runtime_config_store.get_config(protocol_config_view.protocol_version);
 
     let mut shards_outcomes = client.fetch_outcomes_with_receipts(block.header.hash).await?;
-    let mut state_changes = client
-        .fetch_state_changes(
-            block.header.hash,
-            near_primitives::types::EpochId(block.header.epoch_id),
-        )
-        .await?;
+    let mut state_changes =
+        client.fetch_state_changes(block.header.hash, EpochId(block.header.epoch_id)).await?;
     let mut indexer_shards = shard_ids
         .map(|shard_id| IndexerShard {
             shard_id,
@@ -170,6 +167,9 @@ pub async fn build_streamer_message(
                 .push(IndexerExecutionOutcomeWithReceipt { execution_outcome, receipt });
         }
 
+        let instant_receipts =
+            fetch_instant_receipts(client, block.header.hash, header.shard_id).await;
+
         // Find the shard index for the chunk by shard_id
         let shard_index = protocol_config_view
             .shard_layout
@@ -185,6 +185,7 @@ pub async fn build_streamer_message(
             transactions: indexer_transactions,
             receipts: chunk_prev_outgoing_receipts,
             local_receipts: chunk_local_receipts,
+            instant_receipts,
         });
     }
 
@@ -209,6 +210,59 @@ pub async fn build_streamer_message(
     }
 
     Ok(StreamerMessage { block, shards: indexer_shards })
+}
+
+/// Fetches instant receipts for a given block and shard.
+///
+/// Instant receipts (e.g. PromiseYield) may not have execution outcomes in the
+/// block where they are processed (they can be postponed and executed later),
+/// so each receipt is fetched directly from `DBCol::Receipts`.
+async fn fetch_instant_receipts(
+    view_client: &IndexerViewClientFetcher,
+    block_hash: CryptoHash,
+    shard_id: ShardId,
+) -> Vec<ReceiptView> {
+    let instant_receipt_ids: Vec<CryptoHash> =
+        match view_client.fetch_processed_receipt_ids(block_hash, shard_id).await {
+            Ok(metadata) => metadata
+                .into_iter()
+                .filter(|m| matches!(m.source(), ReceiptSource::Instant))
+                .map(|m| *m.receipt_id())
+                .collect(),
+            Err(err) => {
+                tracing::warn!(
+                    target: INDEXER,
+                    ?err,
+                    %block_hash,
+                    %shard_id,
+                    "unable to fetch processed receipt ids, instant_receipts will be empty",
+                );
+                return vec![];
+            }
+        };
+
+    let mut instant_receipts: Vec<ReceiptView> = vec![];
+    for receipt_id in instant_receipt_ids {
+        match view_client.fetch_receipt_by_id(receipt_id).await {
+            Ok(Some(receipt)) => instant_receipts.push(receipt),
+            Ok(None) => {
+                tracing::warn!(
+                    target: INDEXER,
+                    ?receipt_id,
+                    "instant receipt not found in store",
+                );
+            }
+            Err(err) => {
+                tracing::warn!(
+                    target: INDEXER,
+                    ?receipt_id,
+                    ?err,
+                    "unable to fetch instant receipt",
+                );
+            }
+        }
+    }
+    instant_receipts
 }
 
 // Receipt might be missing only in case of delayed local receipt
@@ -339,7 +393,7 @@ pub async fn start(
         Err(err) => panic!("Unable to open indexer db: {:?}", err),
     };
 
-    let mut last_synced_block_height: Option<near_primitives::types::BlockHeight> = None;
+    let mut last_synced_block_height: Option<BlockHeight> = None;
 
     'main: loop {
         clock.sleep(INTERVAL).await;

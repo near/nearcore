@@ -346,6 +346,7 @@ pub struct ActionResult {
     pub validator_proposals: Vec<ValidatorStake>,
     pub profile: Box<ProfileDataV3>,
     pub tokens_burnt: Balance,
+    pub subsidized_amount: Balance,
 }
 
 impl ActionResult {
@@ -378,10 +379,15 @@ impl ActionResult {
                 .tokens_burnt
                 .checked_add(next_result.tokens_burnt)
                 .ok_or(IntegerOverflowError)?;
+            self.subsidized_amount = self
+                .subsidized_amount
+                .checked_add(next_result.subsidized_amount)
+                .ok_or(IntegerOverflowError)?;
         } else {
             self.new_receipts.clear();
             self.validator_proposals.clear();
             self.tokens_burnt = Balance::ZERO;
+            self.subsidized_amount = Balance::ZERO;
         }
         Ok(())
     }
@@ -400,6 +406,7 @@ impl Default for ActionResult {
             validator_proposals: vec![],
             profile: Default::default(),
             tokens_burnt: Balance::ZERO,
+            subsidized_amount: Balance::ZERO,
         }
     }
 }
@@ -891,6 +898,8 @@ impl Runtime {
 
         stats.balance.tx_burnt_amount =
             safe_add_balance(stats.balance.tx_burnt_amount, tx_burnt_amount)?;
+        stats.balance.subsidized_amount =
+            safe_add_balance(stats.balance.subsidized_amount, result.subsidized_amount)?;
 
         // Generating outgoing data
         // A {
@@ -3223,6 +3232,7 @@ pub mod estimator {
     use std::collections::HashMap;
     use std::collections::VecDeque;
     use std::num::NonZeroU64;
+    use std::sync::Arc;
 
     pub fn apply_action_receipt(
         state_update: &mut TrieUpdate,
@@ -3265,7 +3275,7 @@ pub mod estimator {
         let info = ReceiptSinkV2Info::new(apply_state.epoch_id, epoch_info_provider)?;
         let mut receipt_sink = ReceiptSink::V2(ReceiptSinkV2WithInfo { info, sink });
         let empty_pipeline = ReceiptPreparationPipeline::new(
-            std::sync::Arc::clone(&apply_state.config),
+            Arc::clone(&apply_state.config),
             apply_state.cache.as_ref().map(|c| c.handle()),
             state_update.contract_storage().clone(),
             epoch_info_provider.chain_id(),

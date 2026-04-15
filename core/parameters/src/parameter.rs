@@ -204,6 +204,10 @@ pub enum Parameter {
     MaxYieldPayloadSize,
     MaxTablesPerContract,
     MaxElementsPerContractTable,
+    MaxFunctionBodySize,
+    MaxInstrumentedCodeSize,
+    MaxBlocksPerFunction,
+    MaxBlocksPerContract,
 
     // Contract runtime features
     FlatStorageReads,
@@ -250,6 +254,9 @@ pub enum Parameter {
 
     // Flag to enable gas key host functions
     GasKeyHostFns,
+
+    // Flag to allow 1 yoctoNEAR on promise function calls without balance
+    OneYoctoOnPromise,
 }
 
 #[derive(
@@ -329,6 +336,10 @@ impl Parameter {
             Parameter::PerReceiptStorageProofSizeLimit,
             Parameter::MaxTablesPerContract,
             Parameter::MaxElementsPerContractTable,
+            Parameter::MaxFunctionBodySize,
+            Parameter::MaxInstrumentedCodeSize,
+            Parameter::MaxBlocksPerFunction,
+            Parameter::MaxBlocksPerContract,
         ]
         .iter()
     }

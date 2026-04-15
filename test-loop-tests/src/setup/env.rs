@@ -107,7 +107,7 @@ impl TestLoopEnv {
         let cloud_storage = self.get_cloud_storage(node_data);
         let storage = TestNodeStorage { hot_store, split_store, cold_db, cloud_storage };
 
-        NodeSetupState { account_id, client_config, storage }
+        NodeSetupState { account_id, client_config, storage, validator_signer: None }
     }
 
     fn get_split_store_and_cold_db(

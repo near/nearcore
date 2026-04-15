@@ -790,6 +790,7 @@ impl OperationStatusKind {
 pub(crate) enum OperationMetadataTransferFeeType {
     GasPrepayment,
     GasRefund,
+    GasReward,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize, ToSchema)]
@@ -1150,11 +1151,22 @@ pub(crate) enum TransactionType {
     DataReceipt,
 }
 
+/// Execution outcome status for a transaction or receipt.
+#[derive(Debug, Clone, Copy, PartialEq, ToSchema, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum ExecutionStatus {
+    Success,
+    Failure,
+    Unknown,
+}
+
 /// Extra data for Transaction
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, ToSchema)]
 pub(crate) struct TransactionMetadata {
     #[serde(rename = "type")]
     pub(crate) type_: TransactionType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) execution_status: Option<ExecutionStatus>,
 }
 
 /// The transaction_identifier uniquely identifies a transaction in a particular

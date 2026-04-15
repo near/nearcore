@@ -105,9 +105,7 @@ impl EpochManager {
         let stake_change = validators.iter().map(|v| (v.account_id().clone(), v.stake())).collect();
 
         // Get the threshold given current number of seats and stakes.
-        let num_hidden_validator_seats: NumSeats =
-            epoch_config.avg_hidden_validator_seats_per_shard.iter().sum();
-        let num_total_seats = epoch_config.num_block_producer_seats + num_hidden_validator_seats;
+        let num_total_seats = epoch_config.num_block_producer_seats;
         let stakes = validators.iter().map(|v| v.stake()).collect_vec();
         let threshold = find_threshold(&stakes, num_total_seats).unwrap();
 
@@ -129,11 +127,14 @@ impl EpochManager {
             dup_proposals[..epoch_config.num_block_producer_seats as usize].to_vec();
 
         // Collect proposals into block producer assignments.
+        let shard_layout = epoch_config
+            .static_shard_layout()
+            .expect("prod_genesis is only used for mainnet/testnet with static shard layout");
         let mut chunk_producers_settlement: Vec<Vec<ValidatorId>> = vec![];
         let mut last_index: u64 = 0;
-        for num_seats_in_shard in &epoch_config.num_block_producer_seats_per_shard {
+        for _ in shard_layout.shard_ids() {
             let mut shard_settlement: Vec<ValidatorId> = vec![];
-            for _ in 0..*num_seats_in_shard {
+            for _ in 0..epoch_config.num_block_producer_seats {
                 let proposal_index = block_producers_settlement[last_index as usize];
                 shard_settlement.push(proposal_index);
                 last_index = (last_index + 1) % epoch_config.num_block_producer_seats;

@@ -7,6 +7,7 @@ use crate::types::{
     StateRootNodeValidationResult, StorageDataSource, Tip,
 };
 use errors::FromStateViewerErrors;
+use near_async::thread_pool::contract_compilation_pool;
 use near_async::time::{Duration, Instant};
 use near_chain_configs::{GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig};
 use near_crypto::PublicKey;
@@ -338,14 +339,22 @@ impl NightshadeRuntime {
             metrics.report(&shard_label);
         }
 
-        let total_balance_burnt = apply_result
+        let burnt = apply_result
             .stats
             .balance
             .tx_burnt_amount
             .checked_add(apply_result.stats.balance.other_burnt_amount)
-            .and_then(|result| result.checked_add(apply_result.stats.balance.slashed_burnt_amount))
+            .and_then(|r| r.checked_add(apply_result.stats.balance.slashed_burnt_amount))
             .ok_or_else(|| {
                 Error::Other("Integer overflow during burnt balance summation".to_string())
+            })?;
+
+        // Theoretically this may become negative but the subsidized amount is many orders
+        // of magnitude lower than the burned amount for each promise, so it should not
+        // happen.
+        let total_balance_burnt =
+            burnt.checked_sub(apply_result.stats.balance.subsidized_amount).ok_or_else(|| {
+                Error::Other("subsidized amount exceeds total burnt balance".to_string())
             })?;
 
         let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_block_hash)?;
@@ -1495,10 +1504,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         let epoch_config = self.epoch_manager.get_epoch_config(epoch_id)?;
         genesis_config.epoch_length = epoch_config.epoch_length;
         genesis_config.num_block_producer_seats = epoch_config.num_block_producer_seats;
-        genesis_config.num_block_producer_seats_per_shard =
-            epoch_config.num_block_producer_seats_per_shard;
-        genesis_config.avg_hidden_validator_seats_per_shard =
-            epoch_config.avg_hidden_validator_seats_per_shard;
         genesis_config.block_producer_kickout_threshold =
             epoch_config.block_producer_kickout_threshold;
         genesis_config.chunk_producer_kickout_threshold =
@@ -1515,7 +1520,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         genesis_config.protocol_upgrade_stake_threshold =
             epoch_config.protocol_upgrade_stake_threshold;
         genesis_config.shard_layout = shard_layout;
-        genesis_config.num_chunk_only_producer_seats = epoch_config.num_chunk_only_producer_seats;
         genesis_config.minimum_validators_per_shard = epoch_config.minimum_validators_per_shard;
         genesis_config.minimum_stake_ratio = epoch_config.minimum_stake_ratio;
         genesis_config.shuffle_shard_assignment_for_chunk_producers =
@@ -1545,36 +1549,23 @@ impl RuntimeAdapter for NightshadeRuntime {
             "precompile_contracts",
             num_contracts = contract_codes.len())
         .entered();
+        if contract_codes.is_empty() {
+            return Ok(());
+        }
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         let runtime_config = self.runtime_config_store.get_config(protocol_version);
-        let compiled_contract_cache: Option<Box<dyn ContractRuntimeCache>> =
-            Some(Box::new(self.compiled_contract_cache.handle()));
-        // Execute precompile_contract in parallel but prevent it from using more than half of all
-        // threads so that node will still function normally.
-        rayon::scope(|scope| {
-            let (slot_sender, slot_receiver) = std::sync::mpsc::channel();
-            // Use up-to half of the threads for the compilation.
-            let max_threads = std::cmp::max(rayon::current_num_threads() / 2, 1);
-            for _ in 0..max_threads {
-                slot_sender.send(()).expect("both sender and receiver are owned here");
-            }
-            for code in contract_codes {
-                slot_receiver.recv().expect("could not receive a slot to compile contract");
-                let contract_cache = compiled_contract_cache.as_deref();
-                let slot_sender = slot_sender.clone();
-                scope.spawn(move |_| {
-                    precompile_contract(
-                        &code,
-                        Arc::clone(&runtime_config.wasm_config),
-                        contract_cache,
-                    )
-                    .ok();
-                    // If this fails, it just means there won't be any more attempts to recv the
-                    // slots
-                    let _ = slot_sender.send(());
-                });
-            }
-        });
+        let (tx, rx) = std::sync::mpsc::channel();
+        for code in contract_codes {
+            let tx = tx.clone();
+            let config = Arc::clone(&runtime_config.wasm_config);
+            let cache = self.compiled_contract_cache.handle();
+            contract_compilation_pool().spawn_boxed(Box::new(move || {
+                precompile_contract(&code, config, Some(&*cache)).ok();
+                let _ = tx.send(());
+            }));
+        }
+        drop(tx);
+        while rx.recv().is_ok() {}
         Ok(())
     }
 }

@@ -10,14 +10,14 @@ use crate::lightclient::get_epoch_block_producers_view;
 use crate::missing_chunks::{MissingChunksPool, OptimisticBlockChunksPool};
 use crate::orphan::{Orphan, OrphanBlockPool};
 use crate::pending::PendingBlocksPool;
+use crate::pending_shard_jobs::PendingShardJobs;
 use crate::resharding::manager::ReshardingManager;
 use crate::resharding::types::ReshardingSender;
 use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use crate::signature_verification::{
     verify_block_header_signature_with_epoch_manager, verify_block_vrf,
-    verify_chunk_header_signature_with_epoch_manager,
+    verify_chunk_header_signature_by_hash,
 };
-use crate::soft_realtime_thread_pool::ApplyChunksSpawner;
 use crate::spice_core::SpiceCoreReader;
 use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::state_sync::ChainStateSyncAdapter;
@@ -45,9 +45,9 @@ use crate::{DoomslugThresholdMode, metrics};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use itertools::Itertools;
 use lru::LruCache;
-use near_async::futures::AsyncComputationSpawner;
-use near_async::futures::AsyncComputationSpawnerExt;
+use near_async::futures::{AsyncComputationSpawner, StdThreadAsyncComputationSpawner};
 use near_async::messaging::{IntoMultiSender, noop};
+use near_async::thread_pool::ApplyChunksSpawner;
 use near_async::time::{Clock, Duration, Instant};
 use near_chain_configs::{MutableValidatorSigner, ProtocolVersionCheckConfig};
 use near_chain_primitives::ApplyChunksMode;
@@ -97,7 +97,6 @@ use near_store::get_genesis_state_roots;
 use near_store::merkle_proof::MerkleProofAccess;
 use near_store::{DBCol, StateSnapshotConfig};
 use node_runtime::{PostState, PostStateReadyCallback, SignedValidPeriodTransactions};
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
@@ -242,15 +241,25 @@ impl ApplyChunksResultCache {
 }
 
 type BlockApplyChunksResult =
-    (BlockToApply, Vec<(ShardId, CachedShardUpdateKey, Result<ShardUpdateResult, Error>)>);
+    (BlockToApply, Vec<((ShardId, CachedShardUpdateKey), Result<ShardUpdateResult, Error>)>);
 
-/// Parallel or sequential applying of chunks for tracked shards.
-/// Default behavior uses Rayon, but can be configured to use sequential processing for testing.
-#[derive(Clone, Copy, Debug, Default)]
-pub enum ApplyChunksIterationMode {
+/// Async computation spawner to be used for background memtrie loading tasks.
+#[derive(Default)]
+pub enum MemtrieLoadingSpawner {
+    /// Use a dedicated OS thread per loading task (default).
     #[default]
-    Rayon,
-    Sequential,
+    Default,
+    /// Use a custom spawner, e.g. for deterministic test-loop execution.
+    Custom(Arc<dyn AsyncComputationSpawner>),
+}
+
+impl MemtrieLoadingSpawner {
+    pub fn into_spawner(self) -> Arc<dyn AsyncComputationSpawner> {
+        match self {
+            MemtrieLoadingSpawner::Default => Arc::new(StdThreadAsyncComputationSpawner),
+            MemtrieLoadingSpawner::Custom(spawner) => spawner,
+        }
+    }
 }
 
 /// Facade to the blockchain block processing and storage.
@@ -282,9 +291,9 @@ pub struct Chain {
     /// Used to receive apply chunks results
     apply_chunks_receiver: Receiver<BlockApplyChunksResult>,
     /// Used to spawn the apply chunks jobs.
-    apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
-    /// Used to decide whether to parallelize shard updates when applying chunks.
-    apply_chunks_iteration_mode: ApplyChunksIterationMode,
+    pub apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
+    /// Used to spawn background memtrie loading tasks.
+    memtrie_loading_spawner: Arc<dyn AsyncComputationSpawner>,
     pub apply_chunk_results_cache: ApplyChunksResultCache,
     /// Time when head was updated most recently.
     last_time_head_updated: Instant,
@@ -318,6 +327,8 @@ pub struct Chain {
     protocol_version_check: ProtocolVersionCheckConfig,
     /// Used to receive `PostStateReady` messages from the runtime.
     on_post_state_ready_sender: Option<PostStateReadySender>,
+    #[cfg(feature = "test_features")]
+    pub test_paused_blocks: crate::block_processing_utils::TestPausedBlocks,
 }
 
 impl Drop for Chain {
@@ -442,7 +453,7 @@ impl Chain {
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
             apply_chunks_spawner: ApplyChunksSpawner::default().into_spawner(thread_limit),
-            apply_chunks_iteration_mode: ApplyChunksIterationMode::default(),
+            memtrie_loading_spawner: MemtrieLoadingSpawner::default().into_spawner(),
             apply_chunk_results_cache: ApplyChunksResultCache::new(APPLY_CHUNK_RESULTS_CACHE_SIZE),
             last_time_head_updated: clock.now(),
             processed_hashes: LruCache::new(NonZeroUsize::new(PROCESSED_HASHES_POOL_SIZE).unwrap()),
@@ -454,6 +465,8 @@ impl Chain {
             spice_core_reader,
             protocol_version_check: Default::default(),
             on_post_state_ready_sender: None,
+            #[cfg(feature = "test_features")]
+            test_paused_blocks: Default::default(),
         })
     }
 
@@ -467,7 +480,7 @@ impl Chain {
         chain_config: ChainConfig,
         snapshot_callbacks: Option<SnapshotCallbacks>,
         apply_chunks_spawner: ApplyChunksSpawner,
-        apply_chunks_iteration_mode: ApplyChunksIterationMode,
+        memtrie_loading_spawner: MemtrieLoadingSpawner,
         validator_signer: MutableValidatorSigner,
         resharding_sender: ReshardingSender,
         on_post_state_ready_sender: Option<PostStateReadySender>,
@@ -554,12 +567,11 @@ impl Chain {
             .cloned()
             .collect();
 
-        let head_protocol_version = epoch_manager.get_epoch_protocol_version(&tip.epoch_id)?;
-        let shard_uids_pending_resharding = epoch_manager
-            .get_shard_uids_pending_resharding(head_protocol_version, PROTOCOL_VERSION)?;
+        let shard_uid_pending_resharding =
+            epoch_manager.get_resharding_parent_shard_uid(&tip.epoch_id, &tip.last_block_hash)?;
         runtime_adapter.get_tries().load_memtries_for_enabled_shards(
             &tracked_shards,
-            &shard_uids_pending_resharding,
+            shard_uid_pending_resharding.as_ref(),
             true,
         )?;
 
@@ -625,7 +637,7 @@ impl Chain {
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
             apply_chunks_spawner,
-            apply_chunks_iteration_mode,
+            memtrie_loading_spawner: memtrie_loading_spawner.into_spawner(),
             apply_chunk_results_cache: ApplyChunksResultCache::new(APPLY_CHUNK_RESULTS_CACHE_SIZE),
             last_time_head_updated: clock.now(),
             pending_state_patch: Default::default(),
@@ -635,6 +647,8 @@ impl Chain {
             spice_core_reader,
             protocol_version_check: chain_config.protocol_version_check,
             on_post_state_ready_sender,
+            #[cfg(feature = "test_features")]
+            test_paused_blocks: Default::default(),
         })
     }
 
@@ -790,12 +804,15 @@ impl Chain {
                     return Err(Error::InvalidShardId(chunk_header.shard_id()));
                 }
                 let parent_hash = block.header().prev_hash();
-                let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
-                if !verify_chunk_header_signature_with_epoch_manager(
-                    epoch_manager,
-                    &chunk_header,
-                    epoch_id,
-                )? {
+                if chunk_header.prev_block_hash() != parent_hash {
+                    return Err(Error::InvalidChunk(format!(
+                        "chunk prev_block_hash mismatch for shard {}: chunk has {:?}, block has {:?}",
+                        shard_id,
+                        chunk_header.prev_block_hash(),
+                        parent_hash,
+                    )));
+                }
+                if !verify_chunk_header_signature_by_hash(epoch_manager, &chunk_header)? {
                     byzantine_assert!(false);
                     return Err(Error::InvalidChunk(format!(
                         "Invalid chunk header signature for shard {}, chunk hash: {:?}",
@@ -1176,7 +1193,7 @@ impl Chain {
     /// `block_processing_artifacts`: Callers can pass an empty object or an existing BlockProcessingArtifact.
     ///              This function will add the effect from processing this block to there.
     /// `apply_chunks_done_sender`: An ApplyChunksDoneMessage message will be sent via this sender after apply_chunks is finished
-    ///              (so it also happens asynchronously in the rayon thread pool). Callers can
+    ///              (so it also happens asynchronously on the apply_chunks_spawner thread pool). Callers can
     ///              use this sender as a way to receive notifications when apply chunks are done
     ///              so it can call postprocess_ready_blocks.
     #[instrument(
@@ -1381,7 +1398,7 @@ impl Chain {
             },
         )?;
 
-        // 3) schedule apply chunks, which will be executed in the rayon thread pool.
+        // 3) schedule apply chunks, which will be executed on the apply_chunks_spawner thread pool.
         self.schedule_apply_chunks(
             BlockToApply::Optimistic(block_height),
             block_height,
@@ -1409,7 +1426,8 @@ impl Chain {
         while let Ok((block, apply_result)) = self.apply_chunks_receiver.try_recv() {
             match block {
                 BlockToApply::Normal(block_hash) => {
-                    let apply_result = apply_result.into_iter().map(|res| (res.0, res.2)).collect();
+                    let apply_result =
+                        apply_result.into_iter().map(|((shard_id, _), r)| (shard_id, r)).collect();
                     match self.postprocess_ready_block(
                         block_hash,
                         apply_result,
@@ -1499,6 +1517,11 @@ impl Chain {
                 *header.random_value(),
             )?;
             chain_store_update.merge(epoch_manager_update.into());
+            chain_store_update.save_chunk_producers_for_header(
+                self.epoch_manager.as_ref(),
+                header,
+                current_protocol_version,
+            )?;
             chain_store_update.commit()?;
         }
 
@@ -1732,7 +1755,7 @@ impl Chain {
         let block_height = block.header().height();
         self.blocks_in_processing.add(block, block_preprocess_info)?;
 
-        // 3) schedule apply chunks, which will be executed in the rayon thread pool.
+        // 3) schedule apply chunks, which will be executed on the apply_chunks_spawner thread pool.
         self.schedule_apply_chunks(
             BlockToApply::Normal(block_hash),
             block_height,
@@ -1744,9 +1767,9 @@ impl Chain {
         Ok(())
     }
 
-    /// Applying chunks async by starting the work at the rayon thread pool
-    /// `apply_chunks_done_tracker`: notifies the threads that wait for applying chunks is finished
-    /// `apply_chunks_done_sender`: a sender to send a ApplyChunksDoneMessage message once applying chunks is finished
+    /// Schedule chunk application by spawning each shard job on the
+    /// `apply_chunks_spawner`. The last shard to complete sends the aggregated
+    /// results back on `apply_chunks_sender`.
     fn schedule_apply_chunks(
         &self,
         block: BlockToApply,
@@ -1755,24 +1778,49 @@ impl Chain {
         apply_chunks_still_applying: ApplyChunksStillApplying,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) {
+        // Track all children using `parent_span`, as they may be processed in parallel.
+        let parent_span = Span::current();
+        #[cfg(feature = "test_features")]
+        let test_pause_gate = match &block {
+            BlockToApply::Normal(hash) => self.test_paused_blocks.get_gate(hash),
+            _ => None,
+        };
         let sc = self.apply_chunks_sender.clone();
         let clock = self.clock.clone();
-        let iteration_mode = self.apply_chunks_iteration_mode;
-        self.apply_chunks_spawner.spawn("apply_chunks", move || {
-            let apply_all_chunks_start_time = clock.now();
-            // do_apply_chunks runs `work` in parallel, but still waits for all of them to finish
-            let res = do_apply_chunks(iteration_mode, block.clone(), block_height, work);
-            // If we encounter an error here, that means the receiver is deallocated and the client
-            // thread is already shut down. The node is already crashed, so we can unwrap here
-            metrics::APPLY_ALL_CHUNKS_TIME.with_label_values(&[block.as_ref()]).observe(
-                (clock.now().signed_duration_since(apply_all_chunks_start_time)).as_seconds_f64(),
-            );
-            sc.send((block, res)).unwrap();
+        let start_time = clock.now();
+        let on_done = move |results| {
+            #[cfg(feature = "test_features")]
+            if let Some(gate) = test_pause_gate {
+                gate.wait();
+            }
+            metrics::APPLY_ALL_CHUNKS_TIME
+                .with_label_values(&[block.as_ref()])
+                .observe((clock.now().signed_duration_since(start_time)).as_seconds_f64());
+            sc.send((block, results)).unwrap();
             drop(apply_chunks_still_applying);
             if let Some(sender) = apply_chunks_done_sender {
                 sender.send(ApplyChunksDoneMessage {}.span_wrap());
             }
-        });
+        };
+        let jobs = work
+            .into_iter()
+            .map(|(shard_id, cached_shard_update_key, task)| {
+                let parent_span = parent_span.clone();
+                let boxed: Box<dyn FnOnce() -> _ + Send> = Box::new(move || {
+                    let span = tracing::debug_span!(
+                        target: "chain",
+                        parent: &parent_span,
+                        "apply_chunk",
+                        %block_height,
+                        %shard_id,
+                    );
+                    let _guard = span.enter();
+                    task(&span)
+                });
+                ((shard_id, cached_shard_update_key), boxed)
+            })
+            .collect();
+        PendingShardJobs::run("apply_chunks", self.apply_chunks_spawner.clone(), jobs, on_done);
     }
 
     #[instrument(level = "debug", target = "chain", skip_all)]
@@ -1834,8 +1882,6 @@ impl Chain {
         let is_caught_up = block_preprocess_info.is_caught_up;
         let provenance = block_preprocess_info.provenance.clone();
         let block_start_processing_time = block_preprocess_info.block_start_processing_time;
-        // TODO(#8055): this zip relies on the ordering of the apply_results.
-        // TODO(wacban): do the above todo
         for (shard_id, apply_result) in &apply_results {
             let shard_index = shard_layout.get_shard_index(*shard_id)?;
             if let Err(err) = apply_result {
@@ -1859,6 +1905,10 @@ impl Chain {
         };
 
         self.update_optimistic_blocks_pool(&block)?;
+
+        // Try to finalize any completed background memtrie loads, so they are used in the
+        // subsequent block processing.
+        self.runtime_adapter.get_tries().try_finalize_background_memtrie_loading();
 
         let epoch_id = block.header().epoch_id();
         let mut shards_cares_this_or_next_epoch = vec![];
@@ -1904,6 +1954,7 @@ impl Chain {
         }
 
         if self.epoch_manager.is_next_block_epoch_start(block.header().prev_hash())? {
+            self.maybe_start_memtrie_preload_for_resharding(&block)?;
             // Keep in memory only these tries that we care about this or next epoch.
             self.runtime_adapter.get_tries().retain_memtries(&shards_cares_this_or_next_epoch);
         }
@@ -1985,7 +2036,7 @@ impl Chain {
     fn postprocess_optimistic_block(
         &mut self,
         block_height: BlockHeight,
-        apply_result: Vec<(ShardId, CachedShardUpdateKey, Result<ShardUpdateResult, Error>)>,
+        apply_result: Vec<((ShardId, CachedShardUpdateKey), Result<ShardUpdateResult, Error>)>,
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) {
@@ -1999,7 +2050,7 @@ impl Chain {
 
         let prev_block_hash = optimistic_block.prev_block_hash();
         let block_height = optimistic_block.height();
-        for (shard_id, cached_shard_update_key, apply_result) in apply_result {
+        for ((shard_id, cached_shard_update_key), apply_result) in apply_result {
             match apply_result {
                 Ok(result) => {
                     tracing::debug!(
@@ -2130,6 +2181,41 @@ impl Chain {
             return Ok(None);
         }
         Ok(Some(new_flat_head))
+    }
+
+    /// If a resharding is upcoming (current epoch's shard layout differs from
+    /// the next epoch), start loading the parent shard's memtrie in a background
+    /// thread so it's ready by the time resharding executes.
+    fn maybe_start_memtrie_preload_for_resharding(&self, block: &Block) -> Result<(), Error> {
+        let Some(parent_shard_uid) = self
+            .epoch_manager
+            .get_resharding_parent_shard_uid(block.header().epoch_id(), block.hash())?
+        else {
+            return Ok(());
+        };
+
+        if !self.shard_tracker.cares_about_shard_this_or_next_epoch(
+            block.header().prev_hash(),
+            parent_shard_uid.shard_id(),
+        ) {
+            return Ok(());
+        }
+
+        let tries = self.runtime_adapter.get_tries();
+        if tries.get_memtries(parent_shard_uid).is_some() {
+            return Ok(());
+        }
+
+        tracing::info!(
+            target: "memtrie",
+            ?parent_shard_uid,
+            "detected upcoming resharding, starting background memtrie load"
+        );
+        tries.spawn_background_memtrie_loading_for_shard(
+            parent_shard_uid,
+            &*self.memtrie_loading_spawner,
+        );
+        Ok(())
     }
 
     /// Update flat storage and memtrie for given `shard_id` and newly
@@ -3961,28 +4047,18 @@ impl Chain {
     skip_all,
     fields(%block_height, ?block)
 )]
-pub fn do_apply_chunks(
-    iteration_mode: ApplyChunksIterationMode,
+/// Apply chunks sequentially on the current thread.
+pub fn do_apply_chunks_sequential(
     block: BlockToApply,
     block_height: BlockHeight,
     work: Vec<UpdateShardJob>,
 ) -> Vec<(ShardId, CachedShardUpdateKey, Result<ShardUpdateResult, Error>)> {
-    // Track all children using `parent_span`, as they may be processed in parallel.
     let parent_span = Span::current();
-    match iteration_mode {
-        ApplyChunksIterationMode::Sequential => work
-            .into_iter()
-            .map(|(shard_id, cached_shard_update_key, task)| {
-                (shard_id, cached_shard_update_key, task(&parent_span))
-            })
-            .collect(),
-        ApplyChunksIterationMode::Rayon => work
-            .into_par_iter()
-            .map(|(shard_id, cached_shard_update_key, task)| {
-                (shard_id, cached_shard_update_key, task(&parent_span))
-            })
-            .collect(),
-    }
+    work.into_iter()
+        .map(|(shard_id, cached_shard_update_key, task)| {
+            (shard_id, cached_shard_update_key, task(&parent_span))
+        })
+        .collect()
 }
 
 pub fn collect_receipts<'a, T>(receipt_proofs: T) -> Vec<Receipt>

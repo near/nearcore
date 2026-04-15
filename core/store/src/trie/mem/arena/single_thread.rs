@@ -57,6 +57,7 @@ impl STArena {
                 name,
                 active_allocs_bytes,
                 active_allocs_count,
+                0,
             ),
         };
         arena.allocator.update_memory_usage_gauge(&arena.memory);

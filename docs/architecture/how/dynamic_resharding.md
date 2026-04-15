@@ -212,7 +212,35 @@ When the network first enables dynamic resharding (transitioning from static to 
 
 ---
 
-## 6. Uncompleted TODOs
+## 6. Memtrie Pre-loading for Dynamic Resharding
+
+The parent shard's memtrie must be loaded when resharding executes (checked at `chain/chain/src/resharding/manager.rs`). Loading takes ~30 seconds, but we have an entire epoch (~12 hours on mainnet) between when the decision is known and when resharding executes. The pre-loading mechanism handles this with background loading:
+
+### Timeline
+
+- **Epoch N, last block**: `shard_split` embedded in block header.
+- **Epoch N -> N+1 boundary**: `finalize_epoch()` creates EpochInfo for epoch N+2 with new shard layout. At this point, `postprocess_ready_block()` in `chain/chain/src/chain.rs` detects the layout change via `maybe_start_memtrie_preload_for_resharding()` and starts a background thread to load the parent shard's memtrie from flat storage.
+- **Epoch N+1, early blocks**: The background thread completes loading (typically ~30s). On the next call to `finalize_background_memtrie_loading()` (which runs in `postprocess_ready_block()` on every block), the loaded memtrie is received from the background thread, delta catch-up is applied to bring it up to date, and it's inserted into the active memtries map.
+
+### Key implementation details
+
+- **Background task**: Uses `AsyncComputationSpawner` + `crossbeam::channel::bounded(1)` to run the load as a background task. In production this runs on a separate thread; in test-loop tests it runs deterministically via `TestLoopAsyncComputationSpawner`. The spawner is passed to `spawn_background_memtrie_loading_for_shard()` by the caller (`Chain`).
+- **Flat head pausing**: Before spawning the background task, `spawn_background_memtrie_loading_for_shard()` places a hold on the shard's `FlatStorage` flat head (via `hold_flat_head()`). While held, new deltas are still accumulated but the flat head does not advance and deltas are not GC'd. This preserves the deltas needed for catch-up after the background load completes. The hold is released when loading succeeds, fails, or is cancelled. Multiple subsystems (state snapshots, background memtrie loading, resharding) can independently hold the flat head; it only advances once all holds are released.
+- **Delta catch-up**: After the background load completes, `apply_deltas_to_memtries()` in `core/store/src/trie/mem/loading.rs` applies any flat state deltas accumulated during the loading period. Deltas at or below the base height (flat_head at load start) are skipped, as are deltas whose state roots are already in the memtrie.
+- **Safe insertion**: The memtrie is inserted into the active map in `postprocess_ready_block()`, before chunk processing for that block begins. This ensures no in-flight chunk applications see an unexpected memtrie appear mid-processing.
+- **Startup fallback**: If the node restarts during epoch N+1 (after the decision but before execution), `Chain::new()` detects the pending resharding via `EpochManagerAdapter::get_resharding_parent_shard_uid()` (which compares current and next epoch shard layouts) and adds the parent shard for synchronous loading.
+- **Cancellation**: Pending loads for shards that are no longer tracked are cancelled via `retain_memtries()` when memtries are retained at epoch boundaries. Flat head updates are re-enabled for cancelled shards.
+
+### Key files
+
+- `core/store/src/flat/storage.rs` -- `hold_flat_head()` / `release_flat_head_hold()` used to pause/resume flat head updates during loading
+- `core/store/src/trie/mem/loading.rs` -- `apply_deltas_to_memtries()` for reusable delta catch-up (with `base_height` filtering)
+- `core/store/src/trie/shard_tries.rs` -- `spawn_background_memtrie_loading_for_shard()`, `try_finalize_background_memtrie_loading()`, `retain_memtries()` (cancellation)
+- `chain/chain/src/chain.rs` -- `maybe_start_memtrie_preload_for_resharding()` (epoch boundary trigger), `postprocess_ready_block()` (per-block finalization), `Chain::new()` (startup detection)
+
+---
+
+## 7. Uncompleted TODOs
 
 ### Dynamic Resharding Specific
 
@@ -220,28 +248,30 @@ When the network first enables dynamic resharding (transitioning from static to 
 
 2. **`chain/epoch-manager/src/adapter.rs:736`** -- `get_shard_uids_pending_resharding()` returns empty for dynamic resharding. Dynamic trie loading needs to be implemented.
 
-3. **`chain/epoch-manager/src/test_utils.rs:439`** -- Test utilities still create `BlockInfoV3` instead of `BlockInfoV4`.
+3. ~~**`chain/epoch-manager/src/adapter.rs`** -- `get_shard_uids_pending_resharding()` returns empty for dynamic resharding.~~ Resolved: removed. Memtrie pre-loading now uses `EpochManagerAdapter::get_resharding_parent_shard_uid()` to compare current vs next epoch shard layouts at epoch boundaries, startup, and state sync (see section 6).
 
-4. **`core/store/src/config.rs:217`** -- Cache size computation for dynamic resharding protocol versions is currently skipped.
+4. **`chain/epoch-manager/src/test_utils.rs:439`** -- Test utilities still create `BlockInfoV3` instead of `BlockInfoV4`.
 
-5. **`tools/fork-network/src/cli.rs:353,707`** -- Fork network tool does not support dynamic resharding yet.
+5. **`core/store/src/config.rs:217`** -- Cache size computation for dynamic resharding protocol versions is currently skipped.
 
-6. **`tools/database/src/memtrie.rs:399`** -- CLI tool for finding boundary accounts needs updating for dynamic resharding.
+6. **`tools/fork-network/src/cli.rs:353,707`** -- Fork network tool does not support dynamic resharding yet.
+
+7. **`tools/database/src/memtrie.rs:399`** -- CLI tool for finding boundary accounts needs updating for dynamic resharding.
 
 ### General Resharding TODOs (May Affect Dynamic Resharding)
 
-7. **`chain/epoch-manager/src/shard_assignment.rs:198`** -- Shard assignment for validators after resharding is not yet implemented.
+8. **`chain/epoch-manager/src/shard_assignment.rs:198`** -- Shard assignment for validators after resharding is not yet implemented.
 
-8. **`chain/client/src/stateless_validation/shadow_validate.rs:22`** -- Shadow validation breaks across resharding boundaries.
+9. **`chain/client/src/stateless_validation/shadow_validate.rs:22`** -- Shadow validation breaks across resharding boundaries.
 
-9. **`chain/chain/src/stateless_validation/state_witness.rs:260`** -- `get_incoming_receipts_for_shard` generates invalid proofs on resharding boundaries.
+10. **`chain/chain/src/stateless_validation/state_witness.rs:260`** -- `get_incoming_receipts_for_shard` generates invalid proofs on resharding boundaries.
 
-10. **`chain/chain/src/resharding/manager.rs:249`** -- The resharding manager doesn't set all `ChunkExtra` fields (notably the new `proposed_split` field).
+11. **`chain/chain/src/resharding/manager.rs:249`** -- The resharding manager doesn't set all `ChunkExtra` fields (notably the new `proposed_split` field).
 
-11. **`runtime/runtime/src/congestion_control.rs:336`** -- Parent shard's outgoing buffer cleanup after resharding.
+12. **`runtime/runtime/src/congestion_control.rs:336`** -- Parent shard's outgoing buffer cleanup after resharding.
 
-12. **`nightly/pytest-sanity.txt:274`** -- Integration between resharding and other features (stateless validation, state sync, congestion control) is incomplete.
+13. **`nightly/pytest-sanity.txt:274`** -- Integration between resharding and other features (stateless validation, state sync, congestion control) is incomplete.
 
 ### Spice-Resharding Integration
 
-13. Multiple TODOs in `chunk_executor_actor.rs`, `spice_data_distributor_actor.rs`, `spice_chunk_validation.rs`, and `spice_chunk_application.rs` indicate that the Spice feature does not yet handle resharding transitions properly.
+14. Multiple TODOs in `chunk_executor_actor.rs`, `spice_data_distributor_actor.rs`, `spice_chunk_validation.rs`, and `spice_chunk_application.rs` indicate that the Spice feature does not yet handle resharding transitions properly.

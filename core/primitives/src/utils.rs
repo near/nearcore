@@ -1,7 +1,7 @@
 #[cfg(feature = "clock")]
 use crate::block::BlockHeader;
 use crate::hash::{CryptoHash, hash};
-use crate::types::{ChunkExecutionResultHash, NumSeats, NumShards, ShardId};
+use crate::types::{ChunkExecutionResultHash, ShardId};
 use chrono;
 use chrono::DateTime;
 use near_crypto::{ED25519PublicKey, Secp256K1PublicKey};
@@ -9,7 +9,6 @@ use near_primitives_core::account::id::{AccountId, AccountType};
 use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives_core::types::BlockHeight;
 use serde;
-use std::cmp::max;
 use std::convert::AsRef;
 use std::fmt;
 use std::mem::size_of;
@@ -407,22 +406,6 @@ pub fn to_timestamp(time: DateTime<chrono::Utc>) -> u64 {
     time.timestamp_nanos_opt().unwrap() as u64
 }
 
-/// Compute number of seats per shard for given total number of seats and number of shards.
-pub fn get_num_seats_per_shard(num_shards: NumShards, num_seats: NumSeats) -> Vec<NumSeats> {
-    (0..num_shards)
-        .map(|shard_id| {
-            let remainder =
-                num_seats.checked_rem(num_shards).expect("num_shards ≠ 0 is guaranteed here");
-            let quotient =
-                num_seats.checked_div(num_shards).expect("num_shards ≠ 0 is guaranteed here");
-            let num = quotient
-                .checked_add(if shard_id < remainder { 1 } else { 0 })
-                .expect("overflow is impossible here");
-            max(num, 1)
-        })
-        .collect()
-}
-
 /// Generate random string of given length
 #[cfg(feature = "rand")]
 pub fn generate_random_string(len: usize) -> String {
@@ -574,16 +557,6 @@ mod tests {
         assert!(!account_is_implicit(&deterministic, true, false));
         assert!(account_is_implicit(&deterministic, false, true));
         assert!(account_is_implicit(&deterministic, true, true));
-    }
-
-    #[test]
-    fn test_num_chunk_producers() {
-        for num_seats in 1..50 {
-            for num_shards in 1..50 {
-                let assignment = get_num_seats_per_shard(num_shards, num_seats);
-                assert_eq!(assignment.iter().sum::<u64>(), max(num_seats, num_shards));
-            }
-        }
     }
 
     #[test]
