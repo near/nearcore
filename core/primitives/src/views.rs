@@ -2702,6 +2702,17 @@ pub enum StateChangeKindView {
     ContractCodeTouched { account_id: AccountId },
 }
 
+impl StateChangeKindView {
+    pub fn account_id(&self) -> &AccountId {
+        match self {
+            Self::AccountTouched { account_id }
+            | Self::AccessKeyTouched { account_id }
+            | Self::DataTouched { account_id }
+            | Self::ContractCodeTouched { account_id } => account_id,
+        }
+    }
+}
+
 impl From<StateChangeKind> for StateChangeKindView {
     fn from(state_change_kind: StateChangeKind) -> Self {
         match state_change_kind {
@@ -2822,6 +2833,22 @@ pub enum StateChangeValueView {
     ContractCodeDeletion {
         account_id: AccountId,
     },
+}
+
+impl StateChangeValueView {
+    pub fn account_id(&self) -> &AccountId {
+        match self {
+            Self::AccountUpdate { account_id, .. }
+            | Self::AccountDeletion { account_id }
+            | Self::AccessKeyUpdate { account_id, .. }
+            | Self::AccessKeyDeletion { account_id, .. }
+            | Self::GasKeyNonceUpdate { account_id, .. }
+            | Self::DataUpdate { account_id, .. }
+            | Self::DataDeletion { account_id, .. }
+            | Self::ContractCodeUpdate { account_id, .. }
+            | Self::ContractCodeDeletion { account_id } => account_id,
+        }
+    }
 }
 
 impl From<StateChangeValue> for StateChangeValueView {

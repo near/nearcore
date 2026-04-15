@@ -2,6 +2,10 @@ use crate::utils::sharded_rpc::{TwoShardHarness, assert_rpc_error};
 use near_async::time::Duration;
 use near_jsonrpc::client::ChunkId;
 use near_jsonrpc_primitives::message::Message;
+use near_jsonrpc_primitives::types::changes::{
+    RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockByTypeResponse,
+    RpcStateChangesInBlockRequest, RpcStateChangesInBlockResponse,
+};
 use near_jsonrpc_primitives::types::chunks::{ChunkReference, RpcChunkRequest};
 use near_jsonrpc_primitives::types::query::RpcQueryRequest;
 use near_jsonrpc_primitives::types::receipts::{ReceiptReference, RpcReceiptRequest};
@@ -9,7 +13,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockId, BlockReference, Finality};
-use near_primitives::views::QueryRequest;
+use near_primitives::views::{QueryRequest, StateChangesRequestView};
 use near_store::ShardUId;
 
 /// A cross-shard query for a nonexistent account must return UNKNOWN_ACCOUNT,
@@ -227,5 +231,237 @@ fn test_rpc_parallel_take_first_partial_failure() {
             )
             .unwrap_or_else(|e| panic!("receipt query from {node_id} failed: {e:?}"));
         assert_eq!(result.receipt_view.receipt_id, receipt_id);
+    }
+}
+
+/// Coordinator-flagged `block_effects` requests must be processed locally
+/// (no scatter-gather), so a node that doesn't track a shard returns only
+/// its local changes — not changes from other shards. This prevents
+/// forwarding loops in the scatter-gather protocol.
+#[test]
+fn test_rpc_block_effects_coordinator_bypass() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+
+    let alice = h.alice.clone();
+    let zoe = h.zoe.clone();
+    let validator = h.validator.clone();
+    let tx = h.env.node_for_account(&validator).tx_send_money(&alice, &zoe, Balance::from_near(1));
+    let tx_hash = tx.get_hash();
+    h.env.node_for_account(&validator).submit_tx(tx);
+
+    let target_height = h.env.node_for_account(&validator).head().height + 10;
+    h.env.runner_for_account(&validator).run_until_executed_height(target_height);
+
+    let outcome =
+        h.env.node_for_account(&validator).client().chain.get_execution_outcome(&tx_hash).unwrap();
+    let block_hash = outcome.block_hash;
+
+    let zoe_node = h.zoe_node.clone();
+
+    // Baseline: a normal request from zoe_node gets changes for both shards
+    // via scatter-gather.
+    let result = h
+        .env
+        .runner_for_account(&zoe_node)
+        .run_with_jsonrpc_client(
+            |client| {
+                client.block_effects(RpcStateChangesInBlockRequest {
+                    block_reference: BlockReference::BlockId(BlockId::Hash(block_hash)),
+                })
+            },
+            Duration::seconds(5),
+        )
+        .unwrap();
+    let normal_accounts: Vec<_> = result.changes.iter().map(|c| c.account_id().clone()).collect();
+    assert!(
+        normal_accounts.iter().any(|a| a == &alice),
+        "baseline: scatter-gather should include alice's changes, got: {normal_accounts:?}",
+    );
+
+    // Coordinator-flagged request from zoe_node: processed locally, no scatter-gather.
+    // Zoe's node only tracks zoe's shard, so alice's changes should be missing.
+    let request = Message::request(
+        "block_effects".to_string(),
+        serde_json::to_value(RpcStateChangesInBlockRequest {
+            block_reference: BlockReference::BlockId(BlockId::Hash(block_hash)),
+        })
+        .unwrap(),
+    );
+    let response = h
+        .env
+        .runner_for_account(&zoe_node)
+        .run_with_jsonrpc_client(
+            |client| client.transport.send_jsonrpc_request(request, true),
+            Duration::seconds(5),
+        )
+        .unwrap();
+
+    match response {
+        Message::Response(resp) => {
+            let value = resp.result.expect("coordinator request should succeed with local data");
+            let parsed: RpcStateChangesInBlockByTypeResponse =
+                serde_json::from_value(value).expect("failed to parse response");
+            let coord_accounts: Vec<_> =
+                parsed.changes.iter().map(|c| c.account_id().clone()).collect();
+            assert!(
+                !coord_accounts.contains(&alice),
+                "coordinator bypass: should NOT include alice's changes (wrong shard), got: {coord_accounts:?}",
+            );
+        }
+        other => panic!("expected Response, got: {other:?}"),
+    }
+}
+
+/// Coordinator-flagged `changes` requests must be processed locally,
+/// returning only local data. This mirrors test_rpc_block_effects_coordinator_bypass
+/// for the filtered changes method.
+#[test]
+fn test_rpc_changes_coordinator_bypass() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+
+    let alice = h.alice.clone();
+    let zoe = h.zoe.clone();
+    let validator = h.validator.clone();
+    let tx = h.env.node_for_account(&validator).tx_send_money(&alice, &zoe, Balance::from_near(1));
+    let tx_hash = tx.get_hash();
+    h.env.node_for_account(&validator).submit_tx(tx);
+
+    let target_height = h.env.node_for_account(&validator).head().height + 10;
+    h.env.runner_for_account(&validator).run_until_executed_height(target_height);
+
+    let outcome =
+        h.env.node_for_account(&validator).client().chain.get_execution_outcome(&tx_hash).unwrap();
+    let block_hash = outcome.block_hash;
+
+    let zoe_node = h.zoe_node.clone();
+
+    // Baseline: normal request from zoe_node for alice's changes succeeds via scatter-gather.
+    let params = serde_json::to_value(RpcStateChangesInBlockByTypeRequest {
+        block_reference: BlockReference::BlockId(BlockId::Hash(block_hash)),
+        state_changes_request: StateChangesRequestView::AccountChanges {
+            account_ids: vec![alice.clone()],
+        },
+    })
+    .unwrap();
+    let response = h
+        .env
+        .runner_for_account(&zoe_node)
+        .run_with_jsonrpc_client(
+            |client| {
+                client.transport.send_jsonrpc_request(
+                    Message::request("changes".to_string(), params.clone()),
+                    false,
+                )
+            },
+            Duration::seconds(5),
+        )
+        .unwrap();
+    match &response {
+        Message::Response(resp) => {
+            let value = resp.result.as_ref().expect("baseline should succeed");
+            let parsed: RpcStateChangesInBlockResponse =
+                serde_json::from_value(value.clone()).expect("failed to parse");
+            let accounts: Vec<_> =
+                parsed.changes.iter().map(|c| c.value.account_id().clone()).collect();
+            assert!(
+                accounts.contains(&alice),
+                "baseline: scatter-gather should include alice's changes, got: {accounts:?}",
+            );
+        }
+        other => panic!("expected Response, got: {other:?}"),
+    }
+
+    // Coordinator-flagged: zoe_node processes locally, can't see alice's shard.
+    let coord_response = h
+        .env
+        .runner_for_account(&zoe_node)
+        .run_with_jsonrpc_client(
+            |client| {
+                client.transport.send_jsonrpc_request(
+                    Message::request("changes".to_string(), params.clone()),
+                    true,
+                )
+            },
+            Duration::seconds(5),
+        )
+        .unwrap();
+    match coord_response {
+        Message::Response(resp) => {
+            let value = resp.result.expect("coordinator request should succeed with local data");
+            let parsed: RpcStateChangesInBlockResponse =
+                serde_json::from_value(value).expect("failed to parse");
+            let coord_accounts: Vec<_> =
+                parsed.changes.iter().map(|c| c.value.account_id().clone()).collect();
+            assert!(
+                !coord_accounts.contains(&alice),
+                "coordinator bypass: should NOT include alice's changes (wrong shard), got: {coord_accounts:?}",
+            );
+        }
+        other => panic!("expected Response, got: {other:?}"),
+    }
+}
+
+/// A `block_effects` request with a bogus block hash must return UNKNOWN_BLOCK,
+/// not a timeout or internal error. The scatter-gather coordinator resolves the
+/// block before fanning out, so a bad hash fails immediately.
+#[test]
+fn test_rpc_block_effects_bogus_block_hash() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+
+    let bogus_hash = CryptoHash::hash_bytes(b"bogus block hash");
+    let alice_node = h.alice_node.clone();
+
+    let err = h
+        .env
+        .runner_for_account(&alice_node)
+        .run_with_jsonrpc_client(
+            |client| {
+                client.block_effects(RpcStateChangesInBlockRequest {
+                    block_reference: BlockReference::BlockId(BlockId::Hash(bogus_hash)),
+                })
+            },
+            Duration::seconds(5),
+        )
+        .unwrap_err();
+    assert_rpc_error(&err, "UNKNOWN_BLOCK");
+}
+
+/// A `changes` request with a bogus block hash must return UNKNOWN_BLOCK.
+#[test]
+fn test_rpc_changes_bogus_block_hash() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+
+    let bogus_hash = CryptoHash::hash_bytes(b"bogus block hash");
+    let alice_node = h.alice_node.clone();
+    let alice = h.alice.clone();
+
+    let params = serde_json::to_value(RpcStateChangesInBlockByTypeRequest {
+        block_reference: BlockReference::BlockId(BlockId::Hash(bogus_hash)),
+        state_changes_request: StateChangesRequestView::AccountChanges { account_ids: vec![alice] },
+    })
+    .unwrap();
+    let response = h
+        .env
+        .runner_for_account(&alice_node)
+        .run_with_jsonrpc_client(
+            |client| {
+                client.transport.send_jsonrpc_request(
+                    Message::request("changes".to_string(), params.clone()),
+                    false,
+                )
+            },
+            Duration::seconds(5),
+        )
+        .unwrap();
+    match response {
+        Message::Response(resp) => {
+            let err = resp.result.expect_err("bogus block hash should fail");
+            assert_rpc_error(&err, "UNKNOWN_BLOCK");
+        }
+        other => panic!("expected Response, got: {other:?}"),
     }
 }
