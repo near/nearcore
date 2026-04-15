@@ -434,6 +434,9 @@ impl WasmtimeVM {
                 .native_unwind_info(false)
                 .wasm_backtrace(false)
                 .wasm_backtrace_details(WasmBacktraceDetails::Disable)
+                // Disable native -> wasm code address mappings to reduce the generated code size.
+                // This saves around 40% of total size for contracts on mainnet.
+                .generate_address_map(false)
                 // Enable copy-on-write heap images.
                 .memory_init_cow(true)
                 // Wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
@@ -466,7 +469,7 @@ impl WasmtimeVM {
     pub(crate) fn vm_hash(&self) -> u64 {
         // increment the `version` when making modifications that affect the
         // artifact compatibility.
-        let version = 70;
+        let version = 71;
 
         let mut hasher = std::hash::DefaultHasher::new();
         self.engine.precompile_compatibility_hash().hash(&mut hasher);
