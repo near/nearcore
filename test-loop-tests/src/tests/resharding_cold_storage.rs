@@ -1,6 +1,7 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{create_validators_spec, validators_spec_clients};
 use crate::utils::setups::derive_new_epoch_config_from_boundary;
+use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_o11y::testonly::init_test_logger;
@@ -9,12 +10,11 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::archive::cold_storage::join_two_keys;
 use near_store::db::Database;
 use near_store::{DBCol, ShardUId, TrieChanges};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 const EPOCH_LENGTH: u64 = 6;
@@ -81,64 +81,58 @@ fn test_resharding_trie_nodes_copied_to_cold_store() {
         .build();
 
     // --- 3. Wait for resharding to complete ---
-    let archival_handle = env.node_datas.last().unwrap().client_sender.actor_handle();
-    let epoch_manager = env.test_loop.data.get(&archival_handle).client.epoch_manager.clone();
-
-    env.test_loop.run_until(
-        |test_loop_data| {
-            let head = &test_loop_data.get(&archival_handle).client.chain.head().unwrap();
-            epoch_manager.get_shard_layout(&head.epoch_id).unwrap() == new_shard_layout
+    env.archival_runner().run_until(
+        |node| {
+            let epoch_id = node.head().epoch_id;
+            node.client().epoch_manager.get_shard_layout(&epoch_id).unwrap() == new_shard_layout
         },
         Duration::seconds((4 * EPOCH_LENGTH) as i64),
     );
 
     // --- 4. Find resharding block and capture TrieChanges BEFORE GC cleans them up ---
-    let client = &env.test_loop.data.get(&archival_handle).client;
-    let head = client.chain.head().unwrap();
+    let (all_insertions, post_resharding_height) = {
+        let node = env.archival_node();
+        let client = node.client();
+        let epoch_manager = &client.epoch_manager;
+        let head = client.chain.head().unwrap();
 
-    let mut block_hash = head.last_block_hash;
-    let resharding_block_hash = loop {
-        let header = client.chain.get_block_header(&block_hash).unwrap();
-        let shard_layout = epoch_manager.get_shard_layout(header.epoch_id()).unwrap();
-        if shard_layout == base_shard_layout {
-            break *header.hash();
+        let mut block_hash = head.last_block_hash;
+        let resharding_block_hash = loop {
+            let header = client.chain.get_block_header(&block_hash).unwrap();
+            let shard_layout = epoch_manager.get_shard_layout(header.epoch_id()).unwrap();
+            if shard_layout == base_shard_layout {
+                break *header.hash();
+            }
+            block_hash = *header.prev_hash();
+        };
+
+        let old_shard_uids: HashSet<ShardUId> = base_shard_layout.shard_uids().collect();
+        let child_shard_uids =
+            new_shard_layout.shard_uids().filter(|uid| !old_shard_uids.contains(uid)).collect_vec();
+        assert!(!child_shard_uids.is_empty());
+
+        // Read TrieChanges now, before GC removes them from hot store.
+        let hot_store = node.store();
+        let mut all_insertions: Vec<(ShardUId, CryptoHash)> = vec![];
+        for child_shard_uid in &child_shard_uids {
+            let key = get_block_shard_uid(&resharding_block_hash, child_shard_uid);
+            let trie_changes: TrieChanges = hot_store.get_ser(DBCol::TrieChanges, &key).unwrap();
+            assert!(trie_changes.deletions().is_empty());
+            for op in trie_changes.insertions() {
+                all_insertions.push((*child_shard_uid, *op.hash()));
+            }
         }
-        block_hash = *header.prev_hash();
+        assert!(!all_insertions.is_empty());
+        (all_insertions, head.height)
     };
 
-    let old_shard_uids: std::collections::HashSet<ShardUId> =
-        base_shard_layout.shard_uids().collect();
-    let child_shard_uids: Vec<ShardUId> =
-        new_shard_layout.shard_uids().filter(|uid| !old_shard_uids.contains(uid)).collect();
-    assert!(!child_shard_uids.is_empty());
-
-    // Read TrieChanges now, before GC removes them from hot store.
-    let hot_store = client.chain.chain_store.store().store();
-    let mut all_insertions: Vec<(ShardUId, CryptoHash)> = vec![];
-    for child_shard_uid in &child_shard_uids {
-        let key = get_block_shard_uid(&resharding_block_hash, child_shard_uid);
-        let trie_changes: Option<TrieChanges> = hot_store.get_ser(DBCol::TrieChanges, &key);
-        let trie_changes = trie_changes.unwrap();
-        assert!(trie_changes.deletions().is_empty(),);
-        for op in trie_changes.insertions() {
-            all_insertions.push((*child_shard_uid, *op.hash()));
-        }
-    }
-    assert!(!all_insertions.is_empty());
-
     // --- 5. Wait for cold store loop to process past the resharding boundary ---
-    let post_resharding_height = head.height;
     let target_height = post_resharding_height + EPOCH_LENGTH * (GC_NUM_EPOCHS_TO_KEEP + 2);
-    env.test_loop.run_until(
-        |test_loop_data| {
-            let head = &test_loop_data.get(&archival_handle).client.chain.head().unwrap();
-            head.height >= target_height
-        },
-        Duration::seconds((target_height + 10) as i64),
-    );
+    env.archival_runner().run_until_head_height(target_height);
 
     // --- 6. Verify cold store has the resharding trie nodes ---
-    let cold_store_sender = env.node_datas.last().unwrap().cold_store_sender.as_ref().unwrap();
+    let archival_idx = env.archival_data_idx();
+    let cold_store_sender = env.node_datas[archival_idx].cold_store_sender.as_ref().unwrap();
     let cold_store_actor = env.test_loop.data.get(&cold_store_sender.actor_handle());
     let cold_db = cold_store_actor.get_cold_db();
     let cold_store = cold_db.as_store();
