@@ -6,14 +6,13 @@ use crate::peer::peer_actor::PeerActor;
 use crate::private_messages::SendMessage;
 use crate::stats::metrics;
 use crate::tcp;
-use crate::types::{BlockInfo, FullPeerInfo, PeerChainInfo, PeerType, ReasonForBan};
+use crate::types::{BlockInfo, PeerType, ReasonForBan};
 use arc_swap::ArcSwap;
 use near_async::messaging::CanSend;
 use near_async::time;
 use near_async::tokio::TokioRuntimeHandle;
 use near_crypto::PublicKey;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
-use near_primitives::genesis::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::types::ShardId;
 use std::fmt;
@@ -83,6 +82,8 @@ pub(crate) struct Stats {
     pub received_bytes: AtomicU64,
     /// Avg received bytes/s, based on the last few minutes of traffic.
     pub received_bytes_per_sec: AtomicU64,
+    /// Avg received messages/s, based on the last few minutes of traffic.
+    pub received_messages_per_sec: AtomicU64,
     /// Avg sent bytes/s, based on the last few minutes of traffic.
     pub sent_bytes_per_sec: AtomicU64,
 
@@ -101,8 +102,6 @@ pub(crate) struct Connection {
     pub peer_info: PeerInfo,
     /// AccountKey ownership proof.
     pub owned_account: Option<SignedOwnedAccount>,
-    /// Chain Id and hash of genesis block.
-    pub genesis_id: GenesisId,
     /// Shards that the peer is tracking.
     pub tracked_shards: Vec<ShardId>,
     /// Denote if a node is running in archival mode or not.
@@ -135,16 +134,6 @@ impl fmt::Debug for Connection {
 }
 
 impl Connection {
-    pub fn full_peer_info(&self) -> FullPeerInfo {
-        let chain_info = PeerChainInfo {
-            genesis_id: self.genesis_id.clone(),
-            last_block: *self.last_block.load().as_ref(),
-            tracked_shards: self.tracked_shards.clone(),
-            archival: self.archival,
-        };
-        FullPeerInfo { peer_info: self.peer_info.clone(), chain_info }
-    }
-
     pub fn stop(&self, ban_reason: Option<ReasonForBan>) {
         self.handle.send(peer_actor::Stop { ban_reason }.span_wrap());
     }

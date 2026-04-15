@@ -12,7 +12,6 @@ use crate::network_protocol::{
 use crate::network_protocol::{SyncSnapshotHosts, T1MessageBody};
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connected_peers::ConnectedPeerState;
-use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{
     NetworkState, PENDING_TIER3_REQUEST_TIMEOUT, WhitelistNode,
 };
@@ -26,14 +25,15 @@ use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
 use crate::types::{
-    ConnectedPeerInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo, NetworkRequests,
-    NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    PeerManagerSenderForNetwork, PeerType, SetChainInfo, SnapshotHostEvent, SnapshotHostInfo,
-    StateHeaderRequestBody, StatePartRequestBody, StateRequestSenderForNetwork, StateSyncEvent,
-    Tier3Request, Tier3RequestBody,
+    ConnectedPeerInfo, FullPeerInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo,
+    NetworkRequests, NetworkResponses, PeerChainInfo, PeerInfo, PeerManagerMessageRequest,
+    PeerManagerMessageResponse, PeerManagerSenderForNetwork, PeerType, SetChainInfo,
+    SnapshotHostEvent, SnapshotHostInfo, StateHeaderRequestBody, StatePartRequestBody,
+    StateRequestSenderForNetwork, StateSyncEvent, Tier3Request, Tier3RequestBody,
 };
 use ::time::ext::InstantExt as _;
 use anyhow::Context as _;
+use itertools::Itertools;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawnerExt};
 use near_async::messaging::{self, CanSendAsync, Sender};
 use near_async::tokio::TokioRuntimeHandle;
@@ -53,7 +53,6 @@ use rand::thread_rng;
 use std::cmp::min;
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 use tracing::Instrument as _;
 
 /// Ratio between consecutive attempts to establish connection with another peer.
@@ -73,10 +72,10 @@ const MAX_RECONNECT_ATTEMPTS: usize = 6;
 const REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL: time::Duration =
     time::Duration::milliseconds(60_000);
 
-/// If we received more than `REPORT_BANDWIDTH_THRESHOLD_BYTES` of data from given peer it's bandwidth stats will be reported.
-const REPORT_BANDWIDTH_THRESHOLD_BYTES: usize = 10_000_000;
-/// If we received more than REPORT_BANDWIDTH_THRESHOLD_COUNT` of messages from given peer it's bandwidth stats will be reported.
-const REPORT_BANDWIDTH_THRESHOLD_COUNT: usize = 10_000;
+/// If a peer's average bytes/sec exceeds this threshold, its bandwidth stats will be reported.
+const REPORT_BANDWIDTH_THRESHOLD_BYTES_PER_SEC: u64 = 10_000_000 / 60;
+/// If a peer's average messages/sec exceeds this threshold, its bandwidth stats will be reported.
+const REPORT_BANDWIDTH_THRESHOLD_COUNT_PER_SEC: u64 = 10_000 / 60;
 
 /// If a peer is more than these blocks behind (comparing to our current head) - don't route any messages through it.
 /// We are updating the list of unreliable peers every MONITOR_PEER_MAX_DURATION (60 seconds) - so the current
@@ -305,6 +304,40 @@ fn to_highest_height_peer_info(
     })
 }
 
+/// Joins `ConnectedPeerState` (business metadata) with per-peer stats
+/// from `transport_info()` (bandwidth, last-seen timestamps) and the
+/// routing graph (edge nonce) into a single `ConnectedPeerInfo` for
+/// NetworkInfo RPC output.
+fn build_connected_peer_info(
+    peer_id: &PeerId,
+    cp: &ConnectedPeerState,
+    stats: &std::collections::HashMap<
+        PeerId,
+        crate::peer_manager::network_transport::PeerTransportStats,
+    >,
+    graph: &crate::routing::GraphSnapshot,
+    genesis_id: &GenesisId,
+    now: time::Instant,
+) -> ConnectedPeerInfo {
+    let s = stats.get(peer_id);
+    let chain_info = PeerChainInfo {
+        genesis_id: genesis_id.clone(),
+        last_block: cp.block_info,
+        tracked_shards: cp.tracked_shards.clone(),
+        archival: cp.archival,
+    };
+    ConnectedPeerInfo {
+        full_peer_info: FullPeerInfo { peer_info: cp.peer_info.clone(), chain_info },
+        received_bytes_per_sec: s.map_or(0, |s| s.received_bytes_per_sec),
+        sent_bytes_per_sec: s.map_or(0, |s| s.sent_bytes_per_sec),
+        last_time_peer_requested: s.and_then(|s| s.last_time_peer_requested).unwrap_or(now),
+        last_time_received_message: s.map_or(now, |s| s.last_time_received_message),
+        connection_established_time: cp.established_time,
+        peer_type: cp.peer_type,
+        nonce: graph.local_edges.get(peer_id).map_or(0, |e| e.nonce()),
+    }
+}
+
 impl PeerManagerActor {
     pub fn spawn(
         clock: time::Clock,
@@ -426,29 +459,29 @@ impl PeerManagerActor {
         let _timer = metrics::PEER_MANAGER_TRIGGER_TIME
             .with_label_values(&["report_bandwidth_stats"])
             .start_timer();
-        let mut total_bandwidth_used_by_all_peers: usize = 0;
-        let mut total_msg_received_count: usize = 0;
-        for (peer_id, connected_peer) in &self.state.tier2.load().ready {
-            let bandwidth_used =
-                connected_peer.stats.received_bytes.swap(0, Ordering::Relaxed) as usize;
-            let msg_received_count =
-                connected_peer.stats.received_messages.swap(0, Ordering::Relaxed) as usize;
-            if bandwidth_used > REPORT_BANDWIDTH_THRESHOLD_BYTES
-                || msg_received_count > REPORT_BANDWIDTH_THRESHOLD_COUNT
+        let info = self.transport.transport_info();
+        let mut total_bytes_per_sec: u64 = 0;
+        let mut total_messages_per_sec: u64 = 0;
+        for (peer_id, stat) in &info.peer_stats {
+            let bytes_per_sec = stat.received_bytes_per_sec;
+            let messages_per_sec = stat.received_messages_per_sec;
+            if bytes_per_sec > REPORT_BANDWIDTH_THRESHOLD_BYTES_PER_SEC
+                || messages_per_sec > REPORT_BANDWIDTH_THRESHOLD_COUNT_PER_SEC
             {
                 tracing::debug!(target: "bandwidth",
                     ?peer_id,
-                    bandwidth_used, msg_received_count, "peer bandwidth exceeded threshold",
+                    bytes_per_sec, messages_per_sec,
+                    "peer bandwidth exceeded threshold",
                 );
             }
-            total_bandwidth_used_by_all_peers += bandwidth_used;
-            total_msg_received_count += msg_received_count;
+            total_bytes_per_sec += bytes_per_sec;
+            total_messages_per_sec += messages_per_sec;
         }
 
         tracing::info!(
             target: "bandwidth",
-            total_bandwidth_used_by_all_peers,
-            total_msg_received_count
+            total_bytes_per_sec,
+            total_messages_per_sec,
         );
 
         self.handle.clone().run_later(
@@ -465,11 +498,12 @@ impl PeerManagerActor {
     /// (the number of outgoing connections is less than `minimum_outbound_peers`
     ///     and the total connections is less than `max_num_peers`)
     fn is_outbound_bootstrap_needed(&self) -> bool {
-        let tier2 = self.state.tier2.load();
-        let total_connections = tier2.ready.len() + tier2.outbound_handshakes.len();
-        let potential_outbound_connections =
-            tier2.ready.values().filter(|peer| peer.peer_type == PeerType::Outbound).count()
-                + tier2.outbound_handshakes.len();
+        let pending = self.transport.transport_info().pending_outbound.len();
+        let t2 = self.state.peers.tier2();
+        let t2_count = t2.len();
+        let t2_outbound = t2.values().filter(|s| s.peer_type == PeerType::Outbound).count();
+        let total_connections = t2_count + pending;
+        let potential_outbound_connections = t2_outbound + pending;
 
         (total_connections < self.state.config.ideal_connections_lo as usize
             || (total_connections < self.state.config.max_num_peers as usize
@@ -545,31 +579,33 @@ impl PeerManagerActor {
     ///    and add them one by one to the safe_set (starting from earliest connection time)
     ///    until safe set has safe_set_size elements.
     fn maybe_stop_active_connection(&self) {
-        let tier2 = self.state.tier2.load();
-        let filter_peers = |predicate: &dyn Fn(&connection::Connection) -> bool| -> Vec<_> {
-            tier2
-                .ready
-                .values()
-                .filter(|peer| predicate(&*peer))
-                .map(|peer| peer.peer_info.id.clone())
-                .collect()
-        };
+        let info = self.transport.transport_info();
+        let stats = &info.peer_stats;
+        let t2_peers = self.state.peers.tier2();
+        let t2_count = t2_peers.len();
 
         // Build safe set
         let mut safe_set = HashSet::new();
 
         // Add whitelisted nodes to the safe set.
-        let whitelisted_peers = filter_peers(&|p| self.state.is_peer_whitelisted(&p.peer_info));
-        safe_set.extend(whitelisted_peers);
+        for (id, s) in &t2_peers {
+            if self.state.is_peer_whitelisted(&s.peer_info) {
+                safe_set.insert(id.clone());
+            }
+        }
 
         // If there is not enough non-whitelisted peers, return without disconnecting anyone.
-        if tier2.ready.len() - safe_set.len() <= self.state.config.ideal_connections_hi as usize {
+        if t2_count - safe_set.len() <= self.state.config.ideal_connections_hi as usize {
             return;
         }
 
         // If there is not enough outbound peers, add them to the safe set.
-        let outbound_peers = filter_peers(&|p| p.peer_type == PeerType::Outbound);
-        if outbound_peers.len() + tier2.outbound_handshakes.len()
+        let outbound_peers = t2_peers
+            .iter()
+            .filter(|(_, s)| s.peer_type == PeerType::Outbound)
+            .map(|(id, _)| id.clone())
+            .collect_vec();
+        if outbound_peers.len() + info.pending_outbound.len()
             <= self.state.config.minimum_outbound_peers as usize
         {
             safe_set.extend(outbound_peers);
@@ -577,46 +613,49 @@ impl PeerManagerActor {
 
         // If there is not enough archival peers, add them to the safe set.
         if self.state.config.archive {
-            let archival_peers = filter_peers(&|p| p.archival);
-            if archival_peers.len()
-                <= self.state.config.archival_peer_connections_lower_bound as usize
-            {
-                safe_set.extend(archival_peers);
+            let archival_count = t2_peers.iter().filter(|(_, s)| s.archival).count();
+            if archival_count <= self.state.config.archival_peer_connections_lower_bound as usize {
+                let archival_ids = t2_peers
+                    .iter()
+                    .filter(|(_, s)| s.archival)
+                    .map(|(id, _)| id.clone())
+                    .collect_vec();
+                safe_set.extend(archival_ids);
             }
         }
 
-        // Find all recently active peers.
+        // Find all recently active peers, sorted by established time.
         let now = self.clock.now();
-        let mut active_peers: Vec<Arc<connection::Connection>> = tier2
-            .ready
-            .values()
-            .filter(|p| {
-                now - p.last_time_received_message.load()
-                    < self.state.config.peer_recent_time_window
+        let mut active_peers: Vec<(&PeerId, time::Instant)> = t2_peers
+            .iter()
+            .filter_map(|(id, s)| {
+                let stat = stats.get(id)?;
+                let is_recent = now - stat.last_time_received_message
+                    < self.state.config.peer_recent_time_window;
+                is_recent.then_some((id, s.established_time))
             })
-            .cloned()
             .collect();
+        active_peers.sort_by_key(|(_, established_time)| *established_time);
 
-        // Sort by established time.
-        active_peers.sort_by_key(|p| p.established_time);
         // Saturate safe set with recently active peers.
         let set_limit = self.state.config.safe_set_size as usize;
-        for p in active_peers {
+        for (id, _) in active_peers {
             if safe_set.len() >= set_limit {
                 break;
             }
-            safe_set.insert(p.peer_info.id.clone());
+            safe_set.insert(id.clone());
         }
 
-        // Build valid candidate list to choose the peer to be removed. All peers outside the safe set.
-        let candidates = tier2.ready.values().filter(|p| !safe_set.contains(&p.peer_info.id));
-        if let Some(p) = candidates.choose(&mut rand::thread_rng()) {
-            tracing::debug!(target: "network", id = ?p.peer_info.id,
-                tier2_len = tier2.ready.len(),
+        // Build valid candidate list: all peers outside the safe set.
+        let candidates: Vec<&PeerId> =
+            t2_peers.keys().filter(|id| !safe_set.contains(*id)).collect();
+        if let Some(id) = candidates.choose(&mut rand::thread_rng()) {
+            tracing::debug!(target: "network", ?id,
+                t2_count,
                 ideal_connections_hi = self.state.config.ideal_connections_hi,
                 "stopping active connection"
             );
-            p.stop(None);
+            self.transport.disconnect_peer(id, None);
         }
     }
 
@@ -633,13 +672,18 @@ impl PeerManagerActor {
     /// retry logic anyway. TODO(saketh): consider if we can improve this in a simple way.
     fn stop_tier3_idle_connections(&self) {
         let now = self.clock.now();
-        self.state
-            .tier3
-            .load()
-            .ready
-            .values()
-            .filter(|p| now - p.last_time_received_message.load() > TIER3_IDLE_TIMEOUT)
-            .for_each(|p| p.stop(None));
+        let info = self.transport.transport_info();
+        let t3_peers = self.state.peers.tier3();
+        let idle_peers: Vec<PeerId> = t3_peers
+            .into_iter()
+            .filter_map(|(id, _)| {
+                let stat = info.peer_stats.get(&id)?;
+                (now - stat.last_time_received_message > TIER3_IDLE_TIMEOUT).then_some(id)
+            })
+            .collect();
+        for peer_id in &idle_peers {
+            self.transport.disconnect_peer(peer_id, None);
+        }
         // Clean up stale pending Tier3 request entries for peers that never connected back.
         // retain() does a full scan of the map, but this is fine: the map is bounded by the
         // number of in-flight state sync requests (typically tens at most).
@@ -672,7 +716,7 @@ impl PeerManagerActor {
         self.state.peer_store.update(&self.clock);
 
         if self.is_outbound_bootstrap_needed() {
-            let tier2 = self.state.tier2.load();
+            let pending_outbound = self.transport.transport_info().pending_outbound;
             // With some odds - try picking one of the 'NotConnected' peers -- these are the ones that we were able to connect to in the past.
             let prefer_previously_connected_peer =
                 thread_rng().gen_bool(PREFER_PREVIOUSLY_CONNECTED_PEER);
@@ -682,7 +726,7 @@ impl PeerManagerActor {
                     self.my_peer_id == peer_state.peer_info.id
                     || self.state.config.node_addr.as_ref().map(|a|**a) == peer_state.peer_info.addr
                     // Or to peers we are currently trying to connect to
-                    || tier2.outbound_handshakes.contains(&peer_state.peer_info.id)
+                    || pending_outbound.contains(&peer_state.peer_info.id)
                 },
                 prefer_previously_connected_peer,
             ) {
@@ -755,39 +799,36 @@ impl PeerManagerActor {
     }
 
     pub(crate) fn get_network_info(&self) -> NetworkInfo {
-        let tier1 = self.state.tier1.load();
-        let tier2 = self.state.tier2.load();
         let now = self.clock.now();
         let graph = self.state.graph.load();
-        let connected_peer = |cp: &Arc<connection::Connection>| ConnectedPeerInfo {
-            full_peer_info: cp.full_peer_info(),
-            received_bytes_per_sec: cp.stats.received_bytes_per_sec.load(Ordering::Relaxed),
-            sent_bytes_per_sec: cp.stats.sent_bytes_per_sec.load(Ordering::Relaxed),
-            last_time_peer_requested: cp.last_time_peer_requested.load().unwrap_or(now),
-            last_time_received_message: cp.last_time_received_message.load(),
-            connection_established_time: cp.established_time,
-            peer_type: cp.peer_type,
-            nonce: match graph.local_edges.get(&cp.peer_info.id) {
-                Some(e) => e.nonce(),
-                None => 0,
-            },
+        let genesis_id = self.state.genesis_id.clone();
+
+        let info = self.transport.transport_info();
+        let stats = &info.peer_stats;
+
+        let t2_snapshot = self.state.peers.tier2();
+        let t1_snapshot = self.state.peers.tier1();
+
+        let build = |peer_id: &PeerId, cp: &ConnectedPeerState| -> ConnectedPeerInfo {
+            build_connected_peer_info(peer_id, cp, stats, &graph, &genesis_id, now)
         };
+        let t2_infos: Vec<ConnectedPeerInfo> =
+            t2_snapshot.iter().map(|(id, s)| build(id, s)).collect();
+        let t1_infos: Vec<ConnectedPeerInfo> =
+            t1_snapshot.iter().map(|(id, s)| build(id, s)).collect();
+
+        let num_connected = t2_infos.len();
+        let sent_total: u64 = t2_infos.iter().map(|p| p.sent_bytes_per_sec).sum();
+        let recv_total: u64 = t2_infos.iter().map(|p| p.received_bytes_per_sec).sum();
+
         NetworkInfo {
-            connected_peers: tier2.ready.values().map(connected_peer).collect(),
-            tier1_connections: tier1.ready.values().map(connected_peer).collect(),
-            num_connected_peers: tier2.ready.len(),
+            connected_peers: t2_infos,
+            tier1_connections: t1_infos,
+            num_connected_peers: num_connected,
             peer_max_count: self.state.config.max_num_peers,
             highest_height_peers: self.highest_height_peers(),
-            sent_bytes_per_sec: tier2
-                .ready
-                .values()
-                .map(|x| x.stats.sent_bytes_per_sec.load(Ordering::Relaxed))
-                .sum(),
-            received_bytes_per_sec: tier2
-                .ready
-                .values()
-                .map(|x| x.stats.received_bytes_per_sec.load(Ordering::Relaxed))
-                .sum(),
+            sent_bytes_per_sec: sent_total,
+            received_bytes_per_sec: recv_total,
             known_producers: self
                 .state
                 .account_announcements
@@ -1622,8 +1663,10 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                     return;
                 };
 
-                // Establish a tier3 connection if we don't have one already
-                if !state.tier3.load().ready.contains_key(&sender) {
+                // Establish a tier3 connection if we don't have one already.
+                let already_connected_t3 =
+                    state.peers.is_connected_on_tier(&sender, tcp::Tier::T3);
+                if !already_connected_t3 {
                     let result = async {
                         let stream = tcp::Stream::connect(
                             &request.peer_info,
@@ -1639,7 +1682,7 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                     }
                 }
 
-                state.tier3.send_message(sender, Arc::new(tier3_response));
+                transport.send_message(tcp::Tier::T3, sender, Arc::new(tier3_response));
             }
         );
     }

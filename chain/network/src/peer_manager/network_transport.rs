@@ -3,6 +3,7 @@ use crate::tcp;
 use crate::types::{PeerMessage, ReasonForBan};
 use near_async::time;
 use near_primitives::network::PeerId;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -44,6 +45,37 @@ pub trait NetworkTransport: Send + Sync + 'static {
 
     /// Graceful shutdown.
     fn shutdown(&self) {}
+
+    /// Snapshot of transport-level state for monitoring, eviction, and
+    /// capacity checks. Read-only, no side effects.
+    ///
+    /// Production: reads Pool snapshots and Connection atomics.
+    /// Testloop: returns default (0 pending, empty peer_stats).
+    fn transport_info(&self) -> TransportInfo {
+        TransportInfo::default()
+    }
+}
+
+/// Transport-level snapshot returned by `transport_info()`.
+#[derive(Default)]
+pub struct TransportInfo {
+    /// Set of peer IDs with in-flight outbound handshakes (not yet connected).
+    /// Used by validate_new_connection for capacity checks AND by
+    /// monitor_peers_trigger to skip peers we are already trying to connect to.
+    pub pending_outbound: HashSet<PeerId>,
+    /// Per-peer transport stats keyed by peer_id. Only data that lives
+    /// on the transport layer (bandwidth rates, timing). Business logic
+    /// metadata (block_info, archival, etc.) is on ConnectedPeerState.
+    pub peer_stats: HashMap<PeerId, PeerTransportStats>,
+}
+
+/// Per-peer transport-level stats (read-only, no side effects).
+pub struct PeerTransportStats {
+    pub last_time_received_message: time::Instant,
+    pub last_time_peer_requested: Option<time::Instant>,
+    pub received_bytes_per_sec: u64,
+    pub received_messages_per_sec: u64,
+    pub sent_bytes_per_sec: u64,
 }
 
 /// Error returned by connect_to_peer.

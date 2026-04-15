@@ -638,7 +638,6 @@ impl PeerActor {
             handle: self.handle.clone(),
             peer_info: peer_info.clone(),
             owned_account: handshake.owned_account.clone(),
-            genesis_id: handshake.sender_chain_info.genesis_id.clone(),
             tracked_shards: handshake.sender_chain_info.tracked_shards.clone(),
             archival: handshake.sender_chain_info.archival,
             last_block: Default::default(),
@@ -666,6 +665,9 @@ impl PeerActor {
                     conn.stats
                         .received_bytes_per_sec
                         .store(received.bytes_per_min / 60, Ordering::Relaxed);
+                    conn.stats
+                        .received_messages_per_sec
+                        .store((received.count_per_min / 60) as u64, Ordering::Relaxed);
                     conn.stats.sent_bytes_per_sec.store(sent.bytes_per_min / 60, Ordering::Relaxed);
                 }
             }
