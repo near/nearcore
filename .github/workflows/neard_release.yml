@@ -273,3 +273,32 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  track-unmerged-commits:
+    name: "Track unmerged release commits"
+    # Only run on real GitHub release events; skip push and workflow_dispatch.
+    if: ${{ github.event_name == 'release' }}
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - name: Checkout nearcore release
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Ensure release-tracker label exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create release-tracker \
+            --color 0E8A16 \
+            --description "Tracks release commits not yet merged into master" \
+            --force
+
+      - name: Update tracker issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/track_release_commits.py
+
