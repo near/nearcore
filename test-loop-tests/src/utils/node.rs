@@ -33,7 +33,6 @@ use near_primitives::views::{
 use near_store::Store;
 use near_store::adapter::StoreAdapter as _;
 use parking_lot::Mutex;
-use std::borrow::Cow;
 use std::sync::Arc;
 use std::task::Poll;
 
