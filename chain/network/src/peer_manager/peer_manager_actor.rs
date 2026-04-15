@@ -211,7 +211,7 @@ impl messaging::Actor for PeerManagerActor {
             async move {
                 loop {
                     interval.tick(&clock).await;
-                    state.tier1_request_full_sync();
+                    state.tier1_request_full_sync(transport.as_ref());
                     state.tier1_advertise_proxies(&clock, transport.as_ref()).await;
                 }
             }
@@ -851,8 +851,10 @@ impl PeerManagerActor {
                 // a conversion here from AccountId to peer connection. Consider reworking this.
                 let msg = Arc::new(PeerMessage::OptimisticBlock(optimistic_block));
                 for target_account in &*chunk_producers {
-                    if let Some(conn) = self.state.get_tier1_proxy_for_account_id(&target_account) {
-                        conn.send_message(msg.clone());
+                    if let Some(peer_id) =
+                        self.state.get_tier1_proxy_for_account_id(&target_account)
+                    {
+                        self.transport.send_message(tcp::Tier::T1, peer_id, msg.clone());
                     }
                 }
                 NetworkResponses::NoResponse
@@ -1085,7 +1087,7 @@ impl PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {
-                self.state.disconnect_and_ban(&self.clock, &peer_id, ban_reason);
+                self.state.disconnect_and_ban(&self.clock, &peer_id, ban_reason, &*self.transport);
                 NetworkResponses::NoResponse
             }
             NetworkRequests::AnnounceAccount(announce_account) => {
@@ -1466,7 +1468,7 @@ impl messaging::Handler<SetChainInfo> for PeerManagerActor {
         // synchronously, therefore, assuming actor in-order delivery,
         // there will be no race condition between subsequent SetChainInfo
         // calls.
-        if !self.state.set_chain_info(info) {
+        if !self.state.set_chain_info(info, &*self.transport) {
             // We early exit in case the set of TIER1 account keys hasn't changed.
             return;
         }
@@ -1613,12 +1615,10 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                 let already_connected_t3 =
                     state.peers.is_connected_on_tier(&sender, tcp::Tier::T3);
                 if !already_connected_t3 {
-                    let result = transport
+                    if let Err(err) = transport
                         .connect_to_peer(&clock, request.peer_info.clone(), tcp::Tier::T3)
                         .await
-                        .map_err(|err| anyhow::anyhow!("connect_to_peer: {err:?}"));
-
-                    if let Err(ref err) = result {
+                    {
                         tracing::debug!(target: "network", ?err, peer_info = %request.peer_info, "tier3 failed to connect");
                     }
                 }

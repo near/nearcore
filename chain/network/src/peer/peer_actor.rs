@@ -1206,9 +1206,10 @@ impl PeerActor {
                 }
                 let network_state = self.network_state.clone();
                 let clock = self.clock.clone();
+                let tcp = self.tcp.clone();
                 self.handle.spawn("handle sync accounts data", async move {
                     if let Some(err) =
-                        network_state.add_accounts_data(&clock, msg.accounts_data).await
+                        network_state.add_accounts_data(&clock, msg.accounts_data, tcp).await
                     {
                         conn.stop(Some(match err {
                             AccountDataError::InvalidSignature => ReasonForBan::InvalidSignature,
@@ -1229,8 +1230,9 @@ impl PeerActor {
                     return;
                 }
                 let network_state = self.network_state.clone();
+                let tcp = self.tcp.clone();
                 self.handle.spawn("handle sync snapshot hosts", async move {
-                    if let Some(err) = network_state.add_snapshot_hosts(msg.hosts).await {
+                    if let Some(err) = network_state.add_snapshot_hosts(msg.hosts, tcp).await {
                         conn.stop(Some(match err {
                             SnapshotHostInfoError::VerificationError(
                                 SnapshotHostInfoVerificationError::InvalidSignature,

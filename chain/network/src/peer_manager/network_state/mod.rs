@@ -369,10 +369,10 @@ impl NetworkState {
         clock: &time::Clock,
         peer_id: &PeerId,
         ban_reason: ReasonForBan,
+        transport: &dyn NetworkTransport,
     ) {
-        let tier2 = self.tier2.load();
-        if let Some(peer) = tier2.ready.get(peer_id) {
-            peer.stop(Some(ban_reason));
+        if self.peers.is_connected_on_tier(peer_id, tcp::Tier::T2) {
+            transport.disconnect_peer(peer_id, Some(ban_reason));
         } else {
             if let Err(err) = self.peer_store.peer_ban(clock, peer_id, ban_reason) {
                 tracing::debug!(target: "network", ?err, "failed to save peer data");
@@ -392,10 +392,11 @@ impl NetworkState {
     }
 
     /// predicate checking whether we should allow an inbound connection from peer_info.
-    fn is_inbound_allowed(&self, peer_info: &PeerInfo) -> bool {
+    fn is_inbound_allowed(&self, peer_info: &PeerInfo, transport: &dyn NetworkTransport) -> bool {
         // Check if we have spare inbound connections capacity.
-        let tier2 = self.tier2.load();
-        if tier2.ready.len() + tier2.outbound_handshakes.len() < self.config.max_num_peers as usize
+        let t2_count = self.peers.tier2().len();
+        let pending_outbound = transport.transport_info().pending_outbound.len();
+        if t2_count + pending_outbound < self.config.max_num_peers as usize
             && !self.config.inbound_disabled
         {
             return true;
@@ -415,6 +416,7 @@ impl NetworkState {
         &self,
         info: &PeerConnectionInfo,
         edge: &Edge,
+        transport: &dyn NetworkTransport,
     ) -> Result<(), RegisterPeerError> {
         let peer_info = &info.peer_info;
         if peer_info.addr.as_ref().map_or(true, |addr| self.peer_store.is_blacklisted(addr)) {
@@ -444,11 +446,12 @@ impl NetworkState {
             }
             tcp::Tier::T2 => {
                 if info.peer_type == PeerType::Inbound {
-                    if !self.is_inbound_allowed(peer_info) {
+                    if !self.is_inbound_allowed(peer_info, transport) {
                         // TODO(1896): Gracefully drop inbound connection for other peer.
-                        let tier2 = self.tier2.load();
+                        let t2_count = self.peers.tier2().len();
+                        let pending_outbound = transport.transport_info().pending_outbound.len();
                         tracing::debug!(target: "network",
-                            tier2 = tier2.ready.len(), outgoing_peers = tier2.outbound_handshakes.len(),
+                            tier2 = t2_count, outgoing_peers = pending_outbound,
                             max_num_peers = self.config.max_num_peers,
                             "dropping handshake (network at max capacity)"
                         );
@@ -621,7 +624,7 @@ impl NetworkState {
         let clock = clock.clone();
         self.spawn("register_connection", async move {
             let info: PeerConnectionInfo = conn.as_ref().into();
-            this.validate_new_connection(&info, &edge)?;
+            this.validate_new_connection(&info, &edge, &*transport)?;
             match conn.tier {
                 tcp::Tier::T1 => this.tier1.insert_ready(conn.clone()),
                 tcp::Tier::T2 => this.tier2.insert_ready(conn.clone()),
@@ -881,19 +884,19 @@ impl NetworkState {
                     Some(data) => data,
                     None => continue,
                 };
-                let conn = match self.get_tier1_proxy(data) {
-                    Some(conn) => conn,
+                let peer_id = match self.get_tier1_proxy(data) {
+                    Some(peer_id) => peer_id,
                     None => continue,
                 };
                 // TODO(gprusak): in case of PartialEncodedChunk, consider stripping everything
                 // but the header. This will bound the message size
-                conn.send_message(Arc::new(PeerMessage::Routed(self.sign_message(
-                    clock,
-                    RawRoutedMessage {
-                        target: PeerIdOrHash::PeerId(data.peer_id.clone()),
-                        body: msg,
-                    },
-                ))));
+                let raw = RawRoutedMessage {
+                    target: PeerIdOrHash::PeerId(data.peer_id.clone()),
+                    body: msg,
+                };
+                let signed = self.sign_message(clock, raw);
+                let peer_msg = Arc::new(PeerMessage::Routed(signed));
+                transport.send_message(tcp::Tier::T1, peer_id, peer_msg);
                 return true;
             }
         }
@@ -1297,11 +1300,12 @@ impl NetworkState {
         peer_id: PeerId,
         demux: demux::Demux<Vec<Arc<SignedAccountData>>, ()>,
         data: Vec<Arc<SignedAccountData>>,
+        transport: Arc<dyn NetworkTransport>,
     ) {
         let res = demux
             .call(data, {
-                let this = self.clone();
                 let peer_id = peer_id.clone();
+                let transport = transport.clone();
                 |ds: Vec<Vec<Arc<SignedAccountData>>>| async move {
                     let res = ds.iter().map(|_| ()).collect();
                     let mut sum = HashMap::<_, Arc<SignedAccountData>>::new();
@@ -1315,7 +1319,7 @@ impl NetworkState {
                         requesting_full_sync: false,
                         accounts_data: sum.into_values().collect(),
                     }));
-                    this.tier2.send_message(peer_id, msg);
+                    transport.send_message(tcp::Tier::T2, peer_id, msg);
                     res
                 }
             })
@@ -1332,11 +1336,12 @@ impl NetworkState {
         peer_id: PeerId,
         demux: demux::Demux<Vec<Arc<SnapshotHostInfo>>, ()>,
         data: Vec<Arc<SnapshotHostInfo>>,
+        transport: Arc<dyn NetworkTransport>,
     ) {
         let res = demux
             .call(data, {
-                let this = self.clone();
                 let peer_id = peer_id.clone();
+                let transport = transport.clone();
                 |ds: Vec<Vec<Arc<SnapshotHostInfo>>>| async move {
                     let res = ds.iter().map(|_| ()).collect();
                     let mut sum = HashMap::<_, Arc<SnapshotHostInfo>>::new();
@@ -1349,7 +1354,7 @@ impl NetworkState {
                     let msg = Arc::new(PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts {
                         hosts: sum.into_values().collect(),
                     }));
-                    this.tier2.send_message(peer_id, msg);
+                    transport.send_message(tcp::Tier::T2, peer_id, msg);
                     res
                 }
             })
@@ -1363,6 +1368,7 @@ impl NetworkState {
         self: &Arc<Self>,
         clock: &time::Clock,
         accounts_data: Vec<Arc<SignedAccountData>>,
+        transport: Arc<dyn NetworkTransport>,
     ) -> Option<AccountDataError> {
         let this = self.clone();
         let clock = clock.clone();
@@ -1387,7 +1393,12 @@ impl NetworkState {
                 .map(|(peer_id, demux)| {
                     this.spawn(
                         "send_accounts_data",
-                        this.clone().gossip_accounts_data_to_peer(peer_id, demux, new_data.clone()),
+                        this.clone().gossip_accounts_data_to_peer(
+                            peer_id,
+                            demux,
+                            new_data.clone(),
+                            transport.clone(),
+                        ),
                     )
                 })
                 .collect();
@@ -1403,6 +1414,7 @@ impl NetworkState {
     pub async fn add_snapshot_hosts(
         self: &Arc<Self>,
         hosts: Vec<Arc<SnapshotHostInfo>>,
+        transport: Arc<dyn NetworkTransport>,
     ) -> Option<SnapshotHostInfoError> {
         let this = self.clone();
         self.spawn("add_snapshot_hosts", async move {
@@ -1428,6 +1440,7 @@ impl NetworkState {
                             peer_id,
                             demux,
                             new_data.clone(),
+                            transport.clone(),
                         ),
                     )
                 })
@@ -1455,38 +1468,43 @@ impl NetworkState {
         let clock = clock.clone();
         self.spawn("fix_local_edges", async move {
             let graph = this.graph.load();
-            let tier2 = this.tier2.load();
+            let tier2 = this.peers.tier2();
             let mut tasks = vec![];
             for edge in graph.local_edges.values() {
                 let edge = edge.clone();
                 let node_id = this.config.node_id();
                 let other_peer = edge.other(&node_id).unwrap();
-                match (tier2.ready.get(other_peer), edge.edge_type()) {
+                match (tier2.contains_key(other_peer), edge.edge_type()) {
                     // This is an active connection, while the edge indicates it shouldn't.
-                    (Some(conn), EdgeState::Removed) => {
+                    (true, EdgeState::Removed) => {
                         tasks.push(this.spawn("fix_local_edges", {
                             let this = this.clone();
-                            let conn = conn.clone();
+                            let other_peer = other_peer.clone();
                             let clock = clock.clone();
+                            let transport = transport.clone();
                             async move {
-                                conn.send_message(Arc::new(PeerMessage::RequestUpdateNonce(
-                                    PartialEdgeInfo::new(
-                                        &node_id,
-                                        &conn.peer_info.id,
-                                        std::cmp::max(
-                                            Edge::create_fresh_nonce(&clock),
-                                            edge.next(),
+                                transport.send_message(
+                                    tcp::Tier::T2,
+                                    other_peer.clone(),
+                                    Arc::new(PeerMessage::RequestUpdateNonce(
+                                        PartialEdgeInfo::new(
+                                            &node_id,
+                                            &other_peer,
+                                            std::cmp::max(
+                                                Edge::create_fresh_nonce(&clock),
+                                                edge.next(),
+                                            ),
+                                            &this.config.node_key,
                                         ),
-                                        &this.config.node_key,
-                                    ),
-                                )));
+                                    )),
+                                );
                                 // TODO(gprusak): here we should synchronically wait for the RequestUpdateNonce
                                 // response (with timeout). Until network round trips are implemented, we just
                                 // blindly wait for a while, then check again.
                                 clock.sleep(timeout).await;
-                                match this.graph.load().local_edges.get(&conn.peer_info.id) {
+                                match this.graph.load().local_edges.get(&other_peer) {
                                     Some(edge) if edge.edge_type() == EdgeState::Active => return,
-                                    _ => conn.stop(None),
+                                    _ => transport.disconnect_peer(&other_peer, None),
                                 }
                             }
                         }))
@@ -1494,7 +1512,7 @@ impl NetworkState {
                     // We are not connected to this peer, but routing table contains
                     // information that we do. We should wait and remove that peer
                     // from routing table
-                    (None, EdgeState::Active) => tasks.push(this.spawn("fix_local_edges", {
+                    (false, EdgeState::Active) => tasks.push(this.spawn("fix_local_edges", {
                         let this = this.clone();
                         let clock = clock.clone();
                         let other_peer = other_peer.clone();
@@ -1503,7 +1521,7 @@ impl NetworkState {
                             // This edge says this is an connected peer, which is currently not in the set of connected peers.
                             // Wait for some time to let the connection begin or broadcast edge removal instead.
                             clock.sleep(timeout).await;
-                            if this.tier2.load().ready.contains_key(&other_peer) {
+                            if this.peers.is_connected_on_tier(&other_peer, tcp::Tier::T2) {
                                 return;
                             }
                             // Peer is still not connected after waiting a timeout.
@@ -1532,7 +1550,7 @@ impl NetworkState {
     }
 
     pub fn update_connection_store(self: &Arc<Self>, clock: &time::Clock) {
-        self.connection_store.update(clock, &self.tier2.load());
+        self.connection_store.update(clock, &self.peers.tier2());
     }
 
     /// Clears pending_reconnect and returns the cleared values
@@ -1545,12 +1563,16 @@ impl NetworkState {
 
     /// Collects and returns PeerInfos for all directly connected TIER2 peers.
     pub fn get_direct_peers(self: &Arc<Self>) -> Vec<PeerInfo> {
-        return self.tier2.load().ready.values().map(|c| c.peer_info.clone()).collect();
+        self.peers.tier2().into_values().map(|s| s.peer_info).collect()
     }
 
     /// Sets the chain info, and updates the set of TIER1 keys.
     /// Returns true iff the set of TIER1 keys has changed.
-    pub fn set_chain_info(self: &Arc<Self>, info: ChainInfo) -> bool {
+    pub fn set_chain_info(
+        self: &Arc<Self>,
+        info: ChainInfo,
+        transport: &dyn NetworkTransport,
+    ) -> bool {
         let _mutex = self.set_chain_info_mutex.lock();
 
         // We set state.chain_info and call accounts_data.set_keys
@@ -1562,7 +1584,7 @@ impl NetworkState {
         // accounts_data that our peers know about.
         let has_changed = self.accounts_data.set_keys(info.tier1_accounts);
         if has_changed {
-            self.tier1_request_full_sync();
+            self.tier1_request_full_sync(transport);
         }
         has_changed
     }

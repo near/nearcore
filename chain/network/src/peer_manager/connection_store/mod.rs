@@ -1,12 +1,12 @@
 use crate::concurrency::arc_mutex::ArcMutex;
 use crate::peer::peer_actor::ClosingReason;
-use crate::peer_manager::connection;
+use crate::peer_manager::connected_peers::ConnectedPeerState;
 use crate::store;
 use crate::types::{ConnectionInfo, PeerInfo, PeerType};
 use ::time::ext::InstantExt;
 use near_async::time;
 use near_primitives::network::PeerId;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[cfg(test)]
 mod testonly;
@@ -113,25 +113,25 @@ impl ConnectionStore {
         return self.0.load().contains_outbound(&peer_info.id);
     }
 
-    /// Given a snapshot of the TIER2 connection pool, updates the connections in storage.
-    pub fn update(&self, clock: &time::Clock, tier2: &connection::PoolSnapshot) {
+    /// Given a snapshot of the TIER2 connected peers, updates the connections in storage.
+    pub fn update(&self, clock: &time::Clock, tier2: &HashMap<PeerId, ConnectedPeerState>) {
         let now = clock.now();
         let now_utc = clock.now_utc();
 
         // Gather information about active outbound connections which have lasted long enough
         let mut outbound = vec![];
-        for c in tier2.ready.values() {
-            if c.peer_type != PeerType::Outbound {
+        for s in tier2.values() {
+            if s.peer_type != PeerType::Outbound {
                 continue;
             }
 
-            let connected_duration: time::Duration = now.signed_duration_since(c.established_time);
+            let connected_duration: time::Duration = now.signed_duration_since(s.established_time);
             if connected_duration < STORED_CONNECTIONS_MIN_DURATION {
                 continue;
             }
 
             outbound.push(ConnectionInfo {
-                peer_info: c.peer_info.clone(),
+                peer_info: s.peer_info.clone(),
                 time_established: now_utc - connected_duration,
                 time_connected_until: now_utc,
             });

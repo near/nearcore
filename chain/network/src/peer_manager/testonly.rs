@@ -379,7 +379,10 @@ impl ActorHandler {
     }
 
     pub async fn set_chain_info(&self, chain_info: ChainInfo) -> bool {
-        self.with_state(move |s| async move { s.set_chain_info(chain_info) }).await
+        self.with_state_and_transport(move |s, transport| async move {
+            s.set_chain_info(chain_info, transport.as_ref())
+        })
+        .await
     }
 
     pub async fn tier1_advertise_proxies(
@@ -422,8 +425,10 @@ impl ActorHandler {
         // TODO(gprusak): figure out how to await for both ends to disconnect.
         let clock = clock.clone();
         let peer_id = peer_id.clone();
-        self.with_state(move |s| async move { s.disconnect_and_ban(&clock, &peer_id, reason) })
-            .await
+        self.with_state_and_transport(move |s, transport| async move {
+            s.disconnect_and_ban(&clock, &peer_id, reason, transport.as_ref())
+        })
+        .await
     }
 
     pub async fn peer_store_update(&self, clock: &time::Clock) {
