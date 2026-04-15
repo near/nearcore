@@ -386,8 +386,9 @@ impl RocksDB {
 
 impl Database for RocksDB {
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> Option<DBSlice<'_>> {
-        let timer =
-            metrics::DATABASE_OP_LATENCY_HIST.with_label_values(&["get", col.into()]).start_timer();
+        let timer = metrics::DATABASE_OP_LATENCY_HIST
+            .with_label_values::<&str>(&["get", col.into()])
+            .start_timer();
         let read_options = rocksdb_read_options();
         let result = self
             .db

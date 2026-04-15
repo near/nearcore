@@ -455,7 +455,7 @@ impl SpiceChunkValidatorActor {
                 Ok(execution_result) => execution_result,
                 Err(err) => {
                     near_chain::stateless_validation::metrics::CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
-                        .with_label_values(&[&chunk_id.shard_id.to_string(), err.prometheus_label_value()])
+                        .with_label_values(&[chunk_id.shard_id.to_string().as_str(), err.prometheus_label_value()])
                         .inc();
                     tracing::error!(
                         target: "spice_chunk_validator",
