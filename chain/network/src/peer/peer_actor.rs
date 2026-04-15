@@ -1,17 +1,12 @@
 use crate::accounts_data::AccountDataError;
-use crate::client::{
-    AnnounceAccountRequest, BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
-    EpochSyncRequestMessage, EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
-    StateRequestHeader, StateRequestPart, StateResponse, StateResponseReceived,
-};
+use crate::client::AnnounceAccountRequest;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::config::PEERS_RESPONSE_MAX_PEERS;
 use crate::network_protocol::{
     Edge, EdgeState, OwnedAccount, PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo,
-    PeersRequest, PeersResponse, RawRoutedMessage, RoutingTableUpdate,
-    SnapshotHostInfoVerificationError, SyncAccountsData, SyncSnapshotHosts, T2MessageBody,
-    TieredMessageBody,
+    PeersRequest, PeersResponse, RoutingTableUpdate, SnapshotHostInfoVerificationError,
+    SyncAccountsData, SyncSnapshotHosts, T2MessageBody, TieredMessageBody,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -32,12 +27,12 @@ use crate::types::{
 use ::time::Duration;
 use lru::LruCache;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawnerExt};
-use near_async::messaging::{self, CanSend, CanSendAsync, IntoAsyncSender, IntoSender};
+use near_async::messaging::{self, CanSendAsync, IntoAsyncSender, IntoSender};
 use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, time};
 use near_crypto::Signature;
 use near_o11y::log_assert;
-use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
+use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::EpochId;
@@ -950,24 +945,6 @@ impl PeerActor {
         }
     }
 
-    #[tracing::instrument(
-        level = "trace",
-        target = "network",
-        "receive_routed_message",
-        skip_all,
-        fields(body_type = body.variant()),
-    )]
-    async fn receive_routed_message(
-        clock: &time::Clock,
-        network_state: &Arc<NetworkState>,
-        msg_author: PeerId,
-        prev_hop: PeerId,
-        msg_hash: CryptoHash,
-        body: TieredMessageBody,
-    ) -> Result<Option<TieredMessageBody>, ReasonForBan> {
-        Ok(network_state.receive_routed_message(clock, msg_author, prev_hop, msg_hash, body).await)
-    }
-
     fn receive_message(&self, conn: &connection::Connection, msg: PeerMessage) {
         let _span = tracing::trace_span!(target: "network", "receive_message").entered();
         #[cfg(test)]
@@ -1000,128 +977,13 @@ impl PeerActor {
         let clock = self.clock.clone();
         let network_state = self.network_state.clone();
         let peer_id = conn.peer_info.id.clone();
-        let handling_future = async move {
-            Ok(match msg {
-                PeerMessage::Routed(msg) => {
-                    let msg_hash = msg.hash();
-                    Self::receive_routed_message(
-                        &clock,
-                        &network_state,
-                        msg.author().clone(),
-                        peer_id.clone(),
-                        msg_hash,
-                        msg.body_owned(),
-                    )
-                    .await?
-                    .map(|body| {
-                        PeerMessage::Routed(network_state.sign_message(
-                            &clock,
-                            RawRoutedMessage { target: PeerIdOrHash::Hash(msg_hash), body },
-                        ))
-                    })
-                }
-                PeerMessage::BlockRequest(hash) => network_state
-                    .client
-                    .send_async(BlockRequest(hash))
-                    .await
-                    .ok()
-                    .flatten()
-                    .map(|block| PeerMessage::Block(block)),
-                PeerMessage::BlockHeadersRequest(hashes) => network_state
-                    .client
-                    .send_async(BlockHeadersRequest(hashes))
-                    .await
-                    .ok()
-                    .flatten()
-                    .map(PeerMessage::BlockHeaders),
-                PeerMessage::Block(block) => {
-                    network_state
-                        .client
-                        .send_async(BlockResponse { block, peer_id, was_requested }.span_wrap())
-                        .await
-                        .ok();
-                    None
-                }
-                PeerMessage::Transaction(transaction) => {
-                    network_state
-                        .client
-                        .send_async(ProcessTxRequest {
-                            transaction,
-                            is_forwarded: false,
-                            check_only: false,
-                        })
-                        .await
-                        .ok();
-                    None
-                }
-                PeerMessage::BlockHeaders(headers) => {
-                    if let Ok(Err(ban_reason)) = network_state
-                        .client
-                        .send_async(BlockHeadersResponse(headers, peer_id).span_wrap())
-                        .await
-                    {
-                        return Err(ban_reason);
-                    }
-                    None
-                }
-                PeerMessage::Challenge(_) => None,
-                PeerMessage::StateRequestHeader(shard_id, sync_hash) => network_state
-                    .state_request_adapter
-                    .send_async(StateRequestHeader { shard_id, sync_hash })
-                    .await
-                    .ok()
-                    .flatten()
-                    .map(|response| PeerMessage::VersionedStateResponse(*response.0)),
-                PeerMessage::StateRequestPart(shard_id, sync_hash, part_id) => network_state
-                    .state_request_adapter
-                    .send_async(StateRequestPart { shard_id, sync_hash, part_id })
-                    .await
-                    .ok()
-                    .flatten()
-                    .map(|response| PeerMessage::VersionedStateResponse(*response.0)),
-                PeerMessage::VersionedStateResponse(info) => {
-                    network_state
-                        .client
-                        .send_async(
-                            StateResponseReceived {
-                                peer_id,
-                                state_response: StateResponse::State(info.into()),
-                            }
-                            .span_wrap(),
-                        )
-                        .await
-                        .ok();
-                    None
-                }
-                PeerMessage::EpochSyncRequest => {
-                    network_state.client.send(EpochSyncRequestMessage { from_peer: peer_id });
-                    None
-                }
-                PeerMessage::EpochSyncResponse(proof) => {
-                    network_state
-                        .client
-                        .send(EpochSyncResponseMessage { from_peer: peer_id, proof });
-                    None
-                }
-                PeerMessage::OptimisticBlock(ob) => {
-                    network_state.client.send(
-                        OptimisticBlockMessage { from_peer: peer_id, optimistic_block: ob }
-                            .span_wrap(),
-                    );
-                    None
-                }
-                msg => {
-                    tracing::error!(target: "network", ?msg, "peer received unexpected type");
-                    None
-                }
-            })
-        };
 
         let mut handle = self.handle.clone();
         self.handle.spawn(
             "handle message",
             async move {
-                let result = handling_future.await;
+                let result =
+                    network_state.handle_peer_message(&clock, peer_id, msg, was_requested).await;
                 handle.run_later("message handle result", Duration::ZERO, |act, _| {
                     match result {
                         // TODO(gprusak): make sure that for routed messages we drop routeback info correctly.
