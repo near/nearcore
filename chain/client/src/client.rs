@@ -566,15 +566,16 @@ impl Client {
                     })
                     .collect::<Vec<_>>();
 
+                let txs_to_reintroduce = validated_txs.len();
                 let reintroduced_count = {
                     let mut pool_guard = self.chunk_producer.sharded_tx_pool.lock();
                     pool_guard.reintroduce_transactions(shard_uid, validated_txs)
                 };
 
-                if reintroduced_count < chunk.to_transactions().len() {
+                if reintroduced_count < txs_to_reintroduce {
                     tracing::debug!(target: "client",
                             reintroduced_count,
-                            num_tx = chunk.to_transactions().len(),
+                            txs_to_reintroduce,
                             "reintroduced transactions");
                 }
             }
