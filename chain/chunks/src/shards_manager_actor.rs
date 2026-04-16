@@ -486,13 +486,19 @@ impl ShardsManagerActor {
             match self.epoch_manager.get_chunk_producer_info_db(prev_block_hash, shard_id) {
                 Ok(info) => Some(info.take_account_id()),
                 Err(EpochError::MissingBlock(_) | EpochError::ChunkProducerSelectionError(_)) => {
-                    tracing::debug!(
-                        target: "chunks",
-                        ?prev_block_hash,
-                        %shard_id,
-                        "chunk producer not in DB, skipping producer routing preference"
-                    );
-                    None
+                    // prev_block not processed yet (orphan case). Fall back to
+                    // height-based computation using ancestor_hash for epoch resolution
+                    // so that receipt requests still go to the actual chunk producer.
+                    let epoch_id =
+                        self.epoch_manager.get_epoch_id_from_prev_block(ancestor_hash)?;
+                    match self.epoch_manager.get_chunk_producer_info(&ChunkProductionKey {
+                        epoch_id,
+                        height_created: height,
+                        shard_id,
+                    }) {
+                        Ok(info) => Some(info.take_account_id()),
+                        Err(_) => None,
+                    }
                 }
                 Err(err) => return Err(err.into()),
             };
@@ -656,15 +662,17 @@ impl ShardsManagerActor {
             .collect::<HashSet<_>>()
     }
 
-    /// Check whether the node should wait for chunk parts being forwarded to it
-    /// The node will wait if it's a block producer or a chunk producer that is responsible
-    /// for producing the next chunk in this shard.
-    /// `prev_block_hash`: the chunk's prev_block_hash (for DB lookup, may be unprocessed for orphans)
+    /// Check whether the node should wait for chunk parts being forwarded to it.
+    /// The node will wait if it's a block producer or the chunk producer responsible
+    /// for producing the *next* chunk in this shard (at `height_created + 1`),
+    /// because `send_partial_encoded_chunk_to_chunk_trackers` forwards parts to
+    /// that producer.
     /// `ancestor_hash`: a processed ancestor block hash (for epoch resolution)
+    /// `height_created`: the height of the chunk being requested
     fn should_wait_for_chunk_forwarding(
         &self,
-        prev_block_hash: &CryptoHash,
         ancestor_hash: &CryptoHash,
+        height_created: BlockHeight,
         shard_id: ShardId,
         me: Option<&AccountId>,
     ) -> Result<bool, EpochError> {
@@ -680,15 +688,18 @@ impl ShardsManagerActor {
                 return Ok(true);
             }
         }
-        let chunk_producer =
-            match self.epoch_manager.get_chunk_producer_info_db(prev_block_hash, shard_id) {
-                Ok(info) => info.take_account_id(),
-                Err(EpochError::MissingBlock(_) | EpochError::ChunkProducerSelectionError(_)) => {
-                    return Ok(false);
-                }
-                Err(err) => return Err(err),
-            };
-        if &chunk_producer == me {
+        // Check if we are the *next* chunk producer (height_created + 1), since
+        // that's who forwarded parts are sent to. This is a speculative lookup
+        // (no block hash for the next height), so use height-based computation.
+        let next_chunk_producer = self
+            .epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id,
+                height_created: height_created + 1,
+                shard_id,
+            })?
+            .take_account_id();
+        if &next_chunk_producer == me {
             return Ok(true);
         }
         Ok(false)
@@ -778,8 +789,8 @@ impl ShardsManagerActor {
 
         let should_wait_for_chunk_forwarding = self
             .should_wait_for_chunk_forwarding(
-                &prev_block_hash,
                 &ancestor_hash,
+                chunk_header.height_created(),
                 chunk_header.shard_id(),
                 me,
             )
@@ -3390,8 +3401,8 @@ mod test {
         // producer check doesn't short-circuit before reaching the DB lookup.
         let chunk_only_producer: AccountId = "test_cp_0".parse().unwrap();
         let result = shards_manager.should_wait_for_chunk_forwarding(
-            &prev_block_hash,
             &ancestor_hash,
+            fixture.mock_chunk_header.height_created(),
             fixture.mock_chunk_header.shard_id(),
             Some(&chunk_only_producer),
         );
