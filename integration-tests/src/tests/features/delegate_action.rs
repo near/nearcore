@@ -156,8 +156,9 @@ fn check_meta_tx_no_fn_call(
     receiver: AccountId,
 ) -> FinalExecutionOutcomeView {
     let fee_helper = fee_helper(node);
-    let gas_cost =
-        normal_tx_cost.checked_add(fee_helper.meta_tx_overhead_cost(&actions, &receiver)).unwrap();
+    let gas_cost = normal_tx_cost
+        .checked_add(fee_helper.meta_tx_overhead_cost(&actions, &sender, &receiver))
+        .unwrap();
 
     let (tx_result, sender_diff, relayer_diff, receiver_diff) =
         check_meta_tx_execution(node, actions, sender, relayer, receiver);
@@ -193,7 +194,7 @@ fn check_meta_tx_fn_call(
 ) -> FinalExecutionOutcomeView {
     let fee_helper = fee_helper(node);
     let num_fn_calls = actions.len();
-    let meta_tx_overhead_cost = fee_helper.meta_tx_overhead_cost(&actions, &receiver);
+    let meta_tx_overhead_cost = fee_helper.meta_tx_overhead_cost(&actions, &sender, &receiver);
     let prepaid_gas = total_prepaid_gas(&actions).unwrap();
 
     let (tx_result, sender_diff, relayer_diff, receiver_diff) =
@@ -596,7 +597,7 @@ fn meta_tx_delete_account() {
     // special case balance check for deleting account
     let gas_cost = fee_helper
         .prepaid_delete_account_cost()
-        .checked_add(fee_helper.meta_tx_overhead_cost(&actions, &receiver))
+        .checked_add(fee_helper.meta_tx_overhead_cost(&actions, &sender, &receiver))
         .unwrap();
     let (_tx_result, sender_diff, relayer_diff, receiver_diff) =
         check_meta_tx_execution(&node, actions, sender, relayer, receiver.clone());

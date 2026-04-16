@@ -403,9 +403,15 @@ impl FeeHelper {
     /// The overhead consists of:
     /// - The base cost of the delegate action (send and exec).
     /// - The additional send cost for all inner actions.
-    pub fn meta_tx_overhead_cost(&self, actions: &[Action], receiver: &AccountId) -> Balance {
-        // for tests, we assume sender != receiver
-        let sir = false;
+    pub fn meta_tx_overhead_cost(
+        &self,
+        actions: &[Action],
+        sender: &AccountId,
+        receiver: &AccountId,
+    ) -> Balance {
+        // The outer transaction is relayer->receiver, which is never sir.
+        // The inner actions' sir depends on the delegate's sender vs receiver.
+        let sir = sender == receiver;
         let base = self.cfg().fee(ActionCosts::delegate);
         let receipt = self.cfg().fee(ActionCosts::new_action_receipt);
         let total_gas = base
