@@ -130,34 +130,31 @@ impl TcpTransport {
         *self.shutdown_tx.lock() = Some(shutdown_tx);
 
         let this = self.clone();
-        self.spawner.spawn_boxed(
-            "PeerManagerActor listener loop",
-            Box::pin(async move {
-                loop {
-                    tokio::select! {
-                        _ = &mut shutdown_rx => break,
-                        res = listener.accept() => {
-                            let Ok(stream) = res else { continue };
-                            // Always let the new peer to send a handshake message.
-                            // Only then we can decide whether we should accept a connection.
-                            // It is expected to be reasonably cheap: eventually, for TIER2 network
-                            // we would like to exchange set of connected peers even without establishing
-                            // a proper connection.
-                            tracing::debug!(target: "network", from = ?stream.peer_addr, "got new connection");
-                            if let Err(err) = PeerActor::spawn(
-                                this.clock.clone(),
-                                this.actor_system.clone(),
-                                stream,
-                                this.state.clone(),
-                                this.clone(),
-                            ) {
-                                tracing::info!(target:"network", ?err, "peer actor spawn failed");
-                            }
+        self.spawner.spawn_boxed("PeerManagerActor listener loop", Box::pin(async move {
+            loop {
+                tokio::select! {
+                    _ = &mut shutdown_rx => break,
+                    res = listener.accept() => {
+                        let Ok(stream) = res else { continue };
+                        // Always let the new peer to send a handshake message.
+                        // Only then we can decide whether we should accept a connection.
+                        // It is expected to be reasonably cheap: eventually, for TIER2 network
+                        // we would like to exchange set of connected peers even without establishing
+                        // a proper connection.
+                        tracing::debug!(target: "network", from = ?stream.peer_addr, "got new connection");
+                        if let Err(err) = PeerActor::spawn(
+                            this.clock.clone(),
+                            this.actor_system.clone(),
+                            stream,
+                            this.state.clone(),
+                            this.clone(),
+                        ) {
+                            tracing::info!(target:"network", ?err, "peer actor spawn failed");
                         }
                     }
                 }
-            }),
-        );
+            }
+        }));
     }
 
     /// Spawn a PeerActor from an already-opened stream. Intended for
@@ -218,33 +215,33 @@ impl NetworkTransport for TcpTransport {
         };
         let (tx, rx) = oneshot::channel();
         let clock = clock.clone();
-        self.spawner.spawn_boxed(
-            "connect_to_peer",
-            Box::pin(async move {
-                let result: anyhow::Result<()> = async {
-                    let stream =
-                        tcp::Stream::connect(&peer_info, tier, &this.state.config.socket_options)
-                            .await
-                            .context("tcp::Stream::connect()")?;
-                    PeerActor::spawn_and_handshake(
-                        clock,
-                        this.actor_system.clone(),
-                        stream,
-                        this.state.clone(),
-                        this.clone(),
-                    )
-                    .await
-                    .context("PeerActor::spawn()")?;
-                    Ok(())
-                }
-                .await;
-                let result = result.map_err(|err| {
-                    tracing::info!(target: "network", %err, %peer_info, ?tier, "connect_to_peer failed");
-                    ConnectError::Failed
-                });
-                let _ = tx.send(result);
-            }),
-        );
+        self.spawner.spawn_boxed("connect_to_peer", Box::pin(async move {
+            let result: anyhow::Result<()> = async {
+                let stream = tcp::Stream::connect(
+                    &peer_info,
+                    tier,
+                    &this.state.config.socket_options,
+                )
+                .await
+                .context("tcp::Stream::connect()")?;
+                PeerActor::spawn_and_handshake(
+                    clock,
+                    this.actor_system.clone(),
+                    stream,
+                    this.state.clone(),
+                    this.clone(),
+                )
+                .await
+                .context("PeerActor::spawn()")?;
+                Ok(())
+            }
+            .await;
+            let result = result.map_err(|err| {
+                tracing::info!(target: "network", %err, %peer_info, ?tier, "connect_to_peer failed");
+                ConnectError::Failed
+            });
+            let _ = tx.send(result);
+        }));
         ConnectHandle::new(rx)
     }
 
