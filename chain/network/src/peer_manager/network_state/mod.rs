@@ -397,8 +397,11 @@ impl NetworkState {
                 tcp::Tier::T3 => {
                     if conn.peer_type == PeerType::Inbound {
                         // Reject inbound Tier3 connections that don't correspond to a
-                        // state sync request we sent.
-                        if this.pending_tier3_requests.remove(&peer_info.id).is_none() {
+                        // state sync request we sent. We check without removing so that
+                        // the entry remains valid for the full timeout window — the peer
+                        // may need to open additional T3 connections (e.g. if the first
+                        // was idle-closed before a later response is ready).
+                        if !this.pending_tier3_requests.contains_key(&peer_info.id) {
                             return Err(RegisterPeerError::UnexpectedTier3Connection);
                         }
                     }
