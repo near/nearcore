@@ -3,6 +3,7 @@
 use near_parameters::{ActionCosts, RuntimeConfig, RuntimeFeesConfig};
 use near_primitives::transaction::Action;
 use near_primitives::types::{AccountId, Balance, Gas};
+use near_primitives::version::PROTOCOL_VERSION;
 
 pub struct FeeHelper {
     pub rt_cfg: RuntimeConfig,
@@ -414,8 +415,14 @@ impl FeeHelper {
             .checked_add(receipt.send_fee(sir))
             .unwrap()
             .checked_add(
-                node_runtime::config::total_send_fees(&self.rt_cfg, sir, actions, receiver)
-                    .unwrap(),
+                node_runtime::config::total_send_fees(
+                    &self.rt_cfg,
+                    sir,
+                    actions,
+                    receiver,
+                    PROTOCOL_VERSION,
+                )
+                .unwrap(),
             )
             .unwrap();
         self.gas_to_balance(total_gas)

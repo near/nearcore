@@ -15,7 +15,7 @@ use near_primitives::receipt::{
     VersionedActionReceipt, VersionedReceiptEnum,
 };
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{EpochId, EpochInfoProvider, Gas, ShardId};
+use near_primitives::types::{EpochId, EpochInfoProvider, Gas, ProtocolVersion, ShardId};
 use near_store::trie::outgoing_metadata::{OutgoingMetadatas, ReceiptGroupsConfig};
 use near_store::trie::receipts_column_helper::{
     DelayedReceiptQueue, ShardsOutgoingReceiptBuffer, TrieQueue,
@@ -296,7 +296,11 @@ impl ReceiptSinkV2WithInfo {
     ) -> Result<(), RuntimeError> {
         let shard = receipt.receiver_shard_id(&self.info.shard_layout)?;
         let size = compute_receipt_size(&receipt)?;
-        let gas = compute_receipt_congestion_gas(&receipt, &apply_state.config)?;
+        let gas = compute_receipt_congestion_gas(
+            &receipt,
+            &apply_state.config,
+            apply_state.current_protocol_version,
+        )?;
 
         match ReceiptSinkV2::try_forward(
             receipt,
@@ -347,7 +351,11 @@ impl ReceiptSinkV2 {
             self.outgoing_buffers.to_shard(buffer_shard_id).iter(&state_update.trie, true)
         {
             let receipt = receipt_result?;
-            let gas = receipt_congestion_gas(&receipt, &apply_state.config)?;
+            let gas = receipt_congestion_gas(
+                &receipt,
+                &apply_state.config,
+                apply_state.current_protocol_version,
+            )?;
             let size = receipt_size(&receipt)?;
             let should_update_outgoing_metadatas = receipt.should_update_outgoing_metadatas();
             let receipt = receipt.into_receipt();
@@ -649,10 +657,11 @@ impl ReceiptSinkV2 {
 pub(crate) fn receipt_congestion_gas(
     receipt: &ReceiptOrStateStoredReceipt,
     config: &RuntimeConfig,
+    protocol_version: ProtocolVersion,
 ) -> Result<Gas, IntegerOverflowError> {
     match receipt {
         ReceiptOrStateStoredReceipt::Receipt(receipt) => {
-            compute_receipt_congestion_gas(receipt, config)
+            compute_receipt_congestion_gas(receipt, config, protocol_version)
         }
         ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt) => {
             Ok(receipt.metadata().congestion_gas)
@@ -670,11 +679,11 @@ pub(crate) fn receipt_congestion_gas(
 pub(crate) fn compute_receipt_congestion_gas(
     receipt: &Receipt,
     config: &RuntimeConfig,
+    protocol_version: ProtocolVersion,
 ) -> Result<Gas, IntegerOverflowError> {
     match receipt.versioned_receipt() {
         VersionedReceiptEnum::Action(action_receipt) => {
-            // account for gas guaranteed to be used for executing the receipts
-            action_receipt_congestion_gas(receipt, config, action_receipt.into())
+            action_receipt_congestion_gas(receipt, config, action_receipt.into(), protocol_version)
         }
         VersionedReceiptEnum::Data(_data_receipt) => {
             // Data receipts themselves don't cost gas to execute, their cost is
@@ -709,13 +718,15 @@ fn action_receipt_congestion_gas(
     receipt: &Receipt,
     config: &RuntimeConfig,
     action_receipt: VersionedActionReceipt,
+    protocol_version: ProtocolVersion,
 ) -> Result<Gas, IntegerOverflowError> {
     let prepaid_exec_gas =
         total_prepaid_exec_fees(config, &action_receipt.actions(), receipt.receiver_id())?
             .checked_add(config.fees.fee(ActionCosts::new_action_receipt).exec_fee())
             .ok_or(IntegerOverflowError)?;
     // account for gas guaranteed to be used for creating new receipts
-    let prepaid_send_gas = total_prepaid_send_fees(config, &action_receipt.actions())?;
+    let prepaid_send_gas =
+        total_prepaid_send_fees(config, &action_receipt.actions(), protocol_version)?;
     let prepaid_gas = prepaid_exec_gas.checked_add_result(prepaid_send_gas)?;
 
     // account for gas potentially used for dynamic execution
@@ -735,6 +746,7 @@ pub fn bootstrap_congestion_info(
     trie: &dyn near_store::TrieAccess,
     config: &RuntimeConfig,
     shard_id: ShardId,
+    protocol_version: ProtocolVersion,
 ) -> Result<CongestionInfo, StorageError> {
     let mut receipt_bytes: u64 = 0;
     let mut delayed_receipts_gas: u128 = 0;
@@ -743,8 +755,9 @@ pub fn bootstrap_congestion_info(
     let delayed_receipt_queue = &DelayedReceiptQueue::load(trie)?;
     for receipt_result in delayed_receipt_queue.iter(trie, true) {
         let receipt = receipt_result?;
-        let gas =
-            receipt_congestion_gas(&receipt, config).map_err(int_overflow_to_storage_err)?.as_gas();
+        let gas = receipt_congestion_gas(&receipt, config, protocol_version)
+            .map_err(int_overflow_to_storage_err)?
+            .as_gas();
         delayed_receipts_gas = safe_add_gas_to_u128(delayed_receipts_gas, Gas::from_gas(gas))
             .map_err(int_overflow_to_storage_err)?;
 
@@ -756,7 +769,7 @@ pub fn bootstrap_congestion_info(
     for shard in outgoing_buffers.shards() {
         for receipt_result in outgoing_buffers.to_shard(shard).iter(trie, true) {
             let receipt = receipt_result?;
-            let gas = receipt_congestion_gas(&receipt, config)
+            let gas = receipt_congestion_gas(&receipt, config, protocol_version)
                 .map_err(int_overflow_to_storage_err)?
                 .as_gas();
             buffered_receipts_gas = safe_add_gas_to_u128(buffered_receipts_gas, Gas::from_gas(gas))
@@ -834,7 +847,11 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
     ) -> Result<(), RuntimeError> {
         let config = &apply_state.config;
 
-        let gas = compute_receipt_congestion_gas(&receipt, &config)?;
+        let gas = compute_receipt_congestion_gas(
+            &receipt,
+            &config,
+            apply_state.current_protocol_version,
+        )?;
         let size = compute_receipt_size(&receipt)? as u64;
 
         // TODO It would be great to have this method take owned Receipt and
@@ -872,6 +889,7 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
         &mut self,
         trie_update: &mut TrieUpdate,
         config: &RuntimeConfig,
+        protocol_version: ProtocolVersion,
     ) -> Result<Option<ReceiptOrStateStoredReceipt>, RuntimeError> {
         // While processing receipts, we need to keep track of the gas and bytes
         // even for receipts that may be filtered out due to a resharding event
@@ -883,7 +901,7 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
             let Some(receipt) = self.queue.pop_front(trie_update)? else {
                 break;
             };
-            let delayed_gas = receipt_congestion_gas(&receipt, &config)?;
+            let delayed_gas = receipt_congestion_gas(&receipt, &config, protocol_version)?;
             let delayed_bytes = receipt_size(&receipt)? as u64;
             self.removed_delayed_gas =
                 self.removed_delayed_gas.checked_add(delayed_gas).ok_or(IntegerOverflowError)?;

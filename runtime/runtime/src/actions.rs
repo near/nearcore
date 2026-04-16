@@ -513,7 +513,11 @@ pub(crate) fn apply_delegate_action(
     // Some contracts refund the deposit. Usually they refund the deposit to the predecessor and this is sender_id/Sender from DelegateAction.
     // Therefore Relayer should verify DelegateAction before submitting it because it spends the attached deposit.
 
-    let prepaid_send_fees = total_prepaid_send_fees(&apply_state.config, action_receipt.actions())?;
+    let prepaid_send_fees = total_prepaid_send_fees(
+        &apply_state.config,
+        action_receipt.actions(),
+        apply_state.current_protocol_version,
+    )?;
     let required_gas = receipt_required_gas(apply_state, &new_receipt)?;
     // This gas will be burnt by the receiver of the created receipt,
     result.gas_used = result.gas_used.checked_add_result(required_gas)?;

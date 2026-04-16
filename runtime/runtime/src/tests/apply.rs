@@ -1,6 +1,6 @@
 use super::GAS_PRICE;
 use crate::access_keys::initial_nonce_value;
-use crate::config::tx_cost;
+use crate::config::{total_prepaid_send_fees, total_send_fees, tx_cost};
 use crate::congestion_control::{compute_receipt_congestion_gas, compute_receipt_size};
 use crate::tests::{
     MAX_ATTACHED_GAS, create_receipt_for_create_account, create_receipt_with_actions,
@@ -2697,7 +2697,13 @@ fn test_congestion_delayed_receipts_accounting() {
     let congestion = apply_result.congestion_info.unwrap();
     let expected_delayed_gas = Gas::from_gas(
         (n - 1)
-            * compute_receipt_congestion_gas(&receipts[0], &apply_state.config).unwrap().as_gas(),
+            * compute_receipt_congestion_gas(
+                &receipts[0],
+                &apply_state.config,
+                apply_state.current_protocol_version,
+            )
+            .unwrap()
+            .as_gas(),
     );
     let expected_receipts_bytes = (n - 1) * compute_receipt_size(&receipts[0]).unwrap() as u64;
 
@@ -3334,7 +3340,8 @@ fn test_fix_access_key_allowance_no_mutation_on_failed_tx() {
             CryptoHash::default(),
         );
         let sample_cost =
-            crate::config::tx_cost(&config, &sample_tx.transaction, GAS_PRICE).unwrap();
+            crate::config::tx_cost(&config, &sample_tx.transaction, GAS_PRICE, protocol_version)
+                .unwrap();
         // Set allowance so it covers exactly one transaction's total_cost.
         let allowance = sample_cost.total_cost;
 
@@ -3756,8 +3763,13 @@ fn test_apply_gas_key_transaction() {
         vec![Action::Transfer(TransferAction { deposit: transfer_amount })],
         CryptoHash::default(),
     );
-    let transaction_cost =
-        tx_cost(&apply_state.config, &gas_key_tx.transaction, apply_state.gas_price).unwrap();
+    let transaction_cost = tx_cost(
+        &apply_state.config,
+        &gas_key_tx.transaction,
+        apply_state.gas_price,
+        apply_state.current_protocol_version,
+    )
+    .unwrap();
 
     // Apply the transaction
     let signed_valid_period_txs = SignedValidPeriodTransactions::new(vec![gas_key_tx], vec![true]);
@@ -3941,8 +3953,13 @@ fn test_gas_key_tx_deposit_insufficient_charges_gas() {
         vec![Action::Transfer(TransferAction { deposit: Balance::from_near(1000) })],
         CryptoHash::default(),
     );
-    let transaction_cost =
-        tx_cost(&apply_state.config, &gas_key_tx.transaction, apply_state.gas_price).unwrap();
+    let transaction_cost = tx_cost(
+        &apply_state.config,
+        &gas_key_tx.transaction,
+        apply_state.gas_price,
+        apply_state.current_protocol_version,
+    )
+    .unwrap();
 
     let signed_valid_period_txs = SignedValidPeriodTransactions::new(vec![gas_key_tx], vec![true]);
     let apply_result = runtime
@@ -4105,5 +4122,83 @@ fn test_one_yocto_subsidy_tracked_in_stats() {
         apply_result.stats.balance.subsidized_amount,
         Balance::from_yoctonear(2),
         "stats should track 2 yoctoNEAR subsidized across two zero-balance contract calls"
+    );
+}
+
+/// Build a delegate action where the inner delegate is bob->bob (sir=true)
+/// with a 10KB FunctionCall payload wrapped in a single Delegate action.
+fn make_delegate_actions_for_sir_test() -> (AccountId, Vec<Action>) {
+    let bob: AccountId = bob_account();
+    let signer = InMemorySigner::test_signer(&bob);
+    let inner_actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
+        method_name: "call".to_string(),
+        args: vec![0u8; 10_000],
+        gas: Gas::from_teragas(5),
+        deposit: Balance::ZERO,
+    }))];
+    let delegate_action = DelegateAction {
+        sender_id: bob.clone(),
+        receiver_id: bob.clone(),
+        actions: inner_actions
+            .iter()
+            .map(|a| NonDelegateAction::try_from(a.clone()).unwrap())
+            .collect(),
+        nonce: 1,
+        max_block_height: 10000,
+        public_key: signer.public_key(),
+    };
+    let actions = vec![Action::Delegate(Box::new(SignedDelegateAction {
+        signature: signer.sign(delegate_action.get_nep461_hash().as_bytes()),
+        delegate_action,
+    }))];
+    (bob, actions)
+}
+
+/// Before FixDelegateSendFeeSir: total_send_fees uses the outer tx's
+/// sender_is_receiver flag for inner delegate actions, overcharging gas_burnt.
+///
+/// Scenario: outer tx is alice->bob (sir=false), inner delegate is bob->bob
+/// (sir=true). total_send_fees charges inner actions at the send_not_sir rate
+/// while total_prepaid_send_fees correctly uses send_sir.
+#[test]
+fn test_delegate_send_fee_sir_legacy() {
+    let config_store = near_parameters::RuntimeConfigStore::new(None);
+    let fix_version = ProtocolFeature::FixDelegateSendFeeSir.protocol_version();
+    let (bob, actions) = make_delegate_actions_for_sir_test();
+    let sender_is_receiver = false; // outer tx alice->bob
+
+    let config = config_store.get_config(fix_version - 1);
+    let delegate_base_fee = config.fees.fee(ActionCosts::delegate).send_fee(sender_is_receiver);
+    let send_fees =
+        total_send_fees(&config, sender_is_receiver, &actions, &bob, fix_version - 1).unwrap();
+    let prepaid = total_prepaid_send_fees(&config, &actions, fix_version - 1).unwrap();
+    // total_send_fees includes the delegate base fee; subtract it to isolate inner fees.
+    let inner_send = send_fees.checked_sub(delegate_base_fee).unwrap();
+    assert!(
+        inner_send > prepaid,
+        "before fix: inner send fees ({inner_send}) should overcharge vs \
+         total_prepaid_send_fees ({prepaid})"
+    );
+}
+
+/// After FixDelegateSendFeeSir: total_send_fees computes sender_is_receiver
+/// from the delegate action's own sender/receiver, matching
+/// total_prepaid_send_fees.
+#[test]
+fn test_delegate_send_fee_sir() {
+    let config_store = near_parameters::RuntimeConfigStore::new(None);
+    let fix_version = ProtocolFeature::FixDelegateSendFeeSir.protocol_version();
+    let (bob, actions) = make_delegate_actions_for_sir_test();
+    let sender_is_receiver = false; // outer tx alice->bob
+
+    let config = config_store.get_config(fix_version);
+    let delegate_base_fee = config.fees.fee(ActionCosts::delegate).send_fee(sender_is_receiver);
+    let send_fees =
+        total_send_fees(&config, sender_is_receiver, &actions, &bob, fix_version).unwrap();
+    let prepaid = total_prepaid_send_fees(&config, &actions, fix_version).unwrap();
+    let inner_send = send_fees.checked_sub(delegate_base_fee).unwrap();
+    assert_eq!(
+        inner_send, prepaid,
+        "after fix: inner send fees and total_prepaid_send_fees must agree"
     );
 }

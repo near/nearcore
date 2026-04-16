@@ -1210,7 +1210,8 @@ mod tests {
                     return;
                 }
             };
-        let cost = match tx_cost(config, &validated_tx.to_tx(), gas_price) {
+        let cost = match tx_cost(config, &validated_tx.to_tx(), gas_price, current_protocol_version)
+        {
             Ok(c) => c,
             Err(err) => {
                 assert_eq!(InvalidTxError::from(err), expected_err);
@@ -1254,7 +1255,8 @@ mod tests {
             Err((err, _tx)) => return Err(err),
         };
         let (mut signer, mut access_key) = get_signer_and_access_key(state_update, &validated_tx)?;
-        let transaction_cost = tx_cost(config, &validated_tx.to_tx(), gas_price)?;
+        let transaction_cost =
+            tx_cost(config, &validated_tx.to_tx(), gas_price, current_protocol_version)?;
         let tx = validated_tx.to_tx();
 
         // Check if this is a gas key transaction
@@ -3237,14 +3239,16 @@ mod tests {
             CryptoHash::default(),
         );
 
-        let tx_cost = tx_cost(&config, &signed_tx.transaction, gas_price).unwrap();
+        let protocol_version = ProtocolFeature::GasKeys.protocol_version();
+        let tx_cost =
+            tx_cost(&config, &signed_tx.transaction, gas_price, protocol_version).unwrap();
         let err = validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
             signed_tx,
             gas_price,
             None,
-            ProtocolFeature::GasKeys.protocol_version(),
+            protocol_version,
         )
         .expect_err("should fail with not enough gas key balance");
 
@@ -3309,14 +3313,16 @@ mod tests {
             CryptoHash::default(),
         );
 
-        let tx_cost = tx_cost(&config, &signed_tx.transaction, gas_price).unwrap();
+        let protocol_version = ProtocolFeature::GasKeys.protocol_version();
+        let tx_cost =
+            tx_cost(&config, &signed_tx.transaction, gas_price, protocol_version).unwrap();
         validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
             signed_tx,
             gas_price,
             None,
-            ProtocolFeature::GasKeys.protocol_version(),
+            protocol_version,
         )
         .unwrap();
 
@@ -3385,11 +3391,10 @@ mod tests {
             vec![Action::Transfer(TransferAction { deposit: Balance::from_near(1000) })],
             CryptoHash::default(),
         );
-        let validated_tx =
-            validate_transaction(&config, signed_tx, ProtocolFeature::GasKeys.protocol_version())
-                .unwrap();
+        let protocol_version = ProtocolFeature::GasKeys.protocol_version();
+        let validated_tx = validate_transaction(&config, signed_tx, protocol_version).unwrap();
         let tx = validated_tx.to_tx();
-        let cost = tx_cost(&config, &tx, gas_price).unwrap();
+        let cost = tx_cost(&config, &tx, gas_price, protocol_version).unwrap();
         let (signer_account, access_key) =
             get_signer_and_access_key(&state_update, &validated_tx).unwrap();
         let current_nonce =
@@ -3448,11 +3453,10 @@ mod tests {
             vec![Action::Transfer(TransferAction { deposit })],
             CryptoHash::default(),
         );
-        let validated_tx =
-            validate_transaction(&config, signed_tx, ProtocolFeature::GasKeys.protocol_version())
-                .unwrap();
+        let protocol_version = ProtocolFeature::GasKeys.protocol_version();
+        let validated_tx = validate_transaction(&config, signed_tx, protocol_version).unwrap();
         let tx = validated_tx.to_tx();
-        let cost = tx_cost(&config, &tx, gas_price).unwrap();
+        let cost = tx_cost(&config, &tx, gas_price, protocol_version).unwrap();
         let (signer_account, access_key) =
             get_signer_and_access_key(&state_update, &validated_tx).unwrap();
         let current_nonce =

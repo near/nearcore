@@ -836,6 +836,7 @@ impl Runtime {
                 &action_receipt,
                 &mut result,
                 &apply_state.config,
+                apply_state.current_protocol_version,
             )?
         };
         stats.balance.gas_deficit_amount =
@@ -1039,10 +1040,15 @@ impl Runtime {
         action_receipt: &VersionedActionReceipt,
         result: &mut ActionResult,
         config: &RuntimeConfig,
+        protocol_version: ProtocolVersion,
     ) -> Result<GasRefundResult, RuntimeError> {
         let total_deposit = total_deposit(&action_receipt.actions())?;
         let prepaid_gas = total_prepaid_gas(&action_receipt.actions())?
-            .checked_add(total_prepaid_send_fees(config, &action_receipt.actions())?)
+            .checked_add(total_prepaid_send_fees(
+                config,
+                &action_receipt.actions(),
+                protocol_version,
+            )?)
             .ok_or(IntegerOverflowError)?;
         let prepaid_exec_gas =
             total_prepaid_exec_fees(config, &action_receipt.actions(), receipt.receiver_id())?
@@ -1878,25 +1884,29 @@ impl Runtime {
             let tx_hash = tx.hash();
             let block_height = processing_state.apply_state.block_height;
 
-            let cost =
-                match tx_cost(&processing_state.apply_state.config, &tx.transaction, gas_price) {
-                    Ok(c) => c,
-                    Err(error) => {
-                        metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                        let tx_error = match error {
-                            IntegerOverflowError => InvalidTxError::CostOverflow,
-                        };
-                        let outcome = ExecutionOutcomeWithId::failed(tx, tx_error);
-                        let error = &error as &dyn std::error::Error;
-                        tracing::debug!(%tx_hash, error, "transaction cost calculation failed");
-                        Self::register_outcome(
-                            processing_state.protocol_version,
-                            &mut processing_state.outcomes,
-                            outcome,
-                        );
-                        continue;
-                    }
-                };
+            let cost = match tx_cost(
+                &processing_state.apply_state.config,
+                &tx.transaction,
+                gas_price,
+                processing_state.apply_state.current_protocol_version,
+            ) {
+                Ok(c) => c,
+                Err(error) => {
+                    metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                    let tx_error = match error {
+                        IntegerOverflowError => InvalidTxError::CostOverflow,
+                    };
+                    let outcome = ExecutionOutcomeWithId::failed(tx, tx_error);
+                    let error = &error as &dyn std::error::Error;
+                    tracing::debug!(%tx_hash, error, "transaction cost calculation failed");
+                    Self::register_outcome(
+                        processing_state.protocol_version,
+                        &mut processing_state.outcomes,
+                        outcome,
+                    );
+                    continue;
+                }
+            };
 
             let mut account = accounts.get_mut(signer_id);
             let account = match account.as_deref_mut() {
@@ -2335,10 +2345,11 @@ impl Runtime {
                 break;
             }
 
-            let receipt = if let Some(receipt) = processing_state
-                .delayed_receipts
-                .pop(&mut processing_state.state_update, &processing_state.apply_state.config)?
-            {
+            let receipt = if let Some(receipt) = processing_state.delayed_receipts.pop(
+                &mut processing_state.state_update,
+                &processing_state.apply_state.config,
+                processing_state.apply_state.current_protocol_version,
+            )? {
                 receipt.into_receipt()
             } else {
                 // Break loop if there are no more receipts to be processed.
@@ -2763,7 +2774,12 @@ impl ApplyState {
 
         tracing::warn!(target: "runtime", "starting to bootstrap congestion info, this might take a while");
         let start = std::time::Instant::now();
-        let result = bootstrap_congestion_info(trie, &self.config, self.shard_id);
+        let result = bootstrap_congestion_info(
+            trie,
+            &self.config,
+            self.shard_id,
+            self.current_protocol_version,
+        );
         let time = start.elapsed();
         tracing::warn!(target: "runtime", ?time, "bootstrapping congestion info done");
         let computed = result?;

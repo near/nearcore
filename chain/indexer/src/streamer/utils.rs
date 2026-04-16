@@ -3,7 +3,7 @@ use near_indexer_primitives::IndexerTransactionWithOutcome;
 use near_parameters::RuntimeConfig;
 use near_primitives::action::Action;
 use near_primitives::receipt::Receipt;
-use near_primitives::types::Balance;
+use near_primitives::types::{Balance, ProtocolVersion};
 use near_primitives::views::{ExecutionStatusView, ReceiptEnumView, ReceiptView};
 use node_runtime::config::calculate_tx_cost;
 
@@ -11,6 +11,7 @@ pub(crate) fn convert_transactions_sir_into_local_receipts<'a>(
     tx_iter: impl IntoIterator<Item = &'a IndexerTransactionWithOutcome>,
     runtime_config: &RuntimeConfig,
     gas_price: Balance,
+    protocol_version: ProtocolVersion,
 ) -> Vec<ReceiptView> {
     let mut local_receipts = Vec::new();
     for indexer_tx in tx_iter {
@@ -29,9 +30,15 @@ pub(crate) fn convert_transactions_sir_into_local_receipts<'a>(
         };
         let actions: Vec<_> =
             tx.actions.iter().cloned().map(Action::try_from).map(Result::unwrap).collect();
-        let cost =
-            calculate_tx_cost(&tx.receiver_id, &tx.signer_id, &actions, &runtime_config, gas_price)
-                .unwrap();
+        let cost = calculate_tx_cost(
+            &tx.receiver_id,
+            &tx.signer_id,
+            &actions,
+            &runtime_config,
+            gas_price,
+            protocol_version,
+        )
+        .unwrap();
         // Use empty actions here and clone actions from transactions later.
         // Note that we cannot just pass `actions` here since conversion
         // ActionView -> Action -> ActionView does not always preserve the

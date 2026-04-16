@@ -13,6 +13,8 @@ use near_parameters::{
 pub use near_primitives::num_rational::Rational32;
 use near_primitives::transaction::{Action, DeployContractAction, Transaction};
 use near_primitives::types::{AccountId, Balance, Compute, Gas};
+use near_primitives::version::ProtocolFeature;
+use near_primitives_core::types::ProtocolVersion;
 
 /// Describes the cost of converting this transaction into a receipt.
 #[derive(Debug)]
@@ -69,6 +71,7 @@ pub fn total_send_fees(
     sender_is_receiver: bool,
     actions: &[Action],
     receiver_id: &AccountId,
+    protocol_version: ProtocolVersion,
 ) -> Result<Gas, IntegerOverflowError> {
     let mut result = Gas::ZERO;
     let fees = &config.fees;
@@ -121,13 +124,20 @@ pub fn total_send_fees(
             Delegate(signed_delegate_action) => {
                 let delegate_cost = fees.fee(ActionCosts::delegate).send_fee(sender_is_receiver);
                 let delegate_action = &signed_delegate_action.delegate_action;
+                let inner_sir = if ProtocolFeature::FixDelegateSendFeeSir.enabled(protocol_version)
+                {
+                    delegate_action.sender_id == delegate_action.receiver_id
+                } else {
+                    sender_is_receiver
+                };
 
                 delegate_cost
                     .checked_add(total_send_fees(
                         config,
-                        sender_is_receiver,
+                        inner_sir,
                         &delegate_action.get_actions(),
                         &delegate_action.receiver_id,
+                        protocol_version,
                     )?)
                     .unwrap()
             }
@@ -220,6 +230,7 @@ fn permission_send_fees(
 pub fn total_prepaid_send_fees(
     config: &RuntimeConfig,
     actions: &[Action],
+    protocol_version: ProtocolVersion,
 ) -> Result<Gas, IntegerOverflowError> {
     let mut result = Gas::ZERO;
     for action in actions {
@@ -234,6 +245,7 @@ pub fn total_prepaid_send_fees(
                     sender_is_receiver,
                     &delegate_action.get_actions(),
                     &delegate_action.receiver_id,
+                    protocol_version,
                 )?
             }
             _ => Gas::ZERO,
@@ -360,8 +372,16 @@ pub fn tx_cost(
     config: &RuntimeConfig,
     tx: &Transaction,
     receipt_gas_price: Balance,
+    protocol_version: ProtocolVersion,
 ) -> Result<TransactionCost, IntegerOverflowError> {
-    calculate_tx_cost(tx.receiver_id(), tx.signer_id(), tx.actions(), config, receipt_gas_price)
+    calculate_tx_cost(
+        tx.receiver_id(),
+        tx.signer_id(),
+        tx.actions(),
+        config,
+        receipt_gas_price,
+        protocol_version,
+    )
 }
 
 pub fn calculate_tx_cost(
@@ -370,6 +390,7 @@ pub fn calculate_tx_cost(
     actions: &[Action],
     config: &RuntimeConfig,
     receipt_gas_price: Balance,
+    protocol_version: ProtocolVersion,
 ) -> Result<TransactionCost, IntegerOverflowError> {
     let sender_is_receiver = receiver_id == signer_id;
     let fees = &config.fees;
@@ -379,9 +400,13 @@ pub fn calculate_tx_cost(
         sender_is_receiver,
         actions,
         receiver_id,
+        protocol_version,
     )?)?;
-    let prepaid_gas = total_prepaid_gas(&actions)?
-        .checked_add_result(total_prepaid_send_fees(config, &actions)?)?;
+    let prepaid_gas = total_prepaid_gas(&actions)?.checked_add_result(total_prepaid_send_fees(
+        config,
+        &actions,
+        protocol_version,
+    )?)?;
     let mut gas_remaining =
         prepaid_gas.checked_add_result(fees.fee(ActionCosts::new_action_receipt).exec_fee())?;
     gas_remaining =

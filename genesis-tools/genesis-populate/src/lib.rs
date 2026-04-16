@@ -337,7 +337,12 @@ impl GenesisBuilder {
         let trie = self.runtime.get_trie_for_shard(shard_id, prev_hash, state_root, true)?;
         let protocol_config = self.runtime.get_protocol_config(genesis.header().epoch_id())?;
         let runtime_config = protocol_config.runtime_config;
-        let congestion_info = bootstrap_congestion_info(&trie, &runtime_config, shard_id)?;
+        let congestion_info = bootstrap_congestion_info(
+            &trie,
+            &runtime_config,
+            shard_id,
+            self.genesis.config.protocol_version,
+        )?;
         Ok(congestion_info)
     }
 

@@ -120,12 +120,14 @@ impl BootstrapCmd {
         state_root: StateRoot,
     ) {
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_hash).unwrap();
+        let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
         let protocol_config = runtime.get_protocol_config(&epoch_id).unwrap();
         let runtime_config = protocol_config.runtime_config;
         let trie = runtime.get_trie_for_shard(shard_id, &prev_hash, state_root, true).unwrap();
 
         let start_time = std::time::Instant::now();
-        let congestion_info = bootstrap_congestion_info(&trie, &runtime_config, shard_id).unwrap();
+        let congestion_info =
+            bootstrap_congestion_info(&trie, &runtime_config, shard_id, protocol_version).unwrap();
         let duration = start_time.elapsed();
 
         println!("{:?} - {:?} - {:?}", shard_id, congestion_info, duration);

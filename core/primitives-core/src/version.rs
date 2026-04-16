@@ -385,6 +385,12 @@ pub enum ProtocolFeature {
     /// during header sync and block processing. Foundation for early chunk producer
     /// kickout without epoch manager recomputation.
     EarlyKickout,
+    /// Fix `total_send_fees` passing the outer transaction's `sender_is_receiver`
+    /// flag when computing send fees for inner delegate actions. Before this fix,
+    /// `gas_burnt` (non-refundable) was overcharged on meta-transactions where
+    /// the relayer differs from the delegate receiver, because the per-byte
+    /// `send_not_sir` rate was used instead of `send_sir`.
+    FixDelegateSendFeeSir,
 }
 
 impl ProtocolFeature {
@@ -495,7 +501,8 @@ impl ProtocolFeature {
             | ProtocolFeature::InstantDeleteAccount => 83,
             ProtocolFeature::Wasmtime => 84,
             ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
-            | ProtocolFeature::ContinuousEpochSync => 85,
+            | ProtocolFeature::ContinuousEpochSync
+            | ProtocolFeature::FixDelegateSendFeeSir => 85,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
