@@ -22,6 +22,7 @@ ethabi.workspace = true
 futures.workspace = true
 hex.workspace = true
 itertools.workspace = true
+p256.workspace = true
 parking_lot.workspace = true
 primitive-types.workspace = true
 rand.workspace = true
@@ -34,6 +35,7 @@ tempfile.workspace = true
 tokio.workspace = true
 tower-service.workspace = true
 tracing.workspace = true
+wat.workspace = true
 
 near-async.workspace = true
 near-chain.workspace = true
