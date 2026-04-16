@@ -516,6 +516,7 @@ pub(crate) fn apply_delegate_action(
     let prepaid_send_fees = total_prepaid_send_fees(
         &apply_state.config,
         action_receipt.actions(),
+        sender_id,
         apply_state.current_protocol_version,
     )?;
     let required_gas = receipt_required_gas(apply_state, &new_receipt)?;

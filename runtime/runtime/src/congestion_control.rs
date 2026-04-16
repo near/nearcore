@@ -725,8 +725,12 @@ fn action_receipt_congestion_gas(
             .checked_add(config.fees.fee(ActionCosts::new_action_receipt).exec_fee())
             .ok_or(IntegerOverflowError)?;
     // account for gas guaranteed to be used for creating new receipts
-    let prepaid_send_gas =
-        total_prepaid_send_fees(config, &action_receipt.actions(), protocol_version)?;
+    let prepaid_send_gas = total_prepaid_send_fees(
+        config,
+        &action_receipt.actions(),
+        receipt.receiver_id(),
+        protocol_version,
+    )?;
     let prepaid_gas = prepaid_exec_gas.checked_add_result(prepaid_send_gas)?;
 
     // account for gas potentially used for dynamic execution

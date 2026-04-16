@@ -126,7 +126,7 @@ pub fn total_send_fees(
                 let delegate_action = &signed_delegate_action.delegate_action;
                 let inner_sir = if ProtocolFeature::FixDelegateSendFeeSir.enabled(protocol_version)
                 {
-                    delegate_action.sender_id == delegate_action.receiver_id
+                    *receiver_id == delegate_action.receiver_id
                 } else {
                     sender_is_receiver
                 };
@@ -230,6 +230,7 @@ fn permission_send_fees(
 pub fn total_prepaid_send_fees(
     config: &RuntimeConfig,
     actions: &[Action],
+    receiver_id: &AccountId,
     protocol_version: ProtocolVersion,
 ) -> Result<Gas, IntegerOverflowError> {
     let mut result = Gas::ZERO;
@@ -238,7 +239,7 @@ pub fn total_prepaid_send_fees(
         let delta = match action {
             Delegate(signed_delegate_action) => {
                 let delegate_action = &signed_delegate_action.delegate_action;
-                let sender_is_receiver = delegate_action.sender_id == delegate_action.receiver_id;
+                let sender_is_receiver = *receiver_id == delegate_action.receiver_id;
 
                 total_send_fees(
                     config,
@@ -405,6 +406,7 @@ pub fn calculate_tx_cost(
     let prepaid_gas = total_prepaid_gas(&actions)?.checked_add_result(total_prepaid_send_fees(
         config,
         &actions,
+        receiver_id,
         protocol_version,
     )?)?;
     let mut gas_remaining =

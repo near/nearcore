@@ -1047,6 +1047,7 @@ impl Runtime {
             .checked_add(total_prepaid_send_fees(
                 config,
                 &action_receipt.actions(),
+                receipt.receiver_id(),
                 protocol_version,
             )?)
             .ok_or(IntegerOverflowError)?;

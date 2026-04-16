@@ -4171,7 +4171,7 @@ fn test_delegate_send_fee_sir_legacy() {
     let delegate_base_fee = config.fees.fee(ActionCosts::delegate).send_fee(sender_is_receiver);
     let send_fees =
         total_send_fees(&config, sender_is_receiver, &actions, &bob, fix_version - 1).unwrap();
-    let prepaid = total_prepaid_send_fees(&config, &actions, fix_version - 1).unwrap();
+    let prepaid = total_prepaid_send_fees(&config, &actions, &bob, fix_version - 1).unwrap();
     // total_send_fees includes the delegate base fee; subtract it to isolate inner fees.
     let inner_send = send_fees.checked_sub(delegate_base_fee).unwrap();
     assert!(
@@ -4195,7 +4195,7 @@ fn test_delegate_send_fee_sir() {
     let delegate_base_fee = config.fees.fee(ActionCosts::delegate).send_fee(sender_is_receiver);
     let send_fees =
         total_send_fees(&config, sender_is_receiver, &actions, &bob, fix_version).unwrap();
-    let prepaid = total_prepaid_send_fees(&config, &actions, fix_version).unwrap();
+    let prepaid = total_prepaid_send_fees(&config, &actions, &bob, fix_version).unwrap();
     let inner_send = send_fees.checked_sub(delegate_base_fee).unwrap();
     assert_eq!(
         inner_send, prepaid,
