@@ -1415,8 +1415,9 @@ impl messaging::Handler<PeerManagerMessageRequest, PeerManagerMessageResponse>
     for PeerManagerActor
 {
     fn handle(&mut self, msg: PeerManagerMessageRequest) -> PeerManagerMessageResponse {
-        let _timer =
-            metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
+        let _timer = metrics::PEER_MANAGER_MESSAGES_TIME
+            .with_label_values::<&str>(&[(&msg).into()])
+            .start_timer();
         self.handle_peer_manager_message(msg)
     }
 }
@@ -1431,8 +1432,9 @@ impl messaging::Handler<PeerManagerMessageRequest> for PeerManagerActor {
 
 impl messaging::Handler<StateSyncEvent> for PeerManagerActor {
     fn handle(&mut self, msg: StateSyncEvent) {
-        let _timer =
-            metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
+        let _timer = metrics::PEER_MANAGER_MESSAGES_TIME
+            .with_label_values::<&str>(&[(&msg).into()])
+            .start_timer();
         match msg {
             StateSyncEvent::StatePartReceived(shard_id, part_id) => {
                 self.state.snapshot_hosts.part_received(shard_id, part_id);
@@ -1444,7 +1446,7 @@ impl messaging::Handler<StateSyncEvent> for PeerManagerActor {
 impl messaging::Handler<Tier3Request> for PeerManagerActor {
     fn handle(&mut self, request: Tier3Request) {
         let _timer = metrics::PEER_MANAGER_TIER3_REQUEST_TIME
-            .with_label_values(&[(&request.body).into()])
+            .with_label_values::<&str>(&[(&request.body).into()])
             .start_timer();
 
         let state = self.state.clone();
