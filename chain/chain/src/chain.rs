@@ -69,7 +69,7 @@ use near_primitives::optimistic_block::{
     BlockToApply, CachedShardUpdateKey, OptimisticBlock, OptimisticBlockKeySource,
 };
 use near_primitives::receipt::Receipt;
-use near_primitives::sandbox::state_patch::SandboxStatePatch;
+use near_primitives::sandbox::state_patch::{SandboxPatchTracker, SandboxStatePatch};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{
     ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof, StateSyncInfo,
@@ -302,19 +302,9 @@ pub struct Chain {
     /// Prevents re-application of known-to-be-invalid blocks, so that in case of a
     /// protocol issue we can recover faster by focusing on correct blocks.
     invalid_blocks: LruCache<CryptoHash, ()>,
-    /// Support for sandbox's patch_state requests.
-    ///
-    /// Sandbox needs ability to arbitrary modify the state. Blockchains
-    /// naturally prevent state tampering, so we can't *just* modify data in
-    /// place in the database. Instead, we will include this "bonus changes" in
-    /// the next block we'll be processing, keeping them in this field in the
-    /// meantime.
-    ///
-    /// Note that without `sandbox` feature enabled, `SandboxStatePatch` is
-    /// a ZST.  All methods of the type are no-ops which behave as if the object
-    /// was empty and could not hold any records (which it cannot).  It's
-    /// impossible to have non-empty state patch on non-sandbox builds.
-    pending_state_patch: SandboxStatePatch,
+    /// Tracks sandbox state patches through the block processing pipeline.
+    /// On non-sandbox builds this is a ZST and every method is a no-op.
+    sandbox_patches: SandboxPatchTracker,
     /// A callback to initiate state snapshot.
     snapshot_callbacks: Option<SnapshotCallbacks>,
     /// Manages all tasks related to resharding.
@@ -458,7 +448,7 @@ impl Chain {
             last_time_head_updated: clock.now(),
             processed_hashes: LruCache::new(NonZeroUsize::new(PROCESSED_HASHES_POOL_SIZE).unwrap()),
             invalid_blocks: LruCache::new(NonZeroUsize::new(INVALID_CHUNKS_POOL_SIZE).unwrap()),
-            pending_state_patch: Default::default(),
+            sandbox_patches: Default::default(),
             snapshot_callbacks: None,
             resharding_manager,
             validator_signer,
@@ -640,7 +630,7 @@ impl Chain {
             memtrie_loading_spawner: memtrie_loading_spawner.into_spawner(),
             apply_chunk_results_cache: ApplyChunksResultCache::new(APPLY_CHUNK_RESULTS_CACHE_SIZE),
             last_time_head_updated: clock.now(),
-            pending_state_patch: Default::default(),
+            sandbox_patches: Default::default(),
             snapshot_callbacks,
             resharding_manager,
             validator_signer,
@@ -1650,14 +1640,12 @@ impl Chain {
 
         // 1) preprocess the block where we verify that the block is valid and ready to be processed
         //    No chain updates are applied at this step.
-        let state_patch = self.pending_state_patch.take();
         let preprocess_timer = metrics::BLOCK_PREPROCESSING_TIME.start_timer();
         let preprocess_res = self.preprocess_block(
             &block,
             &provenance,
             &mut block_processing_artifact.invalid_chunks,
             block_received_time,
-            state_patch,
         );
         let preprocess_res = match preprocess_res {
             Ok(preprocess_res) => {
@@ -1835,6 +1823,7 @@ impl Chain {
         let should_save_state_transition_data =
             self.should_produce_state_witness_for_this_or_next_epoch(block.header())?;
         let epoch_to_check = self.protocol_version_check;
+        let sandbox_patch_gen = block_preprocess_info.sandbox_patch_generation;
         let mut chain_update = self.chain_update();
         let block_hash = *block.hash();
         let new_head = chain_update.postprocess_block(
@@ -1847,6 +1836,7 @@ impl Chain {
             chain_update.check_protocol_version(&block_hash, epoch_to_check)?;
         }
         chain_update.commit()?;
+        self.sandbox_patches.mark_committed(sandbox_patch_gen);
         Ok(new_head)
     }
 
@@ -2348,7 +2338,6 @@ impl Chain {
         provenance: &Provenance,
         invalid_chunks: &mut Vec<ShardChunkHeader>,
         block_received_time: Instant,
-        state_patch: SandboxStatePatch,
     ) -> Result<PreprocessBlockResult, Error> {
         let header = block.header();
 
@@ -2535,7 +2524,6 @@ impl Chain {
             // for these states as well
             // otherwise put the block into the permanent storage, waiting for be caught up
             if is_caught_up { ApplyChunksMode::IsCaughtUp } else { ApplyChunksMode::NotCaughtUp },
-            state_patch,
             invalid_chunks,
         )?;
 
@@ -2550,6 +2538,7 @@ impl Chain {
                 provenance: provenance.clone(),
                 apply_chunks_done_waiter,
                 block_start_processing_time: block_received_time,
+                sandbox_patch_generation: self.sandbox_patches.generation_for_block(),
             },
             apply_chunks_still_applying,
         ))
@@ -2775,7 +2764,6 @@ impl Chain {
                 &prev_block,
                 &receipts_by_shard,
                 ApplyChunksMode::CatchingUp,
-                Default::default(),
                 &mut Vec::new(),
             )?;
             metrics::SCHEDULED_CATCHUP_BLOCK.set(block.header().height() as i64);
@@ -3200,7 +3188,6 @@ impl Chain {
         prev_block: &Block,
         incoming_receipts: &HashMap<ShardId, Vec<ReceiptProof>>,
         mode: ApplyChunksMode,
-        mut state_patch: SandboxStatePatch,
         invalid_chunks: &mut Vec<ShardChunkHeader>,
     ) -> Result<Vec<UpdateShardJob>, Error> {
         let protocol_version =
@@ -3248,12 +3235,21 @@ impl Chain {
             return Err(Error::BlockPendingOptimisticExecution);
         }
 
+        let block_height = block.header().height();
         for (shard_index, (block_context, cached_shard_update_key)) in
             update_shard_args.into_iter().enumerate()
         {
-            // XXX: This is a bit questionable -- sandbox state patching works
-            // only for a single shard. This so far has been enough.
-            let state_patch = state_patch.take();
+            // Take the sandbox patch from the tracker for this shard.  Only
+            // shards with a new chunk receive the patch — old-chunk shards
+            // would silently drop it in the runtime.  The CatchingUp mode
+            // never consumes sandbox patches.
+            let shard_has_new_chunk =
+                chunk_headers.get(shard_index).map_or(false, |h| h.is_new_chunk(block_height));
+            let state_patch = if mode != ApplyChunksMode::CatchingUp {
+                self.sandbox_patches.take_for_shard(shard_has_new_chunk)
+            } else {
+                SandboxStatePatch::default()
+            };
 
             let shard_id = shard_layout.get_shard_id(shard_index)?;
             let prev_chunk_header =
@@ -4030,14 +4026,12 @@ impl Chain {
 
 /// Sandbox node specific operations
 impl Chain {
-    // NB: `SandboxStatePatch` can only be created in `#[cfg(feature =
-    // "sandbox")]`, so we don't need extra cfg-gating here.
     pub fn patch_state(&mut self, patch: SandboxStatePatch) {
-        self.pending_state_patch.merge(patch);
+        self.sandbox_patches.submit(patch);
     }
 
     pub fn patch_state_in_progress(&self) -> bool {
-        !self.pending_state_patch.is_empty()
+        self.sandbox_patches.in_progress()
     }
 }
 
