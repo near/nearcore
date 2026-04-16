@@ -1170,8 +1170,9 @@ impl PeerActor {
             PeerMessage::Tier1Handshake(_)
             | PeerMessage::Tier2Handshake(_)
             | PeerMessage::Tier3Handshake(_) => {
-                // Received handshake after already have seen handshake from this peer.
-                tracing::debug!(target: "network", peer_info = %self.peer_info, "duplicate handshake");
+                // Handshakes should not appear after the session is established.
+                tracing::debug!(target: "network", peer_info = %self.peer_info, "duplicate handshake, closing");
+                self.stop(ClosingReason::DisallowedMessage);
             }
             PeerMessage::PeersRequest(PeersRequest { max_peers, max_direct_peers }) => {
                 let mut num_peers = self.network_state.config.max_send_peers;
@@ -1672,7 +1673,18 @@ impl messaging::Handler<stream::Frame> for PeerActor {
                         tracing::warn!(target: "network", %peer_msg, peer_type = ?this.peer_type, "received message from closing connection, ignoring");
                         return;
                     }
-                    conn.last_time_received_message.store(now);
+                    // Do not refresh the liveness timestamp for handshake messages.
+                    // A duplicate handshake on an established connection is
+                    // semantically meaningless; refreshing the timestamp would let
+                    // a remote peer keep idle Tier3 connections alive indefinitely.
+                    if !matches!(
+                        peer_msg,
+                        PeerMessage::Tier1Handshake(_)
+                            | PeerMessage::Tier2Handshake(_)
+                            | PeerMessage::Tier3Handshake(_)
+                    ) {
+                        conn.last_time_received_message.store(now);
+                    }
                     // Check if the message type is allowed given the TIER of the connection:
                     // TIER1 connections are reserved exclusively for BFT consensus messages.
                     if !conn.tier.is_allowed_receive(&peer_msg) {
