@@ -138,6 +138,11 @@ impl TcpTransport {
                         _ = &mut shutdown_rx => break,
                         res = listener.accept() => {
                             let Ok(stream) = res else { continue };
+                            // Always let the new peer to send a handshake message.
+                            // Only then we can decide whether we should accept a connection.
+                            // It is expected to be reasonably cheap: eventually, for TIER2 network
+                            // we would like to exchange set of connected peers even without establishing
+                            // a proper connection.
                             tracing::debug!(target: "network", from = ?stream.peer_addr, "got new connection");
                             if let Err(err) = PeerActor::spawn(
                                 this.clock.clone(),
@@ -158,7 +163,8 @@ impl TcpTransport {
     /// Spawn a PeerActor from an already-opened stream. Intended for
     /// test fixtures (both unit tests and integration-tests) that need to
     /// exercise the handshake flow without going through the production
-    /// `connect_to_peer` dial.
+    /// `connect_to_peer` dial. Tests drive this method directly via the
+    /// `Arc<TcpTransport>` exposed from `PeerManagerActor::spawn`.
     pub fn spawn_outbound_from_stream(self: &Arc<Self>, stream: tcp::Stream) -> anyhow::Result<()> {
         PeerActor::spawn(
             self.clock.clone(),
@@ -190,6 +196,11 @@ impl NetworkTransport for TcpTransport {
         peer_info: PeerInfo,
         tier: tcp::Tier,
     ) -> ConnectHandle {
+        // Idempotency guard: if we already have a ready connection on this
+        // tier, skip the dial. The Pool's `start_outbound` inside
+        // PeerActor::spawn_inner is the authoritative check against
+        // duplicate in-flight handshakes; this early-return just avoids a
+        // wasted TCP dial when we already have the peer in the Pool.
         let already_ready = match tier {
             tcp::Tier::T1 => self.tier1.load().ready.contains_key(&peer_info.id),
             tcp::Tier::T2 => self.tier2.load().ready.contains_key(&peer_info.id),
@@ -199,6 +210,9 @@ impl NetworkTransport for TcpTransport {
             return ConnectHandle::noop();
         }
 
+        // Recover Arc<Self> via the stored Weak. The Weak is always live
+        // here because PMA holds an Arc to us for the duration of the
+        // actor's lifetime.
         let Some(this) = self.self_weak.upgrade() else {
             return ConnectHandle::noop();
         };
@@ -248,14 +262,21 @@ impl NetworkTransport for TcpTransport {
     }
 
     fn shutdown(&self) {
+        // Drop the sender — the listener's select! closes and the loop exits.
         drop(self.shutdown_tx.lock().take());
     }
 
     fn transport_info(&self) -> TransportInfo {
         let tier2 = self.tier2.load();
+        // Include T3 peer stats so PMA's idle-connection cleanup can read
+        // last_time_received_message via transport_info instead of touching
+        // the Pool directly.
         let tier3 = self.tier3.load();
 
         let mut peer_stats: HashMap<PeerId, PeerTransportStats> = HashMap::new();
+        // T2 comes first; if the same peer_id appears in T3, the T2 entry
+        // is kept (via `or_insert_with`). Keying by peer_id collapses
+        // duplicates naturally.
         for (peer_id, conn) in tier2.ready.iter().chain(tier3.ready.iter()) {
             peer_stats.entry(peer_id.clone()).or_insert_with(|| {
                 let s = &conn.stats;
