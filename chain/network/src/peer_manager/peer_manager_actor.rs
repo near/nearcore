@@ -291,17 +291,17 @@ impl messaging::Actor for PeerManagerActor {
 /// reported a block yet (the height info is what makes the projection
 /// interesting).
 fn to_highest_height_peer_info(
-    s: &ConnectedPeerState,
+    peer_state: &ConnectedPeerState,
     genesis_id: &GenesisId,
 ) -> Option<HighestHeightPeerInfo> {
-    let block = s.block_info.as_ref()?;
+    let block = peer_state.block_info.as_ref()?;
     Some(HighestHeightPeerInfo {
-        peer_info: s.peer_info.clone(),
+        peer_info: peer_state.peer_info.clone(),
         genesis_id: genesis_id.clone(),
         highest_block_height: block.height,
         highest_block_hash: block.hash,
-        tracked_shards: s.tracked_shards.clone(),
-        archival: s.archival,
+        tracked_shards: peer_state.tracked_shards.clone(),
+        archival: peer_state.archival,
     })
 }
 
@@ -486,7 +486,7 @@ impl PeerManagerActor {
             .peers
             .tier2()
             .values()
-            .filter_map(|s| to_highest_height_peer_info(s, &genesis_id))
+            .filter_map(|peer_state| to_highest_height_peer_info(peer_state, &genesis_id))
             .collect();
 
         // This finds max height among peers, and returns one peer close to such height.
