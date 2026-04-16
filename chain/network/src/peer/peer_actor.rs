@@ -1673,16 +1673,14 @@ impl messaging::Handler<stream::Frame> for PeerActor {
                         tracing::warn!(target: "network", %peer_msg, peer_type = ?this.peer_type, "received message from closing connection, ignoring");
                         return;
                     }
-                    // Do not refresh the liveness timestamp for handshake messages.
-                    // A duplicate handshake on an established connection is
-                    // semantically meaningless; refreshing the timestamp would let
-                    // a remote peer keep idle Tier3 connections alive indefinitely.
-                    if !matches!(
-                        peer_msg,
-                        PeerMessage::Tier1Handshake(_)
-                            | PeerMessage::Tier2Handshake(_)
-                            | PeerMessage::Tier3Handshake(_)
-                    ) {
+                    // Do not refresh the liveness timestamp for handshake
+                    // messages on Tier3 connections. A duplicate handshake is
+                    // semantically meaningless; refreshing the timestamp would
+                    // let a remote peer keep idle Tier3 connections alive
+                    // indefinitely by resetting the 15-second idle timeout.
+                    if !(conn.tier == tcp::Tier::T3
+                        && matches!(peer_msg, PeerMessage::Tier3Handshake(_)))
+                    {
                         conn.last_time_received_message.store(now);
                     }
                     // Check if the message type is allowed given the TIER of the connection:
