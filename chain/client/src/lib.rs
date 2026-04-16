@@ -38,6 +38,7 @@ pub use stateless_validation::partial_witness::partial_witness_actor::{
 pub mod adapter;
 pub mod adversarial;
 pub mod archive;
+pub mod backfill_receipt_to_tx_actor;
 mod chunk_distribution_network;
 mod chunk_endorsement_handler;
 pub mod chunk_executor_actor;
