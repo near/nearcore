@@ -486,7 +486,8 @@ impl ShardsManagerActor {
             match self.epoch_manager.get_chunk_producer_info_db(prev_block_hash, shard_id) {
                 Ok(info) => Some(info.take_account_id()),
                 Err(EpochError::MissingBlock(_) | EpochError::ChunkProducerSelectionError(_)) => {
-                    // prev_block not processed yet (orphan case). Fall back to
+                    // prev_block not processed yet (orphan case): get_block_info inside
+                    // get_chunk_producer_info_db failed with MissingBlock. Fall back to
                     // height-based computation using ancestor_hash for epoch resolution
                     // so that receipt requests still go to the actual chunk producer.
                     let epoch_id =
@@ -2434,6 +2435,32 @@ mod test {
         let epoch_manager = Arc::new(epoch_manager.into_handle());
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
         let shard_id = shard_layout.shard_ids().next().unwrap();
+
+        // Populate ChunkProducers DB column so get_chunk_producer_info_db works
+        // on nightly (strict-on-miss when EarlyKickout is enabled).
+        #[cfg(feature = "nightly")]
+        {
+            use near_primitives::utils::get_block_shard_id;
+            use near_store::DBCol;
+
+            let mut store_update = store.store_update();
+            for sid in shard_layout.shard_ids() {
+                let chunk_producer = epoch_manager
+                    .get_chunk_producer_info(&ChunkProductionKey {
+                        epoch_id,
+                        height_created: 1,
+                        shard_id: sid,
+                    })
+                    .unwrap();
+                store_update.insert_ser(
+                    DBCol::ChunkProducers,
+                    &get_block_shard_id(&CryptoHash::default(), sid),
+                    &chunk_producer,
+                );
+            }
+            store_update.commit();
+        }
+
         let validator_signer = mutable_validator_signer(&"test".parse().unwrap());
         let shard_tracker = ShardTracker::new(
             TrackedShardsConfig::AllShards,
