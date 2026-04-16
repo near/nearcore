@@ -660,6 +660,7 @@ fn test_backfill_actor_processes_heights() {
             enabled: true,
             batch_size: 100,
             batch_delay: Duration::milliseconds(1),
+            num_threads: 4,
             start_height: None,
         },
     );

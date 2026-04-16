@@ -10,6 +10,7 @@ use near_chain_configs::BackfillReceiptToTxConfig;
 use near_o11y::tracing;
 use near_primitives::types::BlockHeight;
 use near_store::{DBCol, Store};
+use rayon::prelude::*;
 use std::time::Instant;
 
 /// Background actor that backfills the ReceiptToTx DB column by processing
@@ -28,6 +29,7 @@ pub struct BackfillReceiptToTxActor {
     write_store: Store,
     /// Checkpoints are always stored in hot storage.
     checkpoint_store: Store,
+    pool: rayon::ThreadPool,
     genesis_height: BlockHeight,
     config: BackfillReceiptToTxConfig,
     /// The height where backfill started (set on first batch), used for progress tracking.
@@ -49,11 +51,16 @@ impl BackfillReceiptToTxActor {
             genesis.transaction_validity_period,
         );
         let genesis_height = chain_store.get_genesis_height();
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(config.num_threads)
+            .build()
+            .expect("failed to build rayon thread pool");
         Self {
             chain_store,
             read_store,
             write_store,
             checkpoint_store,
+            pool,
             genesis_height,
             config,
             initial_height: None,
@@ -130,21 +137,29 @@ impl BackfillReceiptToTxActor {
 
         let mut stats =
             BackfillStats { blocks_processed: 0, entries_written: 0, heights_skipped: 0 };
-        let mut entry_update = self.write_store.store_update();
 
-        // Process heights in descending order.
-        for h in (batch_end..=current_height).rev() {
-            match process_height(&self.chain_store, &self.read_store, h)? {
-                Some(entries) => {
+        // Parallel reads, sequential writes (same pattern as CLI tool).
+        let results: Vec<_> = self.pool.install(|| {
+            (batch_end..=current_height)
+                .into_par_iter()
+                .map(|h| process_height(&self.chain_store, &self.read_store, h))
+                .collect()
+        });
+
+        let mut entry_update = self.write_store.store_update();
+        for result in results.into_iter().rev() {
+            match result {
+                Ok(Some(entries)) => {
                     for (receipt_id, info) in entries {
                         entry_update.insert_ser(DBCol::ReceiptToTx, receipt_id.as_ref(), &info);
                         stats.entries_written += 1;
                     }
                     stats.blocks_processed += 1;
                 }
-                None => {
+                Ok(None) => {
                     stats.heights_skipped += 1;
                 }
+                Err(e) => return Err(e),
             }
         }
         entry_update.commit();

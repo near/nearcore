@@ -1,4 +1,5 @@
 use crate::config::Config;
+use near_chain_configs::BackfillReceiptToTxConfig;
 use near_jsonrpc::RpcConfig;
 use near_network::config_json::{ExperimentalConfig, NetworkConfigOverrides};
 use near_o11y::testonly::init_test_logger;
@@ -49,6 +50,10 @@ fn test_config_duration_all_std() {
         transaction_pool_strict_nonce_ttl_blocks: Some(Default::default()),
         state_sync: Some(Default::default()),
         trie_viewer_state_size_limit: Some(Default::default()),
+        backfill_receipt_to_tx: BackfillReceiptToTxConfig {
+            start_height: Some(0),
+            ..Default::default()
+        },
         network: near_network::config_json::Config {
             experimental: ExperimentalConfig {
                 network_config_overrides: NetworkConfigOverrides {
