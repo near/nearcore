@@ -4130,7 +4130,7 @@ fn test_one_yocto_subsidy_tracked_in_stats() {
 fn make_delegate_actions_for_sir_test() -> (AccountId, Vec<Action>) {
     let bob: AccountId = bob_account();
     let signer = InMemorySigner::test_signer(&bob);
-    let inner_actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
+    let inner_actions = [Action::FunctionCall(Box::new(FunctionCallAction {
         method_name: "call".to_string(),
         args: vec![0u8; 10_000],
         gas: Gas::from_teragas(5),
