@@ -263,7 +263,7 @@ impl ChunkInclusionTracker {
                 continue;
             }
             let shard_label = shard_id.to_string();
-            let label_values = &[shard_label.as_ref()];
+            let label_values = &[shard_label.as_str()];
             metrics::BLOCK_PRODUCER_ENDORSED_STAKE_RATIO.with_label_values(label_values).observe(
                 stats.endorsed_stake.as_yoctonear() as f64
                     / stats.total_stake.as_yoctonear() as f64,
@@ -286,6 +286,6 @@ impl ChunkInclusionTracker {
 
 fn record_chunk_excluded_metric(reason: ChunkExclusionReason, shard_id: ShardId) {
     metrics::BLOCK_PRODUCER_EXCLUDED_CHUNKS_COUNT
-        .with_label_values(&[&shard_id.to_string(), reason.prometheus_label_value()])
+        .with_label_values(&[shard_id.to_string().as_str(), reason.prometheus_label_value()])
         .inc();
 }

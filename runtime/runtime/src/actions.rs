@@ -272,6 +272,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
                     apply_state.cache.as_deref(),
                 )
                 .ok();
+                near_vm_runner::report_metrics(apply_state.shard_id, "deploy");
             }
         }
         AccountType::NearDeterministicAccount => {

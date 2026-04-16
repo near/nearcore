@@ -8,7 +8,7 @@ use near_store::{DBCol, Store};
 
 pub(super) fn increment_download_count(shard_id: ShardId, typ: &str, source: &str, result: &str) {
     metrics::STATE_SYNC_DOWNLOAD_RESULT
-        .with_label_values(&[&shard_id.to_string(), typ, source, result])
+        .with_label_values(&[shard_id.to_string().as_str(), typ, source, result])
         .inc();
 }
 

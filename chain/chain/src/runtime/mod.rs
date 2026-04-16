@@ -333,7 +333,7 @@ impl NightshadeRuntime {
             .observe(elapsed.as_secs_f64());
         let shard_label = shard_id.to_string();
         metrics::DELAYED_RECEIPTS_COUNT
-            .with_label_values(&[&shard_label])
+            .with_label_values(&[shard_label.as_str()])
             .set(apply_result.delayed_receipts_count as i64);
         if let Some(mut metrics) = apply_result.metrics {
             metrics.report(&shard_label);
@@ -1081,21 +1081,23 @@ impl RuntimeAdapter for NightshadeRuntime {
         );
         tracing::debug!(target: "runtime", limited_by = ?prepared_transactions.limited_by, valid_count = %prepared_transactions.transactions.len(), %num_checked_transactions, "transaction filtering results");
         let shard_label = shard_id.to_string();
-        metrics::PREPARE_TX_SIZE.with_label_values(&[&shard_label]).observe(total_size as f64);
+        metrics::PREPARE_TX_SIZE
+            .with_label_values(&[shard_label.as_str()])
+            .observe(total_size as f64);
         metrics::PREPARE_TX_REJECTED
-            .with_label_values(&[&shard_label, "congestion"])
+            .with_label_values(&[shard_label.as_str(), "congestion"])
             .observe(rejected_due_to_congestion as f64);
         metrics::PREPARE_TX_REJECTED
-            .with_label_values(&[&shard_label, "invalid_tx"])
+            .with_label_values(&[shard_label.as_str(), "invalid_tx"])
             .observe(rejected_invalid_tx as f64);
         metrics::PREPARE_TX_REJECTED
-            .with_label_values(&[&shard_label, "invalid_block_hash"])
+            .with_label_values(&[shard_label.as_str(), "invalid_block_hash"])
             .observe(rejected_invalid_for_chain as f64);
         metrics::PREPARE_TX_GAS
-            .with_label_values(&[&shard_label])
+            .with_label_values(&[shard_label.as_str()])
             .observe(total_gas_burnt.as_gas() as f64);
         metrics::CONGESTION_PREPARE_TX_GAS_LIMIT
-            .with_label_values(&[&shard_label])
+            .with_label_values(&[shard_label.as_str()])
             .set(i64::try_from(transactions_gas_limit.as_gas()).unwrap_or(i64::MAX));
         Ok((prepared_transactions, SkippedTransactions(skipped_transactions)))
     }
@@ -1394,7 +1396,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let elapsed = instant.elapsed();
         let is_ok = if res.is_ok() { "ok" } else { "error" };
         metrics::STATE_SYNC_OBTAIN_PART_DELAY
-            .with_label_values(&[&shard_id.to_string(), is_ok])
+            .with_label_values(&[shard_id.to_string().as_str(), is_ok])
             .observe(elapsed.as_secs_f64());
         res
     }
@@ -1414,7 +1416,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             StatePartValidationResult::Invalid => "error",
         };
         metrics::STATE_SYNC_VALIDATE_PART_DELAY
-            .with_label_values(&[&shard_id.to_string(), is_ok])
+            .with_label_values(&[shard_id.to_string().as_str(), is_ok])
             .observe(elapsed.as_secs_f64());
         res
     }

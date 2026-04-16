@@ -69,8 +69,8 @@ impl StateSyncDownloadSourcePeerSharedState {
         match msg {
             StateResponse::Ack(ref ack) => {
                 metrics::STATE_SYNC_PEER_MSGS
-                    .with_label_values(&[
-                        &shard_id.to_string(),
+                    .with_label_values::<&str>(&[
+                        shard_id.to_string().as_str(),
                         part_id_or_header.into(),
                         ack.body.into(),
                     ])
@@ -78,7 +78,11 @@ impl StateSyncDownloadSourcePeerSharedState {
             }
             StateResponse::State(_) => {
                 metrics::STATE_SYNC_PEER_MSGS
-                    .with_label_values(&[&shard_id.to_string(), part_id_or_header.into(), "state"])
+                    .with_label_values::<&str>(&[
+                        shard_id.to_string().as_str(),
+                        part_id_or_header.into(),
+                        "state",
+                    ])
                     .inc();
             }
         };
@@ -179,7 +183,7 @@ impl StateSyncDownloadSourcePeer {
         };
 
         let _timer = metrics::STATE_SYNC_P2P_REQUEST_DELAY
-            .with_label_values(&[&key.shard_id.to_string(), &typ])
+            .with_label_values(&[key.shard_id.to_string().as_str(), &typ])
             .start_timer();
 
         handle.set_status("Sending network request");

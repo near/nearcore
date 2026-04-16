@@ -9,6 +9,7 @@
 * Ensure delegate action returns the correct error consistently. ([#15458](https://github.com/near/nearcore/pull/15458))
 
 ### Non-protocol Changes
+* Fix VM compilation and cache metrics (`near_vm_runner_compilation_seconds`, `near_vm_compiled_contract_cache_*`) not being reported for contract deployment, global contract distribution, and pipelining code paths. Add new `near_vm_compiled_contract_memory_cache_hits_total` metric to distinguish in-memory cache hits from disk hits. ([#15580](https://github.com/near/nearcore/pull/15580))
 * Removed deprecated fields from `EpochConfig`, `GenesisConfig`, and `ProtocolConfigView`: `num_block_producer_seats_per_shard`, `avg_hidden_validator_seats_per_shard`, `num_chunk_only_producer_seats`.
 * New `EXPERIMENTAL_receipt_to_tx` RPC method that resolves a receipt ID back to the originating transaction hash and sender account. Requires `save_receipt_to_tx` config enabled and all-shards tracking. ([#15414](https://github.com/near/nearcore/pull/15414))
 * New sync handler (sync-v2) replaces the legacy sync implementation with a clean state machine. Nodes are routed through one of two paths based on how far behind they are: near-horizon nodes sync blocks directly, while far-horizon nodes follow the full pipeline (epoch sync, header sync, state sync, block sync). ([#15335](https://github.com/near/nearcore/pull/15335))

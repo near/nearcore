@@ -416,7 +416,10 @@ impl ChunkProducer {
         );
         // When some transactions from the pool didn't fit into the chunk due to a limit, it's reported in a metric.
         metrics::PRODUCE_CHUNK_TRANSACTIONS_LIMITED_BY
-            .with_label_values(&[&shard_id.to_string(), prepared_transactions.limited_by.as_ref()])
+            .with_label_values(&[
+                shard_id.to_string().as_str(),
+                prepared_transactions.limited_by.as_ref(),
+            ])
             .inc();
 
         Ok(Some(ProduceChunkResult {

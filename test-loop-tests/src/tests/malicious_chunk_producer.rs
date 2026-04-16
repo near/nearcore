@@ -136,7 +136,7 @@ fn test_producer_with_expired_transactions() {
 
     let Some(applied_tx_metric) = near_o11y::metrics::prometheus::gather()
         .into_iter()
-        .find(|m| m.get_name() == "near_transaction_applied_total")
+        .find(|m| m.name() == "near_transaction_applied_total")
     else {
         panic!("no applied transactions metric found");
     };
