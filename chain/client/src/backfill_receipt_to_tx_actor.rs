@@ -10,6 +10,7 @@ use near_chain_configs::BackfillReceiptToTxConfig;
 use near_o11y::tracing;
 use near_primitives::types::BlockHeight;
 use near_store::{DBCol, Store};
+use std::time::Instant;
 
 /// Background actor that backfills the ReceiptToTx DB column by processing
 /// heights in descending order (from head toward genesis). This ensures
@@ -22,6 +23,8 @@ pub struct BackfillReceiptToTxActor {
     write_store: Store,
     genesis_height: BlockHeight,
     config: BackfillReceiptToTxConfig,
+    /// The height where backfill started (set on first batch), used for progress tracking.
+    initial_height: Option<BlockHeight>,
 }
 
 impl BackfillReceiptToTxActor {
@@ -38,7 +41,7 @@ impl BackfillReceiptToTxActor {
             genesis.transaction_validity_period,
         );
         let genesis_height = chain_store.get_genesis_height();
-        Self { chain_store, read_store, write_store, genesis_height, config }
+        Self { chain_store, read_store, write_store, genesis_height, config, initial_height: None }
     }
 
     fn backfill_loop(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
@@ -73,7 +76,9 @@ impl BackfillReceiptToTxActor {
     /// Process one batch of heights in descending order.
     /// Returns `Ok(true)` when backfill is complete (reached genesis).
     /// Returns `Ok(false)` when there's more work to do.
-    fn backfill_batch(&self) -> anyhow::Result<bool> {
+    pub fn backfill_batch(&mut self) -> anyhow::Result<bool> {
+        let batch_start = Instant::now();
+
         let checkpoint: Option<BlockHeight> =
             self.write_store.get_ser(DBCol::Misc, BACKFILL_CHECKPOINT_KEY_LOW);
 
@@ -86,15 +91,21 @@ impl BackfillReceiptToTxActor {
 
         let current_height = match checkpoint {
             Some(cp) => cp - 1,
-            None => {
-                // First run: start from head.
-                let head = self.chain_store.head().context("failed to get chain head")?;
-                head.height
-            }
+            None => match self.config.start_height {
+                Some(h) => h,
+                None => {
+                    let head = self.chain_store.head().context("failed to get chain head")?;
+                    head.height
+                }
+            },
         };
 
         if current_height < self.genesis_height {
             return Ok(true);
+        }
+
+        if self.initial_height.is_none() {
+            self.initial_height = Some(current_height);
         }
 
         let batch_end = current_height
@@ -125,12 +136,27 @@ impl BackfillReceiptToTxActor {
         store_update.set_ser(DBCol::Misc, BACKFILL_CHECKPOINT_KEY_LOW, &batch_end);
         store_update.commit();
 
-        if stats.blocks_processed > 0 {
+        let batch_duration = batch_start.elapsed();
+        if stats.blocks_processed > 0 || stats.heights_skipped > 0 {
+            let heights_in_batch = current_height - batch_end + 1;
+            let remaining = batch_end.saturating_sub(self.genesis_height);
+            let total =
+                self.initial_height.unwrap_or(current_height).saturating_sub(self.genesis_height);
+            let progress_pct =
+                if total > 0 { ((total - remaining) * 100 / total) as u32 } else { 100 };
             tracing::info!(
                 from_height = current_height,
                 to_height = batch_end,
                 blocks_processed = stats.blocks_processed,
                 entries_written = stats.entries_written,
+                batch_duration_ms = batch_duration.as_millis() as u64,
+                heights_per_second = if batch_duration.as_secs_f64() > 0.0 {
+                    (heights_in_batch as f64 / batch_duration.as_secs_f64()) as u64
+                } else {
+                    0
+                },
+                remaining_heights = remaining,
+                progress_pct,
                 "receipt-to-tx backfill progress"
             );
         }

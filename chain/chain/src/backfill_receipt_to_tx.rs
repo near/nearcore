@@ -131,5 +131,9 @@ pub fn process_height(
         }
     }
 
+    if entries.is_empty() {
+        return Ok(None);
+    }
+
     Ok(Some(entries))
 }

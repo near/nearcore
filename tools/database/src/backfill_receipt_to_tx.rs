@@ -3,7 +3,7 @@ use clap::Parser;
 use indicatif::ProgressBar;
 use indicatif::ProgressStyle;
 use near_chain::ChainStore;
-use near_chain::backfill_receipt_to_tx::process_height;
+use near_chain::backfill_receipt_to_tx::{BACKFILL_CHECKPOINT_KEY, BackfillStats, process_height};
 use near_chain_configs::GenesisValidationMode;
 use near_o11y::tracing;
 use near_primitives::types::BlockHeight;
@@ -13,18 +13,14 @@ use rayon::prelude::*;
 use std::path::PathBuf;
 use std::time::Instant;
 
-pub use near_chain::backfill_receipt_to_tx::{BACKFILL_CHECKPOINT_KEY, BackfillStats};
-
 /// Options controlling how the forward-direction backfill runs.
-pub struct BackfillOptions<'a> {
+pub struct BackfillOptions {
     /// Number of heights to process per DB write batch.
     pub batch_size: usize,
     /// Number of parallel threads for reading block data.
     pub num_threads: usize,
     /// Whether to persist a checkpoint in DBCol::Misc after each batch.
     pub use_checkpoint: bool,
-    /// Optional progress bar for CLI display.
-    pub progress: Option<&'a ProgressBar>,
 }
 
 #[derive(Parser)]
@@ -105,7 +101,6 @@ impl BackfillReceiptToTxCommand {
             batch_size: self.batch_size,
             num_threads: self.num_threads,
             use_checkpoint: true,
-            progress: Some(&progress),
         };
         let stats = backfill_receipt_to_tx(
             &chain_store,
@@ -114,6 +109,7 @@ impl BackfillReceiptToTxCommand {
             from_height,
             to_height,
             &options,
+            Some(&progress),
         )?;
 
         progress.finish_with_message("done");
@@ -146,6 +142,7 @@ pub fn backfill_receipt_to_tx(
     from_height: BlockHeight,
     to_height: BlockHeight,
     options: &BackfillOptions,
+    progress: Option<&ProgressBar>,
 ) -> anyhow::Result<BackfillStats> {
     let mut stats = BackfillStats { blocks_processed: 0, entries_written: 0, heights_skipped: 0 };
 
@@ -185,7 +182,7 @@ pub fn backfill_receipt_to_tx(
                 }
                 Err(e) => return Err(e),
             }
-            if let Some(p) = options.progress {
+            if let Some(p) = progress {
                 p.inc(1);
             }
         }

@@ -185,11 +185,21 @@ pub struct BackfillReceiptToTxConfig {
     #[serde(with = "near_time::serde_duration_as_std")]
     #[cfg_attr(feature = "schemars", schemars(with = "DurationAsStdSchemaProvider"))]
     pub batch_delay: Duration,
+    /// Optional starting height for backward backfill. If set, the actor starts from this height
+    /// instead of chain head on first run. Useful to skip heights already covered by normal
+    /// processing.
+    #[serde(default)]
+    pub start_height: Option<BlockHeight>,
 }
 
 impl Default for BackfillReceiptToTxConfig {
     fn default() -> Self {
-        Self { enabled: true, batch_size: 1000, batch_delay: Duration::milliseconds(100) }
+        Self {
+            enabled: false,
+            batch_size: 1000,
+            batch_delay: Duration::seconds(1),
+            start_height: None,
+        }
     }
 }
 

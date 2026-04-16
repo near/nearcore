@@ -1,9 +1,13 @@
 use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
 use crate::utils::account::create_account_id;
 use near_async::time::Duration;
+use near_chain::ChainGenesis;
 use near_chain::backfill_receipt_to_tx::{
     BACKFILL_CHECKPOINT_KEY, BACKFILL_CHECKPOINT_KEY_LOW, process_height,
 };
+use near_chain_configs::BackfillReceiptToTxConfig;
+use near_client::backfill_receipt_to_tx_actor::BackfillReceiptToTxActor;
 use near_database_tool::backfill_receipt_to_tx::{BackfillOptions, backfill_receipt_to_tx};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::receipt::{ReceiptOrigin, ReceiptToTxInfo};
@@ -14,38 +18,17 @@ use near_store::DBCol;
 
 const EPOCH_LENGTH: u64 = 5;
 
-fn default_options() -> BackfillOptions<'static> {
-    BackfillOptions { batch_size: 1000, num_threads: 1, use_checkpoint: false, progress: None }
+fn default_options() -> BackfillOptions {
+    BackfillOptions { batch_size: 1000, num_threads: 1, use_checkpoint: false }
 }
 
-/// Backfill produces the same ReceiptToTx entries that normal processing would.
+/// Generate diverse traffic across multiple epochs: send_money in both directions,
+/// deploy contract + function calls (refund receipts), more send_money.
 ///
-/// Generates diverse traffic across multiple epochs:
-/// - send_money transactions (simple transfers)
-/// - deploy_contract + function calls (generates refund receipts)
-/// - Multiple senders and receivers
-///
-/// 1. Run a node with `save_receipt_to_tx = true` and record the entries.
-/// 2. Wipe the ReceiptToTx column.
-/// 3. Run the backfill function.
-/// 4. Verify that the backfilled entries match the originals.
-#[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_backfill_matches_normal_processing() {
-    init_test_logger();
-
+/// Expects `account0` and `account1` to exist in the test environment.
+fn generate_diverse_traffic(env: &mut TestLoopEnv) {
     let user_account = create_account_id("account0");
     let receiver_account = create_account_id("account1");
-
-    // Build env with save_receipt_to_tx enabled (the default).
-    // High gc_num_epochs_to_keep so blocks aren't GC'd during the test.
-    let mut env = TestLoopBuilder::new()
-        .add_user_account(&user_account, Balance::from_near(1_000_000))
-        .add_user_account(&receiver_account, Balance::from_near(1_000_000))
-        .epoch_length(EPOCH_LENGTH)
-        .gc_num_epochs_to_keep(20)
-        .build();
-
     let signer = create_user_test_signer(&user_account);
     let receiver_signer = create_user_test_signer(&receiver_account);
     let mut nonce = 1;
@@ -126,6 +109,37 @@ fn test_backfill_matches_normal_processing() {
 
     let target_height = env.validator().head().height + 2 * EPOCH_LENGTH;
     env.validator_runner().run_until_executed_height(target_height);
+}
+
+/// Backfill produces the same ReceiptToTx entries that normal processing would.
+///
+/// Generates diverse traffic across multiple epochs:
+/// - send_money transactions (simple transfers)
+/// - deploy_contract + function calls (generates refund receipts)
+/// - Multiple senders and receivers
+///
+/// 1. Run a node with `save_receipt_to_tx = true` and record the entries.
+/// 2. Wipe the ReceiptToTx column.
+/// 3. Run the backfill function.
+/// 4. Verify that the backfilled entries match the originals.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_backfill_matches_normal_processing() {
+    init_test_logger();
+
+    let user_account = create_account_id("account0");
+    let receiver_account = create_account_id("account1");
+
+    // Build env with save_receipt_to_tx enabled (the default).
+    // High gc_num_epochs_to_keep so blocks aren't GC'd during the test.
+    let mut env = TestLoopBuilder::new()
+        .add_user_account(&user_account, Balance::from_near(1_000_000))
+        .add_user_account(&receiver_account, Balance::from_near(1_000_000))
+        .epoch_length(EPOCH_LENGTH)
+        .gc_num_epochs_to_keep(20)
+        .build();
+
+    generate_diverse_traffic(&mut env);
 
     // Collect all ReceiptToTx entries that were written during normal processing.
     let store = env.validator().store();
@@ -169,6 +183,7 @@ fn test_backfill_matches_normal_processing() {
         genesis_height,
         head_height,
         &default_options(),
+        None,
     )
     .expect("backfill should succeed");
 
@@ -240,6 +255,7 @@ fn test_backfill_idempotent() {
         genesis_height,
         head_height,
         &default_options(),
+        None,
     )
     .expect("first backfill should succeed");
 
@@ -257,6 +273,7 @@ fn test_backfill_idempotent() {
         genesis_height,
         head_height,
         &default_options(),
+        None,
     )
     .expect("second backfill should succeed");
 
@@ -322,11 +339,17 @@ fn test_checkpoint_does_not_skip_mid_height_receipts() {
 
     // Run backfill with batch_size=1 (commits after every single entry).
     // This maximizes the chance of mid-height commits.
-    let options =
-        BackfillOptions { batch_size: 1, num_threads: 1, use_checkpoint: true, progress: None };
-    let stats =
-        backfill_receipt_to_tx(chain_store, &store, &store, genesis_height, head_height, &options)
-            .expect("backfill should succeed");
+    let options = BackfillOptions { batch_size: 1, num_threads: 1, use_checkpoint: true };
+    let stats = backfill_receipt_to_tx(
+        chain_store,
+        &store,
+        &store,
+        genesis_height,
+        head_height,
+        &options,
+        None,
+    )
+    .expect("backfill should succeed");
 
     assert!(stats.entries_written > 0, "backfill should have written entries");
 
@@ -349,6 +372,7 @@ fn test_checkpoint_does_not_skip_mid_height_receipts() {
         checkpoint_value + 1,
         head_height,
         &options,
+        None,
     )
     .expect("resume backfill should succeed");
 
@@ -409,7 +433,7 @@ fn test_checkpoint_resume_after_partial_completion() {
     let mid_height = genesis_height + (head_height - genesis_height) / 2;
 
     let options_with_checkpoint =
-        BackfillOptions { batch_size: 1000, num_threads: 1, use_checkpoint: true, progress: None };
+        BackfillOptions { batch_size: 1000, num_threads: 1, use_checkpoint: true };
 
     // Phase 1: backfill only the first half.
     let stats1 = backfill_receipt_to_tx(
@@ -419,6 +443,7 @@ fn test_checkpoint_resume_after_partial_completion() {
         genesis_height,
         mid_height,
         &options_with_checkpoint,
+        None,
     )
     .expect("first half backfill should succeed");
 
@@ -437,6 +462,7 @@ fn test_checkpoint_resume_after_partial_completion() {
         checkpoint + 1,
         head_height,
         &options_with_checkpoint,
+        None,
     )
     .expect("second half backfill should succeed");
 
@@ -471,6 +497,7 @@ fn test_checkpoint_resume_after_partial_completion() {
         genesis_height,
         head_height,
         &default_options(),
+        None,
     )
     .expect("full backfill should succeed");
 
@@ -492,9 +519,11 @@ fn test_backward_backfill_matches_forward() {
     init_test_logger();
 
     let user_account = create_account_id("account0");
+    let receiver_account = create_account_id("account1");
 
     let mut env = TestLoopBuilder::new()
         .add_user_account(&user_account, Balance::from_near(1_000_000))
+        .add_user_account(&receiver_account, Balance::from_near(1_000_000))
         .epoch_length(EPOCH_LENGTH)
         .config_modifier(|config, _| {
             config.save_receipt_to_tx = false;
@@ -502,24 +531,7 @@ fn test_backward_backfill_matches_forward() {
         .gc_num_epochs_to_keep(20)
         .build();
 
-    let signer = create_user_test_signer(&user_account);
-    let mut nonce = 1;
-
-    for _ in 0..5 {
-        let tx = SignedTransaction::send_money(
-            nonce,
-            user_account.clone(),
-            user_account.clone(),
-            &signer,
-            Balance::from_yoctonear(100),
-            env.validator().head().last_block_hash,
-        );
-        nonce += 1;
-        env.validator().submit_tx(tx);
-    }
-
-    let target_height = env.validator().head().height + 2 * EPOCH_LENGTH;
-    env.validator_runner().run_until_executed_height(target_height);
+    generate_diverse_traffic(&mut env);
 
     let store = env.validator().store();
     let chain_store = env.validator().client().chain.chain_store();
@@ -534,6 +546,7 @@ fn test_backward_backfill_matches_forward() {
         genesis_height,
         head_height,
         &default_options(),
+        None,
     )
     .expect("forward backfill should succeed");
 
@@ -588,6 +601,125 @@ fn test_backward_backfill_matches_forward() {
         assert_eq!(
             expected_info, &actual_info,
             "backward entry should match forward for key {:?}",
+            key
+        );
+    }
+}
+
+/// The BackfillReceiptToTxActor processes all heights via its batch loop.
+///
+/// Drives the actor's backfill_batch method manually in a loop to verify:
+/// 1. Entries are written to ReceiptToTx
+/// 2. Checkpoint reaches genesis
+/// 3. Result matches forward-direction backfill
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_backfill_actor_processes_heights() {
+    init_test_logger();
+
+    let user_account = create_account_id("account0");
+    let receiver_account = create_account_id("account1");
+
+    let mut env = TestLoopBuilder::new()
+        .add_user_account(&user_account, Balance::from_near(1_000_000))
+        .add_user_account(&receiver_account, Balance::from_near(1_000_000))
+        .epoch_length(EPOCH_LENGTH)
+        .config_modifier(|config, _| {
+            config.save_receipt_to_tx = false;
+        })
+        .gc_num_epochs_to_keep(20)
+        .build();
+
+    generate_diverse_traffic(&mut env);
+
+    let store = env.validator().store();
+    assert_eq!(store.iter(DBCol::ReceiptToTx).count(), 0, "no entries before actor runs");
+
+    let chain_store = env.validator().client().chain.chain_store();
+    let genesis_height = chain_store.get_genesis_height();
+
+    // Create and run the actor's batch logic directly.
+    let genesis = &env.shared_state.genesis;
+    let chain_genesis = ChainGenesis::new(&genesis.config);
+    let mut actor = BackfillReceiptToTxActor::new(
+        store.clone(),
+        store.clone(),
+        true,
+        &chain_genesis,
+        BackfillReceiptToTxConfig {
+            enabled: true,
+            batch_size: 100,
+            batch_delay: Duration::milliseconds(1),
+            start_height: None,
+        },
+    );
+
+    // Drive the actor manually by calling backfill_batch in a loop.
+    // This tests the real batch method (checkpoint management, height iteration).
+    loop {
+        match actor.backfill_batch() {
+            Ok(true) => break,
+            Ok(false) => continue,
+            Err(e) => panic!("backfill_batch failed: {e}"),
+        }
+    }
+
+    // Verify entries were written.
+    let entry_count = store.iter(DBCol::ReceiptToTx).count();
+    assert!(entry_count > 0, "actor should have written ReceiptToTx entries");
+
+    // Verify checkpoint reached genesis.
+    let checkpoint = store
+        .get_ser::<BlockHeight>(DBCol::Misc, BACKFILL_CHECKPOINT_KEY_LOW)
+        .expect("checkpoint should exist");
+    assert!(
+        checkpoint <= genesis_height,
+        "backward checkpoint should reach genesis, got {} > {}",
+        checkpoint,
+        genesis_height
+    );
+
+    // Verify entries match forward backfill.
+    let actor_entries: Vec<(Vec<u8>, ReceiptToTxInfo)> = store
+        .iter_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx)
+        .map(|(k, v)| (k.to_vec(), v))
+        .collect();
+
+    // Wipe and run forward backfill for comparison.
+    {
+        let mut update = store.store_update();
+        for (key, _) in &actor_entries {
+            update.delete(DBCol::ReceiptToTx, key);
+        }
+        update.commit();
+    }
+
+    let head_height = env.validator().head().height;
+    let forward_stats = backfill_receipt_to_tx(
+        chain_store,
+        &store,
+        &store,
+        genesis_height,
+        head_height,
+        &default_options(),
+        None,
+    )
+    .expect("forward backfill should succeed");
+
+    assert_eq!(
+        actor_entries.len(),
+        forward_stats.entries_written as usize,
+        "actor should produce the same number of entries as forward backfill"
+    );
+
+    for (key, expected_info) in &actor_entries {
+        let actual_info =
+            store.get_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx, key).unwrap_or_else(|| {
+                panic!("forward entry missing for actor key {:?}", key);
+            });
+        assert_eq!(
+            expected_info, &actual_info,
+            "actor entry should match forward for key {:?}",
             key
         );
     }
