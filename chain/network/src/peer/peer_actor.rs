@@ -788,14 +788,15 @@ impl PeerActor {
                                         async move {
                                             loop {
                                                 interval.tick(&clock).await;
-                                                conn.send_message(Arc::new(
-                                                    PeerMessage::RequestUpdateNonce(PartialEdgeInfo::new(
+                                                let nonce_request = PeerMessage::RequestUpdateNonce(
+                                                    PartialEdgeInfo::new(
                                                         &network_state.config.node_id(),
                                                         &conn.peer_info.id,
                                                         Edge::create_fresh_nonce(&clock),
                                                         &network_state.config.node_key,
-                                                    )
-                                                )));
+                                                    ),
+                                                );
+                                                conn.send_message(Arc::new(nonce_request));
 
                                             }
                                         }
