@@ -1,3 +1,25 @@
+   Compiling generic-array v0.14.9
+   Compiling block-buffer v0.10.2
+   Compiling crypto-common v0.1.3
+   Compiling digest v0.10.7
+   Compiling sha2 v0.10.6
+   Compiling curve25519-dalek v4.1.3
+   Compiling blake2 v0.10.6
+   Compiling sha3 v0.10.6
+   Compiling near-primitives-core v0.0.0 (/home/ricky/nearcore/core/primitives-core)
+   Compiling ed25519-dalek v2.2.0
+   Compiling near-crypto v0.0.0 (/home/ricky/nearcore/core/crypto)
+   Compiling near-fmt v0.0.0 (/home/ricky/nearcore/utils/fmt)
+   Compiling near-parameters v0.0.0 (/home/ricky/nearcore/core/parameters)
+   Compiling near-primitives v0.0.0 (/home/ricky/nearcore/core/primitives)
+   Compiling near-chain-primitives v0.0.0 (/home/ricky/nearcore/chain/chain-primitives)
+   Compiling near-chain-configs v0.0.0 (/home/ricky/nearcore/core/chain-configs)
+   Compiling near-chunks-primitives v0.0.0 (/home/ricky/nearcore/chain/chunks-primitives)
+   Compiling near-client-primitives v0.0.0 (/home/ricky/nearcore/chain/client-primitives)
+   Compiling near-jsonrpc-primitives v0.0.0 (/home/ricky/nearcore/chain/jsonrpc-primitives)
+   Compiling near-jsonrpc-openapi-spec v0.0.0 (/home/ricky/nearcore/chain/jsonrpc/openapi)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 30.05s
+     Running `target/debug/near-jsonrpc-openapi-spec`
 {
   "openapi": "3.0.0",
   "info": {
@@ -6227,6 +6249,22 @@
             ],
             "description": "Cost for logging per byte"
           },
+          "p256_verify_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of P-256 ECDSA signature verification base"
+          },
+          "p256_verify_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of P-256 ECDSA signature verification per byte"
+          },
           "promise_and_base": {
             "allOf": [
               {
@@ -8131,6 +8169,27 @@
             },
             "required": [
               "Ed25519VerifyInvalidInput"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Invalid input to p256 signature verification function (e.g. signature cannot be\nderived from bytes).",
+            "properties": {
+              "P256VerifyInvalidInput": {
+                "properties": {
+                  "msg": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "msg"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "P256VerifyInvalidInput"
             ],
             "type": "object"
           }
@@ -20460,6 +20519,10 @@
           },
           "one_yocto_on_promise": {
             "description": "See [VMConfig::one_yocto_on_promise](crate::vm::Config::one_yocto_on_promise).",
+            "type": "boolean"
+          },
+          "p256_verify": {
+            "description": "See [VMConfig::p256_verify](crate::vm::Config::p256_verify).",
             "type": "boolean"
           },
           "reftypes_bulk_memory": {
