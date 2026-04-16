@@ -310,7 +310,9 @@ impl ActorHandler {
             tcp::Stream::loopback(network_cfg.node_id(), tier).await;
         let stream_id = outbound_stream.id();
         let events = self.events.from_now();
-        self.tcp.spawn_outbound_from_stream(outbound_stream).unwrap();
+        if let Err(err) = self.tcp.spawn_outbound_from_stream(outbound_stream) {
+            tracing::info!(target:"network", ?err, "start_outbound: spawn failed");
+        }
         let conn = RawConnection {
             events,
             stream: inbound_stream,
