@@ -5458,7 +5458,6 @@ dependencies = [
  "borsh",
  "bytesize 1.1.0",
  "cov-mark",
- "criterion",
  "csv",
  "ed25519-dalek",
  "enum-map",
