@@ -18,7 +18,6 @@ use crate::signature_verification::{
     verify_block_header_signature_with_epoch_manager, verify_block_vrf,
     verify_chunk_header_signature_by_hash,
 };
-use crate::soft_realtime_thread_pool::ApplyChunksSpawner;
 use crate::spice_core::SpiceCoreReader;
 use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::state_sync::ChainStateSyncAdapter;
@@ -48,6 +47,7 @@ use itertools::Itertools;
 use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, StdThreadAsyncComputationSpawner};
 use near_async::messaging::{IntoMultiSender, noop};
+use near_async::thread_pool::ApplyChunksSpawner;
 use near_async::time::{Clock, Duration, Instant};
 use near_chain_configs::{MutableValidatorSigner, ProtocolVersionCheckConfig};
 use near_chain_primitives::ApplyChunksMode;

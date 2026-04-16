@@ -96,8 +96,7 @@ use near_async::tokio::TokioRuntimeHandle;
 use near_chain::byzantine_assert;
 use near_chain::near_chain_primitives::error::Error::DBNotFoundErr;
 use near_chain::signature_verification::{
-    verify_chunk_header_signature_with_epoch_manager,
-    verify_chunk_header_signature_with_epoch_manager_and_parts,
+    verify_chunk_header_signature_by_hash, verify_chunk_header_signature_by_hash_and_parts,
 };
 use near_chain::types::EpochManagerAdapter;
 use near_chain::validate::validate_chunk_proofs;
@@ -1283,13 +1282,11 @@ impl ShardsManagerActor {
         }
 
         // check signature
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&forward.prev_block_hash)?;
-        let valid_signature = verify_chunk_header_signature_with_epoch_manager_and_parts(
+        let valid_signature = verify_chunk_header_signature_by_hash_and_parts(
             self.epoch_manager.as_ref(),
             &forward.chunk_hash,
             &forward.signature,
-            epoch_id,
-            forward.height_created,
+            &forward.prev_block_hash,
             forward.shard_id,
         )?;
 
@@ -1374,10 +1371,8 @@ impl ShardsManagerActor {
             Err(Error::ChainError(chain_error)) => {
                 match chain_error {
                     near_chain::Error::DBNotFoundErr(_) => {
-                        // We can't check if this chunk came from a valid chunk producer because
-                        // we don't know `prev_block`, however the signature is checked when
-                        // forwarded parts are later processed as partial encoded chunks, so we
-                        // can mark it as unknown for now.
+                        // prev_block unknown or ChunkProducers DB not populated yet —
+                        // cache the forward for later validation.
                         self.insert_forwarded_chunk(forward);
                         metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_PREV_BLOCK.inc();
                         return Ok(()); // a normal and expected case, not error
@@ -1397,38 +1392,29 @@ impl ShardsManagerActor {
         Ok(())
     }
 
-    /// Validate a chunk header
-    /// 1) check that the chunk header is signed by the correct chunk producer for the chunk at
-    ///    the height for the shard
-    /// 2) check that the chunk header is compatible with the current protocol version
+    /// Preliminary chunk header validation. Checks shard_id and protocol_version
+    /// using epoch-based resolution. Does NOT check the signature — that requires
+    /// the chunk producer from the DB (via prev_block_hash), which may not be
+    /// available yet. Signature is verified later in `validate_chunk_header_full`.
     ///
-    // Note that this function only does partial validation. Full validation is only possible
-    // after the previous block of the chunk is processed. To be able to process partial encoded
-    // chunk messages in advance, this function tries to verify with other accepted block hash in
-    // the chain if the previous block hash is not accepted. Validation is only partially done
-    // in those cases. Full validation can be achieved by calling this function after
-    // the previous block hash is accepted.
-    //
-    // To achieve full validation, this function is called twice for each chunk entry
-    // first when the chunk entry is inserted in `encoded_chunks`
-    // then in `process_partial_encoded_chunk` after checking the previous block is ready
-    fn validate_chunk_header(&self, header: &ShardChunkHeader) -> Result<(), Error> {
+    // The epoch_id is resolved via a three-layer fallback:
+    // 1) if prev_block_hash is processed, we use that
+    // 2) if we have sent request for the chunk, we know the `ancestor_hash` from the original
+    //    request and we know that get_epoch_id_from_prev_block(ancestor_hash) =
+    //    get_epoch_id_from_prev_block(prev_block_hash). Thus, we can calculate epoch_id
+    //    from ancestor_hash
+    // 3) otherwise, we use the current chain_head to calculate epoch id. In this case,
+    //    we are not sure if we are using the correct epoch id, thus `epoch_id_confirmed` is false.
+    //    And if the validation fails in this case, we actually can't say if the chunk is actually
+    //    invalid. So we must return chain_error instead of return error
+    fn validate_chunk_header_preliminary(&self, header: &ShardChunkHeader) -> Result<(), Error> {
         let chunk_hash = header.chunk_hash();
-        let _span = debug_span!(target: "chunks", "validate_chunk_header", ?chunk_hash).entered();
-        // 1.  check signature
-        // Ideally, validating the chunk header needs the previous block to be accepted already.
-        // However, we want to be able to validate chunk header in advance so we can save
-        // the corresponding parts and receipts before the previous block is processed
-        // We do this three layered check
-        // 1) if prev_block_hash is processed, we use that
-        // 2) if we have sent request for the chunk, we know the `ancestor_hash` from the original
-        //    request and we know that get_epoch_id_from_prev_block(ancestor_hash) =
-        //    get_epoch_id_from_prev_block(prev_block_hash). Thus, we can calculate epoch_id
-        //    from ancestor_hash
-        // 3) otherwise, we use the current chain_head to calculate epoch id. In this case,
-        //    we are not sure if we are using the correct epoch id, thus `epoch_id_confirmed` is false.
-        //    And if the validation fails in this case, we actually can't say if the chunk is actually
-        //    invalid. So we must return chain_error instead of return error
+        let _span = debug_span!(target: "chunks", "validate_chunk_header_preliminary", ?chunk_hash)
+            .entered();
+
+        // Signature is intentionally NOT checked here — it requires the chunk
+        // producer from the DB (via prev_block_hash), which may not be available yet.
+        // Signature is verified later in `validate_chunk_header_full`.
         let (epoch_id, epoch_id_confirmed) = {
             let prev_block_hash = *header.prev_block_hash();
             let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash);
@@ -1461,26 +1447,33 @@ impl ShardsManagerActor {
             }
         };
 
-        self.verify_chunk_header_signature(header, epoch_id).map_err(err_mapper)?;
         self.verify_chunk_shard_id(header, epoch_id).map_err(err_mapper)?;
         self.verify_chunk_protocol_version(header, epoch_id).map_err(err_mapper)?;
 
         Ok(())
     }
 
-    fn verify_chunk_header_signature(
+    /// Full chunk header validation when prev_block_hash is known to be processed.
+    /// Uses hash-based chunk producer lookup for signature verification (DB-backed
+    /// when EarlyKickout is enabled), plus epoch-based shard_id and protocol_version.
+    fn validate_chunk_header_full(
         &self,
         header: &ShardChunkHeader,
         epoch_id: EpochId,
     ) -> Result<(), Error> {
-        let sig_valid = verify_chunk_header_signature_with_epoch_manager(
-            self.epoch_manager.as_ref(),
-            header,
-            epoch_id,
-        )?;
+        let chunk_hash = header.chunk_hash();
+        let _span =
+            debug_span!(target: "chunks", "validate_chunk_header_full", ?chunk_hash).entered();
+
+        let sig_valid = verify_chunk_header_signature_by_hash(self.epoch_manager.as_ref(), header)?;
         if !sig_valid {
+            byzantine_assert!(false);
             return Err(Error::InvalidChunkSignature);
         }
+
+        self.verify_chunk_shard_id(header, epoch_id)?;
+        self.verify_chunk_protocol_version(header, epoch_id)?;
+
         Ok(())
     }
 
@@ -1629,13 +1622,14 @@ impl ShardsManagerActor {
             }
         }
 
-        // 1.c checking header validity
+        // 1.c checking header validity (preliminary: shard_id + protocol_version only,
+        // signature is checked later in validate_chunk_header_full when prev_block is ready)
         match partial_encoded_chunk
-            .validate_with(|pec| self.validate_chunk_header(&pec.header).map(|()| true))
+            .validate_with(|pec| self.validate_chunk_header_preliminary(&pec.header).map(|()| true))
         {
             Err(Error::ChainError(chain_error)) => match chain_error {
-                // validate_chunk_header returns DBNotFoundError if the previous block is not ready
-                // in this case, we still return valid result instead of error.
+                // validate_chunk_header_preliminary returns DBNotFoundError if the previous
+                // block is not ready. In this case, we still return valid result instead of error.
                 near_chain::Error::DBNotFoundErr(_) => {
                     tracing::debug!(
                         target: "client",
@@ -1779,15 +1773,19 @@ impl ShardsManagerActor {
         // calculating owner parts requires that, so we first check
         // whether prev_block_hash is in the chain, if not, returns NeedBlock
         let prev_block_hash = header.prev_block_hash();
-        if self.epoch_manager.get_block_info(&prev_block_hash).is_err() {
-            tracing::debug!(target: "chunks", ?prev_block_hash, "block not found");
-            return Ok(ProcessPartialEncodedChunkResult::NeedBlock);
-        }
-        // check the header exists in encoded_chunks and validate it again (full validation)
-        // now that prev_block is processed
+        let epoch_id = match self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash) {
+            Ok(epoch_id) => epoch_id,
+            Err(_) => {
+                tracing::debug!(target: "chunks", ?prev_block_hash, "block not found");
+                return Ok(ProcessPartialEncodedChunkResult::NeedBlock);
+            }
+        };
+        // Full validation (including signature via hash-based DB lookup) now that
+        // prev_block is processed. Preliminary validation only checks structural fields
+        // (shard_id, protocol_version) — the signature is deferred to here.
         if let Some(chunk_entry) = self.encoded_chunks.get(&chunk_hash) {
             if !chunk_entry.header_fully_validated {
-                let res = self.validate_chunk_header(header);
+                let res = self.validate_chunk_header_full(header, epoch_id);
                 match res {
                     Ok(()) => {
                         self.encoded_chunks.mark_entry_validated(&chunk_hash);
@@ -3332,5 +3330,152 @@ mod test {
             .process_partial_encoded_chunk(part.into(), Some(&fixture.mock_chunk_part_owner))
             .unwrap();
         assert_eq!(fixture.count_chunk_ready_for_inclusion_messages(), 0);
+    }
+
+    /// Test that when EarlyKickout is enabled and the ChunkProducers DB entry
+    /// is missing, a chunk forward is cached (not rejected) via the
+    /// DBNotFoundErr path. This exercises the ChunkProducerNotInDB → DBNotFoundErr
+    /// error mapping that replaced the broad ValidatorError catch.
+    #[cfg(feature = "nightly")]
+    #[test]
+    fn test_forward_cached_on_chunk_producer_db_miss() {
+        // Default fixture: non-orphan, prev_block_hash = CryptoHash::default() (genesis).
+        // The fixture populates ChunkProducers DB, so we delete the entries to
+        // exercise the ChunkProducerNotInDB → DBNotFoundErr → cache path.
+        let fixture = ChunkTestFixture::default();
+
+        // Delete ChunkProducers entries so the DB miss path is exercised.
+        {
+            let epoch_id =
+                fixture.epoch_manager.get_epoch_id_from_prev_block(&CryptoHash::default()).unwrap();
+            let shard_layout = fixture.epoch_manager.get_shard_layout(&epoch_id).unwrap();
+            let mut store_update = fixture.chain_store.store().store_update();
+            for shard_id in shard_layout.shard_ids() {
+                use near_primitives::utils::get_block_shard_id;
+                store_update.delete(
+                    DBCol::ChunkProducers,
+                    &get_block_shard_id(&CryptoHash::default(), shard_id),
+                );
+            }
+            store_update.commit();
+        }
+        let mut shards_manager = ShardsManagerActor::new(
+            FakeClock::default().clock(),
+            mutable_validator_signer(&fixture.mock_shard_tracker),
+            Arc::new(fixture.epoch_manager.clone()),
+            Arc::new(fixture.epoch_manager.clone()),
+            fixture.shard_tracker.clone(),
+            fixture.mock_network.as_sender(),
+            fixture.mock_client_adapter.as_sender(),
+            fixture.store.clone(),
+            fixture.mock_chain_head.clone(),
+            fixture.mock_chain_head.clone(),
+            Duration::hours(1),
+            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
+        );
+
+        let forward = PartialEncodedChunkForwardMsg::from_header_and_parts(
+            &fixture.mock_chunk_header,
+            fixture.mock_chunk_parts.clone(),
+        );
+        let chunk_hash = forward.chunk_hash.clone();
+
+        let metric_before =
+            metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_PREV_BLOCK.get() as u64;
+
+        // The forward should be accepted (Ok) and cached, not rejected.
+        assert!(
+            shards_manager
+                .process_partial_encoded_chunk_forward(forward, Some(&fixture.mock_shard_tracker))
+                .is_ok(),
+            "forward should be cached, not rejected"
+        );
+
+        // Verify the forward was inserted into the cache.
+        assert!(
+            shards_manager.chunk_forwards_cache.peek(&chunk_hash).is_some(),
+            "forward should be in chunk_forwards_cache"
+        );
+        assert!(
+            metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_PREV_BLOCK.get() as u64
+                > metric_before,
+            "PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_PREV_BLOCK metric should increment"
+        );
+    }
+
+    /// Test that a chunk whose signature is invalid is evicted from
+    /// `encoded_chunks` (and `requested_partial_encoded_chunks`) when full
+    /// validation runs in `try_process_chunk_parts_and_receipts`.
+    ///
+    /// This exercises the deferred-rejection path: preliminary validation
+    /// (no signature check) lets the chunk into the cache, but full validation
+    /// catches the bad signature and evicts it.
+    #[cfg(feature = "nightly")]
+    #[test]
+    fn test_bad_signature_chunk_evicted_on_full_validation() {
+        use near_primitives::test_utils::create_test_signer;
+        use near_primitives::types::validator_stake::ValidatorStake;
+        use near_primitives::utils::get_block_shard_id;
+        use near_store::DBCol;
+
+        let fixture = ChunkTestFixture::default();
+
+        // Overwrite the ChunkProducers DB entry for the mock chunk's shard
+        // with a bogus validator whose public key differs from the actual signer.
+        // This makes the hash-based signature check fail during full validation.
+        let shard_id = fixture.mock_chunk_header.shard_id();
+        let prev_block_hash = *fixture.mock_chunk_header.prev_block_hash();
+        {
+            let key = get_block_shard_id(&prev_block_hash, shard_id);
+            let bogus_signer = create_test_signer("bogus_producer");
+            let bogus_stake = ValidatorStake::new(
+                "bogus_producer".parse().unwrap(),
+                bogus_signer.public_key(),
+                near_primitives::types::Balance::ZERO,
+            );
+            // Delete the existing write-once entry, then insert the bogus one.
+            let mut store_update = fixture.chain_store.store().store_update();
+            store_update.delete(DBCol::ChunkProducers, &key);
+            store_update.commit();
+            let mut store_update = fixture.chain_store.store().store_update();
+            store_update.insert_ser(DBCol::ChunkProducers, &key, &bogus_stake);
+            store_update.commit();
+        }
+
+        let mut shards_manager = ShardsManagerActor::new(
+            FakeClock::default().clock(),
+            mutable_validator_signer(&fixture.mock_shard_tracker),
+            Arc::new(fixture.epoch_manager.clone()),
+            Arc::new(fixture.epoch_manager.clone()),
+            fixture.shard_tracker.clone(),
+            fixture.mock_network.as_sender(),
+            fixture.mock_client_adapter.as_sender(),
+            fixture.store.clone(),
+            fixture.mock_chain_head.clone(),
+            fixture.mock_chain_head.clone(),
+            Duration::hours(1),
+            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
+        );
+
+        let chunk_hash = fixture.mock_chunk_header.chunk_hash();
+        let all_part_ords: Vec<u64> = (0..fixture.mock_chunk_parts.len() as u64).collect();
+        let partial_encoded_chunk = fixture.make_partial_encoded_chunk(&all_part_ords);
+
+        // process_partial_encoded_chunk: preliminary validation passes (no sig
+        // check), parts are merged into encoded_chunks, then
+        // try_process_chunk_parts_and_receipts runs validate_chunk_header_full
+        // which detects the bad signature and evicts the entry.
+        let result = shards_manager.process_partial_encoded_chunk(
+            MaybeValidated::from(partial_encoded_chunk),
+            Some(&fixture.mock_shard_tracker),
+        );
+
+        assert_matches!(result, Err(Error::InvalidChunkSignature));
+
+        // The chunk entry should have been evicted from encoded_chunks.
+        assert!(
+            shards_manager.encoded_chunks.get(&chunk_hash).is_none(),
+            "chunk entry should be evicted from encoded_chunks after bad signature"
+        );
     }
 }

@@ -516,6 +516,7 @@ impl Runtime {
                     apply_state.cache.as_deref(),
                     apply_state.current_protocol_version,
                 )?;
+                near_vm_runner::report_metrics(apply_state.shard_id, "deploy");
             }
             Action::DeployGlobalContract(deploy_global_contract) => {
                 metrics::ACTION_CALLED_COUNT.deploy_global_contract.inc();
@@ -3060,6 +3061,7 @@ impl<'a> ApplyProcessingState<'a> {
             self.apply_state.cache.as_ref().map(|v| v.handle()),
             self.state_update.contract_storage().clone(),
             self.epoch_info_provider.chain_id(),
+            self.apply_state.shard_id,
         );
         ApplyProcessingReceiptState {
             pipeline_manager,
@@ -3232,6 +3234,7 @@ pub mod estimator {
     use std::collections::HashMap;
     use std::collections::VecDeque;
     use std::num::NonZeroU64;
+    use std::sync::Arc;
 
     pub fn apply_action_receipt(
         state_update: &mut TrieUpdate,
@@ -3274,10 +3277,11 @@ pub mod estimator {
         let info = ReceiptSinkV2Info::new(apply_state.epoch_id, epoch_info_provider)?;
         let mut receipt_sink = ReceiptSink::V2(ReceiptSinkV2WithInfo { info, sink });
         let empty_pipeline = ReceiptPreparationPipeline::new(
-            std::sync::Arc::clone(&apply_state.config),
+            Arc::clone(&apply_state.config),
             apply_state.cache.as_ref().map(|c| c.handle()),
             state_update.contract_storage().clone(),
             epoch_info_provider.chain_id(),
+            apply_state.shard_id,
         );
         let mut receipt_to_tx = Vec::new();
         let apply_result = Runtime {}.apply_action_receipt(

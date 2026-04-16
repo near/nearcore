@@ -239,13 +239,13 @@ fn test_wasmtime_artifact_output_stability() {
     ];
     let compiled_hashes = [
         // See the above comment if you want to change this
-        15357622861946059213,
-        16638481262920523869,
-        3943469136926844948,
-        16440063152199940029,
-        17421217776167824235,
-        12368027928383938722,
-        18372661511647223039,
+        17467356520024489490,
+        14729060831070184139,
+        11041498883632407283,
+        12049699321754363033,
+        9906436427985886682,
+        15560032392659795845,
+        11171783944424554209,
     ];
     let mut got_prepared_hashes = Vec::with_capacity(seeds.len());
     let mut got_compiled_hashes = Vec::with_capacity(seeds.len());

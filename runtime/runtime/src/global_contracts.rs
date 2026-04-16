@@ -250,6 +250,7 @@ fn apply_distribution_current_shard(
         config,
         apply_state.cache.as_deref(),
     );
+    near_vm_runner::report_metrics(apply_state.shard_id, "global_contract");
     Ok(())
 }
 
