@@ -594,13 +594,70 @@ async fn invalid_edge() {
                     _ => None,
                 })
                 .await;
-            // Unsolicited inbound T3 connections are rejected before edge validation.
-            let expected = if tier == tcp::Tier::T3 {
-                ClosingReason::RejectedByPeerManager(RegisterPeerError::UnexpectedTier3Connection)
-            } else {
-                ClosingReason::RejectedByPeerManager(RegisterPeerError::InvalidEdge)
-            };
-            assert_eq!(expected, reason);
+            assert_eq!(
+                ClosingReason::RejectedByPeerManager(RegisterPeerError::InvalidEdge),
+                reason,
+            );
         }
+    }
+
+    // Dedicated T3 sub-case: insert the peer into pending_tier3_requests so the
+    // connection passes the authorization check, then verify the invalid edge is
+    // still caught, and that the pending entry is NOT consumed by the failed attempt.
+    for (name, edge) in &testcases {
+        tracing::info!(target:"test", %name, tier=?tcp::Tier::T3, "test case (pending T3)");
+
+        let peer_id = cfg.node_id();
+        let now = clock.clock().now();
+        pm.with_state(move |s| async move {
+            s.pending_tier3_requests.insert(peer_id, now);
+        })
+        .await;
+
+        let stream =
+            tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T3, &SocketOptions::default())
+                .await
+                .unwrap();
+        let stream_id = stream.id();
+        let port = stream.local_addr.port();
+        let mut events = pm.events.from_now();
+        let mut stream = Stream::new(stream);
+        let signer = cfg.validator.signer.get().unwrap();
+        let handshake = Handshake {
+            protocol_version: PROTOCOL_VERSION,
+            oldest_supported_version: PROTOCOL_VERSION,
+            sender_peer_id: cfg.node_id(),
+            target_peer_id: pm.cfg.node_id(),
+            sender_listen_port: Some(port),
+            sender_chain_info: chain.get_peer_chain_info(),
+            partial_edge_info: edge.clone(),
+            owned_account: Some(
+                OwnedAccount {
+                    account_key: signer.public_key(),
+                    peer_id: cfg.node_id(),
+                    timestamp: clock.now_utc(),
+                }
+                .sign(&signer),
+            ),
+        };
+        stream.write(&PeerMessage::Tier3Handshake(handshake)).await;
+        let reason = events
+            .recv_until(|ev| match ev {
+                Event::ConnectionClosed(ev) if ev.stream_id == stream_id => Some(ev.reason),
+                Event::HandshakeCompleted(ev) if ev.stream_id == stream_id => {
+                    panic!("PeerManager accepted the handshake")
+                }
+                _ => None,
+            })
+            .await;
+        assert_eq!(ClosingReason::RejectedByPeerManager(RegisterPeerError::InvalidEdge), reason,);
+
+        // The pending entry must survive the failed attempt so the real peer
+        // can still connect.
+        let peer_id = cfg.node_id();
+        let still_pending = pm
+            .with_state(move |s| async move { s.pending_tier3_requests.contains_key(&peer_id) })
+            .await;
+        assert!(still_pending, "pending_tier3_requests entry was consumed by a failed edge check");
     }
 }
