@@ -1,25 +1,3 @@
-   Compiling generic-array v0.14.9
-   Compiling block-buffer v0.10.2
-   Compiling crypto-common v0.1.3
-   Compiling digest v0.10.7
-   Compiling sha2 v0.10.6
-   Compiling curve25519-dalek v4.1.3
-   Compiling blake2 v0.10.6
-   Compiling sha3 v0.10.6
-   Compiling near-primitives-core v0.0.0 (/home/ricky/nearcore/core/primitives-core)
-   Compiling ed25519-dalek v2.2.0
-   Compiling near-crypto v0.0.0 (/home/ricky/nearcore/core/crypto)
-   Compiling near-fmt v0.0.0 (/home/ricky/nearcore/utils/fmt)
-   Compiling near-parameters v0.0.0 (/home/ricky/nearcore/core/parameters)
-   Compiling near-primitives v0.0.0 (/home/ricky/nearcore/core/primitives)
-   Compiling near-chain-primitives v0.0.0 (/home/ricky/nearcore/chain/chain-primitives)
-   Compiling near-chain-configs v0.0.0 (/home/ricky/nearcore/core/chain-configs)
-   Compiling near-chunks-primitives v0.0.0 (/home/ricky/nearcore/chain/chunks-primitives)
-   Compiling near-client-primitives v0.0.0 (/home/ricky/nearcore/chain/client-primitives)
-   Compiling near-jsonrpc-primitives v0.0.0 (/home/ricky/nearcore/chain/jsonrpc-primitives)
-   Compiling near-jsonrpc-openapi-spec v0.0.0 (/home/ricky/nearcore/chain/jsonrpc/openapi)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 30.05s
-     Running `target/debug/near-jsonrpc-openapi-spec`
 {
   "openapi": "3.0.0",
   "info": {
