@@ -15,9 +15,10 @@ use crate::peer_manager::connected_peers::ConnectedPeerState;
 use crate::peer_manager::network_state::{
     NetworkState, PENDING_TIER3_REQUEST_TIMEOUT, WhitelistNode,
 };
-use crate::peer_manager::network_transport::NetworkTransport;
+use crate::peer_manager::network_transport::{NetworkTransport, PeerTransportStats};
 use crate::peer_manager::peer_store;
 use crate::peer_manager::tcp_transport::TcpTransport;
+use crate::routing::GraphSnapshot;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::spice_data_distribution::SpiceDataDistributorSenderForNetwork;
 use crate::state_witness::PartialWitnessSenderForNetwork;
@@ -51,7 +52,7 @@ use rand::Rng;
 use rand::seq::{IteratorRandom, SliceRandom};
 use rand::thread_rng;
 use std::cmp::min;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::Instrument as _;
 
@@ -311,11 +312,8 @@ fn to_highest_height_peer_info(
 fn build_connected_peer_info(
     peer_id: &PeerId,
     cp: &ConnectedPeerState,
-    stats: &std::collections::HashMap<
-        PeerId,
-        crate::peer_manager::network_transport::PeerTransportStats,
-    >,
-    graph: &crate::routing::GraphSnapshot,
+    stats: &HashMap<PeerId, PeerTransportStats>,
+    graph: &GraphSnapshot,
     genesis_id: &GenesisId,
     now: time::Instant,
 ) -> ConnectedPeerInfo {
