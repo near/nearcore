@@ -1,7 +1,6 @@
 use crate::replay_chunk::{ChunkReplayResult, replay_chunk};
-use anyhow::{Context, Result, anyhow, ensure};
 use near_chain::types::{RuntimeAdapter, StorageDataSource};
-use near_chain::{ChainStore, ChainStoreAccess};
+use near_chain::{ChainStore, ChainStoreAccess, Error};
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -22,7 +21,7 @@ use std::sync::Arc;
 /// Replay and advance are decoupled: `replay_current_chunk()` replays
 /// without mutating controller state, while `advance()` moves to the
 /// previous block by reversing memtrie changes.
-pub struct SequentialChunksReplayController {
+pub struct MemtrieShardReplayController {
     chain_store: ChainStore,
     runtime: Arc<dyn RuntimeAdapter>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -30,7 +29,7 @@ pub struct SequentialChunksReplayController {
     shard_uid: ShardUId,
 }
 
-impl SequentialChunksReplayController {
+impl MemtrieShardReplayController {
     /// Creates a controller that replays backwards from the chain head for
     /// the given shard.
     ///
@@ -43,19 +42,15 @@ impl SequentialChunksReplayController {
         runtime: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_id: ShardId,
-    ) -> Result<Self> {
-        let head_hash = chain_store.head().context("failed to get chain head")?.last_block_hash;
-        let shard_layout = get_shard_layout(&chain_store, epoch_manager.as_ref(), &head_hash)
-            .context("failed to get shard layout at head")?;
-        let shard_uid = shard_layout
-            .shard_uids()
-            .find(|uid| uid.shard_id() == shard_id)
-            .with_context(|| format!("shard id {shard_id} not in current shard layout"))?;
+    ) -> Result<Self, Error> {
+        let head_hash = chain_store.head()?.last_block_hash;
+        let shard_layout = get_shard_layout(&chain_store, epoch_manager.as_ref(), &head_hash)?;
+        let shard_uid =
+            shard_layout.shard_uids().find(|uid| uid.shard_id() == shard_id).ok_or_else(|| {
+                Error::Other(format!("shard id {shard_id} not in current shard layout"))
+            })?;
 
-        runtime
-            .get_tries()
-            .load_memtrie(&shard_uid, None, true)
-            .with_context(|| format!("failed to load memtries for shard id {shard_id}"))?;
+        runtime.get_tries().load_memtrie(&shard_uid, None, true)?;
 
         let controller =
             Self { chain_store, runtime, epoch_manager, current_block_hash: head_hash, shard_uid };
@@ -79,7 +74,7 @@ impl SequentialChunksReplayController {
         skip_all,
         fields(block_hash = %self.current_block_hash, shard_uid = %self.shard_uid),
     )]
-    pub fn replay_current_chunk(&self) -> Result<ChunkReplayResult> {
+    pub fn replay_current_chunk(&self) -> Result<ChunkReplayResult, Error> {
         replay_chunk(
             &self.chain_store,
             self.runtime.as_ref(),
@@ -88,7 +83,6 @@ impl SequentialChunksReplayController {
             self.shard_uid,
             StorageDataSource::Db,
         )
-        .with_context(|| format!("failed to replay chunk for shard {}", self.shard_uid))
     }
 
     /// Advances the controller to the previous block by reversing memtrie
@@ -102,11 +96,8 @@ impl SequentialChunksReplayController {
         skip_all,
         fields(block_hash = %self.current_block_hash, shard_uid = %self.shard_uid),
     )]
-    pub fn advance(&mut self) -> Result<bool> {
-        let block = self
-            .chain_store
-            .get_block(&self.current_block_hash)
-            .context("failed to get current block for advance")?;
+    pub fn advance(&mut self) -> Result<bool, Error> {
+        let block = self.chain_store.get_block(&self.current_block_hash)?;
         if block.header().is_genesis() {
             return Ok(false);
         }
@@ -126,8 +117,7 @@ impl SequentialChunksReplayController {
             self.epoch_manager.as_ref(),
             &self.current_block_hash,
             &prev_hash,
-        )
-        .context("shard layout check failed during advance")?;
+        )?;
 
         self.current_block_hash = prev_hash;
         self.reverse_current_block()?;
@@ -141,28 +131,21 @@ impl SequentialChunksReplayController {
     /// reads the previous value for each key from the on-disk trie at
     /// prev_state_root using `TrieDBStorage` (bypassing memtries and flat
     /// storage), and applies the reverse delta to the memtrie.
-    fn reverse_current_block(&self) -> Result<()> {
+    fn reverse_current_block(&self) -> Result<(), Error> {
         let shard_uid = self.shard_uid;
         let block_hash = &self.current_block_hash;
 
-        let block = self.chain_store.get_block(block_hash).context("failed to get block")?;
+        let block = self.chain_store.get_block(block_hash)?;
         let prev_hash = block.header().prev_hash();
         let height = block.header().height();
 
         let shard_layout =
-            get_shard_layout(&self.chain_store, self.epoch_manager.as_ref(), block_hash)
-                .context("failed to get shard layout for reverse")?;
+            get_shard_layout(&self.chain_store, self.epoch_manager.as_ref(), block_hash)?;
 
-        let chunk_extra = self
-            .chain_store
-            .get_chunk_extra(block_hash, &shard_uid)
-            .context("failed to get chunk extra")?;
+        let chunk_extra = self.chain_store.get_chunk_extra(block_hash, &shard_uid)?;
         let current_state_root = *chunk_extra.state_root();
 
-        let prev_chunk_extra = self
-            .chain_store
-            .get_chunk_extra(prev_hash, &shard_uid)
-            .context("failed to get prev chunk extra")?;
+        let prev_chunk_extra = self.chain_store.get_chunk_extra(prev_hash, &shard_uid)?;
         let prev_state_root = *prev_chunk_extra.state_root();
 
         // Create a trie that reads directly from DBCol::State, bypassing
@@ -174,11 +157,11 @@ impl SequentialChunksReplayController {
             None,
         );
 
-        let memtries = tries.get_memtries(shard_uid).context("memtries not loaded for shard")?;
+        let memtries = tries
+            .get_memtries(shard_uid)
+            .ok_or_else(|| Error::Other(format!("memtries not loaded for shard {shard_uid}")))?;
         let mut memtries_guard = memtries.write();
-        let mut trie_update = memtries_guard
-            .update(current_state_root, TrackingMode::None)
-            .map_err(|e| anyhow!("failed to create memtrie update: {}", e))?;
+        let mut trie_update = memtries_guard.update(current_state_root, TrackingMode::None)?;
 
         // Iterate changed trie keys for this shard, looking up the previous
         // value and applying the reverse change directly to the memtrie.
@@ -193,14 +176,16 @@ impl SequentialChunksReplayController {
                         (shard_layout.account_id_to_shard_id(&account_id), full_trie_key)
                     }
                     None => {
-                        ensure!(
-                            full_trie_key.len() >= 8,
-                            "trie key too short for shard uid suffix"
-                        );
+                        if full_trie_key.len() < 8 {
+                            return Err(Error::Other(
+                                "trie key too short for shard uid suffix".into(),
+                            ));
+                        }
                         let (trie_key, shard_uid_raw) =
                             full_trie_key.split_at(full_trie_key.len() - 8);
-                        let key_shard_uid = ShardUId::try_from(shard_uid_raw)
-                            .map_err(|e| anyhow!("failed to decode shard uid: {}", e))?;
+                        let key_shard_uid = ShardUId::try_from(shard_uid_raw).map_err(|e| {
+                            Error::Other(format!("failed to decode shard uid: {e}"))
+                        })?;
                         (key_shard_uid.shard_id(), trie_key)
                     }
                 };
@@ -218,9 +203,7 @@ impl SequentialChunksReplayController {
 
             match prev_value_ref {
                 None => {
-                    trie_update
-                        .delete_memtrie_only(actual_trie_key)
-                        .map_err(|e| anyhow!("failed to delete from memtrie: {}", e))?;
+                    trie_update.delete_memtrie_only(actual_trie_key)?;
                 }
                 Some(value_ref) => {
                     let prev_value = if FlatStateValue::should_inline(value_ref.len()) {
@@ -229,21 +212,18 @@ impl SequentialChunksReplayController {
                     } else {
                         FlatStateValue::Ref(value_ref)
                     };
-                    trie_update
-                        .insert_memtrie_only(actual_trie_key, prev_value)
-                        .map_err(|e| anyhow!("failed to insert into memtrie: {}", e))?;
+                    trie_update.insert_memtrie_only(actual_trie_key, prev_value)?;
                 }
             }
         }
 
         let memtrie_changes = trie_update.to_memtrie_changes_only();
         let applied_root = memtries_guard.apply_memtrie_changes(height - 1, &memtrie_changes);
-        ensure!(
-            applied_root == prev_state_root,
-            "memtrie root mismatch after reverse: expected {} but got {}",
-            prev_state_root,
-            applied_root,
-        );
+        if applied_root != prev_state_root {
+            return Err(Error::Other(format!(
+                "memtrie root mismatch after reverse: expected {prev_state_root} but got {applied_root}",
+            )));
+        }
 
         // Clean up the old root we reversed away from.
         memtries_guard.delete_root(&current_state_root);
@@ -252,7 +232,7 @@ impl SequentialChunksReplayController {
     }
 }
 
-impl Drop for SequentialChunksReplayController {
+impl Drop for MemtrieShardReplayController {
     fn drop(&mut self) {
         self.runtime.get_tries().unload_memtrie(&self.shard_uid);
     }
@@ -263,15 +243,14 @@ fn ensure_same_shard_layout(
     epoch_manager: &dyn EpochManagerAdapter,
     block_hash_a: &CryptoHash,
     block_hash_b: &CryptoHash,
-) -> Result<()> {
+) -> Result<(), Error> {
     let layout_a = get_shard_layout(chain_store, epoch_manager, block_hash_a)?;
     let layout_b = get_shard_layout(chain_store, epoch_manager, block_hash_b)?;
-    ensure!(
-        layout_a == layout_b,
-        "shard layout changed between blocks {} and {} — resharding replay is not supported",
-        block_hash_a,
-        block_hash_b,
-    );
+    if layout_a != layout_b {
+        return Err(Error::Other(format!(
+            "shard layout changed between blocks {block_hash_a} and {block_hash_b} — resharding replay is not supported",
+        )));
+    }
     Ok(())
 }
 
@@ -279,11 +258,7 @@ fn get_shard_layout(
     chain_store: &ChainStore,
     epoch_manager: &dyn EpochManagerAdapter,
     block_hash: &CryptoHash,
-) -> Result<ShardLayout> {
-    let block = chain_store
-        .get_block(block_hash)
-        .with_context(|| format!("failed to get block {}", block_hash))?;
-    epoch_manager
-        .get_shard_layout(block.header().epoch_id())
-        .with_context(|| format!("failed to get shard layout for block {}", block_hash))
+) -> Result<ShardLayout, Error> {
+    let block = chain_store.get_block(block_hash)?;
+    Ok(epoch_manager.get_shard_layout(block.header().epoch_id())?)
 }

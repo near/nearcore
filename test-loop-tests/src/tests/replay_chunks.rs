@@ -7,7 +7,7 @@ use near_primitives::gas::Gas;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::transaction::{ExecutionOutcome, ExecutionOutcomeWithId};
 use near_primitives::types::Balance;
-use near_replay::{ChunkReplayResult, SequentialChunksReplayController};
+use near_replay::{ChunkReplayResult, MemtrieShardReplayController};
 
 /// Tests the SequentialChunksReplayController with multiple shards,
 /// replaying backwards from the head.
@@ -76,7 +76,7 @@ fn test_replay_chunks_controller() {
         // Make sure memtrie is not loaded for that shard to make sure
         // the controller properly loads it
         runtime.get_tries().unload_memtrie(&shard_uid);
-        let mut controller = SequentialChunksReplayController::load_memtrie(
+        let mut controller = MemtrieShardReplayController::load_memtrie(
             rpc_client.chain.chain_store.clone(),
             runtime,
             rpc_client.epoch_manager.clone(),

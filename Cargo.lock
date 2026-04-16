@@ -5097,7 +5097,6 @@ dependencies = [
 name = "near-replay"
 version = "0.0.0"
 dependencies = [
- "anyhow",
  "near-chain",
  "near-epoch-manager",
  "near-primitives",

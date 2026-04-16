@@ -5,7 +5,7 @@ use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::types::ShardId;
-use near_replay::SequentialChunksReplayController;
+use near_replay::MemtrieShardReplayController;
 use near_store::adapter::StoreAdapter;
 use near_store::flat::FlatStorageStatus;
 use near_store::{DBCol, NodeStorage, ShardUId};
@@ -30,18 +30,18 @@ pub enum ShardFilter {
 /// stored ChunkExtras. Uses the database from the global `--home` argument.
 #[derive(clap::Parser)]
 pub struct ReplayCommand {
-    /// Number of blocks to replay.
+    /// Number of blocks to replay. If omitted, replays all available blocks.
     #[clap(long)]
-    num_blocks: u64,
+    num_blocks: Option<u64>,
 
     /// Which shards to replay: `all`, `available`, or a comma-separated
     /// list of shard ids (e.g. `0,1,3`).
     #[clap(long, value_parser = parse_shard_filter, default_value = "all")]
     shards: ShardFilter,
 
-    /// If set, return an error on the first ChunkExtra mismatch instead of
-    /// continuing to log warnings.
-    #[clap(long)]
+    /// If set to false, log warnings on ChunkExtra mismatches instead of
+    /// returning an error on the first one.
+    #[clap(long, default_value_t = true)]
     fail_fast: bool,
 }
 
@@ -100,19 +100,20 @@ impl ReplayCommand {
     }
 }
 
-/// Replays up to `num_blocks` chunks for a single shard, walking backwards
-/// from the chain head. Verifies each chunk's ChunkExtra against the value
-/// stored in the database and either aborts on the first mismatch
-/// (`fail_fast`) or logs a warning and continues.
+/// Replays chunks for a single shard, walking backwards from the chain head.
+/// If `num_blocks` is `Some`, replays at most that many blocks; otherwise
+/// replays until no more blocks are available. Verifies each chunk's
+/// ChunkExtra against the value stored in the database and either aborts on
+/// the first mismatch (`fail_fast`) or logs a warning and continues.
 fn replay_shard(
     chain_store: &ChainStore,
     runtime: Arc<NightshadeRuntime>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_id: ShardId,
-    num_blocks: u64,
+    num_blocks: Option<u64>,
     fail_fast: bool,
 ) -> Result<()> {
-    let mut controller = SequentialChunksReplayController::load_memtrie(
+    let mut controller = MemtrieShardReplayController::load_memtrie(
         chain_store.clone(),
         runtime,
         epoch_manager,
@@ -120,7 +121,7 @@ fn replay_shard(
     )
     .context("failed to create replay controller")?;
 
-    for i in 0..num_blocks {
+    for i in 0..num_blocks.unwrap_or(u64::MAX) {
         let current_hash = *controller.current_block_hash();
         let height = chain_store
             .get_block(&current_hash)
@@ -131,7 +132,9 @@ fn replay_shard(
         let result = controller.replay_current_chunk().context("replay failed")?;
         if let Err(e) = result.verify() {
             if fail_fast {
-                return Err(e.context(format!("chunk mismatch at height {}", height)));
+                return Err(
+                    anyhow::anyhow!(e).context(format!("chunk mismatch at height {}", height))
+                );
             }
             tracing::warn!(target: "replay", %shard_id, %height, "chunk mismatch: {:#}", e);
         }

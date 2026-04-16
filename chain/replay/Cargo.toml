@@ -12,7 +12,6 @@ publish = false
 workspace = true
 
 [dependencies]
-anyhow.workspace = true
 tracing.workspace = true
 
 near-chain.workspace = true
