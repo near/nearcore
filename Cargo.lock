@@ -5133,6 +5133,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
+ "indicatif",
  "near-chain",
  "near-chain-configs",
  "near-epoch-manager",

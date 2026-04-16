@@ -14,6 +14,7 @@ workspace = true
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+indicatif.workspace = true
 tracing.workspace = true
 
 near-chain.workspace = true

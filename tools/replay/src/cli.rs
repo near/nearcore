@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, bail, ensure};
+use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use near_chain::runtime::NightshadeRuntime;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
@@ -43,6 +44,10 @@ pub struct ReplayCommand {
     /// returning an error on the first one.
     #[clap(long, default_value_t = true)]
     fail_fast: bool,
+
+    /// Show a progress bar for each shard.
+    #[clap(long)]
+    show_progress: bool,
 }
 
 impl ReplayCommand {
@@ -92,6 +97,7 @@ impl ReplayCommand {
                 shard_id,
                 self.num_blocks,
                 self.fail_fast,
+                self.show_progress,
             )
             .with_context(|| format!("failed to replay shard {}", shard_id))?;
         }
@@ -112,6 +118,7 @@ fn replay_shard(
     shard_id: ShardId,
     num_blocks: Option<u64>,
     fail_fast: bool,
+    show_progress: bool,
 ) -> Result<()> {
     let mut controller = MemtrieShardReplayController::load_memtrie(
         chain_store.clone(),
@@ -120,6 +127,32 @@ fn replay_shard(
         shard_id,
     )
     .context("failed to create replay controller")?;
+
+    let progress_bar = if show_progress {
+        let total = num_blocks.unwrap_or_else(|| {
+            let head_height = chain_store.head().map(|tip| tip.height).unwrap_or(0);
+            let tail_height = chain_store.tail();
+            head_height.saturating_sub(tail_height)
+        });
+        let bar = ProgressBar::with_draw_target(Some(total), ProgressDrawTarget::stderr_with_hz(5))
+            .with_style(
+                ProgressStyle::with_template(
+                    "shard {msg} [{bar:40}] {pos}/{len} ({eta} remaining)",
+                )
+                .unwrap(),
+            );
+        bar.set_message(shard_id.to_string());
+        bar
+    } else {
+        ProgressBar::hidden()
+    };
+
+    tracing::info!(
+        target: "replay",
+        %shard_id,
+        num_blocks = num_blocks.map(|n| n.to_string()).unwrap_or_else(|| "all".into()),
+        "starting shard replay"
+    );
 
     for i in 0..num_blocks.unwrap_or(u64::MAX) {
         let current_hash = *controller.current_block_hash();
@@ -132,13 +165,15 @@ fn replay_shard(
         let result = controller.replay_current_chunk().context("replay failed")?;
         if let Err(e) = result.verify() {
             if fail_fast {
+                progress_bar.abandon();
                 return Err(
                     anyhow::anyhow!(e).context(format!("chunk mismatch at height {}", height))
                 );
             }
             tracing::warn!(target: "replay", %shard_id, %height, "chunk mismatch: {:#}", e);
         }
-        tracing::info!(
+        progress_bar.set_position(i + 1);
+        tracing::debug!(
             target: "replay",
             block = i + 1,
             %shard_id,
@@ -157,6 +192,7 @@ fn replay_shard(
         }
     }
 
+    progress_bar.finish();
     Ok(())
 }
 
