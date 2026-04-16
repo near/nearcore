@@ -16,11 +16,18 @@ use std::time::Instant;
 /// heights in descending order (from head toward genesis). This ensures
 /// recent receipts become queryable first.
 ///
+/// On split-storage archival nodes, ReceiptToTx entries are written directly
+/// to cold storage (`write_store`), bypassing the hot→cold copy pipeline.
+/// Checkpoints are always written to hot storage (`checkpoint_store`) since
+/// they're transient operational state, not archival data.
+///
 /// Follows the GCActor pattern: runs in a periodic loop via `ctx.run_later()`.
 pub struct BackfillReceiptToTxActor {
     chain_store: ChainStore,
     read_store: Store,
     write_store: Store,
+    /// Checkpoints are always stored in hot storage.
+    checkpoint_store: Store,
     genesis_height: BlockHeight,
     config: BackfillReceiptToTxConfig,
     /// The height where backfill started (set on first batch), used for progress tracking.
@@ -31,6 +38,7 @@ impl BackfillReceiptToTxActor {
     pub fn new(
         read_store: Store,
         write_store: Store,
+        checkpoint_store: Store,
         save_trie_changes: bool,
         genesis: &ChainGenesis,
         config: BackfillReceiptToTxConfig,
@@ -41,7 +49,15 @@ impl BackfillReceiptToTxActor {
             genesis.transaction_validity_period,
         );
         let genesis_height = chain_store.get_genesis_height();
-        Self { chain_store, read_store, write_store, genesis_height, config, initial_height: None }
+        Self {
+            chain_store,
+            read_store,
+            write_store,
+            checkpoint_store,
+            genesis_height,
+            config,
+            initial_height: None,
+        }
     }
 
     fn backfill_loop(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
@@ -80,7 +96,7 @@ impl BackfillReceiptToTxActor {
         let batch_start = Instant::now();
 
         let checkpoint: Option<BlockHeight> =
-            self.write_store.get_ser(DBCol::Misc, BACKFILL_CHECKPOINT_KEY_LOW);
+            self.checkpoint_store.get_ser(DBCol::Misc, BACKFILL_CHECKPOINT_KEY_LOW);
 
         // If checkpoint exists and is at or below genesis, we're done.
         if let Some(cp) = checkpoint {
@@ -114,14 +130,14 @@ impl BackfillReceiptToTxActor {
 
         let mut stats =
             BackfillStats { blocks_processed: 0, entries_written: 0, heights_skipped: 0 };
-        let mut store_update = self.write_store.store_update();
+        let mut entry_update = self.write_store.store_update();
 
         // Process heights in descending order.
         for h in (batch_end..=current_height).rev() {
             match process_height(&self.chain_store, &self.read_store, h)? {
                 Some(entries) => {
                     for (receipt_id, info) in entries {
-                        store_update.insert_ser(DBCol::ReceiptToTx, receipt_id.as_ref(), &info);
+                        entry_update.insert_ser(DBCol::ReceiptToTx, receipt_id.as_ref(), &info);
                         stats.entries_written += 1;
                     }
                     stats.blocks_processed += 1;
@@ -131,10 +147,13 @@ impl BackfillReceiptToTxActor {
                 }
             }
         }
+        entry_update.commit();
 
-        // Checkpoint = lowest height processed in this batch.
-        store_update.set_ser(DBCol::Misc, BACKFILL_CHECKPOINT_KEY_LOW, &batch_end);
-        store_update.commit();
+        // Checkpoint after entries are persisted. Non-atomic with entries, but safe:
+        // crash between the two replays work (insert-only column, idempotent).
+        let mut cp_update = self.checkpoint_store.store_update();
+        cp_update.set_ser(DBCol::Misc, BACKFILL_CHECKPOINT_KEY_LOW, &batch_end);
+        cp_update.commit();
 
         let batch_duration = batch_start.elapsed();
         if stats.blocks_processed > 0 || stats.heights_skipped > 0 {

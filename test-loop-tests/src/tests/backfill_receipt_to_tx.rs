@@ -180,6 +180,7 @@ fn test_backfill_matches_normal_processing() {
         chain_store,
         &store,
         &store,
+        &store,
         genesis_height,
         head_height,
         &default_options(),
@@ -252,6 +253,7 @@ fn test_backfill_idempotent() {
         chain_store,
         &store,
         &store,
+        &store,
         genesis_height,
         head_height,
         &default_options(),
@@ -268,6 +270,7 @@ fn test_backfill_idempotent() {
     // Run backfill again (idempotent).
     let stats2 = backfill_receipt_to_tx(
         chain_store,
+        &store,
         &store,
         &store,
         genesis_height,
@@ -344,6 +347,7 @@ fn test_checkpoint_does_not_skip_mid_height_receipts() {
         chain_store,
         &store,
         &store,
+        &store,
         genesis_height,
         head_height,
         &options,
@@ -367,6 +371,7 @@ fn test_checkpoint_does_not_skip_mid_height_receipts() {
     // this height is done" — no receipts were skipped mid-height.
     let stats2 = backfill_receipt_to_tx(
         chain_store,
+        &store,
         &store,
         &store,
         checkpoint_value + 1,
@@ -440,6 +445,7 @@ fn test_checkpoint_resume_after_partial_completion() {
         chain_store,
         &store,
         &store,
+        &store,
         genesis_height,
         mid_height,
         &options_with_checkpoint,
@@ -457,6 +463,7 @@ fn test_checkpoint_resume_after_partial_completion() {
     // Phase 2: resume from checkpoint+1 to head.
     let stats2 = backfill_receipt_to_tx(
         chain_store,
+        &store,
         &store,
         &store,
         checkpoint + 1,
@@ -492,6 +499,7 @@ fn test_checkpoint_resume_after_partial_completion() {
 
     let stats_full = backfill_receipt_to_tx(
         chain_store,
+        &store,
         &store,
         &store,
         genesis_height,
@@ -541,6 +549,7 @@ fn test_backward_backfill_matches_forward() {
     // Run forward backfill to get the reference entries.
     let forward_stats = backfill_receipt_to_tx(
         chain_store,
+        &store,
         &store,
         &store,
         genesis_height,
@@ -644,6 +653,7 @@ fn test_backfill_actor_processes_heights() {
     let mut actor = BackfillReceiptToTxActor::new(
         store.clone(),
         store.clone(),
+        store.clone(),
         true,
         &chain_genesis,
         BackfillReceiptToTxConfig {
@@ -697,6 +707,7 @@ fn test_backfill_actor_processes_heights() {
     let head_height = env.validator().head().height;
     let forward_stats = backfill_receipt_to_tx(
         chain_store,
+        &store,
         &store,
         &store,
         genesis_height,

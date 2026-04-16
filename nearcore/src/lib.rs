@@ -589,9 +589,12 @@ pub async fn start_with_config_and_synchronization_impl(
         && config.client_config.backfill_receipt_to_tx.enabled
     {
         let read_store = maybe_split_store.clone();
+        let hot_store = storage.get_hot_store();
+        let entry_store = storage.get_cold_store().unwrap_or_else(|| hot_store.clone());
         let _backfill_actor = actor_system.spawn_tokio_actor(BackfillReceiptToTxActor::new(
             read_store,
-            storage.get_hot_store(),
+            entry_store,
+            hot_store,
             config.client_config.save_trie_changes,
             &chain_genesis,
             config.client_config.backfill_receipt_to_tx.clone(),

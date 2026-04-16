@@ -34,8 +34,8 @@ pub struct BackfillStats {
 
 /// Process a single height: read all execution outcomes and build ReceiptToTxInfo entries.
 ///
-/// Returns `Ok(None)` for skipped heights (no block at this height).
-/// Returns `Ok(Some(entries))` for processed heights.
+/// Returns `Ok(None)` for skipped heights (no block at this height or no entries produced).
+/// Returns `Ok(Some(entries))` with ReceiptToTx entries to write.
 pub fn process_height(
     chain_store: &ChainStore,
     read_store: &Store,

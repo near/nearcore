@@ -52,9 +52,9 @@ impl BackfillReceiptToTxCommand {
             .context("failed to load config")?;
         let node_storage = open_storage(home, &near_config).context("failed to open storage")?;
 
-        let read_store =
-            node_storage.get_split_store().unwrap_or_else(|| node_storage.get_hot_store());
-        let write_store = node_storage.get_hot_store();
+        let hot_store = node_storage.get_hot_store();
+        let read_store = node_storage.get_split_store().unwrap_or_else(|| hot_store.clone());
+        let write_store = node_storage.get_cold_store().unwrap_or_else(|| hot_store.clone());
 
         let chain_store = ChainStore::new(
             read_store.clone(),
@@ -67,7 +67,7 @@ impl BackfillReceiptToTxCommand {
 
         let from_height = match self.from_block_height {
             Some(h) => h,
-            None => write_store
+            None => hot_store
                 .get_ser::<BlockHeight>(DBCol::Misc, BACKFILL_CHECKPOINT_KEY)
                 .map(|h| h + 1)
                 .unwrap_or(genesis_height),
@@ -106,6 +106,7 @@ impl BackfillReceiptToTxCommand {
             &chain_store,
             &read_store,
             &write_store,
+            &hot_store,
             from_height,
             to_height,
             &options,
@@ -134,11 +135,13 @@ impl BackfillReceiptToTxCommand {
 /// in height order to maintain deterministic checkpoint behavior.
 ///
 /// When `use_checkpoint` is true, the checkpoint is stored in `DBCol::Misc`
-/// atomically with the ReceiptToTx entries at chunk boundaries.
+/// after entries are committed. The two writes are non-atomic, but safe:
+/// on crash between them, the batch is replayed (insert-only column, idempotent).
 pub fn backfill_receipt_to_tx(
     chain_store: &ChainStore,
     read_store: &Store,
     write_store: &Store,
+    checkpoint_store: &Store,
     from_height: BlockHeight,
     to_height: BlockHeight,
     options: &BackfillOptions,
@@ -167,12 +170,12 @@ pub fn backfill_receipt_to_tx(
         });
 
         // Sequential writes in height order (par_iter preserves input order)
-        let mut store_update = write_store.store_update();
+        let mut entry_update = write_store.store_update();
         for result in results {
             match result {
                 Ok(Some(entries)) => {
                     for (receipt_id, info) in entries {
-                        store_update.insert_ser(DBCol::ReceiptToTx, receipt_id.as_ref(), &info);
+                        entry_update.insert_ser(DBCol::ReceiptToTx, receipt_id.as_ref(), &info);
                         stats.entries_written += 1;
                     }
                     stats.blocks_processed += 1;
@@ -186,13 +189,15 @@ pub fn backfill_receipt_to_tx(
                 p.inc(1);
             }
         }
+        entry_update.commit();
 
-        // Checkpoint at chunk_end — all heights in chunk are done.
-        // On crash, the entire chunk is re-processed (safe, insert-only column).
+        // Checkpoint after entries are persisted. Non-atomic with entries, but safe:
+        // crash between the two replays work (insert-only column, idempotent).
         if options.use_checkpoint {
-            store_update.set_ser(DBCol::Misc, BACKFILL_CHECKPOINT_KEY, &chunk_end);
+            let mut cp_update = checkpoint_store.store_update();
+            cp_update.set_ser(DBCol::Misc, BACKFILL_CHECKPOINT_KEY, &chunk_end);
+            cp_update.commit();
         }
-        store_update.commit();
 
         if stats.blocks_processed / 10_000 > blocks_before / 10_000 {
             tracing::info!(
