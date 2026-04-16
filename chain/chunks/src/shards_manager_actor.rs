@@ -473,6 +473,7 @@ impl ShardsManagerActor {
             ?chunk_hash,
             ?height,
             %shard_id,
+            ?prev_block_hash,
             ?request_from_archival)
         .entered();
         let mut bp_to_parts = HashMap::<_, Vec<u64>>::new();
@@ -521,10 +522,10 @@ impl ShardsManagerActor {
         // A account that is either the original chunk producer or a random block producer tracking
         // the shard
         let shard_representative_target = match chunk_producer_account_id {
-            Some(ref cp)
-                if !request_own_parts_from_others && !request_from_archival && Some(cp) != me =>
+            Some(cp)
+                if !request_own_parts_from_others && !request_from_archival && Some(&cp) != me =>
             {
-                Some(cp.clone())
+                Some(cp)
             }
             _ => self.get_random_target_tracking_shard(ancestor_hash, shard_id, me)?,
         };
@@ -795,7 +796,7 @@ impl ShardsManagerActor {
                 me,
             )
             .unwrap_or_else(|err| {
-                tracing::warn!(
+                tracing::error!(
                     target: "chunks",
                     ?err,
                     ?ancestor_hash,
@@ -3400,6 +3401,12 @@ mod test {
         // producer DB lookup fails. Use a chunk-only producer as `me` so the block
         // producer check doesn't short-circuit before reaching the DB lookup.
         let chunk_only_producer: AccountId = "test_cp_0".parse().unwrap();
+        let epoch_id = EpochId::default();
+        let bps = fixture.epoch_manager.get_epoch_block_producers_ordered(&epoch_id).unwrap();
+        assert!(
+            !bps.iter().any(|bp| bp.account_id() == &chunk_only_producer),
+            "test_cp_0 must not be a block producer for this test to exercise the DB lookup path"
+        );
         let result = shards_manager.should_wait_for_chunk_forwarding(
             &ancestor_hash,
             fixture.mock_chunk_header.height_created(),
