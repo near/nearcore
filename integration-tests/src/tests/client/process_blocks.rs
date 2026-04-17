@@ -15,7 +15,7 @@ use near_chain::{BlockProcessingArtifact, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, ProtocolVersionCheckConfig};
 use near_client::sync::SYNC_V2_ENABLED;
-use near_client::test_utils::create_chunk_on_height;
+use near_client::test_utils::{create_chunk, create_chunk_on_height};
 use near_client::{GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType, Signature};
 use near_network::client::{BlockApproval, BlockResponse, SetNetworkInfo};
@@ -30,6 +30,7 @@ use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_parameters::{ActionCosts, ExtCosts};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
+use near_pool::types::TransactionGroupIterator;
 use near_primitives::block::Approval;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError};
@@ -42,10 +43,12 @@ use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner, ShardCh
 use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{
     Action, ExecutionStatus, FunctionCallAction, SignedTransaction, Transaction, TransactionV0,
+    ValidatedTransaction,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, Gas, NumBlocks};
@@ -2982,6 +2985,235 @@ fn prepare_env_with_transaction() -> (TestEnv, CryptoHash) {
     let tx_hash = tx.get_hash();
     assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     (env, tx_hash)
+}
+
+/// After a reorg, transactions carried by the orphaned branch must end up
+/// back in the tx pool. This test pins the invariant under pool-capacity
+/// pressure: the per-shard pool is sized to fit exactly one transaction and
+/// is already populated with the transaction that the new canonical branch
+/// carries in its chunk. The old-branch transaction must still be in the
+/// pool once the reorg completes.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_reorg_reintroduces_old_branch_tx_when_pool_is_full() {
+    init_test_logger();
+
+    let epoch_length = 10;
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
+    // Gas-price validation rejects blocks built via `TestBlockBuilder` unless
+    // the chain allows zero; that check is orthogonal to what this exercises.
+    genesis.config.min_gas_price = Balance::ZERO;
+
+    // A send_money tx in these tests is 112 bytes, so a 120-byte limit holds
+    // exactly one such tx; a second insert fails with `NoSpaceLeft`.
+    let mut env = TestEnv::builder(&genesis.config)
+        .nightshade_runtimes(&genesis)
+        .transaction_pool_size_limit(Some(120))
+        .build();
+
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
+    let validator_signer = Arc::new(create_test_signer("test0"));
+    let validator_id = env.clients[0].validator_signer.get().unwrap().validator_id().clone();
+    let shard_uid = ShardUId::single_shard();
+
+    let tx_a = SignedTransaction::send_money(
+        1,
+        "test0".parse().unwrap(),
+        "test1".parse().unwrap(),
+        &signer,
+        Balance::from_yoctonear(1),
+        *genesis_block.hash(),
+    );
+    let tx_b = SignedTransaction::send_money(
+        2,
+        "test0".parse().unwrap(),
+        "test1".parse().unwrap(),
+        &signer,
+        Balance::from_yoctonear(1),
+        *genesis_block.hash(),
+    );
+    let tx_a_hash = tx_a.get_hash();
+    let tx_a_validated = ValidatedTransaction::new_for_test(tx_a);
+    let tx_b_validated = ValidatedTransaction::new_for_test(tx_b);
+
+    // Build block_a for chain A and persist its chunk so the block can be
+    // processed. Head is still genesis so block_a sits at height 1 with
+    // prev=genesis.
+    let (result_a, block_a) = create_chunk(&mut env.clients[0], vec![tx_a_validated]);
+    env.clients[0]
+        .distribute_and_persist_encoded_chunk(
+            result_a.chunk,
+            result_a.encoded_chunk_parts_paths,
+            result_a.receipts,
+            validator_id.clone(),
+        )
+        .unwrap();
+
+    // Build block_b for chain B. We reuse `create_chunk` for the chunk (head
+    // is still genesis) but rebuild the block at height 2 with prev=genesis
+    // so the two blocks form a fork off genesis.
+    let (result_b, _block_b_same_height) =
+        create_chunk(&mut env.clients[0], vec![tx_b_validated.clone()]);
+    let chunk_b_sharded = result_b.chunk;
+    let encoded_paths_b = result_b.encoded_chunk_parts_paths;
+    let receipts_b = result_b.receipts;
+    let encoded_chunk_b = chunk_b_sharded.to_encoded_shard_chunk();
+    let mut chunk_header_b = encoded_chunk_b.cloned_header();
+    *chunk_header_b.height_included_mut() = 2;
+    let endorsement_b =
+        ChunkEndorsement::new(EpochId::default(), &chunk_header_b, validator_signer.as_ref());
+    let clock = env.clients[0].clock.clone();
+    let block_merkle_tree_raw =
+        env.clients[0].chain.chain_store().get_block_merkle_tree(genesis_block.hash()).unwrap();
+    let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree_raw);
+    let block_b = TestBlockBuilder::from_prev_block(clock, &genesis_block, validator_signer)
+        .height(2)
+        .chunks(vec![chunk_header_b])
+        .chunk_endorsements(vec![vec![Some(Box::new(endorsement_b.signature()))]])
+        .max_gas_price(Balance::from_yoctonear(100))
+        .block_merkle_tree(&mut block_merkle_tree)
+        .build();
+    env.clients[0]
+        .distribute_and_persist_encoded_chunk(
+            chunk_b_sharded,
+            encoded_paths_b,
+            receipts_b,
+            validator_id,
+        )
+        .unwrap();
+
+    // Process block_a as Next. tx_a is not in the pool (we never submitted
+    // it), so the removal step is a no-op.
+    env.clients[0].process_block_test(block_a.into(), Provenance::NONE).unwrap();
+
+    // Plant tx_b in the pool so it now holds exactly the transaction that
+    // block_b (the incoming canonical branch) carries in its chunk, filling
+    // the pool to capacity.
+    env.clients[0]
+        .chunk_producer
+        .sharded_tx_pool
+        .lock()
+        .insert_transaction(shard_uid, tx_b_validated);
+
+    // Process block_b; status is `Reorg(block_a)`. Skip producing the next
+    // chunk because chunk preparation would drain the pool and reject tx_a
+    // as nonce-stale relative to block_b's post-state, hiding the assertion.
+    env.clients[0].process_block_test_no_produce_chunk(block_b.into(), Provenance::NONE).unwrap();
+
+    assert!(
+        pool_tx_hashes(&env, shard_uid).contains(&tx_a_hash),
+        "tx_a must be present in the pool after the reorg",
+    );
+}
+
+/// Drains the pool for `shard_uid` and collects all tx hashes. The iterator
+/// walk removes the inspected transactions, so this is only safe at the end
+/// of a test.
+fn pool_tx_hashes(env: &TestEnv, shard_uid: ShardUId) -> HashSet<CryptoHash> {
+    let mut hashes = HashSet::new();
+    let mut pool = env.clients[0].chunk_producer.sharded_tx_pool.lock();
+    let Some(mut iter) = pool.get_pool_iterator(shard_uid) else { return hashes };
+    while let Some(group) = iter.next() {
+        while let Some(tx) = group.next() {
+            hashes.insert(tx.get_hash());
+        }
+    }
+    hashes
+}
+
+/// A tx that appears in chunks of both branches must not be reintroduced into
+/// the pool during reorg — it's already in the canonical chain.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_reorg_skips_overlap_txs_during_reintroduction() {
+    init_test_logger();
+
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    genesis.config.epoch_length = 10;
+    genesis.config.transaction_validity_period = 20;
+    genesis.config.min_gas_price = Balance::ZERO;
+
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
+    let validator_signer = Arc::new(create_test_signer("test0"));
+    let validator_id = env.clients[0].validator_signer.get().unwrap().validator_id().clone();
+    let shard_uid = ShardUId::single_shard();
+
+    let make_tx = |nonce| {
+        SignedTransaction::send_money(
+            nonce,
+            "test0".parse().unwrap(),
+            "test1".parse().unwrap(),
+            &signer,
+            Balance::from_yoctonear(1),
+            *genesis_block.hash(),
+        )
+    };
+    let tx_overlap = make_tx(1);
+    let tx_old_only = make_tx(2);
+    let tx_new_only = make_tx(3);
+    let overlap_hash = tx_overlap.get_hash();
+    let old_only_hash = tx_old_only.get_hash();
+    let new_only_hash = tx_new_only.get_hash();
+
+    // Chain A: block_a at height 1 with chunk [overlap, old_only].
+    let (result_a, block_a) = create_chunk(
+        &mut env.clients[0],
+        vec![
+            ValidatedTransaction::new_for_test(tx_overlap.clone()),
+            ValidatedTransaction::new_for_test(tx_old_only),
+        ],
+    );
+    env.clients[0]
+        .distribute_and_persist_encoded_chunk(
+            result_a.chunk,
+            result_a.encoded_chunk_parts_paths,
+            result_a.receipts,
+            validator_id.clone(),
+        )
+        .unwrap();
+
+    // Chain B: block_b forked off genesis at height 2 with chunk [overlap, new_only].
+    let (result_b, _) = create_chunk(
+        &mut env.clients[0],
+        vec![
+            ValidatedTransaction::new_for_test(tx_overlap),
+            ValidatedTransaction::new_for_test(tx_new_only),
+        ],
+    );
+    let chunk_b = result_b.chunk;
+    let encoded_paths_b = result_b.encoded_chunk_parts_paths;
+    let receipts_b = result_b.receipts;
+    let mut chunk_header_b = chunk_b.to_encoded_shard_chunk().cloned_header();
+    *chunk_header_b.height_included_mut() = 2;
+    let endorsement_b =
+        ChunkEndorsement::new(EpochId::default(), &chunk_header_b, validator_signer.as_ref());
+    let clock = env.clients[0].clock.clone();
+    let merkle_raw =
+        env.clients[0].chain.chain_store().get_block_merkle_tree(genesis_block.hash()).unwrap();
+    let mut merkle = PartialMerkleTree::clone(&merkle_raw);
+    let block_b = TestBlockBuilder::from_prev_block(clock, &genesis_block, validator_signer)
+        .height(2)
+        .chunks(vec![chunk_header_b])
+        .chunk_endorsements(vec![vec![Some(Box::new(endorsement_b.signature()))]])
+        .max_gas_price(Balance::from_yoctonear(100))
+        .block_merkle_tree(&mut merkle)
+        .build();
+    env.clients[0]
+        .distribute_and_persist_encoded_chunk(chunk_b, encoded_paths_b, receipts_b, validator_id)
+        .unwrap();
+
+    env.clients[0].process_block_test(block_a.into(), Provenance::NONE).unwrap();
+    env.clients[0].process_block_test_no_produce_chunk(block_b.into(), Provenance::NONE).unwrap();
+
+    let hashes = pool_tx_hashes(&env, shard_uid);
+    assert!(hashes.contains(&old_only_hash), "old-branch-only tx must be reintroduced");
+    assert!(!hashes.contains(&overlap_hash), "overlap tx must not be reintroduced");
+    assert!(!hashes.contains(&new_only_hash), "new-branch-only tx must be removed");
 }
 
 #[test]

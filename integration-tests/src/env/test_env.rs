@@ -676,6 +676,7 @@ impl TestEnv {
             self.save_receipt_to_tx,
             self.protocol_version_check,
             None,
+            None,
             self.clients[idx].partial_witness_adapter.clone(),
             self.clients[idx].validator_signer.clone(),
             self.clients[idx].resharding_sender.clone(),

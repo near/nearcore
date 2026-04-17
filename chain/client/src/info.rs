@@ -980,6 +980,7 @@ mod tests {
             num_block_producer_seats: 50,
             archive: false,
             state_sync_enabled: true,
+            transaction_pool_size_limit: None,
         });
         let validator = MutableConfigValue::new(None, "validator_signer");
         let info_helper = InfoHelper::new(Clock::real(), noop().into_sender(), &config);
@@ -1095,6 +1096,7 @@ mod tests {
             num_block_producer_seats: 50,
             archive: false,
             state_sync_enabled: true,
+            transaction_pool_size_limit: None,
         });
         let mut info_helper = InfoHelper::new(Clock::real(), noop().into_sender(), &client_config);
         assert_eq!(
