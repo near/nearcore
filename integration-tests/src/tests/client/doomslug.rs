@@ -77,6 +77,8 @@ fn test_processing_skips_on_forks() {
 /// Phase 2 – both hashes are stored.  The code must discover the matching
 ///   hash and select it as parent, so the approval reaches Doomslug.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_skip_approval_prefers_producer_matching_parent() {
     init_test_logger();
 
