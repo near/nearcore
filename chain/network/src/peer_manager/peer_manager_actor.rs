@@ -880,12 +880,11 @@ impl PeerManagerActor {
                     },
                 );
 
+                self.state.pending_tier3_requests.insert(peer_id.clone(), self.clock.now());
                 if !self.state.send_message_to_peer(&self.clock, tcp::Tier::T2, routed_message) {
+                    self.state.pending_tier3_requests.remove(&peer_id);
                     return NetworkResponses::RouteNotFound;
                 }
-
-                // Record that we expect an inbound Tier3 connection from this peer.
-                self.state.pending_tier3_requests.insert(peer_id.clone(), self.clock.now());
                 tracing::debug!(target: "network", %shard_id, ?sync_hash, %peer_id, "requesting state header from host");
                 NetworkResponses::SelectedDestination(peer_id)
             }
@@ -926,12 +925,11 @@ impl PeerManagerActor {
                     },
                 );
 
+                self.state.pending_tier3_requests.insert(peer_id.clone(), self.clock.now());
                 if !self.state.send_message_to_peer(&self.clock, tcp::Tier::T2, routed_message) {
+                    self.state.pending_tier3_requests.remove(&peer_id);
                     return NetworkResponses::RouteNotFound;
                 }
-
-                // Record that we expect an inbound Tier3 connection from this peer.
-                self.state.pending_tier3_requests.insert(peer_id.clone(), self.clock.now());
                 tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_id, %peer_id, "requesting state part from host");
                 NetworkResponses::SelectedDestination(peer_id)
             }

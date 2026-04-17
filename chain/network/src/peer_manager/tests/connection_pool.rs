@@ -18,9 +18,6 @@ use near_primitives::version::PROTOCOL_VERSION;
 use std::sync::Arc;
 
 // Verify that unsolicited inbound Tier3 connections are rejected.
-// An attacker could open Tier3 connections without a prior state sync request,
-// consuming sockets and actor resources. The fix rejects inbound Tier3 connections
-// unless the local node has a pending state sync request for that peer.
 #[tokio::test]
 async fn unsolicited_tier3_rejected() {
     init_test_logger();
@@ -40,7 +37,6 @@ async fn unsolicited_tier3_rejected() {
     let cfg = chain.make_config(rng);
 
     // Attempt an inbound Tier3 connection without any prior state sync request.
-    // This simulates the attack: a remote peer opens a Tier3 connection we never asked for.
     let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T3, &SocketOptions::default())
         .await
         .unwrap();
@@ -144,9 +140,7 @@ async fn expected_tier3_accepted() {
         .await;
 }
 
-// A peer with a legitimate Tier3 connection could send duplicate handshakes just
-// before the idle timeout to keep the connection alive indefinitely. Verify that
-// duplicate handshakes on established sessions close the connection immediately,
+// Verify that duplicate handshakes on established sessions close the connection immediately,
 // so the keepalive attempt itself terminates the session.
 #[tokio::test]
 async fn duplicate_handshake_closes_tier3() {
@@ -167,7 +161,7 @@ async fn duplicate_handshake_closes_tier3() {
     let cfg = chain.make_config(rng);
     let peer_id = cfg.node_id();
 
-    // Step 1: Establish a legitimate T3 connection (we "sent" a state request).
+    // establish a legitimate T3 connection (we "sent" a state request).
     let now = clock.clock().now();
     pm.with_state(move |s| async move {
         s.pending_tier3_requests.insert(peer_id, now);
@@ -207,13 +201,11 @@ async fn duplicate_handshake_closes_tier3() {
         })
         .await;
 
-    // Step 2: The attacker's keepalive — send a duplicate handshake just before
-    // the 15-second idle timeout would close the connection.
+    // a duplicate handshake just before the 15-second idle timeout would close the connection
     clock.advance(time::Duration::seconds(14));
     stream.write(&PeerMessage::Tier3Handshake(handshake)).await;
 
-    // Step 3: The connection should be closed because duplicate handshakes on
-    // established sessions are no longer tolerated.
+    // the connection should be closed because duplicate handshakes are not tolerated
     let reason = events
         .recv_until(|ev| match ev {
             Event::ConnectionClosed(ev) if ev.stream_id == stream_id => Some(ev.reason),
