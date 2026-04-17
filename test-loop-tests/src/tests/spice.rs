@@ -564,6 +564,49 @@ fn test_restart_producer_node() {
     assert_eq!(view_account_result.amount, Balance::from_near(1));
 }
 
+/// After `add_node`, call `delay_endorsements_propagation` again so the new
+/// peer manager actor picks up the endorsement-delay handler. Installation is
+/// tracked per node identifier, so existing nodes aren't instrumented twice.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_delay_endorsements_propagation_instruments_added_node() {
+    init_test_logger();
+
+    let validators_spec = create_validators_spec(2, 0);
+    let clients = validators_spec_clients(&validators_spec);
+    let genesis = TestLoopBuilder::new_genesis_builder().validators_spec(validators_spec).build();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store_from_genesis()
+        .clients(clients.clone())
+        .delay_warmup()
+        .build();
+
+    env.delay_endorsements_propagation(2);
+    let mut env = env.warmup();
+    env.node_runner(0).run_until_head_height(5);
+
+    let delay_state = env.shared_state.spice_endorsement_delay.clone();
+    let original_identifier = env.get_node_data_by_account_id(&clients[0]).identifier.clone();
+    assert!(delay_state.lock().installed_for.contains(&original_identifier));
+
+    let new_account = create_account_id("new_node");
+    let new_identifier = "new_node";
+    let node_state = env.node_state_builder().account_id(&new_account).build();
+    env.add_node(new_identifier, node_state);
+    assert!(!delay_state.lock().installed_for.contains(new_identifier));
+
+    // Re-run to pick up the new peer; existing identifiers are not
+    // re-registered (idempotent).
+    env.delay_endorsements_propagation(2);
+    let installed_now = delay_state.lock().installed_for.clone();
+    assert!(installed_now.contains(new_identifier));
+    assert!(installed_now.contains(&original_identifier));
+
+    // Chain keeps progressing.
+    env.node_runner(0).run_for_number_of_blocks(5);
+}
+
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_restart_validator_node() {

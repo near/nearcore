@@ -1,7 +1,8 @@
 use crate::setup::env::TestLoopEnv;
 use crate::setup::peer_manager_actor::HandlerResult;
-use crate::setup::state::SpiceEndorsementDelayState;
+use crate::setup::state::{NodeExecutionData, SpiceEndorsementDelayState};
 use near_async::messaging::CanSend as _;
+use near_async::test_loop::data::TestLoopData;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::types::NetworkRequests;
 use near_network::types::NetworkResponses;
@@ -46,8 +47,8 @@ impl TestLoopEnv {
 }
 
 fn install_endorsement_delay_handler(
-    data: &mut near_async::test_loop::data::TestLoopData,
-    node: &crate::setup::state::NodeExecutionData,
+    data: &mut TestLoopData,
+    node: &NodeExecutionData,
     state: Arc<Mutex<SpiceEndorsementDelayState>>,
 ) {
     let delay = node.expected_execution_delay_handle();
@@ -67,7 +68,12 @@ fn install_endorsement_delay_handler(
                     let Some(front) = delayed_endorsements.front() else {
                         break;
                     };
-                    let height = block_heights.read()[&front.0];
+                    let Some(&height) = block_heights.read().get(&front.0) else {
+                        // Endorsed block not observed on this handler yet; wait
+                        // until it arrives before deciding if the delay has
+                        // elapsed.
+                        break;
+                    };
                     if height + delay_height >= block.header().height() {
                         break;
                     }
