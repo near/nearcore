@@ -15,18 +15,26 @@ use std::sync::atomic::Ordering;
 impl TestLoopEnv {
     /// Set the endorsement propagation delay to `delay_height` blocks.
     ///
-    /// The first call installs a per-node network handler that holds back
-    /// endorsements until later blocks catch up. Subsequent calls just update
-    /// the delay value (including setting it to 0 to let queued endorsements
-    /// drain as new blocks arrive); the handler picks up the new value on its
-    /// next invocation.
+    /// The first call with a non-zero delay installs a per-node network
+    /// handler that holds back endorsements until later blocks catch up.
+    /// Subsequent calls just update the delay value (including setting it to 0
+    /// to let queued endorsements drain as new blocks arrive); the handler
+    /// picks up the new value on its next invocation. A call with
+    /// `delay_height == 0` before the handler has been installed is a no-op,
+    /// so conditional callsites can always call this unconditionally.
     pub fn delay_endorsements_propagation(&mut self, delay_height: u64) {
+        let installed =
+            self.shared_state.endorsement_delay_handlers_installed.load(Ordering::Relaxed);
+        if !installed && delay_height == 0 {
+            return;
+        }
         for node in &self.node_datas {
             node.set_expected_execution_delay(delay_height);
         }
-        if self.shared_state.endorsement_delay_handlers_installed.swap(true, Ordering::Relaxed) {
+        if installed {
             return;
         }
+        self.shared_state.endorsement_delay_handlers_installed.store(true, Ordering::Relaxed);
 
         let core_writer_senders: HashMap<_, _> = self
             .node_datas
