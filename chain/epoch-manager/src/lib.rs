@@ -1575,6 +1575,14 @@ impl EpochManager {
         if block_info.is_genesis() {
             return Ok(true);
         }
+        // In SPICE, do not transition to the next epoch if the last certified
+        // block's epoch is different from the current block epoch. This
+        // prevents execution from lagging more than one epoch behind.
+        if let Some(last_certified_block_epoch) = block_info.last_certified_block_epoch() {
+            if last_certified_block_epoch != block_info.epoch_id() {
+                return Ok(false);
+            }
+        }
         self.is_next_block_in_next_epoch_impl(
             block_info.height(),
             block_info.last_finalized_height(),

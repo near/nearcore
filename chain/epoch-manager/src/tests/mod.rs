@@ -15,7 +15,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Tip;
-use near_primitives::epoch_block_info::BlockInfoV3;
+use near_primitives::epoch_block_info::{BlockInfoV3, BlockInfoV5};
 use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
@@ -3617,4 +3617,64 @@ fn test_is_next_block_possibly_last_in_epoch() {
     // New epoch beginning: false again
     assert!(!epoch_manager.is_next_block_possibly_last_in_epoch(6, &hashes[5]).unwrap());
     assert!(!epoch_manager.is_next_block_possibly_last_in_epoch(7, &hashes[6]).unwrap());
+}
+
+/// In SPICE, `is_next_block_in_next_epoch` must return false when the
+/// BlockInfo's `last_certified_block_epoch` is earlier than its `epoch_id`,
+/// even if the height condition says the next block should start a new epoch.
+#[test]
+fn test_is_next_block_in_next_epoch_spice_gate() {
+    let amount = Balance::from_yoctonear(1_000_000);
+    let validators = vec![("test1".parse().unwrap(), amount)];
+    let epoch_length = 5;
+    let mut epoch_manager = setup_default_epoch_manager(validators, epoch_length, 1, 1, 90, 60);
+
+    // The last block of epoch is normally at height `2 * epoch_length`. Record
+    // up to and including it so the anchor is both past the first epoch and on
+    // the finality boundary.
+    let anchor_height = 2 * epoch_length as usize;
+    let hashes = hash_range(anchor_height + 1);
+    record_block(&mut epoch_manager, CryptoHash::default(), hashes[0], 0, vec![]);
+    for i in 1..=anchor_height {
+        record_block(&mut epoch_manager, hashes[i - 1], hashes[i], i as u64, vec![]);
+    }
+
+    let anchor_info = epoch_manager.get_block_info(&hashes[anchor_height]).unwrap();
+    let block_epoch = *anchor_info.epoch_id();
+    assert_ne!(block_epoch, EpochId::default(), "anchor must be past the first epoch");
+    assert!(
+        epoch_manager.is_next_block_in_next_epoch(&anchor_info).unwrap(),
+        "anchor must sit on the finality-predicate epoch boundary",
+    );
+
+    let make_v5 = |last_certified_block_epoch: EpochId| {
+        BlockInfo::V5(BlockInfoV5 {
+            hash: *anchor_info.hash(),
+            height: anchor_info.height(),
+            last_finalized_height: anchor_info.last_finalized_height(),
+            last_final_block_hash: *anchor_info.last_final_block_hash(),
+            prev_hash: *anchor_info.prev_hash(),
+            epoch_first_block: *anchor_info.epoch_first_block(),
+            epoch_id: block_epoch,
+            proposals: vec![],
+            chunk_mask: anchor_info.chunk_mask().to_vec(),
+            latest_protocol_version: *anchor_info.latest_protocol_version(),
+            total_supply: *anchor_info.total_supply(),
+            timestamp_nanosec: *anchor_info.timestamp_nanosec(),
+            chunk_endorsements: anchor_info.chunk_endorsements().cloned().unwrap_or_default(),
+            shard_split: None,
+            last_certified_block_epoch,
+        })
+    };
+
+    let v5_matching = make_v5(block_epoch);
+    assert!(
+        epoch_manager.is_next_block_in_next_epoch(&v5_matching).unwrap(),
+        "epoch should advance when last_certified_block_epoch matches block epoch"
+    );
+    let v5_lagging = make_v5(EpochId::default());
+    assert!(
+        !epoch_manager.is_next_block_in_next_epoch(&v5_lagging).unwrap(),
+        "epoch should not advance when last_certified_block_epoch is behind block epoch"
+    );
 }
