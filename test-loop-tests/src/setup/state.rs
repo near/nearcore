@@ -40,7 +40,7 @@ use near_store::test_utils::TestNodeStorage;
 use nearcore::state_sync::StateSyncDumpHandle;
 use parking_lot::Mutex;
 use parking_lot::RwLock;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -70,10 +70,16 @@ pub struct SharedState {
     /// Archive-wide config for cloud archival nodes. Defaults to
     /// `BucketConfig::canonical()`; tests may override.
     pub bucket_config: BucketConfig,
-    /// True once `TestLoopEnv::delay_endorsements_propagation` has installed
-    /// its per-node network handlers, so subsequent calls only update the
-    /// shared delay value instead of stacking another handler chain.
-    pub endorsement_delay_handlers_installed: Arc<AtomicBool>,
+    /// Per-node installation state for the spice endorsement-delay handler.
+    pub spice_endorsement_delay: Arc<Mutex<SpiceEndorsementDelayState>>,
+}
+
+/// Shared state for the spice endorsement-delay network handler installed by
+/// `TestLoopEnv::delay_endorsements_propagation`.
+#[derive(Default)]
+pub struct SpiceEndorsementDelayState {
+    pub installed_for: HashSet<String>,
+    pub senders: HashMap<AccountId, TestLoopSender<SpiceCoreWriterActor>>,
 }
 
 /// This is the state associated with each node in the test loop environment before being built.
