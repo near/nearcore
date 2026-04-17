@@ -219,10 +219,11 @@ fn filter_request_to_shard_group(
     shard_group: &[ShardId],
     shard_layout: &ShardLayout,
 ) -> StateChangesRequestView {
+    let shard_set: HashSet<&ShardId> = shard_group.iter().collect();
     let filter_accounts = |account_ids: &[AccountId]| -> Vec<AccountId> {
         account_ids
             .iter()
-            .filter(|id| shard_group.contains(&shard_layout.account_id_to_shard_id(id)))
+            .filter(|id| shard_set.contains(&shard_layout.account_id_to_shard_id(id)))
             .cloned()
             .collect()
     };
@@ -234,9 +235,7 @@ fn filter_request_to_shard_group(
         StateChangesRequestView::SingleAccessKeyChanges { keys } => {
             let filtered: Vec<_> = keys
                 .iter()
-                .filter(|k| {
-                    shard_group.contains(&shard_layout.account_id_to_shard_id(&k.account_id))
-                })
+                .filter(|k| shard_set.contains(&shard_layout.account_id_to_shard_id(&k.account_id)))
                 .cloned()
                 .collect();
             StateChangesRequestView::SingleAccessKeyChanges { keys: filtered }
@@ -261,8 +260,8 @@ fn filter_request_to_shard_group(
 }
 
 /// Extracts the set of target shards from a `StateChangesRequestView`.
-/// If the request has account_ids, returns the unique shards those accounts
-/// belong to. If empty (or a variant without account_ids), returns all shards.
+/// Returns the unique shards the request's accounts/keys belong to. Returns
+/// an empty set if the request has no accounts or keys.
 fn extract_target_shards(
     request: &StateChangesRequestView,
     shard_layout: &ShardLayout,
@@ -270,8 +269,6 @@ fn extract_target_shards(
     let account_ids: &[AccountId] = match request {
         StateChangesRequestView::AccountChanges { account_ids } => account_ids,
         StateChangesRequestView::SingleAccessKeyChanges { keys } => {
-            // SingleAccessKeyChanges has keys, not account_ids directly.
-            // Extract shards from key.account_id.
             return keys
                 .iter()
                 .map(|k| shard_layout.account_id_to_shard_id(&k.account_id))
@@ -281,11 +278,7 @@ fn extract_target_shards(
         StateChangesRequestView::ContractCodeChanges { account_ids } => account_ids,
         StateChangesRequestView::DataChanges { account_ids, .. } => account_ids,
     };
-    if account_ids.is_empty() {
-        shard_layout.shard_ids().collect()
-    } else {
-        account_ids.iter().map(|id| shard_layout.account_id_to_shard_id(id)).collect()
-    }
+    account_ids.iter().map(|id| shard_layout.account_id_to_shard_id(id)).collect()
 }
 
 /// Processes a specific method call.
@@ -1969,7 +1962,7 @@ impl JsonRpcHandler {
         let block: BlockView = self
             .view_client_send(GetBlock(request.block_reference))
             .await
-            .map_err(|e| <RpcStateChangesError>::from(e))?;
+            .map_err(RpcStateChangesError::from)?;
         let block_hash = block.header.hash;
         let epoch_id = EpochId(block.header.epoch_id);
 
@@ -2028,15 +2021,23 @@ impl JsonRpcHandler {
         let block: BlockView = self
             .view_client_send(GetBlock(request.block_reference))
             .await
-            .map_err(|e| <RpcStateChangesError>::from(e))?;
+            .map_err(RpcStateChangesError::from)?;
         let block_hash = block.header.hash;
         let epoch_id = EpochId(block.header.epoch_id);
 
         let shard_layout = self.shard_layout_for_epoch(&epoch_id)?;
 
         // Determine which shards we need based on the account_ids in the request.
+        // If there are no target accounts/keys, the underlying handler returns
+        // empty results anyway — skip the scatter-gather entirely.
         let target_shards: HashSet<ShardId> =
             extract_target_shards(&request.state_changes_request, &shard_layout);
+        if target_shards.is_empty() {
+            return serialize_response(RpcStateChangesInBlockResponse {
+                block_hash,
+                changes: vec![],
+            });
+        }
 
         let get_params_for_shard_group = |shards: &[ShardId]| {
             let sub_request = filter_request_to_shard_group(
@@ -2067,12 +2068,9 @@ impl JsonRpcHandler {
     }
 
     fn shard_layout_for_epoch(&self, epoch_id: &EpochId) -> Result<ShardLayout, RpcError> {
-        self.pool
-            .read()
-            .shard_tracker
-            .epoch_manager()
-            .get_shard_layout(epoch_id)
-            .map_err(|e| RpcError::new_internal_error(None, e.to_string()))
+        self.pool.read().shard_tracker.epoch_manager().get_shard_layout(epoch_id).map_err(|e| {
+            RpcError::new_internal_error(None, format!("failed to get shard layout for epoch: {e}"))
+        })
     }
 
     /// Scatter-gather: assign target shards to nodes in groups, fan out one
@@ -2107,14 +2105,8 @@ impl JsonRpcHandler {
             let mut request_groups = Vec::new();
             for (handle, node_idx, assigned_shards) in assignments {
                 let params = get_params_for_shard_group(&assigned_shards)?;
-                let req = match Message::request(method.to_string(), params) {
-                    Message::Request(r) => r,
-                    _ => {
-                        return Err(RpcError::new_internal_error(
-                            None,
-                            "scatter-gather: failed to create request".to_string(),
-                        ));
-                    }
+                let Message::Request(req) = Message::request(method.to_string(), params) else {
+                    unreachable!("Message::request always returns Message::Request");
                 };
                 request_groups.push((handle, req, node_idx, assigned_shards));
             }

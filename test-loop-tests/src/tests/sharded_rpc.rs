@@ -1514,35 +1514,19 @@ fn test_rpc_changes_scatter_gather() {
     );
 }
 
-/// `changes` with empty account_ids succeeds without error through the
-/// scatter-gather path. The underlying handler treats empty account_ids as
-/// "no accounts requested" and returns an empty result — verify this doesn't
-/// cause an error or timeout.
+/// `changes` with empty account_ids returns an empty result without error.
+/// Empty account_ids means "no accounts requested" — the scatter-gather
+/// coordinator short-circuits without fanning out.
 #[test]
 fn test_rpc_changes_empty_account_ids_scatter_gather() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
 
-    let alice = h.alice.clone();
-    let zoe = h.zoe.clone();
-    let validator = h.validator.clone();
-    let tx = h.env.node_for_account(&validator).tx_send_money(&alice, &zoe, Balance::from_near(1));
-    let tx_hash = tx.get_hash();
-    h.env.node_for_account(&validator).submit_tx(tx);
-
-    let target_height = h.env.node_for_account(&validator).head().height + 10;
-    h.env.runner_for_account(&validator).run_until_executed_height(target_height);
-
-    let outcome =
-        h.env.node_for_account(&validator).client().chain.get_execution_outcome(&tx_hash).unwrap();
-    let block_hash = outcome.block_hash;
-
     let zoe_node = h.zoe_node.clone();
+    let head_height = h.env.node_for_account(&h.validator).head().height;
 
-    // Empty account_ids — scatter-gather fans out to all shards but each node
-    // returns empty changes (the handler treats [] as "no accounts requested").
     let params = serde_json::to_value(RpcStateChangesInBlockByTypeRequest {
-        block_reference: BlockReference::BlockId(BlockId::Hash(block_hash)),
+        block_reference: BlockReference::BlockId(BlockId::Height(head_height)),
         state_changes_request: StateChangesRequestView::AccountChanges { account_ids: vec![] },
     })
     .unwrap();
@@ -1564,7 +1548,6 @@ fn test_rpc_changes_empty_account_ids_scatter_gather() {
             let value = resp.result.expect("empty account_ids request should succeed");
             let parsed: RpcStateChangesInBlockResponse =
                 serde_json::from_value(value).expect("failed to parse");
-            // The handler returns empty changes for empty account_ids filter.
             assert!(
                 parsed.changes.is_empty(),
                 "empty account_ids should return empty changes, got: {:?}",
@@ -1634,10 +1617,9 @@ fn test_rpc_changes_single_access_key_scatter_gather() {
         Message::Response(resp) => {
             // The request should succeed — scatter-gather forwards to alice's shard.
             let value = resp.result.expect("SingleAccessKeyChanges request should succeed");
-            let _parsed: RpcStateChangesInBlockResponse =
+            let parsed: RpcStateChangesInBlockResponse =
                 serde_json::from_value(value).expect("failed to parse");
-            // Success is sufficient — the key point is that scatter-gather
-            // correctly routed to alice's shard from zoe's node without error.
+            assert_eq!(parsed.block_hash, block_hash, "response block_hash should match request");
         }
         other => panic!("expected Response, got: {other:?}"),
     }
