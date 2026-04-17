@@ -13,15 +13,9 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 impl TestLoopEnv {
-    /// Set the endorsement propagation delay to `delay_height` blocks.
-    ///
-    /// The first call with a non-zero delay installs a per-node network
-    /// handler that holds back endorsements until later blocks catch up.
-    /// Subsequent calls just update the delay value (including setting it to 0
-    /// to let queued endorsements drain as new blocks arrive); the handler
-    /// picks up the new value on its next invocation. A call with
-    /// `delay_height == 0` before the handler has been installed is a no-op,
-    /// so conditional callsites can always call this unconditionally.
+    /// Set the endorsement propagation delay to `delay_height` blocks. Safe
+    /// to call unconditionally; installs the network handler lazily on the
+    /// first non-zero call.
     pub fn delay_endorsements_propagation(&mut self, delay_height: u64) {
         let installed =
             self.shared_state.endorsement_delay_handlers_installed.load(Ordering::Relaxed);
