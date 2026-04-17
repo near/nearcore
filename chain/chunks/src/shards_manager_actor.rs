@@ -486,20 +486,13 @@ impl ShardsManagerActor {
             match self.epoch_manager.get_chunk_producer_info_db(prev_block_hash, shard_id) {
                 Ok(info) => Some(info.take_account_id()),
                 Err(EpochError::MissingBlock(_) | EpochError::ChunkProducerSelectionError(_)) => {
-                    // prev_block not processed yet (orphan case): get_block_info inside
-                    // get_chunk_producer_info_db failed with MissingBlock. Fall back to
-                    // height-based computation using ancestor_hash for epoch resolution
-                    // so that receipt requests still go to the actual chunk producer.
-                    let epoch_id =
-                        self.epoch_manager.get_epoch_id_from_prev_block(ancestor_hash)?;
-                    match self.epoch_manager.get_chunk_producer_info(&ChunkProductionKey {
-                        epoch_id,
-                        height_created: height,
-                        shard_id,
-                    }) {
-                        Ok(info) => Some(info.take_account_id()),
-                        Err(_) => None,
-                    }
+                    // prev_block not processed (orphan) or invalid shard selection.
+                    // Downstream target selection falls through to a random shard
+                    // tracker anyway — for orphans, old_block = true forces
+                    // request_own_parts_from_others = true, which bypasses
+                    // chunk_producer_account_id at the shard_representative_target
+                    // match below.
+                    None
                 }
                 Err(err) => return Err(err.into()),
             };
