@@ -2322,29 +2322,59 @@ impl Client {
             target_height=target_height,
             approval_type=?approval_type,
             "collect_block_approval");
+        let signer = self.validator_signer.get();
         let parent_hash = match inner {
             ApprovalInner::Endorsement(parent_hash) => *parent_hash,
             ApprovalInner::Skip(parent_height) => {
-                {
-                    let hashes =
-                        self.chain.chain_store().get_all_block_hashes_by_height(*parent_height);
-                    // If there is more than one block at the height, all of them will be
-                    // eligible to build the next block on, so we just pick one.
-                    let hash = hashes.values().flatten().next();
-                    match hash {
-                        Some(hash) => *hash,
-                        None => {
-                            self.handle_process_approval_error(
-                                approval,
-                                approval_type,
-                                true,
-                                near_chain::Error::DBNotFoundErr(format!(
-                                    "Cannot find any block on height {}",
-                                    parent_height
-                                )),
+                let hashes =
+                    self.chain.chain_store().get_all_block_hashes_by_height(*parent_height);
+                // When multiple blocks exist at parent_height (e.g. forks around
+                // an epoch boundary), they can belong to different epochs with
+                // different block-producer assignments for target_height.
+                // Prefer a parent hash whose epoch makes us the
+                // block producer, so that the approval is not silently dropped.
+                let my_account_id = signer.as_ref().map(|s| s.validator_id());
+                let mut first = None;
+                let chosen = hashes.values().flatten().find(|hash| {
+                    if first.is_none() {
+                        first = Some(**hash);
+                    }
+                    my_account_id.is_some_and(|id| {
+                        self.epoch_manager
+                            .get_epoch_id_from_prev_block(hash)
+                            .and_then(|epoch_id| {
+                                self.epoch_manager.get_block_producer(&epoch_id, *target_height)
+                            })
+                            .ok()
+                            .as_ref()
+                            == Some(id)
+                    })
+                });
+                match chosen.copied().or(first) {
+                    Some(hash) => {
+                        if chosen.is_some() && first.is_some_and(|f| f != hash) {
+                            tracing::debug!(
+                                target: "client",
+                                parent_height,
+                                ?hash,
+                                first_hash = ?first.unwrap(),
+                                target_height,
+                                "skip approval: preferred producer-matching parent hash over first hash at fork"
                             );
-                            return;
                         }
+                        hash
+                    }
+                    None => {
+                        self.handle_process_approval_error(
+                            approval,
+                            approval_type,
+                            true,
+                            near_chain::Error::DBNotFoundErr(format!(
+                                "cannot find any block on height {}",
+                                parent_height
+                            )),
+                        );
+                        return;
                     }
                 }
             }
@@ -2392,7 +2422,6 @@ impl Client {
             }
         }
 
-        let signer = self.validator_signer.get();
         let is_block_producer =
             match self.epoch_manager.get_block_producer(&next_block_epoch_id, *target_height) {
                 Err(_) => false,
