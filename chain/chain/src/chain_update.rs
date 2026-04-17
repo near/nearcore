@@ -301,10 +301,6 @@ impl<'a> ChainUpdate<'a> {
             // update (see `record_uncertified_chunks_for_block` below), so
             // querying with `block.hash()` would error inside
             // `get_last_certified_block_header`.
-            // TODO(spice): at the spice activation boundary, prev_hash points
-            // to a pre-spice block and `get_last_certified_block_header`'s
-            // debug_assert panics (it only accepts genesis in the fallthrough
-            // branch). Handle the non-spice prev case when activation lands.
             let last_certified_block_epoch = *get_last_certified_block_header(
                 self.chain_store_update.chain_store(),
                 block.header().prev_hash(),
