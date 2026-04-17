@@ -58,9 +58,17 @@ impl BackfillStorage {
 /// Checkpoint key for the forward-direction CLI backfill tool.
 /// The CLI processes heights ascending (genesis -> head) and stores the highest completed height.
 ///
-/// Since ReceiptToTx is an insert-only column, duplicate writes for overlapping heights are
-/// safe (idempotent). The CLI is intended for one-shot bulk backfill with rayon parallelism.
+/// Both the CLI and the background actor can run concurrently. Since ReceiptToTx is an
+/// insert-only column, duplicate writes for overlapping heights are safe (idempotent).
+/// The CLI is intended for one-shot bulk backfill with rayon parallelism, while the
+/// actor handles steady-state background backfill in descending order.
 pub const BACKFILL_CHECKPOINT_KEY: &[u8] = b"BACKFILL_RECEIPT_TO_TX";
+
+/// Checkpoint key for the backward-direction background actor.
+/// Stores the lowest completed height (everything from this height upward is done).
+/// The actor processes heights descending (head -> genesis) so recent receipts are
+/// queryable first.
+pub const BACKFILL_CHECKPOINT_KEY_LOW: &[u8] = b"BACKFILL_RECEIPT_TO_TX_LOW";
 
 /// Stats returned by backfill processing.
 #[derive(Default, Clone, Copy)]
@@ -225,7 +233,8 @@ pub fn process_height(
 
 /// Process one batch of heights end-to-end: parallel reads, sequential writes, checkpoint.
 ///
-/// Used by the CLI with ascending `heights` and checkpoint key [`BACKFILL_CHECKPOINT_KEY`].
+/// Shared by both the CLI (ascending direction, checkpoint key = [`BACKFILL_CHECKPOINT_KEY`])
+/// and the background actor (descending direction, checkpoint key = [`BACKFILL_CHECKPOINT_KEY_LOW`]).
 /// The caller controls iteration direction by the order of `heights` — `par_iter` preserves
 /// input order, so writes happen in the same order the caller supplied.
 ///
