@@ -926,9 +926,11 @@ fn test_crash_between_entries_and_checkpoint_replay() {
         reference_entries.len(),
         "post-replay entry count should equal a clean run"
     );
-    for ((rk, rv), (refk, refv)) in replay_entries.iter().zip(reference_entries.iter()) {
-        assert_eq!(rk, refk, "entry key mismatch between replay and reference");
-        assert_eq!(rv, refv, "entry value mismatch between replay and reference");
+    for ((replay_key, replay_val), (ref_key, ref_val)) in
+        replay_entries.iter().zip(reference_entries.iter())
+    {
+        assert_eq!(replay_key, ref_key, "entry key mismatch between replay and reference");
+        assert_eq!(replay_val, ref_val, "entry value mismatch between replay and reference");
     }
 }
 
