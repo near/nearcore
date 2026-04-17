@@ -38,7 +38,7 @@ pub(crate) struct BackfillReceiptToTxCommand {
     batch_size: usize,
 
     /// Number of parallel threads for reading block data.
-    #[arg(long, default_value_t = 8)]
+    #[arg(long, default_value_t = 1000)]
     num_threads: usize,
 }
 

@@ -200,7 +200,7 @@ impl Default for BackfillReceiptToTxConfig {
             enabled: false,
             batch_size: 1000,
             batch_delay: Duration::seconds(1),
-            num_threads: 8,
+            num_threads: 128,
             start_height: None,
         }
     }
