@@ -13,7 +13,7 @@ use near_chain::resharding::resharding_actor::ReshardingActor;
 use near_chain::resharding::types::ReshardingSender;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::{ChainConfig, RuntimeAdapter};
-use near_chain::{ApplyChunksIterationMode, Chain, ChainGenesis, DoomslugThresholdMode};
+use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{
     ChunkDistributionNetworkConfig, ClientConfig, Genesis, MutableConfigValue,
@@ -151,6 +151,7 @@ fn setup(
             num_block_producer_seats: num_validator_seats,
             archive: false,
             state_sync_enabled,
+            transaction_pool_size_limit: None,
         });
         base.chunk_distribution_network = chunk_distribution_config;
         base
@@ -455,6 +456,7 @@ pub fn setup_client_with_runtime(
     save_tx_outcomes: bool,
     save_receipt_to_tx: bool,
     protocol_version_check: ProtocolVersionCheckConfig,
+    transaction_pool_size_limit: Option<u64>,
     snapshot_callbacks: Option<SnapshotCallbacks>,
     partial_witness_adapter: PartialWitnessSenderForClient,
     validator_signer: MutableValidatorSigner,
@@ -467,6 +469,7 @@ pub fn setup_client_with_runtime(
         num_block_producer_seats: num_validator_seats,
         archive: split_store_enabled,
         state_sync_enabled: true,
+        transaction_pool_size_limit,
     });
     config.save_tx_outcomes = save_tx_outcomes;
     config.save_receipt_to_tx = save_receipt_to_tx;
@@ -475,8 +478,6 @@ pub fn setup_client_with_runtime(
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(&chain_genesis.chain_id);
     let multi_spawner = AsyncComputationMultiSpawner::default()
         .custom_apply_chunks(Arc::new(RayonAsyncComputationSpawner)); // Use rayon instead of the default thread pool
-    let apply_chunks_iteration_mode = ApplyChunksIterationMode::default();
-
     // TestEnv bypasses chunk validation actors and handles chunk validation
     // directly through propagate_chunk_state_witnesses method
     let chunk_validation_sender = ChunkValidationSender {
@@ -499,7 +500,6 @@ pub fn setup_client_with_runtime(
         rng_seed,
         snapshot_callbacks,
         multi_spawner,
-        apply_chunks_iteration_mode,
         partial_witness_adapter,
         resharding_sender,
         actor_system.new_future_spawner("state sync").into(),
@@ -610,6 +610,7 @@ pub fn setup_tx_request_handler(
         num_block_producer_seats: 0,
         archive: true,
         state_sync_enabled: true,
+        transaction_pool_size_limit: None,
     });
     let config = RpcHandlerConfig {
         handler_threads: 1,

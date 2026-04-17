@@ -1179,6 +1179,10 @@ pub enum EpochError {
     ChunkValidatorSelectionError(String),
     /// Error selecting chunk producer for a shard.
     ChunkProducerSelectionError(String),
+    /// Chunk producer entry not found in the ChunkProducers DB column.
+    /// This is transient during initial sync — the entry is populated when
+    /// the parent block is processed.
+    ChunkProducerNotInDB(CryptoHash, ShardId),
 }
 
 impl std::error::Error for EpochError {}
@@ -1213,6 +1217,9 @@ impl Display for EpochError {
             EpochError::ChunkProducerSelectionError(err) => {
                 write!(f, "Error selecting chunk producer: {}", err)
             }
+            EpochError::ChunkProducerNotInDB(hash, shard_id) => {
+                write!(f, "chunk producer not in DB for block {} shard {}", hash, shard_id)
+            }
         }
     }
 }
@@ -1238,6 +1245,9 @@ impl Debug for EpochError {
             }
             EpochError::ChunkProducerSelectionError(err) => {
                 write!(f, "ChunkProducerSelectionError({})", err)
+            }
+            EpochError::ChunkProducerNotInDB(hash, shard_id) => {
+                write!(f, "ChunkProducerNotInDB({}, {})", hash, shard_id)
             }
         }
     }
@@ -1300,6 +1310,14 @@ pub enum PrepareError {
     TooManyTables = 9,
     /// Contract contains too many table elements.
     TooManyTableElements = 10,
+    /// A function body in the contract exceeds the size limit.
+    FunctionBodyTooLarge = 11,
+    /// The instrumented code exceeds the size limit.
+    InstrumentedCodeTooLarge = 12,
+    /// A function contains too many basic blocks.
+    TooManyBlocksPerFunction = 13,
+    /// A contract contains too many basic blocks.
+    TooManyBlocksPerContract = 14,
 }
 
 /// A kind of a trap happened during execution of a binary

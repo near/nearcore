@@ -2,7 +2,7 @@ use crate::config::safe_add_compute;
 use crate::contract_code::RuntimeContractIdentifier;
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::receipt_manager::ReceiptManager;
-use crate::{ActionResult, ApplyState, metrics};
+use crate::{ActionResult, ApplyState, metrics, safe_add_balance};
 use near_parameters::RuntimeConfig;
 use near_primitives::account::Account;
 use near_primitives::apply::ApplyChunkReason;
@@ -92,7 +92,7 @@ pub(crate) fn action_function_call(
             metrics::FUNCTION_CALL_PROCESSED.with_label_values(&["ok"]).inc();
         }
         Some(err) => {
-            metrics::FUNCTION_CALL_PROCESSED.with_label_values(&[err.into()]).inc();
+            metrics::FUNCTION_CALL_PROCESSED.with_label_values::<&str>(&[err.into()]).inc();
         }
     }
 
@@ -100,28 +100,28 @@ pub(crate) fn action_function_call(
     if let Some(err) = outcome.aborted {
         // collect metrics for failed function calls
         metrics::FUNCTION_CALL_PROCESSED_FUNCTION_CALL_ERRORS
-            .with_label_values(&[(&err).into()])
+            .with_label_values::<&str>(&[(&err).into()])
             .inc();
         match &err {
             FunctionCallError::CompilationError(err) => {
                 metrics::FUNCTION_CALL_PROCESSED_COMPILATION_ERRORS
-                    .with_label_values(&[err.into()])
+                    .with_label_values::<&str>(&[err.into()])
                     .inc();
             }
             FunctionCallError::LinkError { .. } => (),
             FunctionCallError::MethodResolveError(err) => {
                 metrics::FUNCTION_CALL_PROCESSED_METHOD_RESOLVE_ERRORS
-                    .with_label_values(&[err.into()])
+                    .with_label_values::<&str>(&[err.into()])
                     .inc();
             }
             FunctionCallError::WasmTrap(inner_err) => {
                 metrics::FUNCTION_CALL_PROCESSED_WASM_TRAP_ERRORS
-                    .with_label_values(&[inner_err.into()])
+                    .with_label_values::<&str>(&[inner_err.into()])
                     .inc();
             }
             FunctionCallError::HostError(inner_err) => {
                 metrics::FUNCTION_CALL_PROCESSED_HOST_ERRORS
-                    .with_label_values(&[inner_err.into()])
+                    .with_label_values::<&str>(&[inner_err.into()])
                     .inc();
             }
         }
@@ -232,6 +232,8 @@ pub(crate) fn action_function_call(
 
         account.set_amount(outcome.balance);
         account.set_storage_usage(outcome.storage_usage);
+        result.subsidized_amount =
+            safe_add_balance(result.subsidized_amount, outcome.subsidized_amount)?;
         result.result = Ok(outcome.return_data);
         result.new_receipts.extend(new_receipts);
     }
@@ -288,10 +290,7 @@ pub(crate) fn execute_function_call(
 
     near_vm_runner::reset_metrics();
     let result = near_vm_runner::run(contract, runtime_ext, &context, Arc::clone(&config.fees));
-    near_vm_runner::report_metrics(
-        &apply_state.shard_id.to_string(),
-        &apply_state.apply_reason.to_string(),
-    );
+    near_vm_runner::report_metrics(apply_state.shard_id, &apply_state.apply_reason.to_string());
 
     // There are many specific errors that the runtime can encounter.
     // Some can be translated to the more general `RuntimeError`, which allows to pass
@@ -318,7 +317,9 @@ pub(crate) fn execute_function_call(
             err @ InconsistentStateError::IntegerOverflow,
         )) => return Err(StorageError::StorageInconsistentState(err.to_string()).into()),
         Err(VMRunnerError::CacheError(err)) => {
-            metrics::FUNCTION_CALL_PROCESSED_CACHE_ERRORS.with_label_values(&[(&err).into()]).inc();
+            metrics::FUNCTION_CALL_PROCESSED_CACHE_ERRORS
+                .with_label_values::<&str>(&[(&err).into()])
+                .inc();
             return Err(StorageError::StorageInconsistentState(err.to_string()).into());
         }
         Err(VMRunnerError::LoadingError(msg)) => {

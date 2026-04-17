@@ -14,7 +14,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{BlockHeight, ShardId, StateChangeCause};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::{TrieStoreUpdateAdapter, get_shard_uid_mapping};
-use near_store::archive::cold_storage::{copy_all_data_to_cold, update_cold_db, update_cold_head};
+use near_store::archive::cold_storage::{update_cold_db, update_cold_head};
 use near_store::db::metadata::DbKind;
 use near_store::flat::FlatStorageManager;
 use near_store::{
@@ -27,7 +27,6 @@ use rand::seq::SliceRandom;
 use std::ops::Deref;
 use std::path::Path;
 use std::time::Instant;
-use strum::IntoEnumIterator;
 
 #[derive(clap::Parser)]
 pub struct ColdStoreCommand {
@@ -49,8 +48,6 @@ enum SubCommand {
     /// Copy n blocks to cold storage and update cold HEAD. One by one.
     /// Updating of HEAD happens in every iteration.
     CopyNextBlocks(CopyNextBlocksCmd),
-    /// Copy all blocks to cold storage and update cold HEAD.
-    CopyAllBlocks(CopyAllBlocksCmd),
     /// Prepare a hot db from a rpc db. This command will update the db kind in
     /// the db and perform some sanity checks to make sure this db is suitable
     /// for migration to split storage.
@@ -100,10 +97,6 @@ impl ColdStoreCommand {
                 for _ in 0..cmd.number_of_blocks {
                     copy_next_block(&storage, &near_config, epoch_manager.as_ref());
                 }
-                Ok(())
-            }
-            SubCommand::CopyAllBlocks(cmd) => {
-                copy_all_blocks(&storage, cmd.batch_size, !cmd.no_check_after);
                 Ok(())
             }
             SubCommand::PrepareHot(cmd) => cmd.run(&storage, &home_dir, &near_config),
@@ -164,16 +157,6 @@ impl ColdStoreCommand {
 struct CopyNextBlocksCmd {
     #[clap(short, long, default_value_t = 1)]
     number_of_blocks: usize,
-}
-
-#[derive(clap::Parser)]
-struct CopyAllBlocksCmd {
-    /// Threshold size of the write transaction.
-    #[clap(short = 'b', long, default_value_t = 500_000_000)]
-    batch_size: usize,
-    /// Flag to not check correctness of cold db after copying.
-    #[clap(long = "nc")]
-    no_check_after: bool,
 }
 
 fn check_open(store: &NodeStorage) -> anyhow::Result<()> {
@@ -261,70 +244,6 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, epoch_manager: &Epo
 
     update_cold_head(&*store.cold_db().unwrap(), &store.get_hot_store(), &next_height)
         .unwrap_or_else(|_| panic!("Failed to update cold HEAD to {}", next_height));
-}
-
-fn copy_all_blocks(storage: &NodeStorage, batch_size: usize, check: bool) {
-    // If FINAL_HEAD is not set for hot storage we default it to 0
-    // not genesis_height, because hot db needs to contain genesis block for that
-    let hot_final_head = storage
-        .get_hot_store()
-        .get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)
-        .map(|t| t.height)
-        .unwrap_or(0);
-
-    let keep_going = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
-
-    copy_all_data_to_cold(
-        (*storage.cold_db().unwrap()).clone(),
-        &storage.get_hot_store(),
-        batch_size,
-        &keep_going,
-    );
-
-    // Setting cold head to hot_final_head captured BEFORE the start of initial migration.
-    // Doesn't really matter here, but very important in case of migration during `neard run`.
-    update_cold_head(&*storage.cold_db().unwrap(), &storage.get_hot_store(), &hot_final_head)
-        .unwrap_or_else(|_| panic!("Failed to update cold HEAD to {}", hot_final_head));
-
-    if check {
-        for col in DBCol::iter() {
-            if col.is_cold() {
-                println!(
-                    "Performed {} {:?} checks",
-                    check_iter(&storage.get_hot_store(), &storage.get_cold_store().unwrap(), col),
-                    col
-                );
-            }
-        }
-    }
-}
-
-fn check_key(
-    first_store: &near_store::Store,
-    second_store: &near_store::Store,
-    col: DBCol,
-    key: &[u8],
-) {
-    let first_res = first_store.get(col, key);
-    let second_res = second_store.get(col, key);
-
-    assert_eq!(first_res.unwrap(), second_res.unwrap());
-}
-
-/// Checks that `first_store`'s column `col` is fully included in `second_store`
-/// with same values for every key.
-/// Return number of checks performed == number of keys in column `col` of the `first_store`.
-fn check_iter(
-    first_store: &near_store::Store,
-    second_store: &near_store::Store,
-    col: DBCol,
-) -> u64 {
-    let mut num_checks = 0;
-    for (key, _value) in first_store.iter(col) {
-        check_key(first_store, second_store, col, &key);
-        num_checks += 1;
-    }
-    num_checks
 }
 
 /// Calls get_ser on Store with provided temperature from provided NodeStorage.

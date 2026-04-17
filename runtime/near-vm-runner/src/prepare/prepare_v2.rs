@@ -383,7 +383,15 @@ pub(crate) fn prepare_contract(
 ) -> Result<Vec<u8>, PrepareError> {
     let lightly_steamed = PrepareContext::new(original_code, features, config).run()?;
     match kind {
-        VMKind::NearVm => return Ok(lightly_steamed),
+        VMKind::NearVm => {
+            if let Some(max_size) = config.limit_config.max_instrumented_code_size {
+                if lightly_steamed.len() as u64 > max_size {
+                    tracing::debug!(target: "vm", size=lightly_steamed.len(), ?kind, "instrumented code too large");
+                    return Err(PrepareError::InstrumentedCodeTooLarge);
+                }
+            }
+            return Ok(lightly_steamed);
+        }
         VMKind::Wasmer0 | VMKind::Wasmtime | VMKind::Wasmer2 => {}
     }
 
@@ -401,6 +409,12 @@ pub(crate) fn prepare_contract(
             tracing::error!(?err, ?kind, "instrumentation failed");
             PrepareError::Serialization
         })?;
+    if let Some(max_size) = config.limit_config.max_instrumented_code_size {
+        if res.len() as u64 > max_size {
+            tracing::debug!(target: "vm", size=res.len(), ?kind, "instrumented code too large");
+            return Err(PrepareError::InstrumentedCodeTooLarge);
+        }
+    }
     Ok(res)
 }
 

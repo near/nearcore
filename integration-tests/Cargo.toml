@@ -49,6 +49,7 @@ near-jsonrpc-client-internal.workspace = true
 near-jsonrpc-primitives.workspace = true
 near-network.workspace = true
 near-parameters.workspace = true
+near-pool.workspace = true
 near-primitives.workspace = true
 near-primitives-core.workspace = true
 near-store.workspace = true

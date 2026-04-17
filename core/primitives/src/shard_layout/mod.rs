@@ -224,6 +224,18 @@ impl ShardLayout {
         })
     }
 
+    /// Resolve any historical shard ID to a current descendant shard ID.
+    /// For V3 layouts this uses the complete `shards_split_map`.
+    /// For older layouts it falls back to `get_children_shards_ids` (single generation only).
+    pub fn resolve_to_current_shard(&self, shard_id: ShardId) -> Option<ShardId> {
+        match self {
+            Self::V0(_) | Self::V1(_) | Self::V2(_) => {
+                self.get_children_shards_ids(shard_id).map(|c| c[0])
+            }
+            Self::V3(v3) => v3.resolve_to_current_shard(shard_id),
+        }
+    }
+
     /// Given a parent shard id, return the shard ids for the shards in the current shard layout that
     /// are split from this parent shard. If this shard layout has no parent shard layout, return None
     pub fn get_children_shards_ids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardId>> {

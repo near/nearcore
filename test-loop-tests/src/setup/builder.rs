@@ -567,7 +567,7 @@ impl<'a> NodeStateBuilder<'a> {
         let client_config = self.create_client_config();
         let storage = self.setup_storage(client_config.chain_id.clone());
         let account_id = self.account_id.unwrap();
-        NodeSetupState { account_id, client_config, storage }
+        NodeSetupState { account_id, client_config, storage, validator_signer: None }
     }
 
     fn create_client_config(&self) -> ClientConfig {
@@ -580,6 +580,7 @@ impl<'a> NodeStateBuilder<'a> {
             num_block_producer_seats: 4,
             archive,
             state_sync_enabled: false,
+            transaction_pool_size_limit: None,
         });
         client_config.epoch_length = self.genesis.config.epoch_length;
         client_config.max_block_wait_delay = Duration::seconds(6);

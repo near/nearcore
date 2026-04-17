@@ -3,15 +3,16 @@ use super::mem::memtries::MemTries;
 use super::state_snapshot::{StateSnapshot, StateSnapshotConfig};
 use crate::adapter::StoreAdapter;
 use crate::adapter::trie_store::{TrieStoreAdapter, TrieStoreUpdateAdapter};
-use crate::flat::FlatStorageManager;
+use crate::flat::{FlatHeadHold, FlatStorageManager};
 use crate::trie::TrieRefcountAddition;
 use crate::trie::config::TrieConfig;
-use crate::trie::mem::loading::load_trie_from_flat_state_and_delta;
+use crate::trie::mem::loading::{apply_deltas_to_memtries, load_trie_from_flat_state_and_delta};
 use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::{DBCol, PrefetchApi, Store, TrieDBStorage, TrieStorage, metrics};
 use crate::{Trie, TrieChanges, TrieUpdate};
 use itertools::Itertools;
+use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_primitives::block::Block;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
@@ -22,10 +23,20 @@ use near_primitives::types::{
 };
 use parking_lot::{Mutex, RwLock};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use tracing::instrument;
+
+/// Result of a background memtrie loading: the loaded memtries and the
+/// flat_head height from which the base state was loaded. The height is needed
+/// so that the finalization catch-up pass can skip deltas already incorporated
+/// into the base state.
+type MemtrieLoadingResult = (MemTries, BlockHeight);
+type MemtrieLoadingReceiver = crossbeam::channel::Receiver<MemtrieLoadingResult>;
+type MemtrieLoadingEntry = (MemtrieLoadingReceiver, FlatHeadHold);
+
+const MEMTRIE_LOAD_MAX_RETRIES: usize = 3;
 
 struct ShardTriesInner {
     store: TrieStoreAdapter,
@@ -56,6 +67,10 @@ struct ShardTriesInner {
     /// We would like to apply the same set of trie changes to the child memtrie to keep
     /// a consistent view across forks.
     temp_split_shard_map: RwLock<HashMap<ShardUId, Vec<ShardUId>>>,
+    /// Receivers for background memtrie loading tasks. Each entry represents a shard for which
+    /// the memtrie is being loaded in a background thread. The receiver will yield the loaded
+    /// `MemTries` once the thread completes.
+    memtries_loading: Mutex<HashMap<ShardUId, MemtrieLoadingEntry>>,
 }
 
 #[derive(Clone)]
@@ -80,6 +95,7 @@ impl ShardTries {
             state_snapshot: Default::default(),
             state_snapshot_config,
             temp_split_shard_map: Default::default(),
+            memtries_loading: Default::default(),
         }))
     }
 
@@ -414,11 +430,15 @@ impl ShardTries {
         }
     }
 
-    /// Retains in-memory tries for given shards, i.e. unload tries from memory for shards that are NOT
-    /// in the given list. Should be called to unload obsolete tries from memory.
+    /// Retains in-memory tries for given shards, i.e. unload tries from memory for shards that are
+    /// NOT in the given list. Should be called to unload obsolete tries from memory.
+    /// Cancels memtrie background loading as well — dropping the entries releases the
+    /// FlatHeadHold guards for cancelled shards.
     pub fn retain_memtries(&self, shard_uids: &[ShardUId]) {
         tracing::info!(target: "memtrie", current_memtries = ?self.0.memtries.read().keys(), ?shard_uids, "keeping memtries for shards");
         self.0.memtries.write().retain(|shard_uid, _| shard_uids.contains(shard_uid));
+        // Dropping removed entries releases the FlatHeadHold guards.
+        self.0.memtries_loading.lock().retain(|shard_uid, _| shard_uids.contains(shard_uid));
         tracing::info!(target: "memtrie", ?shard_uids, "memtries retaining complete for shards");
     }
 
@@ -437,7 +457,7 @@ impl ShardTries {
         parallelize: bool,
     ) -> Result<(), StorageError> {
         tracing::info!(target: "memtrie", ?shard_uid, "loading trie to memory for shard");
-        let memtries = load_trie_from_flat_state_and_delta(
+        let (memtries, _) = load_trie_from_flat_state_and_delta(
             &self.0.store.store(),
             *shard_uid,
             state_root,
@@ -455,10 +475,10 @@ impl ShardTries {
         &self,
         shard_uid: &ShardUId,
         state_root: &StateRoot,
-        shard_uids_pending_resharding: &HashSet<ShardUId>,
+        shard_uid_pending_resharding: Option<&ShardUId>,
     ) -> Result<(), StorageError> {
         if !self.0.trie_config.load_memtries_for_tracked_shards
-            && !shard_uids_pending_resharding.contains(shard_uid)
+            && shard_uid_pending_resharding != Some(shard_uid)
         {
             return Ok(());
         }
@@ -472,14 +492,14 @@ impl ShardTries {
     /// but which exact shards to load depends on configuration. This may only be called when flat
     /// storage is ready.
     ///
-    /// The `shard_uids_pending_resharding` parameter is used to load memtries
-    /// for shards that are not configured to be loaded but should be loaded
+    /// The `shard_uid_pending_resharding` parameter is used to load a memtrie
+    /// for a shard that is not configured to be loaded but should be loaded
     /// anyway. This is used when a shard is about to be resharded and we need
-    /// to have the memtries loaded for it.
+    /// to have the memtrie loaded for it.
     pub fn load_memtries_for_enabled_shards(
         &self,
         tracked_shards: &[ShardUId],
-        shard_uids_pending_resharding: &HashSet<ShardUId>,
+        shard_uid_pending_resharding: Option<&ShardUId>,
         parallelize: bool,
     ) -> Result<(), StorageError> {
         let trie_config = &self.0.trie_config;
@@ -488,7 +508,7 @@ impl ShardTries {
             .filter(|shard_uid| {
                 trie_config.load_memtries_for_tracked_shards
                     || trie_config.load_memtries_for_shards.contains(shard_uid)
-                    || shard_uids_pending_resharding.contains(shard_uid)
+                    || shard_uid_pending_resharding == Some(shard_uid)
             })
             .collect_vec();
 
@@ -497,7 +517,7 @@ impl ShardTries {
             ?tracked_shards,
             load_memtries_for_tracked_shards=?trie_config.load_memtries_for_tracked_shards,
             load_memtries_for_shards=?trie_config.load_memtries_for_shards,
-            ?shard_uids_pending_resharding,
+            ?shard_uid_pending_resharding,
             "loading tries config"
         );
         tracing::info!(target: "memtrie", ?shard_uids_to_load, "loading tries to memory for shards");
@@ -510,10 +530,109 @@ impl ShardTries {
         Ok(())
     }
 
+    /// Start loading a memtrie for the given shard in a background task.
+    /// No-op if the memtrie for this shard is already loaded or is being currently loaded.
+    /// Memtrie loading is **not** parallelized, not to eat up CPU.
+    pub fn spawn_background_memtrie_loading_for_shard(
+        &self,
+        shard_uid: ShardUId,
+        spawner: &dyn AsyncComputationSpawner,
+    ) {
+        if self.get_memtries(shard_uid).is_some() {
+            return;
+        }
+        let mut pending = self.0.memtries_loading.lock();
+        if pending.contains_key(&shard_uid) {
+            return;
+        }
+        let Some(flat_storage) = self.0.flat_storage_manager.get_flat_storage_for_shard(shard_uid)
+        else {
+            tracing::error!(
+                target: "memtrie", %shard_uid,
+                "cannot start background memtrie loading: flat storage not available"
+            );
+            return;
+        };
+
+        // Hold the flat head while loading, so that deltas accumulated during
+        // the loading are preserved for catch-up. The guard is stored alongside
+        // the receiver and dropped when loading finishes or is cancelled.
+        let hold = flat_storage.hold_flat_head();
+        let store = self.0.store.store();
+        let (tx, rx) = crossbeam::channel::bounded(1);
+        spawner.spawn("memtrie_bg_load", move || {
+            for _ in 0..MEMTRIE_LOAD_MAX_RETRIES {
+                match load_trie_from_flat_state_and_delta(&store, shard_uid, None, false) {
+                    Ok(result) => {
+                        _ = tx.send(result);
+                        return;
+                    }
+                    Err(e) => {
+                        tracing::error!(target: "memtrie", ?shard_uid, ?e, "failed to load memtrie")
+                    }
+                }
+            }
+            panic!("max retries for loading memtrie exceeded")
+        });
+        pending.insert(shard_uid, (rx, hold));
+        tracing::info!(
+            target: "memtrie", %shard_uid,
+            "spawned background memtrie loading for shard"
+        );
+    }
+
+    /// Non-blocking: check all pending background memtrie loading tasks and finalize
+    /// these which have completed (apply delta catch-up + insert into active map).
+    pub fn try_finalize_background_memtrie_loading(&self) {
+        use crossbeam::channel::TryRecvError;
+
+        // Collect completed loads under the lock, then process outside. Each
+        // entry carries its FlatHeadHold so the hold stays alive through catch-up.
+        let mut completed = vec![];
+        {
+            let mut pending = self.0.memtries_loading.lock();
+            let uids: Vec<ShardUId> = pending.keys().copied().collect();
+            for uid in uids {
+                let (rx, hold) = pending.remove(&uid).unwrap();
+                match rx.try_recv() {
+                    Ok(result) => {
+                        completed.push((uid, result, hold));
+                    }
+                    Err(TryRecvError::Empty) => {
+                        pending.insert(uid, (rx, hold));
+                    }
+                    Err(TryRecvError::Disconnected) => {
+                        panic!("background memtrie loading thread terminated unexpectedly")
+                    }
+                }
+            }
+        }
+
+        for (shard_uid, result, _hold) in completed {
+            self.handle_memtrie_loading_result(shard_uid, result);
+            // _hold is dropped here, releasing the flat head hold.
+        }
+    }
+
     /// Retrieves the in-memory tries for the shard.
     pub fn get_memtries(&self, shard_uid: ShardUId) -> Option<Arc<RwLock<MemTries>>> {
         let guard = self.0.memtries.read();
         guard.get(&shard_uid).cloned()
+    }
+
+    /// Finalize a completed background memtrie load: apply any remaining deltas
+    /// accumulated since the background thread finished, then insert the memtrie
+    /// into the active map. The caller is responsible for keeping the
+    /// `FlatHeadHold` alive until this returns.
+    fn handle_memtrie_loading_result(
+        &self,
+        shard_uid: ShardUId,
+        (mut memtries, base_height): MemtrieLoadingResult,
+    ) {
+        apply_deltas_to_memtries(&self.0.store.store(), shard_uid, &mut memtries, base_height)
+            .expect("failed to apply deltas to memtries during catch-up");
+        self.0.memtries.write().entry(shard_uid).or_insert_with(|| Arc::new(RwLock::new(memtries)));
+        tracing::info!(target: "memtrie", %shard_uid, "finalized background memtrie loading");
     }
 
     /// Garbage collects the in-memory tries for the shard up to (and including) the given

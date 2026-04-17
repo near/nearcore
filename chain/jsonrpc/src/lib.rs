@@ -77,8 +77,9 @@ use near_network::tcp::{self, ListenerAddr};
 use near_o11y::metrics::{Encoder, TextEncoder, prometheus};
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockId, BlockReference, ShardId};
+use near_primitives::types::{AccountId, BlockId, BlockReference, ShardId, TransactionOrReceiptId};
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, GasPriceView, LightClientBlockView,
@@ -509,7 +510,15 @@ impl JsonRpcHandler {
             "changes" | "EXPERIMENTAL_changes" => {
                 process_method_call(request, |params| self.changes_in_block_by_type(params)).await
             }
-            "chunk" => process_method_call(request, |params| self.chunk(params)).await,
+            "chunk" => {
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| self.chunk_sharded(params),
+                    |params| self.chunk_local(params),
+                )
+                .await
+            }
             "gas_price" => process_method_call(request, |params| self.gas_price(params)).await,
 
             "genesis_config" | "EXPERIMENTAL_genesis_config" => {
@@ -520,9 +529,12 @@ impl JsonRpcHandler {
             }
             "health" => process_method_call(request, |_params: ()| self.health()).await,
             "light_client_proof" => {
-                process_method_call(request, |params| {
-                    self.light_client_execution_outcome_proof(params)
-                })
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| self.light_client_proof_sharded("light_client_proof", params),
+                    |params| self.light_client_proof_local(params),
+                )
                 .await
             }
             "maintenance_windows" | "EXPERIMENTAL_maintenance_windows" => {
@@ -614,9 +626,14 @@ impl JsonRpcHandler {
                 .await
             }
             "EXPERIMENTAL_light_client_proof" => {
-                process_method_call(request, |params| {
-                    self.light_client_execution_outcome_proof(params)
-                })
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| {
+                        self.light_client_proof_sharded("EXPERIMENTAL_light_client_proof", params)
+                    },
+                    |params| self.light_client_proof_local(params),
+                )
                 .await
             }
             "EXPERIMENTAL_light_client_block_proof" => {
@@ -1288,8 +1305,20 @@ impl JsonRpcHandler {
                 let block_hint = BlockReference::BlockId(block_id.clone()).into();
                 (block_hint, ShardHint::Id(*shard_id), CoordinatorRequestStrategy::Sequential)
             }
-            ChunkReference::ChunkHash { .. } => {
-                (BlockHint::None, ShardHint::None, CoordinatorRequestStrategy::ParallelTakeFirst)
+            ChunkReference::ChunkHash { chunk_id } => {
+                let chunk_hash = ChunkHash::from(*chunk_id);
+                match self.pool.read().try_resolve_chunk_block_and_shard(&chunk_hash) {
+                    Some((height, shard_id)) => (
+                        BlockHint::Height(height),
+                        ShardHint::Id(shard_id),
+                        CoordinatorRequestStrategy::Sequential,
+                    ),
+                    None => (
+                        BlockHint::None,
+                        ShardHint::None,
+                        CoordinatorRequestStrategy::ParallelTakeFirst,
+                    ),
+                }
             }
         };
         self.run_coordinator_request(
@@ -1687,7 +1716,35 @@ impl JsonRpcHandler {
         Ok(near_jsonrpc_primitives::types::blocks::RpcBlockResponse { block_view })
     }
 
-    async fn chunk(
+    async fn chunk_sharded(
+        &self,
+        request_data: near_jsonrpc_primitives::types::chunks::RpcChunkRequest,
+    ) -> Result<Value, RpcError> {
+        let (block_hint, shard_hint, strategy) = match &request_data.chunk_reference {
+            ChunkReference::BlockShardId { block_id, shard_id } => {
+                let block_hint = BlockReference::BlockId(block_id.clone()).into();
+                (block_hint, ShardHint::Id(*shard_id), CoordinatorRequestStrategy::Sequential)
+            }
+            ChunkReference::ChunkHash { chunk_id } => {
+                let chunk_hash = ChunkHash::from(*chunk_id);
+                match self.pool.read().try_resolve_chunk_block_and_shard(&chunk_hash) {
+                    Some((height, shard_id)) => (
+                        BlockHint::Height(height),
+                        ShardHint::Id(shard_id),
+                        CoordinatorRequestStrategy::Sequential,
+                    ),
+                    None => (
+                        BlockHint::None,
+                        ShardHint::None,
+                        CoordinatorRequestStrategy::ParallelTakeFirst,
+                    ),
+                }
+            }
+        };
+        self.run_coordinator_request("chunk", request_data, block_hint, shard_hint, strategy).await
+    }
+
+    async fn chunk_local(
         &self,
         request_data: near_jsonrpc_primitives::types::chunks::RpcChunkRequest,
     ) -> Result<
@@ -1818,7 +1875,28 @@ impl JsonRpcHandler {
         Ok(response.rpc_into())
     }
 
-    async fn light_client_execution_outcome_proof(
+    async fn light_client_proof_sharded(
+        &self,
+        method_name: &str,
+        request_data: near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRequest,
+    ) -> Result<Value, RpcError> {
+        let account_id = match &request_data.id {
+            TransactionOrReceiptId::Transaction { sender_id, .. } => sender_id.clone(),
+            TransactionOrReceiptId::Receipt { receiver_id, .. } => receiver_id.clone(),
+        };
+        let block_hint = BlockHint::Hash(request_data.light_client_head);
+        let shard_hint = ShardHint::Account(account_id);
+        self.run_coordinator_request(
+            method_name,
+            request_data,
+            block_hint,
+            shard_hint,
+            CoordinatorRequestStrategy::Sequential,
+        )
+        .await
+    }
+
+    async fn light_client_proof_local(
         &self,
         request: near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRequest,
     ) -> Result<

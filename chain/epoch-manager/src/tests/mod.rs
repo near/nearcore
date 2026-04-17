@@ -11,13 +11,11 @@ use crate::test_utils::{
 };
 use itertools::Itertools;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
-use near_crypto::{KeyType, PublicKey};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Tip;
 use near_primitives::epoch_block_info::BlockInfoV3;
-use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
@@ -27,10 +25,9 @@ use near_primitives::stateless_validation::partial_witness::PartialEncodedStateW
 use near_primitives::types::ValidatorKickoutReason::{
     NotEnoughBlocks, NotEnoughChunkEndorsements, NotEnoughChunks, ProtocolVersionTooOld,
 };
-use near_primitives::types::{AccountInfo, Balance, Gas};
+use near_primitives::types::{Balance, Gas};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
-use near_store::ShardUId;
 use near_store::test_utils::create_test_store;
 use num_rational::{Ratio, Rational32};
 use std::cmp::Ordering;
@@ -480,6 +477,7 @@ fn test_validator_reward_one_validator() {
         ("test1".parse().unwrap(), test1_stake_amount),
         ("test2".parse().unwrap(), stake_amount),
     ];
+    let num_validators = validators.len();
     let epoch_length = 2;
     let total_supply: Balance =
         validators.iter().fold(Balance::ZERO, |sum, (_, stake)| sum.checked_add(*stake).unwrap());
@@ -516,19 +514,20 @@ fn test_validator_reward_one_validator() {
                 h[0],
                 vec![true],
                 total_supply,
+                num_validators,
             ),
             rng_seed,
         )
         .unwrap();
     epoch_manager
         .record_block_info(
-            block_info(h[1], 1, 1, h[0], h[0], h[1], vec![true], total_supply),
+            block_info(h[1], 1, 1, h[0], h[0], h[1], vec![true], total_supply, num_validators),
             rng_seed,
         )
         .unwrap();
     epoch_manager
         .record_block_info(
-            block_info(h[2], 2, 2, h[1], h[1], h[1], vec![true], total_supply),
+            block_info(h[2], 2, 2, h[1], h[1], h[1], vec![true], total_supply, num_validators),
             rng_seed,
         )
         .unwrap();
@@ -580,6 +579,7 @@ fn test_validator_reward_weight_by_stake() {
     let stake_amount2 = Balance::from_yoctonear(500_000);
     let validators =
         vec![("test1".parse().unwrap(), stake_amount1), ("test2".parse().unwrap(), stake_amount2)];
+    let num_validators = validators.len();
     let epoch_length = 2;
     let total_supply = stake_amount1
         .checked_add(stake_amount2)
@@ -617,15 +617,16 @@ fn test_validator_reward_weight_by_stake() {
             h[0],
             vec![true],
             total_supply,
+            num_validators,
         ),
     );
     record_with_block_info(
         &mut epoch_manager,
-        block_info(h[1], 1, 1, h[0], h[0], h[1], vec![true], total_supply),
+        block_info(h[1], 1, 1, h[0], h[0], h[1], vec![true], total_supply, num_validators),
     );
     record_with_block_info(
         &mut epoch_manager,
-        block_info(h[2], 2, 2, h[1], h[1], h[1], vec![true], total_supply),
+        block_info(h[2], 2, 2, h[1], h[1], h[1], vec![true], total_supply, num_validators),
     );
     let mut validator_online_ratio = HashMap::new();
     validator_online_ratio.insert(
@@ -696,6 +697,7 @@ fn test_reward_multiple_shards() {
     let stake_amount = Balance::from_yoctonear(1_000_000);
     let validators =
         vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)];
+    let num_validators = validators.len();
     let epoch_length = 10;
     let total_supply = stake_amount.checked_mul(validators.len().try_into().unwrap()).unwrap();
     let reward_calculator = RewardCalculator {
@@ -720,6 +722,7 @@ fn test_reward_multiple_shards() {
     )
     .into_handle();
     let h = hash_range((2 * epoch_length + 1) as usize);
+    let init_epoch_id = epoch_manager.get_epoch_id_from_prev_block(&CryptoHash::default()).unwrap();
     record_with_block_info(
         &mut epoch_manager.write(),
         block_info(
@@ -731,16 +734,16 @@ fn test_reward_multiple_shards() {
             h[0],
             vec![true],
             total_supply,
+            num_validators,
         ),
     );
     let mut expected_chunks = 0;
-    let init_epoch_id = epoch_manager.get_epoch_id_from_prev_block(&h[0]).unwrap();
     for height in 1..(2 * epoch_length) {
         let i = height as usize;
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&h[i - 1]).unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
         // test1 skips its chunks in the first epoch
-        let chunk_mask = shard_layout
+        let chunk_mask: Vec<bool> = shard_layout
             .shard_ids()
             .map(|shard_id| {
                 let chunk_production_key =
@@ -757,7 +760,17 @@ fn test_reward_multiple_shards() {
             .collect();
         record_with_block_info(
             &mut epoch_manager.write(),
-            block_info(h[i], height, height, h[i - 1], h[i - 1], h[i], chunk_mask, total_supply),
+            block_info(
+                h[i],
+                height,
+                height,
+                h[i - 1],
+                h[i - 1],
+                h[i],
+                chunk_mask,
+                total_supply,
+                num_validators,
+            ),
         );
     }
     let mut validator_online_ratio = HashMap::new();
@@ -864,6 +877,7 @@ fn test_expected_chunks() {
         ("test3".parse().unwrap(), stake_amount),
         ("test4".parse().unwrap(), stake_amount),
     ];
+    let num_validators = validators.len();
     let epoch_length = 20;
     let num_shards = 3;
     let total_supply = stake_amount.checked_mul(validators.len().try_into().unwrap()).unwrap();
@@ -898,6 +912,7 @@ fn test_expected_chunks() {
             continue;
         }
 
+        let chunk_mask = vec![true, true, true];
         epoch_manager
             .write()
             .record_block_info(
@@ -908,8 +923,9 @@ fn test_expected_chunks() {
                     prev_block,
                     prev_block,
                     epoch_id.0,
-                    vec![true, true, true],
+                    chunk_mask,
                     total_supply,
+                    num_validators,
                 ),
                 rng_seed,
             )
@@ -942,6 +958,7 @@ fn test_expected_chunks_prev_block_not_produced() {
         ("test2".parse().unwrap(), stake_amount),
         ("test3".parse().unwrap(), stake_amount),
     ];
+    let num_validators = validators.len();
     let epoch_length = 50;
     let total_supply = stake_amount.checked_mul(validators.len().try_into().unwrap()).unwrap();
     let epoch_manager = setup_epoch_manager(
@@ -979,6 +996,7 @@ fn test_expected_chunks_prev_block_not_produced() {
         } else {
             // test1 also misses all their chunks
             let should_produce_chunk = expected_chunk_producer != 0;
+            let chunk_mask = vec![should_produce_chunk];
             epoch_manager
                 .write()
                 .record_block_info(
@@ -989,8 +1007,9 @@ fn test_expected_chunks_prev_block_not_produced() {
                         prev_block,
                         prev_block,
                         epoch_id.0,
-                        vec![should_produce_chunk],
+                        chunk_mask,
                         total_supply,
+                        num_validators,
                     ),
                     rng_seed,
                 )
@@ -1484,6 +1503,7 @@ fn test_chunk_producer_kickout() {
     let stake_amount = Balance::from_yoctonear(1_000_000);
     let validators =
         vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)];
+    let num_validators = validators.len();
     let epoch_length = 10;
     let total_supply = stake_amount.checked_mul(validators.len().try_into().unwrap()).unwrap();
     let em = setup_epoch_manager(
@@ -1523,7 +1543,7 @@ fn test_chunk_producer_kickout() {
                     true
                 }
             })
-            .collect();
+            .collect::<Vec<bool>>();
 
         em.write()
             .record_block_info(
@@ -1536,6 +1556,7 @@ fn test_chunk_producer_kickout() {
                     epoch_id.0,
                     chunk_mask,
                     total_supply,
+                    num_validators,
                 ),
                 rng_seed,
             )
@@ -1559,7 +1580,8 @@ fn test_chunk_producer_kickout() {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_chunk_validator_kickout_using_production_stats() {
     let stake_amount = Balance::from_yoctonear(1_000_000);
-    let validators: Vec<(AccountId, Balance)> = (0..3)
+    let num_validators = 3;
+    let validators: Vec<(AccountId, Balance)> = (0..num_validators)
         .map(|i| {
             (
                 format!("test{i}").parse().unwrap(),
@@ -1593,7 +1615,7 @@ fn test_chunk_validator_kickout_using_production_stats() {
     for (prev_block, (height, curr_block)) in hashes.iter().zip(hashes.iter().enumerate().skip(1)) {
         let height = height as u64;
         let epoch_id = em.get_epoch_id_from_prev_block(prev_block).unwrap();
-        let chunk_mask = if height < epoch_length {
+        let chunk_mask: Vec<bool> = if height < epoch_length {
             (0..num_shards).map(|i| (height + i) % 2 == 0).collect()
         } else {
             vec![true; num_shards as usize]
@@ -1609,6 +1631,7 @@ fn test_chunk_validator_kickout_using_production_stats() {
                     epoch_id.0,
                     chunk_mask,
                     total_supply,
+                    num_validators,
                 ),
                 rng_seed,
             )
@@ -2298,6 +2321,7 @@ fn test_final_block_consistency() {
     let amount_staked = Balance::from_yoctonear(1_000_000);
     let validators =
         vec![("test1".parse().unwrap(), amount_staked), ("test2".parse().unwrap(), amount_staked)];
+    let num_validators = validators.len();
     let mut epoch_manager = setup_default_epoch_manager(validators, 10, 1, 3, 90, 60);
 
     let h = hash_range(10);
@@ -2317,7 +2341,7 @@ fn test_final_block_consistency() {
 
     epoch_manager
         .record_block_info(
-            block_info(h[5], 5, 1, h[1], h[2], h[1], vec![], DEFAULT_TOTAL_SUPPLY),
+            block_info(h[5], 5, 1, h[1], h[2], h[1], vec![], DEFAULT_TOTAL_SUPPLY, num_validators),
             [0; 32],
         )
         .unwrap()
@@ -3254,6 +3278,7 @@ fn test_possible_epochs_of_height_around_tip() {
     let amount_staked = Balance::from_yoctonear(1_000_000);
     let account_id = AccountId::from_str("test1").unwrap();
     let validators = vec![(account_id, amount_staked)];
+    let num_validators = validators.len();
     let h = hash_range(50);
 
     let genesis_epoch = EpochId(CryptoHash::default());
@@ -3407,6 +3432,7 @@ fn test_possible_epochs_of_height_around_tip() {
             h[12],
             vec![],
             DEFAULT_TOTAL_SUPPLY,
+            num_validators,
         );
         epoch_manager.write().record_block_info(block_info, [0; 32]).unwrap().commit();
         let tip = Tip {
@@ -3470,6 +3496,7 @@ fn test_possible_epochs_of_height_around_tip() {
             h[12],
             vec![],
             DEFAULT_TOTAL_SUPPLY,
+            num_validators,
         );
         epoch_manager.write().record_block_info(block_info, [0; 32]).unwrap().commit();
         let tip = Tip {
@@ -3566,160 +3593,6 @@ fn test_possible_epochs_of_height_around_tip() {
             );
         }
     }
-}
-
-fn test_get_shard_uids_pending_resharding_base(shard_layouts: &[ShardLayout]) -> HashSet<ShardUId> {
-    init_test_logger();
-
-    // Create a minimal genesis.
-    let mut genesis_config = GenesisConfig::default();
-    genesis_config.protocol_version = PROTOCOL_VERSION;
-    genesis_config.validators = vec![AccountInfo {
-        account_id: "test".parse().unwrap(),
-        public_key: PublicKey::empty(KeyType::ED25519),
-        amount: Balance::from_yoctonear(10),
-    }];
-    genesis_config.num_block_producer_seats = 1;
-    genesis_config.num_chunk_producer_seats = 1;
-
-    // Create an epoch config store with a new protocol version for each
-    // provided shard layout.
-    let genesis_epoch_config = EpochConfig::from(&genesis_config);
-    let mut epoch_config_store = vec![];
-    for (i, shard_layout) in shard_layouts.iter().enumerate() {
-        let protocol_version = genesis_config.protocol_version + i as u32;
-        let epoch_config = genesis_epoch_config.clone().with_shard_layout(shard_layout.clone());
-        epoch_config_store.push((protocol_version, Arc::new(epoch_config)));
-    }
-    let epoch_config_store = BTreeMap::from_iter(epoch_config_store.into_iter());
-    let epoch_config_store = EpochConfigStore::test(epoch_config_store);
-
-    // Create the epoch manager.
-    let store = create_test_store();
-    let epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(
-        store,
-        &genesis_config,
-        epoch_config_store,
-    );
-
-    // Get and return the ShardUIds pending resharding.
-    let head_protocol_version = genesis_config.protocol_version;
-    let client_protocol_version = genesis_config.protocol_version + shard_layouts.len() as u32 - 1;
-    epoch_manager
-        .get_shard_uids_pending_resharding(head_protocol_version, client_protocol_version)
-        .unwrap()
-}
-
-/// Test there are no ShardUIds pending resharding when there are no planned
-/// reshardings.
-#[test]
-fn test_get_shard_uids_pending_resharding_none() {
-    let shard_layout = ShardLayout::single_shard();
-    let shard_uids = test_get_shard_uids_pending_resharding_base(&[shard_layout]);
-    assert_eq!(shard_uids.len(), 0);
-
-    let shard_layout = ShardLayout::multi_shard(3, 3);
-    let shard_uids = test_get_shard_uids_pending_resharding_base(&[shard_layout]);
-    assert_eq!(shard_uids.len(), 0);
-
-    let shard_layout = ShardLayout::multi_shard(3, 3);
-    let shard_uids = test_get_shard_uids_pending_resharding_base(&[
-        shard_layout.clone(),
-        shard_layout.clone(),
-        shard_layout,
-    ]);
-    assert_eq!(shard_uids.len(), 0);
-}
-
-/// Test there are no ShardUIds pending resharding when there are no planned
-/// reshardings in the simple nightshade shard layout that is used in prod.
-///
-/// This test checks that when then protocol version is changing but the shard
-/// layout is not, no shard is pending resharding.
-#[test]
-fn test_get_shard_uids_pending_resharding_simple_nightshade() {
-    let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
-    let shard_layout = epoch_config_store
-        .get_config(PROTOCOL_VERSION)
-        .static_shard_layout()
-        .expect("get_shard_uids_pending_resharding should be removed when dynamic resharding is stabilized");
-    let shard_uids =
-        test_get_shard_uids_pending_resharding_base(&[shard_layout.clone(), shard_layout]);
-    assert_eq!(shard_uids.len(), 0);
-}
-
-/// Test that there is only one ShardUId pending resharding during a single
-/// resharding.
-#[test]
-fn test_get_shard_uids_pending_resharding_single() {
-    let version = 3;
-    let a: AccountId = "aaa".parse().unwrap();
-    let b: AccountId = "bbb".parse().unwrap();
-
-    // start with just one boundary - a
-    // the split s1 by adding b
-    let shard_layout_0 = ShardLayout::multi_shard_custom(vec![a.clone()], version);
-    let shard_layout_1 = ShardLayout::derive_shard_layout(&shard_layout_0, b);
-
-    let s1 = shard_layout_0.account_id_to_shard_uid(&a);
-
-    let shard_uids = test_get_shard_uids_pending_resharding_base(&[shard_layout_0, shard_layout_1]);
-    assert_eq!(shard_uids, vec![s1].into_iter().collect::<HashSet<_>>());
-}
-
-/// Test that both original shards are pending resharding during a double
-/// resharding of different shards.
-#[test]
-fn test_get_shard_uids_pending_resharding_double_different() {
-    let version = 3;
-    let a: AccountId = "aaa".parse().unwrap();
-    let b: AccountId = "bbb".parse().unwrap();
-    let c: AccountId = "ccc".parse().unwrap();
-
-    // start with just one boundary - b
-    // then split s0 by adding a
-    // then split s1 by adding c
-    // both original shards are pending resharding
-    let shard_layout_0 = ShardLayout::multi_shard_custom(vec![b.clone()], version);
-    let shard_layout_1 = ShardLayout::derive_shard_layout(&shard_layout_0, a.clone());
-    let shard_layout_2 = ShardLayout::derive_shard_layout(&shard_layout_0, c);
-
-    let s0 = shard_layout_0.account_id_to_shard_uid(&a);
-    let s1 = shard_layout_0.account_id_to_shard_uid(&b);
-
-    let shard_uids = test_get_shard_uids_pending_resharding_base(&[
-        shard_layout_0,
-        shard_layout_1,
-        shard_layout_2,
-    ]);
-    assert_eq!(shard_uids, vec![s0, s1].into_iter().collect::<HashSet<_>>());
-}
-
-/// Test that only one shard is pending resharding during a double
-/// resharding where the same shard is resharded twice.
-#[test]
-fn test_get_shard_uids_pending_resharding_double_same() {
-    let version = 3;
-    let a: AccountId = "aaa".parse().unwrap();
-    let b: AccountId = "bbb".parse().unwrap();
-    let c: AccountId = "ccc".parse().unwrap();
-
-    // start with just one boundary - a
-    // then split s1 by adding a
-    // then split s1 by adding c
-    // both original shards are pending resharding
-    let shard_layout_0 = ShardLayout::multi_shard_custom(vec![a.clone()], version);
-    let shard_layout_1 = ShardLayout::derive_shard_layout(&shard_layout_0, b);
-    let shard_layout_2 = ShardLayout::derive_shard_layout(&shard_layout_0, c);
-
-    let s1 = shard_layout_0.account_id_to_shard_uid(&a);
-
-    let shard_uids = test_get_shard_uids_pending_resharding_base(&[
-        shard_layout_0,
-        shard_layout_1,
-        shard_layout_2,
-    ]);
-    assert_eq!(shard_uids, vec![s1].into_iter().collect::<HashSet<_>>());
 }
 
 #[test]

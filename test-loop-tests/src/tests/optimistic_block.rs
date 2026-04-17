@@ -1,6 +1,7 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
+use crate::setup::peer_manager_actor::HandlerResult;
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
@@ -256,13 +257,13 @@ fn alter_optimistic_block_at_height(
                                 optimistic_block.block_timestamp() - 15000000,
                             ),
                         );
-                        return Some(NetworkRequests::OptimisticBlock {
+                        return HandlerResult::Unhandled(NetworkRequests::OptimisticBlock {
                             chunk_producers: chunk_producers.clone(),
                             optimistic_block: altered_ob,
                         });
                     }
                 };
-                Some(request)
+                HandlerResult::Unhandled(request)
             }
         }));
     }

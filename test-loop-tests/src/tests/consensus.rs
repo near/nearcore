@@ -1,5 +1,6 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
+use crate::setup::peer_manager_actor::HandlerResult;
 use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 use near_async::messaging::CanSend as _;
 use near_async::test_loop::sender::TestLoopSender;
@@ -10,6 +11,7 @@ use near_client::client_actor::ClientActor;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{BlockApproval, BlockResponse};
 use near_network::types::NetworkRequests;
+use near_network::types::NetworkResponses;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::{Approval, ApprovalInner};
@@ -85,7 +87,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
 
         let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
+        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
             let mut handler = handler.write();
             let mut rng = rng.write();
 
@@ -136,7 +138,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                         handler.delayed_blocks_count += 1;
                         if handler.delayed_blocks.len() < 2 {
                             handler.delayed_blocks.push(block.clone());
-                            return None;
+                            return HandlerResult::Handled(NetworkResponses::NoResponse);
                         }
                     }
                     handler.largest_block_height =
@@ -145,7 +147,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                     let mut new_delayed_blocks = vec![];
                     for delayed_block in &handler.delayed_blocks {
                         if delayed_block.hash() == block.hash() {
-                            return Some(request);
+                            return HandlerResult::Unhandled(request);
                         }
                         if delayed_block.header().height() <= block.header().height() + 2 {
                             for (_, sender) in &handler.client_senders {
@@ -215,7 +217,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                                 // We already manually sent a skip conflicting with this endorsement
                                 // my_ord % 8 < 2 are two malicious actors in every epoch and they
                                 // continue sending endorsements
-                                return None;
+                                return HandlerResult::Handled(NetworkResponses::NoResponse);
                             }
 
                             approval_message.approval.target_height - 1
@@ -273,13 +275,13 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                         // the participants who haven't sent their endorsements to be converted
                         // to skips change their head.
                         if my_ord % 8 < 2 {
-                            return None;
+                            return HandlerResult::Handled(NetworkResponses::NoResponse);
                         }
                     }
                 }
                 _ => {}
             };
-            Some(request)
+            HandlerResult::Unhandled(request)
         }));
     }
 

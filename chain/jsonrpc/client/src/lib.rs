@@ -330,6 +330,15 @@ impl JsonRpcClient {
         call_method(&self.transport, "EXPERIMENTAL_receipt", request)
     }
 
+    pub fn light_client_proof(
+        &self,
+        request: near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRequest,
+    ) -> RpcRequest<
+        near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse,
+    > {
+        call_method(&self.transport, "light_client_proof", request)
+    }
+
     #[allow(non_snake_case)]
     pub fn EXPERIMENTAL_receipt_to_tx(
         &self,

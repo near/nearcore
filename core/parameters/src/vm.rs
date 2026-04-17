@@ -126,6 +126,22 @@ pub struct LimitConfig {
     /// If present, stores max number of elements in a single contract's table
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_elements_per_contract_table: Option<usize>,
+    /// If present, stores max byte size of a single function body in a contract
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_function_body_size: Option<u64>,
+    /// If present, stores max byte size of the wasm code after gas instrumentation.
+    /// This prevents Cranelift's 24-bit SSA counter from overflowing on
+    /// pathologically large contracts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_instrumented_code_size: Option<u64>,
+    /// If present, stores max number of basic blocks (block/loop/if) in a single function.
+    /// This caps per-function compilation time in Cranelift.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_blocks_per_function: Option<u64>,
+    /// If present, stores max total number of basic blocks across all functions in a contract.
+    /// This caps total compilation time for a contract.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_blocks_per_contract: Option<u64>,
     /// Whether to enforce account_id well-formed-ness where it wasn't enforced
     /// historically.
     #[serde(default = "AccountIdValidityRulesVersion::v0")]
@@ -192,6 +208,10 @@ pub struct Config {
 
     /// Whether to enable gas key host functions.
     pub gas_key_host_fns: bool,
+
+    /// Whether to allow attaching exactly 1 yoctoNEAR to a promise function
+    /// call without requiring the calling contract to have sufficient balance.
+    pub one_yocto_on_promise: bool,
 
     /// Describes limits for VM and Runtime.
     pub limit_config: LimitConfig,
