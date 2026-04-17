@@ -10,55 +10,76 @@ use near_primitives::types::{AccountId, BlockHeight};
 use parking_lot::RwLock;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
-pub(super) fn delay_endorsements_propagation(env: &mut TestLoopEnv, delay_height: u64) {
-    for node in &env.node_datas {
-        node.set_expected_execution_delay(delay_height);
-    }
+impl TestLoopEnv {
+    /// Set the endorsement propagation delay to `delay_height` blocks.
+    ///
+    /// The first call installs a per-node network handler that holds back
+    /// endorsements until later blocks catch up. Subsequent calls just update
+    /// the delay value (including setting it to 0 to let queued endorsements
+    /// drain as new blocks arrive); the handler picks up the new value on its
+    /// next invocation.
+    pub fn delay_endorsements_propagation(&mut self, delay_height: u64) {
+        for node in &self.node_datas {
+            node.set_expected_execution_delay(delay_height);
+        }
+        if self.shared_state.endorsement_delay_handlers_installed.swap(true, Ordering::Relaxed) {
+            return;
+        }
 
-    let core_writer_senders: HashMap<_, _> = env
-        .node_datas
-        .iter()
-        .map(|datas| (datas.account_id.clone(), datas.spice_core_writer_sender.clone()))
-        .collect();
+        let core_writer_senders: HashMap<_, _> = self
+            .node_datas
+            .iter()
+            .map(|datas| (datas.account_id.clone(), datas.spice_core_writer_sender.clone()))
+            .collect();
 
-    for node in &env.node_datas {
-        let senders = core_writer_senders.clone();
-        let block_heights: Arc<RwLock<HashMap<CryptoHash, BlockHeight>>> =
-            Arc::new(RwLock::new(HashMap::new()));
-        let delayed_endorsements: Arc<
-            RwLock<VecDeque<(CryptoHash, AccountId, SpiceChunkEndorsement)>>,
-        > = Arc::new(RwLock::new(VecDeque::new()));
-        let peer_actor = env.test_loop.data.get_mut(&node.peer_manager_sender.actor_handle());
-        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
-            match request {
-                NetworkRequests::Block { ref block } => {
-                    block_heights.write().insert(*block.hash(), block.header().height());
+        for node in &self.node_datas {
+            let senders = core_writer_senders.clone();
+            let delay = node.expected_execution_delay_handle();
+            let block_heights: Arc<RwLock<HashMap<CryptoHash, BlockHeight>>> =
+                Arc::new(RwLock::new(HashMap::new()));
+            let delayed_endorsements: Arc<
+                RwLock<VecDeque<(CryptoHash, AccountId, SpiceChunkEndorsement)>>,
+            > = Arc::new(RwLock::new(VecDeque::new()));
+            let peer_actor = self.test_loop.data.get_mut(&node.peer_manager_sender.actor_handle());
+            peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+                let delay_height = delay.load(Ordering::Relaxed);
+                match request {
+                    NetworkRequests::Block { ref block } => {
+                        block_heights.write().insert(*block.hash(), block.header().height());
 
-                    let mut delayed_endorsements = delayed_endorsements.write();
-                    loop {
-                        let Some(front) = delayed_endorsements.front() else {
-                            break;
-                        };
-                        let height = block_heights.read()[&front.0];
-                        if height + delay_height >= block.header().height() {
-                            break;
+                        let mut delayed_endorsements = delayed_endorsements.write();
+                        loop {
+                            let Some(front) = delayed_endorsements.front() else {
+                                break;
+                            };
+                            let height = block_heights.read()[&front.0];
+                            if height + delay_height >= block.header().height() {
+                                break;
+                            }
+                            let (_, target, endorsement) =
+                                delayed_endorsements.pop_front().unwrap();
+                            senders[&target].send(SpiceChunkEndorsementMessage(endorsement));
                         }
-                        let (_, target, endorsement) = delayed_endorsements.pop_front().unwrap();
-                        senders[&target].send(SpiceChunkEndorsementMessage(endorsement));
+                        HandlerResult::Unhandled(request)
                     }
-                    HandlerResult::Unhandled(request)
+                    NetworkRequests::SpiceChunkEndorsement(target, endorsement) => {
+                        if delay_height == 0 {
+                            return HandlerResult::Unhandled(
+                                NetworkRequests::SpiceChunkEndorsement(target, endorsement),
+                            );
+                        }
+                        delayed_endorsements.write().push_back((
+                            *endorsement.block_hash(),
+                            target,
+                            endorsement,
+                        ));
+                        HandlerResult::Handled(NetworkResponses::NoResponse)
+                    }
+                    _ => HandlerResult::Unhandled(request),
                 }
-                NetworkRequests::SpiceChunkEndorsement(target, endorsement) => {
-                    delayed_endorsements.write().push_back((
-                        *endorsement.block_hash(),
-                        target,
-                        endorsement,
-                    ));
-                    HandlerResult::Handled(NetworkResponses::NoResponse)
-                }
-                _ => HandlerResult::Unhandled(request),
-            }
-        }));
+            }));
+        }
     }
 }

@@ -70,6 +70,10 @@ pub struct SharedState {
     /// Archive-wide config for cloud archival nodes. Defaults to
     /// `BucketConfig::canonical()`; tests may override.
     pub bucket_config: BucketConfig,
+    /// True once `TestLoopEnv::delay_endorsements_propagation` has installed
+    /// its per-node network handlers, so subsequent calls only update the
+    /// shared delay value instead of stacking another handler chain.
+    pub endorsement_delay_handlers_installed: Arc<AtomicBool>,
 }
 
 /// This is the state associated with each node in the test loop environment before being built.
@@ -122,6 +126,13 @@ impl NodeExecutionData {
 
     pub fn set_expected_execution_delay(&self, delay: u64) {
         self.expected_execution_delay.store(delay, Ordering::Relaxed);
+    }
+
+    /// Returns a clone of the shared atomic backing `expected_execution_delay`,
+    /// so the endorsement-delay network handler can read the same value that
+    /// timeouts do without extra plumbing.
+    pub fn expected_execution_delay_handle(&self) -> Arc<AtomicU64> {
+        self.expected_execution_delay.clone()
     }
 
     pub fn jsonrpc_client(&self) -> JsonRpcClient {

@@ -1,4 +1,3 @@
-use super::spice_utils::delay_endorsements_propagation;
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::peer_manager_actor::HandlerResult;
@@ -183,7 +182,7 @@ fn test_spice_chain_with_delayed_execution() {
 
     let execution_delay = 4;
     // We delay endorsements to simulate slow execution validation causing execution to lag behind.
-    delay_endorsements_propagation(&mut env, execution_delay);
+    env.delay_endorsements_propagation(execution_delay);
 
     env = env.warmup();
 
@@ -222,7 +221,7 @@ fn setup_spice_env_with_execution_delay() -> (TestLoopEnv, AccountId) {
         .build();
 
     let execution_delay = 4;
-    delay_endorsements_propagation(&mut env, execution_delay);
+    env.delay_endorsements_propagation(execution_delay);
 
     let mut env = env.warmup();
 
@@ -368,7 +367,7 @@ fn test_spice_garbage_collection_witnesses() {
 
     // We delay endorsements to simulate slow execution validation causing execution to lag behind.
     let execution_delay = 4;
-    delay_endorsements_propagation(&mut env, execution_delay);
+    env.delay_endorsements_propagation(execution_delay);
     env = env.warmup();
 
     // Use a chunk producer node (not RPC) since only chunk producers store witnesses.
@@ -522,7 +521,7 @@ fn test_restart_producer_node() {
     let execution_delay = 2;
     // Delay is required to make sure that new blocks processing doesn't trigger requests for
     // missing data.
-    delay_endorsements_propagation(&mut env, execution_delay);
+    env.delay_endorsements_propagation(execution_delay);
 
     let mut env = env.warmup();
 
@@ -594,7 +593,7 @@ fn test_restart_validator_node() {
     let execution_delay = 2;
     // Delay is required to make sure that new blocks processing doesn't trigger requests of
     // missing data.
-    delay_endorsements_propagation(&mut env, execution_delay);
+    env.delay_endorsements_propagation(execution_delay);
 
     let mut env = env.warmup();
 

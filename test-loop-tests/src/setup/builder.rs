@@ -512,6 +512,7 @@ impl TestLoopBuilder {
             load_memtries_for_tracked_shards: self.load_memtries_for_tracked_shards,
             warmup_pending,
             bucket_config: self.bucket_config.clone(),
+            endorsement_delay_handlers_installed: Arc::new(AtomicBool::new(false)),
         };
         (self.test_loop, shared_state)
     }
