@@ -7,6 +7,7 @@ use crate::state_sync::StateSyncDumper;
 use anyhow::Context;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::time::Clock;
+use near_chain::backfill_receipt_to_tx::BackfillStorage;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 pub use near_chain::runtime::NightshadeRuntime;
@@ -588,13 +589,8 @@ pub async fn start_with_config_and_synchronization_impl(
         && config.client_config.archive
         && config.client_config.backfill_receipt_to_tx.enabled
     {
-        let read_store = maybe_split_store.clone();
-        let hot_store = storage.get_hot_store();
-        let entry_store = storage.get_cold_store().unwrap_or_else(|| hot_store.clone());
         let _backfill_actor = actor_system.spawn_tokio_actor(BackfillReceiptToTxActor::new(
-            read_store,
-            entry_store,
-            hot_store,
+            BackfillStorage::for_node(&storage),
             config.client_config.save_trie_changes,
             &chain_genesis,
             config.client_config.backfill_receipt_to_tx.clone(),

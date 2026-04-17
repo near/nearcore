@@ -1,16 +1,15 @@
-use anyhow::Context;
+use anyhow::{Context, anyhow};
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::messaging::Actor;
 use near_async::time::Duration;
 use near_chain::backfill_receipt_to_tx::{
-    BACKFILL_CHECKPOINT_KEY_LOW, BackfillStats, process_height,
+    BACKFILL_CHECKPOINT_KEY_LOW, BackfillStorage, process_one_batch,
 };
 use near_chain::{ChainGenesis, ChainStore, ChainStoreAccess};
 use near_chain_configs::BackfillReceiptToTxConfig;
 use near_o11y::tracing;
 use near_primitives::types::BlockHeight;
-use near_store::{DBCol, Store};
-use rayon::prelude::*;
+use near_store::DBCol;
 use std::time::Instant;
 
 /// Background actor that backfills the ReceiptToTx DB column by processing
@@ -25,10 +24,7 @@ use std::time::Instant;
 /// Follows the GCActor pattern: runs in a periodic loop via `ctx.run_later()`.
 pub struct BackfillReceiptToTxActor {
     chain_store: ChainStore,
-    read_store: Store,
-    write_store: Store,
-    /// Checkpoints are always stored in hot storage.
-    checkpoint_store: Store,
+    storage: BackfillStorage,
     pool: rayon::ThreadPool,
     genesis_height: BlockHeight,
     config: BackfillReceiptToTxConfig,
@@ -38,15 +34,13 @@ pub struct BackfillReceiptToTxActor {
 
 impl BackfillReceiptToTxActor {
     pub fn new(
-        read_store: Store,
-        write_store: Store,
-        checkpoint_store: Store,
+        storage: BackfillStorage,
         save_trie_changes: bool,
         genesis: &ChainGenesis,
         config: BackfillReceiptToTxConfig,
     ) -> Self {
         let chain_store = ChainStore::new(
-            read_store.clone(),
+            storage.read_store.clone(),
             save_trie_changes,
             genesis.transaction_validity_period,
         );
@@ -55,16 +49,7 @@ impl BackfillReceiptToTxActor {
             .num_threads(config.num_threads)
             .build()
             .expect("failed to build rayon thread pool");
-        Self {
-            chain_store,
-            read_store,
-            write_store,
-            checkpoint_store,
-            pool,
-            genesis_height,
-            config,
-            initial_height: None,
-        }
+        Self { chain_store, storage, pool, genesis_height, config, initial_height: None }
     }
 
     fn backfill_loop(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
@@ -103,12 +88,41 @@ impl BackfillReceiptToTxActor {
         let batch_start = Instant::now();
 
         let checkpoint: Option<BlockHeight> =
-            self.checkpoint_store.get_ser(DBCol::Misc, BACKFILL_CHECKPOINT_KEY_LOW);
+            self.storage.checkpoint_store.get_ser(DBCol::Misc, BACKFILL_CHECKPOINT_KEY_LOW);
 
         // If checkpoint exists and is at or below genesis, we're done.
         if let Some(cp) = checkpoint {
             if cp <= self.genesis_height {
                 return Ok(true);
+            }
+        }
+
+        // On the first batch, validate `config.start_height` before using it. The checks
+        // only matter once — after the first batch writes a checkpoint, `start_height` is
+        // irrelevant forever (the resume logic uses the checkpoint instead).
+        let first_call = self.initial_height.is_none();
+        if first_call {
+            if let Some(start_height) = self.config.start_height {
+                if let Some(cp) = checkpoint {
+                    tracing::warn!(
+                        start_height,
+                        checkpoint = cp,
+                        "backfill_receipt_to_tx: start_height is ignored because a checkpoint already exists",
+                    );
+                } else {
+                    let head = self.chain_store.head().context("failed to get chain head")?.height;
+                    if start_height > head {
+                        return Err(anyhow!(
+                            "backfill_receipt_to_tx: start_height {start_height} exceeds chain head {head}"
+                        ));
+                    }
+                    if start_height < self.genesis_height {
+                        return Err(anyhow!(
+                            "backfill_receipt_to_tx: start_height {start_height} is below genesis {}",
+                            self.genesis_height
+                        ));
+                    }
+                }
             }
         }
 
@@ -135,40 +149,15 @@ impl BackfillReceiptToTxActor {
             .saturating_sub(self.config.batch_size.saturating_sub(1))
             .max(self.genesis_height);
 
-        let mut stats =
-            BackfillStats { blocks_processed: 0, entries_written: 0, heights_skipped: 0 };
-
-        // Parallel reads, sequential writes (same pattern as CLI tool).
-        let results: Vec<_> = self.pool.install(|| {
-            (batch_end..=current_height)
-                .into_par_iter()
-                .map(|h| process_height(&self.chain_store, &self.read_store, h))
-                .collect()
-        });
-
-        let mut entry_update = self.write_store.store_update();
-        for result in results.into_iter().rev() {
-            match result {
-                Ok(Some(entries)) => {
-                    for (receipt_id, info) in entries {
-                        entry_update.insert_ser(DBCol::ReceiptToTx, receipt_id.as_ref(), &info);
-                        stats.entries_written += 1;
-                    }
-                    stats.blocks_processed += 1;
-                }
-                Ok(None) => {
-                    stats.heights_skipped += 1;
-                }
-                Err(e) => return Err(e),
-            }
-        }
-        entry_update.commit();
-
-        // Checkpoint after entries are persisted. Non-atomic with entries, but safe:
-        // crash between the two replays work (insert-only column, idempotent).
-        let mut cp_update = self.checkpoint_store.store_update();
-        cp_update.set_ser(DBCol::Misc, BACKFILL_CHECKPOINT_KEY_LOW, &batch_end);
-        cp_update.commit();
+        // Descending order so recent receipts become queryable first.
+        let heights: Vec<BlockHeight> = (batch_end..=current_height).rev().collect();
+        let stats = process_one_batch(
+            &self.chain_store,
+            &self.storage,
+            &self.pool,
+            &heights,
+            Some((BACKFILL_CHECKPOINT_KEY_LOW, batch_end)),
+        )?;
 
         let batch_duration = batch_start.elapsed();
         if stats.blocks_processed > 0 || stats.heights_skipped > 0 {
@@ -178,21 +167,45 @@ impl BackfillReceiptToTxActor {
                 self.initial_height.unwrap_or(current_height).saturating_sub(self.genesis_height);
             let progress_pct =
                 if total > 0 { ((total - remaining) * 100 / total) as u32 } else { 100 };
-            tracing::info!(
-                from_height = current_height,
-                to_height = batch_end,
-                blocks_processed = stats.blocks_processed,
-                entries_written = stats.entries_written,
-                batch_duration_ms = batch_duration.as_millis() as u64,
-                heights_per_second = if batch_duration.as_secs_f64() > 0.0 {
-                    (heights_in_batch as f64 / batch_duration.as_secs_f64()) as u64
-                } else {
-                    0
-                },
-                remaining_heights = remaining,
-                progress_pct,
-                "receipt-to-tx backfill progress"
-            );
+            // Data-quality check: if >5% of the data we expected to backfill came back
+            // as "missing upstream", escalate to WARN so operators notice. Otherwise INFO.
+            let missing_total = stats.missing_total();
+            let denominator = stats.entries_written + missing_total;
+            let missing_is_significant = denominator > 0 && missing_total * 20 > denominator; // >5%
+            if missing_is_significant {
+                tracing::warn!(
+                    from_height = current_height,
+                    to_height = batch_end,
+                    blocks_processed = stats.blocks_processed,
+                    entries_written = stats.entries_written,
+                    missing_outcomes = stats.missing_outcomes,
+                    missing_child_receipts = stats.missing_child_receipts,
+                    missing_parent_receipts = stats.missing_parent_receipts,
+                    batch_duration_ms = batch_duration.as_millis() as u64,
+                    remaining_heights = remaining,
+                    progress_pct,
+                    "receipt-to-tx backfill progress: >5% of expected entries were missing upstream data"
+                );
+            } else {
+                tracing::info!(
+                    from_height = current_height,
+                    to_height = batch_end,
+                    blocks_processed = stats.blocks_processed,
+                    entries_written = stats.entries_written,
+                    missing_outcomes = stats.missing_outcomes,
+                    missing_child_receipts = stats.missing_child_receipts,
+                    missing_parent_receipts = stats.missing_parent_receipts,
+                    batch_duration_ms = batch_duration.as_millis() as u64,
+                    heights_per_second = if batch_duration.as_secs_f64() > 0.0 {
+                        (heights_in_batch as f64 / batch_duration.as_secs_f64()) as u64
+                    } else {
+                        0
+                    },
+                    remaining_heights = remaining,
+                    progress_pct,
+                    "receipt-to-tx backfill progress"
+                );
+            }
         }
 
         Ok(batch_end <= self.genesis_height)

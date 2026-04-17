@@ -3,13 +3,14 @@ use clap::Parser;
 use indicatif::ProgressBar;
 use indicatif::ProgressStyle;
 use near_chain::ChainStore;
-use near_chain::backfill_receipt_to_tx::{BACKFILL_CHECKPOINT_KEY, BackfillStats, process_height};
+use near_chain::backfill_receipt_to_tx::{
+    BACKFILL_CHECKPOINT_KEY, BackfillStats, BackfillStorage, process_one_batch,
+};
 use near_chain_configs::GenesisValidationMode;
 use near_o11y::tracing;
 use near_primitives::types::BlockHeight;
-use near_store::{DBCol, Store};
+use near_store::DBCol;
 use nearcore::open_storage;
-use rayon::prelude::*;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -52,12 +53,10 @@ impl BackfillReceiptToTxCommand {
             .context("failed to load config")?;
         let node_storage = open_storage(home, &near_config).context("failed to open storage")?;
 
-        let hot_store = node_storage.get_hot_store();
-        let read_store = node_storage.get_split_store().unwrap_or_else(|| hot_store.clone());
-        let write_store = node_storage.get_cold_store().unwrap_or_else(|| hot_store.clone());
+        let storage = BackfillStorage::for_node(&node_storage);
 
         let chain_store = ChainStore::new(
-            read_store.clone(),
+            storage.read_store.clone(),
             near_config.client_config.save_trie_changes,
             near_config.genesis.config.transaction_validity_period,
         );
@@ -67,7 +66,8 @@ impl BackfillReceiptToTxCommand {
 
         let from_height = match self.from_block_height {
             Some(h) => h,
-            None => hot_store
+            None => storage
+                .checkpoint_store
                 .get_ser::<BlockHeight>(DBCol::Misc, BACKFILL_CHECKPOINT_KEY)
                 .map(|h| h + 1)
                 .unwrap_or(genesis_height),
@@ -104,9 +104,7 @@ impl BackfillReceiptToTxCommand {
         };
         let stats = backfill_receipt_to_tx(
             &chain_store,
-            &read_store,
-            &write_store,
-            &hot_store,
+            &storage,
             from_height,
             to_height,
             &options,
@@ -130,24 +128,19 @@ impl BackfillReceiptToTxCommand {
 
 /// Core backfill logic. Extracted as a standalone function for testability.
 ///
-/// Processes heights in parallel chunks using rayon to hide HDD seek latency.
-/// Reads are parallelized across `num_threads`, while writes are sequential
-/// in height order to maintain deterministic checkpoint behavior.
-///
-/// When `use_checkpoint` is true, the checkpoint is stored in `DBCol::Misc`
-/// after entries are committed. The two writes are non-atomic, but safe:
-/// on crash between them, the batch is replayed (insert-only column, idempotent).
+/// Uses [`process_one_batch`] to drive parallel reads / sequential writes per chunk, so
+/// the per-batch semantics match the background actor exactly. The CLI runs ascending
+/// (genesis → head) and records the highest completed height under
+/// [`BACKFILL_CHECKPOINT_KEY`] when `options.use_checkpoint` is set.
 pub fn backfill_receipt_to_tx(
     chain_store: &ChainStore,
-    read_store: &Store,
-    write_store: &Store,
-    checkpoint_store: &Store,
+    storage: &BackfillStorage,
     from_height: BlockHeight,
     to_height: BlockHeight,
     options: &BackfillOptions,
     progress: Option<&ProgressBar>,
 ) -> anyhow::Result<BackfillStats> {
-    let mut stats = BackfillStats { blocks_processed: 0, entries_written: 0, heights_skipped: 0 };
+    let mut stats = BackfillStats::default();
 
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(options.num_threads)
@@ -161,42 +154,13 @@ pub fn backfill_receipt_to_tx(
         let chunk_end = (height + batch_size - 1).min(to_height);
         let blocks_before = stats.blocks_processed;
 
-        // Parallel reads
-        let results: Vec<_> = pool.install(|| {
-            (height..=chunk_end)
-                .into_par_iter()
-                .map(|h| process_height(chain_store, read_store, h))
-                .collect()
-        });
+        let heights: Vec<BlockHeight> = (height..=chunk_end).collect();
+        let checkpoint = options.use_checkpoint.then_some((BACKFILL_CHECKPOINT_KEY, chunk_end));
+        let batch_stats = process_one_batch(chain_store, storage, &pool, &heights, checkpoint)?;
+        stats.add(&batch_stats);
 
-        // Sequential writes in height order (par_iter preserves input order)
-        let mut entry_update = write_store.store_update();
-        for result in results {
-            match result {
-                Ok(Some(entries)) => {
-                    for (receipt_id, info) in entries {
-                        entry_update.insert_ser(DBCol::ReceiptToTx, receipt_id.as_ref(), &info);
-                        stats.entries_written += 1;
-                    }
-                    stats.blocks_processed += 1;
-                }
-                Ok(None) => {
-                    stats.heights_skipped += 1;
-                }
-                Err(e) => return Err(e),
-            }
-            if let Some(p) = progress {
-                p.inc(1);
-            }
-        }
-        entry_update.commit();
-
-        // Checkpoint after entries are persisted. Non-atomic with entries, but safe:
-        // crash between the two replays work (insert-only column, idempotent).
-        if options.use_checkpoint {
-            let mut cp_update = checkpoint_store.store_update();
-            cp_update.set_ser(DBCol::Misc, BACKFILL_CHECKPOINT_KEY, &chunk_end);
-            cp_update.commit();
+        if let Some(p) = progress {
+            p.inc(heights.len() as u64);
         }
 
         if stats.blocks_processed / 10_000 > blocks_before / 10_000 {
@@ -204,6 +168,9 @@ pub fn backfill_receipt_to_tx(
                 height = chunk_end,
                 blocks_processed = stats.blocks_processed,
                 entries_written = stats.entries_written,
+                missing_outcomes = stats.missing_outcomes,
+                missing_child_receipts = stats.missing_child_receipts,
+                missing_parent_receipts = stats.missing_parent_receipts,
                 "backfill progress"
             );
         }
