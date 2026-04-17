@@ -222,7 +222,7 @@ fn test_spice_epoch_gated_by_certification() {
         .delay_warmup()
         .build();
     let execution_delay = 2 * epoch_length;
-    let delay = delay_endorsements_propagation(&mut env, execution_delay);
+    env.delay_endorsements_propagation(execution_delay);
     env = env.warmup();
 
     // With the delay active, verify the consensus chain can still produce many
@@ -251,7 +251,7 @@ fn test_spice_epoch_gated_by_certification() {
     );
 
     // Lift the delay and wrap up the current epoch. The chain should go back to transitioning epochs normally.
-    delay.set(0);
+    env.delay_endorsements_propagation(0);
     env.node_runner(0).run_until_new_epoch();
     let current_epoch_id = env.node(0).client().chain.head().unwrap().epoch_id;
     env.node_runner(0).run_for_number_of_blocks(epoch_length as usize);

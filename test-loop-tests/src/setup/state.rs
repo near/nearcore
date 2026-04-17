@@ -66,6 +66,10 @@ pub struct SharedState {
     pub load_memtries_for_tracked_shards: bool,
     /// Flag to indicate if warmup is pending. This is used to ensure that warmup is only done once.
     pub warmup_pending: Arc<AtomicBool>,
+    /// True once [`TestLoopEnv::delay_endorsements_propagation`] has installed
+    /// its per-node network handlers, so subsequent calls only update the
+    /// shared delay value instead of stacking another handler chain.
+    pub endorsement_delay_handlers_installed: Arc<AtomicBool>,
 }
 
 /// This is the state associated with each node in the test loop environment before being built.
@@ -118,6 +122,12 @@ impl NodeExecutionData {
 
     pub fn set_expected_execution_delay(&self, delay: u64) {
         self.expected_execution_delay.store(delay, Ordering::Relaxed);
+    }
+
+    /// Returns a clone of the shared atomic backing `expected_execution_delay`,
+    /// so a test helper can update the node's view in lockstep with its own state.
+    pub fn expected_execution_delay_handle(&self) -> Arc<AtomicU64> {
+        self.expected_execution_delay.clone()
     }
 
     pub fn jsonrpc_client(&self) -> JsonRpcClient {

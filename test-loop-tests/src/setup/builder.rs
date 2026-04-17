@@ -474,6 +474,7 @@ impl TestLoopBuilder {
             drop_conditions: Default::default(),
             load_memtries_for_tracked_shards: self.load_memtries_for_tracked_shards,
             warmup_pending,
+            endorsement_delay_handlers_installed: Arc::new(AtomicBool::new(false)),
         };
         (self.test_loop, shared_state)
     }

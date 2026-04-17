@@ -208,6 +208,18 @@ impl TestLoopEnv {
         NodeRunner { test_loop: &mut self.test_loop, node_data: &self.node_datas[idx] }
     }
 
+    /// Set `expected_execution_delay` on every node in the environment.
+    ///
+    /// Used by spice helpers (see `delay_endorsements_propagation`) to
+    /// parameterize both the per-node run_until_executed_height timeouts and
+    /// the network-level endorsement delay handler, so both stay in sync when
+    /// the delay is adjusted mid-test.
+    pub fn set_execution_delay(&self, delay: u64) {
+        for node in &self.node_datas {
+            node.set_expected_execution_delay(delay);
+        }
+    }
+
     pub fn runner_for_account(&mut self, account_id: &AccountId) -> NodeRunner<'_> {
         let idx = self.account_data_idx(account_id);
         self.node_runner(idx)
