@@ -3385,11 +3385,15 @@ mod test {
     #[test]
     fn test_orphan_chunk_request_graceful_degradation() {
         // When requesting chunks for orphans, prev_block_hash (from the chunk header) is unknown
-        // to the epoch manager because the parent block hasn't been processed yet. The code should
-        // gracefully degrade:
-        // - should_wait_for_chunk_forwarding: returns false when chunk producer DB lookup fails
-        // - request_partial_encoded_chunk: falls back to random target when chunk producer is unknown
-        // - resend_chunk_requests: also works with the stored unknown prev_block_hash
+        // to the epoch manager because the parent block hasn't been processed yet. Verify the
+        // orphan path executes without panics and still emits network requests:
+        // - request_partial_encoded_chunk: get_chunk_producer_info_db returns MissingBlock, so
+        //   chunk_producer_account_id is None. Target selection bypasses it anyway because
+        //   old_block = true forces request_own_parts_from_others = true, picking a random
+        //   shard tracker.
+        // - should_wait_for_chunk_forwarding: uses CPK-based lookup at height_created + 1 and
+        //   returns Ok(false) because `me` isn't the next chunk producer.
+        // - resend_chunk_requests: re-exercises the same path with the stored prev_block_hash.
         let mut fixture = ChunkTestFixture::new(true, 3, 6, 6, true);
         let clock = FakeClock::default();
         let mut shards_manager = ShardsManagerActor::new(
@@ -3415,15 +3419,15 @@ mod test {
             "orphan fixture should have different prev_block_hash and ancestor_hash"
         );
 
-        // Verify should_wait_for_chunk_forwarding gracefully degrades when the chunk
-        // producer DB lookup fails. Use a chunk-only producer as `me` so the block
-        // producer check doesn't short-circuit before reaching the DB lookup.
+        // Verify should_wait_for_chunk_forwarding returns Ok(false) when `me` isn't the
+        // next chunk producer. Use a chunk-only producer as `me` so the block-producer
+        // short-circuit doesn't fire, and the next-chunk-producer CPK lookup is exercised.
         let chunk_only_producer: AccountId = "test_cp_0".parse().unwrap();
         let epoch_id = EpochId::default();
         let bps = fixture.epoch_manager.get_epoch_block_producers_ordered(&epoch_id).unwrap();
         assert!(
             !bps.iter().any(|bp| bp.account_id() == &chunk_only_producer),
-            "test_cp_0 must not be a block producer for this test to exercise the DB lookup path"
+            "test_cp_0 must not be a block producer for this test to exercise the next-producer lookup path"
         );
         let result = shards_manager.should_wait_for_chunk_forwarding(
             &ancestor_hash,
@@ -3434,7 +3438,7 @@ mod test {
         assert_eq!(
             result,
             Ok(false),
-            "should return false when chunk producer DB lookup fails for unknown prev_block_hash"
+            "should return false when `me` isn't the next chunk producer"
         );
 
         // Process a partial chunk first to insert the header into the cache. Without this,
@@ -3449,8 +3453,8 @@ mod test {
         assert_matches!(result, ProcessPartialEncodedChunkResult::NeedBlock);
 
         // Request chunks for orphan — exercises request_partial_encoded_chunk with unknown
-        // prev_block_hash. The function should fall back to a random shard-tracking target
-        // instead of the chunk producer.
+        // prev_block_hash. chunk_producer_account_id is None (MissingBlock), and the
+        // old_block = true path picks a random shard-tracking target.
         shards_manager.request_chunks_for_orphan(
             vec![fixture.mock_chunk_header.clone()],
             &EpochId::default(),
