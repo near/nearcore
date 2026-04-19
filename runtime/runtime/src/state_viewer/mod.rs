@@ -22,6 +22,7 @@ use near_primitives::trie_key::trie_key_parsers::{
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, Nonce, ShardId,
 };
+use near_primitives::version::assert_supported_protocol_version;
 use near_primitives::views::{StateItem, ViewStateResult};
 use near_primitives_core::config::ViewConfig;
 use near_store::trie::AccessOptions;
@@ -97,6 +98,7 @@ impl TrieViewer {
         current_protocol_version: ProtocolVersion,
         chain_id: &str,
     ) -> Result<ContractCode, errors::ViewContractCodeError> {
+        assert_supported_protocol_version(current_protocol_version);
         let account = self.view_account(state_update, account_id)?;
         let wasm_config =
             &self.runtime_config_store.get_config(current_protocol_version).wasm_config;
@@ -271,6 +273,7 @@ impl TrieViewer {
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<Vec<u8>, errors::CallFunctionError> {
+        assert_supported_protocol_version(view_state.current_protocol_version);
         let now = Instant::now();
         let root = *state_update.get_root();
         let account = get_account(&state_update, contract_id)?.ok_or_else(|| {
