@@ -44,6 +44,9 @@ pub struct ActionReceiptMetadata {
     pub actions: Vec<Action>,
     /// Indicates whether the receipt should have type Action or PromiseYield
     pub is_promise_yield: bool,
+    /// Custom yield timeout in blocks. `None` means use the global config value.
+    /// Set by `promise_yield_create2`.
+    pub yield_timeout_blocks: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -130,6 +133,7 @@ impl ReceiptManager {
             input_data_ids,
             actions: vec![],
             is_promise_yield: false,
+            yield_timeout_blocks: None,
         };
         let new_receipt_index = self.action_receipts.len() as ReceiptIndex;
         self.action_receipts.push(new_receipt);
@@ -150,6 +154,28 @@ impl ReceiptManager {
         input_data_id: CryptoHash,
         receiver_id: AccountId,
     ) -> ReceiptIndex {
+        self.create_promise_yield_receipt_inner(input_data_id, receiver_id, None)
+    }
+
+    pub(super) fn create_promise_yield_receipt2(
+        &mut self,
+        input_data_id: CryptoHash,
+        receiver_id: AccountId,
+        yield_timeout_blocks: u64,
+    ) -> ReceiptIndex {
+        self.create_promise_yield_receipt_inner(
+            input_data_id,
+            receiver_id,
+            Some(yield_timeout_blocks),
+        )
+    }
+
+    fn create_promise_yield_receipt_inner(
+        &mut self,
+        input_data_id: CryptoHash,
+        receiver_id: AccountId,
+        yield_timeout_blocks: Option<u64>,
+    ) -> ReceiptIndex {
         let new_receipt = ActionReceiptMetadata {
             receiver_id,
             refund_to: None,
@@ -157,6 +183,7 @@ impl ReceiptManager {
             input_data_ids: vec![input_data_id],
             actions: vec![],
             is_promise_yield: true,
+            yield_timeout_blocks,
         };
         let new_receipt_index = self.action_receipts.len();
         self.action_receipts.push(new_receipt);

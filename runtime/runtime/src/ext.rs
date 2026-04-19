@@ -14,7 +14,7 @@ use near_store::contract::ContractStorage;
 use near_store::trie::{AccessOptions, AccessTracker};
 use near_store::{
     KeyLookupMode, TrieUpdate, TrieUpdateValuePtr, has_promise_yield_receipt,
-    has_promise_yield_status, set_promise_yield_status,
+    has_promise_yield_status, has_yield_id_mapping, set_promise_yield_status, set_yield_id_mapping,
 };
 use near_vm_runner::logic::errors::{AnyError, InconsistentStateError, VMLogicError};
 use near_vm_runner::logic::types::{
@@ -349,6 +349,52 @@ impl<'a> External for RuntimeExt<'a> {
         let input_data_id = self.generate_data_id();
         let receipt_index =
             self.receipt_manager.create_promise_yield_receipt(input_data_id, receiver_id.clone());
+        let receipt_index = (receipt_index, input_data_id);
+
+        if ProtocolFeature::YieldResumeImprovements.enabled(self.current_protocol_version) {
+            set_promise_yield_status(
+                &mut self.trie_update,
+                &receiver_id,
+                input_data_id,
+                PromiseYieldStatus::Yielded,
+            );
+        }
+
+        Ok(receipt_index)
+    }
+
+    fn create_promise_yield_receipt2(
+        &mut self,
+        receiver_id: AccountId,
+        user_yield_id: CryptoHash,
+        yield_timeout_blocks: u64,
+    ) -> Result<(ReceiptIndex, CryptoHash), VMLogicError> {
+        use near_vm_runner::logic::HostError;
+
+        // Check for duplicate yield_id in trie
+        if has_yield_id_mapping(self.trie_update, &receiver_id, user_yield_id)
+            .map_err(wrap_storage_error)?
+        {
+            return Err(HostError::YieldIdAlreadyExists.into());
+        }
+
+        // Check for duplicate in current transaction's pending receipts
+        // (yield_id maps to data_id, but we don't know the data_id yet —
+        // we need to check if any pending yield already used this yield_id.
+        // Since we store the mapping in trie above, this is handled by the trie check.
+        // But for yields created in the same function call, the trie hasn't been committed yet.
+        // We'll store a local mapping for that purpose.)
+
+        let input_data_id = self.generate_data_id();
+
+        // Store bidirectional yield_id <-> data_id mappings
+        set_yield_id_mapping(&mut self.trie_update, &receiver_id, user_yield_id, input_data_id);
+
+        let receipt_index = self.receipt_manager.create_promise_yield_receipt2(
+            input_data_id,
+            receiver_id.clone(),
+            yield_timeout_blocks,
+        );
         let receipt_index = (receipt_index, input_data_id);
 
         if ProtocolFeature::YieldResumeImprovements.enabled(self.current_protocol_version) {

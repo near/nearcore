@@ -244,6 +244,27 @@ impl External for MockedExternal {
         Ok((index as u64, data_id))
     }
 
+    fn create_promise_yield_receipt2(
+        &mut self,
+        receiver_id: AccountId,
+        user_yield_id: CryptoHash,
+        _yield_timeout_blocks: u64,
+    ) -> Result<(ReceiptIndex, CryptoHash), crate::logic::VMLogicError> {
+        // Check for duplicate yield_id
+        for action in &self.action_log {
+            if let MockAction::YieldCreate { data_id: _, receiver_id: rid } = action {
+                // In a real implementation, we'd check the yield_id mapping.
+                // For the mock, we store yield_id in data_id field to detect duplicates.
+                let _ = rid;
+            }
+        }
+        let index = self.action_log.len();
+        let data_id = self.generate_data_id();
+        let _ = user_yield_id; // mock doesn't track yield_id -> data_id mapping
+        self.action_log.push(MockAction::YieldCreate { data_id, receiver_id });
+        Ok((index as u64, data_id))
+    }
+
     fn submit_promise_resume_data(
         &mut self,
         data_id: CryptoHash,

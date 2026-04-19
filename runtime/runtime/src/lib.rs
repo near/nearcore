@@ -74,10 +74,10 @@ use near_store::trie::update::TrieUpdateResult;
 use near_store::{
     PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get, get_access_key,
     get_account, get_gas_key_nonce, get_postponed_receipt, get_promise_yield_receipt,
-    get_promise_yield_status, get_pure, get_received_data, has_received_data,
-    remove_postponed_receipt, remove_promise_yield_receipt, remove_promise_yield_status, set,
-    set_access_key, set_account, set_gas_key_nonce, set_postponed_receipt,
-    set_promise_yield_receipt, set_received_data,
+    get_promise_yield_status, get_pure, get_received_data, get_yield_id_for_data_id,
+    has_received_data, remove_postponed_receipt, remove_promise_yield_receipt,
+    remove_promise_yield_status, remove_yield_id_mappings, set, set_access_key, set_account,
+    set_gas_key_nonce, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
@@ -1274,6 +1274,22 @@ impl Runtime {
                     {
                         // Clear the PromiseYield status
                         remove_promise_yield_status(state_update, account_id, data_receipt.data_id);
+                    }
+
+                    // Clean up yield_id <-> data_id mappings if this was created by yield_create2
+                    if ProtocolFeature::YieldCreate2.enabled(apply_state.current_protocol_version) {
+                        if let Some(yield_id) = get_yield_id_for_data_id(
+                            state_update,
+                            account_id,
+                            data_receipt.data_id,
+                        )? {
+                            remove_yield_id_mappings(
+                                state_update,
+                                account_id,
+                                yield_id,
+                                data_receipt.data_id,
+                            );
+                        }
                     }
 
                     // Save the data into the state keyed by the data_id

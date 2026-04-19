@@ -297,6 +297,23 @@ pub trait External {
         receiver_id: AccountId,
     ) -> Result<(ReceiptIndex, CryptoHash), VMLogicError>;
 
+    /// Create a PromiseYield action receipt with a user-provided yield ID.
+    ///
+    /// Returns the ReceiptIndex of the newly created receipt and the runtime-generated data_id.
+    /// The yield_id -> data_id mapping is stored in the trie for duplicate detection.
+    ///
+    /// # Arguments
+    ///
+    /// * `receiver_id` - account id of the receiver of the receipt created
+    /// * `user_yield_id` - user-provided 32-byte yield identifier
+    /// * `yield_timeout_blocks` - number of blocks before the yield times out
+    fn create_promise_yield_receipt2(
+        &mut self,
+        receiver_id: AccountId,
+        user_yield_id: CryptoHash,
+        yield_timeout_blocks: u64,
+    ) -> Result<(ReceiptIndex, CryptoHash), VMLogicError>;
+
     /// Creates a receipt under the specified `data_id` containing given `data`.
     ///
     /// This function shall return `Ok(true)` if the data dependency of the yield receipt has been

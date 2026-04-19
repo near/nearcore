@@ -70,10 +70,14 @@ pub mod col {
     pub const GLOBAL_CONTRACT_NONCE: u8 = 19;
     /// Status of a yielded receipt. Values are of type `PromiseYieldStatus`.
     pub const PROMISE_YIELD_STATUS: u8 = 20;
+    /// Mapping from user-provided yield ID to runtime data ID.
+    pub const YIELD_ID_TO_DATA_ID: u8 = 22;
+    /// Reverse mapping from runtime data ID to user-provided yield ID.
+    pub const DATA_ID_TO_YIELD_ID: u8 = 23;
 
     /// All columns except those used for the delayed receipts queue, the yielded promises
     /// queue, and the outgoing receipts buffer, which are global state for the shard.
-    pub const COLUMNS_WITH_ACCOUNT_ID_IN_KEY: [(u8, &str); 10] = [
+    pub const COLUMNS_WITH_ACCOUNT_ID_IN_KEY: [(u8, &str); 12] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -84,9 +88,11 @@ pub mod col {
         (CONTRACT_DATA, "ContractData"),
         (PROMISE_YIELD_RECEIPT, "PromiseYieldReceipt"),
         (PROMISE_YIELD_STATUS, "PromiseYieldStatus"),
+        (YIELD_ID_TO_DATA_ID, "YieldIdToDataId"),
+        (DATA_ID_TO_YIELD_ID, "DataIdToYieldId"),
     ];
 
-    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 20] = [
+    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 22] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -107,6 +113,8 @@ pub mod col {
         (GLOBAL_CONTRACT_CODE, "GlobalContractCode"),
         (GLOBAL_CONTRACT_NONCE, "GlobalContractNonce"),
         (PROMISE_YIELD_STATUS, "PromiseYieldStatus"),
+        (YIELD_ID_TO_DATA_ID, "YieldIdToDataId"),
+        (DATA_ID_TO_YIELD_ID, "DataIdToYieldId"),
     ];
 }
 
@@ -256,6 +264,18 @@ pub enum TrieKey {
         receiver_id: AccountId,
         data_id: CryptoHash,
     } = col::PROMISE_YIELD_STATUS,
+    /// Mapping from user-provided yield ID to runtime-generated data ID.
+    /// Used by `promise_yield_create2` for duplicate detection.
+    YieldIdToDataId {
+        receiver_id: AccountId,
+        yield_id: CryptoHash,
+    } = col::YIELD_ID_TO_DATA_ID,
+    /// Reverse mapping from runtime-generated data ID to user-provided yield ID.
+    /// Used to clean up `YieldIdToDataId` when a yield is resumed or times out.
+    DataIdToYieldId {
+        receiver_id: AccountId,
+        data_id: CryptoHash,
+    } = col::DATA_ID_TO_YIELD_ID,
     /// Represents a single nonce for a gas key. Stored under `col::ACCESS_KEY`
     /// with a special key format: If an access key is used as a gas key, the
     /// keys used to store its nonces extend the access key trie key with a
@@ -368,6 +388,18 @@ impl TrieKey {
             }
             TrieKey::PromiseYieldStatus { receiver_id, data_id } => {
                 col::PROMISE_YIELD_STATUS.len()
+                    + receiver_id.len()
+                    + ACCOUNT_DATA_SEPARATOR.len()
+                    + data_id.as_ref().len()
+            }
+            TrieKey::YieldIdToDataId { receiver_id, yield_id } => {
+                col::YIELD_ID_TO_DATA_ID.len()
+                    + receiver_id.len()
+                    + ACCOUNT_DATA_SEPARATOR.len()
+                    + yield_id.as_ref().len()
+            }
+            TrieKey::DataIdToYieldId { receiver_id, data_id } => {
+                col::DATA_ID_TO_YIELD_ID.len()
                     + receiver_id.len()
                     + ACCOUNT_DATA_SEPARATOR.len()
                     + data_id.as_ref().len()
@@ -486,6 +518,18 @@ impl TrieKey {
                 buf.push(ACCOUNT_DATA_SEPARATOR);
                 buf.extend(data_id.as_ref());
             }
+            TrieKey::YieldIdToDataId { receiver_id, yield_id } => {
+                buf.push(col::YIELD_ID_TO_DATA_ID);
+                buf.extend(receiver_id.as_bytes());
+                buf.push(ACCOUNT_DATA_SEPARATOR);
+                buf.extend(yield_id.as_ref());
+            }
+            TrieKey::DataIdToYieldId { receiver_id, data_id } => {
+                buf.push(col::DATA_ID_TO_YIELD_ID);
+                buf.extend(receiver_id.as_bytes());
+                buf.push(ACCOUNT_DATA_SEPARATOR);
+                buf.extend(data_id.as_ref());
+            }
         };
         debug_assert_eq!(expected_len, buf.len() - start_len);
     }
@@ -523,6 +567,8 @@ impl TrieKey {
             TrieKey::GlobalContractCode { .. } => None,
             TrieKey::GlobalContractNonce { .. } => None,
             TrieKey::PromiseYieldStatus { receiver_id, .. } => Some(receiver_id.clone()),
+            TrieKey::YieldIdToDataId { receiver_id, .. } => Some(receiver_id.clone()),
+            TrieKey::DataIdToYieldId { receiver_id, .. } => Some(receiver_id.clone()),
         }
     }
 }

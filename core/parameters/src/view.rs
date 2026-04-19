@@ -238,6 +238,8 @@ pub struct VMConfigView {
     pub one_yocto_on_promise: bool,
     /// See [VMConfig::p256_verify_host_fn](crate::vm::Config::p256_verify_host_fn).
     pub p256_verify_host_fn: bool,
+    /// See [VMConfig::yield_create2_host_fns](crate::vm::Config::yield_create2_host_fns).
+    pub yield_create2_host_fns: bool,
 
     /// See [VMConfig::storage_get_mode](crate::vm::Config::storage_get_mode).
     pub storage_get_mode: crate::vm::StorageGetMode,
@@ -279,6 +281,7 @@ impl From<crate::vm::Config> for VMConfigView {
             gas_key_host_fns: config.gas_key_host_fns,
             one_yocto_on_promise: config.one_yocto_on_promise,
             p256_verify_host_fn: config.p256_verify_host_fn,
+            yield_create2_host_fns: config.yield_create2_host_fns,
         }
     }
 }
@@ -304,6 +307,7 @@ impl From<VMConfigView> for crate::vm::Config {
             gas_key_host_fns: view.gas_key_host_fns,
             one_yocto_on_promise: view.one_yocto_on_promise,
             p256_verify_host_fn: view.p256_verify_host_fn,
+            yield_create2_host_fns: view.yield_create2_host_fns,
         }
     }
 }
