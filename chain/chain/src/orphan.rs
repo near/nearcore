@@ -149,9 +149,14 @@ impl OrphanBlockPool {
                     break;
                 }
             }
-            self.height_idx.retain(|_, ref mut xs| xs.iter().any(|x| !removed_hashes.contains(x)));
-            self.prev_hash_idx
-                .retain(|_, ref mut xs| xs.iter().any(|x| !removed_hashes.contains(x)));
+            self.height_idx.retain(|_, xs| {
+                xs.retain(|x| !removed_hashes.contains(x));
+                !xs.is_empty()
+            });
+            self.prev_hash_idx.retain(|_, xs| {
+                xs.retain(|x| !removed_hashes.contains(x));
+                !xs.is_empty()
+            });
             self.orphans_requested_missing_chunks.retain(|x| !removed_hashes.contains(x));
 
             self.evicted += old_len - self.orphans.len();
@@ -393,7 +398,10 @@ impl Chain {
         let orphans_to_check =
             self.orphans.get_orphans_within_depth(prev_hash, NUM_ORPHAN_ANCESTORS_CHECK);
         for orphan_hash in orphans_to_check {
-            let orphan = self.orphans.get(&orphan_hash).unwrap().block.clone();
+            let Some(orphan) = self.orphans.get(&orphan_hash) else {
+                continue;
+            };
+            let orphan = orphan.block.clone();
             if let Some(orphan_missing_chunks) = self.should_request_chunks_for_orphan(&orphan) {
                 block_processing_artifacts.orphans_missing_chunks.push(orphan_missing_chunks);
                 self.orphans.mark_missing_chunks_requested_for_orphan(orphan_hash);
