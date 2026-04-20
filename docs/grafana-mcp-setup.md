@@ -12,19 +12,26 @@ Claude will run through the steps below, verify each one, and stop with a clear 
 
 ## Prerequisites (do these yourself — Claude cannot)
 
-### 1. Get a Grafana service account token from the SRE team
+### 1. Get a Grafana service account token
 
-Most people do not have Grafana admin access, so you'll need to ask the SRE team to set this up. **Do not reuse someone else's token** — each person gets their own so audit trails stay clean and rotation stays independent.
-
-Here's a message you can send:
-
-> Hi! Could I get a personal Grafana service account on `grafana.nearone.org` with the **Viewer** role, plus a **service account token** (the `glsa_...` kind) for it? I'd like to connect Claude Code to Grafana via the `mcp-grafana` server for read-only investigations. Thanks!
-
-The token you receive should start with `glsa_` — that's the format `mcp-grafana` authenticates with.
+You can obtain the grafana service account token from 1Password. It's stored as
+`Grafana MCP Token`. If the token is missing or doesn't work please reach out to
+the SRE team for support.
 
 ### 2. Save the token to a local file
 
-Run this in your own terminal (not in Claude Code's prompt). The `-s` flag suppresses echo so the token never lands in tool output or shell history:
+Do this in your own terminal (not in Claude Code's prompt). Either use an editor, or a one-liner with `read -rsp` — both avoid leaking the token to shell history.
+
+**Editor:**
+
+```bash
+mkdir -p ~/.config/grafana
+vim -n ~/.config/grafana/nearone-token   # -n disables swap files so the token doesn't linger on disk
+# paste the token, save and quit
+chmod 600 ~/.config/grafana/nearone-token
+```
+
+**One-liner:**
 
 ```bash
 mkdir -p ~/.config/grafana && \
@@ -33,10 +40,6 @@ mkdir -p ~/.config/grafana && \
   printf '%s' "$TOK" > ~/.config/grafana/nearone-token && \
   unset TOK && echo && echo saved
 ```
-
-### 3. Have Claude Code installed
-
-This doc assumes `claude` is on your `PATH`. If not, install Claude Code first.
 
 ---
 
@@ -49,9 +52,6 @@ Execute the steps below in order. **Stop and report to the user if any step fail
 Run each check. Abort with the stated message if a check fails.
 
 ```bash
-# Claude Code CLI present
-command -v claude >/dev/null || { echo "ABORT: claude CLI not found on PATH"; exit 1; }
-
 # Token file present and non-empty
 [ -s ~/.config/grafana/nearone-token ] || { echo "ABORT: ~/.config/grafana/nearone-token is missing or empty. See prerequisites."; exit 1; }
 
@@ -76,7 +76,7 @@ Verify it's on `PATH`. If not, the user's shell init hasn't picked up `~/.local/
 
 ### Step 3: Verify the token actually works
 
-**Do this before registering the MCP server.** Grafana will return 401 "Invalid API key" on every UI endpoint if the token is wrong, even though the MCP server itself will report `✓ Connected` in `claude mcp list` (the MCP handshake does not exercise the token). Skipping this check is how we wasted an hour last time.
+**Do this before registering the MCP server.** Grafana will return 401 "Invalid API key" on every UI endpoint if the token is wrong, even though the MCP server itself will report `✓ Connected` in `claude mcp list` (the MCP handshake does not exercise the token).
 
 ```bash
 TOKEN=$(cat ~/.config/grafana/nearone-token)
@@ -174,3 +174,6 @@ After setup you can query these directly (UIDs for reference):
 - The token file is `chmod 600` — don't loosen those permissions.
 - **Never paste a token into a Claude Code prompt.** Claude Code sends conversation content to Anthropic; anything you type there is no longer purely local. Use the `read -rsp` flow in the prerequisites.
 - Rotate tokens if they're exposed (committed to git, pasted in Slack, etc.). Admin revokes the token in Grafana UI; you generate a new one and overwrite the file.
+
+<!-- cspell:words glsa -->
+
