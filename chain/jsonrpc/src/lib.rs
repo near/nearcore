@@ -2105,6 +2105,14 @@ impl JsonRpcHandler {
                 break;
             }
 
+            tracing::debug!(
+                target: "jsonrpc",
+                method,
+                remaining = remaining_shards.len(),
+                groups = assignments.len(),
+                "scatter-gather round"
+            );
+
             // Build requests for each node group. Bail on serialization error.
             let mut request_groups = Vec::new();
             for NodeRequestAssignment { handle, node_idx, assigned_shards } in assignments {
@@ -2115,12 +2123,23 @@ impl JsonRpcHandler {
                 request_groups.push((handle, req, node_idx, assigned_shards));
             }
 
-            // Fan out in parallel.
+            // Fan out in parallel with per-peer timeout.
+            let per_peer_timeout = Duration::seconds(10);
             let futures: Vec<_> = request_groups
                 .into_iter()
                 .map(|(handle, req, node_idx, assigned_shards)| {
                     let fut = self.run_coordinator_request_on_node(req, handle);
-                    async move { (node_idx, assigned_shards, fut.await) }
+                    let timeout_fut = self.clock.timeout(per_peer_timeout, fut);
+                    async move {
+                        let result = match timeout_fut.await {
+                            Ok(inner) => inner,
+                            Err(_) => Err(RpcError::new_internal_error(
+                                None,
+                                format!("scatter-gather: peer {node_idx} timed out"),
+                            )),
+                        };
+                        (node_idx, assigned_shards, result)
+                    }
                 })
                 .collect();
 
@@ -2135,6 +2154,14 @@ impl JsonRpcHandler {
                         merged.push((assigned_shards, value));
                     }
                     Err(e) => {
+                        tracing::warn!(
+                            target: "jsonrpc",
+                            method,
+                            node_idx,
+                            ?assigned_shards,
+                            error = %e,
+                            "scatter-gather: peer failed"
+                        );
                         // Don't retry on request validation errors — they're
                         // deterministic and every node will return the same.
                         if matches!(
