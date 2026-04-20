@@ -132,9 +132,10 @@ impl StatusCmd {
         let cloud_storage_context = near_config
             .cloud_storage_context()
             .context("cloud_archival is not configured in config.json")?;
-        let cloud_storage = CloudStorageOpener::new(cloud_storage_context, BucketConfig::canonical())
-            .open()
-            .context("failed to open cloud storage")?;
+        let cloud_storage =
+            CloudStorageOpener::new(cloud_storage_context, BucketConfig::canonical())
+                .open()
+                .context("failed to open cloud storage")?;
 
         let store = NodeStorage::opener(
             home_dir,

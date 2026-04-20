@@ -88,11 +88,6 @@ impl TestLoopBuilder {
         }
     }
 
-    pub(crate) fn bucket_config(mut self, bucket_config: BucketConfig) -> Self {
-        self.bucket_config = bucket_config;
-        self
-    }
-
     // Creates TestLoop-compatible genesis builder
     pub(crate) fn new_genesis_builder() -> TestGenesisBuilder {
         TestGenesisBuilder::new()
