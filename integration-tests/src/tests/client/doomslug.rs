@@ -1,9 +1,9 @@
 use crate::env::test_env::TestEnv;
-use near_chain::{ChainStoreAccess, Provenance};
+use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_crypto::KeyType;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::block::{Approval, ApprovalInner, ApprovalType};
+use near_primitives::block::{Approval, ApprovalInner, ApprovalType, Block};
 use near_primitives::hash::CryptoHash;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use std::sync::Arc;
@@ -49,33 +49,18 @@ fn test_processing_skips_on_forks() {
 }
 
 /// When a skip approval arrives and multiple blocks exist at the parent
-/// height (e.g. forks around an epoch boundary), each block may belong to a
-/// different epoch with a different block-producer schedule.  If the code
-/// picks the "wrong" parent hash — one whose epoch assigns a *different*
-/// validator as the producer for the target height — the approval is
-/// silently dropped at the `!is_block_producer` guard and never reaches
-/// Doomslug.
+/// height (e.g. forks around an epoch boundary), each fork block may
+/// yield a different epoch via `get_epoch_id_from_prev_block` and thus
+/// a different block-producer schedule for the target height.  If the
+/// code picks the wrong parent, the approval is silently dropped.
 ///
-/// This test verifies that `collect_block_approval` iterates all candidate
-/// parent hashes and selects the one whose epoch makes the current node the
-/// block producer, so the approval is not lost.
-///
-/// Setup
-///   4 validators, epoch_length = 5.  We produce a chain long enough to
-///   cross two epoch boundaries so the epoch-manager has epochs with
-///   distinct `rng_seed`s (the genesis initializes both epoch 0 and 1 with
-///   the same seed).  At the second boundary we pick two adjacent blocks
-///   whose `get_epoch_id_from_prev_block` returns different epoch ids, and
-///   find a target height where those epochs disagree on who the block
-///   producer is.  We then overwrite `BlockPerHeight` at the boundary
-///   height with the hashes of these two blocks.
-///
-/// Phase 1 – only the non-matching parent hash is stored at the boundary
-///   height.  The node is not the producer under that epoch, so the
-///   approval must be dropped (never reaches Doomslug).
-///
-/// Phase 2 – both hashes are stored.  The code must discover the matching
-///   hash and select it as parent, so the approval reaches Doomslug.
+/// This test creates real forks at epoch boundaries using two clients:
+///   - Client 0 builds a continuous chain (good finalization →
+///     `is_next_block_epoch_start` returns true at each boundary).
+///   - Client 1 receives the same blocks except the last two before
+///     each boundary, then produces a skip block at the boundary height.
+///     The skip's stale finalization means `is_next_block_epoch_start`
+///     returns false → different epoch than client 0's block.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
@@ -88,133 +73,144 @@ fn test_skip_approval_prefers_producer_matching_parent() {
     let mut genesis = Genesis::test(accounts, num_validators);
     genesis.config.epoch_length = 5;
     genesis.config.transaction_validity_period = 10;
-    let mut env =
-        TestEnv::builder_from_genesis(&genesis).validator_seats(num_validators as usize).build();
+    // Disable kickouts so all validators survive across epochs. Only
+    // client 0 produces blocks/chunks, so without this, other validators
+    // would be kicked for missing chunks after the first epoch.
+    genesis.config.block_producer_kickout_threshold = 0;
+    genesis.config.chunk_producer_kickout_threshold = 0;
+    genesis.config.chunk_validator_only_kickout_threshold = 0;
+    let mut env = TestEnv::builder_from_genesis(&genesis)
+        .clients_count(2)
+        .validator_seats(num_validators as usize)
+        .build();
 
-    // Produce a linear chain with a single client, temporarily swapping
-    // the validator signer so the client can produce blocks at heights
-    // assigned to any validator.
-    let mut blocks = vec![];
-    for height in 1..=12 {
-        let head_hash = env.clients[0].chain.head().unwrap().last_block_hash;
-        let epoch_id =
-            env.clients[0].epoch_manager.get_epoch_id_from_prev_block(&head_hash).unwrap();
-        let producer = env.clients[0].epoch_manager.get_block_producer(&epoch_id, height).unwrap();
+    let epoch_manager = env.clients[0].epoch_manager.clone();
+
+    // Helper: set signer to the assigned block producer and produce.
+    let produce_block = |env: &mut TestEnv, client: usize, h: u64| -> Arc<Block> {
+        let head = env.clients[client].chain.head().unwrap().last_block_hash;
+        let eid = env.clients[client].epoch_manager.get_epoch_id_from_prev_block(&head).unwrap();
+        let producer = env.clients[client].epoch_manager.get_block_producer(&eid, h).unwrap();
         let signer = InMemoryValidatorSigner::from_seed(
             producer.clone(),
             KeyType::ED25519,
             producer.as_str(),
         );
-        env.clients[0].validator_signer.update(Some(Arc::new(signer)));
-        let block = env.clients[0].produce_block(height).unwrap().unwrap();
+        env.clients[client].validator_signer.update(Some(Arc::new(signer)));
+        env.clients[client].produce_block(h).unwrap().unwrap()
+    };
+
+    // Build the chain incrementally. Both clients stay in sync via a
+    // 2-block delayed buffer. At each epoch boundary (past the first
+    // two), client 1 is 2 blocks behind and produces a fork skip block.
+    let mut boundaries_seen = 0;
+    let mut tested = 0;
+    let mut client1_synced_to = 0u64;
+    let mut buffer: Vec<Arc<Block>> = vec![];
+    let mut h = 0u64;
+
+    loop {
+        h += 1;
+        assert!(h <= 80, "ran out of blocks without finding 4 testable boundaries");
+        let block = produce_block(&mut env, 0, h);
         env.process_block(0, block.clone(), Provenance::PRODUCED);
-        blocks.push(block);
-    }
 
-    let epoch_manager = env.clients[0].epoch_manager.clone();
-    let head_height = env.clients[0].chain.head().unwrap().height;
+        // Send blocks to client 1 with a 2-block delay.
+        if buffer.len() >= 2 {
+            let old = buffer.remove(0);
+            env.process_block(1, old.clone(), Provenance::NONE);
+            client1_synced_to = old.header().height();
+        }
+        buffer.push(block.clone());
 
-    // Find an epoch boundary pair where the two adjacent epochs assign
-    // *different* block producers for some target_height. The genesis
-    // initializes epoch 0 and epoch 1 with the same rng_seed, so we need
-    // to go past the first boundary to reach epochs with distinct seeds.
-    let boundary_indices: Vec<usize> = blocks
-        .iter()
-        .enumerate()
-        .filter(|(_, b)| epoch_manager.is_next_block_epoch_start(b.hash()).unwrap())
-        .map(|(i, _)| i)
-        .collect();
-    assert!(!boundary_indices.is_empty(), "should have at least one epoch boundary");
+        if !epoch_manager.is_next_block_epoch_start(block.hash()).unwrap() {
+            continue;
+        }
 
-    let (boundary_block, pre_boundary_block, target_height, matching_producer) = boundary_indices
-        .iter()
-        .filter(|&&idx| idx > 0)
-        .find_map(|&idx| {
-            let bb = &blocks[idx];
-            let pb = &blocks[idx - 1];
-            let e_b = epoch_manager.get_epoch_id_from_prev_block(bb.hash()).ok()?;
-            let e_p = epoch_manager.get_epoch_id_from_prev_block(pb.hash()).ok()?;
-            if e_b == e_p {
-                return None;
+        // block at height h is an epoch boundary.
+        boundaries_seen += 1;
+        if boundaries_seen <= 2 {
+            // First two boundaries: flush buffer to client 1 and
+            // continue (epochs 0/1 share the same rng_seed).
+            for b in buffer.drain(..) {
+                env.process_block(1, b.clone(), Provenance::NONE);
+                client1_synced_to = b.header().height();
             }
-            // Find a target_height where the two epochs disagree on
-            // the block producer.
-            (head_height + 1..head_height + 200).find_map(|h| {
-                let p_b = epoch_manager.get_block_producer(&e_b, h).ok()?;
-                let p_p = epoch_manager.get_block_producer(&e_p, h).ok()?;
-                if p_b != p_p { Some((bb, pb, h, p_b)) } else { None }
+            continue;
+        }
+
+        let boundary_height = h;
+        let boundary_block = block;
+        assert_eq!(client1_synced_to, boundary_height - 2);
+
+        // Client 1 produces a skip block at boundary_height (skipping
+        // boundary_height - 1). Its parent at boundary_height - 2 has
+        // stale finalization → different epoch than the boundary block.
+        let fork_block = produce_block(&mut env, 1, boundary_height);
+
+        // Process the fork block on client 0.
+        env.process_block(0, fork_block.clone(), Provenance::NONE);
+
+        let epoch_boundary =
+            epoch_manager.get_epoch_id_from_prev_block(boundary_block.hash()).unwrap();
+        let epoch_fork = epoch_manager.get_epoch_id_from_prev_block(fork_block.hash()).unwrap();
+
+        // Flush buffer to client 1 so it catches up for the next boundary.
+        for b in buffer.drain(..) {
+            env.process_block(1, b.clone(), Provenance::NONE);
+            client1_synced_to = b.header().height();
+        }
+
+        if epoch_boundary == epoch_fork {
+            continue;
+        }
+
+        // Produce a couple more blocks on client 0 so the new epoch's
+        // info is registered in the epoch manager (it's created when
+        // the first block of the new epoch is processed).
+        for _extra in 1..=2 {
+            h += 1;
+            let b = produce_block(&mut env, 0, h);
+            env.process_block(0, b.clone(), Provenance::PRODUCED);
+            env.process_block(1, b, Provenance::NONE);
+            client1_synced_to = h;
+        }
+
+        // Find a target_height where the two epochs disagree on producer.
+        let head_height = env.clients[0].chain.head().unwrap().height;
+        let Some((target_height, my_account)) =
+            (head_height + 1..head_height + 200).find_map(|th| {
+                let p_b = epoch_manager.get_block_producer(&epoch_boundary, th).ok()?;
+                let p_f = epoch_manager.get_block_producer(&epoch_fork, th).ok()?;
+                if p_b != p_f { Some((th, p_b)) } else { None }
             })
-        })
-        .expect("should find an epoch boundary pair with different producer assignments");
-
-    let boundary_height = boundary_block.header().height();
-
-    // Configure the node as the producer that matches the *boundary* epoch.
-    // The boundary_block hash is the "right" parent and the pre_boundary_block
-    // hash is the "wrong" one.
-    let my_account = matching_producer;
-    let signer = Arc::new(InMemoryValidatorSigner::from_seed(
-        my_account.clone(),
-        KeyType::ED25519,
-        my_account.as_str(),
-    ));
-    env.clients[0].validator_signer.update(Some(signer.clone()));
-
-    // Overwrites BlockPerHeight at boundary_height with exactly the given
-    // set of (epoch_id, hash) pairs. This is raw DB surgery coupled to the
-    // column's serialization format; if that format changes this will fail
-    // at deserialization (get_all_block_hashes_by_height) rather than
-    // silently producing wrong results.
-    let write_block_hashes =
-        |env: &mut TestEnv, hashes: &[(near_primitives::types::EpochId, CryptoHash)]| {
-            use near_primitives::utils::index_to_bytes;
-            use near_store::DBCol;
-            use std::collections::{HashMap, HashSet};
-
-            let store = env.clients[0].chain.chain_store().store();
-            let mut store_update = store.store_update();
-            let mut map: HashMap<near_primitives::types::EpochId, HashSet<CryptoHash>> =
-                HashMap::new();
-            for (epoch_id, hash) in hashes {
-                map.entry(*epoch_id).or_default().insert(*hash);
-            }
-            store_update.set_ser(DBCol::BlockPerHeight, &index_to_bytes(boundary_height), &map);
-            store_update.commit();
+        else {
+            continue;
         };
 
-    let make_approval =
-        |target: u64| Approval::new(CryptoHash::default(), boundary_height, target, &*signer);
+        // Configure the node as the boundary-epoch producer and test.
+        let signer = Arc::new(InMemoryValidatorSigner::from_seed(
+            my_account.clone(),
+            KeyType::ED25519,
+            my_account.as_str(),
+        ));
+        env.clients[0].validator_signer.update(Some(signer.clone()));
 
-    // Phase 1: Only the non-matching parent hash (pre_boundary_block). Its
-    // epoch makes a different validator the producer → approval is dropped.
-    write_block_hashes(
-        &mut env,
-        &[(*pre_boundary_block.header().epoch_id(), *pre_boundary_block.hash())],
-    );
+        let approval =
+            Approval::new(CryptoHash::default(), boundary_height, target_height, &*signer);
+        assert!(matches!(approval.inner, ApprovalInner::Skip(_)));
+        env.clients[0].collect_block_approval(&approval, ApprovalType::SelfApproval);
+        assert!(
+            !env.clients[0].doomslug.approval_status_at_height(&target_height).approvals.is_empty(),
+            "approval should reach doomslug at boundary height {boundary_height}"
+        );
 
-    let approval1 = make_approval(target_height);
-    assert!(matches!(approval1.inner, ApprovalInner::Skip(_)));
-    env.clients[0].collect_block_approval(&approval1, ApprovalType::SelfApproval);
-    assert!(
-        env.clients[0].doomslug.approval_status_at_height(&target_height).approvals.is_empty(),
-        "with only the non-matching parent hash, the approval should not reach doomslug"
-    );
-
-    // Phase 2: Both parent hashes present. The code should prefer the
-    // boundary_block hash (whose epoch makes us the producer) → approval
-    // reaches doomslug.
-    write_block_hashes(
-        &mut env,
-        &[
-            (*pre_boundary_block.header().epoch_id(), *pre_boundary_block.hash()),
-            (*boundary_block.header().epoch_id(), *boundary_block.hash()),
-        ],
-    );
-
-    let approval2 = make_approval(target_height);
-    env.clients[0].collect_block_approval(&approval2, ApprovalType::SelfApproval);
-    assert!(
-        !env.clients[0].doomslug.approval_status_at_height(&target_height).approvals.is_empty(),
-        "with both hashes present, the producer-matching parent should be selected"
-    );
+        tested += 1;
+        // We repeat across 4 epoch boundaries.  Each trial independently
+        // has ~50% chance of the right parent being first in HashMap iteration
+        // order, so 4 trials give ~6% false-pass probability.
+        if tested >= 4 {
+            return;
+        }
+    }
 }

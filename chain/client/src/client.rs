@@ -2125,6 +2125,52 @@ impl Client {
     /// * `approval` - the approval to be collected
     /// * `approval_type`  - whether the approval was just produced by us (in which case skip validation,
     ///                      only check whether we are the next block producer and store in Doomslug)
+    /// Resolve the parent block hash for a skip approval.
+    ///
+    /// Multiple blocks can exist at `parent_height` when there are forks
+    /// (e.g. around an epoch boundary). Each fork block may belong to a
+    /// different epoch with different block-producer assignments for
+    /// `target_height`. We prefer the parent whose epoch makes us the block
+    /// producer so that the approval is not silently dropped later.
+    ///
+    /// Returns `None` when no blocks exist at `parent_height`.
+    fn resolve_skip_parent(
+        &self,
+        parent_height: BlockHeight,
+        target_height: BlockHeight,
+        my_account_id: Option<&AccountId>,
+    ) -> Option<CryptoHash> {
+        let hashes = self.chain.chain_store().get_all_block_hashes_by_height(parent_height);
+        let mut first = None;
+        let chosen = hashes.values().flatten().find(|hash| {
+            if first.is_none() {
+                first = Some(**hash);
+            }
+            my_account_id.is_some_and(|id| {
+                self.epoch_manager
+                    .get_epoch_id_from_prev_block(hash)
+                    .and_then(|epoch_id| {
+                        self.epoch_manager.get_block_producer(&epoch_id, target_height)
+                    })
+                    .ok()
+                    .as_ref()
+                    == Some(id)
+            })
+        });
+        let result = chosen.copied().or(first)?;
+        if chosen.is_some() && first.is_some_and(|f| f != result) {
+            tracing::debug!(
+                target: "client",
+                parent_height,
+                hash = ?result,
+                first_hash = ?first.unwrap(),
+                target_height,
+                "skip approval: preferred producer-matching parent hash over first hash at fork"
+            );
+        }
+        Some(result)
+    }
+
     pub fn collect_block_approval(&mut self, approval: &Approval, approval_type: ApprovalType) {
         let Approval { inner, account_id, target_height, signature } = approval;
         tracing::debug!(target: "client",
@@ -2137,44 +2183,12 @@ impl Client {
         let parent_hash = match inner {
             ApprovalInner::Endorsement(parent_hash) => *parent_hash,
             ApprovalInner::Skip(parent_height) => {
-                let hashes =
-                    self.chain.chain_store().get_all_block_hashes_by_height(*parent_height);
-                // When multiple blocks exist at parent_height (e.g. forks around
-                // an epoch boundary), they can belong to different epochs with
-                // different block-producer assignments for target_height.
-                // Prefer a parent hash whose epoch makes us the
-                // block producer, so that the approval is not silently dropped.
-                let my_account_id = signer.as_ref().map(|s| s.validator_id());
-                let mut first = None;
-                let chosen = hashes.values().flatten().find(|hash| {
-                    if first.is_none() {
-                        first = Some(**hash);
-                    }
-                    my_account_id.is_some_and(|id| {
-                        self.epoch_manager
-                            .get_epoch_id_from_prev_block(hash)
-                            .and_then(|epoch_id| {
-                                self.epoch_manager.get_block_producer(&epoch_id, *target_height)
-                            })
-                            .ok()
-                            .as_ref()
-                            == Some(id)
-                    })
-                });
-                match chosen.copied().or(first) {
-                    Some(hash) => {
-                        if chosen.is_some() && first.is_some_and(|f| f != hash) {
-                            tracing::debug!(
-                                target: "client",
-                                parent_height,
-                                ?hash,
-                                first_hash = ?first.unwrap(),
-                                target_height,
-                                "skip approval: preferred producer-matching parent hash over first hash at fork"
-                            );
-                        }
-                        hash
-                    }
+                match self.resolve_skip_parent(
+                    *parent_height,
+                    *target_height,
+                    signer.as_ref().map(|s| s.validator_id()),
+                ) {
+                    Some(hash) => hash,
                     None => {
                         self.handle_process_approval_error(
                             approval,
