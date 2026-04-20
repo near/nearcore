@@ -12,18 +12,37 @@ pub enum BucketConfig {
 pub struct BucketConfigV1 {
     /// Zstd compression level for data blobs.
     pub compression_level: i32,
+    /// Number of consecutive block heights bundled into a single batch blob.
+    pub batch_size: u32,
 }
 
 impl BucketConfig {
-    /// The configuration that this binary expects to use.
-    pub fn local() -> Self {
+    /// The canonical configuration that every writer is expected to use.
+    /// The bucket stores one copy of this; mismatches across writers are rejected.
+    pub fn canonical() -> Self {
         // TODO(cloud_archival): Benchmark compression levels before releasing.
-        Self::V1(BucketConfigV1 { compression_level: 3 })
+        // TODO(cloud_archival): Bump batch_size once writer batches multiple
+        // heights per upload.
+        Self::V1(BucketConfigV1 { compression_level: 3, batch_size: 1 })
+    }
+
+    /// Test-only constructor that overrides `batch_size`. All other fields match `canonical()`.
+    #[cfg(feature = "test_features")]
+    pub fn with_batch_size_for_test(batch_size: u32) -> Self {
+        let Self::V1(mut v1) = Self::canonical();
+        v1.batch_size = batch_size;
+        Self::V1(v1)
     }
 
     pub fn compression_level(&self) -> i32 {
         match self {
             Self::V1(v1) => v1.compression_level,
+        }
+    }
+
+    pub fn batch_size(&self) -> u32 {
+        match self {
+            Self::V1(v1) => v1.batch_size,
         }
     }
 }
@@ -45,7 +64,7 @@ mod tests {
         assert!(config_path.exists(), "config file should be created");
         let bytes = std::fs::read(&config_path).unwrap();
         let config: BucketConfig = borsh::from_slice(&bytes).unwrap();
-        assert_eq!(config, BucketConfig::local());
+        assert_eq!(config, BucketConfig::canonical());
     }
 
     #[tokio::test]
@@ -65,7 +84,7 @@ mod tests {
         let cloud_storage = test_cloud_storage(&tmp_dir);
 
         // Write a config with a different compression level.
-        let wrong_config = BucketConfig::V1(BucketConfigV1 { compression_level: 9 });
+        let wrong_config = BucketConfig::V1(BucketConfigV1 { compression_level: 9, batch_size: 4 });
         let file_id = CloudStorageFileID::Config;
         let blob = borsh::to_vec(&wrong_config).unwrap();
         cloud_storage.upload(file_id, blob).await.unwrap();

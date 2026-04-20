@@ -35,6 +35,7 @@ use near_primitives::types::{AccountId, Nonce};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::archive::cloud_storage::CloudStorage;
+use near_store::archive::cloud_storage::bucket_config::BucketConfig;
 use near_store::test_utils::TestNodeStorage;
 use nearcore::state_sync::StateSyncDumpHandle;
 use parking_lot::Mutex;
@@ -66,6 +67,9 @@ pub struct SharedState {
     pub load_memtries_for_tracked_shards: bool,
     /// Flag to indicate if warmup is pending. This is used to ensure that warmup is only done once.
     pub warmup_pending: Arc<AtomicBool>,
+    /// Archive-wide config for cloud archival nodes. Defaults to
+    /// `BucketConfig::canonical()`; tests may override.
+    pub bucket_config: BucketConfig,
 }
 
 /// This is the state associated with each node in the test loop environment before being built.

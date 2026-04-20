@@ -55,3 +55,45 @@ impl BlockData {
         }
     }
 }
+
+/// Versioned container for a batch of block data spanning consecutive heights.
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub enum BlockBatch {
+    V1(BlockBatchV1),
+}
+
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct BlockBatchV1 {
+    start_height: BlockHeight,
+    end_height: BlockHeight,
+    data: Vec<BlockData>,
+}
+
+/// Builds a `BlockBatch` by reading block data for each height in [start_height, end_height].
+pub fn build_block_batch(
+    store: &Store,
+    start_height: BlockHeight,
+    end_height: BlockHeight,
+) -> Result<BlockBatch, Error> {
+    let count = (end_height - start_height + 1) as usize;
+    let mut data = Vec::with_capacity(count);
+    for height in start_height..=end_height {
+        data.push(build_block_data(store, height)?);
+    }
+    Ok(BlockBatch::V1(BlockBatchV1 { start_height, end_height, data }))
+}
+
+impl BlockBatch {
+    /// Returns the block data at the given height within this batch.
+    pub fn get_block_at_height(&self, height: BlockHeight) -> &BlockData {
+        let BlockBatch::V1(batch) = self;
+        assert!(
+            height >= batch.start_height && height <= batch.end_height,
+            "height {height} out of batch range [{}, {}]",
+            batch.start_height,
+            batch.end_height
+        );
+        let index = (height - batch.start_height) as usize;
+        &batch.data[index]
+    }
+}

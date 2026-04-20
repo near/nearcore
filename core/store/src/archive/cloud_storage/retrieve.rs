@@ -1,8 +1,8 @@
 use crate::archive::cloud_storage::CloudStorage;
-use crate::archive::cloud_storage::block_data::BlockData;
+use crate::archive::cloud_storage::blocks::BlockBatch;
 use crate::archive::cloud_storage::epoch_data::EpochData;
-use crate::archive::cloud_storage::file_id::{CloudStorageFileID, ListableCloudDir};
-use crate::archive::cloud_storage::shard_data::ShardData;
+use crate::archive::cloud_storage::file_id::{BatchId, CloudStorageFileID, ListableCloudDir};
+use crate::archive::cloud_storage::shards::ShardBatch;
 use borsh::BorshDeserialize;
 use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
@@ -77,20 +77,20 @@ impl CloudStorage {
         self.retrieve_compressed(&file_id).await
     }
 
-    pub(super) async fn retrieve_block_data(
+    pub(super) async fn retrieve_block_batch(
         &self,
-        block_height: BlockHeight,
-    ) -> Result<BlockData, CloudRetrievalError> {
-        let file_id = CloudStorageFileID::Block(block_height);
+        batch_id: BatchId,
+    ) -> Result<BlockBatch, CloudRetrievalError> {
+        let file_id = CloudStorageFileID::BlockBatch(batch_id);
         self.retrieve_compressed(&file_id).await
     }
 
-    pub(super) async fn retrieve_shard_data(
+    pub(super) async fn retrieve_shard_batch(
         &self,
-        block_height: BlockHeight,
         shard_id: ShardId,
-    ) -> Result<ShardData, CloudRetrievalError> {
-        let file_id = CloudStorageFileID::Shard(block_height, shard_id);
+        batch_id: BatchId,
+    ) -> Result<ShardBatch, CloudRetrievalError> {
+        let file_id = CloudStorageFileID::ShardBatch(shard_id, batch_id);
         self.retrieve_compressed(&file_id).await
     }
 
@@ -146,13 +146,15 @@ impl CloudStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::archive::cloud_storage::bucket_config::BucketConfig;
     use near_external_storage::ExternalConnection;
 
     fn test_cloud_storage(root_dir: &std::path::Path) -> CloudStorage {
-        CloudStorage {
-            external: ExternalConnection::Filesystem { root_dir: root_dir.to_path_buf() },
-            chain_id: "test".to_string(),
-        }
+        CloudStorage::new(
+            ExternalConnection::Filesystem { root_dir: root_dir.to_path_buf() },
+            "test".to_string(),
+            BucketConfig::canonical(),
+        )
     }
 
     #[tokio::test]
@@ -160,8 +162,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let cs = test_cloud_storage(tmp.path());
 
-        // Create files under chain_id=test/metadata/shard_head/
-        let shard_dir = tmp.path().join("chain_id=test/metadata/shard_head");
+        let shard_dir = tmp.path().join("chain_id=test/archive/metadata/shard_head");
         std::fs::create_dir_all(&shard_dir).unwrap();
         std::fs::write(shard_dir.join("0"), b"").unwrap();
         std::fs::write(shard_dir.join("1"), b"").unwrap();
@@ -185,7 +186,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let cs = test_cloud_storage(tmp.path());
 
-        let meta_dir = tmp.path().join("chain_id=test/metadata");
+        let meta_dir = tmp.path().join("chain_id=test/archive/metadata");
         std::fs::create_dir_all(&meta_dir).unwrap();
         std::fs::write(meta_dir.join("block_head"), b"").unwrap();
 

@@ -165,3 +165,35 @@ impl ShardData {
         }
     }
 }
+
+/// Versioned container for a batch of shard data spanning consecutive heights.
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub enum ShardBatch {
+    V1(ShardBatchV1),
+}
+
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct ShardBatchV1 {
+    start_height: BlockHeight,
+    end_height: BlockHeight,
+    data: Vec<ShardData>,
+}
+
+impl ShardBatch {
+    pub fn new(start_height: BlockHeight, end_height: BlockHeight, data: Vec<ShardData>) -> Self {
+        ShardBatch::V1(ShardBatchV1 { start_height, end_height, data })
+    }
+
+    /// Returns the shard data at the given height within this batch.
+    pub fn get_shard_at_height(&self, height: BlockHeight) -> &ShardData {
+        let ShardBatch::V1(batch) = self;
+        assert!(
+            height >= batch.start_height && height <= batch.end_height,
+            "height {height} out of batch range [{}, {}]",
+            batch.start_height,
+            batch.end_height
+        );
+        let index = (height - batch.start_height) as usize;
+        &batch.data[index]
+    }
+}
