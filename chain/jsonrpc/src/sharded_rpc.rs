@@ -9,7 +9,7 @@ use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{AccountId, BlockHeight, BlockId, BlockReference, EpochId, ShardId};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr, UdpSocket};
 use std::sync::Arc;
 use url::Url;
@@ -80,6 +80,15 @@ pub enum RpcNodeHandle {
     RemoteNode(Arc<JsonRpcClient>),
     /// Handle the request locally.
     LocalNode,
+}
+
+/// A node assignment for scatter-gather: a node handle, its index in the pool,
+/// and the shards it has been assigned to serve.
+pub struct NodeRequestAssignment {
+    pub handle: RpcNodeHandle,
+    /// 0 for the local node, `i + 1` for `pool.nodes[i]`.
+    pub node_idx: usize,
+    pub assigned_shards: Vec<ShardId>,
 }
 
 /// A remote RPC node in the pool, along with the shards it tracks.
@@ -370,9 +379,7 @@ impl ShardedRpcPool {
         epoch_id: &EpochId,
         target_shards: &HashSet<ShardId>,
         exclude: &HashSet<usize>,
-    ) -> Result<Vec<(RpcNodeHandle, usize, Vec<ShardId>)>, RpcError> {
-        use std::collections::HashMap;
-
+    ) -> Result<Vec<NodeRequestAssignment>, RpcError> {
         let mut node_groups: HashMap<usize, (RpcNodeHandle, Vec<ShardId>)> = HashMap::new();
 
         for &shard_id in target_shards {
@@ -382,7 +389,11 @@ impl ShardedRpcPool {
 
         Ok(node_groups
             .into_iter()
-            .map(|(node_idx, (handle, shards))| (handle, node_idx, shards))
+            .map(|(node_idx, (handle, shards))| NodeRequestAssignment {
+                handle,
+                node_idx,
+                assigned_shards: shards,
+            })
             .collect())
     }
 

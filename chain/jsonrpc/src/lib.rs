@@ -98,7 +98,8 @@ use near_primitives::views::{
 use parking_lot::RwLock;
 use serde_json::{Value, json};
 use sharded_rpc::{
-    BlockHint, CoordinatorRequestStrategy, RequestSource, RpcNodeHandle, ShardHint, ShardedRpcPool,
+    BlockHint, CoordinatorRequestStrategy, NodeRequestAssignment, RequestSource, RpcNodeHandle,
+    ShardHint, ShardedRpcPool,
 };
 use std::collections::HashSet;
 use std::future::Future;
@@ -2078,13 +2079,16 @@ impl JsonRpcHandler {
     ///
     /// Returns `(assigned_shards, response_value)` pairs. Callers interpret
     /// the responses (filter, parse, merge) as appropriate for the method.
-    async fn run_scatter_gather(
+    async fn run_scatter_gather<F>(
         &self,
         method: &str,
-        get_params_for_shard_group: &(dyn Fn(&[ShardId]) -> Result<Value, RpcError> + Sync),
+        get_params_for_shard_group: &F,
         epoch_id: &EpochId,
         target_shards: HashSet<ShardId>,
-    ) -> Result<Vec<(Vec<ShardId>, Value)>, RpcError> {
+    ) -> Result<Vec<(Vec<ShardId>, Value)>, RpcError>
+    where
+        F: Fn(&[ShardId]) -> Result<Value, RpcError> + Sync,
+    {
         let mut merged: Vec<(Vec<ShardId>, Value)> = Vec::new();
         let mut remaining_shards = target_shards;
         let mut excluded_nodes: HashSet<usize> = HashSet::new();
@@ -2103,7 +2107,7 @@ impl JsonRpcHandler {
 
             // Build requests for each node group. Bail on serialization error.
             let mut request_groups = Vec::new();
-            for (handle, node_idx, assigned_shards) in assignments {
+            for NodeRequestAssignment { handle, node_idx, assigned_shards } in assignments {
                 let params = get_params_for_shard_group(&assigned_shards)?;
                 let Message::Request(req) = Message::request(method.to_string(), params) else {
                     unreachable!("Message::request always returns Message::Request");
