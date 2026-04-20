@@ -390,7 +390,7 @@ fn test_t1_versioned_partial_encoded_state_witness_roundtrip_v1() {
     let mut rng = make_rng(19385389);
     let witness = make_test_partial_witness(&mut rng);
     let versioned = VersionedPartialEncodedStateWitness::V1(witness);
-    let msg = T1MessageBody::VersionedPartialEncodedStateWitness(versioned.clone());
+    let msg = T1MessageBody::VersionedPartialEncodedStateWitness(versioned);
     let bytes = borsh::to_vec(&msg).unwrap();
     assert_eq!(bytes[0], 15);
     let decoded = T1MessageBody::try_from_slice(&bytes).unwrap();

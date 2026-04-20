@@ -1288,7 +1288,8 @@ block_schema = [
         }
     ],
     [
-        VersionedPartialEncodedStateWitness, {
+        VersionedPartialEncodedStateWitness,
+        {
             'kind':
                 'enum',
             'field':
