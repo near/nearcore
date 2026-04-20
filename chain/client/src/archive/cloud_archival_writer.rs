@@ -12,9 +12,9 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_store::adapter::StoreAdapter;
+use near_store::archive::cloud_storage::BatchRange;
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::archive::cloud_storage::archive::CloudArchivingError;
-use near_store::archive::cloud_storage::file_id::BatchRange;
 use near_store::archive::cloud_storage::retrieve::CloudRetrievalError;
 use near_store::db::{
     CLOUD_BLOCK_HEAD_KEY, CLOUD_MIN_HEAD_KEY, DBTransaction, cloud_shard_head_key,

@@ -2,7 +2,6 @@ use crate::archive::cloud_storage::CloudStorage;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
 
 /// Batch identifier: the start height of a batch.
-/// Computed as `(height / batch_size) * batch_size`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BatchId(pub BlockHeight);
 

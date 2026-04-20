@@ -15,12 +15,12 @@ pub mod archive;
 pub mod bucket_config;
 pub mod retrieve;
 
-pub mod blocks;
+pub(super) mod blocks;
 pub(super) mod epoch_data;
-pub mod file_id;
-pub mod shards;
+pub(super) mod file_id;
+pub(super) mod shards;
 
-pub use file_id::ListableCloudDir;
+pub use file_id::{BatchRange, ListableCloudDir};
 
 /// Handles operations related to cloud storage used for archival data.
 pub struct CloudStorage {

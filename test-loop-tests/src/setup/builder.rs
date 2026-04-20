@@ -568,8 +568,6 @@ impl<'a> NodeStateBuilder<'a> {
         self
     }
 
-    /// Overrides the cloud archive-wide config (e.g. a batch size different
-    /// from production for deterministic testing).
     pub fn bucket_config(mut self, bucket_config: BucketConfig) -> Self {
         self.bucket_config = bucket_config;
         self

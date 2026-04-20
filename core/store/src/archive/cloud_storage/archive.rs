@@ -118,8 +118,7 @@ impl CloudStorage {
     }
 
     /// Builds and uploads a shard batch covering `range`. The caller must
-    /// ensure that all heights in the batch share the same `shard_layout`
-    /// (i.e. the batch does not span an epoch boundary).
+    /// ensure that all heights in the batch share the same `shard_layout`.
     pub async fn archive_shard_batch(
         &self,
         hot_store: &Store,
