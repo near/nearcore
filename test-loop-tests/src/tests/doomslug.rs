@@ -89,7 +89,11 @@ fn test_skip_approval_prefers_producer_matching_parent() {
             },
         );
 
-        // Verify the fork is present (2 blocks known at fork_height).
+        // Wait for the fork block to land in fork_producer's chain store.
+        // `adv_produce_blocks_on` schedules async block processing, so the
+        // fork is not visible immediately. `get_all_block_hashes_by_height`
+        // returns a map keyed by epoch id, so `keys().len() >= 2` confirms
+        // the two siblings are in two different epochs.
         env.runner_for_account(&fork_producer).run_until(
             |node| {
                 let blocks =
