@@ -34,7 +34,9 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
     Nonce, NonceIndex, NumShards, ShardId, StateRoot, StateRootNode,
 };
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives::version::{
+    ProtocolFeature, ProtocolVersion, clamp_to_supported_protocol_version,
+};
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, ContractCodeView, GasKeyNoncesView, QueryRequest, QueryResponse,
     QueryResponseKind, ViewStateResult,
@@ -1696,7 +1698,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         self.trie_viewer.view_account_contract_code(
             &state_update,
             account_id,
-            current_protocol_version,
+            clamp_to_supported_protocol_version(current_protocol_version),
             &self.genesis_config.chain_id,
         )
     }
@@ -1725,7 +1727,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             epoch_id: *epoch_id,
             epoch_height,
             block_timestamp,
-            current_protocol_version,
+            current_protocol_version: clamp_to_supported_protocol_version(current_protocol_version),
             cache: Some(self.compiled_contract_cache.handle()),
         };
         self.trie_viewer.call_function(

@@ -448,7 +448,7 @@ impl WasmtimeVM {
                 .signals_based_traps(true)
                 // Configure linear memories such that explicit bounds-checking can be elided.
                 .force_memory_init_memfd(true)
-                .memory_guaranteed_dense_image_size(max_memory_size.try_into().unwrap_or(u64::MAX))
+                .memory_guaranteed_dense_image_size(0)
                 .guard_before_linear_memory(false)
                 .memory_guard_size(0)
                 .memory_may_move(false)

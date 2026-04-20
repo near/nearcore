@@ -12,7 +12,9 @@ use crate::network_protocol::{
 use crate::network_protocol::{SyncSnapshotHosts, T1MessageBody};
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
-use crate::peer_manager::network_state::{NetworkState, WhitelistNode};
+use crate::peer_manager::network_state::{
+    NetworkState, PENDING_TIER3_REQUEST_TIMEOUT, WhitelistNode,
+};
 use crate::peer_manager::peer_store;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::spice_data_distribution::SpiceDataDistributorSenderForNetwork;
@@ -604,6 +606,12 @@ impl PeerManagerActor {
             .values()
             .filter(|p| now - p.last_time_received_message.load() > TIER3_IDLE_TIMEOUT)
             .for_each(|p| p.stop(None));
+        // Clean up stale pending Tier3 request entries for peers that never connected back.
+        // retain() does a full scan of the map, but this is fine: the map is bounded by the
+        // number of in-flight state sync requests (typically tens at most).
+        self.state
+            .pending_tier3_requests
+            .retain(|_, sent_at| now - *sent_at <= PENDING_TIER3_REQUEST_TIMEOUT);
     }
 
     /// Periodically monitor list of peers and:
@@ -872,10 +880,11 @@ impl PeerManagerActor {
                     },
                 );
 
+                self.state.pending_tier3_requests.insert(peer_id.clone(), self.clock.now());
                 if !self.state.send_message_to_peer(&self.clock, tcp::Tier::T2, routed_message) {
+                    self.state.pending_tier3_requests.remove(&peer_id);
                     return NetworkResponses::RouteNotFound;
                 }
-
                 tracing::debug!(target: "network", %shard_id, ?sync_hash, %peer_id, "requesting state header from host");
                 NetworkResponses::SelectedDestination(peer_id)
             }
@@ -916,10 +925,11 @@ impl PeerManagerActor {
                     },
                 );
 
+                self.state.pending_tier3_requests.insert(peer_id.clone(), self.clock.now());
                 if !self.state.send_message_to_peer(&self.clock, tcp::Tier::T2, routed_message) {
+                    self.state.pending_tier3_requests.remove(&peer_id);
                     return NetworkResponses::RouteNotFound;
                 }
-
                 tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_id, %peer_id, "requesting state part from host");
                 NetworkResponses::SelectedDestination(peer_id)
             }
