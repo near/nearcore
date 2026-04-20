@@ -356,35 +356,6 @@ impl ShardedRpcPool {
         }
     }
 
-    /// For scatter-gather: assigns exactly one node per shard, skipping excluded nodes.
-    ///
-    /// Returns `(shard_id, node_index, handle)` triples where `node_index` is
-    /// 0 for the local node and `i + 1` for `self.nodes[i]`. The caller uses
-    /// `node_index` to group shards by node and to track failed nodes across
-    /// retry rounds.
-    ///
-    /// Prefers the local node when it tracks the shard. Falls back to the first
-    /// non-excluded remote node. If no node is available, falls back to local
-    /// (which will likely return partial data).
-    pub fn one_node_per_shard(
-        &self,
-        epoch_id: &EpochId,
-        exclude: &HashSet<usize>,
-    ) -> Result<Vec<(ShardId, usize, RpcNodeHandle)>, RpcError> {
-        let shard_layout = self
-            .shard_tracker
-            .epoch_manager()
-            .get_shard_layout(epoch_id)
-            .map_err(|e| make_rpc_error(e))?;
-
-        let mut result = Vec::new();
-        for shard_id in shard_layout.shard_ids() {
-            let (node_idx, handle) = self.pick_node_for_shard(shard_id, epoch_id, exclude)?;
-            result.push((shard_id, node_idx, handle));
-        }
-        Ok(result)
-    }
-
     /// Assigns groups of target shards to nodes, returning disjoint shard groups.
     ///
     /// Each shard in `target_shards` is assigned to exactly one node. Shards
