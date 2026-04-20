@@ -363,8 +363,8 @@ impl ShardedRpcPool {
     /// needed per node.
     ///
     /// Prefers the local node (index 0) when it tracks a shard. Falls back to
-    /// the first non-excluded remote node. If no non-excluded node tracks the
-    /// shard, falls back to local as a last resort.
+    /// the first non-excluded remote node. Returns Error if targetshards cannot be
+    /// covered by non-excluded nodes.
     pub fn one_node_per_group_of_shard(
         &self,
         epoch_id: &EpochId,
@@ -387,7 +387,7 @@ impl ShardedRpcPool {
     }
 
     /// Pick the best node for a single shard: local if it tracks it, then
-    /// first non-excluded remote, then local as last resort.
+    /// first non-excluded remote. Returns `Error` if all candidates are excluded.
     fn pick_node_for_shard(
         &self,
         shard_id: ShardId,
@@ -415,8 +415,9 @@ impl ShardedRpcPool {
             }
         }
 
-        // Last resort: local even if it doesn't track this shard.
-        Ok((0, RpcNodeHandle::LocalNode))
+        // No non-excluded node available for this shard.
+        tracing::debug!(target: "jsonrpc", ?shard_id, ?epoch_id, "no available node found for shard");
+        Err(make_rpc_error("No available host for given shard."))
     }
 }
 
