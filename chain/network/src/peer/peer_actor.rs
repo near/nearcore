@@ -1170,8 +1170,9 @@ impl PeerActor {
             PeerMessage::Tier1Handshake(_)
             | PeerMessage::Tier2Handshake(_)
             | PeerMessage::Tier3Handshake(_) => {
-                // Received handshake after already have seen handshake from this peer.
-                tracing::debug!(target: "network", peer_info = %self.peer_info, "duplicate handshake");
+                // Handshakes should not appear after the session is established.
+                tracing::debug!(target: "network", peer_info = %self.peer_info, "duplicate handshake, closing");
+                self.stop(ClosingReason::DisallowedMessage);
             }
             PeerMessage::PeersRequest(PeersRequest { max_peers, max_direct_peers }) => {
                 let mut num_peers = self.network_state.config.max_send_peers;

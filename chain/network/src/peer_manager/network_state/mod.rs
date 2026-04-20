@@ -41,6 +41,7 @@ use crate::types::{
 };
 use anyhow::Context;
 use arc_swap::ArcSwap;
+use dashmap::DashMap;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{CanSend, CanSendAsync, Sender};
 use near_async::{ActorSystem, new_owned_future_spawner, time};
@@ -74,6 +75,11 @@ pub const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
 
 /// How long to wait between reconnection attempts to the same peer
 pub(crate) const RECONNECT_ATTEMPT_INTERVAL: time::Duration = time::Duration::seconds(10);
+
+/// How long a pending Tier3 request remains valid. After sending a state sync request over
+/// Tier2, we expect the peer to open an inbound Tier3 connection within this window. Entries
+/// older than this are cleaned up periodically.
+pub(crate) const PENDING_TIER3_REQUEST_TIMEOUT: time::Duration = time::Duration::seconds(60);
 
 impl WhitelistNode {
     pub fn from_peer_info(pi: &PeerInfo) -> anyhow::Result<Self> {
@@ -152,6 +158,11 @@ pub(crate) struct NetworkState {
     /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
     /// messages since last block.
     pub txns_since_last_block: AtomicUsize,
+
+    /// Peers from which we expect an inbound Tier3 connection, because we sent them a state
+    /// sync request over Tier2. Maps peer_id to the time the request was sent. Entries are
+    /// cleaned up after PENDING_TIER3_REQUEST_TIMEOUT.
+    pub pending_tier3_requests: DashMap<PeerId, time::Instant>,
 
     /// Whitelisted nodes, which are allowed to connect even if the connection limit has been
     /// reached.
@@ -233,6 +244,7 @@ impl NetworkState {
                 NonZeroUsize::new(RECENT_ROUTED_MESSAGES_CACHE_SIZE).unwrap(),
             )),
             txns_since_last_block: AtomicUsize::new(0),
+            pending_tier3_requests: DashMap::new(),
             whitelist_nodes,
             add_edges_demux: demux::Demux::new(
                 config.routing_table_update_rate_limit,
@@ -383,14 +395,21 @@ impl NetworkState {
                     this.peer_store.peer_connected(&clock, peer_info);
                 }
                 tcp::Tier::T3 => {
-                    if conn.peer_type == PeerType::Inbound {
-                        // TODO(saketh): When a peer initiates a TIER3 connection it should be
-                        // responding to a request sent previously by the local node. If we
-                        // maintain some state about pending requests it would be possible to add
-                        // an additional layer of security here and reject unexpected connections.
-                    }
                     if !edge.verify() {
                         return Err(RegisterPeerError::InvalidEdge);
+                    }
+                    if conn.peer_type == PeerType::Inbound {
+                        // Reject inbound Tier3 connections that don't correspond to a
+                        // state sync request we sent. We check without removing so that
+                        // the entry remains valid for the full timeout window — the peer
+                        // may need to open additional T3 connections (e.g. if the first
+                        // was idle-closed before a later response is ready).
+                        //
+                        // Edge verification is done first so that a spoofed peer_id with
+                        // an invalid edge cannot influence the pending-request lookup.
+                        if !this.pending_tier3_requests.contains_key(&peer_info.id) {
+                            return Err(RegisterPeerError::UnexpectedTier3Connection);
+                        }
                     }
                     this.tier3.insert_ready(conn).map_err(RegisterPeerError::PoolError)?;
                 }

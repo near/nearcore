@@ -359,11 +359,6 @@ pub enum ProtocolFeature {
     /// Includes tokens burnt as part of global contract deploys into corresponding
     /// execution outcome's `tokens_burnt`.
     IncludeDeployGlobalContractOutcomeBurntStorage,
-    /// Fix deterministic account ID creation to allow creation by any incoming transfer
-    /// (unless it's a refund) and fix `account_is_implicit()` to correctly check if
-    /// deterministic account IDs are enabled.
-    /// NEP: https://github.com/near/NEPs/pull/616
-    FixDeterministicAccountIdCreation,
     /// Nonce-based idempotency for global contract distribution receipts. Each
     /// distribution carries an auto-incremented nonce. Any distribution receipt
     /// with a nonce less than the one already stored will be dropped. This
@@ -487,7 +482,6 @@ impl ProtocolFeature {
             | ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen
             | ProtocolFeature::FixAccessKeyAllowanceCharging
             | ProtocolFeature::IncludeDeployGlobalContractOutcomeBurntStorage
-            | ProtocolFeature::FixDeterministicAccountIdCreation
             | ProtocolFeature::GlobalContractDistributionNonce
             | ProtocolFeature::InstantPromiseYield
             | ProtocolFeature::YieldResumeImprovements

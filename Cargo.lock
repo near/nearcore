@@ -4827,6 +4827,7 @@ dependencies = [
  "bytes",
  "bytesize 1.1.0",
  "criterion",
+ "dashmap",
  "enum-map",
  "futures",
  "futures-util",
