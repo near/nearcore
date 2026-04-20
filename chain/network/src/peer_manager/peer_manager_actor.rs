@@ -39,6 +39,11 @@ use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::state_sync::{PartIdOrHeader, StateRequestAckBody};
+use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::stateless_validation::partial_witness::{
+    PartialEncodedStateWitness, VersionedPartialEncodedStateWitness,
+};
+use near_primitives::types::AccountId;
 use near_primitives::views::{
     ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, PeerStoreView,
     RecentOutboundConnectionsView, SnapshotHostInfoView, SnapshotHostsView,
@@ -208,6 +213,31 @@ impl messaging::Actor for PeerManagerActor {
         self.state.tier2.broadcast_message(Arc::new(PeerMessage::Disconnect(Disconnect {
             remove_from_connection_store: false,
         })));
+    }
+}
+
+/// Methods the two witness dispatch helpers need from both the legacy
+/// `PartialEncodedStateWitness` and the `VersionedPartialEncodedStateWitness`.
+trait WitnessSpanInfo {
+    fn chunk_production_key(&self) -> ChunkProductionKey;
+    fn part_ord(&self) -> usize;
+}
+
+impl WitnessSpanInfo for PartialEncodedStateWitness {
+    fn chunk_production_key(&self) -> ChunkProductionKey {
+        self.chunk_production_key()
+    }
+    fn part_ord(&self) -> usize {
+        self.part_ord()
+    }
+}
+
+impl WitnessSpanInfo for VersionedPartialEncodedStateWitness {
+    fn chunk_production_key(&self) -> ChunkProductionKey {
+        self.chunk_production_key()
+    }
+    fn part_ord(&self) -> usize {
+        self.part_ord()
     }
 }
 
@@ -799,6 +829,64 @@ impl PeerManagerActor {
         );
     }
 
+    /// Sends one `T1MessageBody`-wrapped witness part to each `(validator, witness)`
+    /// pair. Used by both the legacy and versioned state-witness code paths.
+    fn send_witness_to_part_owners<W: WitnessSpanInfo>(
+        &self,
+        validator_witness_tuple: Vec<(AccountId, W)>,
+        wrap: fn(W) -> T1MessageBody,
+    ) {
+        let Some(first) = validator_witness_tuple.first().map(|(_, w)| w) else {
+            return;
+        };
+        let cpk = first.chunk_production_key();
+        let part_owners_len = validator_witness_tuple.len();
+        let _span = tracing::debug_span!(
+            target: "network",
+            "send_partial_encoded_state_witnesses",
+            height = cpk.height_created,
+            shard_id = %cpk.shard_id,
+            part_owners_len,
+            tag_witness_distribution = true,
+        )
+        .entered();
+
+        for (chunk_validator, partial_witness) in validator_witness_tuple {
+            self.state.send_message_to_account(
+                &self.clock,
+                &chunk_validator,
+                wrap(partial_witness).into(),
+            );
+        }
+    }
+
+    /// Forwards a witness part to every validator in `chunk_validators`,
+    /// cloning the witness for each destination.
+    fn forward_witness_to_validators<W: WitnessSpanInfo + Clone>(
+        &self,
+        chunk_validators: Vec<AccountId>,
+        partial_witness: W,
+        wrap: fn(W) -> T1MessageBody,
+    ) {
+        let cpk = partial_witness.chunk_production_key();
+        let _span = tracing::debug_span!(
+            target: "network",
+            "send_partial_encoded_state_witness_forward",
+            height = cpk.height_created,
+            shard_id = %cpk.shard_id,
+            part_ord = partial_witness.part_ord(),
+            tag_witness_distribution = true,
+        )
+        .entered();
+        for chunk_validator in chunk_validators {
+            self.state.send_message_to_account(
+                &self.clock,
+                &chunk_validator,
+                wrap(partial_witness.clone()).into(),
+            );
+        }
+    }
+
     fn handle_msg_network_requests(&self, msg: NetworkRequests) -> NetworkResponses {
         let msg_type: &str = msg.as_ref();
         let _span =
@@ -1187,48 +1275,39 @@ impl PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple) => {
-                let Some(partial_witness) = validator_witness_tuple.first().map(|(_, w)| w) else {
-                    return NetworkResponses::NoResponse;
-                };
-                let part_owners_len = validator_witness_tuple.len();
-                let _span = tracing::debug_span!(target: "network",
-                    "send partial_encoded_state_witnesses",
-                    height = partial_witness.chunk_production_key().height_created,
-                    shard_id = %partial_witness.chunk_production_key().shard_id,
-                    part_owners_len,
-                    tag_witness_distribution = true,
-                )
-                .entered();
-
-                for (chunk_validator, partial_witness) in validator_witness_tuple {
-                    self.state.send_message_to_account(
-                        &self.clock,
-                        &chunk_validator,
-                        T1MessageBody::PartialEncodedStateWitness(partial_witness).into(),
-                    );
-                }
+                self.send_witness_to_part_owners(
+                    validator_witness_tuple,
+                    T1MessageBody::PartialEncodedStateWitness,
+                );
                 NetworkResponses::NoResponse
             }
             NetworkRequests::PartialEncodedStateWitnessForward(
                 chunk_validators,
                 partial_witness,
             ) => {
-                let _span = tracing::debug_span!(target: "network",
-                    "send partial_encoded_state_witness_forward",
-                    height = partial_witness.chunk_production_key().height_created,
-                    shard_id = %partial_witness.chunk_production_key().shard_id,
-                    part_ord = partial_witness.part_ord(),
-                    tag_witness_distribution = true,
-                )
-                .entered();
-                for chunk_validator in chunk_validators {
-                    self.state.send_message_to_account(
-                        &self.clock,
-                        &chunk_validator,
-                        T1MessageBody::PartialEncodedStateWitnessForward(partial_witness.clone())
-                            .into(),
-                    );
-                }
+                self.forward_witness_to_validators(
+                    chunk_validators,
+                    partial_witness,
+                    T1MessageBody::PartialEncodedStateWitnessForward,
+                );
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::VersionedPartialEncodedStateWitness(validator_witness_tuple) => {
+                self.send_witness_to_part_owners(
+                    validator_witness_tuple,
+                    T1MessageBody::VersionedPartialEncodedStateWitness,
+                );
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::VersionedPartialEncodedStateWitnessForward(
+                chunk_validators,
+                partial_witness,
+            ) => {
+                self.forward_witness_to_validators(
+                    chunk_validators,
+                    partial_witness,
+                    T1MessageBody::VersionedPartialEncodedStateWitnessForward,
+                );
                 NetworkResponses::NoResponse
             }
             NetworkRequests::EpochSyncRequest { peer_id } => {

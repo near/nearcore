@@ -777,6 +777,20 @@ pub(crate) static WITNESS_ACCESSED_CONTRACT_CODES_DELAY: LazyLock<HistogramVec> 
         .unwrap()
     });
 
+/// Count of V2 partial-witness validations that fell back to the CPK-based
+/// producer lookup because the DB-based lookup returned `MissingBlock`. This
+/// is expected when witnesses arrive before their parent block has been
+/// processed locally. Useful for sizing a future pending pool.
+pub(crate) static PARTIAL_WITNESS_FALLBACK_MISSING_BLOCK: LazyLock<IntCounter> = LazyLock::new(
+    || {
+        try_create_int_counter(
+            "near_partial_witness_fallback_missing_block",
+            "V2 partial witnesses whose DB producer lookup returned MissingBlock and fell back to CPK-based lookup",
+        )
+        .unwrap()
+    },
+);
+
 pub(crate) static DECODE_PARTIAL_WITNESS_ACCESSED_CONTRACTS_STATE_COUNT: LazyLock<CounterVec> =
     LazyLock::new(|| {
         try_create_counter_vec(
