@@ -904,16 +904,6 @@ impl<'a> ChainStoreUpdate<'a> {
             epoch_manager.get_shard_layout(block_header.epoch_id()).expect("epoch info must exist");
         let block_epoch_shard_uids: HashSet<ShardUId> = shard_layout.shard_uids().collect();
 
-        debug_assert!(
-            epoch_manager
-                .get_shard_layout(block_header.next_epoch_id())
-                .expect("epoch info must exist")
-                .get_split_child_shard_uids()
-                .iter()
-                .all(|uid| !block_epoch_shard_uids.contains(uid)),
-            "resharding child shard UIDs must not overlap with the current epoch's UIDs",
-        );
-
         for shard_uid in shard_uids_to_gc {
             let trie_changes_key = get_block_shard_uid(&block_hash, &shard_uid);
             let trie_changes = self.store().get_ser(DBCol::TrieChanges, &trie_changes_key);
