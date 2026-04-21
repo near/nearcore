@@ -642,9 +642,10 @@ pub unsafe fn p256_verify_32b_500() {
 /// Function to measure `p256_verify_byte`.
 #[unsafe(no_mangle)]
 pub unsafe fn p256_verify_16kib_64() {
-    // 16 KiB message. The host function charges `p256_verify_byte * message.len()`
-    // regardless of how many bytes actually participate in the cryptographic
-    // verification. This measures the linear marshalling / read overhead.
+    // 16 KiB message. Every byte participates in verification — SHA-256 hashes
+    // the whole message before the curve math — so `p256_verify_byte` is
+    // priced to cover that linear message-dependent cost (host-side
+    // marshalling plus the hash itself).
     let message = [b'a'; 16384];
 
     // Same key pair as p256_verify_32b_500.
