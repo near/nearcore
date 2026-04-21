@@ -2,6 +2,7 @@ use crate::setup::rpc::RpcFault;
 use crate::utils::sharded_rpc::{ThreeNodeHarness, TwoShardHarness, assert_rpc_error};
 use near_async::time::Duration;
 use near_jsonrpc::client::ChunkId;
+use near_jsonrpc_primitives::errors::RpcErrorKind;
 use near_jsonrpc_primitives::message::Message;
 use near_jsonrpc_primitives::types::changes::{
     RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockByTypeResponse,
@@ -526,6 +527,65 @@ fn test_rpc_block_effects_scatter_gather_retry() {
     got.sort();
     assert_eq!(got, want, "scatter-gather response must match validator baseline");
     assert!(got.contains(&alice), "retry via rpc2 should surface alice's changes; got: {got:?}",);
+}
+
+/// When every candidate for a shard fails, `run_scatter_gather` must exhaust
+/// its retries and surface an error rather than returning a partial response
+/// or hanging. Both rpc0 and rpc2 track alice's shard; faulting both leaves
+/// the coordinator with no candidate after exclusion. The per-round
+/// `one_node_per_group_of_shard` call then returns "No available host for
+/// given shard" once rpc0 and rpc2 are excluded. The log trace (rpc0 failure
+/// → retry → rpc2 failure → give-up) confirms both candidates were tried.
+#[test]
+fn test_rpc_block_effects_scatter_gather_all_nodes_fail() {
+    init_test_logger();
+    let mut h = ThreeNodeHarness::new();
+
+    let alice = h.alice.clone();
+    let zoe = h.zoe.clone();
+    let validator = h.validator.clone();
+    let rpc1 = h.rpc1.clone();
+
+    let tx = h.env.node_for_account(&validator).tx_send_money(&alice, &zoe, Balance::from_near(1));
+    let tx_hash = tx.get_hash();
+    h.env.node_for_account(&validator).submit_tx(tx);
+
+    let target_height = h.env.node_for_account(&validator).head().height + 10;
+    h.env.runner_for_account(&validator).run_until_executed_height(target_height);
+
+    let outcome =
+        h.env.node_for_account(&validator).client().chain.get_execution_outcome(&tx_hash).unwrap();
+    let block_hash = outcome.block_hash;
+
+    *h.rpc0_fault.write() = Some(RpcFault::Fail("rpc0 down".to_string()));
+    *h.rpc2_fault.write() = Some(RpcFault::Fail("rpc2 down".to_string()));
+
+    let err = h
+        .env
+        .runner_for_account(&rpc1)
+        .run_with_jsonrpc_client(
+            |client| {
+                client.block_effects(RpcStateChangesInBlockRequest {
+                    block_reference: BlockReference::BlockId(BlockId::Hash(block_hash)),
+                })
+            },
+            Duration::seconds(10),
+        )
+        .expect_err("scatter-gather must fail when no node can serve alice's shard");
+
+    // Must be an InternalError — a RequestValidationError would abort the
+    // whole request before retrying, so seeing one here would mean the retry
+    // path never ran.
+    match err.error_struct.as_ref().expect("expected error_struct") {
+        RpcErrorKind::InternalError(val) => {
+            let msg = val["info"]["error_message"].as_str().unwrap_or("");
+            assert!(
+                msg.contains("No available host"),
+                "error should reflect the exhausted pool; got: {val}",
+            );
+        }
+        other => panic!("expected InternalError, got: {other:?}"),
+    }
 }
 
 /// A `changes` request with a bogus block hash must return UNKNOWN_BLOCK.

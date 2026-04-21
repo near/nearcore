@@ -105,9 +105,10 @@ impl TwoShardHarness {
 /// - `rpc2` — tracks alice's shard; backup that answers after rpc0 is excluded.
 /// - `validator0` — tracks all shards; baseline source of truth.
 ///
-/// `rpc0` is wired with a fault handle so tests can simulate either a stale
-/// node (`RpcFault::Fail`) or a dead node (`RpcFault::Hang`) by flipping the
-/// handle before sending the scatter-gather query.
+/// Both `rpc0` and `rpc2` are wired with fault handles so tests can simulate
+/// a stale node (`RpcFault::Fail`) or a dead node (`RpcFault::Hang`) on either
+/// of alice's shard candidates. Flipping both exercises the exhaustion path
+/// where no candidate can serve the shard.
 pub(crate) struct ThreeNodeHarness {
     pub(crate) env: TestLoopEnv,
     pub(crate) alice: AccountId,
@@ -118,10 +119,10 @@ pub(crate) struct ThreeNodeHarness {
     #[allow(dead_code)]
     pub(crate) rpc2: AccountId,
     pub(crate) validator: AccountId,
-    /// Fault handle for rpc0's pool entry. Setting `Some(RpcFault::...)`
-    /// causes requests routed to rpc0 via the pool to fail (stale) or hang
-    /// (dead).
+    /// Fault handle for rpc0's pool entry.
     pub(crate) rpc0_fault: RpcFaultHandle,
+    /// Fault handle for rpc2's pool entry.
+    pub(crate) rpc2_fault: RpcFaultHandle,
 }
 
 impl ThreeNodeHarness {
@@ -180,9 +181,10 @@ impl ThreeNodeHarness {
             })
             .add_rpc_pool([rpc0.clone(), rpc1.clone(), rpc2.clone()]);
         let rpc0_fault = builder.rpc_pool_fault_handle(rpc0.clone());
+        let rpc2_fault = builder.rpc_pool_fault_handle(rpc2.clone());
         let env = builder.build();
 
-        Self { env, alice, zoe, rpc0, rpc1, rpc2, validator: validator0, rpc0_fault }
+        Self { env, alice, zoe, rpc0, rpc1, rpc2, validator: validator0, rpc0_fault, rpc2_fault }
     }
 }
 

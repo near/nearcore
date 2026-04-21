@@ -2092,7 +2092,6 @@ impl JsonRpcHandler {
         let mut merged: Vec<(Vec<ShardId>, Value)> = Vec::new();
         let mut remaining_shards = target_shards;
         let mut excluded_nodes: HashSet<usize> = HashSet::new();
-        let mut last_error: Option<RpcError> = None;
 
         while !remaining_shards.is_empty() {
             let assignments = self.pool.read().one_node_per_group_of_shard(
@@ -2100,10 +2099,6 @@ impl JsonRpcHandler {
                 &remaining_shards,
                 &excluded_nodes,
             )?;
-
-            if assignments.is_empty() {
-                break;
-            }
 
             tracing::debug!(
                 target: "jsonrpc",
@@ -2170,23 +2165,10 @@ impl JsonRpcHandler {
                         ) {
                             return Err(e);
                         }
-                        last_error = Some(e);
                         excluded_nodes.insert(node_idx);
                     }
                 }
             }
-        }
-
-        if !remaining_shards.is_empty() {
-            return Err(last_error.unwrap_or_else(|| {
-                RpcError::new_internal_error(
-                    None,
-                    format!(
-                        "scatter-gather: no nodes available for shards: {:?}",
-                        remaining_shards
-                    ),
-                )
-            }));
         }
 
         Ok(merged)
