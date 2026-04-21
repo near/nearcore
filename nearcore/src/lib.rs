@@ -10,6 +10,7 @@ use near_async::thread_pool::{
     PartialWitnessValidationThreadPool, WitnessCreationThreadPool, contract_compilation_pool,
 };
 use near_async::time::Clock;
+use near_chain::backfill_receipt_to_tx::BackfillStorage;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 pub use near_chain::runtime::NightshadeRuntime;
 use near_chain::spice_core::SpiceCoreReader;
@@ -26,6 +27,7 @@ use near_client::archive::cloud_archival_writer::{
     CloudArchivalWriterHandle, create_cloud_archival_writer,
 };
 use near_client::archive::cold_store_actor::create_cold_store_actor;
+use near_client::backfill_receipt_to_tx_actor::BackfillReceiptToTxActor;
 use near_client::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig};
 use near_client::client_actor::ShutdownReason;
 use near_client::gc_actor::GCActor;
@@ -579,6 +581,19 @@ pub async fn start_with_config_and_synchronization_impl(
         config.client_config.gc.clone(),
         storage.is_local_archive(),
     ));
+
+    if config.client_config.save_receipt_to_tx
+        && config.client_config.save_tx_outcomes
+        && config.client_config.archive
+        && config.client_config.backfill_receipt_to_tx.enabled
+    {
+        let _backfill_actor = actor_system.spawn_tokio_actor(BackfillReceiptToTxActor::new(
+            BackfillStorage::for_node(&storage),
+            config.client_config.save_trie_changes,
+            &chain_genesis,
+            config.client_config.backfill_receipt_to_tx.clone(),
+        ));
+    }
 
     let resharding_handle = ReshardingHandle::new();
     let resharding_sender = actor_system.spawn_tokio_actor(ReshardingActor::new(

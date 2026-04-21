@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.2.4"
+    "version": "1.2.5"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -3080,6 +3080,51 @@
           "public_key",
           "access_key"
         ],
+        "type": "object"
+      },
+      "BackfillReceiptToTxConfig": {
+        "description": "Configuration for the background ReceiptToTx backfill actor.",
+        "properties": {
+          "batch_delay": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DurationAsStdSchemaProvider"
+              }
+            ],
+            "default": {
+              "nanos": 0,
+              "secs": 1
+            },
+            "description": "Delay between batches."
+          },
+          "batch_size": {
+            "default": 1000,
+            "description": "Number of heights to process per batch.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "enabled": {
+            "default": false,
+            "description": "Whether the background backfill is enabled.",
+            "type": "boolean"
+          },
+          "num_threads": {
+            "default": 128,
+            "description": "Number of parallel threads for reading block data.",
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "start_height": {
+            "default": null,
+            "description": "Optional starting height for backward backfill. If set, the actor starts from this height\ninstead of chain head on first run. Useful to skip heights already covered by normal\nprocessing.",
+            "format": "uint64",
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          }
+        },
         "type": "object"
       },
       "BandwidthRequest": {
@@ -12851,6 +12896,14 @@
           "archive": {
             "description": "Not clear old data, set `true` for archive nodes.",
             "type": "boolean"
+          },
+          "backfill_receipt_to_tx": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BackfillReceiptToTxConfig"
+              }
+            ],
+            "description": "Background ReceiptToTx backfill configuration."
           },
           "block_fetch_horizon": {
             "description": "Horizon at which instead of fetching block, fetch full state.",
