@@ -34,19 +34,17 @@ enum InitializationAttempt {
     Error(CloudArchivalInitializationError),
 }
 
-/// Result of a single archiving attempt.
+/// Outcome of a single archiving attempt.
 #[derive(Debug)]
-enum CloudArchivingResult {
+enum CloudArchivingOutcome {
     /// Cloud head is at least the previous hot final head; nothing to do.
-    /// Contains the current cloud head.
-    NoDataArchived(BlockHeight),
+    Idle { cloud_head: BlockHeight },
     /// Archived a batch near the previous final head; nothing to archive until
-    /// a new batch's worth of blocks is finalized. Contains the batch_end that
-    /// was archived.
-    RecentDataArchived(BlockHeight),
+    /// a new batch's worth of blocks is finalized.
+    Recent { batch_end: BlockHeight },
     /// Archived a batch below the previous final head; more batches are
-    /// immediately available. Contains (batch_end, target_height).
-    OldDataArchived(BlockHeight, BlockHeight),
+    /// immediately available.
+    Old { batch_end: BlockHeight, target_height: BlockHeight },
 }
 
 /// Error surfaced while initializing cloud archive or writer.
@@ -198,7 +196,7 @@ impl CloudArchivalWriter {
                 }
             } else {
                 match self.try_archive_data().await {
-                    Ok(CloudArchivingResult::OldDataArchived(..)) => Duration::ZERO,
+                    Ok(CloudArchivingOutcome::Old { .. }) => Duration::ZERO,
                     _ => self.config.polling_interval,
                 }
             };
@@ -236,32 +234,32 @@ impl CloudArchivalWriter {
         }
     }
 
-    /// Tries to archive one height and logs the outcome.
-    async fn try_archive_data(&self) -> Result<CloudArchivingResult, CloudArchivingError> {
+    /// Tries to archive one batch and logs the outcome.
+    async fn try_archive_data(&self) -> Result<CloudArchivingOutcome, CloudArchivingError> {
         // TODO(cloud_archival) Add metrics
         let result = self.try_archive_data_impl().await;
 
-        let Ok(result) = result else {
+        let Ok(outcome) = result else {
             tracing::error!(target: "cloud_archival", ?result, "archiving data to cloud failed");
             return result;
         };
 
-        match result {
-            CloudArchivingResult::NoDataArchived(cloud_head) => {
+        match outcome {
+            CloudArchivingOutcome::Idle { cloud_head } => {
                 tracing::trace!(
                     target: "cloud_archival",
                     cloud_head,
                     "no data was archived - cloud archival head is up to date"
                 );
             }
-            CloudArchivingResult::RecentDataArchived(batch_end) => {
+            CloudArchivingOutcome::Recent { batch_end } => {
                 tracing::trace!(
                     target: "cloud_archival",
                     batch_end,
                     "recent batch was archived"
                 );
             }
-            CloudArchivingResult::OldDataArchived(batch_end, target_height) => {
+            CloudArchivingOutcome::Old { batch_end, target_height } => {
                 tracing::trace!(
                     target: "cloud_archival",
                     batch_end,
@@ -270,12 +268,12 @@ impl CloudArchivalWriter {
                 );
             }
         }
-        Ok(result)
+        Ok(outcome)
     }
 
     /// If the min cloud head lags the hot final head, archive the next height.
     /// Only archives components whose individual heads are behind.
-    async fn try_archive_data_impl(&self) -> Result<CloudArchivingResult, CloudArchivingError> {
+    async fn try_archive_data_impl(&self) -> Result<CloudArchivingOutcome, CloudArchivingError> {
         let min_head =
             self.get_local_cloud_min_head()?.expect("CLOUD_MIN_HEAD should exist in hot store");
         let height_to_archive = min_head + 1;
@@ -285,18 +283,21 @@ impl CloudArchivalWriter {
         // Archive only while the height to archive is below the finalized height, since
         // the next block should be finalized first (for `DBCol::NextBlockHashes`).
         if height_to_archive >= hot_final_height {
-            return Ok(CloudArchivingResult::NoDataArchived(min_head));
+            return Ok(CloudArchivingOutcome::Idle { cloud_head: min_head });
         }
 
         self.archive_lagging_components(height_to_archive).await?;
 
-        let result = if height_to_archive + 1 == hot_final_height {
-            CloudArchivingResult::RecentDataArchived(height_to_archive)
+        let outcome = if height_to_archive + 1 == hot_final_height {
+            CloudArchivingOutcome::Recent { batch_end: height_to_archive }
         } else {
-            CloudArchivingResult::OldDataArchived(height_to_archive, hot_final_height - 1)
+            CloudArchivingOutcome::Old {
+                batch_end: height_to_archive,
+                target_height: hot_final_height - 1,
+            }
         };
-        tracing::trace!(target: "cloud_archival", ?result, "ending");
-        Ok(result)
+        tracing::trace!(target: "cloud_archival", ?outcome, "ending");
+        Ok(outcome)
     }
 
     /// Archives all lagging components at the given height and advances local heads.
@@ -348,7 +349,7 @@ impl CloudArchivalWriter {
             self.cloud_storage.archive_epoch_data(&self.hot_store, shard_layout, epoch_id).await?;
         }
         self.cloud_storage
-            .archive_block_batch(&self.hot_store, &BatchRange { start: height, end: height })
+            .archive_block_batch(&self.hot_store, &BatchRange::new(height, height))
             .await?;
         self.cloud_storage.update_cloud_block_head(height).await?;
         Ok(true)
@@ -383,7 +384,7 @@ impl CloudArchivalWriter {
                     &self.hot_store,
                     self.genesis_height,
                     shard_layout,
-                    &BatchRange { start: height, end: height },
+                    &BatchRange::new(height, height),
                     *shard_uid,
                 )
                 .await?;

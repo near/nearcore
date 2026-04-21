@@ -11,9 +11,16 @@ pub enum BucketConfig {
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, PartialEq, Eq)]
 pub struct BucketConfigV1 {
     /// Zstd compression level for data blobs.
-    pub compression_level: i32,
+    compression_level: i32,
     /// Number of consecutive block heights bundled into a single batch blob.
-    pub batch_size: u32,
+    batch_size: u32,
+}
+
+impl BucketConfigV1 {
+    fn new(compression_level: i32, batch_size: u32) -> Self {
+        assert!(batch_size > 0, "batch_size must be > 0");
+        Self { compression_level, batch_size }
+    }
 }
 
 impl BucketConfig {
@@ -23,15 +30,14 @@ impl BucketConfig {
         // TODO(cloud_archival): Benchmark compression levels before releasing.
         // TODO(cloud_archival): Bump batch_size once writer batches multiple
         // heights per upload.
-        Self::V1(BucketConfigV1 { compression_level: 3, batch_size: 1 })
+        Self::V1(BucketConfigV1::new(3, 1))
     }
 
     /// Test-only constructor that overrides `batch_size`. All other fields match `canonical()`.
     #[cfg(feature = "test_features")]
     pub fn with_batch_size_for_test(batch_size: u32) -> Self {
-        let Self::V1(mut v1) = Self::canonical();
-        v1.batch_size = batch_size;
-        Self::V1(v1)
+        let canonical = Self::canonical();
+        Self::V1(BucketConfigV1::new(canonical.compression_level(), batch_size))
     }
 
     pub fn compression_level(&self) -> i32 {
@@ -78,13 +84,28 @@ mod tests {
         cloud_storage.ensure_bucket_config().await.unwrap();
     }
 
+    #[cfg(feature = "test_features")]
+    #[test]
+    fn with_batch_size_for_test_preserves_compression_level() {
+        let config = BucketConfig::with_batch_size_for_test(16);
+        assert_eq!(config.compression_level(), BucketConfig::canonical().compression_level());
+        assert_eq!(config.batch_size(), 16);
+    }
+
+    #[cfg(feature = "test_features")]
+    #[test]
+    #[should_panic(expected = "batch_size must be > 0")]
+    fn with_batch_size_for_test_panics_on_zero() {
+        let _ = BucketConfig::with_batch_size_for_test(0);
+    }
+
     #[tokio::test]
     async fn ensure_bucket_config_rejects_mismatched_config() {
         let tmp_dir = tempfile::tempdir().unwrap();
         let cloud_storage = test_cloud_storage(&tmp_dir);
 
         // Write a config with a different compression level.
-        let wrong_config = BucketConfig::V1(BucketConfigV1 { compression_level: 9, batch_size: 4 });
+        let wrong_config = BucketConfig::V1(BucketConfigV1::new(9, 4));
         let file_id = CloudStorageFileID::Config;
         let blob = borsh::to_vec(&wrong_config).unwrap();
         cloud_storage.upload(file_id, blob).await.unwrap();

@@ -18,6 +18,8 @@ pub enum CloudRetrievalError {
     DeserializeError { file_id: CloudStorageFileID, error: borsh::io::Error },
     #[error("Failed to list directory in the cloud archive: {dir}; error: {error}")]
     ListError { dir: String, error: anyhow::Error },
+    #[error("Invalid batch blob for {file_id:?}: {reason}")]
+    InvalidBatch { file_id: CloudStorageFileID, reason: String },
 }
 
 impl CloudStorage {
@@ -82,7 +84,11 @@ impl CloudStorage {
         batch_id: BatchId,
     ) -> Result<BlockBatch, CloudRetrievalError> {
         let file_id = CloudStorageFileID::BlockBatch(batch_id);
-        self.retrieve_compressed(&file_id).await
+        let batch: BlockBatch = self.retrieve_compressed(&file_id).await?;
+        batch
+            .validate_blob()
+            .map_err(|reason| CloudRetrievalError::InvalidBatch { file_id, reason })?;
+        Ok(batch)
     }
 
     pub(super) async fn retrieve_shard_batch(
@@ -91,7 +97,11 @@ impl CloudStorage {
         batch_id: BatchId,
     ) -> Result<ShardBatch, CloudRetrievalError> {
         let file_id = CloudStorageFileID::ShardBatch(shard_id, batch_id);
-        self.retrieve_compressed(&file_id).await
+        let batch: ShardBatch = self.retrieve_compressed(&file_id).await?;
+        batch
+            .validate_blob()
+            .map_err(|reason| CloudRetrievalError::InvalidBatch { file_id, reason })?;
+        Ok(batch)
     }
 
     /// Downloads, decompresses, and deserializes a file from the cloud archive.

@@ -1,5 +1,6 @@
 use crate::Store;
 use crate::adapter::StoreAdapter;
+use crate::archive::cloud_storage::file_id::BatchRange;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_primitives::Error;
 use near_primitives::block::Block;
@@ -69,29 +70,61 @@ pub struct BlockBatchV1 {
     data: Vec<BlockData>,
 }
 
-/// Builds a `BlockBatch` by reading block data for each height in [start_height, end_height].
-pub fn build_block_batch(
-    store: &Store,
-    start_height: BlockHeight,
-    end_height: BlockHeight,
-) -> Result<BlockBatch, Error> {
-    let count = (end_height - start_height + 1) as usize;
+/// Builds a `BlockBatch` by reading block data for each height in `range`.
+pub fn build_block_batch(store: &Store, range: &BatchRange) -> Result<BlockBatch, Error> {
+    let count = (range.end() - range.start() + 1) as usize;
     let mut data = Vec::with_capacity(count);
-    for height in start_height..=end_height {
+    for height in range.start()..=range.end() {
         data.push(build_block_data(store, height)?);
     }
-    Ok(BlockBatch::V1(BlockBatchV1 { start_height, end_height, data }))
+    Ok(BlockBatch::new(range.start(), range.end(), data))
 }
 
 impl BlockBatch {
-    /// Returns the block data at the given height within this batch.
+    /// Constructs a `BlockBatch`, asserting the length invariant.
+    /// Use `validate_blob` for batches deserialized from cloud storage.
+    pub fn new(start_height: BlockHeight, end_height: BlockHeight, data: Vec<BlockData>) -> Self {
+        let batch = Self::V1(BlockBatchV1 { start_height, end_height, data });
+        batch.validate_blob().expect("BlockBatch::new called with inconsistent data");
+        batch
+    }
+
+    /// Validates the length invariant: `data.len() == end_height - start_height + 1`.
+    /// Call this after deserializing a blob from cloud storage.
+    pub fn validate_blob(&self) -> Result<(), String> {
+        let Self::V1(batch) = self;
+        let expected = (batch.end_height - batch.start_height + 1) as usize;
+        if batch.data.len() != expected {
+            return Err(format!(
+                "BlockBatch data.len() {} does not match range [{}, {}]",
+                batch.data.len(),
+                batch.start_height,
+                batch.end_height,
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn start_height(&self) -> BlockHeight {
+        let BlockBatch::V1(batch) = self;
+        batch.start_height
+    }
+
+    pub fn end_height(&self) -> BlockHeight {
+        let BlockBatch::V1(batch) = self;
+        batch.end_height
+    }
+
+    /// Returns the block data at `height` within this batch. `height` must
+    /// be within the batch range — passing an out-of-range height is a
+    /// programmer error and panics.
     pub fn get_block_at_height(&self, height: BlockHeight) -> &BlockData {
         let BlockBatch::V1(batch) = self;
         assert!(
             height >= batch.start_height && height <= batch.end_height,
             "height {height} out of batch range [{}, {}]",
             batch.start_height,
-            batch.end_height
+            batch.end_height,
         );
         let index = (height - batch.start_height) as usize;
         &batch.data[index]

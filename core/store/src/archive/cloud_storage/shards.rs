@@ -7,6 +7,7 @@ use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ReceiptProof, ShardChunk};
 //use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use crate::adapter::StoreAdapter;
+use crate::archive::cloud_storage::file_id::BatchRange;
 use crate::{DBCol, KeyForStateChanges, Store};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -179,19 +180,67 @@ pub struct ShardBatchV1 {
     data: Vec<ShardData>,
 }
 
+/// Builds a `ShardBatch` by reading shard data for each height in `range`.
+pub fn build_shard_batch(
+    store: &Store,
+    genesis_height: BlockHeight,
+    shard_layout: &ShardLayout,
+    range: &BatchRange,
+    shard_uid: ShardUId,
+) -> Result<ShardBatch, Error> {
+    let count = (range.end() - range.start() + 1) as usize;
+    let mut data = Vec::with_capacity(count);
+    for height in range.start()..=range.end() {
+        data.push(build_shard_data(store, genesis_height, shard_layout, height, shard_uid)?);
+    }
+    Ok(ShardBatch::new(range.start(), range.end(), data))
+}
+
 impl ShardBatch {
+    /// Constructs a `ShardBatch`, asserting the length invariant.
+    /// Use `validate_blob` for batches deserialized from cloud storage.
     pub fn new(start_height: BlockHeight, end_height: BlockHeight, data: Vec<ShardData>) -> Self {
-        ShardBatch::V1(ShardBatchV1 { start_height, end_height, data })
+        let batch = Self::V1(ShardBatchV1 { start_height, end_height, data });
+        batch.validate_blob().expect("ShardBatch::new called with inconsistent data");
+        batch
     }
 
-    /// Returns the shard data at the given height within this batch.
+    /// Validates the length invariant: `data.len() == end_height - start_height + 1`.
+    /// Call this after deserializing a blob from cloud storage.
+    pub fn validate_blob(&self) -> Result<(), String> {
+        let Self::V1(batch) = self;
+        let expected = (batch.end_height - batch.start_height + 1) as usize;
+        if batch.data.len() != expected {
+            return Err(format!(
+                "ShardBatch data.len() {} does not match range [{}, {}]",
+                batch.data.len(),
+                batch.start_height,
+                batch.end_height,
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn start_height(&self) -> BlockHeight {
+        let ShardBatch::V1(batch) = self;
+        batch.start_height
+    }
+
+    pub fn end_height(&self) -> BlockHeight {
+        let ShardBatch::V1(batch) = self;
+        batch.end_height
+    }
+
+    /// Returns the shard data at `height` within this batch. `height` must
+    /// be within the batch range — passing an out-of-range height is a
+    /// programmer error and panics.
     pub fn get_shard_at_height(&self, height: BlockHeight) -> &ShardData {
         let ShardBatch::V1(batch) = self;
         assert!(
             height >= batch.start_height && height <= batch.end_height,
             "height {height} out of batch range [{}, {}]",
             batch.start_height,
-            batch.end_height
+            batch.end_height,
         );
         let index = (height - batch.start_height) as usize;
         &batch.data[index]
