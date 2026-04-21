@@ -12,8 +12,55 @@ use near_jsonrpc::sharded_rpc::ShardedRpcPool;
 use near_jsonrpc::{PeerManagerSenderForRpc, RpcConfig, create_jsonrpc_app};
 use near_jsonrpc_primitives::types::entity_debug::DummyEntityDebugHandler;
 use parking_lot::RwLock;
+use std::future::pending;
 use std::sync::Arc;
 use tower_service::Service;
+
+/// Simulated fault mode for an RPC peer.
+#[derive(Clone, Debug)]
+pub(crate) enum RpcFault {
+    /// Return `Err(msg)` immediately — simulates a node that's up but
+    /// can't serve the query (e.g. stale, behind on sync).
+    Fail(String),
+    /// Never resolve — simulates a dead / unreachable node. The
+    /// coordinator's per-peer timeout must fire to recover.
+    Hang,
+}
+
+/// Shared handle used by tests to inject faults into a node's inbound RPC.
+pub(crate) type RpcFaultHandle = Arc<RwLock<Option<RpcFault>>>;
+
+/// RpcTransport decorator that injects failures based on a shared handle.
+/// Wraps another transport so callers see a configurable error without
+/// touching the destination node.
+pub(crate) struct FaultyRpcTransport {
+    inner: Arc<dyn RpcTransport>,
+    fault: RpcFaultHandle,
+}
+
+impl FaultyRpcTransport {
+    pub(crate) fn new(inner: Arc<dyn RpcTransport>, fault: RpcFaultHandle) -> Self {
+        Self { inner, fault }
+    }
+}
+
+impl RpcTransport for FaultyRpcTransport {
+    fn send_http_request(
+        &self,
+        endpoint: &str,
+        body: Vec<u8>,
+        response_size_limit: usize,
+        extra_headers: &[(&str, &str)],
+    ) -> BoxFuture<'static, Result<(StatusCode, Vec<u8>), String>> {
+        match self.fault.read().clone() {
+            Some(RpcFault::Fail(msg)) => Box::pin(async move { Err(msg) }),
+            Some(RpcFault::Hang) => Box::pin(pending()),
+            None => {
+                self.inner.send_http_request(endpoint, body, response_size_limit, extra_headers)
+            }
+        }
+    }
+}
 
 /// In-process transport that routes requests through an axum Router.
 /// Used in TestLoop instead of standard network connections.

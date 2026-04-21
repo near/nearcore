@@ -1,4 +1,5 @@
-use crate::utils::sharded_rpc::{TwoShardHarness, assert_rpc_error};
+use crate::setup::rpc::RpcFault;
+use crate::utils::sharded_rpc::{ThreeNodeHarness, TwoShardHarness, assert_rpc_error};
 use near_async::time::Duration;
 use near_jsonrpc::client::ChunkId;
 use near_jsonrpc_primitives::message::Message;
@@ -427,6 +428,104 @@ fn test_rpc_block_effects_bogus_block_hash() {
         )
         .unwrap_err();
     assert_rpc_error(&err, "UNKNOWN_BLOCK");
+}
+
+/// Drive a scatter-gather `block_effects` from rpc1 with rpc0 faulted out, and
+/// assert the response matches the validator's (full, baseline) response.
+///
+/// When the first-picked remote for a shard is unresponsive, `run_scatter_gather`
+/// must exclude it on the per-peer timeout and retry via a backup node. rpc0's
+/// transport is wired to hang, so the coordinator's 10s per-peer timeout fires
+/// and the retry picks rpc2. Both failure modes drive the same retry path; this
+/// test covers the timeout branch.
+///
+/// Same retry path, but rpc0 fails immediately with an internal error
+/// (simulating a stale node) rather than timing out. The retry loop must still
+/// fall back to rpc2.
+#[test]
+fn test_rpc_block_effects_scatter_gather_retry() {
+    init_test_logger();
+    let mut h = ThreeNodeHarness::new();
+
+    let alice = h.alice.clone();
+    let zoe = h.zoe.clone();
+    let validator = h.validator.clone();
+    let rpc1 = h.rpc1.clone();
+
+    let tx = h.env.node_for_account(&validator).tx_send_money(&alice, &zoe, Balance::from_near(1));
+    let tx_hash = tx.get_hash();
+    h.env.node_for_account(&validator).submit_tx(tx);
+
+    let target_height = h.env.node_for_account(&validator).head().height + 10;
+    h.env.runner_for_account(&validator).run_until_executed_height(target_height);
+
+    let outcome =
+        h.env.node_for_account(&validator).client().chain.get_execution_outcome(&tx_hash).unwrap();
+    let block_hash = outcome.block_hash;
+
+    // Baseline: validator tracks all shards so one call returns the full picture.
+    let baseline = h
+        .env
+        .runner_for_account(&validator)
+        .run_with_jsonrpc_client(
+            |client| {
+                client.block_effects(RpcStateChangesInBlockRequest {
+                    block_reference: BlockReference::BlockId(BlockId::Hash(block_hash)),
+                })
+            },
+            Duration::seconds(5),
+        )
+        .expect("baseline block_effects query on validator");
+    let mut want: Vec<_> = baseline.changes.iter().map(|c| c.account_id().clone()).collect();
+    want.sort();
+
+    // Case 1: rpc0 hangs, triggers per-peer timeout and retry via rpc2.
+    let fault = RpcFault::Hang;
+    let budget = Duration::seconds(30);
+    *h.rpc0_fault.write() = Some(fault);
+
+    let result = h
+        .env
+        .runner_for_account(&rpc1)
+        .run_with_jsonrpc_client(
+            |client| {
+                client.block_effects(RpcStateChangesInBlockRequest {
+                    block_reference: BlockReference::BlockId(BlockId::Hash(block_hash)),
+                })
+            },
+            budget,
+        )
+        .expect("scatter-gather should succeed via rpc2 after rpc0 is excluded");
+
+    assert_eq!(result.block_hash, baseline.block_hash);
+    let mut got: Vec<_> = result.changes.iter().map(|c| c.account_id().clone()).collect();
+    got.sort();
+    assert_eq!(got, want, "scatter-gather response must match validator baseline");
+    assert!(got.contains(&alice), "retry via rpc2 should surface alice's changes; got: {got:?}",);
+
+    // Case 2: rpc0 fails immediately. The retry loop must still exclude rpc0 and succeed via rpc2 within the budget.
+    let fault = RpcFault::Fail("stale rpc0".to_string());
+    let budget = Duration::seconds(10);
+    *h.rpc0_fault.write() = Some(fault);
+
+    let result = h
+        .env
+        .runner_for_account(&rpc1)
+        .run_with_jsonrpc_client(
+            |client| {
+                client.block_effects(RpcStateChangesInBlockRequest {
+                    block_reference: BlockReference::BlockId(BlockId::Hash(block_hash)),
+                })
+            },
+            budget,
+        )
+        .expect("scatter-gather should succeed via rpc2 after rpc0 is excluded");
+
+    assert_eq!(result.block_hash, baseline.block_hash);
+    let mut got: Vec<_> = result.changes.iter().map(|c| c.account_id().clone()).collect();
+    got.sort();
+    assert_eq!(got, want, "scatter-gather response must match validator baseline");
+    assert!(got.contains(&alice), "retry via rpc2 should surface alice's changes; got: {got:?}",);
 }
 
 /// A `changes` request with a bogus block hash must return UNKNOWN_BLOCK.
