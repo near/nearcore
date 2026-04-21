@@ -68,16 +68,16 @@ impl CloudStorage {
         Ok(epoch_data)
     }
 
-    /// Fetches the full block batch containing `block_height`. Callers that
-    /// only need a single height should still go through this so a loop over
-    /// consecutive heights can reuse the batch instead of re-fetching it.
+    /// Fetches the full block batch containing `block_height`. There is no
+    /// single-block fetch on purpose, so callers cannot accidentally call one
+    /// in a loop over consecutive heights.
     pub fn get_block_batch_for_height(&self, block_height: BlockHeight) -> Result<BlockBatch> {
         let batch_id = compute_batch_id(block_height, self.batch_size());
         block_on_future(self.retrieve_block_batch(batch_id)).map_err(Error::other)
     }
 
     /// Fetches the full shard batch containing `block_height`. See
-    /// `get_block_batch_for_height` for the rationale.
+    /// `get_block_batch_for_height`.
     pub fn get_shard_batch_for_height(
         &self,
         block_height: BlockHeight,

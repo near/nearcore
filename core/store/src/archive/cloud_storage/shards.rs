@@ -206,7 +206,8 @@ impl ShardBatch {
     }
 
     /// Validates the length invariant: `data.len() == end_height - start_height + 1`.
-    /// Call this after deserializing a blob from cloud storage.
+    /// Returns a human-readable reason on mismatch. Call after deserializing
+    /// a blob from cloud storage.
     pub fn validate_blob(&self) -> Result<(), String> {
         let Self::V1(batch) = self;
         let expected = (batch.end_height - batch.start_height + 1) as usize;
