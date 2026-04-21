@@ -1446,20 +1446,46 @@ fn test_rpc_changes_scatter_gather() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
 
-    // Submit a transfer so alice has state changes.
     let alice = h.alice.clone();
     let zoe = h.zoe.clone();
     let validator = h.validator.clone();
-    let tx = h.env.node_for_account(&validator).tx_send_money(&alice, &zoe, Balance::from_near(1));
-    let tx_hash = tx.get_hash();
-    h.env.node_for_account(&validator).submit_tx(tx);
+
+    // Submit two independent TXs before running any blocks: alice → validator and
+    // zoe → validator. Both are on different shards, so their TX executions (which
+    // produce the sender-side AccountChanges) will land in chunks of the same block.
+    let tx_alice =
+        h.env.node_for_account(&validator).tx_send_money(&alice, &validator, Balance::from_near(1));
+    let tx_zoe =
+        h.env.node_for_account(&validator).tx_send_money(&zoe, &validator, Balance::from_near(1));
+    let tx_alice_hash = tx_alice.get_hash();
+    let tx_zoe_hash = tx_zoe.get_hash();
+    h.env.node_for_account(&validator).submit_tx(tx_alice);
+    h.env.node_for_account(&validator).submit_tx(tx_zoe);
 
     let target_height = h.env.node_for_account(&validator).head().height + 10;
     h.env.runner_for_account(&validator).run_until_executed_height(target_height);
 
-    let outcome =
-        h.env.node_for_account(&validator).client().chain.get_execution_outcome(&tx_hash).unwrap();
-    let block_hash = outcome.block_hash;
+    let alice_outcome = h
+        .env
+        .node_for_account(&validator)
+        .client()
+        .chain
+        .get_execution_outcome(&tx_alice_hash)
+        .unwrap();
+    let zoe_outcome = h
+        .env
+        .node_for_account(&validator)
+        .client()
+        .chain
+        .get_execution_outcome(&tx_zoe_hash)
+        .unwrap();
+
+    // Both TXs are on different shards, so they execute in chunks of the same block.
+    let block_hash = alice_outcome.block_hash;
+    assert_eq!(
+        alice_outcome.block_hash, zoe_outcome.block_hash,
+        "alice and zoe TXs should execute in the same block"
+    );
 
     let alice_node = h.alice_node.clone();
     let zoe_node = h.zoe_node.clone();
@@ -1511,6 +1537,22 @@ fn test_rpc_changes_scatter_gather() {
     assert!(
         accounts_changed.contains(&alice),
         "zoe_node (cross-shard): missing alice's changes, got: {accounts_changed:?}",
+    );
+
+    // Cross-shard merge: query alice AND zoe together from zoe_node in a single request.
+    // This exercises the scatter-gather split-by-shard path: the coordinator sends
+    // alice's shard query to alice_node and zoe's shard query to zoe_node (local),
+    // then merges both results.
+    let result = send_changes_request(&mut h, &zoe_node, vec![alice.clone(), zoe.clone()]);
+    let accounts_changed: Vec<_> =
+        result.changes.iter().map(|c| c.value.account_id().clone()).collect();
+    assert!(
+        accounts_changed.contains(&alice),
+        "zoe_node (cross-shard merge): missing alice's changes, got: {accounts_changed:?}",
+    );
+    assert!(
+        accounts_changed.contains(&zoe),
+        "zoe_node (cross-shard merge): missing zoe's changes, got: {accounts_changed:?}",
     );
 }
 
