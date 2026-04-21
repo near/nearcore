@@ -93,10 +93,10 @@ pub trait RpcTransport: Send + Sync {
 
             let msg: Message =
                 near_jsonrpc_primitives::message::from_slice(&bytes).map_err(|err| {
-                    RpcError::parse_error(format!(
-                        "parsing jsonrpc response message failed: {:?}",
-                        err
-                    ))
+                    RpcError::new_internal_error(
+                        None,
+                        format!("parsing jsonrpc response message failed: {:?}", err),
+                    )
                 })?;
             Ok(msg)
         })

@@ -1550,9 +1550,10 @@ impl JsonRpcHandler {
 
                 match message {
                     Message::Response(resp) => resp.result,
-                    _ => {
-                        Err(RpcError::parse_error("failed to parse JSON RPC response".to_string()))
-                    }
+                    _ => Err(RpcError::new_internal_error(
+                        None,
+                        "failed to parse JSON RPC response".to_string(),
+                    )),
                 }
             }
             RpcNodeHandle::LocalNode => {
