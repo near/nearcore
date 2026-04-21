@@ -314,8 +314,9 @@ pub enum HostError {
     Ed25519VerifyInvalidInput {
         msg: String,
     },
-    /// Invalid input to p256 signature verification function (e.g. signature cannot be
-    /// derived from bytes).
+    /// Input length mismatch for p256 signature verification (signature is not 64
+    /// bytes or public key is not 33 bytes). Parse failures of otherwise
+    /// well-sized inputs return 0 from the host function instead of aborting.
     P256VerifyInvalidInput {
         msg: String,
     },

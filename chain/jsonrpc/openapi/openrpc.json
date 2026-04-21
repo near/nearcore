@@ -5828,7 +5828,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Invalid input to p256 signature verification function (e.g. signature cannot be\nderived from bytes).",
+            "description": "Input length mismatch for p256 signature verification (signature is not 64\nbytes or public key is not 33 bytes). Parse failures of otherwise\nwell-sized inputs return 0 from the host function instead of aborting.",
             "properties": {
               "P256VerifyInvalidInput": {
                 "properties": {
