@@ -21,6 +21,7 @@ arc-swap.workspace = true
 borsh.workspace = true
 bytes.workspace = true
 bytesize.workspace = true
+dashmap.workspace = true
 enum-map.workspace = true
 futures-util.workspace = true
 futures.workspace = true

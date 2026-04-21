@@ -829,3 +829,13 @@ pub(crate) static SPICE_BLOCK_PRODUCTION_DELAY_MS: LazyLock<IntGauge> = LazyLock
     )
     .unwrap()
 });
+
+pub static SPICE_INVALID_CHUNK_REPLACED_WITH_EMPTY_TOTAL: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "near_spice_invalid_chunk_replaced_with_empty_total",
+            "Number of invalid chunks replaced with empty chunks under SPICE",
+            &["shard_id"],
+        )
+        .unwrap()
+    });

@@ -212,7 +212,7 @@ impl CacheEntry {
                     WitnessPartsState::Decoded { decode_result, decoded_at: Instant::now() };
                 metrics::DECODE_PARTIAL_WITNESS_ACCESSED_CONTRACTS_STATE_COUNT
                     .with_label_values(&[
-                        &self.shard_id.to_string(),
+                        self.shard_id.to_string().as_str(),
                         self.accessed_contracts.metrics_label(),
                     ])
                     .inc();

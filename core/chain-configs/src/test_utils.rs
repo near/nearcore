@@ -247,6 +247,7 @@ pub struct TestClientConfigParams {
     pub num_block_producer_seats: NumSeats,
     pub archive: bool,
     pub state_sync_enabled: bool,
+    pub transaction_pool_size_limit: Option<u64>,
 }
 
 impl ClientConfig {
@@ -258,6 +259,7 @@ impl ClientConfig {
             num_block_producer_seats,
             archive,
             state_sync_enabled,
+            transaction_pool_size_limit,
         } = params;
 
         ClientConfig {
@@ -322,7 +324,7 @@ impl ClientConfig {
             state_sync_enabled,
             state_sync: StateSyncConfig::default(),
             epoch_sync: EpochSyncConfig::default(),
-            transaction_pool_size_limit: None,
+            transaction_pool_size_limit,
             transaction_pool_strict_nonce_ttl_blocks:
                 default_transaction_pool_strict_nonce_ttl_blocks(),
             enable_multiline_logging: false,

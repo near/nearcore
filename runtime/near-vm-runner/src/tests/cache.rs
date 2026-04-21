@@ -288,6 +288,65 @@ fn test_wasmtime_artifact_output_stability() {
     // can be adjusted.
 }
 
+#[cfg(feature = "wasmtime_vm")]
+fn sparse_wasm_contract() -> Vec<u8> {
+    // A tiny contract declaring 1 MiB of linear memory with data bytes at
+    // the extremes. Without segment-by-segment initialization, the dense
+    // image would blow the compiled artifact up by ~1 MiB.
+    near_test_contracts::wat_contract(
+        r#"(module
+            (memory (export "memory") 16 32)
+            (func (export "main"))
+            (data (i32.const 0) "\01")
+            (data (i32.const 1048575) "\01")
+        )"#,
+    )
+}
+
+#[test]
+#[cfg(feature = "wasmtime_vm")]
+fn test_wasmtime_sparse_contract_compiled_size() {
+    use crate::wasmtime_runner::WasmtimeVM;
+    let contract = ContractCode::new(sparse_wasm_contract(), None);
+    let config = test_vm_config(Some(VMKind::Wasmtime));
+    let vm = WasmtimeVM::new_for_target(Arc::new(config), None).unwrap();
+    let serialized = vm.compile_uncached(&contract).unwrap();
+    assert!(
+        serialized.len() < 500_000,
+        "sparse contract compiled to {} bytes; check memory_guaranteed_dense_image_size",
+        serialized.len(),
+    );
+}
+
+#[test]
+#[cfg(all(feature = "wasmtime_vm", target_arch = "x86_64"))]
+fn test_wasmtime_sparse_contract_stability() {
+    use crate::prepare;
+    use crate::wasmtime_runner::WasmtimeVM;
+    // Companion to `test_wasmtime_artifact_output_stability`: exercises the
+    // sparse-data-segment case that `arbitrary_contract` does not cover.
+    // See comments on that test for how to update these hashes.
+    let expected_prepared_hash: u64 = 16694328674582109973;
+    let expected_compiled_hash: u64 = 8543849532946659263;
+
+    let contract = ContractCode::new(sparse_wasm_contract(), None);
+    let config = test_vm_config(Some(VMKind::Wasmtime));
+    let prepared_code =
+        prepare::prepare_contract(contract.code(), &config, VMKind::Wasmtime).unwrap();
+    let prepared_hash = crate::utils::stable_hash((&contract.code(), &prepared_code));
+    let vm =
+        WasmtimeVM::new_for_target(Arc::new(config), Some("x86_64-unknown-none".into())).unwrap();
+    let serialized = vm.compile_uncached(&contract).unwrap();
+    let compiled_hash = crate::utils::stable_hash(&serialized);
+
+    assert!(
+        prepared_hash == expected_prepared_hash && compiled_hash == expected_compiled_hash,
+        "let expected_prepared_hash: u64 = {};\nlet expected_compiled_hash: u64 = {};",
+        prepared_hash,
+        compiled_hash
+    );
+}
+
 /// [`ContractRuntimeCache`] which simulates failures in the underlying
 /// database.
 #[derive(Default, Clone)]
