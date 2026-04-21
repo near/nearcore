@@ -923,12 +923,11 @@ impl<'a> ChainStoreUpdate<'a> {
             };
             match gc_mode.clone() {
                 GCMode::Fork(tries) => {
-                    // If the block is on a fork, we delete the state that's the result of applying this block.
-                    // For resharding entries (next-epoch child shard UIDs) the
-                    // insertions were applied under the parent shard UID
-                    // prefix, so resolve the mapping before reverting to avoid
-                    // underflowing the child prefix and leaking the parent's
-                    // refcounts.
+                    // If the block is on a fork, delete the state that was inserted when
+                    // applying this block. For resharding entries (next-epoch child shard UIDs),
+                    // the insertions were applied under the parent shard UID prefix, so resolve
+                    // the mapping before reverting to avoid underflowing the child prefix and
+                    // leaking the parent's refcounts.
                     let revert_shard_uid = if block_epoch_shard_uids.contains(&shard_uid) {
                         shard_uid
                     } else {
