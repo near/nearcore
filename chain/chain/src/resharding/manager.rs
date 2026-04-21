@@ -135,15 +135,17 @@ impl ReshardingManager {
             return Ok(Default::default());
         }
 
-        // Reshard the State column by setting ShardUId mapping from children to ancestor.
-        self.set_state_shard_uid_mapping(&split_shard_event, &tracked_children_shards);
-
         // Create temporary children memtries by freezing parent memtrie and referencing it.
+        // The child ShardUId mapping, ChunkExtra, trie nodes, and state transition data
+        // are all staged into a single store update so they commit atomically; committing
+        // the mapping separately and then crashing (e.g. OOM during retain_split_shard)
+        // would leave orphaned mappings that no existing recovery path repairs.
         let trie_changes = self.process_memtrie_resharding_storage_update(
             chain_store_update,
             block,
             tries,
             &split_shard_event,
+            &tracked_children_shards,
             allow_resharding_without_memtries,
         )?;
 
@@ -154,23 +156,6 @@ impl ReshardingManager {
         Ok(trie_changes)
     }
 
-    /// Store in the database the mapping of ShardUId from children to the parent shard,
-    /// so that subsequent accesses to the State will use the ancestor's ShardUId prefix
-    /// as a prefix for the database key.
-    fn set_state_shard_uid_mapping(
-        &self,
-        split_shard_event: &ReshardingSplitShardParams,
-        tracked_children: &[ShardUId],
-    ) {
-        let mut store_update = self.store.trie_store().store_update();
-        let parent_shard_uid = split_shard_event.parent_shard;
-        let parent_shard_uid_prefix = get_shard_uid_mapping(&self.store, parent_shard_uid);
-        for &child_shard_uid in tracked_children {
-            store_update.set_shard_uid_mapping(child_shard_uid, parent_shard_uid_prefix);
-        }
-        store_update.commit();
-    }
-
     /// Creates temporary memtries for new shards to be able to process them in the next epoch.
     /// Note this doesn't complete memtries resharding, proper memtries are to be created later.
     fn process_memtrie_resharding_storage_update(
@@ -179,6 +164,7 @@ impl ReshardingManager {
         block: &Block,
         tries: ShardTries,
         split_shard_event: &ReshardingSplitShardParams,
+        tracked_children: &[ShardUId],
         allow_resharding_without_memtries: bool,
     ) -> Result<SplitShardTrieChanges, Error> {
         let block_hash = block.hash();
@@ -198,6 +184,14 @@ impl ReshardingManager {
         let parent_chunk_extra =
             self.store.chunk_store().get_chunk_extra(block_hash, parent_shard_uid)?;
         let mut store_update = self.store.trie_store().store_update();
+
+        // Reshard the State column by setting the ShardUId mapping from children to
+        // ancestor. Staged here — not committed separately — so the mapping lands in
+        // the same atomic batch as the child ChunkExtra and trie nodes written below.
+        let parent_shard_uid_prefix = get_shard_uid_mapping(&self.store, *parent_shard_uid);
+        for &child_shard_uid in tracked_children {
+            store_update.set_shard_uid_mapping(child_shard_uid, parent_shard_uid_prefix);
+        }
 
         let mut split_shard_trie_changes = SplitShardTrieChanges::default();
 
