@@ -41,6 +41,8 @@ mod prepare_error {
                 From::TooManyBlocksPerFunction => Self::TooManyBlocksPerFunction,
                 From::TooManyBlocksPerContract => Self::TooManyBlocksPerContract,
                 From::TooManyTypes => Self::TooManyTypes,
+                From::TooManyParamsPerFunction => Self::TooManyParamsPerFunction,
+                From::TooManyParamsPerContract => Self::TooManyParamsPerContract,
             }
         }
     }

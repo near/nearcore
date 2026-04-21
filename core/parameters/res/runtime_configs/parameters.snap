@@ -232,6 +232,8 @@ max_instrumented_code_size                        16_777_216
 max_blocks_per_function                                5_000
 max_blocks_per_contract                               50_000
 max_types_per_contract                                 1_024
+max_params_per_function                                   64
+max_params_per_contract                               50_000
 flat_storage_reads                      true
 fix_contract_loading_cost               false
 vm_kind                                 Wasmtime
