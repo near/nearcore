@@ -8,10 +8,10 @@ use p256::ecdsa::SigningKey;
 use p256::ecdsa::signature::Signer;
 use std::collections::HashMap;
 
-/// Deterministic key-pair plus arbitrary 32-byte message. Signing keys are not
-/// deterministic with respect to the signature produced (ECDSA uses a random
-/// nonce), so we sign once per call. The signature and public key it returns
-/// are what the test relies on.
+/// Deterministic key-pair plus arbitrary 32-byte message. RustCrypto's `p256`
+/// uses deterministic RFC6979 nonces by default, so calling `sign` on the same
+/// key/message produces the same signature every time; we rely on that for
+/// reproducibility.
 fn p256_test_vectors() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
     let secret_key: [u8; 32] = [
         0xc9, 0xaf, 0xa9, 0xd8, 0x45, 0xba, 0x75, 0x16, 0x6b, 0x5c, 0x21, 0x57, 0x67, 0xb1, 0xd6,
