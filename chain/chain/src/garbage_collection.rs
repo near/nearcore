@@ -20,7 +20,7 @@ use near_primitives::utils::{
     get_uncertified_execution_results_key, index_to_bytes,
 };
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
-use near_store::adapter::trie_store::get_shard_uid_mapping;
+use near_store::adapter::trie_store::maybe_get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{DBCol, KeyForStateChanges, ShardTries, ShardUId};
 use std::collections::{HashMap, HashSet};
@@ -915,15 +915,15 @@ impl<'a> ChainStoreUpdate<'a> {
                 GCMode::Fork(tries) => {
                     // If the block is on a fork, delete the state that was inserted when
                     // applying this block. For resharding entries (next-epoch child shard UIDs),
-                    // the insertions were applied under the parent shard UID prefix, so resolve
-                    // the mapping before reverting to avoid underflow of the child prefix and
-                    // leaking the parent's refcounts.
-                    let revert_shard_uid = if block_epoch_shard_uids.contains(&shard_uid) {
-                        shard_uid
-                    } else {
-                        get_shard_uid_mapping(&self.store(), shard_uid)
-                    };
-                    tries.revert_insertions(&trie_changes, revert_shard_uid, store_update);
+                    // the insertions were applied under the parent shard UID prefix; revert
+                    // under the mapped (parent) UID.
+                    if block_epoch_shard_uids.contains(&shard_uid) {
+                        tries.revert_insertions(&trie_changes, shard_uid, store_update);
+                    } else if let Some(mapped_uid) =
+                        maybe_get_shard_uid_mapping(&self.store(), shard_uid)
+                    {
+                        tries.revert_insertions(&trie_changes, mapped_uid, store_update);
+                    }
                 }
                 GCMode::Canonical(tries) => {
                     // If the block is on canonical chain, we delete the state that's before applying this block
@@ -1374,8 +1374,8 @@ fn gc_parent_shard_after_resharding(
         let children_shards =
             shard_layout.get_children_shards_uids(parent_shard_uid.shard_id()).unwrap();
         let has_active_mapping = children_shards.into_iter().any(|child_shard_uid| {
-            let mapped_shard_uid = get_shard_uid_mapping(&store, child_shard_uid);
-            mapped_shard_uid == parent_shard_uid && mapped_shard_uid != child_shard_uid
+            let mapped_shard_uid = maybe_get_shard_uid_mapping(&store, child_shard_uid);
+            mapped_shard_uid.as_ref() == Some(&parent_shard_uid)
         });
         if !has_active_mapping {
             // Delete the state of the parent shard
