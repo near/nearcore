@@ -1636,7 +1636,7 @@ fn test_rpc_changes_single_access_key_scatter_gather() {
         block_reference: BlockReference::BlockId(BlockId::Hash(block_hash)),
         state_changes_request: StateChangesRequestView::SingleAccessKeyChanges {
             keys: vec![near_primitives::types::AccountWithPublicKey {
-                account_id: alice.clone(),
+                account_id: alice,
                 public_key: signer.public_key(),
             }],
         },
