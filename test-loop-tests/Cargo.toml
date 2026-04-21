@@ -15,6 +15,7 @@ workspace = true
 assert_matches.workspace = true
 aurora-engine-transactions.workspace = true
 aurora-engine-types.workspace = true
+base64.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
 derive_builder.workspace = true
@@ -35,7 +36,6 @@ tempfile.workspace = true
 tokio.workspace = true
 tower-service.workspace = true
 tracing.workspace = true
-wat.workspace = true
 
 near-async.workspace = true
 near-chain.workspace = true

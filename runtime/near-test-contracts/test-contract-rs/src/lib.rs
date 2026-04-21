@@ -212,6 +212,18 @@ extern "C" {
     fn alt_bn128_g1_sum(value_len: u64, value_ptr: u64, register_id: u64);
     #[cfg(feature = "latest_protocol")]
     fn alt_bn128_pairing_check(value_len: u64, value_ptr: u64) -> u64;
+    // ##############
+    // # p256 API   #
+    // ##############
+    #[cfg(feature = "latest_protocol")]
+    fn p256_verify(
+        signature_len: u64,
+        signature_ptr: u64,
+        message_len: u64,
+        message_ptr: u64,
+        public_key_len: u64,
+        public_key_ptr: u64,
+    ) -> u64;
 
     #[cfg(feature = "test_features")]
     fn sleep_nanos(nanos: u64);
@@ -757,6 +769,34 @@ fn log_u64(msg: u64) {
 pub fn from_base64(s: &str) -> Vec<u8> {
     let engine = &base64::engine::general_purpose::STANDARD;
     base64::Engine::decode(engine, s).unwrap()
+}
+
+/// Invoke `p256_verify` with inputs supplied as base64-encoded JSON
+/// `{"signature": ..., "message": ..., "public_key": ...}`, and return the
+/// host function's `u64` result as an 8-byte little-endian value.
+#[cfg(feature = "latest_protocol")]
+#[unsafe(no_mangle)]
+pub unsafe fn ext_p256_verify() {
+    input(0);
+    let data = vec![0u8; register_len(0) as usize];
+    read_register(0, data.as_ptr() as u64);
+    let args: serde_json::Value = serde_json::from_slice(&data).unwrap();
+
+    let signature = from_base64(args["signature"].as_str().unwrap());
+    let message = from_base64(args["message"].as_str().unwrap());
+    let public_key = from_base64(args["public_key"].as_str().unwrap());
+
+    let result = p256_verify(
+        signature.len() as u64,
+        signature.as_ptr() as u64,
+        message.len() as u64,
+        message.as_ptr() as u64,
+        public_key.len() as u64,
+        public_key.as_ptr() as u64,
+    );
+
+    let bytes = result.to_le_bytes();
+    value_return(bytes.len() as u64, bytes.as_ptr() as u64);
 }
 
 /// Delay completion of the receipt for as long as possible through self cross-contract calls.
