@@ -1,11 +1,5 @@
 # Changelog
 
-## [unreleased]
-
-### Protocol Changes
-* New opt-in strict nonce mode for transactions added in nightly. When enabled, each transaction must use a nonce exactly equal to the previous nonce for that access key plus one; nonces that repeat or skip values are rejected. ([#15361](https://github.com/near/nearcore/pull/15361), [#15402](https://github.com/near/nearcore/pull/15402))
-* Ensure delegate action returns the correct error consistently. ([#15458](https://github.com/near/nearcore/pull/15458))
-
 ## [2.12.0]
 
 ### Protocol Changes
