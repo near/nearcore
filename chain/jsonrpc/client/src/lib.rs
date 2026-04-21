@@ -4,7 +4,7 @@ use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::Message;
 use near_jsonrpc_primitives::types::changes::{
     RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockByTypeResponse,
-    RpcStateChangesInBlockRequest,
+    RpcStateChangesInBlockRequest, RpcStateChangesInBlockResponse,
 };
 use near_jsonrpc_primitives::types::receipts::{
     RpcReceiptRequest, RpcReceiptResponse, RpcReceiptToTxRequest, RpcReceiptToTxResponse,
@@ -303,15 +303,14 @@ impl JsonRpcClient {
     pub fn EXPERIMENTAL_changes(
         &self,
         request: RpcStateChangesInBlockByTypeRequest,
-    ) -> RpcRequest<RpcStateChangesInBlockByTypeResponse> {
+    ) -> RpcRequest<RpcStateChangesInBlockResponse> {
         call_method(&self.transport, "EXPERIMENTAL_changes", request)
     }
 
-    #[allow(non_snake_case)]
     pub fn changes(
         &self,
         request: RpcStateChangesInBlockByTypeRequest,
-    ) -> RpcRequest<RpcStateChangesInBlockByTypeResponse> {
+    ) -> RpcRequest<RpcStateChangesInBlockResponse> {
         call_method(&self.transport, "changes", request)
     }
 
