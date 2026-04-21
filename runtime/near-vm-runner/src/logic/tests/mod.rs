@@ -8,6 +8,7 @@ mod iterators;
 mod logs;
 mod miscs;
 mod p256_verify;
+mod p256_verify_wycheproof;
 mod promises;
 mod registers;
 mod storage_read_write;
