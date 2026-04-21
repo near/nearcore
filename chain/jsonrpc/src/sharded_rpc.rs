@@ -372,7 +372,7 @@ impl ShardedRpcPool {
     /// needed per node.
     ///
     /// Prefers the local node (index 0) when it tracks a shard. Falls back to
-    /// the first non-excluded remote node. Returns Error if targetshards cannot be
+    /// the first non-excluded remote node. Returns Error if target_shards cannot be
     /// covered by non-excluded nodes.
     pub fn one_node_per_group_of_shard(
         &self,
