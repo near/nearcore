@@ -9,7 +9,7 @@
 ## [2.12.0]
 
 ### Protocol Changes
-* The contract runtime has been upgraded to use the new Wasmtime-based runtime;
+* The contract runtime has been upgraded to use the new Wasmtime-based runtime.
 * The contract runtime now allows for bulk memory instructions in Wasm code.
 
 ### Non-protocol Changes
