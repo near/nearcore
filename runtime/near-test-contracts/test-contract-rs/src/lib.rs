@@ -99,6 +99,12 @@ extern "C" {
         account_id_len: u64,
         account_id_ptr: u64,
     );
+    fn promise_batch_action_state_init_by_account_id(
+        promise_idx: u64,
+        account_id_len: u64,
+        account_id_ptr: u64,
+        amount_ptr: u64,
+    ) -> u64;
     fn promise_batch_action_function_call(
         promise_index: u64,
         method_name_len: u64,
@@ -969,6 +975,17 @@ fn call_promise() {
                     promise_index,
                     beneficiary_id.len() as u64,
                     beneficiary_id.as_ptr() as u64,
+                );
+                promise_index
+            } else if let Some(action) = arg.get("action_state_init_by_account_id") {
+                let promise_index = action["promise_index"].as_i64().unwrap() as u64;
+                let account_id = action["account_id"].as_str().unwrap().as_bytes();
+                let amount = action["amount"].as_str().unwrap().parse::<u128>().unwrap();
+                let _action_index = promise_batch_action_state_init_by_account_id(
+                    promise_index,
+                    account_id.len() as u64,
+                    account_id.as_ptr() as u64,
+                    &amount as *const u128 as *const u64 as u64,
                 );
                 promise_index
             } else if let Some(action) = arg.get("action_add_gas_key_with_full_access") {

@@ -494,8 +494,14 @@ impl Client {
         Ok(())
     }
 
-    pub fn remove_transactions_for_block(&mut self, block: &Block) -> Result<(), Error> {
+    /// Remove transactions for tracked chunks in `block` from the pool.
+    /// Returns the hashes of transactions referenced by those tracked chunks.
+    pub fn remove_transactions_for_block(
+        &mut self,
+        block: &Block,
+    ) -> Result<Vec<CryptoHash>, Error> {
         let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
+        let mut removed_hashes = Vec::new();
         for chunk_header in block.chunks().iter_new() {
             // We can directly get the shard_id from the chunk_header as we are guaranteed new chunk via iter_new
             let shard_id = chunk_header.shard_id();
@@ -507,14 +513,23 @@ impl Client {
                 // By now the chunk must be in store, otherwise the block would have been orphaned
                 let chunk = self.chain.get_chunk(&chunk_header.chunk_hash())?;
                 let transactions = chunk.to_transactions();
+                for tx in transactions {
+                    removed_hashes.push(tx.get_hash());
+                }
                 let mut pool_guard = self.chunk_producer.sharded_tx_pool.lock();
                 pool_guard.remove_transactions(shard_uid, transactions);
             }
         }
-        Ok(())
+        Ok(removed_hashes)
     }
 
-    pub fn reintroduce_transactions_for_block(&mut self, block: &Block) -> Result<(), Error> {
+    /// Reintroduce transactions from `block` into the pool, skipping any
+    /// transaction whose hash is in `exclude`.
+    pub fn reintroduce_transactions_for_block(
+        &mut self,
+        block: &Block,
+        exclude: &HashSet<CryptoHash>,
+    ) -> Result<(), Error> {
         let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let config = self.runtime_adapter.get_runtime_config(protocol_version);
@@ -533,6 +548,7 @@ impl Client {
                 let validated_txs = chunk
                     .to_transactions()
                     .into_iter()
+                    .filter(|tx| !exclude.contains(&tx.get_hash()))
                     .cloned()
                     .filter_map(|signed_tx| {
                         match ValidatedTransaction::new(&config, signed_tx, protocol_version) {
@@ -550,15 +566,16 @@ impl Client {
                     })
                     .collect::<Vec<_>>();
 
+                let txs_to_reintroduce = validated_txs.len();
                 let reintroduced_count = {
                     let mut pool_guard = self.chunk_producer.sharded_tx_pool.lock();
                     pool_guard.reintroduce_transactions(shard_uid, validated_txs)
                 };
 
-                if reintroduced_count < chunk.to_transactions().len() {
+                if reintroduced_count < txs_to_reintroduce {
                     tracing::debug!(target: "client",
                             reintroduced_count,
-                            num_tx = chunk.to_transactions().len(),
+                            txs_to_reintroduce,
                             "reintroduced transactions");
                 }
             }
@@ -1760,7 +1777,7 @@ impl Client {
                 // If this block immediately follows the current tip, remove
                 // transactions from the tx pool.
                 match self.remove_transactions_for_block(block) {
-                    Ok(()) => (),
+                    Ok(_) => (),
                     Err(err) => {
                         tracing::debug!(
                             target: "client",
@@ -1776,8 +1793,8 @@ impl Client {
                 return false;
             }
             BlockStatus::Reorg(prev_head) => {
-                // If a reorg happened, reintroduce transactions from the
-                // previous chain and remove transactions from the new chain.
+                // If a reorg happened, remove transactions from the new
+                // chain and reintroduce transactions from the previous chain.
                 let mut reintroduce_head = self.chain.get_block_header(&prev_head).unwrap();
                 let mut remove_head = Arc::from(block.header().clone());
                 assert_ne!(remove_head.hash(), reintroduce_head.hash());
@@ -1803,9 +1820,29 @@ impl Client {
                     }
                 }
 
+                // Remove new-branch txs first to free pool capacity,
+                // collecting their hashes to skip overlap during reintroduction.
+                let mut new_branch_txs: HashSet<CryptoHash> = HashSet::new();
+                for to_remove_hash in to_remove {
+                    if let Ok(block) = self.chain.get_block(&to_remove_hash) {
+                        match self.remove_transactions_for_block(&block) {
+                            Ok(hashes) => new_branch_txs.extend(hashes),
+                            Err(err) => {
+                                tracing::debug!(
+                                    target: "client",
+                                    ?block,
+                                    ?err,
+                                    "validator: removing txs for block failed"
+                                );
+                            }
+                        }
+                    }
+                }
+
+                // Reintroduce old-branch-only txs (skip overlap with new branch).
                 for to_reintroduce_hash in to_reintroduce {
                     if let Ok(block) = self.chain.get_block(&to_reintroduce_hash) {
-                        match self.reintroduce_transactions_for_block(&block) {
+                        match self.reintroduce_transactions_for_block(&block, &new_branch_txs) {
                             Ok(()) => (),
                             Err(err) => {
                                 tracing::debug!(
@@ -1813,22 +1850,6 @@ impl Client {
                                     ?block,
                                     ?err,
                                     "validator: reintroducing txs for block failed"
-                                );
-                            }
-                        }
-                    }
-                }
-
-                for to_remove_hash in to_remove {
-                    if let Ok(block) = self.chain.get_block(&to_remove_hash) {
-                        match self.remove_transactions_for_block(&block) {
-                            Ok(()) => (),
-                            Err(err) => {
-                                tracing::debug!(
-                                    target: "client",
-                                    ?block,
-                                    ?err,
-                                    "validator: removing txs for block failed"
                                 );
                             }
                         }

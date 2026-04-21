@@ -151,6 +151,7 @@ fn setup(
             num_block_producer_seats: num_validator_seats,
             archive: false,
             state_sync_enabled,
+            transaction_pool_size_limit: None,
         });
         base.chunk_distribution_network = chunk_distribution_config;
         base
@@ -455,6 +456,7 @@ pub fn setup_client_with_runtime(
     save_tx_outcomes: bool,
     save_receipt_to_tx: bool,
     protocol_version_check: ProtocolVersionCheckConfig,
+    transaction_pool_size_limit: Option<u64>,
     snapshot_callbacks: Option<SnapshotCallbacks>,
     partial_witness_adapter: PartialWitnessSenderForClient,
     validator_signer: MutableValidatorSigner,
@@ -467,6 +469,7 @@ pub fn setup_client_with_runtime(
         num_block_producer_seats: num_validator_seats,
         archive: split_store_enabled,
         state_sync_enabled: true,
+        transaction_pool_size_limit,
     });
     config.save_tx_outcomes = save_tx_outcomes;
     config.save_receipt_to_tx = save_receipt_to_tx;
@@ -607,6 +610,7 @@ pub fn setup_tx_request_handler(
         num_block_producer_seats: 0,
         archive: true,
         state_sync_enabled: true,
+        transaction_pool_size_limit: None,
     });
     let config = RpcHandlerConfig {
         handler_threads: 1,

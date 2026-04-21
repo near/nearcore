@@ -448,7 +448,7 @@ impl WasmtimeVM {
                 .signals_based_traps(true)
                 // Configure linear memories such that explicit bounds-checking can be elided.
                 .force_memory_init_memfd(true)
-                .memory_guaranteed_dense_image_size(max_memory_size.try_into().unwrap_or(u64::MAX))
+                .memory_guaranteed_dense_image_size(0)
                 .guard_before_linear_memory(false)
                 .memory_guard_size(0)
                 .memory_may_move(false)
@@ -581,10 +581,13 @@ impl WasmtimeVM {
         type MemoryCacheType =
             (u64, Result<Result<PreparedModule, FunctionCallError>, CompilationError>);
         let to_any = |v: MemoryCacheType| -> Box<dyn std::any::Any + Send> { Box::new(v) };
+        let mut is_cache_hit = true;
+        let mut is_memory_hit = true;
         let key = get_contract_cache_key(contract.hash(), &self.config, self.vm_hash());
         let (wasm_bytes, pre_result) = cache.memory_cache().try_lookup(
             key,
             || {
+                is_memory_hit = false;
                 let cache_record = cache.get(&key).map_err(CacheError::ReadError)?;
                 let (wasm_bytes, module) =
                     if let Some(CompiledContractInfo { wasm_bytes, compiled }) = cache_record {
@@ -598,6 +601,7 @@ impl WasmtimeVM {
                             CompiledContract::Code(module) => (wasm_bytes, module),
                         }
                     } else {
+                        is_cache_hit = false;
                         let Some(code) = contract.get_code() else {
                             return Err(VMRunnerError::ContractCodeNotPresent);
                         };
@@ -674,6 +678,7 @@ impl WasmtimeVM {
             },
         )?;
 
+        crate::metrics::record_compiled_contract_cache_lookup(is_cache_hit, is_memory_hit);
         let config = Arc::clone(&self.config);
         let result = gas_counter.before_loading_executable(&config, &method, wasm_bytes);
         if let Err(e) = result {

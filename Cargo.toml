@@ -326,7 +326,7 @@ prefix-sum-vec = "0.1.2"
 pretty_assertions = "1.2"
 primitive-types = { version = "0.10", default-features = false }
 proc-macro2 = "1.0.64"
-prometheus = { version = "0.13.1", default-features = false }
+prometheus = { version = "0.14.0", default-features = false }
 protobuf = "3.0.1"
 protobuf-codegen = "3.0.1"
 quote = "1.0"
