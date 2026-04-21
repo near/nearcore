@@ -1,12 +1,10 @@
 import base58
 import hashlib
-import json
 import os
 import pathlib
 import random
 import re
 import shutil
-import sys
 import tempfile
 import time
 import typing
@@ -189,45 +187,6 @@ class MetricsTracker:
         return round(float(value))
 
 
-def chain_query(node, block_handler, *, block_hash=None, max_blocks=-1):
-    """
-    Query chain block approvals and chunks preceding of block of block_hash.
-    If block_hash is None, it query latest block hash
-    It query at most max_blocks, or if it's -1, all blocks back to genesis
-    """
-    block_hash = block_hash or node.get_latest_block().hash
-    initial_validators = node.validators()
-
-    if max_blocks == -1:
-        while True:
-            validators = node.validators()
-            if validators != initial_validators:
-                logger.critical(
-                    f'Fatal: validator set of node {node} changes, from {initial_validators} to {validators}'
-                )
-                sys.exit(1)
-            block = node.get_block(block_hash)['result']
-            block_handler(block)
-            block_hash = block['header']['prev_hash']
-            block_height = block['header']['height']
-            if block_height == 0:
-                break
-    else:
-        for _ in range(max_blocks):
-            validators = node.validators()
-            if validators != initial_validators:
-                logger.critical(
-                    f'Fatal: validator set of node {node} changes, from {initial_validators} to {validators}'
-                )
-                sys.exit(1)
-            block = node.get_block(block_hash)['result']
-            block_handler(block)
-            block_hash = block['header']['prev_hash']
-            block_height = block['header']['height']
-            if block_height == 0:
-                break
-
-
 def get_near_tempdir(subdir=None, *, clean=False):
     tempdir = pathlib.Path(tempfile.gettempdir()) / 'near'
     if subdir:
@@ -266,61 +225,6 @@ def user_name():
     if username == 'root':  # digitalocean
         username = gcloud.list()[0].username.replace('_nearprotocol_com', '')
     return username
-
-
-def collect_gcloud_config(num_nodes):
-    tempdir = get_near_tempdir()
-    keys = []
-    for i in range(num_nodes):
-        node_dir = tempdir / f'node{i}'
-        if not node_dir.exists():
-            # TODO: avoid hardcoding the username
-            logger.info(f'downloading node{i} config from gcloud')
-            node_dir.mkdir(parents=True, exist_ok=True)
-            host = gcloud.get(f'pytest-node-{user_name()}-{i}')
-            for filename in ('config.json', 'signer0_key.json',
-                             'validator_key.json', 'node_key.json'):
-                host.download(f'/home/bowen_nearprotocol_com/.near/{filename}',
-                              str(node_dir))
-        with open(node_dir / 'signer0_key.json') as f:
-            key = json.load(f)
-        keys.append(key)
-    with open(tempdir / 'node0' / 'config.json') as f:
-        config = json.load(f)
-    ip_addresses = map(lambda x: x.split('@')[-1],
-                       config['network']['boot_nodes'].split(','))
-    res = {
-        'nodes':
-            list(
-                map(lambda x: {
-                    'ip': x.split(':')[0],
-                    'port': 3030
-                }, ip_addresses)),
-        'accounts':
-            keys
-    }
-    outfile = tempdir / 'gcloud_config.json'
-    with open(outfile, 'w') as f:
-        json.dump(res, f)
-    os.environ[cluster.CONFIG_ENV_VAR] = str(outfile)
-
-
-def obj_to_string(obj, extra='    ', full=False):
-    if type(obj) in [tuple, list]:
-        return "tuple" + '\n' + '\n'.join(
-            (extra + obj_to_string(x, extra + '    ')) for x in obj)
-    elif hasattr(obj, "__dict__"):
-        return str(obj.__class__) + '\n' + '\n'.join(
-            extra + (str(item) + ' = ' +
-                     obj_to_string(obj.__dict__[item], extra + '    '))
-            for item in sorted(obj.__dict__))
-    elif isinstance(obj, bytes):
-        if not full:
-            if len(obj) > 10:
-                obj = obj[:7] + b"..."
-        return str(obj)
-    else:
-        return str(obj)
 
 
 def combine_hash(hash1, hash2):

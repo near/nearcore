@@ -450,15 +450,16 @@ impl Receipt {
                 if shard_layout.shard_ids().contains(&target_shard) {
                     target_shard
                 } else {
-                    let Some(children_shards) = shard_layout.get_children_shards_ids(target_shard)
+                    // The target shard may be from an arbitrarily old layout (the receipt could
+                    // have been delayed across multiple resharding events). resolve_to_current_shard
+                    // will find a shard descendant in the current layout.
+                    let Some(current_shard) = shard_layout.resolve_to_current_shard(target_shard)
                     else {
                         return Err(EpochError::ShardingError(format!(
-                            "Shard {target_shard} does not exist in the parent shard layout",
+                            "Shard {target_shard} does not exist in the shard layout or its split history",
                         )));
                     };
-                    // It is enough to send the receipt to the first child shard, it will be forwarded
-                    // to the rest of the children as part the receipt processing logic
-                    children_shards[0]
+                    current_shard
                 }
             }
         };

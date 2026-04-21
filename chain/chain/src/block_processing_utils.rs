@@ -36,6 +36,10 @@ pub(crate) struct BlockPreprocessInfo {
     pub(crate) apply_chunks_done_waiter: ApplyChunksDoneWaiter,
     /// Used to calculate block processing time metric.
     pub(crate) block_start_processing_time: Instant,
+    /// The sandbox patch generation observed when this block was preprocessed.
+    /// Used after `chain_update.commit()` to advance the tracker's committed
+    /// generation.  Always 0 on non-sandbox builds.
+    pub(crate) sandbox_patch_generation: u64,
 }
 
 pub(crate) struct OptimisticBlockInfo {
@@ -291,5 +295,42 @@ mod tests {
             let waiter_value = results_receiver.recv().unwrap();
             assert_eq!(waiter_value, true);
         }
+    }
+}
+
+/// Test-only gate to pause block processing in the spawned apply-chunks task.
+/// The gate blocks the task before `do_apply_chunks` runs, preventing results
+/// from reaching the channel until `resume` is called.
+#[cfg(feature = "test_features")]
+#[derive(Default)]
+pub struct TestPausedBlocks {
+    gates: HashMap<CryptoHash, Arc<std::sync::OnceLock<()>>>,
+}
+
+#[cfg(feature = "test_features")]
+impl TestPausedBlocks {
+    /// Returns the gate for a block, if one is set. The caller passes it into
+    /// the spawned task to block before applying chunks.
+    pub fn get_gate(&self, block_hash: &CryptoHash) -> Option<Arc<std::sync::OnceLock<()>>> {
+        self.gates.get(block_hash).cloned()
+    }
+
+    pub fn pause(&mut self, block_hash: &CryptoHash) {
+        let prev = self.gates.insert(*block_hash, Arc::new(std::sync::OnceLock::new()));
+        assert!(prev.is_none(), "block {block_hash} is already paused");
+    }
+
+    pub fn resume(&mut self, block_hash: &CryptoHash) {
+        let gate = self.gates.remove(block_hash).expect("block was not paused");
+        let _ = gate.set(());
+    }
+
+    /// Resumes all paused blocks. Returns true if any were paused.
+    pub fn resume_all(&mut self) -> bool {
+        let had_paused = !self.gates.is_empty();
+        for (_, gate) in self.gates.drain() {
+            let _ = gate.set(());
+        }
+        had_paused
     }
 }

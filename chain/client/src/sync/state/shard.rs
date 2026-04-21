@@ -18,7 +18,7 @@ use near_primitives::sharding::ShardChunk;
 use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::types::{EpochId, ShardId};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
+use near_primitives::version::ProtocolVersion;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::{DBCol, ShardUId, Store};
@@ -251,14 +251,13 @@ pub(super) async fn run_state_sync_for_shard(
     // Load memtrie.
     {
         let handle = computation_task_tracker.get_handle(&format!("shard {}", shard_id)).await;
-        let head_protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        let shard_uids_pending_resharding = epoch_manager
-            .get_shard_uids_pending_resharding(head_protocol_version, PROTOCOL_VERSION)?;
+        let shard_uid_pending_resharding =
+            epoch_manager.get_resharding_parent_shard_uid(&epoch_id, &sync_hash)?;
         handle.set_status("Loading memtrie");
         runtime.get_tries().load_memtrie_on_catchup(
             &shard_uid,
             &state_root,
-            &shard_uids_pending_resharding,
+            shard_uid_pending_resharding.as_ref(),
         )?;
     }
 
@@ -382,6 +381,7 @@ mod tests {
     use near_primitives::state::PartialState;
     use near_primitives::state_sync::StatePartKey;
     use near_primitives::types::EpochId;
+    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;

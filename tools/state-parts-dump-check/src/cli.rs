@@ -425,16 +425,16 @@ fn run_loop_all_shards(
 fn reset_num_parts_metrics(chain_id: &str, shard_id: ShardId) -> () {
     tracing::info!(%shard_id, "resetting num of parts metrics to 0");
     crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_VALID
-        .with_label_values(&[&shard_id.to_string(), chain_id])
+        .with_label_values(&[shard_id.to_string().as_str(), chain_id])
         .set(0);
     crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_INVALID
-        .with_label_values(&[&shard_id.to_string(), chain_id])
+        .with_label_values(&[shard_id.to_string().as_str(), chain_id])
         .set(0);
     crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_HEADERS_VALID
-        .with_label_values(&[&shard_id.to_string(), chain_id])
+        .with_label_values(&[shard_id.to_string().as_str(), chain_id])
         .set(0);
     crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_HEADERS_INVALID
-        .with_label_values(&[&shard_id.to_string(), chain_id])
+        .with_label_values(&[shard_id.to_string().as_str(), chain_id])
         .set(0);
 }
 

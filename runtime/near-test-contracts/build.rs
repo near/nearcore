@@ -103,6 +103,15 @@ fn cargo_build_cmd(target_dir: &Path) -> Command {
     res.env_remove("CARGO_BUILD_RUSTFLAGS");
     res.env_remove("CARGO_ENCODED_RUSTFLAGS");
     res.env_remove("RUSTC_WORKSPACE_WRAPPER");
+    // Prevent the nightly toolchain from leaking into this sub-build when
+    // invoked via `cargo +nightly udeps`. Cargo sets both RUSTUP_TOOLCHAIN
+    // and RUSTC for build scripts, so we must remove both: RUSTUP_TOOLCHAIN
+    // controls rustup's toolchain selection, while RUSTC points directly at
+    // the nightly rustc binary and would bypass toolchain discovery entirely.
+    // Without these, the sub-build uses the pinned toolchain from
+    // rust-toolchain.toml as intended.
+    res.env_remove("RUSTUP_TOOLCHAIN");
+    res.env_remove("RUSTC");
 
     res.env("RUSTC_BOOTSTRAP", "1"); // FIXME: remove once `-Zbuild-std` is no longer necessary
     res.env("RUSTFLAGS", "-Dwarnings -Ctarget-cpu=mvp");

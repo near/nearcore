@@ -386,8 +386,9 @@ impl RocksDB {
 
 impl Database for RocksDB {
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> Option<DBSlice<'_>> {
-        let timer =
-            metrics::DATABASE_OP_LATENCY_HIST.with_label_values(&["get", col.into()]).start_timer();
+        let timer = metrics::DATABASE_OP_LATENCY_HIST
+            .with_label_values::<&str>(&["get", col.into()])
+            .start_timer();
         let read_options = rocksdb_read_options();
         let result = self
             .db
@@ -535,6 +536,23 @@ impl Database for RocksDB {
 
     fn deserialized_column_cache(&self) -> Arc<deserialized_column::Cache> {
         Arc::clone(&self.cache)
+    }
+
+    fn ingest_external_sst_files(
+        &self,
+        col: DBCol,
+        paths: &[PathBuf],
+        move_files: bool,
+    ) -> anyhow::Result<()> {
+        let cf = self.cf_handle(col);
+        let mut opts = ::rocksdb::IngestExternalFileOptions::default();
+        opts.set_move_files(move_files);
+        // Required when ingesting SST files from a live DB (non-zero sequence numbers).
+        // cspell:ignore seqno
+        opts.set_allow_global_seqno(true);
+        self.db
+            .ingest_external_file_cf_opts(&cf, &opts, paths.to_vec())
+            .with_context(|| format!("failed to ingest SST files into {col:?}"))
     }
 }
 

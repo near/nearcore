@@ -12,7 +12,9 @@ use crate::network_protocol::{
 use crate::network_protocol::{SyncSnapshotHosts, T1MessageBody};
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
-use crate::peer_manager::network_state::{NetworkState, WhitelistNode};
+use crate::peer_manager::network_state::{
+    NetworkState, PENDING_TIER3_REQUEST_TIMEOUT, WhitelistNode,
+};
 use crate::peer_manager::peer_store;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::spice_data_distribution::SpiceDataDistributorSenderForNetwork;
@@ -38,8 +40,8 @@ use near_primitives::genesis::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::state_sync::{PartIdOrHeader, StateRequestAckBody};
 use near_primitives::views::{
-    ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, NetworkRoutesView,
-    PeerStoreView, RecentOutboundConnectionsView, SnapshotHostInfoView, SnapshotHostsView,
+    ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, PeerStoreView,
+    RecentOutboundConnectionsView, SnapshotHostInfoView, SnapshotHostsView,
 };
 use network_protocol::MAX_SHARDS_PER_SNAPSHOT_HOST_INFO;
 use rand::Rng;
@@ -604,6 +606,12 @@ impl PeerManagerActor {
             .values()
             .filter(|p| now - p.last_time_received_message.load() > TIER3_IDLE_TIMEOUT)
             .for_each(|p| p.stop(None));
+        // Clean up stale pending Tier3 request entries for peers that never connected back.
+        // retain() does a full scan of the map, but this is fine: the map is bounded by the
+        // number of in-flight state sync requests (typically tens at most).
+        self.state
+            .pending_tier3_requests
+            .retain(|_, sent_at| now - *sent_at <= PENDING_TIER3_REQUEST_TIMEOUT);
     }
 
     /// Periodically monitor list of peers and:
@@ -661,7 +669,7 @@ impl PeerManagerActor {
                         }.await;
 
                         if let Err(ref err) = result {
-                            tracing::info!(target: "network", ?err, %peer_info, "tier2 failed to connect");
+                            tracing::info!(target: "network", %err, %peer_info, "tier2 failed to connect");
                         }
                         state.peer_store.peer_connection_attempt(&clock, &peer_info.id, result);
                     }.instrument(tracing::trace_span!(target: "network", "monitor_peers_trigger_connect"))
@@ -872,10 +880,11 @@ impl PeerManagerActor {
                     },
                 );
 
+                self.state.pending_tier3_requests.insert(peer_id.clone(), self.clock.now());
                 if !self.state.send_message_to_peer(&self.clock, tcp::Tier::T2, routed_message) {
+                    self.state.pending_tier3_requests.remove(&peer_id);
                     return NetworkResponses::RouteNotFound;
                 }
-
                 tracing::debug!(target: "network", %shard_id, ?sync_hash, %peer_id, "requesting state header from host");
                 NetworkResponses::SelectedDestination(peer_id)
             }
@@ -916,10 +925,11 @@ impl PeerManagerActor {
                     },
                 );
 
+                self.state.pending_tier3_requests.insert(peer_id.clone(), self.clock.now());
                 if !self.state.send_message_to_peer(&self.clock, tcp::Tier::T2, routed_message) {
+                    self.state.pending_tier3_requests.remove(&peer_id);
                     return NetworkResponses::RouteNotFound;
                 }
-
                 tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_id, %peer_id, "requesting state part from host");
                 NetworkResponses::SelectedDestination(peer_id)
             }
@@ -1415,8 +1425,9 @@ impl messaging::Handler<PeerManagerMessageRequest, PeerManagerMessageResponse>
     for PeerManagerActor
 {
     fn handle(&mut self, msg: PeerManagerMessageRequest) -> PeerManagerMessageResponse {
-        let _timer =
-            metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
+        let _timer = metrics::PEER_MANAGER_MESSAGES_TIME
+            .with_label_values::<&str>(&[(&msg).into()])
+            .start_timer();
         self.handle_peer_manager_message(msg)
     }
 }
@@ -1431,8 +1442,9 @@ impl messaging::Handler<PeerManagerMessageRequest> for PeerManagerActor {
 
 impl messaging::Handler<StateSyncEvent> for PeerManagerActor {
     fn handle(&mut self, msg: StateSyncEvent) {
-        let _timer =
-            metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
+        let _timer = metrics::PEER_MANAGER_MESSAGES_TIME
+            .with_label_values::<&str>(&[(&msg).into()])
+            .start_timer();
         match msg {
             StateSyncEvent::StatePartReceived(shard_id, part_id) => {
                 self.state.snapshot_hosts.part_received(shard_id, part_id);
@@ -1444,7 +1456,7 @@ impl messaging::Handler<StateSyncEvent> for PeerManagerActor {
 impl messaging::Handler<Tier3Request> for PeerManagerActor {
     fn handle(&mut self, request: Tier3Request) {
         let _timer = metrics::PEER_MANAGER_TIER3_REQUEST_TIME
-            .with_label_values(&[(&request.body).into()])
+            .with_label_values::<&str>(&[(&request.body).into()])
             .start_timer();
 
         let state = self.state.clone();
@@ -1614,12 +1626,6 @@ impl messaging::Handler<GetDebugStatus, DebugStatus> for PeerManagerActor {
                         })
                         .collect::<Vec<_>>(),
                 })
-            }
-            GetDebugStatus::Routes => {
-                #[cfg(feature = "distance_vector_routing")]
-                return DebugStatus::Routes(self.state.graph_v2.get_debug_view());
-                #[cfg(not(feature = "distance_vector_routing"))]
-                return DebugStatus::Routes(NetworkRoutesView::default());
             }
             GetDebugStatus::SnapshotHosts => DebugStatus::SnapshotHosts(SnapshotHostsView {
                 hosts: self

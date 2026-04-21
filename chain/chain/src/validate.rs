@@ -17,9 +17,6 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
 use reed_solomon_erasure::galois_8::ReedSolomon;
 
-/// Gas limit cannot be adjusted for more than 0.1% at a time.
-const GAS_LIMIT_ADJUSTMENT_FACTOR: u64 = 1000;
-
 /// Verifies that chunk's proofs in the header match the body.
 pub fn validate_chunk_proofs(
     chunk: &ShardChunk,
@@ -167,14 +164,6 @@ pub fn validate_chunk_with_chunk_extra_and_receipts_root(
 
     if outgoing_receipts_root != chunk_header.prev_outgoing_receipts_root() {
         return Err(Error::InvalidReceiptsProof);
-    }
-
-    let gas_limit = prev_chunk_extra.gas_limit();
-    let adjustment = gas_limit.checked_div(GAS_LIMIT_ADJUSTMENT_FACTOR).unwrap();
-    if chunk_header.gas_limit() < gas_limit.checked_sub(adjustment).unwrap()
-        || chunk_header.gas_limit() > gas_limit.checked_add(adjustment).unwrap()
-    {
-        return Err(Error::InvalidGasLimit);
     }
 
     validate_congestion_info(prev_chunk_extra.congestion_info(), chunk_header.congestion_info())?;

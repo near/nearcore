@@ -92,10 +92,6 @@ fn default_chunk_producer_assignment_changes_limit() -> u64 {
     5
 }
 
-fn default_num_chunk_only_producer_seats() -> u64 {
-    300
-}
-
 fn default_use_production_config() -> bool {
     false
 }
@@ -124,12 +120,6 @@ pub struct GenesisConfig {
     pub genesis_height: BlockHeight,
     /// Number of block producer seats at genesis.
     pub num_block_producer_seats: NumSeats,
-    /// Defines number of shards and number of block producer seats per each shard at genesis.
-    /// Note: not used with protocol_feature_chunk_only_producers -- replaced by minimum_validators_per_shard
-    /// Note: not used before as all block producers produce chunks for all shards
-    pub num_block_producer_seats_per_shard: Vec<NumSeats>,
-    /// Expected number of hidden validators per shard.
-    pub avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
     /// Enable dynamic re-sharding.
     pub dynamic_resharding: bool,
     /// Threshold of stake that needs to indicate that they ready for upgrade.
@@ -199,10 +189,6 @@ pub struct GenesisConfig {
     #[serde(default = "default_shard_layout")]
     #[default(default_shard_layout())]
     pub shard_layout: ShardLayout,
-    #[serde(default = "default_num_chunk_only_producer_seats")]
-    #[default(300)]
-    /// Deprecated.
-    pub num_chunk_only_producer_seats: NumSeats,
     /// The minimum number of validators each shard must have
     #[serde(default = "default_minimum_validators_per_shard")]
     #[default(1)]
@@ -262,11 +248,7 @@ impl From<&GenesisConfig> for EpochConfig {
             .num_block_producer_seats(config.num_block_producer_seats)
             .num_chunk_producer_seats(config.num_chunk_producer_seats)
             .num_chunk_validator_seats(config.num_chunk_validator_seats)
-            .num_chunk_only_producer_seats(config.num_chunk_only_producer_seats)
             .target_validator_mandates_per_shard(config.target_validator_mandates_per_shard)
-            .avg_hidden_validator_seats_per_shard(
-                config.avg_hidden_validator_seats_per_shard.clone(),
-            )
             .minimum_validators_per_shard(config.minimum_validators_per_shard)
             .block_producer_kickout_threshold(config.block_producer_kickout_threshold)
             .chunk_producer_kickout_threshold(config.chunk_producer_kickout_threshold)
@@ -282,7 +264,6 @@ impl From<&GenesisConfig> for EpochConfig {
             .shuffle_shard_assignment_for_chunk_producers(
                 config.shuffle_shard_assignment_for_chunk_producers,
             )
-            .num_block_producer_seats_per_shard(config.num_block_producer_seats_per_shard.clone())
             .max_inflation_rate(config.max_inflation_rate)
             .build()
             .expect("field init missing")
@@ -821,10 +802,6 @@ pub struct ProtocolConfigView {
     pub genesis_height: BlockHeight,
     /// Number of block producer seats at genesis.
     pub num_block_producer_seats: NumSeats,
-    /// Defines number of shards and number of block producer seats per each shard at genesis.
-    pub num_block_producer_seats_per_shard: Vec<NumSeats>,
-    /// Expected number of hidden validators per shard.
-    pub avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
     /// Enable dynamic re-sharding.
     pub dynamic_resharding: bool,
     /// Threshold of stake that needs to indicate that they ready for upgrade.
@@ -905,9 +882,6 @@ impl From<ProtocolConfig> for ProtocolConfigView {
             chain_id: genesis_config.chain_id,
             genesis_height: genesis_config.genesis_height,
             num_block_producer_seats: genesis_config.num_block_producer_seats,
-            num_block_producer_seats_per_shard: genesis_config.num_block_producer_seats_per_shard,
-            avg_hidden_validator_seats_per_shard: genesis_config
-                .avg_hidden_validator_seats_per_shard,
             dynamic_resharding: genesis_config.dynamic_resharding,
             protocol_upgrade_stake_threshold: genesis_config.protocol_upgrade_stake_threshold,
             epoch_length: genesis_config.epoch_length,

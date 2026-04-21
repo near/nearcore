@@ -9,6 +9,7 @@ use crate::config::{
     total_prepaid_exec_fees, total_prepaid_gas,
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
+use crate::contract_code::RuntimeContractIdentifier;
 use crate::function_call::action_function_call;
 use crate::metrics::{
     TRANSACTION_BATCH_SIGNATURE_VERIFY_FAILURE_TOTAL,
@@ -29,7 +30,7 @@ use config::{total_prepaid_send_fees, tx_cost};
 use congestion_control::ReceiptSink;
 pub use congestion_control::bootstrap_congestion_info;
 use global_contracts::{
-    AccountContractAccessExt, action_deploy_global_contract, action_use_global_contract,
+    action_deploy_global_contract, action_use_global_contract,
     apply_global_contract_distribution_receipt,
 };
 use itertools::Itertools;
@@ -38,7 +39,6 @@ pub use near_crypto;
 use near_crypto::{PublicKey, Signature};
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
-use near_primitives::account::id::AccountType;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
@@ -111,6 +111,7 @@ pub mod adapter;
 mod bandwidth_scheduler;
 pub mod config;
 mod congestion_control;
+mod contract_code;
 mod conversions;
 mod deterministic_account_id;
 pub mod ext;
@@ -344,6 +345,7 @@ pub struct ActionResult {
     pub validator_proposals: Vec<ValidatorStake>,
     pub profile: Box<ProfileDataV3>,
     pub tokens_burnt: Balance,
+    pub subsidized_amount: Balance,
 }
 
 impl ActionResult {
@@ -376,10 +378,15 @@ impl ActionResult {
                 .tokens_burnt
                 .checked_add(next_result.tokens_burnt)
                 .ok_or(IntegerOverflowError)?;
+            self.subsidized_amount = self
+                .subsidized_amount
+                .checked_add(next_result.subsidized_amount)
+                .ok_or(IntegerOverflowError)?;
         } else {
             self.new_receipts.clear();
             self.validator_proposals.clear();
             self.tokens_burnt = Balance::ZERO;
+            self.subsidized_amount = Balance::ZERO;
         }
         Ok(())
     }
@@ -398,6 +405,7 @@ impl Default for ActionResult {
             validator_proposals: vec![],
             profile: Default::default(),
             tokens_burnt: Balance::ZERO,
+            subsidized_amount: Balance::ZERO,
         }
     }
 }
@@ -452,20 +460,7 @@ impl Runtime {
         let account_id = receipt.receiver_id();
         let is_refund = receipt.predecessor_id().is_system();
         let is_the_only_action = actions.len() == 1;
-        // Deterministic AccountIds can be created by incoming transfers regardless
-        // of number of actions in the current receipt. For instance, this sequence
-        // of actions within a single receipt is considered valid:
-        // 1. Transfer
-        // 2. DeterministicStateInit
-        // 3. FunctionCall
-        // 4. etc...
-        let is_deterministic_account_multi_action_eligible =
-            ProtocolFeature::FixDeterministicAccountIdCreation
-                .enabled(apply_state.current_protocol_version)
-                && apply_state.config.wasm_config.deterministic_account_ids
-                && account_id.get_account_type() == AccountType::NearDeterministicAccount;
-        let implicit_account_creation_eligible =
-            !is_refund && (is_the_only_action || is_deterministic_account_multi_action_eligible);
+        let implicit_account_creation_eligible = is_the_only_action && !is_refund;
 
         // Account validation
         if let Err(e) = check_account_existence(
@@ -507,6 +502,7 @@ impl Runtime {
                     apply_state.cache.as_deref(),
                     apply_state.current_protocol_version,
                 )?;
+                near_vm_runner::report_metrics(apply_state.shard_id, "deploy");
             }
             Action::DeployGlobalContract(deploy_global_contract) => {
                 metrics::ACTION_CALLED_COUNT.deploy_global_contract.inc();
@@ -548,9 +544,20 @@ impl Runtime {
                 metrics::ACTION_CALLED_COUNT.function_call.inc();
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
                 let account_contract = account.contract();
-                let code_hash = account_contract.into_owned().hash(&state_update)?;
-                let contract =
-                    preparation_pipeline.get_contract(receipt, code_hash, action_index, None);
+                let contract_id = RuntimeContractIdentifier::resolve(
+                    account_id,
+                    account_contract.into_owned(),
+                    &state_update,
+                    &apply_state.config.wasm_config,
+                    &epoch_info_provider.chain_id(),
+                    AccessOptions::DEFAULT,
+                )?;
+                let contract = preparation_pipeline.get_contract(
+                    receipt,
+                    contract_id.clone(),
+                    action_index,
+                    None,
+                );
                 let is_last_action = action_index + 1 == actions.len();
                 action_function_call(
                     state_update,
@@ -563,7 +570,7 @@ impl Runtime {
                     account_id,
                     function_call,
                     action_hash,
-                    code_hash,
+                    &contract_id,
                     &apply_state.config,
                     is_last_action,
                     epoch_info_provider,
@@ -878,6 +885,8 @@ impl Runtime {
 
         stats.balance.tx_burnt_amount =
             safe_add_balance(stats.balance.tx_burnt_amount, tx_burnt_amount)?;
+        stats.balance.subsidized_amount =
+            safe_add_balance(stats.balance.subsidized_amount, result.subsidized_amount)?;
 
         // Generating outgoing data
         // A {
@@ -3036,8 +3045,9 @@ impl<'a> ApplyProcessingState<'a> {
         let pipeline_manager = pipelining::ReceiptPreparationPipeline::new(
             Arc::clone(&self.apply_state.config),
             self.apply_state.cache.as_ref().map(|v| v.handle()),
-            self.state_update.contract_storage(),
+            self.state_update.contract_storage().clone(),
             self.epoch_info_provider.chain_id(),
+            self.apply_state.shard_id,
         );
         ApplyProcessingReceiptState {
             pipeline_manager,
@@ -3210,6 +3220,7 @@ pub mod estimator {
     use std::collections::HashMap;
     use std::collections::VecDeque;
     use std::num::NonZeroU64;
+    use std::sync::Arc;
 
     pub fn apply_action_receipt(
         state_update: &mut TrieUpdate,
@@ -3252,10 +3263,11 @@ pub mod estimator {
         let info = ReceiptSinkV2Info::new(apply_state.epoch_id, epoch_info_provider)?;
         let mut receipt_sink = ReceiptSink::V2(ReceiptSinkV2WithInfo { info, sink });
         let empty_pipeline = ReceiptPreparationPipeline::new(
-            std::sync::Arc::clone(&apply_state.config),
+            Arc::clone(&apply_state.config),
             apply_state.cache.as_ref().map(|c| c.handle()),
-            state_update.contract_storage(),
+            state_update.contract_storage().clone(),
             epoch_info_provider.chain_id(),
+            apply_state.shard_id,
         );
         let mut receipt_to_tx = Vec::new();
         let apply_result = Runtime {}.apply_action_receipt(

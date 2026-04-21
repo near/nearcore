@@ -16,10 +16,10 @@ use near_chain_configs::{ClientConfig, GenesisConfig, ProtocolConfigView};
 use near_client::{
     DebugStatus, GetBlock, GetBlockProof, GetBlockProofResponse, GetChunk, GetClientConfig,
     GetExecutionOutcome, GetExecutionOutcomeResponse, GetGasPrice, GetMaintenanceWindows,
-    GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetStateChanges,
-    GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, ProcessTxRequest,
-    ProcessTxResponse, Query as ClientQuery, QueryError, Status, StatusResponse, TxStatus,
-    TxStatusError,
+    GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetReceiptToTx,
+    GetReceiptToTxResponse, GetStateChanges, GetStateChangesInBlock, GetValidatorInfo,
+    GetValidatorOrdered, ProcessTxRequest, ProcessTxResponse, Query as ClientQuery, QueryError,
+    Status, StatusResponse, TxStatus, TxStatusError,
 };
 use near_client_primitives::debug::{
     DebugBlockStatusQuery, DebugBlocksStartingMode, DebugStatusResponse,
@@ -27,9 +27,9 @@ use near_client_primitives::debug::{
 use near_client_primitives::types::{
     BlockNotificationMessage, GetBlockError, GetBlockProofError, GetChunkError,
     GetClientConfigError, GetExecutionOutcomeError, GetGasPriceError, GetMaintenanceWindowsError,
-    GetNextLightClientBlockError, GetProtocolConfigError, GetReceiptError, GetSplitStorageInfo,
-    GetSplitStorageInfoError, GetStateChangesError, GetValidatorInfoError, NetworkInfoResponse,
-    StatusError,
+    GetNextLightClientBlockError, GetProtocolConfigError, GetReceiptError, GetReceiptToTxError,
+    GetSplitStorageInfo, GetSplitStorageInfoError, GetStateChangesError, GetValidatorInfoError,
+    NetworkInfoResponse, StatusError,
 };
 pub use near_jsonrpc_client_internal as client;
 use near_jsonrpc_client_internal::SHARDED_RPC_COORDINATOR_HEADER;
@@ -40,9 +40,14 @@ use near_jsonrpc_primitives::types::blocks::RpcBlockRequest;
 use near_jsonrpc_primitives::types::call_function::{
     RpcCallFunctionError, RpcCallFunctionRequest, RpcCallFunctionResponse,
 };
+use near_jsonrpc_primitives::types::chunks::ChunkReference;
 use near_jsonrpc_primitives::types::config::{RpcProtocolConfigError, RpcProtocolConfigResponse};
 use near_jsonrpc_primitives::types::entity_debug::{EntityDebugHandler, EntityQueryWithParams};
 use near_jsonrpc_primitives::types::query::{RpcQueryError, RpcQueryRequest};
+use near_jsonrpc_primitives::types::receipts::{
+    RpcReceiptError, RpcReceiptRequest, RpcReceiptResponse, RpcReceiptToTxError,
+    RpcReceiptToTxRequest, RpcReceiptToTxResponse,
+};
 use near_jsonrpc_primitives::types::split_storage::{
     RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse,
 };
@@ -72,8 +77,9 @@ use near_network::tcp::{self, ListenerAddr};
 use near_o11y::metrics::{Encoder, TextEncoder, prometheus};
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockId, BlockReference, ShardId};
+use near_primitives::types::{AccountId, BlockId, BlockReference, ShardId, TransactionOrReceiptId};
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, GasPriceView, LightClientBlockView,
@@ -82,7 +88,9 @@ use near_primitives::views::{
 };
 use parking_lot::RwLock;
 use serde_json::{Value, json};
-use sharded_rpc::{BlockHint, RequestSource, RpcNodeHandle, ShardHint, ShardedRpcPool};
+use sharded_rpc::{
+    BlockHint, CoordinatorRequestStrategy, RequestSource, RpcNodeHandle, ShardHint, ShardedRpcPool,
+};
 use std::future::Future;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -348,6 +356,7 @@ pub struct ViewClientSenderForRpc(
     >,
     AsyncSender<GetProtocolConfig, Result<ProtocolConfigView, GetProtocolConfigError>>,
     AsyncSender<GetReceipt, Result<Option<ReceiptView>, GetReceiptError>>,
+    AsyncSender<GetReceiptToTx, Result<GetReceiptToTxResponse, GetReceiptToTxError>>,
     AsyncSender<GetSplitStorageInfo, Result<SplitStorageInfoView, GetSplitStorageInfoError>>,
     AsyncSender<GetStateChanges, Result<StateChangesView, GetStateChangesError>>,
     AsyncSender<GetStateChangesInBlock, Result<StateChangesKindsView, GetStateChangesError>>,
@@ -501,7 +510,15 @@ impl JsonRpcHandler {
             "changes" | "EXPERIMENTAL_changes" => {
                 process_method_call(request, |params| self.changes_in_block_by_type(params)).await
             }
-            "chunk" => process_method_call(request, |params| self.chunk(params)).await,
+            "chunk" => {
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| self.chunk_sharded(params),
+                    |params| self.chunk_local(params),
+                )
+                .await
+            }
             "gas_price" => process_method_call(request, |params| self.gas_price(params)).await,
 
             "genesis_config" | "EXPERIMENTAL_genesis_config" => {
@@ -512,9 +529,12 @@ impl JsonRpcHandler {
             }
             "health" => process_method_call(request, |_params: ()| self.health()).await,
             "light_client_proof" => {
-                process_method_call(request, |params| {
-                    self.light_client_execution_outcome_proof(params)
-                })
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| self.light_client_proof_sharded("light_client_proof", params),
+                    |params| self.light_client_proof_local(params),
+                )
                 .await
             }
             "maintenance_windows" | "EXPERIMENTAL_maintenance_windows" => {
@@ -543,30 +563,77 @@ impl JsonRpcHandler {
                 .await
             }
             "EXPERIMENTAL_view_code" => {
-                process_method_call(request, |params| self.view_code(params)).await
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| self.view_code_sharded(params),
+                    |params| self.view_code_local(params),
+                )
+                .await
             }
             "EXPERIMENTAL_view_state" => {
-                process_method_call(request, |params| self.view_state(params)).await
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| self.view_state_sharded(params),
+                    |params| self.view_state_local(params),
+                )
+                .await
             }
             "EXPERIMENTAL_view_access_key" => {
-                process_method_call(request, |params| self.view_access_key(params)).await
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| self.view_access_key_sharded(params),
+                    |params| self.view_access_key_local(params),
+                )
+                .await
             }
             "EXPERIMENTAL_view_access_key_list" => {
-                process_method_call(request, |params| self.view_access_key_list(params)).await
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| self.view_access_key_list_sharded(params),
+                    |params| self.view_access_key_list_local(params),
+                )
+                .await
             }
             "EXPERIMENTAL_view_gas_key_nonces" => {
-                process_method_call(request, |params| self.view_gas_key_nonces(params)).await
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| self.view_gas_key_nonces_sharded(params),
+                    |params| self.view_gas_key_nonces_local(params),
+                )
+                .await
             }
             "EXPERIMENTAL_call_function" => {
-                process_method_call(request, |params| self.call_function(params)).await
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| self.call_function_sharded(params),
+                    |params| self.call_function_local(params),
+                )
+                .await
             }
             "EXPERIMENTAL_congestion_level" => {
-                process_method_call(request, |params| self.congestion_level(params)).await
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| self.congestion_level_sharded(params),
+                    |params| self.congestion_level_local(params),
+                )
+                .await
             }
             "EXPERIMENTAL_light_client_proof" => {
-                process_method_call(request, |params| {
-                    self.light_client_execution_outcome_proof(params)
-                })
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| {
+                        self.light_client_proof_sharded("EXPERIMENTAL_light_client_proof", params)
+                    },
+                    |params| self.light_client_proof_local(params),
+                )
                 .await
             }
             "EXPERIMENTAL_light_client_block_proof" => {
@@ -576,7 +643,16 @@ impl JsonRpcHandler {
                 process_method_call(request, |params| self.protocol_config(params)).await
             }
             "EXPERIMENTAL_receipt" => {
-                process_method_call(request, |params| self.receipt(params)).await
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| self.receipt_sharded(params),
+                    |params| self.receipt_local(params),
+                )
+                .await
+            }
+            "EXPERIMENTAL_receipt_to_tx" => {
+                process_method_call(request, |params| self.receipt_to_tx(params)).await
             }
             "EXPERIMENTAL_tx_status" => {
                 process_method_call(request, |params| self.tx_status_common(params, true)).await
@@ -970,11 +1046,6 @@ impl JsonRpcHandler {
                         )
                         .await?
                         .rpc_into(),
-                    #[cfg(feature = "distance_vector_routing")]
-                    "/debug/api/network_routes" => self
-                        .peer_manager_send(near_network::debug::GetDebugStatus::Routes)
-                        .await?
-                        .rpc_into(),
                     "/debug/api/snapshot_hosts" => self
                         .peer_manager_send(near_network::debug::GetDebugStatus::SnapshotHosts)
                         .await?
@@ -1083,13 +1154,36 @@ impl JsonRpcHandler {
     async fn query_sharded(&self, request_data: RpcQueryRequest) -> Result<Value, RpcError> {
         match &request_data.request {
             QueryRequest::ViewAccount { account_id, .. }
-            | QueryRequest::ViewAccessKey { account_id, .. } => {
+            | QueryRequest::ViewCode { account_id, .. }
+            | QueryRequest::ViewState { account_id, .. }
+            | QueryRequest::ViewAccessKey { account_id, .. }
+            | QueryRequest::ViewAccessKeyList { account_id, .. }
+            | QueryRequest::ViewGasKeyNonces { account_id, .. }
+            | QueryRequest::CallFunction { account_id, .. } => {
                 let block_hint = request_data.block_reference.clone().into();
                 let shard_hint = ShardHint::Account(account_id.clone());
-                self.run_coordinator_request("query", request_data, block_hint, shard_hint).await
+                self.run_coordinator_request(
+                    "query",
+                    request_data,
+                    block_hint,
+                    shard_hint,
+                    CoordinatorRequestStrategy::Sequential,
+                )
+                .await
             }
-            // TODO(sharded-rpc): implement remaining query variants.
-            _ => process_query_response(self.query(request_data).await),
+            // Global contract code is replicated to all shards, no shard routing needed.
+            QueryRequest::ViewGlobalContractCode { .. }
+            | QueryRequest::ViewGlobalContractCodeByAccountId { .. } => {
+                let block_hint = request_data.block_reference.clone().into();
+                self.run_coordinator_request(
+                    "query",
+                    request_data,
+                    block_hint,
+                    ShardHint::None,
+                    CoordinatorRequestStrategy::Sequential,
+                )
+                .await
+            }
         }
     }
 
@@ -1104,22 +1198,166 @@ impl JsonRpcHandler {
             request_data,
             block_hint,
             shard_hint,
+            CoordinatorRequestStrategy::Sequential,
         )
         .await
     }
 
-    /// Run a single sharded-rpc coordinator sub-request.
+    async fn view_code_sharded(&self, request_data: RpcViewCodeRequest) -> Result<Value, RpcError> {
+        let block_hint = request_data.block_reference.clone().into();
+        let shard_hint = ShardHint::Account(request_data.account_id.clone());
+        self.run_coordinator_request(
+            "EXPERIMENTAL_view_code",
+            request_data,
+            block_hint,
+            shard_hint,
+            CoordinatorRequestStrategy::Sequential,
+        )
+        .await
+    }
+
+    async fn view_state_sharded(
+        &self,
+        request_data: RpcViewStateRequest,
+    ) -> Result<Value, RpcError> {
+        let block_hint = request_data.block_reference.clone().into();
+        let shard_hint = ShardHint::Account(request_data.account_id.clone());
+        self.run_coordinator_request(
+            "EXPERIMENTAL_view_state",
+            request_data,
+            block_hint,
+            shard_hint,
+            CoordinatorRequestStrategy::Sequential,
+        )
+        .await
+    }
+
+    async fn view_access_key_sharded(
+        &self,
+        request_data: RpcViewAccessKeyRequest,
+    ) -> Result<Value, RpcError> {
+        let block_hint = request_data.block_reference.clone().into();
+        let shard_hint = ShardHint::Account(request_data.account_id.clone());
+        self.run_coordinator_request(
+            "EXPERIMENTAL_view_access_key",
+            request_data,
+            block_hint,
+            shard_hint,
+            CoordinatorRequestStrategy::Sequential,
+        )
+        .await
+    }
+
+    async fn view_access_key_list_sharded(
+        &self,
+        request_data: RpcViewAccessKeyListRequest,
+    ) -> Result<Value, RpcError> {
+        let block_hint = request_data.block_reference.clone().into();
+        let shard_hint = ShardHint::Account(request_data.account_id.clone());
+        self.run_coordinator_request(
+            "EXPERIMENTAL_view_access_key_list",
+            request_data,
+            block_hint,
+            shard_hint,
+            CoordinatorRequestStrategy::Sequential,
+        )
+        .await
+    }
+
+    async fn view_gas_key_nonces_sharded(
+        &self,
+        request_data: RpcViewGasKeyNoncesRequest,
+    ) -> Result<Value, RpcError> {
+        let block_hint = request_data.block_reference.clone().into();
+        let shard_hint = ShardHint::Account(request_data.account_id.clone());
+        self.run_coordinator_request(
+            "EXPERIMENTAL_view_gas_key_nonces",
+            request_data,
+            block_hint,
+            shard_hint,
+            CoordinatorRequestStrategy::Sequential,
+        )
+        .await
+    }
+
+    async fn call_function_sharded(
+        &self,
+        request_data: RpcCallFunctionRequest,
+    ) -> Result<Value, RpcError> {
+        let block_hint = request_data.block_reference.clone().into();
+        let shard_hint = ShardHint::Account(request_data.account_id.clone());
+        self.run_coordinator_request(
+            "EXPERIMENTAL_call_function",
+            request_data,
+            block_hint,
+            shard_hint,
+            CoordinatorRequestStrategy::Sequential,
+        )
+        .await
+    }
+
+    async fn congestion_level_sharded(
+        &self,
+        request_data: near_jsonrpc_primitives::types::congestion::RpcCongestionLevelRequest,
+    ) -> Result<Value, RpcError> {
+        let (block_hint, shard_hint, strategy) = match &request_data.chunk_reference {
+            ChunkReference::BlockShardId { block_id, shard_id } => {
+                let block_hint = BlockReference::BlockId(block_id.clone()).into();
+                (block_hint, ShardHint::Id(*shard_id), CoordinatorRequestStrategy::Sequential)
+            }
+            ChunkReference::ChunkHash { chunk_id } => {
+                let chunk_hash = ChunkHash::from(*chunk_id);
+                match self.pool.read().try_resolve_chunk_block_and_shard(&chunk_hash) {
+                    Some((height, shard_id)) => (
+                        BlockHint::Height(height),
+                        ShardHint::Id(shard_id),
+                        CoordinatorRequestStrategy::Sequential,
+                    ),
+                    None => (
+                        BlockHint::None,
+                        ShardHint::None,
+                        CoordinatorRequestStrategy::ParallelTakeFirst,
+                    ),
+                }
+            }
+        };
+        self.run_coordinator_request(
+            "EXPERIMENTAL_congestion_level",
+            request_data,
+            block_hint,
+            shard_hint,
+            strategy,
+        )
+        .await
+    }
+
+    async fn receipt_sharded(
+        &self,
+        request_data: near_jsonrpc_primitives::types::receipts::RpcReceiptRequest,
+    ) -> Result<Value, RpcError> {
+        self.run_coordinator_request(
+            "EXPERIMENTAL_receipt",
+            request_data,
+            BlockHint::None,
+            ShardHint::None,
+            CoordinatorRequestStrategy::ParallelTakeFirst,
+        )
+        .await
+    }
+
+    /// Run a sharded-rpc coordinator sub-request.
     /// Automatically routes the request to the nodes that will be able to handle it based on the
     /// provided block and shard hints. Automatically takes care of retries.
-    /// Works for simple coordinator sub-queries, meaning queries that can be answered by a single
-    /// node based on its local data. Doesn't handle combining data from multiple nodes.
-    /// This function can be used as a basic building block for writing more complex sharded-rpc handlers.
+    /// The `strategy` parameter controls how nodes are queried:
+    /// - `Sequential`: try nodes one by one (default for targeted shard queries).
+    /// - `ParallelTakeFirst`: fan out to all nodes, return the first success.
     async fn run_coordinator_request(
         &self,
         method: &str,
         params: impl serde::Serialize,
         block_hint: BlockHint,
         shard_hint: ShardHint,
+        strategy: CoordinatorRequestStrategy,
     ) -> Result<Value, RpcError> {
         // Find the nodes that might be able to answer the query.
         let rpc_nodes = {
@@ -1142,7 +1380,22 @@ impl JsonRpcHandler {
             }
         };
 
-        // Try to run the request until it succeeds on one of the nodes.
+        match strategy {
+            CoordinatorRequestStrategy::Sequential => {
+                self.run_coordinator_request_sequential(request, rpc_nodes).await
+            }
+            CoordinatorRequestStrategy::ParallelTakeFirst => {
+                self.run_coordinator_request_parallel_take_first(request, rpc_nodes).await
+            }
+        }
+    }
+
+    /// Try nodes one by one in order. Return on first success.
+    async fn run_coordinator_request_sequential(
+        &self,
+        request: Request,
+        rpc_nodes: Vec<RpcNodeHandle>,
+    ) -> Result<Value, RpcError> {
         let mut last_error = None;
         for node in rpc_nodes {
             match self.run_coordinator_request_on_node(request.clone(), node).await {
@@ -1157,7 +1410,35 @@ impl JsonRpcHandler {
                 }
             }
         }
+        Err(last_error.unwrap_or_else(|| {
+            RpcError::new_internal_error(None, "no nodes available to handle the query".to_string())
+        }))
+    }
 
+    /// Fan out to all nodes concurrently. Return the first success, cancel the rest.
+    async fn run_coordinator_request_parallel_take_first(
+        &self,
+        request: Request,
+        rpc_nodes: Vec<RpcNodeHandle>,
+    ) -> Result<Value, RpcError> {
+        use futures::stream::{FuturesUnordered, StreamExt};
+
+        let futures: FuturesUnordered<_> = rpc_nodes
+            .into_iter()
+            .map(|node| self.run_coordinator_request_on_node(request.clone(), node))
+            .collect();
+        futures::pin_mut!(futures);
+
+        let mut last_error = None;
+        while let Some(result) = futures.next().await {
+            match result {
+                Ok(val) => return Ok(val),
+                Err(e) => match e.error_struct.as_ref() {
+                    Some(RpcErrorKind::RequestValidationError(_)) => return Err(e),
+                    _ => last_error = Some(e),
+                },
+            }
+        }
         Err(last_error.unwrap_or_else(|| {
             RpcError::new_internal_error(None, "no nodes available to handle the query".to_string())
         }))
@@ -1220,7 +1501,7 @@ impl JsonRpcHandler {
         }
     }
 
-    async fn view_code(
+    async fn view_code_local(
         &self,
         request_data: RpcViewCodeRequest,
     ) -> Result<RpcViewCodeResponse, RpcViewCodeError> {
@@ -1248,7 +1529,7 @@ impl JsonRpcHandler {
         }
     }
 
-    async fn view_state(
+    async fn view_state_local(
         &self,
         request_data: RpcViewStateRequest,
     ) -> Result<RpcViewStateResponse, RpcViewStateError> {
@@ -1282,7 +1563,7 @@ impl JsonRpcHandler {
         }
     }
 
-    async fn view_access_key(
+    async fn view_access_key_local(
         &self,
         request_data: RpcViewAccessKeyRequest,
     ) -> Result<RpcViewAccessKeyResponse, RpcViewAccessKeyError> {
@@ -1315,7 +1596,7 @@ impl JsonRpcHandler {
         }
     }
 
-    async fn view_access_key_list(
+    async fn view_access_key_list_local(
         &self,
         request_data: RpcViewAccessKeyListRequest,
     ) -> Result<RpcViewAccessKeyListResponse, RpcViewAccessKeyListError> {
@@ -1342,7 +1623,7 @@ impl JsonRpcHandler {
         }
     }
 
-    async fn view_gas_key_nonces(
+    async fn view_gas_key_nonces_local(
         &self,
         request_data: RpcViewGasKeyNoncesRequest,
     ) -> Result<RpcViewGasKeyNoncesResponse, RpcViewGasKeyNoncesError> {
@@ -1375,7 +1656,7 @@ impl JsonRpcHandler {
         }
     }
 
-    async fn call_function(
+    async fn call_function_local(
         &self,
         request_data: RpcCallFunctionRequest,
     ) -> Result<RpcCallFunctionResponse, RpcCallFunctionError> {
@@ -1435,7 +1716,35 @@ impl JsonRpcHandler {
         Ok(near_jsonrpc_primitives::types::blocks::RpcBlockResponse { block_view })
     }
 
-    async fn chunk(
+    async fn chunk_sharded(
+        &self,
+        request_data: near_jsonrpc_primitives::types::chunks::RpcChunkRequest,
+    ) -> Result<Value, RpcError> {
+        let (block_hint, shard_hint, strategy) = match &request_data.chunk_reference {
+            ChunkReference::BlockShardId { block_id, shard_id } => {
+                let block_hint = BlockReference::BlockId(block_id.clone()).into();
+                (block_hint, ShardHint::Id(*shard_id), CoordinatorRequestStrategy::Sequential)
+            }
+            ChunkReference::ChunkHash { chunk_id } => {
+                let chunk_hash = ChunkHash::from(*chunk_id);
+                match self.pool.read().try_resolve_chunk_block_and_shard(&chunk_hash) {
+                    Some((height, shard_id)) => (
+                        BlockHint::Height(height),
+                        ShardHint::Id(shard_id),
+                        CoordinatorRequestStrategy::Sequential,
+                    ),
+                    None => (
+                        BlockHint::None,
+                        ShardHint::None,
+                        CoordinatorRequestStrategy::ParallelTakeFirst,
+                    ),
+                }
+            }
+        };
+        self.run_coordinator_request("chunk", request_data, block_hint, shard_hint, strategy).await
+    }
+
+    async fn chunk_local(
         &self,
         request_data: near_jsonrpc_primitives::types::chunks::RpcChunkRequest,
     ) -> Result<
@@ -1447,7 +1756,7 @@ impl JsonRpcHandler {
         Ok(near_jsonrpc_primitives::types::chunks::RpcChunkResponse { chunk_view })
     }
 
-    async fn congestion_level(
+    async fn congestion_level_local(
         &self,
         request_data: near_jsonrpc_primitives::types::congestion::RpcCongestionLevelRequest,
     ) -> Result<
@@ -1482,26 +1791,32 @@ impl JsonRpcHandler {
         })
     }
 
-    async fn receipt(
+    async fn receipt_local(
         &self,
-        request_data: near_jsonrpc_primitives::types::receipts::RpcReceiptRequest,
-    ) -> Result<
-        near_jsonrpc_primitives::types::receipts::RpcReceiptResponse,
-        near_jsonrpc_primitives::types::receipts::RpcReceiptError,
-    > {
+        request_data: RpcReceiptRequest,
+    ) -> Result<RpcReceiptResponse, RpcReceiptError> {
         match self
             .view_client_send(GetReceipt { receipt_id: request_data.receipt_reference.receipt_id })
             .await?
         {
-            Some(receipt_view) => {
-                Ok(near_jsonrpc_primitives::types::receipts::RpcReceiptResponse { receipt_view })
-            }
-            None => {
-                Err(near_jsonrpc_primitives::types::receipts::RpcReceiptError::UnknownReceipt {
-                    receipt_id: request_data.receipt_reference.receipt_id,
-                })
-            }
+            Some(receipt_view) => Ok(RpcReceiptResponse { receipt_view }),
+            None => Err(RpcReceiptError::UnknownReceipt {
+                receipt_id: request_data.receipt_reference.receipt_id,
+            }),
         }
+    }
+
+    async fn receipt_to_tx(
+        &self,
+        request: RpcReceiptToTxRequest,
+    ) -> Result<RpcReceiptToTxResponse, RpcReceiptToTxError> {
+        let response = self
+            .view_client_send(GetReceiptToTx { receipt_id: request.receipt_reference.receipt_id })
+            .await?;
+        Ok(RpcReceiptToTxResponse {
+            transaction_hash: response.transaction_hash,
+            sender_account_id: response.sender_account_id,
+        })
     }
 
     async fn changes_in_block(
@@ -1560,7 +1875,28 @@ impl JsonRpcHandler {
         Ok(response.rpc_into())
     }
 
-    async fn light_client_execution_outcome_proof(
+    async fn light_client_proof_sharded(
+        &self,
+        method_name: &str,
+        request_data: near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRequest,
+    ) -> Result<Value, RpcError> {
+        let account_id = match &request_data.id {
+            TransactionOrReceiptId::Transaction { sender_id, .. } => sender_id.clone(),
+            TransactionOrReceiptId::Receipt { receiver_id, .. } => receiver_id.clone(),
+        };
+        let block_hint = BlockHint::Hash(request_data.light_client_head);
+        let shard_hint = ShardHint::Account(account_id);
+        self.run_coordinator_request(
+            method_name,
+            request_data,
+            block_hint,
+            shard_hint,
+            CoordinatorRequestStrategy::Sequential,
+        )
+        .await
+    }
+
+    async fn light_client_proof_local(
         &self,
         request: near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRequest,
     ) -> Result<

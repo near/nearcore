@@ -343,6 +343,10 @@ pub enum ProtocolFeature {
     /// (storage stake, function call permission) that could return an error,
     /// violating the documented contract of no mutation on error.
     FixAccessKeyAllowanceCharging,
+    /// Fix missing early return on DepositWithFunctionCall error path in
+    /// validate_delegate_action_key. Previously the error could be
+    /// overwritten by a subsequent receiver_id or method_name check.
+    FixDelegateActionDepositWithFunctionCallError,
     Spice,
     ContinuousEpochSync,
     /// Apply PromiseYield receipts immediately after emitting them. Allows to perform the resume
@@ -355,11 +359,6 @@ pub enum ProtocolFeature {
     /// Includes tokens burnt as part of global contract deploys into corresponding
     /// execution outcome's `tokens_burnt`.
     IncludeDeployGlobalContractOutcomeBurntStorage,
-    /// Fix deterministic account ID creation to allow creation by any incoming transfer
-    /// (unless it's a refund) and fix `account_is_implicit()` to correctly check if
-    /// deterministic account IDs are enabled.
-    /// NEP: https://github.com/near/NEPs/pull/616
-    FixDeterministicAccountIdCreation,
     /// Nonce-based idempotency for global contract distribution receipts. Each
     /// distribution carries an auto-incremented nonce. Any distribution receipt
     /// with a nonce less than the one already stored will be dropped. This
@@ -377,6 +376,10 @@ pub enum ProtocolFeature {
     /// (sequential ordering). Transactions with a nonce gap are held in the
     /// pool rather than discarded.
     StrictNonce,
+    /// Pre-compute and persist chunk producer assignments in `DBCol::ChunkProducers`
+    /// during header sync and block processing. Foundation for early chunk producer
+    /// kickout without epoch manager recomputation.
+    EarlyKickout,
 }
 
 impl ProtocolFeature {
@@ -479,13 +482,14 @@ impl ProtocolFeature {
             | ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen
             | ProtocolFeature::FixAccessKeyAllowanceCharging
             | ProtocolFeature::IncludeDeployGlobalContractOutcomeBurntStorage
-            | ProtocolFeature::FixDeterministicAccountIdCreation
             | ProtocolFeature::GlobalContractDistributionNonce
             | ProtocolFeature::InstantPromiseYield
             | ProtocolFeature::YieldResumeImprovements
             | ProtocolFeature::EthImplicitGlobalContract
             | ProtocolFeature::InstantDeleteAccount => 83,
             ProtocolFeature::Wasmtime => 84,
+            ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
+            | ProtocolFeature::ContinuousEpochSync => 85,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -495,13 +499,12 @@ impl ProtocolFeature {
             ProtocolFeature::GasKeys => 149,
             ProtocolFeature::DynamicResharding => 150,
             ProtocolFeature::StrictNonce => 151,
+            ProtocolFeature::EarlyKickout => 152,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,
-
             // Place features that are not yet in Nightly below this line.
-            ProtocolFeature::ContinuousEpochSync => 201,
         }
     }
 
@@ -516,11 +519,36 @@ pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 /// Minimum supported protocol version for the current binary
 pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 80;
 
+/// Returns the effective protocol version to use for processing a request.
+///
+/// Archival nodes can serve requests for blocks from protocol versions older than
+/// `MIN_SUPPORTED_PROTOCOL_VERSION`. Some features from those old versions may no longer be
+/// available in the current binary (e.g. the Wasmer0/Wasmer2 VM backends have been removed).
+/// For read-only view calls that don't produce on-chain state, it is safe to clamp the protocol
+/// version to `MIN_SUPPORTED_PROTOCOL_VERSION` so the request is processed with the config of
+/// the oldest fully-supported version.
+pub fn clamp_to_supported_protocol_version(
+    current_protocol_version: ProtocolVersion,
+) -> ProtocolVersion {
+    current_protocol_version.max(MIN_SUPPORTED_PROTOCOL_VERSION)
+}
+
+/// Panics if `current_protocol_version` is below `MIN_SUPPORTED_PROTOCOL_VERSION`.
+///
+/// Use this at callee boundaries to enforce that the caller has already clamped the version
+/// via [`clamp_to_supported_protocol_version`].
+pub fn assert_supported_protocol_version(current_protocol_version: ProtocolVersion) {
+    assert!(
+        current_protocol_version >= MIN_SUPPORTED_PROTOCOL_VERSION,
+        "protocol version {current_protocol_version} is below minimum supported {MIN_SUPPORTED_PROTOCOL_VERSION}"
+    );
+}
+
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 84;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 85;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 151;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 152;
 
 // TODO(spice): Once spice is mature and close to release make it part of nightly - at the point in
 // time cargo feature for spice should be removed as well.

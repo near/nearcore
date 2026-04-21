@@ -408,6 +408,83 @@ fn test_memory_grow() {
         "#]]);
 }
 
+/// memory.grow and table.grow gas costs should scale linearly with the operand size.
+#[test]
+fn test_memory_grow_1_page_gas() {
+    test_builder()
+        .only_wasmtime()
+        .wat(
+            r#"
+(module
+  (memory 1 128)
+  (func (export "main")
+    (drop (memory.grow (i32.const 1)))
+  )
+)"#,
+        )
+        .gas(Gas::from_gigagas(10))
+        .expect(&expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 120932041 used gas 120932041
+        "#]]);
+}
+
+#[test]
+fn test_memory_grow_10_pages_gas() {
+    test_builder()
+        .only_wasmtime()
+        .wat(
+            r#"
+(module
+  (memory 1 128)
+  (func (export "main")
+    (drop (memory.grow (i32.const 10)))
+  )
+)"#,
+        )
+        .gas(Gas::from_gigagas(10))
+        .expect(&expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 128336845 used gas 128336845
+        "#]]);
+}
+
+#[test]
+fn test_table_grow_1_element_gas() {
+    test_builder()
+        .only_wasmtime()
+        .wat(
+            r#"
+(module
+  (table 1 128 funcref)
+  (func (export "main")
+    (drop (table.grow (ref.null func) (i32.const 1)))
+  )
+)"#,
+        )
+        .gas(Gas::from_gigagas(10))
+        .expect(&expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 126111977 used gas 126111977
+        "#]]);
+}
+
+#[test]
+fn test_table_grow_10_elements_gas() {
+    test_builder()
+        .only_wasmtime()
+        .wat(
+            r#"
+(module
+  (table 1 128 funcref)
+  (func (export "main")
+    (drop (table.grow (ref.null func) (i32.const 10)))
+  )
+)"#,
+        )
+        .gas(Gas::from_gigagas(10))
+        .expect(&expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 133516781 used gas 133516781
+        "#]]);
+}
+
 fn bad_import_global(env: &str) -> Vec<u8> {
     wat::parse_str(format!(
         r#"

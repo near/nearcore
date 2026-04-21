@@ -1,7 +1,7 @@
 use super::drop_condition::ClientToShardsManagerSender;
+use super::peer_manager_actor::TestLoopPeerManagerActor;
+use super::rpc::{TestLoopRpcTransport, create_testloop_jsonrpc_router};
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
-use crate::utils::peer_manager_actor::TestLoopPeerManagerActor;
-use crate::utils::rpc::{TestLoopRpcTransport, create_testloop_jsonrpc_router};
 use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::test_loop::TestLoopV2;
@@ -14,7 +14,7 @@ use near_chain::state_snapshot_actor::{
     SnapshotCallbacks, StateSnapshotActor, get_delete_snapshot_callback, get_make_snapshot_callback,
 };
 use near_chain::types::RuntimeAdapter;
-use near_chain::{ApplyChunksIterationMode, ApplyChunksSpawner, ChainGenesis};
+use near_chain::{ApplyChunksSpawner, ChainGenesis};
 use near_chain_configs::{MutableConfigValue, ReshardingHandle};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::archive::cloud_archival_writer::create_cloud_archival_writer;
@@ -57,7 +57,8 @@ pub fn setup_client(
     node_state: NodeSetupState,
     shared_state: &SharedState,
 ) -> NodeExecutionData {
-    let NodeSetupState { account_id, client_config, storage } = node_state;
+    let NodeSetupState { account_id, client_config, storage, validator_signer: custom_signer } =
+        node_state;
     let is_archival = client_config.archive;
     let SharedState {
         genesis,
@@ -93,9 +94,10 @@ pub fn setup_client(
         ..Default::default()
     };
 
-    let apply_chunks_iteration_mode = ApplyChunksIterationMode::Sequential;
-    let sync_jobs_actor =
-        SyncJobsActor::new(client_adapter.as_multi_sender(), apply_chunks_iteration_mode);
+    let sync_jobs_actor = SyncJobsActor::new(
+        client_adapter.as_multi_sender(),
+        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
+    );
     let chain_genesis = ChainGenesis::new(&genesis.config);
     let epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(
         storage.hot_store.clone(),
@@ -131,10 +133,8 @@ pub fn setup_client(
     );
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
-    let validator_signer = MutableConfigValue::new(
-        Some(Arc::new(create_test_signer(account_id.as_str()))),
-        "validator_signer",
-    );
+    let signer = custom_signer.unwrap_or_else(|| Arc::new(create_test_signer(account_id.as_str())));
+    let validator_signer = MutableConfigValue::new(Some(signer), "validator_signer");
     let shard_tracker = ShardTracker::new(
         client_config.tracked_shards_config.clone(),
         epoch_manager.clone(),
@@ -174,7 +174,6 @@ pub fn setup_client(
         [0; 32],
         Some(snapshot_callbacks),
         multi_spawner,
-        apply_chunks_iteration_mode,
         partial_witness_adapter.as_multi_sender(),
         resharding_sender.as_multi_sender(),
         Arc::new(test_loop.future_spawner(identifier)),
@@ -441,7 +440,6 @@ pub fn setup_client(
         spice_chunk_validator_adapter.as_sender(),
     );
 
-    let apply_chunks_iteration_mode = ApplyChunksIterationMode::Sequential;
     let chunk_executor_actor = ChunkExecutorActor::new(
         runtime_adapter.store().clone(),
         &chain_genesis,
@@ -451,7 +449,6 @@ pub fn setup_client(
         network_adapter.as_multi_sender(),
         validator_signer.clone(),
         Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
-        apply_chunks_iteration_mode,
         chunk_executor_adapter.as_sender(),
         spice_core_writer_adapter.as_sender(),
         spice_data_distributor_adapter.as_multi_sender(),

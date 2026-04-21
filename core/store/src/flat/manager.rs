@@ -1,4 +1,5 @@
 use super::chunk_view::FlatStorageChunkView;
+use super::storage::FlatHeadHold;
 use super::{
     FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage, FlatStorageError,
 };
@@ -20,10 +21,13 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct FlatStorageManager(Arc<FlatStorageManagerInner>);
 
-/// Stores the reference block hash and min height of all the prev hashes of that block's chunks.
-struct SnapshotBlock {
+/// State for an in-progress snapshot request. Holds the block info and
+/// RAII guards that keep every shard's flat head from advancing.
+struct PendingSnapshot {
     block_hash: CryptoHash,
     min_chunk_prev_height: BlockHeight,
+    /// Guards keeping each shard's flat head frozen. Dropping them releases the holds.
+    holds: Vec<FlatHeadHold>,
 }
 
 pub struct FlatStorageManagerInner {
@@ -37,9 +41,10 @@ pub struct FlatStorageManagerInner {
     /// this epoch can share the same `head` and `tail`, similar for shards for the next epoch,
     /// but such overhead is negligible comparing the delta sizes, so we think it's ok.
     flat_storages: Mutex<HashMap<ShardUId, FlatStorage>>,
-    /// Set to Some() when there's a state snapshot in progress. Used to signal to the resharding flat
-    /// storage catchup code that it shouldn't advance past this block height
-    want_snapshot: Mutex<Option<SnapshotBlock>>,
+    /// Set to Some() when there's a state snapshot in progress. The
+    /// `PendingSnapshot` holds RAII guards that keep every shard's flat head
+    /// frozen. Dropping the `PendingSnapshot` releases all holds.
+    pending_snapshot: Mutex<Option<PendingSnapshot>>,
 }
 
 impl FlatStorageManager {
@@ -47,7 +52,7 @@ impl FlatStorageManager {
         Self(Arc::new(FlatStorageManagerInner {
             store,
             flat_storages: Default::default(),
-            want_snapshot: Default::default(),
+            pending_snapshot: Default::default(),
         }))
     }
 
@@ -80,13 +85,12 @@ impl FlatStorageManager {
     /// and resharding.
     pub fn create_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Result<(), StorageError> {
         tracing::debug!(target: "store", ?shard_uid, "creating flat storage for shard");
-        let want_snapshot = self.0.want_snapshot.lock();
-        let disable_updates = want_snapshot.is_some();
-
+        let mut pending_snapshot = self.0.pending_snapshot.lock();
         let mut flat_storages = self.0.flat_storages.lock();
         let flat_storage = FlatStorage::new(self.0.store.clone(), shard_uid)?;
-        if disable_updates {
-            flat_storage.set_flat_head_update_mode(false);
+        // If a snapshot is pending, the new shard must also be held.
+        if let Some(snapshot) = pending_snapshot.as_mut() {
+            snapshot.holds.push(flat_storage.hold_flat_head());
         }
         let original_value = flat_storages.insert(shard_uid, flat_storage);
         if original_value.is_some() {
@@ -303,48 +307,40 @@ impl FlatStorageManager {
     // should modify this to be sure that the correct block hash that will end up on the canonical chain is taken. Right now
     // we rely on the canonical one being requested after any other forks, which may not be the case.
     pub fn want_snapshot(&self, block_hash: CryptoHash, min_chunk_prev_height: BlockHeight) {
-        {
-            let mut want_snapshot = self.0.want_snapshot.lock();
-            *want_snapshot = Some(SnapshotBlock { block_hash, min_chunk_prev_height });
-        }
         let flat_storages = self.0.flat_storages.lock();
-        for flat_storage in flat_storages.values() {
-            flat_storage.set_flat_head_update_mode(false);
-        }
+        let holds = flat_storages.values().map(|fs| fs.hold_flat_head()).collect();
+        let mut pending_snapshot = self.0.pending_snapshot.lock();
+        *pending_snapshot = Some(PendingSnapshot { block_hash, min_chunk_prev_height, holds });
         tracing::debug!(target: "store", "locked flat head updates");
     }
 
     /// Should be called when we're done taking a state snapshot. If `block_hash` was the most recently requested snapshot, this
     /// allows flat head updates, and signals to any resharding flat storage code that it can advance now.
     pub fn snapshot_taken(&self, block_hash: &CryptoHash) {
-        {
-            let mut want_snapshot = self.0.want_snapshot.lock();
-            if let Some(want) = &*want_snapshot {
-                if &want.block_hash != block_hash {
-                    return;
-                }
-            } else {
-                tracing::warn!(target: "store", %block_hash, "state snapshot being marked as taken without a corresponding pending request set");
+        let mut pending_snapshot = self.0.pending_snapshot.lock();
+        if let Some(snapshot) = &*pending_snapshot {
+            if &snapshot.block_hash != block_hash {
+                return;
             }
-            *want_snapshot = None;
+        } else {
+            tracing::warn!(target: "store", %block_hash, "state snapshot being marked as taken without a corresponding pending request set");
         }
-        let flat_storages = self.0.flat_storages.lock();
-        for flat_storage in flat_storages.values() {
-            flat_storage.set_flat_head_update_mode(true);
-        }
+        // Dropping the PendingSnapshot drops all FlatHeadHold guards,
+        // releasing the holds on every shard's flat head.
+        *pending_snapshot = None;
         tracing::debug!(target: "store", "unlocked flat head updates");
     }
 
     // Returns Some() if a state snapshot should be taken, and therefore any resharding flat storage code should not advance
     // past the given hash
     pub fn snapshot_height_wanted(&self) -> Option<BlockHeight> {
-        let want_snapshot = self.0.want_snapshot.lock();
+        let want_snapshot = self.0.pending_snapshot.lock();
         want_snapshot.as_ref().map(|s| s.min_chunk_prev_height)
     }
 
     // Returns Some() with the corresponding block hash if a state snapshot has been requested
     pub fn snapshot_hash_wanted(&self) -> Option<CryptoHash> {
-        let want_snapshot = self.0.want_snapshot.lock();
+        let want_snapshot = self.0.pending_snapshot.lock();
         want_snapshot.as_ref().map(|s| s.block_hash)
     }
 }

@@ -1,8 +1,8 @@
+use super::peer_manager_actor::NetworkRequestHandler;
 use super::state::NodeExecutionData;
 use crate::utils::network::{
     block_dropper_by_height, chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash,
 };
-use crate::utils::peer_manager_actor::NetworkRequestHandler;
 use near_async::messaging::{CanSend, LateBoundSender};
 use near_async::test_loop::data::TestLoopData;
 use near_async::test_loop::sender::TestLoopSender;

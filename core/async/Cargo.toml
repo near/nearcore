@@ -27,6 +27,9 @@ near-o11y.workspace = true
 near-async-derive.workspace = true
 near-time = { workspace = true, features = ["clock"] }
 
+[target.'cfg(unix)'.dependencies]
+thread-priority.workspace = true
+
 [features]
 actor_instrumentation_testing = ["rand"]
 

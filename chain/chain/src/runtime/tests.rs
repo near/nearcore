@@ -111,7 +111,7 @@ impl TestEnv {
         let mut genesis = Genesis::test_sharded_new_version(
             all_validators.into_iter().collect(),
             validators_len,
-            validators.iter().map(|x| x.len() as ValidatorId).collect(),
+            validators.len() as u64,
         );
         // No fees mode.
         genesis.config.epoch_length = config.epoch_length;

@@ -1,7 +1,9 @@
 use crate::setup::env::TestLoopEnv;
+use crate::setup::peer_manager_actor::HandlerResult;
 use near_async::messaging::CanSend as _;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::types::NetworkRequests;
+use near_network::types::NetworkResponses;
 use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::types::{AccountId, BlockHeight};
@@ -28,7 +30,7 @@ pub(super) fn delay_endorsements_propagation(env: &mut TestLoopEnv, delay_height
             RwLock<VecDeque<(CryptoHash, AccountId, SpiceChunkEndorsement)>>,
         > = Arc::new(RwLock::new(VecDeque::new()));
         let peer_actor = env.test_loop.data.get_mut(&node.peer_manager_sender.actor_handle());
-        peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
+        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
             match request {
                 NetworkRequests::Block { ref block } => {
                     block_heights.write().insert(*block.hash(), block.header().height());
@@ -45,7 +47,7 @@ pub(super) fn delay_endorsements_propagation(env: &mut TestLoopEnv, delay_height
                         let (_, target, endorsement) = delayed_endorsements.pop_front().unwrap();
                         senders[&target].send(SpiceChunkEndorsementMessage(endorsement));
                     }
-                    Some(request)
+                    HandlerResult::Unhandled(request)
                 }
                 NetworkRequests::SpiceChunkEndorsement(target, endorsement) => {
                     delayed_endorsements.write().push_back((
@@ -53,9 +55,9 @@ pub(super) fn delay_endorsements_propagation(env: &mut TestLoopEnv, delay_height
                         target,
                         endorsement,
                     ));
-                    None
+                    HandlerResult::Handled(NetworkResponses::NoResponse)
                 }
-                _ => Some(request),
+                _ => HandlerResult::Unhandled(request),
             }
         }));
     }

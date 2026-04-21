@@ -127,10 +127,12 @@
 
 # Custom test networks
 
-- [Starting a network from mainnet state](./test_networks/mainnet_spoon.md)
+- [Forknet scenarios](../pytest/tests/mocknet/docs/forknet_scenario.md)
+- [Mirror tool](../pytest/tests/mocknet/docs/mirror.md)
 
 # Misc
 
 - [Overview](./misc/README.md)
 - [State Sync Dump](./misc/state_sync_dump.md)
 - [Archival node - recovery of missing data](./misc/archival_data_recovery.md)
+- [Grafana MCP Setup for Claude Code](./grafana-mcp-setup.md)

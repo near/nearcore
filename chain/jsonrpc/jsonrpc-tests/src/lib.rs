@@ -125,6 +125,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         num_block_producer_seats: num_validator_seats,
         archive: false,
         state_sync_enabled: true,
+        transaction_pool_size_limit: None,
     });
 
     // 6. Create ViewClientActor
