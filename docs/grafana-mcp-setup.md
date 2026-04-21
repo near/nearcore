@@ -88,6 +88,7 @@ if [ "$HTTP" != "200" ]; then
   exit 1
 fi
 echo "token verified: /api/user returned 200"
+unset TOKEN
 ```
 
 ### Step 4: Write the wrapper script
