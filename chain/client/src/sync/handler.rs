@@ -46,6 +46,10 @@ pub enum SyncHandlerRequest {
     NeedRequestBlocks(Vec<(CryptoHash, PeerId)>),
     /// Need to process block artifact unlocked by state sync.
     NeedProcessBlockArtifact(BlockProcessingArtifact),
+    /// Sync hash is stale — the network has moved past the epoch we are syncing
+    /// from. Write the data reset marker and shut down so the supervisor can
+    /// wipe and restart.
+    EpochSyncDataReset,
 }
 
 impl SyncHandler {
@@ -153,6 +157,7 @@ impl SyncHandler {
             state_sync_status,
             shard_tracker,
             chain,
+            highest_height,
             highest_height_peers,
             apply_chunks_done_sender,
         );
@@ -167,6 +172,7 @@ impl SyncHandler {
                 self.sync_status.update(SyncStatus::StateSyncDone);
                 Some(SyncHandlerRequest::NeedProcessBlockArtifact(block_processing_artifacts))
             }
+            StateSyncResult::StaleSyncHash => Some(SyncHandlerRequest::EpochSyncDataReset),
         }
     }
 
@@ -318,6 +324,7 @@ impl SyncHandler {
                     state_sync_status,
                     shard_tracker,
                     chain,
+                    highest_height,
                     highest_height_peers,
                     apply_chunks_done_sender,
                 )? {
@@ -336,6 +343,9 @@ impl SyncHandler {
                             highest_height,
                         });
                         return Ok(Some(SyncHandlerRequest::NeedProcessBlockArtifact(artifacts)));
+                    }
+                    StateSyncResult::StaleSyncHash => {
+                        return Ok(Some(SyncHandlerRequest::EpochSyncDataReset));
                     }
                 }
             }

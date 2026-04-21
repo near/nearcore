@@ -15,7 +15,10 @@ fn test_rpc_block_by_height() {
 
     let result = env
         .rpc_runner()
-        .run_jsonrpc_query(|client| client.block_by_id(BlockId::Height(1)), Duration::seconds(5))
+        .run_with_jsonrpc_client(
+            |client| client.block_by_id(BlockId::Height(1)),
+            Duration::seconds(5),
+        )
         .unwrap();
 
     assert_eq!(result.header.height, 1, "expected block height 1, got {}", result.header.height);
@@ -46,7 +49,10 @@ fn test_rpc_broadcast_tx_commit_transfer() {
 
     let result = env
         .rpc_runner()
-        .run_jsonrpc_query(|client| client.broadcast_tx_commit(tx_base64), Duration::seconds(10))
+        .run_with_jsonrpc_client(
+            |client| client.broadcast_tx_commit(tx_base64),
+            Duration::seconds(10),
+        )
         .unwrap();
 
     // Extract the execution outcome.

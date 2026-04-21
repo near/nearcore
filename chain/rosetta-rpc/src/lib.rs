@@ -1031,6 +1031,7 @@ async fn construction_submit(
             models::TransactionIdentifierResponse,
             models::TransactionMetadata,
             models::TransactionType,
+            models::ExecutionStatus,
             models::Version,
         )
     ),

@@ -1,3 +1,4 @@
+use crate::setup::peer_manager_actor::HandlerResult;
 use crate::setup::state::{NodeExecutionData, SharedState};
 use crate::utils::node::TestLoopNode;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
@@ -7,7 +8,7 @@ use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_client::QueryError;
 use near_network::client::{BlockHeadersRequest, BlockHeadersResponse};
-use near_network::types::NetworkRequests;
+use near_network::types::{NetworkRequests, NetworkResponses};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::types::AccountId;
 use std::cell::RefCell;
@@ -191,29 +192,27 @@ pub fn throttle_header_sync(
 
     node_data.register_override_handler(
         &mut test_loop.data,
-        Box::new(move |request| {
-            match request {
-                NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
-                    let my_peer_id = network_shared_state.account_to_peer_id(&account_id);
-                    let responder = network_shared_state
-                        .senders_for_peer(&peer_id, &my_peer_id)
-                        .client_sender
-                        .clone();
-                    let future = network_shared_state
-                        .senders_for_peer(&my_peer_id, &peer_id)
-                        .view_client_sender
-                        .send_async(BlockHeadersRequest(hashes));
-                    future_spawner.spawn("throttled header response", async move {
-                        let response = future.await.unwrap().unwrap();
-                        let truncated = response.into_iter().take(max_headers).collect();
-                        let future = responder
-                            .send_async(BlockHeadersResponse(truncated, peer_id).span_wrap());
-                        drop(future);
-                    });
-                    None // handled — don't pass to default handler
-                }
-                other => Some(other),
+        Box::new(move |request| match request {
+            NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
+                let my_peer_id = network_shared_state.account_to_peer_id(&account_id);
+                let responder = network_shared_state
+                    .senders_for_peer(&peer_id, &my_peer_id)
+                    .client_sender
+                    .clone();
+                let future = network_shared_state
+                    .senders_for_peer(&my_peer_id, &peer_id)
+                    .view_client_sender
+                    .send_async(BlockHeadersRequest(hashes));
+                future_spawner.spawn("throttled header response", async move {
+                    let response = future.await.unwrap().unwrap();
+                    let truncated = response.into_iter().take(max_headers).collect();
+                    let future =
+                        responder.send_async(BlockHeadersResponse(truncated, peer_id).span_wrap());
+                    drop(future);
+                });
+                HandlerResult::Handled(NetworkResponses::NoResponse)
             }
+            other => HandlerResult::Unhandled(other),
         }),
     );
 }

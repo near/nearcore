@@ -1,4 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
+use crate::setup::peer_manager_actor::HandlerResult;
 use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 use crate::utils::transactions::get_anchor_hash;
 use itertools::Itertools as _;
@@ -7,6 +8,7 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_client::{ProcessTxRequest, Query};
 use near_network::types::NetworkRequests;
+use near_network::types::NetworkResponses;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -139,7 +141,7 @@ fn test_catchup_random_single_part_sync_common(
     for node_datas in &env.node_datas {
         let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
+        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
             if let NetworkRequests::PartialEncodedChunkMessage { partial_encoded_chunk, .. } =
                 &request
             {
@@ -147,11 +149,11 @@ fn test_catchup_random_single_part_sync_common(
                     if partial_encoded_chunk.header.height_created() == 23
                         || partial_encoded_chunk.header.height_created() == 24
                     {
-                        return None;
+                        return HandlerResult::Handled(NetworkResponses::NoResponse);
                     }
                 }
             }
-            Some(request)
+            HandlerResult::Unhandled(request)
         }));
     }
 
@@ -339,7 +341,7 @@ fn slow_test_catchup_sanity_blocks_produced() {
 
         let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
+        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
             if let NetworkRequests::Block { block } = &request {
                 check_height(*block.hash(), block.header().height());
 
@@ -351,10 +353,10 @@ fn slow_test_catchup_sanity_blocks_produced() {
 
                 // Do not propagate blocks at %10=4
                 if block.header().height() % 10 == 4 {
-                    return None;
+                    return HandlerResult::Handled(NetworkResponses::NoResponse);
                 }
             }
-            Some(request)
+            HandlerResult::Unhandled(request)
         }));
     }
 
@@ -415,7 +417,7 @@ fn slow_test_all_chunks_accepted() {
         let seen_chunk_same_sender = seen_chunk_same_sender.clone();
         let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |msg| -> Option<NetworkRequests> {
+        peer_actor.register_override_handler(Box::new(move |msg| -> HandlerResult {
             match msg {
                 NetworkRequests::PartialEncodedChunkMessage {
                     ref account_id,
@@ -448,7 +450,7 @@ fn slow_test_all_chunks_accepted() {
                 }
                 _ => (),
             }
-            Some(msg)
+            HandlerResult::Unhandled(msg)
         }));
     }
 

@@ -4,7 +4,6 @@ import { CurrentPeersView } from './CurrentPeersView';
 import { PeerStorageView } from './PeerStorageView';
 import { ConnectionStorageView } from './ConnectionStorageView';
 import { Tier1View } from './Tier1View';
-import { RoutingTableView } from './RoutingTableView';
 import { SnapshotHostsView } from './SnapshotHostsView';
 
 type NetworkInfoViewProps = {
@@ -27,9 +26,6 @@ export const NetworkInfoView = ({ addr }: NetworkInfoViewProps) => {
                 <NavLink to="../tier1" className={navLinkClassName}>
                     TIER1
                 </NavLink>
-                <NavLink to="../routing_table" className={navLinkClassName}>
-                    Routing Table
-                </NavLink>
                 <NavLink to="../snapshot_hosts" className={navLinkClassName}>
                     Snapshot Hosts
                 </NavLink>
@@ -39,7 +35,6 @@ export const NetworkInfoView = ({ addr }: NetworkInfoViewProps) => {
                 <Route path="peer_storage" element={<PeerStorageView addr={addr} />} />
                 <Route path="connection_storage" element={<ConnectionStorageView addr={addr} />} />
                 <Route path="tier1" element={<Tier1View addr={addr} />} />
-                <Route path="routing_table" element={<RoutingTableView addr={addr} />} />
                 <Route path="snapshot_hosts" element={<SnapshotHostsView addr={addr} />} />
             </Routes>
         </div>

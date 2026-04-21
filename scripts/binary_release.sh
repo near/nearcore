@@ -102,6 +102,7 @@ function upload_binary {
   local binary="$1"
   local folder="${release_type%-release}"
 
+  upload_s3 "target/release/${binary}" "${os_and_arch}/${branch}/${folder}/${binary}"
   upload_s3 "target/release/${binary}" "${os_and_arch}/${branch}/${commit}/${folder}/${binary}"
 }
 

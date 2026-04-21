@@ -13,7 +13,6 @@ use near_primitives::types::{BlockHeight, ShardId};
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
 use std::io;
-use std::sync::Arc;
 use strum::IntoEnumIterator;
 
 type StoreKey = Vec<u8>;
@@ -22,13 +21,6 @@ type StoreValue = Option<Vec<u8>>;
 /// This trait is used on top of Store to calculate cold loop specific metrics,
 /// and implement conversion to errors for absent data.
 pub trait ColdMigrationStore {
-    fn iter_prefix_with_callback_for_cold(
-        &self,
-        col: DBCol,
-        key_prefix: &[u8],
-        callback: impl FnMut(Box<[u8]>),
-    ) -> io::Result<()>;
-
     fn get_for_cold(&self, column: DBCol, key: &[u8]) -> StoreValue;
 
     fn get_ser_for_cold<T: BorshDeserialize>(
@@ -44,18 +36,6 @@ pub trait ColdMigrationStore {
         column: DBCol,
         key: &[u8],
     ) -> io::Result<T>;
-}
-
-/// The BatchTransaction can be used to write multiple set operations to the cold db in batches.
-/// [`write`] is called every time `transaction_size` overgrows `threshold_transaction_size`.
-/// [`write`] should also be called manually before dropping BatchTransaction to write any leftovers.
-struct BatchTransaction {
-    cold_db: Arc<ColdDB>,
-    transaction: DBTransaction,
-    /// Size of all values keys and values in `transaction` in bytes.
-    transaction_size: usize,
-    /// Minimum size, after which we write transaction
-    threshold_transaction_size: usize,
 }
 
 /// Updates provided cold database from provided hot store with information about block at `height`.
@@ -76,13 +56,16 @@ struct BatchTransaction {
 /// 1. add it to `DBCol::is_cold` list
 /// 2. define `DBCol::key_type` for it (if it isn't already defined)
 /// 3. add new clause in `get_keys_from_store` for new key types used for this column (if there are any)
+/// When `resharding_block_hash` is `Some`, it indicates a resharding boundary:
+/// the shard UID mapping is updated for cold store and the TrieChanges from
+/// the resharding block (previous block) are also copied.
 pub fn update_cold_db(
     cold_db: &ColdDB,
     hot_store: &Store,
     shard_layout: &ShardLayout,
     tracked_shards: &Vec<ShardUId>,
     height: &BlockHeight,
-    is_resharding_boundary: bool,
+    resharding_block_hash: Option<&CryptoHash>,
     num_threads: usize,
 ) -> io::Result<()> {
     let _span = tracing::debug_span!(target: "cold_store", "update cold db", height = height);
@@ -112,7 +95,7 @@ pub fn update_cold_db(
                 // Copy column to cold db.
                 .map(|col: DBCol| -> io::Result<()> {
                     if col == DBCol::State {
-                        if is_resharding_boundary {
+                        if resharding_block_hash.is_some() {
                             update_state_shard_uid_mapping(cold_db, shard_layout);
                         }
                         copy_state_from_store(
@@ -121,6 +104,7 @@ pub fn update_cold_db(
                             block_hash_key,
                             cold_db,
                             &hot_store,
+                            resharding_block_hash,
                         )
                     } else if col == DBCol::StateChanges {
                         copy_state_changes_from_store(cold_db, &hot_store, block_hash_key)
@@ -209,6 +193,7 @@ fn copy_state_from_store(
     block_hash_key: &[u8],
     cold_db: &ColdDB,
     hot_store: &Store,
+    resharding_block_hash: Option<&CryptoHash>,
 ) -> io::Result<()> {
     let col = DBCol::State;
     let _span = tracing::debug_span!(target: "cold_store", "copy_state_from_store", %col);
@@ -219,6 +204,12 @@ fn copy_state_from_store(
     let mut total_size = 0;
     let mut transaction = DBTransaction::new();
     let mut copied_shards = HashSet::<ShardUId>::new();
+    // Only newly-created child shards have TrieChanges at the resharding block
+    // that weren't copied during the previous cold loop iteration. For
+    // unchanged shards the ShardUId is the same in both layouts, so their
+    // TrieChanges at the previous height were already copied and re-reading
+    // them would double-increment refcounts in DBCol::State.
+    let child_shard_uids = shard_layout.get_split_child_shard_uids();
     for shard_uid in shard_layout.shard_uids() {
         debug_assert_eq!(
             DBCol::TrieChanges.key_type(),
@@ -226,22 +217,29 @@ fn copy_state_from_store(
         );
 
         let shard_uid_key = shard_uid.to_bytes();
-        let key = join_two_keys(&block_hash_key, &shard_uid_key);
-        let trie_changes: Option<TrieChanges> =
-            hot_store.get_ser::<TrieChanges>(DBCol::TrieChanges, &key);
-
-        let Some(trie_changes) = trie_changes else { continue };
-        copied_shards.insert(shard_uid);
-        total_keys += trie_changes.insertions().len();
         let mapped_shard_uid_key = get_shard_uid_mapping(&cold_store, shard_uid).to_bytes();
-        for op in trie_changes.insertions() {
-            // TODO(resharding) Test it properly. Currently this path is not triggered in testloop.
-            let key = join_two_keys(&mapped_shard_uid_key, op.hash().as_bytes());
-            let value = op.payload().to_vec();
 
-            total_size += value.len();
-            tracing::trace!(target: "cold_store", pretty_key=?near_fmt::StorageKey(&key), "copying state node to colddb");
-            rc_aware_set(&mut transaction, DBCol::State, key, value);
+        // Look for TrieChanges at the current block hash (normal block
+        // processing) and, for newly-created child shards at a resharding
+        // boundary, also at the previous block hash (the resharding block
+        // where child shard state was created).
+        let resharding_hash_for_shard = resharding_block_hash
+            .filter(|_| child_shard_uids.contains(&shard_uid))
+            .map(|h| h.as_bytes().as_slice());
+        let block_hashes: [Option<&[u8]>; 2] = [Some(block_hash_key), resharding_hash_for_shard];
+        for hash_key in block_hashes.into_iter().flatten() {
+            let key = join_two_keys(hash_key, &shard_uid_key);
+            let trie_changes: Option<TrieChanges> = hot_store.get_ser(DBCol::TrieChanges, &key);
+            let Some(trie_changes) = trie_changes else { continue };
+            copied_shards.insert(shard_uid);
+            total_keys += trie_changes.insertions().len();
+            for op in trie_changes.insertions() {
+                let key = join_two_keys(&mapped_shard_uid_key, op.hash().as_bytes());
+                let value = op.payload().to_vec();
+                total_size += value.len();
+                tracing::trace!(target: "cold_store", pretty_key=?near_fmt::StorageKey(&key), "copying state node to colddb");
+                rc_aware_set(&mut transaction, DBCol::State, key, value);
+            }
         }
     }
     for tracked_shard in tracked_shards {
@@ -409,42 +407,25 @@ pub fn get_cold_head(cold_db: &ColdDB) -> io::Result<Option<Tip>> {
         .transpose()
 }
 
-pub enum CopyAllDataToColdStatus {
-    EverythingCopied,
-    Interrupted,
-}
-
-/// Copies all contents of all cold columns from `hot_store` to `cold_db`.
-/// Does it column by column, and because columns can be huge, writes in batches of ~`batch_size`.
-pub fn copy_all_data_to_cold(
-    cold_db: Arc<ColdDB>,
-    hot_store: &Store,
-    batch_size: usize,
-    keep_going: &Arc<std::sync::atomic::AtomicBool>,
-) -> CopyAllDataToColdStatus {
-    for col in DBCol::iter() {
-        if col.is_cold() {
-            tracing::info!(target: "cold_store", ?col, "started column migration");
-            let mut transaction = BatchTransaction::new(cold_db.clone(), batch_size);
-            for (key, value) in hot_store.iter(col) {
-                if !keep_going.load(std::sync::atomic::Ordering::Relaxed) {
-                    tracing::debug!(target: "cold_store", "stopping copy_all_data_to_cold");
-                    return CopyAllDataToColdStatus::Interrupted;
-                }
-                transaction.set_and_write_if_full(col, key.to_vec(), value.to_vec());
-            }
-            transaction.write();
-            tracing::info!(target: "cold_store", ?col, "finished column migration");
-        }
-    }
-    CopyAllDataToColdStatus::EverythingCopied
+/// Copies all State column entries from hot to cold storage.
+///
+/// Genesis state is written directly to the State column (not via TrieChanges),
+/// so `update_cold_db`'s `copy_state_from_store` copies nothing at genesis.
+/// Call this before the cold store loop processes genesis height.
+pub fn copy_state_to_cold(cold_db: &ColdDB, hot_store: &Store) -> io::Result<()> {
+    copy_from_store(
+        cold_db,
+        hot_store,
+        DBCol::State,
+        hot_store.iter(DBCol::State).map(|(k, _)| k.to_vec()).collect(),
+    )
 }
 
 // The copy_state_from_store function depends on the state nodes to be present
 // in the trie changes. This isn't the case for genesis so instead this method
 // can be used to copy the genesis records from hot to cold.
 // TODO - How did copying from genesis worked in the prod migration to split storage?
-pub fn test_cold_genesis_update(cold_db: &ColdDB, hot_store: &Store) -> io::Result<()> {
+pub fn test_copy_all_data_to_cold(cold_db: &ColdDB, hot_store: &Store) -> io::Result<()> {
     for col in DBCol::iter() {
         if !col.is_cold() {
             continue;
@@ -465,12 +446,6 @@ pub fn test_cold_genesis_update(cold_db: &ColdDB, hot_store: &Store) -> io::Resu
 
 pub fn test_get_store_reads(column: DBCol) -> u64 {
     crate::metrics::COLD_MIGRATION_READS.with_label_values(&[<&str>::from(column)]).get()
-}
-
-pub fn test_get_store_initial_writes(column: DBCol) -> u64 {
-    crate::metrics::COLD_STORE_MIGRATION_BATCH_WRITE_COUNT
-        .with_label_values(&[<&str>::from(column)])
-        .get()
 }
 
 /// Returns HashMap from DBKeyType to possible keys of that type for provided height.
@@ -667,19 +642,6 @@ where
 }
 
 impl ColdMigrationStore for Store {
-    fn iter_prefix_with_callback_for_cold(
-        &self,
-        col: DBCol,
-        key_prefix: &[u8],
-        mut callback: impl FnMut(Box<[u8]>),
-    ) -> io::Result<()> {
-        for (key, _) in self.iter_prefix(col, key_prefix) {
-            crate::metrics::COLD_MIGRATION_READS.with_label_values(&[<&str>::from(col)]).inc();
-            callback(key);
-        }
-        Ok(())
-    }
-
     fn get_for_cold(&self, column: DBCol, key: &[u8]) -> StoreValue {
         crate::metrics::COLD_MIGRATION_READS.with_label_values(&[<&str>::from(column)]).inc();
         self.get(column, key).map(|x| x.as_slice().to_vec())
@@ -712,55 +674,6 @@ impl ColdMigrationStore for Store {
             self.get_ser_for_cold(column, key),
             format_args!("{:?}: {:?}", column, key),
         )
-    }
-}
-
-impl BatchTransaction {
-    pub fn new(cold_db: Arc<ColdDB>, batch_size: usize) -> Self {
-        Self {
-            cold_db,
-            transaction: DBTransaction::new(),
-            transaction_size: 0,
-            threshold_transaction_size: batch_size,
-        }
-    }
-
-    /// Adds a set DBOp to `self.transaction`. Updates `self.transaction_size`.
-    /// If `self.transaction_size` becomes too big, calls for write.
-    pub fn set_and_write_if_full(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
-        let size = rc_aware_set(&mut self.transaction, col, key, value);
-        self.transaction_size += size;
-
-        if self.transaction_size > self.threshold_transaction_size {
-            self.write();
-        }
-    }
-
-    /// Writes `self.transaction` and replaces it with new empty DBTransaction.
-    /// Sets `self.transaction_size` to 0.
-    fn write(&mut self) {
-        if self.transaction.ops.is_empty() {
-            return;
-        }
-
-        let column_label = [<&str>::from(self.transaction.ops[0].col())];
-
-        crate::metrics::COLD_STORE_MIGRATION_BATCH_WRITE_COUNT
-            .with_label_values(&column_label)
-            .inc();
-        let _timer = crate::metrics::COLD_STORE_MIGRATION_BATCH_WRITE_TIME
-            .with_label_values(&column_label)
-            .start_timer();
-
-        tracing::info!(
-                target: "cold_store",
-                ?column_label,
-                tx_size_in_megabytes = self.transaction_size as f64 / 1e6,
-                "writing a cold store transaction");
-
-        let transaction = std::mem::take(&mut self.transaction);
-        self.cold_db.write(transaction);
-        self.transaction_size = 0;
     }
 }
 

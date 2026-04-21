@@ -25,6 +25,7 @@ num-rational.workspace = true
 parking_lot.workspace = true
 rand.workspace = true
 reqwest.workspace = true
+rocksdb.workspace = true
 serde.workspace = true
 serde_ignored.workspace = true
 serde_json.workspace = true

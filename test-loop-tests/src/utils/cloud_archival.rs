@@ -2,19 +2,26 @@ use crate::setup::env::TestLoopEnv;
 use borsh::BorshDeserialize;
 use itertools::Itertools;
 use near_chain::types::Tip;
-use near_chain::{Chain, ChainStoreAccess, ChainStoreUpdate};
+use near_chain::{Chain, ChainStoreAccess};
+use near_chain_configs::{ClientConfig, CloudArchivalWriterConfig, TrackedShardsConfig};
+use near_client::archive::cloud_archival_reader::bootstrap_range;
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
 use near_client::sync::external::{
     StateSyncConnection, download_and_apply_state_parts_sequentially, list_state_parts,
 };
+use near_primitives::block::Block;
+use near_primitives::block_header::BlockHeader;
+use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, ShardId,
 };
+use near_primitives::utils::index_to_bytes;
 use near_store::adapter::StoreAdapter;
-use near_store::archive::cloud_storage::{BlockData, CloudStorage};
+use near_store::archive::cloud_storage::CloudStorage;
 use near_store::db::CLOUD_MIN_HEAD_KEY;
 use near_store::flat::FlatStorageManager;
 use near_store::trie::AccessOptions;
@@ -26,6 +33,13 @@ use std::collections::HashSet;
 use std::future::Future;
 use std::sync::Arc;
 
+#[derive(Clone)]
+pub(crate) struct WriterConfig {
+    pub id: AccountId,
+    pub archive_block_data: bool,
+    pub tracked_shards: Vec<ShardUId>,
+}
+
 pub fn run_node_until(env: &mut TestLoopEnv, account_id: &AccountId, target_height: BlockHeight) {
     env.runner_for_account(account_id).run_until_head_height(target_height);
 }
@@ -36,7 +50,8 @@ fn execute_future<F: Future>(fut: F) -> F::Output {
     futures::executor::block_on(fut)
 }
 
-/// Sanity checks: heads alignment, GC tail bounds, and (optional) lower bound for expected GC tail.
+/// Sanity checks: heads alignment, GC tail bounds, external per-shard heads,
+/// and (optional) lower bound for expected GC tail.
 pub fn gc_and_heads_sanity_checks(
     env: &TestLoopEnv,
     writer_id: &AccountId,
@@ -66,6 +81,30 @@ pub fn gc_and_heads_sanity_checks(
     } else {
         assert_eq!(gc_tail, 1);
     }
+
+    // Check that all external per-shard heads are above gc_tail.
+    let cloud_storage = get_cloud_storage(env, writer_id);
+    let head = chain_store.head().unwrap();
+    let shard_layout = client.epoch_manager.get_shard_layout(&head.epoch_id).unwrap();
+    for shard_id in shard_layout.shard_ids() {
+        let ext_shard_head =
+            execute_future(cloud_storage.retrieve_cloud_shard_head_if_exists(shard_id));
+        match ext_shard_head {
+            Ok(Some(shard_head)) => {
+                assert!(
+                    shard_head >= gc_tail,
+                    "external shard head {} for shard {} is below gc_tail {}",
+                    shard_head,
+                    shard_id,
+                    gc_tail,
+                );
+            }
+            Ok(None) => {}
+            Err(err) => {
+                panic!("failed to retrieve cloud shard head for shard {}: {:?}", shard_id, err);
+            }
+        }
+    }
 }
 
 /// Stops a node and restarts it with a new identifier `<old>-restart`.
@@ -91,7 +130,7 @@ fn get_hot_store(env: &TestLoopEnv, account_id: &AccountId) -> Store {
     client.chain.chain_store().store()
 }
 
-fn get_cloud_storage(env: &TestLoopEnv, archival_id: &AccountId) -> Arc<CloudStorage> {
+pub(crate) fn get_cloud_storage(env: &TestLoopEnv, archival_id: &AccountId) -> Arc<CloudStorage> {
     let node_data = env.get_node_data_by_account_id(archival_id);
     let cloud_storage = env.test_loop.data.get(&node_data.cloud_storage_sender);
     cloud_storage.clone().unwrap()
@@ -102,13 +141,80 @@ pub(crate) fn get_cloud_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockH
     hot_store.get_ser::<Tip>(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY).unwrap().height
 }
 
-/// Runs tests to verify that data for the block height exists in the archive.
-pub fn check_data_at_height(env: &TestLoopEnv, archival_id: &AccountId, height: BlockHeight) {
+/// Configures a client as a cloud archival writer with specific tracked shards.
+pub(crate) fn apply_writer_settings(
+    config: &mut ClientConfig,
+    archive_block_data: bool,
+    tracked_shards: &[ShardUId],
+) {
+    config.cloud_archival_writer =
+        Some(CloudArchivalWriterConfig { archive_block_data, ..Default::default() });
+    config.tracked_shards_config = if tracked_shards.is_empty() {
+        TrackedShardsConfig::NoShards
+    } else {
+        TrackedShardsConfig::Shards(tracked_shards.to_vec())
+    };
+}
+
+/// Kills the writer, sets one shard's external head to a specific height, restarts.
+pub(crate) fn simulate_lagging_shard(
+    env: &mut TestLoopEnv,
+    writer_id: &AccountId,
+    shard_id: ShardId,
+    target_height: BlockHeight,
+) {
+    let cloud_storage = get_cloud_storage(env, writer_id);
+    let node_data = env.get_node_data_by_account_id(writer_id);
+    let identifier = node_data.identifier.clone();
+    let node_state = env.kill_node(&identifier);
+    execute_future(cloud_storage.update_cloud_shard_head(shard_id, target_height)).unwrap();
+    let new_identifier = format!("{}-restart", identifier);
+    env.restart_node(&new_identifier, node_state);
+}
+
+/// Adds a new writer node mid-test.
+pub(crate) fn add_writer_node(env: &mut TestLoopEnv, config: &WriterConfig) {
+    let archive_block_data = config.archive_block_data;
+    let tracked_shards = config.tracked_shards.clone();
+    let node_state = env
+        .node_state_builder()
+        .account_id(&config.id)
+        .cloud_storage(true)
+        .config_modifier(move |cfg| {
+            apply_writer_settings(cfg, archive_block_data, &tracked_shards);
+        })
+        .build();
+    env.add_node(config.id.as_ref(), node_state);
+}
+
+/// Verifies that exactly the listed shards have shard data at the given height.
+/// Also checks that block data exists if any shards are expected.
+pub(crate) fn check_data_at_height_for_shards(
+    env: &TestLoopEnv,
+    archival_id: &AccountId,
+    height: BlockHeight,
+    expected_shards: &[ShardId],
+    all_shard_ids: &[ShardId],
+) {
     let cloud_storage = get_cloud_storage(env, archival_id);
-    let block_data = cloud_storage.get_block_data(height).unwrap();
-    for chunk_header in block_data.block().chunks().iter() {
-        let shard_id = chunk_header.shard_id();
-        let _shard_data = cloud_storage.get_shard_data(height, shard_id).unwrap();
+    if !expected_shards.is_empty() {
+        assert!(
+            cloud_storage.get_block_data(height).is_ok(),
+            "block data should exist at height {height}"
+        );
+    }
+    for shard_id in all_shard_ids {
+        if expected_shards.contains(shard_id) {
+            assert!(
+                cloud_storage.get_shard_data(height, *shard_id).is_ok(),
+                "shard data for shard {shard_id} should exist at height {height}"
+            );
+        } else {
+            assert!(
+                cloud_storage.get_shard_data(height, *shard_id).is_err(),
+                "shard data for shard {shard_id} should NOT exist at height {height}"
+            );
+        }
     }
 }
 
@@ -188,61 +294,35 @@ pub fn snapshots_sanity_check(
     assert_eq!(epoch_heights_with_epoch_data, expected_epoch_data);
 }
 
-/// Saves block header, block body, and block info from cloud archival data into the local store.
-fn save_block_data(mut chain_store_update: ChainStoreUpdate, block_data: &BlockData) {
-    let block = Arc::new(block_data.block().clone());
-    let mut epoch_store_update = chain_store_update.store().epoch_store().store_update();
-    chain_store_update.save_block_header(block.header().clone()).unwrap();
-    chain_store_update.save_block(block);
-    chain_store_update.commit().unwrap();
-
-    epoch_store_update.set_block_info(block_data.block_info());
-    epoch_store_update.commit();
-}
-
-/// Bootstraps a reader node to match the state at `target_block_height` by:
-/// 1. Loading epoch data and required blocks from cloud storage.
-/// 2. Applying state sync parts to reconstruct the state at the epoch boundary.
-/// 3. Applying per-block state deltas to advance from the sync point to the target height.
-pub fn bootstrap_reader_at_height(
+/// Bootstraps a reader node by downloading blocks from cloud and applying
+/// state sync to reconstruct the state at `target_block_height`.
+pub fn bootstrap_reader(
     env: &mut TestLoopEnv,
     reader_id: &AccountId,
+    start_height: BlockHeight,
     target_block_height: BlockHeight,
 ) {
     let node_state = env.node_state_builder().account_id(reader_id).cloud_storage(true).build();
     env.add_node(reader_id.as_ref(), node_state);
 
     let cloud_storage = get_cloud_storage(env, reader_id);
+
+    // Download all blocks in the range into the reader's store.
+    {
+        let store = env.node_for_account(reader_id).client().chain.chain_store.store();
+        bootstrap_range(&store, &cloud_storage, start_height, target_block_height)
+            .expect("bootstrap_range should succeed");
+    }
+
     let target_block_data = cloud_storage.get_block_data(target_block_height).unwrap();
     let epoch_id = target_block_data.block().header().epoch_id();
     let epoch_data = cloud_storage.get_epoch_data(*epoch_id).unwrap();
     let epoch_height = epoch_data.epoch_info().epoch_height();
     let protocol_version = epoch_data.epoch_info().protocol_version();
 
-    // Load blocks needed for state sync (shard-independent).
-    let epoch_start_block = cloud_storage.get_block_data(epoch_data.epoch_start_height()).unwrap();
     let sync_block = cloud_storage.get_block_data(epoch_data.sync_block_height()).unwrap();
     let sync_hash = sync_block.block().hash();
     let sync_prev_block_height = sync_block.block().header().prev_height().unwrap();
-    let sync_prev_block = cloud_storage.get_block_data(sync_prev_block_height).unwrap();
-    let sync_prev_prev_block_height = sync_prev_block.block().header().prev_height().unwrap();
-    let sync_prev_prev_block = cloud_storage.get_block_data(sync_prev_prev_block_height).unwrap();
-
-    // Save blocks and merkle tree to the reader's store.
-    {
-        let mut node = env.node_for_account_mut(&reader_id);
-        let chain = &mut node.client_actor().client.chain;
-        let mut store_update = chain.mut_chain_store().store_update();
-        store_update.save_block_merkle_tree(
-            *epoch_start_block.block().header().prev_hash(),
-            epoch_data.epoch_start_prev_block_merkle_tree().clone(),
-        );
-        store_update.commit().unwrap();
-        for block_data in [&epoch_start_block, &sync_prev_prev_block, &sync_prev_block, &sync_block]
-        {
-            save_block_data(chain.mut_chain_store().store_update(), block_data);
-        }
-    }
 
     let chain = &env.node_for_account(reader_id).client().chain;
     let store = chain.chain_store.store();
@@ -375,4 +455,56 @@ fn apply_state_changes(
         cloud_storage.get_shard_data(target_block_height, shard_id).unwrap();
     let expected_final_state_root = target_block_shard_data.chunk_extra().state_root();
     assert_eq!(state_root, *expected_final_state_root);
+}
+
+/// Verifies that all block and epoch columns written by bootstrap_range
+/// are present and consistent in the store.
+pub(crate) fn verify_block_range(
+    store: &Store,
+    start_height: BlockHeight,
+    end_height: BlockHeight,
+) {
+    let mut prev_hash = None;
+    let mut seen_epochs = HashSet::<EpochId>::new();
+    for height in start_height..=end_height {
+        let block_hash: CryptoHash = store
+            .get_ser(DBCol::BlockHeight, &index_to_bytes(height))
+            .unwrap_or_else(|| panic!("BlockHeight entry missing at height {height}"));
+
+        // Verify all block-level columns exist.
+        let header: BlockHeader = store
+            .get_ser(DBCol::BlockHeader, block_hash.as_ref())
+            .unwrap_or_else(|| panic!("BlockHeader missing at height {height}"));
+        let _block: Block = store
+            .get_ser(DBCol::Block, block_hash.as_ref())
+            .unwrap_or_else(|| panic!("Block missing at height {height}"));
+        let _block_info: BlockInfo = store
+            .get_ser(DBCol::BlockInfo, block_hash.as_ref())
+            .unwrap_or_else(|| panic!("BlockInfo missing at height {height}"));
+
+        // Verify epoch-level columns exist for each epoch we encounter.
+        let epoch_id = *header.epoch_id();
+        if seen_epochs.insert(epoch_id) {
+            let _epoch_info: EpochInfo = store
+                .get_ser(DBCol::EpochInfo, epoch_id.as_ref())
+                .unwrap_or_else(|| panic!("EpochInfo missing for epoch at height {height}"));
+        }
+
+        // Verify merkle tree exists and chains correctly from the previous block.
+        let tree: PartialMerkleTree = store
+            .get_ser(DBCol::BlockMerkleTree, block_hash.as_ref())
+            .unwrap_or_else(|| panic!("BlockMerkleTree missing at height {height}"));
+        if let Some(prev) = prev_hash {
+            assert_eq!(*header.prev_hash(), prev, "prev_hash linkage broken at height {height}");
+            let prev_tree: PartialMerkleTree = store
+                .get_ser(DBCol::BlockMerkleTree, CryptoHash::as_ref(&prev))
+                .expect("prev BlockMerkleTree should exist");
+            assert_eq!(
+                tree.size(),
+                prev_tree.size() + 1,
+                "merkle tree size should increment at height {height}"
+            );
+        }
+        prev_hash = Some(block_hash);
+    }
 }

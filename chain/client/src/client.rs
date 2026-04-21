@@ -36,8 +36,9 @@ use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{ChainConfig, LatestKnown, RuntimeAdapter};
 use near_chain::{
-    ApplyChunksIterationMode, ApplyChunksSpawner, BlockProcessingArtifact, BlockStatus, Chain,
-    ChainGenesis, ChainStoreAccess, ChunksReadiness, Doomslug, DoomslugThresholdMode, Provenance,
+    ApplyChunksSpawner, BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis,
+    ChainStoreAccess, ChunksReadiness, Doomslug, DoomslugThresholdMode, MemtrieLoadingSpawner,
+    Provenance,
 };
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdatableClientConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
@@ -65,7 +66,6 @@ use near_primitives::sharding::{
     EncodedShardChunk, PartialEncodedChunk, ShardChunkHeader, ShardChunkWithEncoding,
     StateSyncInfo, StateSyncInfoV1,
 };
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks};
 use near_primitives::unwrap_or_return;
@@ -182,6 +182,10 @@ pub struct Client {
     chunk_producer_accounts_cache: Option<(EpochId, Arc<Vec<AccountId>>)>,
     /// Reed-Solomon encoder for shadow chunk validation.
     shadow_validation_reed_solomon: OnceLock<Arc<ReedSolomon>>,
+    /// The last epoch for which the validator key was checked. Used to ensure
+    /// the check runs once per epoch on the first non-syncing head block, even
+    /// if the epoch boundary was crossed during sync.
+    last_validator_key_check_epoch: Option<EpochId>,
     /// watch::Sender used to notify watchers about new postprocessed blocks.
     pub block_notification_watch_sender:
         tokio::sync::watch::Sender<Option<BlockNotificationMessage>>,
@@ -211,6 +215,40 @@ impl Client {
         self.validator_signer.update(signer)
     }
 
+    /// Checks the validator key once per epoch on new head blocks while not syncing.
+    /// Skips if currently syncing (to avoid false positives when the key was
+    /// rotated after the node's stale local head), and skips if the current
+    /// epoch was already checked. Should be called on every new head block.
+    /// Panics if the local key does not match the key registered in the epoch.
+    pub(crate) fn check_validator_key_on_new_head(&mut self, block: &Block) {
+        if self.sync_handler.sync_status.is_syncing() {
+            return;
+        }
+        let Some(signer) = self.validator_signer.get() else { return };
+        let epoch_id = block.header().epoch_id();
+        if self.last_validator_key_check_epoch.as_ref() == Some(epoch_id) {
+            return;
+        }
+        let validator_id = signer.validator_id();
+        let Ok(epoch_info) = self.epoch_manager.get_epoch_info(epoch_id) else {
+            tracing::error!(target: "client", ?epoch_id, "failed to get epoch info for validator key check");
+            return;
+        };
+        self.last_validator_key_check_epoch = Some(*epoch_id);
+        let Some(validator_stake) = epoch_info.get_validator_by_account(validator_id) else {
+            return;
+        };
+        let local_key = signer.public_key();
+        let on_chain_key = validator_stake.public_key();
+        if &local_key != on_chain_key {
+            panic!(
+                "validator key mismatch for {}: local key {} does not match \
+                 on-chain key {}. Update validator_key.json or rotate the key on-chain.",
+                validator_id, local_key, on_chain_key,
+            );
+        }
+    }
+
     /// Returns the Reed-Solomon encoder for shadow validation, initializing it lazily if needed.
     pub(crate) fn shadow_validation_reed_solomon_encoder(&self) -> &Arc<ReedSolomon> {
         self.shadow_validation_reed_solomon.get_or_init(|| {
@@ -230,6 +268,8 @@ pub struct AsyncComputationMultiSpawner {
     epoch_sync: Arc<dyn AsyncComputationSpawner>,
     /// Spawner to run 'prepare transactions' tasks (defaults to `RayonAsyncComputationSpawner`)
     prepare_transactions: Arc<dyn AsyncComputationSpawner>,
+    /// Spawner to run background memtrie loading tasks (defaults to `StdThreadAsyncComputationSpawner`)
+    pub memtrie_loading: MemtrieLoadingSpawner,
 }
 
 impl Default for AsyncComputationMultiSpawner {
@@ -238,6 +278,7 @@ impl Default for AsyncComputationMultiSpawner {
             apply_chunks: Default::default(),
             epoch_sync: Arc::new(RayonAsyncComputationSpawner),
             prepare_transactions: Arc::new(RayonAsyncComputationSpawner),
+            memtrie_loading: Default::default(),
         }
     }
 }
@@ -248,7 +289,8 @@ impl AsyncComputationMultiSpawner {
         Self {
             apply_chunks: ApplyChunksSpawner::Custom(spawner.clone()),
             epoch_sync: spawner.clone(),
-            prepare_transactions: spawner,
+            prepare_transactions: spawner.clone(),
+            memtrie_loading: MemtrieLoadingSpawner::Custom(spawner),
         }
     }
 
@@ -274,7 +316,6 @@ impl Client {
         rng_seed: RngSeed,
         snapshot_callbacks: Option<SnapshotCallbacks>,
         multi_spawner: AsyncComputationMultiSpawner,
-        apply_chunks_iteration_mode: ApplyChunksIterationMode,
         partial_witness_adapter: PartialWitnessSenderForClient,
         resharding_sender: ReshardingSender,
         state_sync_future_spawner: Arc<dyn FutureSpawner>,
@@ -310,7 +351,7 @@ impl Client {
             chain_config,
             snapshot_callbacks,
             multi_spawner.apply_chunks,
-            apply_chunks_iteration_mode,
+            multi_spawner.memtrie_loading,
             validator_signer.clone(),
             resharding_sender.clone(),
             Some(myself_sender.on_post_state_ready.clone()),
@@ -434,6 +475,7 @@ impl Client {
             last_optimistic_block_produced: None,
             chunk_producer_accounts_cache: None,
             shadow_validation_reed_solomon: OnceLock::new(),
+            last_validator_key_check_epoch: None,
             block_notification_watch_sender,
         })
     }
@@ -453,8 +495,14 @@ impl Client {
         Ok(())
     }
 
-    pub fn remove_transactions_for_block(&mut self, block: &Block) -> Result<(), Error> {
+    /// Remove transactions for tracked chunks in `block` from the pool.
+    /// Returns the hashes of transactions referenced by those tracked chunks.
+    pub fn remove_transactions_for_block(
+        &mut self,
+        block: &Block,
+    ) -> Result<Vec<CryptoHash>, Error> {
         let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
+        let mut removed_hashes = Vec::new();
         for chunk_header in block.chunks().iter_new() {
             // We can directly get the shard_id from the chunk_header as we are guaranteed new chunk via iter_new
             let shard_id = chunk_header.shard_id();
@@ -466,14 +514,23 @@ impl Client {
                 // By now the chunk must be in store, otherwise the block would have been orphaned
                 let chunk = self.chain.get_chunk(&chunk_header.chunk_hash())?;
                 let transactions = chunk.to_transactions();
+                for tx in transactions {
+                    removed_hashes.push(tx.get_hash());
+                }
                 let mut pool_guard = self.chunk_producer.sharded_tx_pool.lock();
                 pool_guard.remove_transactions(shard_uid, transactions);
             }
         }
-        Ok(())
+        Ok(removed_hashes)
     }
 
-    pub fn reintroduce_transactions_for_block(&mut self, block: &Block) -> Result<(), Error> {
+    /// Reintroduce transactions from `block` into the pool, skipping any
+    /// transaction whose hash is in `exclude`.
+    pub fn reintroduce_transactions_for_block(
+        &mut self,
+        block: &Block,
+        exclude: &HashSet<CryptoHash>,
+    ) -> Result<(), Error> {
         let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let config = self.runtime_adapter.get_runtime_config(protocol_version);
@@ -492,6 +549,7 @@ impl Client {
                 let validated_txs = chunk
                     .to_transactions()
                     .into_iter()
+                    .filter(|tx| !exclude.contains(&tx.get_hash()))
                     .cloned()
                     .filter_map(|signed_tx| {
                         match ValidatedTransaction::new(&config, signed_tx, protocol_version) {
@@ -509,15 +567,16 @@ impl Client {
                     })
                     .collect::<Vec<_>>();
 
+                let txs_to_reintroduce = validated_txs.len();
                 let reintroduced_count = {
                     let mut pool_guard = self.chunk_producer.sharded_tx_pool.lock();
                     pool_guard.reintroduce_transactions(shard_uid, validated_txs)
                 };
 
-                if reintroduced_count < chunk.to_transactions().len() {
+                if reintroduced_count < txs_to_reintroduce {
                     tracing::debug!(target: "client",
                             reintroduced_count,
-                            num_tx = chunk.to_transactions().len(),
+                            txs_to_reintroduce,
                             "reintroduced transactions");
                 }
             }
@@ -1355,11 +1414,7 @@ impl Client {
             self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
         let chunk_producer = self
             .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
-                epoch_id,
-                height_created: chunk_header.height_created(),
-                shard_id: chunk_header.shard_id(),
-            })?
+            .get_chunk_producer_info_db(chunk_header.prev_block_hash(), chunk_header.shard_id())?
             .take_account_id();
         tracing::error!(
             target: "client",
@@ -1696,6 +1751,8 @@ impl Client {
                 tracing::error!(target: "client", ?err, "failed to update network chain info");
             }
 
+            self.check_validator_key_on_new_head(&block);
+
             // If the next block is the first of the next epoch and the shard
             // layout is changing we need to reshard the transaction pool.
             // TODO make sure transactions don't get added for the old shard
@@ -1767,7 +1824,7 @@ impl Client {
                 // If this block immediately follows the current tip, remove
                 // transactions from the tx pool.
                 match self.remove_transactions_for_block(block) {
-                    Ok(()) => (),
+                    Ok(_) => (),
                     Err(err) => {
                         tracing::debug!(
                             target: "client",
@@ -1783,8 +1840,8 @@ impl Client {
                 return false;
             }
             BlockStatus::Reorg(prev_head) => {
-                // If a reorg happened, reintroduce transactions from the
-                // previous chain and remove transactions from the new chain.
+                // If a reorg happened, remove transactions from the new
+                // chain and reintroduce transactions from the previous chain.
                 let mut reintroduce_head = self.chain.get_block_header(&prev_head).unwrap();
                 let mut remove_head = Arc::from(block.header().clone());
                 assert_ne!(remove_head.hash(), reintroduce_head.hash());
@@ -1810,9 +1867,29 @@ impl Client {
                     }
                 }
 
+                // Remove new-branch txs first to free pool capacity,
+                // collecting their hashes to skip overlap during reintroduction.
+                let mut new_branch_txs: HashSet<CryptoHash> = HashSet::new();
+                for to_remove_hash in to_remove {
+                    if let Ok(block) = self.chain.get_block(&to_remove_hash) {
+                        match self.remove_transactions_for_block(&block) {
+                            Ok(hashes) => new_branch_txs.extend(hashes),
+                            Err(err) => {
+                                tracing::debug!(
+                                    target: "client",
+                                    ?block,
+                                    ?err,
+                                    "validator: removing txs for block failed"
+                                );
+                            }
+                        }
+                    }
+                }
+
+                // Reintroduce old-branch-only txs (skip overlap with new branch).
                 for to_reintroduce_hash in to_reintroduce {
                     if let Ok(block) = self.chain.get_block(&to_reintroduce_hash) {
-                        match self.reintroduce_transactions_for_block(&block) {
+                        match self.reintroduce_transactions_for_block(&block, &new_branch_txs) {
                             Ok(()) => (),
                             Err(err) => {
                                 tracing::debug!(
@@ -1820,22 +1897,6 @@ impl Client {
                                     ?block,
                                     ?err,
                                     "validator: reintroducing txs for block failed"
-                                );
-                            }
-                        }
-                    }
-                }
-
-                for to_remove_hash in to_remove {
-                    if let Ok(block) = self.chain.get_block(&to_remove_hash) {
-                        match self.remove_transactions_for_block(&block) {
-                            Ok(()) => (),
-                            Err(err) => {
-                                tracing::debug!(
-                                    target: "client",
-                                    ?block,
-                                    ?err,
-                                    "validator: removing txs for block failed"
                                 );
                             }
                         }

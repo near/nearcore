@@ -9,7 +9,7 @@ use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{BlockHeightDelta, ShardId, StateChangeCause};
+use near_primitives::types::{BlockHeightDelta, EpochId, ShardId, StateChangeCause};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::TrieStoreUpdateAdapter;
 use near_store::archive::cold_storage::{join_two_keys, rc_aware_set};
@@ -20,17 +20,21 @@ use near_store::{
     DBCol, LATEST_KNOWN_KEY, ShardTries, ShardUId, StateSnapshotConfig, Store, StoreConfig,
     TrieChanges, TrieConfig, TrieUpdate, get_genesis_height, set,
 };
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::thread;
 
 const BATCH_SIZE: u64 = 100_000;
+const MAX_SST_FILE_SIZE: u64 = 256 * 1024 * 1024; // 256 MB
 
 pub(super) struct Migrator<'a> {
     config: &'a NearConfig,
+    home_dir: &'a Path,
 }
 
 impl<'a> Migrator<'a> {
-    pub fn new(config: &'a NearConfig) -> Self {
-        Self { config }
+    pub fn new(config: &'a NearConfig, home_dir: &'a Path) -> Self {
+        Self { config, home_dir }
     }
 }
 
@@ -48,6 +52,7 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
         hot_store: &Store,
         cold_db: Option<&ColdDB>,
         version: DbVersion,
+        is_snapshot: bool,
     ) -> anyhow::Result<()> {
         match version {
             0..MIN_SUPPORTED_DB_VERSION => unreachable!(),
@@ -59,6 +64,14 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
                 &self.config.config.store,
             ),
             47 => migrate_47_to_48(cold_db, &self.config.genesis.config, &self.config.config.store),
+            48 => migrate_48_to_49(
+                hot_store,
+                cold_db,
+                self.config.genesis.config.transaction_validity_period,
+                self.home_dir,
+                self.config.config.cold_store.as_ref(),
+                is_snapshot,
+            ),
             DB_VERSION.. => unreachable!(),
         }
     }
@@ -154,16 +167,45 @@ fn recover_shard_1_at_block_height_115185108(
 /// 1. Copy block headers from hot_store to cold_db (if cold_db is present)
 /// 2. Generate and save the compressed epoch sync proof
 /// 3. Clear the block headers from genesis to tail in hot_store
-#[allow(dead_code)]
 fn migrate_48_to_49(
     hot_store: &Store,
     cold_db: Option<&ColdDB>,
     transaction_validity_period: BlockHeightDelta,
+    home_dir: &Path,
+    cold_store_config: Option<&StoreConfig>,
+    is_snapshot: bool,
 ) -> anyhow::Result<()> {
     tracing::info!(target: "migrations", "starting migration from DB version 48 to 49");
 
+    // State snapshot DBs only contain flat storage columns and lack the
+    // epoch/chain data that every step of this migration requires. Skip them.
+    if is_snapshot {
+        tracing::info!(target: "migrations", "state snapshot DB, skipping chain-dependent migration steps");
+        return Ok(());
+    }
+
+    // Fresh nodes and forknet-initialized nodes have BlockMisc cleared, so
+    // HEAD is absent; nodes that only produced blocks in the genesis epoch
+    // have HEAD set but head.epoch_id == EpochId::default(). In both cases
+    // there are no block headers to copy, no epoch sync proof to derive, and
+    // nothing to verify or delete.
+    match hot_store.chain_store().head() {
+        Ok(head) if head.epoch_id == EpochId::default() => {
+            tracing::info!(target: "migrations", "chain is in the genesis epoch, skipping chain-dependent migration steps");
+            return Ok(());
+        }
+        Err(Error::DBNotFoundErr(_)) => {
+            tracing::info!(target: "migrations", "chain head not set (fresh/forknet DB), skipping chain-dependent migration steps");
+            return Ok(());
+        }
+        Ok(_) => {}
+        Err(err) => return Err(err.into()),
+    }
+
     if let Some(cold_db) = cold_db {
-        copy_block_headers_to_cold_db(hot_store, cold_db)?;
+        let cold_store_config =
+            cold_store_config.expect("cold_store config must be present when cold_db exists");
+        copy_block_headers_to_cold_db(hot_store, cold_db, home_dir, cold_store_config)?;
     }
 
     update_epoch_sync_proof(hot_store.clone(), transaction_validity_period)?;
@@ -172,33 +214,148 @@ fn migrate_48_to_49(
     Ok(())
 }
 
-// Copy block headers from hot_store to cold_db in batches
-// Note that we are using raw DBTransaction iteration to avoid deserializing and re-serializing the block headers
-// Typically this is NOT recommended as ColdDB has specific ways for storing data, example RC columns.
-// But in our case this is fine as the block headers are stored as-is in both hot and cold DBs.
-fn copy_block_headers_to_cold_db(hot_store: &Store, cold_db: &ColdDB) -> anyhow::Result<()> {
-    let genesis_height = get_genesis_height(hot_store).unwrap();
-    let head_height = hot_store.chain_store().head().unwrap().height;
-    let approx_num_blocks = head_height - genesis_height;
+/// Copies block headers from hot store to cold DB via SST bulk ingestion.
+///
+/// Writes the column to SST files on the cold store's filesystem, then ingests
+/// them with move_files=true (rename, no copy). This bypasses the normal write
+/// path and reduces copy time from hours to minutes.
+fn copy_block_headers_to_cold_db(
+    hot_store: &Store,
+    cold_db: &ColdDB,
+    home_dir: &Path,
+    cold_store_config: &StoreConfig,
+) -> anyhow::Result<()> {
+    let cold_store_path =
+        home_dir.join(cold_store_config.path.as_deref().unwrap_or_else(|| Path::new("cold-data")));
+    let sst_dir = cold_store_path.join("migration-sst-tmp");
 
-    tracing::info!(target: "migrations", ?approx_num_blocks, "copying block headers to cold db");
+    tracing::info!(target: "migrations", "copying block headers to cold db via SST ingestion");
+    let sst_paths = write_block_headers_to_sst_files(hot_store, &sst_dir)?;
 
-    let mut count = 0;
-    let mut transaction = DBTransaction::new();
-    for (key, value) in hot_store.iter_raw_bytes(DBCol::BlockHeader) {
-        transaction.set(DBCol::BlockHeader, key.into_vec(), value.into_vec());
+    // move_files=true: SST dir is on the same filesystem as cold store, so
+    // ingest renames instead of copying.
+    let total_sst = sst_paths.len();
+    tracing::info!(target: "migrations", total_sst, "ingesting SST files into cold db, this may take ~10 minutes");
+    cold_db.ingest_external_sst_files(DBCol::BlockHeader, &sst_paths, true)?;
+    tracing::info!(target: "migrations", "SST ingestion into cold db complete");
+
+    // Files were moved by ingest; clean up the empty directory.
+    // Best-effort: don't fail the migration if cleanup fails.
+    if let Err(err) = std::fs::remove_dir_all(&sst_dir) {
+        tracing::warn!(target: "migrations", ?sst_dir, ?err, "failed to remove temporary SST directory");
+    }
+
+    tracing::info!(target: "migrations", "completed copying block headers to cold db");
+    Ok(())
+}
+
+/// Writes all block headers into SST files using parallel key-range partitions.
+///
+/// The BlockHeader keys are CryptoHash (32 bytes, uniformly distributed). We
+/// partition the key-space into 4 ranges by the first byte, giving each thread
+/// its own iterator + SstFileWriter. Each partition produces sorted,
+/// non-overlapping SST files named with a partition prefix for global sort order.
+fn write_block_headers_to_sst_files(store: &Store, sst_dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    std::fs::create_dir_all(sst_dir)?;
+
+    // Estimate total block headers for per-partition progress reporting.
+    let genesis_height = get_genesis_height(store).unwrap();
+    let head_height = store.chain_store().head().unwrap().height;
+    let approx_total = head_height - genesis_height;
+    let approx_per_partition = (approx_total / 4).max(1);
+    tracing::info!(target: "migrations", ?sst_dir, approx_total, "starting parallel SST file creation for block headers, this may take ~1 hr");
+
+    // 4 partitions by first byte: [..0x40), [0x40..0x80), [0x80..0xC0), [0xC0..).
+    let boundaries: [(Option<Vec<u8>>, Option<Vec<u8>>); 4] = [
+        (None, Some(vec![0x40])),
+        (Some(vec![0x40]), Some(vec![0x80])),
+        (Some(vec![0x80]), Some(vec![0xC0])),
+        (Some(vec![0xC0]), None),
+    ];
+
+    let handles: Vec<_> = boundaries
+        .into_iter()
+        .enumerate()
+        .map(|(partition_id, (lower, upper))| {
+            let store = store.clone();
+            let sst_dir = sst_dir.to_path_buf();
+            thread::Builder::new()
+                .name(format!("sst-partition-{}", partition_id))
+                .spawn(move || {
+                    write_sst_partition(
+                        store,
+                        sst_dir,
+                        partition_id,
+                        lower,
+                        upper,
+                        approx_per_partition,
+                    )
+                })
+                .expect("failed to spawn SST partition thread")
+        })
+        .collect();
+
+    // Collect results from all partitions.
+    let mut sst_paths = Vec::new();
+    let mut total_count: u64 = 0;
+    for handle in handles {
+        let (paths, count) = handle.join().unwrap()?;
+        sst_paths.extend(paths);
+        total_count += count;
+    }
+
+    // Sort by filename — partition prefix ensures correct global key order.
+    sst_paths.sort();
+
+    tracing::info!(target: "migrations", total_count, sst_files = sst_paths.len(), "completed parallel SST file creation");
+
+    Ok(sst_paths)
+}
+
+/// Writes one partition's block headers into SST files.
+fn write_sst_partition(
+    store: Store,
+    sst_dir: PathBuf,
+    partition_id: usize,
+    lower: Option<Vec<u8>>,
+    upper: Option<Vec<u8>>,
+    approx_count: u64,
+) -> anyhow::Result<(Vec<PathBuf>, u64)> {
+    let mut opts = rocksdb::Options::default();
+    opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
+    let mut writer = rocksdb::SstFileWriter::create(&opts);
+    let mut sst_paths = Vec::new();
+    let mut file_index: u64 = 0;
+    let mut count: u64 = 0;
+    let mut file_open = false;
+
+    for (key, value) in store.iter_range(DBCol::BlockHeader, lower.as_deref(), upper.as_deref()) {
+        if !file_open {
+            let path = sst_dir.join(format!("p{:02}_{:06}.sst", partition_id, file_index));
+            writer.open(&path)?;
+            sst_paths.push(path);
+            file_open = true;
+        }
+
         count += 1;
-        if count % BATCH_SIZE == 0 {
-            cold_db.write(transaction);
-            transaction = DBTransaction::new();
-            let percent_complete = (count as f64 / approx_num_blocks as f64) * 100.0;
-            tracing::info!(target: "migrations", ?count, ?approx_num_blocks, ?percent_complete, "copied block headers to cold db");
+        writer.put(&*key, &*value)?;
+
+        if writer.file_size() >= MAX_SST_FILE_SIZE {
+            writer.finish()?;
+            file_open = false;
+            file_index += 1;
+            let progress = format!("{:.1}", count as f64 / approx_count as f64 * 100.0);
+            tracing::info!(target: "migrations", partition_id, file_index, count, progress, "completed SST file");
         }
     }
-    cold_db.write(transaction);
-    tracing::info!(target: "migrations", ?count, ?approx_num_blocks, "completed copying block headers to cold db");
 
-    Ok(())
+    if file_open {
+        writer.finish()?;
+    }
+
+    tracing::info!(target: "migrations", partition_id, count, sst_files = sst_paths.len(), "partition complete");
+
+    Ok((sst_paths, count))
 }
 
 fn update_epoch_sync_proof(
@@ -219,8 +376,26 @@ fn update_epoch_sync_proof(
         store_update.commit();
     }
 
-    // Now we generate the epoch sync proof and update it to latest
+    // Generate the epoch sync proof. On short chains (e.g. tests),
+    // find_target_epoch_to_produce_proof_for would walk past genesis — skip and let
+    // the runtime produce it later via extend_epoch_sync_proof.
     tracing::info!(target: "migrations", "generating latest epoch sync proof");
+    let chain_store = store.chain_store();
+    let final_head = chain_store.final_head()?;
+    let genesis_height = chain_store.get_genesis_height();
+    let current_epoch_start_height = epoch_store.get_epoch_start(&final_head.epoch_id)?;
+    let chain_height_since_genesis = current_epoch_start_height.saturating_sub(genesis_height);
+    if chain_height_since_genesis < transaction_validity_period {
+        tracing::info!(
+            target: "migrations",
+            ?current_epoch_start_height,
+            ?genesis_height,
+            ?transaction_validity_period,
+            "chain is too short to produce epoch sync proof, skipping"
+        );
+        return Ok(());
+    }
+
     let last_block_hash =
         find_target_epoch_to_produce_proof_for(&store, transaction_validity_period)?;
 

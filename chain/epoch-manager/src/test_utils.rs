@@ -5,7 +5,7 @@ use crate::genesis::find_threshold;
 use crate::reward_calculator::NUM_NS_IN_SECOND;
 use crate::{BlockInfo, EpochManager};
 use near_crypto::{KeyType, SecretKey};
-use near_primitives::epoch_block_info::BlockInfoV2;
+use near_primitives::epoch_block_info::BlockInfoV4;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AllEpochConfig;
 use near_primitives::epoch_manager::{EpochConfigBuilder, EpochConfigStore};
@@ -19,7 +19,6 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, NumSeats, NumShards,
     ValidatorId, ValidatorKickoutReason,
 };
-use near_primitives::utils::get_num_seats_per_shard;
 use near_primitives::validator_mandates::{ValidatorMandates, ValidatorMandatesConfig};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
@@ -145,11 +144,6 @@ pub fn epoch_config(
     let epoch_config = EpochConfigBuilder::default()
         .epoch_length(epoch_length)
         .num_block_producer_seats(num_block_producer_seats)
-        .num_block_producer_seats_per_shard(get_num_seats_per_shard(
-            num_shards,
-            num_block_producer_seats,
-        ))
-        .avg_hidden_validator_seats_per_shard(vec![])
         .block_producer_kickout_threshold(block_producer_kickout_threshold)
         .chunk_producer_kickout_threshold(chunk_producer_kickout_threshold)
         .chunk_validator_only_kickout_threshold(chunk_validator_only_kickout_threshold)
@@ -161,7 +155,6 @@ pub fn epoch_config(
         .minimum_stake_divisor(1)
         .num_chunk_producer_seats(num_chunk_producer_seats)
         .num_chunk_validator_seats(300)
-        .num_chunk_only_producer_seats(300)
         .minimum_validators_per_shard(1)
         .minimum_stake_ratio(Ratio::new(160i32, 1_000_000i32))
         .chunk_producer_assignment_changes_limit(5)
@@ -436,8 +429,6 @@ where
     (last_hash, height + count)
 }
 
-// TODO(dynamic_resharding): Start using BlockInfoV4 in the tests.
-#[allow(deprecated)]
 pub fn block_info(
     hash: CryptoHash,
     height: BlockHeight,
@@ -447,8 +438,15 @@ pub fn block_info(
     epoch_first_block: CryptoHash,
     chunk_mask: Vec<bool>,
     total_supply: Balance,
+    num_validators: usize,
 ) -> BlockInfo {
-    BlockInfo::V2(BlockInfoV2 {
+    let mut chunk_endorsements = ChunkEndorsementsBitmap::new(chunk_mask.len());
+    for i in 0..chunk_mask.len() {
+        if chunk_mask[i] {
+            chunk_endorsements.add_endorsements(i, vec![true; num_validators]);
+        }
+    }
+    BlockInfo::V4(BlockInfoV4 {
         hash,
         height,
         last_finalized_height,
@@ -459,9 +457,10 @@ pub fn block_info(
         proposals: vec![],
         chunk_mask,
         latest_protocol_version: PROTOCOL_VERSION,
-        slashed: Default::default(),
         total_supply,
         timestamp_nanosec: height * NUM_NS_IN_SECOND,
+        chunk_endorsements,
+        shard_split: None,
     })
 }
 

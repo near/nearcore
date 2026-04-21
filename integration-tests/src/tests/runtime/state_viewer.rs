@@ -1,5 +1,6 @@
 use crate::utils::runtime_utils::{TEST_SHARD_UID, get_runtime_and_trie, get_test_trie_viewer};
 use borsh::BorshDeserialize;
+use near_parameters::RuntimeConfigStore;
 use near_primitives::{
     account::{Account, AccountContract},
     hash::{CryptoHash, hash as sha256},
@@ -366,7 +367,7 @@ fn test_view_state_too_large() {
         alice_account(),
         &Account::new(Balance::ZERO, Balance::ZERO, AccountContract::None, 50_001),
     );
-    let trie_viewer = TrieViewer::new(Some(50_000), None);
+    let trie_viewer = TrieViewer::new(RuntimeConfigStore::new(None), Some(50_000), None);
     let result = trie_viewer.view_state(&state_update, &alice_account(), b"", false);
     assert!(matches!(result, Err(errors::ViewStateError::AccountStateTooLarge { .. })));
 }
@@ -387,7 +388,7 @@ fn test_view_state_with_large_contract() {
         ),
     );
     state_update.set(TrieKey::ContractCode { account_id: alice_account() }, contract_code);
-    let trie_viewer = TrieViewer::new(Some(50_000), None);
+    let trie_viewer = TrieViewer::new(RuntimeConfigStore::new(None), Some(50_000), None);
     let result = trie_viewer.view_state(&state_update, &alice_account(), b"", false);
     assert!(result.is_ok());
 }

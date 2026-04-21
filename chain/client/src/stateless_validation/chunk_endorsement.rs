@@ -68,7 +68,10 @@ impl ChunkEndorsementTracker {
             }
             irrelevant => {
                 metrics::CHUNK_ENDORSEMENTS_REJECTED
-                    .with_label_values(&[&endorsement.shard_id().to_string(), irrelevant.into()])
+                    .with_label_values::<&str>(&[
+                        endorsement.shard_id().to_string().as_str(),
+                        irrelevant.into(),
+                    ])
                     .inc();
             }
         };

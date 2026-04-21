@@ -102,9 +102,15 @@ pub struct EpochConfig {
     pub epoch_length: BlockHeightDelta,
     /// Number of seats for block producers.
     pub num_block_producer_seats: NumSeats,
-    /// Number of seats of block producers per each shard.
+    /// TODO(#15481): remove after the deprecation changes are released.
+    #[deprecated]
+    #[serde(default)]
+    #[builder(default)]
     pub num_block_producer_seats_per_shard: Vec<NumSeats>,
-    /// Expected number of hidden validator seats per each shard.
+    /// TODO(#15481): remove after the deprecation changes are released.
+    #[deprecated]
+    #[serde(default)]
+    #[builder(default)]
     pub avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
     /// Threshold for kicking out block producers.
     pub block_producer_kickout_threshold: u8,
@@ -137,9 +143,10 @@ pub struct EpochConfig {
     pub num_chunk_producer_seats: NumSeats,
     // #[default(300)]
     pub num_chunk_validator_seats: NumSeats,
-    // TODO (#11267): deprecate after StatelessValidationV0 is in place.
-    // Use 300 for older protocol versions.
-    // #[default(300)]
+    /// TODO(#15481): remove after the deprecation changes are released.
+    #[deprecated]
+    #[serde(default)]
+    #[builder(default)]
     pub num_chunk_only_producer_seats: NumSeats,
     // #[default(1)]
     pub minimum_validators_per_shard: NumSeats,
@@ -206,6 +213,7 @@ impl EpochConfigBuilder {
 impl EpochConfig {
     // Create test-only epoch config.
     // Not depends on genesis!
+    #[allow(deprecated)]
     pub fn genesis_test(
         num_block_producer_seats: NumSeats,
         shard_layout: ShardLayout,
@@ -219,10 +227,7 @@ impl EpochConfig {
         Self {
             epoch_length,
             num_block_producer_seats,
-            num_block_producer_seats_per_shard: vec![
-                num_block_producer_seats;
-                shard_layout.shard_ids().count()
-            ],
+            num_block_producer_seats_per_shard: vec![],
             avg_hidden_validator_seats_per_shard: vec![],
             target_validator_mandates_per_shard: 68,
             validator_max_kickout_stake_perc: 100,
@@ -237,7 +242,7 @@ impl EpochConfig {
             shard_layout_config: ShardLayoutConfig::Static { shard_layout },
             num_chunk_producer_seats: 100,
             num_chunk_validator_seats: 300,
-            num_chunk_only_producer_seats: 300,
+            num_chunk_only_producer_seats: 0,
             minimum_validators_per_shard: 1,
             minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
             chunk_producer_assignment_changes_limit: 5,
@@ -252,8 +257,6 @@ impl EpochConfig {
         builder
             .epoch_length(0)
             .num_block_producer_seats(0)
-            .num_block_producer_seats_per_shard(vec![])
-            .avg_hidden_validator_seats_per_shard(vec![])
             .block_producer_kickout_threshold(0)
             .chunk_producer_kickout_threshold(0)
             .chunk_validator_only_kickout_threshold(0)
@@ -267,7 +270,6 @@ impl EpochConfig {
             .shard_layout(ShardLayout::single_shard())
             .num_chunk_producer_seats(100)
             .num_chunk_validator_seats(300)
-            .num_chunk_only_producer_seats(300)
             .minimum_validators_per_shard(1)
             .minimum_stake_ratio(Rational32::new(160i32, 1_000_000i32))
             .chunk_producer_assignment_changes_limit(5)
@@ -281,8 +283,6 @@ impl EpochConfig {
         builder
             .epoch_length(epoch_length)
             .num_block_producer_seats(2)
-            .num_block_producer_seats_per_shard(vec![1, 1])
-            .avg_hidden_validator_seats_per_shard(vec![1, 1])
             .block_producer_kickout_threshold(0)
             .chunk_producer_kickout_threshold(0)
             .chunk_validator_only_kickout_threshold(0)
@@ -296,30 +296,12 @@ impl EpochConfig {
             .shard_layout(shard_layout)
             .num_chunk_producer_seats(100)
             .num_chunk_validator_seats(300)
-            .num_chunk_only_producer_seats(300)
             .minimum_validators_per_shard(1)
             .minimum_stake_ratio(Rational32::new(160i32, 1_000_000i32))
             .chunk_producer_assignment_changes_limit(5)
             .shuffle_shard_assignment_for_chunk_producers(false)
             .max_inflation_rate(Rational32::new(1, 40));
         builder
-    }
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ShardConfig {
-    pub num_block_producer_seats_per_shard: Vec<NumSeats>,
-    pub avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
-    pub shard_layout: ShardLayout,
-}
-
-impl ShardConfig {
-    pub fn new(epoch_config: EpochConfig, shard_layout: ShardLayout) -> Self {
-        Self {
-            num_block_producer_seats_per_shard: epoch_config.num_block_producer_seats_per_shard,
-            avg_hidden_validator_seats_per_shard: epoch_config.avg_hidden_validator_seats_per_shard,
-            shard_layout,
-        }
     }
 }
 

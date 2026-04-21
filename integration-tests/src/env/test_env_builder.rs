@@ -10,7 +10,7 @@ use near_async::messaging::{IntoMultiSender, IntoSender, noop};
 use near_async::time::Clock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::RuntimeAdapter;
-use near_chain::{ApplyChunksIterationMode, Block, ChainGenesis};
+use near_chain::{Block, ChainGenesis};
 use near_chain_configs::{
     Genesis, GenesisConfig, MutableConfigValue, ProtocolVersionCheckConfig, TrackedShardsConfig,
 };
@@ -59,6 +59,7 @@ pub struct TestEnvBuilder {
     state_snapshot_enabled: bool,
     track_all_shards: bool,
     protocol_version_check: ProtocolVersionCheckConfig,
+    transaction_pool_size_limit: Option<u64>,
 }
 
 /// Builder for the [`TestEnv`] structure.
@@ -89,6 +90,7 @@ impl TestEnvBuilder {
             state_snapshot_enabled: false,
             track_all_shards: false,
             protocol_version_check: Default::default(),
+            transaction_pool_size_limit: None,
         }
     }
 
@@ -363,6 +365,14 @@ impl TestEnvBuilder {
         self
     }
 
+    /// Overrides the per-shard transaction pool size limit (in bytes) on every
+    /// client built by this builder. When `None` the default (unbounded in tests)
+    /// is used.
+    pub fn transaction_pool_size_limit(mut self, limit: Option<u64>) -> Self {
+        self.transaction_pool_size_limit = limit;
+        self
+    }
+
     /// Sets track_all_shards flag to true or false.
     pub fn maybe_track_all_shards(mut self, track_all_shards: bool) -> Self {
         self.track_all_shards = track_all_shards;
@@ -577,6 +587,7 @@ impl TestEnvBuilder {
                         self.save_tx_outcomes,
                         self.save_receipt_to_tx,
                         self.protocol_version_check,
+                        self.transaction_pool_size_limit,
                         Some(snapshot_callbacks),
                         partial_witness_adapter.into_multi_sender(),
                         validator_signers[i].clone(),
@@ -608,7 +619,6 @@ impl TestEnvBuilder {
                     clients[i].shard_tracker.clone(),
                     network_adapters[i].as_multi_sender(),
                     validator_signers[i].clone(),
-                    ApplyChunksIterationMode::default(),
                     ChunkExecutorConfig {
                         save_trie_changes: self.save_trie_changes,
                         save_tx_outcomes: self.save_tx_outcomes,
@@ -639,7 +649,6 @@ impl TestEnvBuilder {
                     .map(|(index, client)| (client, index))
                     .collect(),
             ),
-            paused_blocks: Default::default(),
             seeds,
             enable_split_store: self.enable_split_store,
             save_tx_outcomes: self.save_tx_outcomes,

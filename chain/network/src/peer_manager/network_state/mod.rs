@@ -18,8 +18,6 @@ use crate::peer_manager::connection;
 use crate::peer_manager::connection_store;
 use crate::peer_manager::peer_store;
 use crate::private_messages::RegisterPeerError;
-#[cfg(feature = "distance_vector_routing")]
-use crate::routing::NetworkTopologyChange;
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::{SnapshotHostInfoError, SnapshotHostsCache};
@@ -43,6 +41,7 @@ use crate::types::{
 };
 use anyhow::Context;
 use arc_swap::ArcSwap;
+use dashmap::DashMap;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{CanSend, CanSendAsync, Sender};
 use near_async::{ActorSystem, new_owned_future_spawner, time};
@@ -76,6 +75,11 @@ pub const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
 
 /// How long to wait between reconnection attempts to the same peer
 pub(crate) const RECONNECT_ATTEMPT_INTERVAL: time::Duration = time::Duration::seconds(10);
+
+/// How long a pending Tier3 request remains valid. After sending a state sync request over
+/// Tier2, we expect the peer to open an inbound Tier3 connection within this window. Entries
+/// older than this are cleaned up periodically.
+pub(crate) const PENDING_TIER3_REQUEST_TIMEOUT: time::Duration = time::Duration::seconds(60);
 
 impl WhitelistNode {
     pub fn from_peer_info(pi: &PeerInfo) -> anyhow::Result<Self> {
@@ -139,11 +143,6 @@ pub(crate) struct NetworkState {
     pub pending_reconnect: Mutex<Vec<PeerInfo>>,
     /// A graph of the whole NEAR network.
     pub graph: Arc<crate::routing::Graph>,
-    /// A sparse graph of the whole NEAR network.
-    /// TODO(saketh): deprecate graph above, rename this to RoutingTable
-    #[cfg(feature = "distance_vector_routing")]
-    pub graph_v2: Arc<crate::routing::GraphV2>,
-
     /// Hashes of the body of recently received routed messages.
     /// It allows us to determine whether messages arrived faster over TIER1 or TIER2 network.
     pub recent_routed_messages: Mutex<lru::LruCache<CryptoHash, ()>>,
@@ -160,6 +159,11 @@ pub(crate) struct NetworkState {
     /// messages since last block.
     pub txns_since_last_block: AtomicUsize,
 
+    /// Peers from which we expect an inbound Tier3 connection, because we sent them a state
+    /// sync request over Tier2. Maps peer_id to the time the request was sent. Entries are
+    /// cleaned up after PENDING_TIER3_REQUEST_TIMEOUT.
+    pub pending_tier3_requests: DashMap<PeerId, time::Instant>,
+
     /// Whitelisted nodes, which are allowed to connect even if the connection limit has been
     /// reached.
     whitelist_nodes: Vec<WhitelistNode>,
@@ -168,11 +172,6 @@ pub(crate) struct NetworkState {
     tier1_advertise_proxies_mutex: tokio::sync::Mutex<()>,
     /// Demultiplexer aggregating calls to add_edges(), for V1 routing protocol
     add_edges_demux: demux::Demux<EdgesWithSource, Result<(), ReasonForBan>>,
-    /// Demultiplexer aggregating calls to update_routes(), for V2 routing protocol
-    #[cfg(feature = "distance_vector_routing")]
-    update_routes_demux:
-        demux::Demux<crate::routing::NetworkTopologyChange, Result<(), ReasonForBan>>,
-
     /// Mutex serializing calls to set_chain_info(), which mutates a bunch of stuff non-atomically.
     /// TODO(gprusak): make it use synchronization primitives in some more canonical way.
     set_chain_info_mutex: Mutex<()>,
@@ -221,14 +220,6 @@ impl NetworkState {
                     prune_edges_after: Some(PRUNE_EDGES_AFTER),
                 },
             ),
-            #[cfg(feature = "distance_vector_routing")]
-            graph_v2: crate::routing::GraphV2::new(
-                clock.clone(),
-                crate::routing::GraphConfigV2 {
-                    node_id: config.node_id(),
-                    prune_edges_after: Some(PRUNE_EDGES_AFTER),
-                },
-            ),
             genesis_id,
             client,
             state_request_adapter,
@@ -253,13 +244,12 @@ impl NetworkState {
                 NonZeroUsize::new(RECENT_ROUTED_MESSAGES_CACHE_SIZE).unwrap(),
             )),
             txns_since_last_block: AtomicUsize::new(0),
+            pending_tier3_requests: DashMap::new(),
             whitelist_nodes,
             add_edges_demux: demux::Demux::new(
                 config.routing_table_update_rate_limit,
                 future_spawner,
             ),
-            #[cfg(feature = "distance_vector_routing")]
-            update_routes_demux: demux::Demux::new(config.routing_table_update_rate_limit),
             set_chain_info_mutex: Mutex::new(()),
             config,
             created_at: clock.now(),
@@ -401,22 +391,25 @@ impl NetworkState {
                         .map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
                     // Insert to the local connection pool
                     this.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
-                    // Update the V2 routing table
-                    #[cfg(feature = "distance_vector_routing")]
-                    this.update_routes(NetworkTopologyChange::PeerConnected(peer_info.id.clone(), edge.clone()))
-                        .await.map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
                     // Write to the peer store
                     this.peer_store.peer_connected(&clock, peer_info);
                 }
                 tcp::Tier::T3 => {
-                    if conn.peer_type == PeerType::Inbound {
-                        // TODO(saketh): When a peer initiates a TIER3 connection it should be
-                        // responding to a request sent previously by the local node. If we
-                        // maintain some state about pending requests it would be possible to add
-                        // an additional layer of security here and reject unexpected connections.
-                    }
                     if !edge.verify() {
                         return Err(RegisterPeerError::InvalidEdge);
+                    }
+                    if conn.peer_type == PeerType::Inbound {
+                        // Reject inbound Tier3 connections that don't correspond to a
+                        // state sync request we sent. We check without removing so that
+                        // the entry remains valid for the full timeout window — the peer
+                        // may need to open additional T3 connections (e.g. if the first
+                        // was idle-closed before a later response is ready).
+                        //
+                        // Edge verification is done first so that a spoofed peer_id with
+                        // an invalid edge cannot influence the pending-request lookup.
+                        if !this.pending_tier3_requests.contains_key(&peer_info.id) {
+                            return Err(RegisterPeerError::UnexpectedTier3Connection);
+                        }
                     }
                     this.tier3.insert_ready(conn).map_err(RegisterPeerError::PoolError)?;
                 }
@@ -446,47 +439,42 @@ impl NetworkState {
                 tcp::Tier::T3 => this.tier3.remove(&conn),
             }
 
-            // The rest of this function has to do with banning or routing,
-            // which are applicable only for TIER2.
-            if conn.tier != tcp::Tier::T2 {
-                return;
-            }
+            // Handle banning and routing, which are applicable only for TIER2.
+            if conn.tier == tcp::Tier::T2 {
+                let peer_id = conn.peer_info.id.clone();
 
-            let peer_id = conn.peer_info.id.clone();
-
-            // If the last edge we have with this peer represent a connection addition, create the edge
-            // update that represents the connection removal.
-            if let Some(edge) = this.graph.load().local_edges.get(&peer_id) {
-                if edge.edge_type() == EdgeState::Active {
-                    let edge_update =
-                        edge.remove_edge(this.config.node_id(), &this.config.node_key);
-                    this.add_edges(&clock, EdgesWithSource::Local(vec![edge_update.clone()]))
-                        .await
-                        .unwrap();
+                // If the last edge we have with this peer represent a connection addition, create the edge
+                // update that represents the connection removal.
+                if let Some(edge) = this.graph.load().local_edges.get(&peer_id) {
+                    if edge.edge_type() == EdgeState::Active {
+                        let edge_update =
+                            edge.remove_edge(this.config.node_id(), &this.config.node_key);
+                        this.add_edges(&clock, EdgesWithSource::Local(vec![edge_update.clone()]))
+                            .await
+                            .unwrap();
+                    }
                 }
-            }
 
-            // Update the V2 routing table
-            #[cfg(feature = "distance_vector_routing")]
-            this.update_routes(NetworkTopologyChange::PeerDisconnected(peer_id.clone()))
-                .await
-                .unwrap();
-
-            // Save the fact that we are disconnecting to the PeerStore.
-            let res = match reason {
-                ClosingReason::Ban(ban_reason) => {
-                    this.peer_store.peer_ban(&clock, &conn.peer_info.id, ban_reason)
+                // Save the fact that we are disconnecting to the PeerStore.
+                let res = match &reason {
+                    ClosingReason::Ban(ban_reason) => {
+                        this.peer_store.peer_ban(&clock, &conn.peer_info.id, *ban_reason)
+                    }
+                    _ => this.peer_store.peer_disconnected(&clock, &conn.peer_info.id),
+                };
+                if let Err(err) = res {
+                    tracing::debug!(target: "network", ?err, "failed to save peer data");
                 }
-                _ => this.peer_store.peer_disconnected(&clock, &conn.peer_info.id),
-            };
-            if let Err(err) = res {
-                tracing::debug!(target: "network", ?err, "failed to save peer data");
-            }
 
-            // Save the fact that we are disconnecting to the ConnectionStore,
-            // and push a reconnect attempt, if applicable
-            if this.connection_store.connection_closed(&conn.peer_info, &conn.peer_type, &reason) {
-                this.pending_reconnect.lock().push(conn.peer_info.clone());
+                // Save the fact that we are disconnecting to the ConnectionStore,
+                // and push a reconnect attempt, if applicable
+                if this.connection_store.connection_closed(
+                    &conn.peer_info,
+                    &conn.peer_type,
+                    &reason,
+                ) {
+                    this.pending_reconnect.lock().push(conn.peer_info.clone());
+                }
             }
 
             #[cfg(test)]
@@ -533,7 +521,7 @@ impl NetworkState {
             let succeeded = !result.is_err();
 
             if let Err(ref err) = result {
-                tracing::info!(target:"network", ?err, %peer_info, "failed to connect");
+                tracing::info!(target:"network", %err, %peer_info, "failed to connect");
             }
 
             // The peer may not be in the peer store; we try to record the connection attempt but
@@ -1076,28 +1064,6 @@ impl NetworkState {
             }
             for t in tasks {
                 let _ = t.await;
-            }
-
-            // Now that `graph` has been synchronized with the state of the local connections,
-            // use it as the source of truth to fix the local state in `graph_v2`
-            #[cfg(feature = "distance_vector_routing")]
-            {
-                let mut tasks = vec![];
-                let node_id = this.config.node_id();
-                for edge in graph.local_edges.values() {
-                    let other_peer = edge.other(&node_id).unwrap();
-                    tasks.push(match edge.edge_type() {
-                        EdgeState::Active => this.update_routes(
-                            NetworkTopologyChange::PeerConnected(other_peer.clone(), edge.clone()),
-                        ),
-                        EdgeState::Removed => this.update_routes(
-                            NetworkTopologyChange::PeerDisconnected(other_peer.clone()),
-                        ),
-                    });
-                }
-                for t in tasks {
-                    let _ = t.await;
-                }
             }
         })
         .await

@@ -77,6 +77,19 @@ macro_rules! imports {
                 }
             )*}
         }
+
+        #[allow(unused_macros)]
+        /// Like `for_each_available_import!` but without runtime config gating,
+        /// so that `$M!` invocations appear at item position (useful for
+        /// generating method definitions). Unlike `for_each_available_import`,
+        /// this calls `$M!` directly (not via `call_with_name`) so that the
+        /// trailing `;` is preserved for item-position expansion.
+        macro_rules! for_each_import_item {
+            ($M:ident) => {$(
+                $(#[cfg(feature = $feature_name)])?
+                $M!($( @in $mod : )? $( @as $name : )? $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >);
+            )*}
+        }
     }
 }
 
@@ -346,6 +359,8 @@ imports! {
     #[["test_features"]] burn_gas<[gas: u64] -> []>,
 }
 
+#[cfg(test)]
+pub(crate) use for_each_import_item;
 pub(crate) use {call_with_name, for_each_available_import};
 
 pub(crate) const fn should_trace_host_function(host_function: &str) -> bool {
