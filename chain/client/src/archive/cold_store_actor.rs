@@ -261,8 +261,7 @@ impl ColdStoreActor {
         // At resharding boundaries, the resharding TrieChanges are keyed by the
         // previous block's hash (the resharding block). Pass it so cold store
         // can copy child shard state insertions.
-        let resharding_block_hash =
-            if is_resharding_boundary { Some(prev_hash.as_bytes().to_vec()) } else { None };
+        let resharding_block_hash = is_resharding_boundary.then_some(prev_hash);
 
         update_cold_db(
             &self.cold_db,
@@ -270,7 +269,7 @@ impl ColdStoreActor {
             &shard_layout,
             &effective_tracked_shards,
             &next_height,
-            resharding_block_hash.as_deref(),
+            resharding_block_hash,
             self.split_storage_config.num_cold_store_read_threads,
         )?;
 

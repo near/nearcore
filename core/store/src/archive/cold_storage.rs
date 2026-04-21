@@ -65,7 +65,7 @@ pub fn update_cold_db(
     shard_layout: &ShardLayout,
     tracked_shards: &Vec<ShardUId>,
     height: &BlockHeight,
-    resharding_block_hash: Option<&[u8]>,
+    resharding_block_hash: Option<&CryptoHash>,
     num_threads: usize,
 ) -> io::Result<()> {
     let _span = tracing::debug_span!(target: "cold_store", "update cold db", height = height);
@@ -193,7 +193,7 @@ fn copy_state_from_store(
     block_hash_key: &[u8],
     cold_db: &ColdDB,
     hot_store: &Store,
-    resharding_block_hash: Option<&[u8]>,
+    resharding_block_hash: Option<&CryptoHash>,
 ) -> io::Result<()> {
     let col = DBCol::State;
     let _span = tracing::debug_span!(target: "cold_store", "copy_state_from_store", %col);
@@ -204,6 +204,12 @@ fn copy_state_from_store(
     let mut total_size = 0;
     let mut transaction = DBTransaction::new();
     let mut copied_shards = HashSet::<ShardUId>::new();
+    // Only newly-created child shards have TrieChanges at the resharding block
+    // that weren't copied during the previous cold loop iteration. For
+    // unchanged shards the ShardUId is the same in both layouts, so their
+    // TrieChanges at the previous height were already copied and re-reading
+    // them would double-increment refcounts in DBCol::State.
+    let child_shard_uids = shard_layout.get_split_child_shard_uids();
     for shard_uid in shard_layout.shard_uids() {
         debug_assert_eq!(
             DBCol::TrieChanges.key_type(),
@@ -213,14 +219,17 @@ fn copy_state_from_store(
         let shard_uid_key = shard_uid.to_bytes();
         let mapped_shard_uid_key = get_shard_uid_mapping(&cold_store, shard_uid).to_bytes();
 
-        // Look for TrieChanges at the current block hash (normal block processing)
-        // and, at resharding boundaries, also at the previous block hash (the
-        // resharding block where child shard state was created).
-        let block_hashes: [Option<&[u8]>; 2] = [Some(block_hash_key), resharding_block_hash];
+        // Look for TrieChanges at the current block hash (normal block
+        // processing) and, for newly-created child shards at a resharding
+        // boundary, also at the previous block hash (the resharding block
+        // where child shard state was created).
+        let resharding_hash_for_shard = resharding_block_hash
+            .filter(|_| child_shard_uids.contains(&shard_uid))
+            .map(|h| h.as_bytes().as_slice());
+        let block_hashes: [Option<&[u8]>; 2] = [Some(block_hash_key), resharding_hash_for_shard];
         for hash_key in block_hashes.into_iter().flatten() {
             let key = join_two_keys(hash_key, &shard_uid_key);
-            let trie_changes: Option<TrieChanges> =
-                hot_store.get_ser::<TrieChanges>(DBCol::TrieChanges, &key);
+            let trie_changes: Option<TrieChanges> = hot_store.get_ser(DBCol::TrieChanges, &key);
             let Some(trie_changes) = trie_changes else { continue };
             copied_shards.insert(shard_uid);
             total_keys += trie_changes.insertions().len();

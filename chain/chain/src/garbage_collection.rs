@@ -22,7 +22,7 @@ use near_primitives::utils::{
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
-use near_store::{DBCol, KeyForStateChanges, ShardTries, ShardUId, TrieChanges};
+use near_store::{DBCol, KeyForStateChanges, ShardTries, ShardUId};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
@@ -899,18 +899,24 @@ impl<'a> ChainStoreUpdate<'a> {
         // shard UIDs NOT in this set come from resharding — they were persisted
         // under child shard UIDs but the actual state insertions were applied
         // under the parent shard UID.
-        let block_epoch_shard_uids: HashSet<ShardUId> = {
-            let block_header = self.get_block_header(&block_hash).expect("block header must exist");
-            let shard_layout = epoch_manager
-                .get_shard_layout(block_header.epoch_id())
-                .expect("epoch info must exist");
-            shard_layout.shard_uids().collect()
-        };
+        let block_header = self.get_block_header(&block_hash).expect("block header must exist");
+        let shard_layout =
+            epoch_manager.get_shard_layout(block_header.epoch_id()).expect("epoch info must exist");
+        let block_epoch_shard_uids: HashSet<ShardUId> = shard_layout.shard_uids().collect();
+
+        debug_assert!(
+            epoch_manager
+                .get_shard_layout(block_header.next_epoch_id())
+                .expect("epoch info must exist")
+                .get_split_child_shard_uids()
+                .iter()
+                .all(|uid| !block_epoch_shard_uids.contains(uid)),
+            "resharding child shard UIDs must not overlap with the current epoch's UIDs",
+        );
 
         for shard_uid in shard_uids_to_gc {
             let trie_changes_key = get_block_shard_uid(&block_hash, &shard_uid);
-            let trie_changes: Option<TrieChanges> =
-                self.store().get_ser(DBCol::TrieChanges, &trie_changes_key);
+            let trie_changes = self.store().get_ser(DBCol::TrieChanges, &trie_changes_key);
 
             let Some(trie_changes) = trie_changes else {
                 continue;
@@ -918,11 +924,17 @@ impl<'a> ChainStoreUpdate<'a> {
             match gc_mode.clone() {
                 GCMode::Fork(tries) => {
                     // If the block is on a fork, we delete the state that's the result of applying this block.
-                    // Only revert TrieChanges from this block's own epoch (normal chunk processing).
-                    // Resharding entries (next-epoch shard UIDs) are skipped — see comment above.
-                    if block_epoch_shard_uids.contains(&shard_uid) {
-                        tries.revert_insertions(&trie_changes, shard_uid, store_update);
-                    }
+                    // For resharding entries (next-epoch child shard UIDs) the
+                    // insertions were applied under the parent shard UID
+                    // prefix, so resolve the mapping before reverting to avoid
+                    // underflowing the child prefix and leaking the parent's
+                    // refcounts.
+                    let revert_shard_uid = if block_epoch_shard_uids.contains(&shard_uid) {
+                        shard_uid
+                    } else {
+                        get_shard_uid_mapping(&self.store(), shard_uid)
+                    };
+                    tries.revert_insertions(&trie_changes, revert_shard_uid, store_update);
                 }
                 GCMode::Canonical(tries) => {
                     // If the block is on canonical chain, we delete the state that's before applying this block

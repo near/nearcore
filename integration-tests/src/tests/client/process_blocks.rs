@@ -969,7 +969,7 @@ fn test_archival_gc_common(
             .epoch_manager
             .is_resharding_boundary(header.prev_hash())
             .unwrap()
-            .then(|| header.prev_hash().as_bytes().to_vec());
+            .then_some(*header.prev_hash());
 
         blocks.push(block);
 
@@ -980,7 +980,7 @@ fn test_archival_gc_common(
                 &shard_layout,
                 &tracked_shards,
                 &i,
-                resharding_block_hash.as_deref(),
+                resharding_block_hash.as_ref(),
                 1,
             )
             .unwrap();

@@ -1,5 +1,4 @@
-use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::{create_validators_spec, validators_spec_clients};
+use crate::setup::builder::{ArchivalKind, TestLoopBuilder};
 use crate::utils::setups::derive_new_epoch_config_from_boundary;
 use itertools::Itertools;
 use near_async::time::Duration;
@@ -8,7 +7,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
-use near_primitives::types::{AccountId, Balance};
+use near_primitives::types::AccountId;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::archive::cold_storage::join_two_keys;
@@ -46,37 +45,24 @@ fn test_resharding_trie_nodes_copied_to_cold_store() {
     let base_shard_layout = ShardLayout::multi_shard(3, version);
     let boundary_account: AccountId = "boundary".parse().unwrap();
 
-    let validators_spec = create_validators_spec(1, 0);
-    let mut clients = validators_spec_clients(&validators_spec);
-    let archival_id: AccountId = "archival".parse().unwrap();
-    clients.push(archival_id.clone());
-
-    let user_account: AccountId = "user0".parse().unwrap();
-
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .protocol_version(PROTOCOL_VERSION - 1)
-        .validators_spec(validators_spec)
+    let base_epoch_config = TestEpochConfigBuilder::new()
         .shard_layout(base_shard_layout.clone())
         .epoch_length(EPOCH_LENGTH)
-        .add_user_accounts_simple(&[user_account], Balance::from_near(1_000_000))
         .build();
-
-    let base_epoch_config = TestEpochConfigBuilder::from_genesis(&genesis).build();
     let (new_epoch_config, new_shard_layout) =
         derive_new_epoch_config_from_boundary(&base_epoch_config, &boundary_account);
-
-    let epoch_configs = vec![
-        (genesis.config.protocol_version, Arc::new(base_epoch_config)),
-        (genesis.config.protocol_version + 1, Arc::new(new_epoch_config)),
-    ];
-    let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(epoch_configs));
+    let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter([
+        (PROTOCOL_VERSION - 1, Arc::new(base_epoch_config)),
+        (PROTOCOL_VERSION, Arc::new(new_epoch_config)),
+    ]));
 
     // --- 2. Build the test environment with cold storage archival node ---
     let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .clients(clients)
+        .shard_layout(base_shard_layout.clone())
+        .protocol_version(PROTOCOL_VERSION - 1)
+        .epoch_length(EPOCH_LENGTH)
+        .enable_archival_node(ArchivalKind::Cold)
         .epoch_config_store(epoch_config_store)
-        .cold_storage_archival_clients(vec![archival_id])
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
         .build();
 
