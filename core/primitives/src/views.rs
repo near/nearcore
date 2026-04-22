@@ -2506,9 +2506,7 @@ pub struct EpochValidatorInfo {
     /// Per-validator rewards paid out at the start of the previous epoch.
     /// For epoch E, this contains the rewards earned in epoch E-2 that were
     /// added to validator and treasury balances at the first block of epoch
-    /// E-1 (via `ValidatorAccountsUpdate`): validator rewards are credited
-    /// to `locked`, while the protocol treasury reward is credited to
-    /// `amount`.
+    /// E-1 (via `ValidatorAccountsUpdate`).
     #[serde(default)]
     pub validators_reward_paid_prev_epoch: HashMap<AccountId, Balance>,
 }
