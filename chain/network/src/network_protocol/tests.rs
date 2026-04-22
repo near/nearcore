@@ -370,7 +370,7 @@ mod versioned_witness_tests {
     #[test]
     fn v1_routes_to_legacy_wire_v2_routes_to_versioned_wire() {
         let v1 = make_test_v1_witness();
-        let versioned_v1 = VersionedPartialEncodedStateWitness::V1(v1.clone());
+        let versioned_v1 = VersionedPartialEncodedStateWitness::V1(v1);
         let t1 = match versioned_v1 {
             VersionedPartialEncodedStateWitness::V1(w) => {
                 T1MessageBody::PartialEncodedStateWitness(w)
