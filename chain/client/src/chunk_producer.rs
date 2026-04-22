@@ -57,6 +57,8 @@ pub enum AdvProduceChunksMode {
     ProduceWithoutTxValidityCheck,
     // Include all pool transactions without running runtime verification.
     ProduceWithoutTxVerification,
+    // Produce chunks with a corrupted tx_root so validate_chunk_proofs fails.
+    ProduceWithCorruptedTxRoot,
     // Randomly skip multiple chunks in a row.
     SkipWindow {
         // Size of the window in which to randomly pick a skip start.
@@ -327,6 +329,15 @@ impl ChunkProducer {
         let (tx_root, _) = merklize(
             &prepared_transactions.transactions.iter().map(|vt| vt.to_signed_tx()).collect_vec(),
         );
+        #[cfg(feature = "test_features")]
+        let tx_root = if matches!(
+            self.adversarial.produce_mode,
+            Some(AdvProduceChunksMode::ProduceWithCorruptedTxRoot)
+        ) {
+            CryptoHash::hash_bytes(b"corrupted_tx_root")
+        } else {
+            tx_root
+        };
         let outgoing_receipts = ChainStore::get_outgoing_receipts_for_shard_from_store(
             &self.chain,
             self.epoch_manager.as_ref(),
@@ -538,7 +549,8 @@ impl ChunkProducer {
             AdvProduceChunksMode::Valid
             | AdvProduceChunksMode::ProduceWithoutTx
             | AdvProduceChunksMode::ProduceWithoutTxValidityCheck
-            | AdvProduceChunksMode::ProduceWithoutTxVerification => false,
+            | AdvProduceChunksMode::ProduceWithoutTxVerification
+            | AdvProduceChunksMode::ProduceWithCorruptedTxRoot => false,
         }
     }
 

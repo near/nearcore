@@ -85,8 +85,9 @@ impl FlatStorageManager {
     /// and resharding.
     pub fn create_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Result<(), StorageError> {
         tracing::debug!(target: "store", ?shard_uid, "creating flat storage for shard");
-        let mut pending_snapshot = self.0.pending_snapshot.lock();
+        // Lock ordering: flat_storages before pending_snapshot, matching want_snapshot().
         let mut flat_storages = self.0.flat_storages.lock();
+        let mut pending_snapshot = self.0.pending_snapshot.lock();
         let flat_storage = FlatStorage::new(self.0.store.clone(), shard_uid)?;
         // If a snapshot is pending, the new shard must also be held.
         if let Some(snapshot) = pending_snapshot.as_mut() {
