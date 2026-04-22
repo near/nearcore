@@ -19,6 +19,7 @@ use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::Error;
 use near_chain::types::RuntimeAdapter;
 use near_chain_configs::MutableValidatorSigner;
+use near_client_primitives::types::BlockNotificationMessage;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_network::state_witness::{
@@ -27,6 +28,8 @@ use near_network::state_witness::{
     PartialEncodedStateWitnessForwardMessage, PartialEncodedStateWitnessMessage,
 };
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
+use near_primitives::errors::EpochError;
+use near_primitives::hash::CryptoHash;
 use near_primitives::reed_solomon::{
     REED_SOLOMON_MAX_PARTS, ReedSolomonEncoder, ReedSolomonEncoderCache,
 };
@@ -60,6 +63,49 @@ use std::sync::Arc;
 
 const PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE: usize = 30;
 
+/// Capacity (in distinct `prev_block_hash` keys) of the small cache used to
+/// defer V2 witnesses whose prev block is not yet in `DBCol::ChunkProducers`.
+const PENDING_V2_WITNESS_CACHE_SIZE: usize = 64;
+
+/// Small cache for V2 witnesses deferred when their `prev_block_hash` is not
+/// yet in `DBCol::ChunkProducers`. Replayed on `BlockNotificationMessage`.
+/// PR 4a replaces this with a proper bounded LRU plus per-chunk bucketing
+/// and observability. For now this is a minimal implementation that exists
+/// only to keep liveness during EarlyKickout rollout and epoch-sync edge
+/// cases. Witnesses for orphaned forks expire naturally via LRU eviction —
+/// the producer retransmits on the canonical fork.
+struct PendingV2WitnessCache {
+    /// Keyed by `prev_block_hash`. Each entry is the list of deferred
+    /// witnesses queued for that block (covers multiple parts/validators).
+    entries: LruCache<CryptoHash, Vec<VersionedPartialEncodedStateWitness>>,
+}
+
+impl PendingV2WitnessCache {
+    fn new() -> Self {
+        Self { entries: LruCache::new(NonZeroUsize::new(PENDING_V2_WITNESS_CACHE_SIZE).unwrap()) }
+    }
+
+    fn insert(
+        &mut self,
+        prev_block_hash: CryptoHash,
+        witness: VersionedPartialEncodedStateWitness,
+    ) {
+        if let Some(pending) = self.entries.get_mut(&prev_block_hash) {
+            pending.push(witness);
+            return;
+        }
+        self.entries.put(prev_block_hash, vec![witness]);
+    }
+
+    fn drain(&mut self, prev_block_hash: &CryptoHash) -> Vec<VersionedPartialEncodedStateWitness> {
+        self.entries.pop(prev_block_hash).unwrap_or_default()
+    }
+
+    fn len(&self) -> usize {
+        self.entries.len()
+    }
+}
+
 pub struct PartialWitnessActor {
     /// Adapter to send messages to the network.
     network_adapter: PeerManagerAdapter,
@@ -85,6 +131,9 @@ pub struct PartialWitnessActor {
     witness_creation_spawner: Arc<dyn AsyncComputationSpawner>,
     /// AccountId in the key corresponds to the requester (chunk validator).
     processed_contract_code_requests: LruCache<(ChunkProductionKey, AccountId), ()>,
+    /// V2 witnesses deferred on `DBCol::ChunkProducers` miss. Drained on
+    /// `BlockNotificationMessage`. See `PendingV2WitnessCache`.
+    pending_v2_witnesses: Arc<Mutex<PendingV2WitnessCache>>,
 }
 
 impl Actor for PartialWitnessActor {}
@@ -99,6 +148,7 @@ pub struct DistributeStateWitnessRequest {
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct PartialWitnessSenderForClient {
     pub distribute_chunk_state_witness: Sender<DistributeStateWitnessRequest>,
+    pub block_notification: Sender<BlockNotificationMessage>,
 }
 
 impl Handler<DistributeStateWitnessRequest> for PartialWitnessActor {
@@ -163,6 +213,13 @@ impl Handler<ContractCodeResponseMessage> for PartialWitnessActor {
     }
 }
 
+impl Handler<BlockNotificationMessage> for PartialWitnessActor {
+    fn handle(&mut self, msg: BlockNotificationMessage) {
+        let BlockNotificationMessage { block } = msg;
+        self.handle_block_notification(block.hash());
+    }
+}
+
 impl PartialWitnessActor {
     pub fn new(
         clock: Clock,
@@ -197,6 +254,7 @@ impl PartialWitnessActor {
             processed_contract_code_requests: LruCache::new(
                 NonZeroUsize::new(PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE).unwrap(),
             ),
+            pending_v2_witnesses: Arc::new(Mutex::new(PendingV2WitnessCache::new())),
         }
     }
 
@@ -417,10 +475,30 @@ impl PartialWitnessActor {
         let ChunkProductionKey { shard_id, epoch_id, height_created } =
             partial_witness.chunk_production_key();
 
-        let chunk_producer = self
-            .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey { epoch_id, height_created, shard_id })?
-            .take_account_id();
+        // V1 witnesses resolve the chunk producer via the epoch-based sampler;
+        // V2 witnesses carry `prev_block_hash` and use the DB-backed hash
+        // lookup. On `ChunkProducerNotInDB` for V2, defer the witness: the
+        // prev block hasn't populated `DBCol::ChunkProducers` yet.
+        let chunk_producer_info = match &partial_witness {
+            VersionedPartialEncodedStateWitness::V1(_) => {
+                self.epoch_manager.get_chunk_producer_info(&ChunkProductionKey {
+                    epoch_id,
+                    height_created,
+                    shard_id,
+                })
+            }
+            VersionedPartialEncodedStateWitness::V2(v2) => {
+                self.epoch_manager.get_chunk_producer_info_db(v2.prev_block_hash(), shard_id)
+            }
+        };
+        let chunk_producer = match chunk_producer_info {
+            Ok(info) => info.take_account_id(),
+            Err(EpochError::ChunkProducerNotInDB(_, _)) => {
+                self.defer_pending_v2_witness(partial_witness);
+                return Ok(());
+            }
+            Err(err) => return Err(err.into()),
+        };
 
         // Forward witness part to chunk validators except the validator that produced the chunk and witness.
         let target_chunk_validators = self
@@ -433,6 +511,7 @@ impl PartialWitnessActor {
 
         let network_adapter = self.network_adapter.clone();
         let partial_witness_tracker = self.partial_witness_tracker.clone();
+        let pending_v2_witnesses = self.pending_v2_witnesses.clone();
 
         self.partial_witness_spawner.spawn("handle_partial_encoded_state_witness", move || {
             // Validate the partial encoded state witness and forward the part to all the chunk validators.
@@ -469,6 +548,20 @@ impl PartialWitnessActor {
                         "received irrelevant partial encoded state witness",
                     );
                 }
+                Err(Error::DBNotFoundErr(_)) => {
+                    // V2 witness whose prev block hasn't populated
+                    // `DBCol::ChunkProducers` yet. Defer and replay on
+                    // block arrival. V1 witnesses can't reach this path
+                    // because the epoch-based lookup is purely in-memory.
+                    if let Some(prev_block_hash) = partial_witness.prev_block_hash().copied() {
+                        pending_v2_witnesses.lock().insert(prev_block_hash, partial_witness);
+                    } else {
+                        tracing::warn!(
+                            target: "client",
+                            "DBNotFoundErr on V1 witness validation, unexpected",
+                        );
+                    }
+                }
                 Err(err) => {
                     // TODO: ban sending peer
                     tracing::warn!(
@@ -482,6 +575,53 @@ impl PartialWitnessActor {
         });
 
         Ok(())
+    }
+
+    /// Insert a V2 witness into the pending pool keyed by its
+    /// `prev_block_hash`. Called when `DBCol::ChunkProducers` doesn't yet
+    /// contain an entry for the prev block. The witness is replayed from
+    /// `handle_block_notification`.
+    fn defer_pending_v2_witness(&self, partial_witness: VersionedPartialEncodedStateWitness) {
+        let Some(prev_block_hash) = partial_witness.prev_block_hash().copied() else {
+            // V1 witnesses never reach this path — the epoch-based sampler
+            // is purely in-memory and can't return `ChunkProducerNotInDB`.
+            tracing::warn!(
+                target: "client",
+                "attempted to defer a V1 witness; ignoring",
+            );
+            return;
+        };
+        tracing::debug!(
+            target: "client",
+            ?prev_block_hash,
+            chunk_production_key = ?partial_witness.chunk_production_key(),
+            "deferring V2 partial witness until prev block is processed",
+        );
+        self.pending_v2_witnesses.lock().insert(prev_block_hash, partial_witness);
+    }
+
+    /// Drain and replay any V2 witnesses deferred on this block's hash.
+    fn handle_block_notification(&self, block_hash: &CryptoHash) {
+        let pending = self.pending_v2_witnesses.lock().drain(block_hash);
+        if pending.is_empty() {
+            return;
+        }
+        tracing::debug!(
+            target: "client",
+            ?block_hash,
+            count = pending.len(),
+            "replaying deferred V2 partial witnesses",
+        );
+        for witness in pending {
+            if let Err(err) = self.handle_partial_encoded_state_witness(witness) {
+                tracing::warn!(
+                    target: "client",
+                    ?err,
+                    ?block_hash,
+                    "failed to replay deferred V2 partial witness",
+                );
+            }
+        }
     }
 
     /// Function to handle receiving partial_encoded_state_witness_forward message from chunk producer.
@@ -957,4 +1097,132 @@ pub fn compress_witness(witness: &ChunkStateWitness) -> Result<EncodedChunkState
         witness,
     );
     Ok(witness_bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PENDING_V2_WITNESS_CACHE_SIZE, PendingV2WitnessCache};
+    use near_primitives::bandwidth_scheduler::BandwidthRequests;
+    use near_primitives::congestion_info::CongestionInfo;
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
+    use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
+    use near_primitives::test_utils::create_test_signer;
+    use near_primitives::types::{Balance, EpochId, Gas, ShardId};
+    use near_primitives::validator_signer::ValidatorSigner;
+    use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+
+    fn post_kickout_version() -> ProtocolVersion {
+        ProtocolFeature::EarlyKickout.protocol_version()
+    }
+
+    fn pre_kickout_version() -> ProtocolVersion {
+        ProtocolFeature::EarlyKickout.protocol_version().checked_sub(1).unwrap()
+    }
+
+    fn make_witness(
+        signer: &ValidatorSigner,
+        prev_block_hash: CryptoHash,
+        protocol_version: ProtocolVersion,
+    ) -> VersionedPartialEncodedStateWitness {
+        let chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+            prev_block_hash,
+            CryptoHash::default(),
+            CryptoHash::default(),
+            CryptoHash::default(),
+            0,
+            1,
+            ShardId::new(0),
+            Gas::ZERO,
+            Gas::ZERO,
+            Balance::ZERO,
+            CryptoHash::default(),
+            CryptoHash::default(),
+            vec![],
+            CongestionInfo::default(),
+            BandwidthRequests::empty(),
+            None,
+            signer,
+            protocol_version,
+        ));
+        VersionedPartialEncodedStateWitness::new(
+            EpochId(CryptoHash::default()),
+            chunk_header,
+            0,
+            b"payload".to_vec(),
+            7,
+            signer,
+            protocol_version,
+        )
+    }
+
+    #[test]
+    fn inserts_group_by_prev_block_hash() {
+        let signer = create_test_signer("test_account");
+        let block_a = CryptoHash::hash_bytes(b"block_a");
+        let block_b = CryptoHash::hash_bytes(b"block_b");
+        let mut cache = PendingV2WitnessCache::new();
+
+        cache.insert(block_a, make_witness(&signer, block_a, post_kickout_version()));
+        cache.insert(block_a, make_witness(&signer, block_a, post_kickout_version()));
+        cache.insert(block_b, make_witness(&signer, block_b, post_kickout_version()));
+        assert_eq!(cache.len(), 2);
+
+        let drained_a = cache.drain(&block_a);
+        assert_eq!(drained_a.len(), 2);
+        assert!(
+            drained_a.iter().all(|w| w.prev_block_hash() == Some(&block_a)),
+            "drained witnesses must all point to block_a",
+        );
+
+        let drained_b = cache.drain(&block_b);
+        assert_eq!(drained_b.len(), 1);
+        assert_eq!(drained_b[0].prev_block_hash(), Some(&block_b));
+
+        assert_eq!(cache.len(), 0);
+        assert!(cache.drain(&block_a).is_empty(), "re-draining yields nothing");
+    }
+
+    #[test]
+    fn drain_unknown_block_is_empty() {
+        let mut cache = PendingV2WitnessCache::new();
+        assert!(cache.drain(&CryptoHash::hash_bytes(b"absent")).is_empty());
+    }
+
+    #[test]
+    fn capacity_cap_evicts_oldest_block() {
+        let signer = create_test_signer("test_account");
+        let mut cache = PendingV2WitnessCache::new();
+        // Insert one entry per block hash until we overflow the cap.
+        let total = PENDING_V2_WITNESS_CACHE_SIZE + 2;
+        let hashes: Vec<CryptoHash> =
+            (0..total).map(|i| CryptoHash::hash_bytes(format!("blk_{i}").as_bytes())).collect();
+        for h in &hashes {
+            cache.insert(*h, make_witness(&signer, *h, post_kickout_version()));
+        }
+        assert_eq!(cache.len(), PENDING_V2_WITNESS_CACHE_SIZE);
+
+        // Oldest entries were evicted.
+        for h in &hashes[..total - PENDING_V2_WITNESS_CACHE_SIZE] {
+            assert!(cache.drain(h).is_empty(), "oldest block {h:?} should have been evicted",);
+        }
+        // Newer entries remain.
+        for h in &hashes[total - PENDING_V2_WITNESS_CACHE_SIZE..] {
+            assert_eq!(cache.drain(h).len(), 1, "newer block {h:?} must still be cached");
+        }
+    }
+
+    /// V1 witnesses never carry a `prev_block_hash`, so they are never inserted
+    /// into the pending pool. This test guards the invariant that V1
+    /// discriminants can't accidentally slip through the cache if a caller
+    /// mistakenly routes them here.
+    #[test]
+    fn prev_block_hash_absent_for_v1() {
+        let signer = create_test_signer("test_account");
+        let block = CryptoHash::hash_bytes(b"block");
+        let v1 = make_witness(&signer, block, pre_kickout_version());
+        assert!(v1.prev_block_hash().is_none(), "V1 witness must not carry prev_block_hash");
+        let v2 = make_witness(&signer, block, post_kickout_version());
+        assert_eq!(v2.prev_block_hash(), Some(&block));
+    }
 }

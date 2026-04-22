@@ -104,18 +104,24 @@ pub fn validate_partial_encoded_state_witness(
         store,
     )?);
 
-    let chunk_producer =
-        epoch_manager.get_chunk_producer_info(&partial_witness.chunk_production_key())?;
+    // V1 witnesses resolve the chunk producer via the epoch-based sampler.
+    // V2 witnesses carry `prev_block_hash` and use the hash-based DB lookup
+    // (`DBCol::ChunkProducers`), which is strict under EarlyKickout and falls
+    // back to computation when the feature is disabled for the block's
+    // epoch. On `ChunkProducerNotInDB` (→ `Error::DBNotFoundErr`) the caller
+    // is expected to cache the witness and replay it once the prev block is
+    // processed — see `PendingV2WitnessCache` in `partial_witness_actor.rs`.
+    let chunk_producer = match partial_witness {
+        VersionedPartialEncodedStateWitness::V1(_) => {
+            epoch_manager.get_chunk_producer_info(&partial_witness.chunk_production_key())?
+        }
+        VersionedPartialEncodedStateWitness::V2(v2) => {
+            epoch_manager.get_chunk_producer_info_db(v2.prev_block_hash(), shard_id)?
+        }
+    };
     if !partial_witness.verify(chunk_producer.public_key()) {
         return Err(Error::InvalidPartialChunkStateWitness("Invalid signature".to_string()));
     }
-
-    // TODO(early-kickout, PR 3b/4a): when the witness is V2, cross-check
-    // prev_block_hash against the locally available block header. If the
-    // block isn't available yet, defer (don't reject) — the pending-pool
-    // path replays validation after block arrival. Full consistency checks
-    // will live alongside the DB-backed chunk producer lookup once the
-    // ChunkProducers column is wired.
 
     Ok(ChunkRelevance::Relevant)
 }
