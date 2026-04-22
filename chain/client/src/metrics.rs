@@ -781,7 +781,12 @@ pub(crate) static PARTIAL_WITNESS_DB_LOOKUP_TOTAL: LazyLock<IntCounterVec> = Laz
     try_create_int_counter_vec(
         "near_partial_witness_db_lookup_total",
         "Hash-based chunk-producer lookups performed during V2 partial \
-         witness validation. `result` is `hit`, `miss`, or `error`.",
+         witness validation. `result` is one of: `hit` (producer \
+         returned), `miss_prev_block` (prev block header not yet in the \
+         epoch manager — witness will be deferred), `miss_db_entry` \
+         (block known but DBCol::ChunkProducers entry absent — also \
+         deferred; a persistent non-zero rate signals an upstream writer \
+         bug), or `error` (other EpochError).",
         &["shard_id", "result"],
     )
     .unwrap()

@@ -126,9 +126,23 @@ pub fn validate_partial_encoded_state_witness(
                         .inc();
                     info
                 }
+                // Prev block header isn't in the epoch manager yet — common
+                // during steady-state operation when a witness races its
+                // prev block. Defer, don't fail.
+                Err(err @ EpochError::MissingBlock(_)) => {
+                    metrics::PARTIAL_WITNESS_DB_LOOKUP_TOTAL
+                        .with_label_values(&[shard_id_label.as_str(), "miss_prev_block"])
+                        .inc();
+                    return Err(err.into());
+                }
+                // Block is known but `DBCol::ChunkProducers` doesn't have an
+                // entry for this (block, shard). In steady state this
+                // should be near-zero — a persistent miss rate here
+                // signals an upstream writer bug (header-sync or block
+                // processing failed to populate the column).
                 Err(err @ EpochError::ChunkProducerNotInDB(_, _)) => {
                     metrics::PARTIAL_WITNESS_DB_LOOKUP_TOTAL
-                        .with_label_values(&[shard_id_label.as_str(), "miss"])
+                        .with_label_values(&[shard_id_label.as_str(), "miss_db_entry"])
                         .inc();
                     return Err(err.into());
                 }
