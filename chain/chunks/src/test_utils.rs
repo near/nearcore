@@ -1,6 +1,7 @@
 use crate::adapter::ShardsManagerRequestFromClient;
 use crate::client::ShardsManagerResponse;
 use crate::shards_manager_actor::ShardsManagerActor;
+use itertools::Itertools;
 use near_async::messaging::CanSend;
 use near_chain::types::{EpochManagerAdapter, Tip};
 use near_chain::{Chain, ChainStore};
@@ -15,9 +16,11 @@ use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{self, MerklePath};
 use near_primitives::receipt::Receipt;
+use near_primitives::reed_solomon::{reed_solomon_encode, reed_solomon_part_length};
 use near_primitives::sharding::{
-    EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV2,
-    ShardChunkHeader, ShardChunkWithEncoding,
+    EncodedShardChunk, EncodedShardChunkBody, EncodedShardChunkV2, PartialEncodedChunk,
+    PartialEncodedChunkPart, PartialEncodedChunkV2, ShardChunkHeader, ShardChunkHeaderV3,
+    ShardChunkWithEncoding, TransactionReceipt,
 };
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
@@ -289,6 +292,91 @@ impl ChunkTestFixture {
             parts,
             prev_outgoing_receipts: Vec::new(),
         })
+    }
+
+    fn make_malicious_chunk_with_content(
+        &self,
+        content: EncodedShardChunkBody,
+        encoded_length: usize,
+        tx_root: CryptoHash,
+    ) -> (ShardChunkHeader, Vec<PartialEncodedChunkPart>) {
+        let epoch_id = self
+            .epoch_manager
+            .get_epoch_id_from_prev_block(self.mock_chunk_header.prev_block_hash())
+            .unwrap();
+        let signer = create_test_signer(
+            self.epoch_manager
+                .get_chunk_producer_info(&ChunkProductionKey {
+                    epoch_id,
+                    height_created: self.mock_chunk_header.height_created(),
+                    shard_id: self.mock_chunk_header.shard_id(),
+                })
+                .unwrap()
+                .take_account_id()
+                .as_str(),
+        );
+        let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
+        let header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+            *self.mock_chunk_header.prev_block_hash(),
+            Default::default(),
+            Default::default(),
+            encoded_merkle_root,
+            encoded_length as u64,
+            self.mock_chunk_header.height_created(),
+            self.mock_chunk_header.shard_id(),
+            Gas::ZERO,
+            Gas::from_gas(1000),
+            Balance::ZERO,
+            CryptoHash::default(),
+            tx_root,
+            vec![],
+            Default::default(),
+            BandwidthRequests::empty(),
+            None,
+            &signer,
+            PROTOCOL_VERSION,
+        ));
+        let encoded_chunk = EncodedShardChunk::V2(EncodedShardChunkV2 { header, content });
+        let all_part_ords: Vec<u64> = (0..self.rs.total_shard_count()).map(|p| p as u64).collect();
+        let partial =
+            encoded_chunk.create_partial_encoded_chunk(all_part_ords, vec![], &merkle_paths);
+        (partial.cloned_header(), partial.parts().to_vec())
+    }
+
+    /// Build a chunk that a malicious chunk producer would create: garbage
+    /// encoded content with valid merkle proofs and a properly signed header.
+    /// RS decode succeeds (parts are self-consistent), but borsh
+    /// deserialization of the decoded content fails.
+    pub fn make_malicious_encoded_chunk(&self) -> (ShardChunkHeader, Vec<PartialEncodedChunkPart>) {
+        let garbage: Vec<u8> = (0..64).map(|i| (i * 37 + 7) as u8).collect();
+        let encoded_length = garbage.len();
+        let data_parts = self.rs.data_shard_count();
+        let part_length = reed_solomon_part_length(encoded_length, data_parts);
+
+        let mut padded = garbage;
+        padded.resize(data_parts * part_length, 0);
+        let mut parts: Vec<Option<Box<[u8]>>> = padded
+            .chunks_exact(part_length)
+            .map(|chunk| Some(chunk.to_vec().into_boxed_slice()))
+            .chain(itertools::repeat_n(None, self.rs.parity_shard_count()))
+            .collect_vec();
+        self.rs.reconstruct(&mut parts).unwrap();
+
+        let content = EncodedShardChunkBody { parts };
+        self.make_malicious_chunk_with_content(content, encoded_length, CryptoHash::default())
+    }
+
+    /// Build a chunk with valid encoded content but a wrong tx_root in the
+    /// header. RS decode and borsh deserialization succeed, but
+    /// `validate_chunk_proofs` fails because the tx_root doesn't match.
+    pub fn make_malicious_chunk_bad_proofs(
+        &self,
+    ) -> (ShardChunkHeader, Vec<PartialEncodedChunkPart>) {
+        let transaction_receipt = TransactionReceipt(vec![], vec![]);
+        let (parts, encoded_length) = reed_solomon_encode(&self.rs, &transaction_receipt);
+        let content = EncodedShardChunkBody { parts };
+        let bad_tx_root = CryptoHash::hash_bytes(b"wrong tx root");
+        self.make_malicious_chunk_with_content(content, encoded_length as usize, bad_tx_root)
     }
 
     pub fn count_chunk_completion_messages(&self) -> usize {

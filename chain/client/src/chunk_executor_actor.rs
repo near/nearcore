@@ -36,8 +36,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ReceiptProof;
-use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::sharding::ShardProof;
+use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::{CodeHash, ContractUpdates};
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
@@ -45,6 +45,7 @@ use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateT
 use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness;
 use near_primitives::stateless_validation::spice_state_witness::compute_contract_accesses_hash;
 use near_primitives::types::BlockExecutionResults;
+use near_primitives::types::BlockHeight;
 use near_primitives::types::ChunkExecutionResult;
 use near_primitives::types::ChunkExecutionResultHash;
 use near_primitives::types::SpiceChunkId;
@@ -770,10 +771,9 @@ impl ChunkExecutorActor {
             let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
             let chunk_headers = block.chunks();
             let chunk_header = chunk_headers.get(shard_index).unwrap();
-            if chunk_header.is_new_chunk(block.header().height()) {
-                self.chain_store.get_chunk(chunk_header.chunk_hash()).unwrap().into_transactions()
-            } else {
-                vec![]
+            match self.get_new_chunk_if_valid(chunk_header, block.header().height()).unwrap() {
+                Some(chunk) => chunk.into_transactions(),
+                None => vec![],
             }
         };
 
@@ -820,6 +820,27 @@ impl ChunkExecutorActor {
         Ok(ChunkExecutionData { witness: state_witness, code_accesses: contract_accesses })
     }
 
+    /// Returns the chunk if it is a new, valid chunk. Returns `None` if the
+    /// chunk is not new, or if the chunk is invalid (malicious chunk producer).
+    fn get_new_chunk_if_valid(
+        &self,
+        chunk_header: &ShardChunkHeader,
+        height: BlockHeight,
+    ) -> Result<Option<ShardChunk>, Error> {
+        if !chunk_header.is_new_chunk(height) {
+            return Ok(None);
+        }
+        match get_chunk_clone_from_header(&self.chain_store.chunk_store(), chunk_header) {
+            Ok(chunk) => Ok(Some(chunk)),
+            Err(Error::ChunkMissing(_))
+                if self.chain_store.is_invalid_chunk(chunk_header.chunk_hash()).is_some() =>
+            {
+                Ok(None)
+            }
+            Err(err) => Err(err),
+        }
+    }
+
     #[instrument(
         level = "debug",
         target = "chunk_executor",
@@ -838,17 +859,19 @@ impl ChunkExecutorActor {
     ) -> Result<UpdateShardJob, Error> {
         let receipts = collect_receipts(&chunk_context.incoming_receipts);
         let chunk_header = chunk_context.chunk_header;
-        let (transactions, chunk_hash) = if chunk_header.is_new_chunk(block_context.height) {
-            let chunk = get_chunk_clone_from_header(&self.chain_store.chunk_store(), chunk_header)?;
-            let chunk_hash = chunk.chunk_hash().clone();
-            let tx_valid_list =
-                self.chain_store.compute_transaction_validity(prev_block_header, &chunk);
-            (
-                SignedValidPeriodTransactions::new(chunk.into_transactions(), tx_valid_list),
-                Some(chunk_hash),
-            )
-        } else {
-            (SignedValidPeriodTransactions::new(vec![], vec![]), None)
+        let (transactions, chunk_hash) = match self
+            .get_new_chunk_if_valid(chunk_header, block_context.height)?
+        {
+            Some(chunk) => {
+                let chunk_hash = chunk.chunk_hash().clone();
+                let tx_valid_list =
+                    self.chain_store.compute_transaction_validity(prev_block_header, &chunk);
+                (
+                    SignedValidPeriodTransactions::new(chunk.into_transactions(), tx_valid_list),
+                    Some(chunk_hash),
+                )
+            }
+            None => (SignedValidPeriodTransactions::new(vec![], vec![]), None),
         };
 
         let prev_chunk_chunk_extra = chunk_context.prev_chunk_chunk_extra;

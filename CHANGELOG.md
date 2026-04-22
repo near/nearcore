@@ -3,10 +3,14 @@
 ## [unreleased]
 
 ### Protocol Changes
-* The contract runtime has been upgraded to use the new Wasmtime-based runtime;
-* The contract runtime now allows for bulk memory instructions in Wasm code.
 * New opt-in strict nonce mode for transactions added in nightly. When enabled, each transaction must use a nonce exactly equal to the previous nonce for that access key plus one; nonces that repeat or skip values are rejected. ([#15361](https://github.com/near/nearcore/pull/15361), [#15402](https://github.com/near/nearcore/pull/15402))
 * Ensure delegate action returns the correct error consistently. ([#15458](https://github.com/near/nearcore/pull/15458))
+
+## [2.12.0]
+
+### Protocol Changes
+* The contract runtime has been upgraded to use the new Wasmtime-based runtime.
+* The contract runtime now allows for bulk memory instructions in Wasm code.
 
 ### Non-protocol Changes
 * Fix VM compilation and cache metrics (`near_vm_runner_compilation_seconds`, `near_vm_compiled_contract_cache_*`) not being reported for contract deployment, global contract distribution, and pipelining code paths. Add new `near_vm_compiled_contract_memory_cache_hits_total` metric to distinguish in-memory cache hits from disk hits. ([#15580](https://github.com/near/nearcore/pull/15580))

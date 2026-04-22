@@ -1103,7 +1103,14 @@ impl Chain {
                         .shard_tracker
                         .cares_about_shard_this_or_next_epoch(&parent_hash, shard_id)
                     {
-                        if !self.chain_store.chunk_exists(chunk_hash) {
+                        // Invalid chunks (SPICE) have no ShardChunk in
+                        // DBCol::Chunks because the header commits to
+                        // malicious content. The executor uses
+                        // DBCol::InvalidChunks to detect these and skips
+                        // the chunk body read.
+                        if !self.chain_store.chunk_exists(chunk_hash)
+                            && self.chain_store.is_invalid_chunk(chunk_hash).is_none()
+                        {
                             missing.push(chunk_header.clone());
                         }
                     }
