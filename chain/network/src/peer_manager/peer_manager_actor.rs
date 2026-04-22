@@ -39,7 +39,9 @@ use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::state_sync::{PartIdOrHeader, StateRequestAckBody};
-use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
+use near_primitives::stateless_validation::partial_witness::{
+    PartialEncodedStateWitness, VersionedPartialEncodedStateWitness,
+};
 use near_primitives::views::{
     ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, PeerStoreView,
     RecentOutboundConnectionsView, SnapshotHostInfoView, SnapshotHostsView,
@@ -160,7 +162,7 @@ pub enum Event {
 enum ForwardTarget<'a> {
     /// Emit the legacy `PartialEncodedStateWitnessForward` wire. Only valid
     /// for V1 witnesses.
-    Legacy(&'a near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness),
+    Legacy(&'a PartialEncodedStateWitness),
     /// Emit the versioned `VersionedPartialEncodedStateWitnessForward` wire,
     /// which carries the whole enum (including V2's `prev_block_hash`).
     Versioned(&'a VersionedPartialEncodedStateWitness),

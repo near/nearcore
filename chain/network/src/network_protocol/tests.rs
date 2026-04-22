@@ -403,4 +403,36 @@ mod versioned_witness_tests {
         let t1_fwd = T1MessageBody::VersionedPartialEncodedStateWitnessForward(versioned);
         assert!(t1_fwd.allow_sending_to_self());
     }
+
+    /// Both V1-wire and V2-wire witness messages should report the legacy
+    /// `PartialEncodedStateWitness` / `PartialEncodedStateWitnessForward`
+    /// labels so that dashboards watching these metric keys don't silently
+    /// split bytes/counts after the V2 rollout.
+    #[test]
+    fn test_body_variant_coalesces_versioned_witness() {
+        let v1 = make_test_v1_witness();
+        let v2 = make_test_v2_witness();
+        let versioned_v1 = VersionedPartialEncodedStateWitness::V1(v1.clone());
+        let versioned_v2 = VersionedPartialEncodedStateWitness::V2(v2);
+
+        let legacy = TieredMessageBody::T1(Box::new(T1MessageBody::PartialEncodedStateWitness(v1)));
+        let wrapped_v1 = TieredMessageBody::T1(Box::new(
+            T1MessageBody::VersionedPartialEncodedStateWitness(versioned_v1),
+        ));
+        let wrapped_v2 = TieredMessageBody::T1(Box::new(
+            T1MessageBody::VersionedPartialEncodedStateWitness(versioned_v2.clone()),
+        ));
+        assert_eq!(legacy.variant(), "PartialEncodedStateWitness");
+        assert_eq!(wrapped_v1.variant(), "PartialEncodedStateWitness");
+        assert_eq!(wrapped_v2.variant(), "PartialEncodedStateWitness");
+
+        let legacy_fwd = TieredMessageBody::T1(Box::new(
+            T1MessageBody::PartialEncodedStateWitnessForward(make_test_v1_witness()),
+        ));
+        let wrapped_fwd_v2 = TieredMessageBody::T1(Box::new(
+            T1MessageBody::VersionedPartialEncodedStateWitnessForward(versioned_v2),
+        ));
+        assert_eq!(legacy_fwd.variant(), "PartialEncodedStateWitnessForward");
+        assert_eq!(wrapped_fwd_v2.variant(), "PartialEncodedStateWitnessForward");
+    }
 }

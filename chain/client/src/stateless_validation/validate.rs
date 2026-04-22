@@ -106,13 +106,9 @@ pub fn validate_partial_encoded_state_witness(
         store,
     )?);
 
-    // V1 witnesses resolve the chunk producer via the epoch-based sampler.
-    // V2 witnesses carry `prev_block_hash` and use the hash-based DB lookup
-    // (`DBCol::ChunkProducers`), which is strict under EarlyKickout and falls
-    // back to computation when the feature is disabled for the block's
-    // epoch. On `ChunkProducerNotInDB` (→ `Error::DBNotFoundErr`) the caller
-    // is expected to cache the witness and replay it once the prev block is
-    // processed — see `PendingV2WitnessCache` in `partial_witness_actor.rs`.
+    // Rollout policy + V1/V2 producer-resolution contract: see the docstring on
+    // `VersionedPartialEncodedStateWitness`. `DBNotFoundErr` on V2 is the signal
+    // for the caller to defer — `PendingV2WitnessCache` in `partial_witness_actor.rs`.
     let chunk_producer = match partial_witness {
         VersionedPartialEncodedStateWitness::V1(_) => {
             epoch_manager.get_chunk_producer_info(&partial_witness.chunk_production_key())?
