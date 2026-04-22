@@ -1,11 +1,13 @@
 use crate::Store;
 use crate::archive::cloud_storage::CloudStorage;
-use crate::archive::cloud_storage::block_data::build_block_data;
+use crate::archive::cloud_storage::blocks::build_block_batch;
 use crate::archive::cloud_storage::bucket_config::BucketConfig;
 use crate::archive::cloud_storage::epoch_data::build_epoch_data;
-use crate::archive::cloud_storage::file_id::{CloudStorageFileID, ListableCloudDir};
+use crate::archive::cloud_storage::file_id::{
+    BatchRange, CloudStorageFileID, ListableCloudDir, compute_batch_id,
+};
 use crate::archive::cloud_storage::retrieve::CloudRetrievalError;
-use crate::archive::cloud_storage::shard_data::build_shard_data;
+use crate::archive::cloud_storage::shards::build_shard_batch;
 use near_primitives::errors::EpochError;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
@@ -69,21 +71,21 @@ impl CloudStorage {
         } else {
             None
         };
-        let local_config = BucketConfig::local();
+        let expected_config = &self.bucket_config;
         match existing {
             None => {
-                tracing::info!(target: "cloud_archival", ?local_config, "Writing bucket config");
-                let blob = borsh::to_vec(&local_config).unwrap();
+                tracing::info!(target: "cloud_archival", ?expected_config, "Writing bucket config");
+                let blob = borsh::to_vec(expected_config).unwrap();
                 self.upload(file_id, blob).await
             }
             Some(remote_config) => {
-                if remote_config != local_config {
+                if &remote_config != expected_config {
                     return Err(CloudArchivingError::ConfigMismatch {
-                        local: local_config,
+                        local: expected_config.clone(),
                         remote: remote_config,
                     });
                 }
-                tracing::info!(target: "cloud_archival", ?local_config, "Bucket config validated");
+                tracing::info!(target: "cloud_archival", ?expected_config, "Bucket config validated");
                 Ok(())
             }
         }
@@ -102,36 +104,39 @@ impl CloudStorage {
         self.upload_compressed(file_id, blob).await
     }
 
-    /// Saves the archival data associated with the block at the given height.
-    pub async fn archive_block_data(
+    /// Builds and uploads a block batch covering `range`.
+    pub async fn archive_block_batch(
         &self,
         hot_store: &Store,
-        block_height: BlockHeight,
+        range: &BatchRange,
     ) -> Result<(), CloudArchivingError> {
-        let block_data = build_block_data(hot_store, block_height)?;
-        let file_id = CloudStorageFileID::Block(block_height);
-        let blob = borsh::to_vec(&block_data).unwrap();
+        let block_batch = build_block_batch(hot_store, range)?;
+        let batch_id = compute_batch_id(range.start(), self.batch_size());
+        let file_id = CloudStorageFileID::BlockBatch(batch_id);
+        let blob = borsh::to_vec(&block_batch).unwrap();
         self.upload_compressed(file_id, blob).await
     }
 
-    /// Saves the archival data associated with the given block height and shard ID.
-    pub async fn archive_shard_data(
+    /// Builds and uploads a shard batch covering `range`. The caller must
+    /// ensure that all heights in the batch share the same `shard_layout`.
+    pub async fn archive_shard_batch(
         &self,
         hot_store: &Store,
         genesis_height: BlockHeight,
         shard_layout: &ShardLayout,
-        block_height: BlockHeight,
+        range: &BatchRange,
         shard_uid: ShardUId,
     ) -> Result<(), CloudArchivingError> {
-        let shard_data =
-            build_shard_data(hot_store, genesis_height, shard_layout, block_height, shard_uid)?;
-        let file_id = CloudStorageFileID::Shard(block_height, shard_uid.shard_id());
-        let blob = borsh::to_vec(&shard_data).unwrap();
+        let shard_batch =
+            build_shard_batch(hot_store, genesis_height, shard_layout, range, shard_uid)?;
+        let batch_id = compute_batch_id(range.start(), self.batch_size());
+        let file_id = CloudStorageFileID::ShardBatch(shard_uid.shard_id(), batch_id);
+        let blob = borsh::to_vec(&shard_batch).unwrap();
         self.upload_compressed(file_id, blob).await
     }
 
     /// Compresses and uploads data to cloud storage.
-    /// Used for block, shard, and epoch data blobs — NOT for metadata.
+    /// Used for block, shard, and epoch data blobs - NOT for metadata.
     // TODO(cloud_archival): Benchmark compression: optimal level, spawn_blocking,
     // multithreaded compression for large shard blobs.
     pub(super) async fn upload_compressed(
@@ -140,7 +145,7 @@ impl CloudStorage {
         value: Vec<u8>,
     ) -> Result<(), CloudArchivingError> {
         let compressed =
-            zstd::encode_all(value.as_slice(), BucketConfig::local().compression_level())?;
+            zstd::encode_all(value.as_slice(), self.bucket_config.compression_level())?;
         self.upload(file_id, compressed).await
     }
 
