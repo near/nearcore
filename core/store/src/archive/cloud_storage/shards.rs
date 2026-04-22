@@ -5,6 +5,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ReceiptProof, ShardChunk};
+// TODO(cloud_archival): Re-enable once `get_state_header()` is fixed (see below).
 //use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use crate::adapter::StoreAdapter;
 use crate::archive::cloud_storage::file_id::BatchRange;
@@ -43,6 +44,7 @@ pub struct ShardDataV1 {
     chunk_apply_stats: ChunkApplyStats,
     /// Read from `DBCol::StateChanges`.
     state_changes: Vec<RawStateChangesWithTrieKey>,
+    // TODO(cloud_archival): Re-enable once `get_state_header()` is fixed (see below).
     // /// Read from `DBCol::StateHeaders`.
     // state_headers: ShardStateSyncResponseHeader,
 }
