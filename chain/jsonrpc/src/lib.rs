@@ -267,6 +267,18 @@ fn to_state_changes_internal(err: RpcError) -> RpcStateChangesError {
     RpcStateChangesError::InternalError { error_message: err.to_string() }
 }
 
+/// Returns `true` if the request references no accounts or keys, i.e.
+/// `extract_target_shards` would return an empty set for any shard layout.
+fn state_changes_request_is_empty(request: &StateChangesRequestView) -> bool {
+    match request {
+        StateChangesRequestView::AccountChanges { account_ids }
+        | StateChangesRequestView::AllAccessKeyChanges { account_ids }
+        | StateChangesRequestView::ContractCodeChanges { account_ids }
+        | StateChangesRequestView::DataChanges { account_ids, .. } => account_ids.is_empty(),
+        StateChangesRequestView::SingleAccessKeyChanges { keys } => keys.is_empty(),
+    }
+}
+
 /// Extracts the set of target shards from a `StateChangesRequestView`.
 /// Returns the unique shards the request's accounts/keys belong to. Returns
 /// an empty set if the request has no accounts or keys.
@@ -2110,6 +2122,18 @@ impl JsonRpcHandler {
             );
         }
 
+        // Short-circuit requests with no target accounts/keys *before* the
+        // local view client lookup. Under spice, a non-validator RPC node may
+        // see the block header before its chunks are applied, making
+        // `GetBlock(BlockId::Height(h))` transiently return `UNKNOWN_BLOCK`.
+        // With nothing to fan out there is no reason to resolve the block.
+        if state_changes_request_is_empty(&request.state_changes_request) {
+            return serialize_response(RpcStateChangesInBlockResponse {
+                block_hash: CryptoHash::default(),
+                changes: vec![],
+            });
+        }
+
         // Resolve block locally.
         let block: BlockView = self
             .view_client_send(GetBlock(request.block_reference))
@@ -2121,16 +2145,10 @@ impl JsonRpcHandler {
         let shard_layout = self.shard_layout_for_epoch(&epoch_id)?;
 
         // Determine which shards we need based on the account_ids in the request.
-        // If there are no target accounts/keys, the underlying handler returns
-        // empty results anyway — skip the scatter-gather entirely.
+        // A non-empty request always yields at least one target shard, so we
+        // do not need a second empty-set guard here.
         let target_shards: HashSet<ShardId> =
             extract_target_shards(&request.state_changes_request, &shard_layout);
-        if target_shards.is_empty() {
-            return serialize_response(RpcStateChangesInBlockResponse {
-                block_hash,
-                changes: vec![],
-            });
-        }
 
         let get_params_for_shard_group = |shards: &[ShardId]| {
             let sub_request = filter_request_to_shard_group(
