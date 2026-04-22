@@ -1,4 +1,5 @@
 use crate::archive::cloud_storage::CloudStorage;
+use crate::archive::cloud_storage::bucket_config::BucketConfig;
 use crate::archive::cloud_storage::opener::CloudStorageOpener;
 use near_chain_configs::{DumpConfig, ExternalStorageLocation};
 use std::path::PathBuf;
@@ -49,8 +50,12 @@ pub fn test_cloud_storage_context(
     CloudStorageContext { cloud_archive: test_cloud_archival_config(root_dir), chain_id }
 }
 
-/// Initializes a test cloud storage instance based on the test configuration.
-pub fn create_test_cloud_storage(root_dir: PathBuf, chain_id: String) -> Arc<CloudStorage> {
+/// Initializes a test cloud storage instance with the given bucket config.
+pub fn create_test_cloud_storage(
+    root_dir: PathBuf,
+    chain_id: String,
+    bucket_config: BucketConfig,
+) -> Arc<CloudStorage> {
     let context = test_cloud_storage_context(root_dir, chain_id);
-    CloudStorageOpener::new(context).open().unwrap()
+    CloudStorageOpener::new(context, bucket_config).open().unwrap()
 }

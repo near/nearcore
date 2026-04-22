@@ -27,6 +27,7 @@ use near_primitives::types::{AccountId, Balance, BlockHeight, NumBlocks, NumShar
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::{ProtocolVersion, get_protocol_upgrade_schedule};
 use near_primitives_core::num_rational::Rational32;
+use near_store::archive::cloud_storage::bucket_config::BucketConfig;
 use near_store::archive::cloud_storage::config::test_cloud_archival_config;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::{TestNodeStorage, create_test_node_storage};
@@ -62,6 +63,10 @@ pub(crate) struct TestLoopBuilder {
     upgrade_schedule: Option<ProtocolUpgradeVotingSchedule>,
     /// Accounts whose clients should be configured in an RPC pool.
     rpc_pool: Option<Vec<AccountId>>,
+    /// Archive-wide config for cloud archival clients. Defaults to
+    /// `BucketConfig::canonical()`; tests override to use a batch size
+    /// different from production.
+    bucket_config: BucketConfig,
 }
 
 impl TestLoopBuilder {
@@ -79,6 +84,7 @@ impl TestLoopBuilder {
             load_memtries_for_tracked_shards: true,
             upgrade_schedule: None,
             rpc_pool: None,
+            bucket_config: BucketConfig::canonical(),
         }
     }
 
@@ -474,6 +480,7 @@ impl TestLoopBuilder {
             drop_conditions: Default::default(),
             load_memtries_for_tracked_shards: self.load_memtries_for_tracked_shards,
             warmup_pending,
+            bucket_config: self.bucket_config.clone(),
         };
         (self.test_loop, shared_state)
     }
@@ -516,6 +523,7 @@ impl TestLoopBuilder {
             .account_id(&account_id)
             .cold_storage(enable_cold_storage)
             .cloud_storage(enable_cloud_storage)
+            .bucket_config(self.bucket_config.clone())
             .config_modifier(config_modifier)
             .build()
     }
@@ -528,6 +536,7 @@ pub struct NodeStateBuilder<'a> {
     account_id: Option<AccountId>,
     enable_cold_storage: bool,
     enable_cloud_storage: bool,
+    bucket_config: BucketConfig,
     config_modifier: Option<Box<dyn Fn(&mut ClientConfig) + 'a>>,
 }
 
@@ -539,6 +548,7 @@ impl<'a> NodeStateBuilder<'a> {
             account_id: None,
             enable_cold_storage: false,
             enable_cloud_storage: false,
+            bucket_config: BucketConfig::canonical(),
             config_modifier: None,
         }
     }
@@ -555,6 +565,11 @@ impl<'a> NodeStateBuilder<'a> {
 
     pub fn cloud_storage(mut self, enable_cloud_storage: bool) -> Self {
         self.enable_cloud_storage = enable_cloud_storage;
+        self
+    }
+
+    pub fn bucket_config(mut self, bucket_config: BucketConfig) -> Self {
+        self.bucket_config = bucket_config;
         self
     }
 
@@ -617,6 +632,7 @@ impl<'a> NodeStateBuilder<'a> {
             self.enable_cloud_storage,
             home_dir,
             Some(chain_id),
+            self.bucket_config.clone(),
         );
         initialize_genesis_state(storage.hot_store.clone(), &self.genesis, None);
         storage

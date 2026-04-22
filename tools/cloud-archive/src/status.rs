@@ -10,6 +10,7 @@ use near_store::NodeStorage;
 use near_store::Store;
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::archive::cloud_storage::ListableCloudDir;
+use near_store::archive::cloud_storage::bucket_config::BucketConfig;
 use near_store::archive::cloud_storage::opener::CloudStorageOpener;
 use near_store::db::CLOUD_BLOCK_HEAD_KEY;
 use near_store::db::CLOUD_MIN_HEAD_KEY;
@@ -131,9 +132,10 @@ impl StatusCmd {
         let cloud_storage_context = near_config
             .cloud_storage_context()
             .context("cloud_archival is not configured in config.json")?;
-        let cloud_storage = CloudStorageOpener::new(cloud_storage_context)
-            .open()
-            .context("failed to open cloud storage")?;
+        let cloud_storage =
+            CloudStorageOpener::new(cloud_storage_context, BucketConfig::canonical())
+                .open()
+                .context("failed to open cloud storage")?;
 
         let store = NodeStorage::opener(
             home_dir,
