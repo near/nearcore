@@ -498,16 +498,31 @@ impl fmt::Debug for TieredMessageBody {
     }
 }
 
+/// Coalesce the versioned partial-witness wire variants onto the legacy
+/// labels so downstream metric dashboards (watching `PartialEncodedStateWitness`
+/// / `PartialEncodedStateWitnessForward`) keep working after the V2 rollout
+/// introduces `VersionedPartialEncodedStateWitness*` as separate enum variants.
+/// Rate limiting already coalesces at the bucket level (see
+/// `rate_limits/messages_limits.rs`); this is the matching view for metrics.
+fn coalesce_legacy_witness_variant(raw: &'static str) -> &'static str {
+    match raw {
+        "VersionedPartialEncodedStateWitness" => "PartialEncodedStateWitness",
+        "VersionedPartialEncodedStateWitnessForward" => "PartialEncodedStateWitnessForward",
+        other => other,
+    }
+}
+
 impl TieredMessageBody {
     pub fn is_t1(&self) -> bool {
         matches!(self, TieredMessageBody::T1(_))
     }
 
     pub fn variant(&self) -> &'static str {
-        match self {
+        let raw: &'static str = match self {
             TieredMessageBody::T1(body) => (&(**body)).into(),
             TieredMessageBody::T2(body) => (&(**body)).into(),
-        }
+        };
+        coalesce_legacy_witness_variant(raw)
     }
 
     pub fn message_resend_count(&self) -> usize {
@@ -1275,11 +1290,12 @@ impl RoutedMessage {
     }
 
     pub fn body_variant(&self) -> &'static str {
-        match self {
+        let raw: &'static str = match self {
             RoutedMessage::V1(msg) => (&msg.body).into(),
             RoutedMessage::V2(msg) => (&msg.msg.body).into(),
             RoutedMessage::V3(msg) => msg.body.variant(),
-        }
+        };
+        coalesce_legacy_witness_variant(raw)
     }
 
     pub fn ttl(&self) -> u8 {
