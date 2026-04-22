@@ -17548,6 +17548,14 @@
               "$ref": "#/components/schemas/ValidatorKickoutView"
             },
             "type": "array"
+          },
+          "prev_prev_epoch_validators_reward": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/NearToken"
+            },
+            "default": {},
+            "description": "Validator rewards earned two epochs ago, delivered at the start of\nthis epoch. For epoch E, this contains the rewards for epoch E-2's\nperformance that were added to each validator's locked balance at\nthe first block of epoch E (via `ValidatorAccountsUpdate`).\nIncludes the protocol treasury reward.",
+            "type": "object"
           }
         },
         "required": [
