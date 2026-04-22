@@ -613,10 +613,8 @@ fn test_validator_reward_in_get_validator_info() {
     let accounts = validators_spec_clients(&validators_spec);
     let genesis = TestLoopBuilder::new_genesis_builder()
         .validators_spec(validators_spec)
-        .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
         .protocol_reward_rate(Rational32::new(1, 10))
         .build();
-
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store_from_genesis()
@@ -627,7 +625,7 @@ fn test_validator_reward_in_get_validator_info() {
     let boundary_block = env.node(0).client().chain.get_head_block().unwrap();
     env.node_runner(0).run_until_new_epoch();
 
-    let mut all_ids = accounts.clone();
+    let mut all_ids = accounts;
     all_ids.push("near".parse().unwrap()); // protocol treasury
     let boundary_hash = *boundary_block.hash();
     let prev_hash = *boundary_block.header().prev_hash();
