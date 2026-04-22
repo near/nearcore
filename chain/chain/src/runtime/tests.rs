@@ -1109,7 +1109,7 @@ fn test_get_validator_info() {
             prev_epoch_kickout: Default::default(),
             epoch_start_height: 1,
             epoch_height: 1,
-            validators_reward_paid_prev_epoch: HashMap::from([(
+            validator_reward_paid_prev_epoch: HashMap::from([(
                 "near".parse().unwrap(),
                 Balance::ZERO,
             )]),

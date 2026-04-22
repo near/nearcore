@@ -602,7 +602,7 @@ fn test_inflation() {
     }
 }
 
-/// Verifies that `validators_reward_paid_prev_epoch` returned by the
+/// Verifies that `validator_reward_paid_prev_epoch` returned by the
 /// validators RPC matches the per-account reward deltas from the on-chain
 /// `ValidatorAccountsUpdate` state changes at the epoch boundary.
 #[test]
@@ -669,5 +669,5 @@ fn test_validator_reward_in_get_validator_info() {
 
     let info =
         view_client.handle(GetValidatorInfo { epoch_reference: EpochReference::Latest }).unwrap();
-    assert_eq!(info.validators_reward_paid_prev_epoch, expected);
+    assert_eq!(info.validator_reward_paid_prev_epoch, expected);
 }

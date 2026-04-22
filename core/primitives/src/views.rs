@@ -2508,7 +2508,7 @@ pub struct EpochValidatorInfo {
     /// added to validator and treasury balances at the first block of epoch
     /// E-1 (via `ValidatorAccountsUpdate`).
     #[serde(default)]
-    pub validators_reward_paid_prev_epoch: HashMap<AccountId, Balance>,
+    pub validator_reward_paid_prev_epoch: HashMap<AccountId, Balance>,
 }
 
 #[derive(

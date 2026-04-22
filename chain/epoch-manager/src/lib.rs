@@ -1507,7 +1507,7 @@ impl EpochManager {
             prev_epoch_kickout,
             epoch_start_height,
             epoch_height,
-            validators_reward_paid_prev_epoch: cur_epoch_info.validator_reward().clone(),
+            validator_reward_paid_prev_epoch: cur_epoch_info.validator_reward().clone(),
         })
     }
 
