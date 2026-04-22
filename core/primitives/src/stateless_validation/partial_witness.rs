@@ -339,6 +339,16 @@ impl VersionedPartialEncodedStateWitness {
             Self::V2(v2) => v2.into_part(),
         }
     }
+
+    /// Stable metric-label string identifying the wire version. Used at every
+    /// metric emission site that needs to distinguish V1 from V2 traffic, so
+    /// the `match` is written once here instead of at each call site.
+    pub fn version_label(&self) -> &'static str {
+        match self {
+            Self::V1(_) => "v1",
+            Self::V2(_) => "v2",
+        }
+    }
 }
 
 impl From<PartialEncodedStateWitness> for VersionedPartialEncodedStateWitness {
@@ -401,6 +411,13 @@ mod tests {
         assert_eq!(w.part_size(), 17);
         assert_eq!(w.encoded_length(), 17);
         assert!(w.verify(&signer.public_key()));
+    }
+
+    #[test]
+    fn test_version_label() {
+        let signer = test_signer();
+        assert_eq!(make_witness(&signer, pre_kickout_version()).version_label(), "v1");
+        assert_eq!(make_witness(&signer, post_kickout_version()).version_label(), "v2");
     }
 
     #[test]
