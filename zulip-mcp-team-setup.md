@@ -220,7 +220,7 @@ Confirm with `claude mcp list`.
   tool can call `docker exec` or `security find-generic-password` just like
   you can. The companion-container isolation only bites when Claude itself
   runs in a separate container without Docker socket access.
-- Memory inspection of the running MCP process (e.g. `lldb`) would also
+- Memory inspection of the running MCP process (via a debugger) would also
   expose the key. Same for any `docker inspect` of the container.
 
 **Practical mitigations**
