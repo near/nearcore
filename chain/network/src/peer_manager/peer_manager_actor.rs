@@ -1206,7 +1206,9 @@ impl PeerManagerActor {
                         VersionedPartialEncodedStateWitness::V1(w) => {
                             T1MessageBody::PartialEncodedStateWitness(w)
                         }
-                        _ => T1MessageBody::VersionedPartialEncodedStateWitness(versioned_witness),
+                        v @ VersionedPartialEncodedStateWitness::V2(_) => {
+                            T1MessageBody::VersionedPartialEncodedStateWitness(v)
+                        }
                     };
                     self.state.send_message_to_account(
                         &self.clock,
@@ -1228,14 +1230,20 @@ impl PeerManagerActor {
                     tag_witness_distribution = true,
                 )
                 .entered();
+                let use_versioned_wire =
+                    matches!(versioned_witness, VersionedPartialEncodedStateWitness::V2(_));
                 for chunk_validator in chunk_validators {
-                    let t1_body = match &versioned_witness {
-                        VersionedPartialEncodedStateWitness::V1(w) => {
-                            T1MessageBody::PartialEncodedStateWitnessForward(w.clone())
-                        }
-                        _ => T1MessageBody::VersionedPartialEncodedStateWitnessForward(
+                    let t1_body = if use_versioned_wire {
+                        T1MessageBody::VersionedPartialEncodedStateWitnessForward(
                             versioned_witness.clone(),
-                        ),
+                        )
+                    } else {
+                        match &versioned_witness {
+                            VersionedPartialEncodedStateWitness::V1(w) => {
+                                T1MessageBody::PartialEncodedStateWitnessForward(w.clone())
+                            }
+                            VersionedPartialEncodedStateWitness::V2(_) => unreachable!(),
+                        }
                     };
                     self.state.send_message_to_account(
                         &self.clock,

@@ -58,6 +58,7 @@ fn bench_generate_state_witness_parts(c: &mut Criterion) {
                 witness_bytes.clone(),
                 &chunk_validators,
                 &signer,
+                0,
             ));
         });
     });

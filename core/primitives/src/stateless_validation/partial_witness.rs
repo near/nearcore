@@ -6,7 +6,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::{BlockHeight, ShardId};
+use near_primitives_core::types::{BlockHeight, ProtocolVersion, ShardId};
+use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::{Debug, Formatter};
 
@@ -250,9 +251,9 @@ impl VersionedPartialEncodedStateWitness {
         part: Vec<u8>,
         encoded_length: usize,
         signer: &ValidatorSigner,
-        use_v2: bool,
+        protocol_version: ProtocolVersion,
     ) -> Self {
-        if use_v2 {
+        if ProtocolFeature::EarlyKickout.enabled(protocol_version) {
             Self::V2(PartialEncodedStateWitnessV2::new(
                 epoch_id,
                 chunk_header,
@@ -326,5 +327,177 @@ impl VersionedPartialEncodedStateWitness {
 impl From<PartialEncodedStateWitness> for VersionedPartialEncodedStateWitness {
     fn from(w: PartialEncodedStateWitness) -> Self {
         Self::V1(w)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_utils::create_test_signer;
+    use crate::types::EpochId;
+    use near_primitives_core::hash::CryptoHash;
+
+    fn test_signer() -> ValidatorSigner {
+        create_test_signer("test_account")
+    }
+
+    fn test_epoch_id() -> EpochId {
+        EpochId(CryptoHash::hash_bytes(b"test_epoch"))
+    }
+
+    fn make_witness(
+        signer: &ValidatorSigner,
+        protocol_version: ProtocolVersion,
+    ) -> VersionedPartialEncodedStateWitness {
+        let prev_block_hash = CryptoHash::hash_bytes(b"prev_block");
+        let chunk_header =
+            crate::sharding::ShardChunkHeader::V3(crate::sharding::ShardChunkHeaderV3::new(
+                prev_block_hash,
+                CryptoHash::default(),
+                CryptoHash::default(),
+                CryptoHash::default(),
+                0,
+                1,
+                near_primitives_core::types::ShardId::new(0),
+                near_primitives_core::types::Gas::ZERO,
+                near_primitives_core::types::Gas::ZERO,
+                near_primitives_core::types::Balance::ZERO,
+                CryptoHash::default(),
+                CryptoHash::default(),
+                vec![],
+                Default::default(),
+                crate::bandwidth_scheduler::BandwidthRequests::empty(),
+                None,
+                signer,
+                protocol_version,
+            ));
+
+        VersionedPartialEncodedStateWitness::new(
+            test_epoch_id(),
+            chunk_header,
+            0,
+            b"test_witness_data".to_vec(),
+            17,
+            signer,
+            protocol_version,
+        )
+    }
+
+    #[test]
+    fn test_v1_construction_and_accessors() {
+        let signer = test_signer();
+        let w = make_witness(&signer, 0);
+        assert!(matches!(w, VersionedPartialEncodedStateWitness::V1(_)));
+        assert!(w.prev_block_hash().is_none());
+        assert_eq!(w.part_ord(), 0);
+        assert_eq!(w.part_size(), 17);
+        assert_eq!(w.encoded_length(), 17);
+        assert!(w.verify(&signer.public_key()));
+    }
+
+    #[test]
+    fn test_v2_construction_and_accessors() {
+        let signer = test_signer();
+        let w = make_witness(&signer, 152);
+        assert!(matches!(w, VersionedPartialEncodedStateWitness::V2(_)));
+        let expected_hash = CryptoHash::hash_bytes(b"prev_block");
+        assert_eq!(w.prev_block_hash(), Some(&expected_hash));
+        assert_eq!(w.part_ord(), 0);
+        assert_eq!(w.part_size(), 17);
+        assert_eq!(w.encoded_length(), 17);
+        assert!(w.verify(&signer.public_key()));
+
+        let bad_signer = create_test_signer("wrong_account");
+        assert!(!w.verify(&bad_signer.public_key()));
+    }
+
+    #[test]
+    fn test_borsh_roundtrip_v1() {
+        let signer = test_signer();
+        let w = make_witness(&signer, 0);
+        let bytes = borsh::to_vec(&w).unwrap();
+        let decoded: VersionedPartialEncodedStateWitness = borsh::from_slice(&bytes).unwrap();
+        assert_eq!(w, decoded);
+        assert_eq!(bytes[0], 0, "V1 discriminant must be 0");
+    }
+
+    #[test]
+    fn test_borsh_roundtrip_v2() {
+        let signer = test_signer();
+        let w = make_witness(&signer, 152);
+        let bytes = borsh::to_vec(&w).unwrap();
+        let decoded: VersionedPartialEncodedStateWitness = borsh::from_slice(&bytes).unwrap();
+        assert_eq!(w, decoded);
+        assert_eq!(bytes[0], 1, "V2 discriminant must be 1");
+        assert_eq!(decoded.prev_block_hash(), w.prev_block_hash());
+    }
+
+    #[test]
+    fn test_versioned_discriminants_are_stable() {
+        let signer = test_signer();
+        let v1 = make_witness(&signer, 0);
+        let v2 = make_witness(&signer, 152);
+        let v1_bytes = borsh::to_vec(&v1).unwrap();
+        let v2_bytes = borsh::to_vec(&v2).unwrap();
+        assert_eq!(v1_bytes[0], 0, "V1 discriminant must be 0");
+        assert_eq!(v2_bytes[0], 1, "V2 discriminant must be 1");
+    }
+
+    #[test]
+    fn test_v2_signature_differentiator_prevents_cross_version_replay() {
+        let signer = test_signer();
+        let v1 = make_witness(&signer, 0);
+        let v2 = make_witness(&signer, 152);
+
+        let v1_bytes = borsh::to_vec(&v1).unwrap();
+        let v2_bytes = borsh::to_vec(&v2).unwrap();
+        assert_ne!(v1_bytes, v2_bytes, "V1 and V2 must produce different borsh encodings");
+
+        if let VersionedPartialEncodedStateWitness::V1(ref inner) = v1 {
+            assert!(inner.verify(&signer.public_key()));
+        }
+        if let VersionedPartialEncodedStateWitness::V2(ref inner) = v2 {
+            assert!(inner.verify(&signer.public_key()));
+        }
+    }
+
+    #[test]
+    fn test_from_partial_encoded_state_witness() {
+        let signer = test_signer();
+        let prev_block_hash = CryptoHash::hash_bytes(b"prev_block");
+        let chunk_header =
+            crate::sharding::ShardChunkHeader::V3(crate::sharding::ShardChunkHeaderV3::new(
+                prev_block_hash,
+                CryptoHash::default(),
+                CryptoHash::default(),
+                CryptoHash::default(),
+                0,
+                1,
+                near_primitives_core::types::ShardId::new(0),
+                near_primitives_core::types::Gas::ZERO,
+                near_primitives_core::types::Gas::ZERO,
+                near_primitives_core::types::Balance::ZERO,
+                CryptoHash::default(),
+                CryptoHash::default(),
+                vec![],
+                Default::default(),
+                crate::bandwidth_scheduler::BandwidthRequests::empty(),
+                None,
+                &signer,
+                0,
+            ));
+        let v1 = PartialEncodedStateWitness::new(
+            test_epoch_id(),
+            chunk_header,
+            0,
+            b"test_data".to_vec(),
+            9,
+            &signer,
+        );
+        let versioned: VersionedPartialEncodedStateWitness = v1.clone().into();
+        assert!(matches!(versioned, VersionedPartialEncodedStateWitness::V1(_)));
+        if let VersionedPartialEncodedStateWitness::V1(w) = versioned {
+            assert_eq!(w, v1);
+        }
     }
 }

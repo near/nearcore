@@ -110,6 +110,13 @@ pub fn validate_partial_encoded_state_witness(
         return Err(Error::InvalidPartialChunkStateWitness("Invalid signature".to_string()));
     }
 
+    // TODO(early-kickout, PR 3b/4a): when the witness is V2, cross-check
+    // prev_block_hash against the locally available block header. If the
+    // block isn't available yet, defer (don't reject) — the pending-pool
+    // path replays validation after block arrival. Full consistency checks
+    // will live alongside the DB-backed chunk producer lookup once the
+    // ChunkProducers column is wired.
+
     Ok(ChunkRelevance::Relevant)
 }
 
