@@ -12247,7 +12247,7 @@
           "deterministic_account_ids",
           "gas_key_host_fns",
           "one_yocto_on_promise",
-          "p256_verify",
+          "p256_verify_host_fn",
           "storage_get_mode",
           "fix_contract_loading_cost",
           "implicit_account_creation",
