@@ -8578,7 +8578,6 @@ dependencies = [
  "tokio",
  "tower-service",
  "tracing",
- "wat",
 ]
 
 [[package]]

@@ -65,7 +65,7 @@ fn p256_verify_wasm(signature: &[u8], public_key: &[u8], message: &[u8]) -> Vec<
   )
 )"#,
     );
-    wat::parse_str(&wat).expect("failed to parse wat")
+    near_test_contracts::wat_contract(&wat)
 }
 
 /// Deterministic signing key (shared with the vm-runner unit tests). RustCrypto
