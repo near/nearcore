@@ -214,7 +214,7 @@ def parse_existing(body):
             section = None
             continue
         if section == "releases":
-            m = re.match(r"^- (\S+)", line.strip())
+            m = re.match(r"^-\s+(.+?)\s*$", line)
             if m:
                 releases.append(m.group(1))
         elif section == "commits":
