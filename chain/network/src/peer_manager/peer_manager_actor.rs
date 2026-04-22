@@ -152,6 +152,20 @@ pub enum Event {
     ConnectionClosed(crate::peer::peer_actor::ConnectionClosedEvent),
 }
 
+/// Borrowed witness-forward wire selection, used to decide the `T1MessageBody`
+/// variant once outside the recipient loop instead of re-matching per-recipient
+/// (which required an `unreachable!` arm). Holds only references, so `Copy`
+/// is cheap and the enum doesn't own any witness state.
+#[derive(Clone, Copy)]
+enum ForwardTarget<'a> {
+    /// Emit the legacy `PartialEncodedStateWitnessForward` wire. Only valid
+    /// for V1 witnesses.
+    Legacy(&'a near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness),
+    /// Emit the versioned `VersionedPartialEncodedStateWitnessForward` wire,
+    /// which carries the whole enum (including V2's `prev_block_hash`).
+    Versioned(&'a VersionedPartialEncodedStateWitness),
+}
+
 impl messaging::Actor for PeerManagerActor {
     fn start_actor(&mut self, _ctx: &mut dyn DelayedActionRunner<Self>) {
         // Periodically push network information to client.
@@ -1230,19 +1244,19 @@ impl PeerManagerActor {
                     tag_witness_distribution = true,
                 )
                 .entered();
-                let use_versioned_wire =
-                    matches!(versioned_witness, VersionedPartialEncodedStateWitness::V2(_));
+                let target = match &versioned_witness {
+                    VersionedPartialEncodedStateWitness::V1(w) => ForwardTarget::Legacy(w),
+                    VersionedPartialEncodedStateWitness::V2(_) => {
+                        ForwardTarget::Versioned(&versioned_witness)
+                    }
+                };
                 for chunk_validator in chunk_validators {
-                    let t1_body = if use_versioned_wire {
-                        T1MessageBody::VersionedPartialEncodedStateWitnessForward(
-                            versioned_witness.clone(),
-                        )
-                    } else {
-                        match &versioned_witness {
-                            VersionedPartialEncodedStateWitness::V1(w) => {
-                                T1MessageBody::PartialEncodedStateWitnessForward(w.clone())
-                            }
-                            VersionedPartialEncodedStateWitness::V2(_) => unreachable!(),
+                    let t1_body = match target {
+                        ForwardTarget::Legacy(w) => {
+                            T1MessageBody::PartialEncodedStateWitnessForward(w.clone())
+                        }
+                        ForwardTarget::Versioned(v) => {
+                            T1MessageBody::VersionedPartialEncodedStateWitnessForward(v.clone())
                         }
                     };
                     self.state.send_message_to_account(
