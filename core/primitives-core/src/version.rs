@@ -347,9 +347,6 @@ pub enum ProtocolFeature {
     /// validate_delegate_action_key. Previously the error could be
     /// overwritten by a subsequent receiver_id or method_name check.
     FixDelegateActionDepositWithFunctionCallError,
-    /// Enable P-256 ECDSA signature verification host function.
-    /// NEP-635: <https://github.com/near/NEPs/pull/635>
-    P256Verify,
     Spice,
     ContinuousEpochSync,
     /// Apply PromiseYield receipts immediately after emitting them. Allows to perform the resume
@@ -492,8 +489,7 @@ impl ProtocolFeature {
             | ProtocolFeature::InstantDeleteAccount => 83,
             ProtocolFeature::Wasmtime => 84,
             ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
-            | ProtocolFeature::ContinuousEpochSync
-            | ProtocolFeature::P256Verify => 85,
+            | ProtocolFeature::ContinuousEpochSync => 85,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,

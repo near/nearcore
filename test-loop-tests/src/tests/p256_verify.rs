@@ -6,7 +6,6 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::errors::{ActionError, ActionErrorKind, TxExecutionError};
 use near_primitives::gas::Gas;
 use near_primitives::types::Balance;
-use near_primitives::version::ProtocolFeature;
 use near_primitives::views::FinalExecutionStatus;
 use p256::ecdsa::{Signature, SigningKey, VerifyingKey, signature::Signer};
 
@@ -158,7 +157,8 @@ fn test_p256_verify_invalid_returns_0() {
 fn test_p256_verify_pre_activation_call_fails() {
     init_test_logger();
 
-    let pre_activation_pv = ProtocolFeature::P256Verify.protocol_version() - 1;
+    // p256_verify_host_fn is turned on at protocol version 85 (see 85.yaml).
+    let pre_activation_pv = 84;
     let user = create_account_id("user");
     let mut env = TestLoopBuilder::new()
         .enable_rpc()
