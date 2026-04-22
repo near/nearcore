@@ -171,10 +171,10 @@ def format_item(marker, sha, subject):
     return line
 
 
-def build_new_body(base_short, tag, items):
+def build_new_body(base_full, base_short, tag, items):
     today = datetime.date.today().isoformat()
     lines = [
-        f"<!-- tracker-base: {base_short} -->",
+        f"<!-- tracker-base: {base_full} -->",
         "",
         f"Tracks commits that exist on release tags derived from master "
         f"`{base_short}` but not yet reflected in master. Items pre-checked "
@@ -192,13 +192,19 @@ def build_new_body(base_short, tag, items):
     return "\n".join(lines)
 
 
+RELEASE_LINE_RE = re.compile(
+    r"^-\s+(?P<tag>\S+)(?:\s+\(added\s+(?P<date>\d{4}-\d{2}-\d{2})\))?\s*$")
+
+
 def parse_existing(body):
     """Parse an existing tracker issue body.
 
-    Returns ``(releases, items_by_sha, order)`` where ``items_by_sha`` maps
-    a 7-char short SHA to its raw line and parsed ``(box, cherry_marker)``
-    metadata, and ``order`` is the list of short SHAs in their existing
-    order.
+    Returns ``(releases, items_by_sha)`` where ``releases`` is a list of
+    ``(tag, added_date)`` tuples (``added_date`` is ``None`` for entries
+    written before dates were stored) and ``items_by_sha`` is an
+    ``OrderedDict`` mapping a 7-char short SHA to its raw line and parsed
+    ``(box, cherry_marker)`` metadata. Insertion order in the
+    ``OrderedDict`` mirrors the order commits appear in ``body``.
     """
     releases = []
     items = OrderedDict()
@@ -214,9 +220,9 @@ def parse_existing(body):
             section = None
             continue
         if section == "releases":
-            m = re.match(r"^-\s+(.+?)\s*$", line)
+            m = RELEASE_LINE_RE.match(line)
             if m:
-                releases.append(m.group(1))
+                releases.append((m.group("tag"), m.group("date")))
         elif section == "commits":
             m = ITEM_RE.match(line)
             if not m:
@@ -280,17 +286,14 @@ def merge_items(existing_items, cherry_list):
     return merged_lines, new_shorts
 
 
-def build_updated_body(base_short, existing_body, existing_releases,
-                       merged_items, tag):
+def build_updated_body(base_full, base_short, existing_releases, merged_items,
+                       tag):
     today = datetime.date.today().isoformat()
+    existing_tags = {t for t, _ in existing_releases}
     releases = list(existing_releases)
-    if tag not in releases:
-        releases.append(f"{tag} (added {today})")
-    else:
-        # Normalize: keep the first occurrence as-is.
-        pass
+    if tag not in existing_tags:
+        releases.append((tag, today))
 
-    # Preserve the top descriptive paragraph if present, otherwise regenerate.
     descriptive = (
         f"Tracks commits that exist on release tags derived from master "
         f"`{base_short}` but not yet reflected in master. Items pre-checked "
@@ -299,15 +302,12 @@ def build_updated_body(base_short, existing_body, existing_releases,
         f"or mark as \"not needed\".")
 
     release_lines = []
-    for r in releases:
-        # If existing entries already contain "(added YYYY-MM-DD)", keep them.
-        if "(added" in r:
-            release_lines.append(f"- {r}")
-        else:
-            release_lines.append(f"- {r} (added {today})")
+    for t, d in releases:
+        date = d or today
+        release_lines.append(f"- {t} (added {date})")
 
     lines = [
-        f"<!-- tracker-base: {base_short} -->",
+        f"<!-- tracker-base: {base_full} -->",
         "",
         descriptive,
         "",
@@ -321,12 +321,19 @@ def build_updated_body(base_short, existing_body, existing_releases,
     return "\n".join(lines)
 
 
-def find_tracker(base_short, dry_run, simulated=None):
+def find_tracker(base_full, dry_run, simulated=None):
     """Return (number, state, title, body) for a matching tracker, or None.
+
+    A marker matches when its stored SHA is a prefix of ``base_full``
+    (which in practice means equal for new trackers written as 40-char
+    hex, or a valid prefix for older trackers that stored an abbreviated
+    SHA). This keeps lookups working across git's auto-growing short SHA
+    length.
 
     ``simulated`` is a ``(number, state, title, body)`` tuple injected by
     the ``--dry-run-issue`` flag to exercise the update path without
-    hitting ``gh``. If provided, its base marker must match ``base_short``.
+    hitting ``gh``. If provided, its base marker must be a prefix of
+    ``base_full``.
     """
     if simulated is not None:
         _, _, _, body = simulated
@@ -335,10 +342,10 @@ def find_tracker(base_short, dry_run, simulated=None):
             sys.exit(
                 "--dry-run-issue body has no <!-- tracker-base: … --> marker; "
                 "cannot simulate update path")
-        if m.group(1) != base_short:
+        if not base_full.startswith(m.group(1)):
             sys.exit(
                 f"--dry-run-issue base marker ({m.group(1)}) does not match "
-                f"the computed base for this tag ({base_short}); the real "
+                f"the computed base for this tag ({base_full}); the real "
                 "workflow would create a new issue instead of updating")
         return simulated
     if dry_run:
@@ -364,7 +371,7 @@ def find_tracker(base_short, dry_run, simulated=None):
         m = BASE_MARKER_RE.search(body)
         if not m:
             continue
-        if m.group(1) == base_short:
+        if base_full.startswith(m.group(1)):
             return (
                 issue["number"],
                 issue["state"],
@@ -447,6 +454,25 @@ def format_comment(tag, base_short, new_shorts, reopened):
     return "\n\n".join(parts)
 
 
+def ensure_label(dry_run):
+    """Ensure the ``release-tracker`` label exists in the current repo.
+
+    Uses ``gh label create --force`` so an already-present label is left
+    unchanged. Skipped under ``--dry-run`` to keep offline exercises
+    from reaching out to GitHub.
+    """
+    if dry_run:
+        return
+    subprocess.run(
+        [
+            "gh", "label", "create", LABEL, "--color", "0E8A16",
+            "--description",
+            "Tracks release commits not yet merged into master", "--force"
+        ],
+        check=True,
+    )
+
+
 def ensure_master_ref(master_ref):
     """Make sure ``master_ref`` is available locally.
 
@@ -512,6 +538,7 @@ def main():
     if not args.tag:
         sys.exit("tag not provided (set --tag or $GITHUB_REF_NAME)")
 
+    ensure_label(args.dry_run)
     ensure_master_ref(args.master_ref)
     base_full = git_merge_base(args.master_ref, args.tag)
     base_short = short_sha(base_full)
@@ -535,12 +562,12 @@ def main():
             "Release tracker: <simulated>",
             simulated_body,
         )
-    existing = find_tracker(base_short, args.dry_run, simulated)
+    existing = find_tracker(base_full, args.dry_run, simulated)
     title = f"Release tracker: {args.tag}"
 
     if existing is None:
         items = [format_item(m, s, subj) for m, s, subj in commits]
-        body = build_new_body(base_short, args.tag, items)
+        body = build_new_body(base_full, base_short, args.tag, items)
         gh_create_issue(title, body, args.dry_run)
         return
 
@@ -551,7 +578,7 @@ def main():
 
     existing_releases, existing_items = parse_existing(existing_body)
     merged_items, new_shorts = merge_items(existing_items, commits)
-    new_body = build_updated_body(base_short, existing_body, existing_releases,
+    new_body = build_updated_body(base_full, base_short, existing_releases,
                                   merged_items, args.tag)
     gh_update_issue(number, title, new_body, args.dry_run)
     gh_comment(number, format_comment(args.tag, base_short, new_shorts,

@@ -172,8 +172,9 @@ event:
 
 - **Scope by master base.** All patch releases cut from the same point on
   master (e.g. 2.10.0, 2.10.1, 2.10.2, …) share a single tracker issue,
-  keyed by `git merge-base master <tag>`. A new minor release cut from a
-  later master opens a new issue.
+  keyed by `git merge-base origin/master <tag>`. A new minor release cut
+  from a later master opens a new issue. Local invocations against a
+  fork can override the master ref with `--master-ref upstream/master`.
 - **Auto-checking.** Commits whose patch is already on master (as detected
   by `git cherry -v`, which uses patch-ids) are pre-checked `[x]`. Only the
   `[ ]` entries need release-owner attention.

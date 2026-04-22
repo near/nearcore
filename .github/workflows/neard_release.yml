@@ -288,15 +288,6 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Ensure release-tracker label exists
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh label create release-tracker \
-            --color 0E8A16 \
-            --description "Tracks release commits not yet merged into master" \
-            --force
-
       - name: Update tracker issue
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
