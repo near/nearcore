@@ -319,11 +319,10 @@ impl TestEnv {
         let mut any_processed = false;
         while let Some(msg) = self.client_adapters[id].pop() {
             match msg.span_unwrap() {
-                ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
-                    self.clients[id].on_chunk_completed(partial_chunk, shard_chunk, None);
-                }
-                ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
-                    self.clients[id].on_invalid_chunk(encoded_chunk);
+                ShardsManagerResponse::ChunkCompleted { partial_chunk, decoded_chunk } => {
+                    self.clients[id]
+                        .on_chunk_completed(partial_chunk, decoded_chunk, None)
+                        .unwrap();
                 }
                 ShardsManagerResponse::ChunkHeaderReadyForInclusion {
                     chunk_header,
@@ -675,6 +674,7 @@ impl TestEnv {
             self.save_tx_outcomes,
             self.save_receipt_to_tx,
             self.protocol_version_check,
+            None,
             None,
             self.clients[idx].partial_witness_adapter.clone(),
             self.clients[idx].validator_signer.clone(),

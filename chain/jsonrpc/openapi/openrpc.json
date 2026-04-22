@@ -3817,6 +3817,22 @@
             ],
             "description": "Cost for logging per byte"
           },
+          "p256_verify_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of P-256 ECDSA signature verification base"
+          },
+          "p256_verify_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of P-256 ECDSA signature verification per byte"
+          },
           "promise_and_base": {
             "allOf": [
               {
@@ -4237,6 +4253,8 @@
           "ed25519_verify_base",
           "ed25519_verify_byte",
           "ecrecover_base",
+          "p256_verify_base",
+          "p256_verify_byte",
           "log_base",
           "log_byte",
           "storage_write_base",
@@ -5806,6 +5824,28 @@
               "Ed25519VerifyInvalidInput"
             ],
             "title": "Ed25519VerifyInvalidInput",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Input length mismatch for p256 signature verification (signature is not 64\nbytes or public key is not 33 bytes). Parse failures of otherwise\nwell-sized inputs return 0 from the host function instead of aborting.",
+            "properties": {
+              "P256VerifyInvalidInput": {
+                "properties": {
+                  "msg": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "msg"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "P256VerifyInvalidInput"
+            ],
+            "title": "P256VerifyInvalidInput",
             "type": "object"
           }
         ],
@@ -12163,6 +12203,10 @@
             "description": "See [VMConfig::one_yocto_on_promise](crate::vm::Config::one_yocto_on_promise).",
             "type": "boolean"
           },
+          "p256_verify_host_fn": {
+            "description": "See [VMConfig::p256_verify_host_fn](crate::vm::Config::p256_verify_host_fn).",
+            "type": "boolean"
+          },
           "reftypes_bulk_memory": {
             "description": "See [VMConfig::reftypes_bulk_memory](crate::vm::Config::reftypes_bulk_memory).",
             "type": "boolean"
@@ -12203,6 +12247,7 @@
           "deterministic_account_ids",
           "gas_key_host_fns",
           "one_yocto_on_promise",
+          "p256_verify_host_fn",
           "storage_get_mode",
           "fix_contract_loading_cost",
           "implicit_account_creation",

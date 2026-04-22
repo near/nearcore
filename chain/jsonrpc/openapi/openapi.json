@@ -6227,6 +6227,22 @@
             ],
             "description": "Cost for logging per byte"
           },
+          "p256_verify_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of P-256 ECDSA signature verification base"
+          },
+          "p256_verify_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of P-256 ECDSA signature verification per byte"
+          },
           "promise_and_base": {
             "allOf": [
               {
@@ -8131,6 +8147,27 @@
             },
             "required": [
               "Ed25519VerifyInvalidInput"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Input length mismatch for p256 signature verification (signature is not 64\nbytes or public key is not 33 bytes). Parse failures of otherwise\nwell-sized inputs return 0 from the host function instead of aborting.",
+            "properties": {
+              "P256VerifyInvalidInput": {
+                "properties": {
+                  "msg": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "msg"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "P256VerifyInvalidInput"
             ],
             "type": "object"
           }
@@ -20460,6 +20497,10 @@
           },
           "one_yocto_on_promise": {
             "description": "See [VMConfig::one_yocto_on_promise](crate::vm::Config::one_yocto_on_promise).",
+            "type": "boolean"
+          },
+          "p256_verify_host_fn": {
+            "description": "See [VMConfig::p256_verify_host_fn](crate::vm::Config::p256_verify_host_fn).",
             "type": "boolean"
           },
           "reftypes_bulk_memory": {

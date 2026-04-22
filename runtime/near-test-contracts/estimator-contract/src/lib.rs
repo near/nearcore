@@ -74,6 +74,14 @@ extern "C" {
         pub_key_len: u64,
         pub_key_ptr: u64,
     ) -> u64;
+    fn p256_verify(
+        sig_len: u64,
+        sig_ptr: u64,
+        msg_len: u64,
+        msg_ptr: u64,
+        pub_key_len: u64,
+        pub_key_ptr: u64,
+    ) -> u64;
     // #####################
     // # Miscellaneous API #
     // #####################
@@ -579,6 +587,83 @@ pub unsafe fn ed25519_verify_16kib_64() {
 
     for _ in 0..64 {
         let result = ed25519_verify(
+            signature.len() as _,
+            signature.as_ptr() as _,
+            message.len() as _,
+            message.as_ptr() as _,
+            public_key.len() as _,
+            public_key.as_ptr() as _,
+        );
+        // check that result was positive, as negative results could have exited
+        // early and do not reflect the full cost.
+        assert!(result == 1);
+    }
+}
+
+/// Function to measure `p256_verify_base`. Also measures `base`,
+/// `write_register_base`, and `write_register_byte`. However
+/// `p256_verify_base` computation is more expensive than register writing so
+/// we are okay overcharging it.
+#[unsafe(no_mangle)]
+pub unsafe fn p256_verify_32b_500() {
+    // P-256 compressed SEC1 public key (33 bytes) derived from the secret key
+    // 0xc9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721.
+    let public_key: [u8; 33] = [
+        3, 96, 254, 212, 186, 37, 90, 157, 49, 201, 97, 235, 116, 198, 53, 109, 104, 192, 73,
+        184, 146, 59, 97, 250, 108, 230, 105, 98, 46, 96, 242, 159, 182,
+    ];
+
+    // 32-byte message (all 0x07)
+    let message: [u8; 32] = [7; 32];
+
+    // ECDSA signature (r || s, 64 bytes) over `message` using the above key.
+    let signature: [u8; 64] = [
+        17, 132, 253, 183, 29, 227, 67, 230, 123, 146, 104, 48, 119, 115, 205, 207, 181, 155,
+        202, 61, 112, 54, 186, 139, 38, 91, 136, 236, 108, 41, 63, 187, 146, 208, 118, 6, 188,
+        199, 222, 167, 51, 238, 177, 150, 114, 42, 134, 96, 20, 142, 18, 56, 236, 90, 141, 79,
+        37, 166, 192, 105, 219, 112, 212, 207,
+    ];
+
+    for _ in 0..500 {
+        let result = p256_verify(
+            signature.len() as _,
+            signature.as_ptr() as _,
+            message.len() as _,
+            message.as_ptr() as _,
+            public_key.len() as _,
+            public_key.as_ptr() as _,
+        );
+        // check that result was positive, as negative results could have exited
+        // early and do not reflect the full cost.
+        assert!(result == 1);
+    }
+}
+
+/// Function to measure `p256_verify_byte`.
+#[unsafe(no_mangle)]
+pub unsafe fn p256_verify_16kib_64() {
+    // 16 KiB message. Every byte participates in verification — SHA-256 hashes
+    // the whole message before the curve math — so `p256_verify_byte` is
+    // priced to cover that linear message-dependent cost (host-side
+    // marshalling plus the hash itself).
+    let message = [b'a'; 16384];
+
+    // Same key pair as p256_verify_32b_500.
+    let public_key: [u8; 33] = [
+        3, 96, 254, 212, 186, 37, 90, 157, 49, 201, 97, 235, 116, 198, 53, 109, 104, 192, 73,
+        184, 146, 59, 97, 250, 108, 230, 105, 98, 46, 96, 242, 159, 182,
+    ];
+
+    // Signature over the 16 KiB message using the same secret key.
+    let signature: [u8; 64] = [
+        244, 82, 38, 60, 140, 34, 239, 251, 245, 7, 113, 222, 224, 9, 20, 186, 140, 83, 208, 10,
+        184, 222, 51, 61, 96, 27, 127, 22, 221, 130, 84, 136, 159, 222, 96, 50, 142, 161, 131,
+        254, 145, 40, 210, 13, 73, 198, 47, 118, 91, 233, 77, 21, 244, 173, 178, 125, 52, 67,
+        212, 40, 249, 21, 182, 120,
+    ];
+
+    for _ in 0..64 {
+        let result = p256_verify(
             signature.len() as _,
             signature.as_ptr() as _,
             message.len() as _,

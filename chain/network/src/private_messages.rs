@@ -14,6 +14,7 @@ pub(crate) enum RegisterPeerError {
     NotTier1Peer,
     Tier1InboundDisabled,
     InvalidEdge,
+    UnexpectedTier3Connection,
 }
 
 #[derive(Clone, Debug)]

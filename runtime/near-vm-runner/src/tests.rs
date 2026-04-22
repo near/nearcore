@@ -2,6 +2,7 @@ mod cache;
 mod compile_errors;
 #[cfg(feature = "prepare")]
 mod fuzzers;
+mod p256_verify_integration;
 mod regression_tests;
 mod rs_contract;
 mod runtime_errors;

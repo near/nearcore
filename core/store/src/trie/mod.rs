@@ -509,6 +509,21 @@ impl TrieChanges {
     pub fn deletions(&self) -> &[TrieRefcountSubtraction] {
         self.deletions.as_slice()
     }
+
+    /// Returns a copy of this TrieChanges with only the insertions, clearing
+    /// deletions and in-memory changes. Used for resharding, where only
+    /// insertions are applied to the store and persisting deletions would
+    /// corrupt GC refcounts.
+    pub fn insertions_only(&self) -> TrieChanges {
+        TrieChanges {
+            old_root: self.old_root,
+            new_root: self.new_root,
+            insertions: self.insertions.clone(),
+            deletions: vec![],
+            memtrie_changes: None,
+            children_memtrie_changes: Default::default(),
+        }
+    }
 }
 
 /// Result of applying state part to Trie.

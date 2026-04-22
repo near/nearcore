@@ -248,8 +248,8 @@ impl ColdStoreActor {
         let tracked_shards =
             self.shard_tracker.get_tracked_shards_for_non_validator_in_epoch(&epoch_id)?;
         let block_info = self.epoch_manager.get_block_info(&next_height_block_hash)?;
-        let is_resharding_boundary =
-            self.epoch_manager.is_resharding_boundary(block_info.prev_hash())?;
+        let prev_hash = block_info.prev_hash();
+        let is_resharding_boundary = self.epoch_manager.is_resharding_boundary(prev_hash)?;
 
         // For genesis height, pass empty tracked_shards to update_cold_db.
         // Genesis state is not captured in TrieChanges (it's written directly
@@ -258,13 +258,18 @@ impl ColdStoreActor {
         // copy_state_to_cold.
         let effective_tracked_shards = if cold_head.is_none() { vec![] } else { tracked_shards };
 
+        // At resharding boundaries, the resharding TrieChanges are keyed by the
+        // previous block's hash (the resharding block). Pass it so cold store
+        // can copy child shard state insertions.
+        let resharding_block_hash = is_resharding_boundary.then_some(prev_hash);
+
         update_cold_db(
             &self.cold_db,
             &self.hot_store,
             &shard_layout,
             &effective_tracked_shards,
             &next_height,
-            is_resharding_boundary,
+            resharding_block_hash,
             self.split_storage_config.num_cold_store_read_threads,
         )?;
 

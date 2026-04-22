@@ -92,7 +92,7 @@ pub(crate) fn action_function_call(
             metrics::FUNCTION_CALL_PROCESSED.with_label_values(&["ok"]).inc();
         }
         Some(err) => {
-            metrics::FUNCTION_CALL_PROCESSED.with_label_values(&[err.into()]).inc();
+            metrics::FUNCTION_CALL_PROCESSED.with_label_values::<&str>(&[err.into()]).inc();
         }
     }
 
@@ -100,28 +100,28 @@ pub(crate) fn action_function_call(
     if let Some(err) = outcome.aborted {
         // collect metrics for failed function calls
         metrics::FUNCTION_CALL_PROCESSED_FUNCTION_CALL_ERRORS
-            .with_label_values(&[(&err).into()])
+            .with_label_values::<&str>(&[(&err).into()])
             .inc();
         match &err {
             FunctionCallError::CompilationError(err) => {
                 metrics::FUNCTION_CALL_PROCESSED_COMPILATION_ERRORS
-                    .with_label_values(&[err.into()])
+                    .with_label_values::<&str>(&[err.into()])
                     .inc();
             }
             FunctionCallError::LinkError { .. } => (),
             FunctionCallError::MethodResolveError(err) => {
                 metrics::FUNCTION_CALL_PROCESSED_METHOD_RESOLVE_ERRORS
-                    .with_label_values(&[err.into()])
+                    .with_label_values::<&str>(&[err.into()])
                     .inc();
             }
             FunctionCallError::WasmTrap(inner_err) => {
                 metrics::FUNCTION_CALL_PROCESSED_WASM_TRAP_ERRORS
-                    .with_label_values(&[inner_err.into()])
+                    .with_label_values::<&str>(&[inner_err.into()])
                     .inc();
             }
             FunctionCallError::HostError(inner_err) => {
                 metrics::FUNCTION_CALL_PROCESSED_HOST_ERRORS
-                    .with_label_values(&[inner_err.into()])
+                    .with_label_values::<&str>(&[inner_err.into()])
                     .inc();
             }
         }
@@ -317,7 +317,9 @@ pub(crate) fn execute_function_call(
             err @ InconsistentStateError::IntegerOverflow,
         )) => return Err(StorageError::StorageInconsistentState(err.to_string()).into()),
         Err(VMRunnerError::CacheError(err)) => {
-            metrics::FUNCTION_CALL_PROCESSED_CACHE_ERRORS.with_label_values(&[(&err).into()]).inc();
+            metrics::FUNCTION_CALL_PROCESSED_CACHE_ERRORS
+                .with_label_values::<&str>(&[(&err).into()])
+                .inc();
             return Err(StorageError::StorageInconsistentState(err.to_string()).into());
         }
         Err(VMRunnerError::LoadingError(msg)) => {

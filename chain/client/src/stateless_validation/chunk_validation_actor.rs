@@ -398,7 +398,7 @@ impl ChunkValidationActor {
         )
         .map_err(|err| {
             CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
-                .with_label_values(&[&shard_id.to_string(), err.prometheus_label_value()])
+                .with_label_values(&[shard_id.to_string().as_str(), err.prometheus_label_value()])
                 .inc();
             tracing::error!(
                 target: "chunk_validation",
@@ -451,7 +451,10 @@ impl ChunkValidationActor {
                         "failed to validate chunk using existing chunk extra",
                     );
                     CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
-                        .with_label_values(&[&shard_id.to_string(), err.prometheus_label_value()])
+                        .with_label_values(&[
+                            shard_id.to_string().as_str(),
+                            err.prometheus_label_value(),
+                        ])
                         .inc();
                     return Err(err);
                 }
@@ -490,7 +493,7 @@ impl ChunkValidationActor {
                 }
                 Err(err) => {
                     near_chain::stateless_validation::metrics::CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
-                        .with_label_values(&[&shard_id.to_string(), err.prometheus_label_value()])
+                        .with_label_values(&[shard_id.to_string().as_str(), err.prometheus_label_value()])
                         .inc();
                     tracing::error!(
                         target: "chunk_validation",
