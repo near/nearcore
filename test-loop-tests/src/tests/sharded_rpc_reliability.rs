@@ -315,9 +315,10 @@ fn test_rpc_block_effects_coordinator_bypass() {
     }
 }
 
-/// Coordinator-flagged `changes` requests must be processed locally,
-/// returning only local data. This mirrors test_rpc_block_effects_coordinator_bypass
-/// for the filtered changes method.
+/// Coordinator-flagged `changes` requests must be processed locally. When the
+/// request targets an account whose shard this node doesn't track, the node
+/// must reject with SHARD_NOT_APPLIED rather than silently returning empty
+/// data — otherwise partial results look identical to genuinely empty ones.
 #[test]
 fn test_rpc_changes_coordinator_bypass() {
     init_test_logger();
@@ -375,7 +376,8 @@ fn test_rpc_changes_coordinator_bypass() {
         other => panic!("expected Response, got: {other:?}"),
     }
 
-    // Coordinator-flagged: zoe_node processes locally, can't see alice's shard.
+    // Coordinator-flagged: zoe_node processes locally and must reject with
+    // SHARD_NOT_APPLIED because alice's shard isn't tracked here.
     let coord_response = h
         .env
         .runner_for_account(&zoe_node)
@@ -391,15 +393,10 @@ fn test_rpc_changes_coordinator_bypass() {
         .unwrap();
     match coord_response {
         Message::Response(resp) => {
-            let value = resp.result.expect("coordinator request should succeed with local data");
-            let parsed: RpcStateChangesInBlockResponse =
-                serde_json::from_value(value).expect("failed to parse");
-            let coord_accounts: Vec<_> =
-                parsed.changes.iter().map(|c| c.value.account_id().clone()).collect();
-            assert!(
-                !coord_accounts.contains(&alice),
-                "coordinator bypass: should NOT include alice's changes (wrong shard), got: {coord_accounts:?}",
+            let err = resp.result.expect_err(
+                "coordinator request for an untracked shard must fail with SHARD_NOT_APPLIED",
             );
+            assert_rpc_error(&err, "SHARD_NOT_APPLIED");
         }
         other => panic!("expected Response, got: {other:?}"),
     }
