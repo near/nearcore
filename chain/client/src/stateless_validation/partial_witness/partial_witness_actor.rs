@@ -438,6 +438,19 @@ impl PartialWitnessActor {
         );
         encode_timer.observe_duration();
 
+        // Count one emit per (chunk_validator, part) with the wire version
+        // derived from the first entry — all parts generated in a single
+        // distribution share the same variant.
+        if let Some((_, first)) = validator_witness_tuple.first() {
+            let version = match first {
+                VersionedPartialEncodedStateWitness::V1(_) => "v1",
+                VersionedPartialEncodedStateWitness::V2(_) => "v2",
+            };
+            metrics::PARTIAL_WITNESS_PART_MESSAGES_EMITTED_TOTAL
+                .with_label_values(&[shard_id_label.as_str(), version])
+                .inc_by(validator_witness_tuple.len() as u64);
+        }
+
         // Record the witness in order to match the incoming acks for measuring round-trip times.
         // See process_chunk_state_witness_ack for the handling of the ack messages.
         state_witness_tracker.lock().record_witness_sent(
@@ -474,6 +487,14 @@ impl PartialWitnessActor {
 
         let ChunkProductionKey { shard_id, epoch_id, height_created } =
             partial_witness.chunk_production_key();
+
+        let version_label = match &partial_witness {
+            VersionedPartialEncodedStateWitness::V1(_) => "v1",
+            VersionedPartialEncodedStateWitness::V2(_) => "v2",
+        };
+        metrics::PARTIAL_WITNESS_PART_MESSAGES_RECEIVED_TOTAL
+            .with_label_values(&[shard_id.to_string().as_str(), version_label])
+            .inc();
 
         // V1 witnesses resolve the chunk producer via the epoch-based sampler;
         // V2 witnesses carry `prev_block_hash` and use the DB-backed hash
@@ -554,7 +575,9 @@ impl PartialWitnessActor {
                     // block arrival. V1 witnesses can't reach this path
                     // because the epoch-based lookup is purely in-memory.
                     if let Some(prev_block_hash) = partial_witness.prev_block_hash().copied() {
-                        pending_v2_witnesses.lock().insert(prev_block_hash, partial_witness);
+                        let mut cache = pending_v2_witnesses.lock();
+                        cache.insert(prev_block_hash, partial_witness);
+                        metrics::PARTIAL_WITNESS_PENDING_CACHE_SIZE.set(cache.len() as i64);
                     } else {
                         tracing::warn!(
                             target: "client",
@@ -597,12 +620,19 @@ impl PartialWitnessActor {
             chunk_production_key = ?partial_witness.chunk_production_key(),
             "deferring V2 partial witness until prev block is processed",
         );
-        self.pending_v2_witnesses.lock().insert(prev_block_hash, partial_witness);
+        let mut cache = self.pending_v2_witnesses.lock();
+        cache.insert(prev_block_hash, partial_witness);
+        metrics::PARTIAL_WITNESS_PENDING_CACHE_SIZE.set(cache.len() as i64);
     }
 
     /// Drain and replay any V2 witnesses deferred on this block's hash.
     fn handle_block_notification(&self, block_hash: &CryptoHash) {
-        let pending = self.pending_v2_witnesses.lock().drain(block_hash);
+        let pending = {
+            let mut cache = self.pending_v2_witnesses.lock();
+            let pending = cache.drain(block_hash);
+            metrics::PARTIAL_WITNESS_PENDING_CACHE_SIZE.set(cache.len() as i64);
+            pending
+        };
         if pending.is_empty() {
             return;
         }
@@ -639,6 +669,15 @@ impl PartialWitnessActor {
         )
         .entered();
         tracing::debug!(target: "client", ?partial_witness, "received partial encoded state witness forward message");
+
+        let version_label = match &partial_witness {
+            VersionedPartialEncodedStateWitness::V1(_) => "v1",
+            VersionedPartialEncodedStateWitness::V2(_) => "v2",
+        };
+        let shard_id_label = partial_witness.chunk_production_key().shard_id.to_string();
+        metrics::PARTIAL_WITNESS_PART_MESSAGES_RECEIVED_TOTAL
+            .with_label_values(&[shard_id_label.as_str(), version_label])
+            .inc();
 
         let signer = self.my_validator_signer()?;
         let validator_account_id = signer.validator_id().clone();

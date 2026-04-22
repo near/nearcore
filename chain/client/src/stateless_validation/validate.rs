@@ -1,8 +1,10 @@
 use super::partial_witness::witness_part_length;
+use crate::metrics;
 use itertools::Itertools;
 use near_chain::types::Tip;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::errors::EpochError;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
@@ -116,7 +118,27 @@ pub fn validate_partial_encoded_state_witness(
             epoch_manager.get_chunk_producer_info(&partial_witness.chunk_production_key())?
         }
         VersionedPartialEncodedStateWitness::V2(v2) => {
-            epoch_manager.get_chunk_producer_info_db(v2.prev_block_hash(), shard_id)?
+            let shard_id_label = shard_id.to_string();
+            match epoch_manager.get_chunk_producer_info_db(v2.prev_block_hash(), shard_id) {
+                Ok(info) => {
+                    metrics::PARTIAL_WITNESS_DB_LOOKUP_TOTAL
+                        .with_label_values(&[shard_id_label.as_str(), "hit"])
+                        .inc();
+                    info
+                }
+                Err(err @ EpochError::ChunkProducerNotInDB(_, _)) => {
+                    metrics::PARTIAL_WITNESS_DB_LOOKUP_TOTAL
+                        .with_label_values(&[shard_id_label.as_str(), "miss"])
+                        .inc();
+                    return Err(err.into());
+                }
+                Err(err) => {
+                    metrics::PARTIAL_WITNESS_DB_LOOKUP_TOTAL
+                        .with_label_values(&[shard_id_label.as_str(), "error"])
+                        .inc();
+                    return Err(err.into());
+                }
+            }
         }
     };
     if !partial_witness.verify(chunk_producer.public_key()) {

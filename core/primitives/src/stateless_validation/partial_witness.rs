@@ -226,6 +226,23 @@ impl PartialEncodedStateWitnessInnerV2 {
     }
 }
 
+/// Wire-format versioned partial encoded state witness.
+///
+/// V1 is the legacy format; V2 adds `prev_block_hash` to enable
+/// hash-based chunk-producer lookup against `DBCol::ChunkProducers`.
+///
+/// Rollout policy:
+/// - V1 is accepted at all protocol versions and remains accepted for the
+///   duration of the EarlyKickout rollout window.
+/// - V2 is emitted only when the epoch's protocol version is at least
+///   `ProtocolFeature::EarlyKickout`. [`VersionedPartialEncodedStateWitness::new`]
+///   selects the variant based on the `protocol_version` argument.
+/// - At/after EarlyKickout activation, producers stop emitting V1. Receivers
+///   continue accepting V1 indefinitely (stale-node resilience).
+///
+/// Cross-version replay resistance: V1 and V2 use distinct
+/// `signature_differentiator` strings, so a signature produced over V1's
+/// inner bytes cannot be grafted onto a V2 struct and verify.
 #[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]

@@ -755,6 +755,47 @@ pub(crate) static PARTIAL_WITNESS_CACHE_SIZE: LazyLock<GaugeVec> = LazyLock::new
     .unwrap()
 });
 
+pub(crate) static PARTIAL_WITNESS_PART_MESSAGES_EMITTED_TOTAL: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "near_partial_witness_part_messages_emitted_total",
+            "Partial state witness part-messages emitted to chunk validators, \
+             labeled by wire version. Increments once per (chunk_validator, part).",
+            &["shard_id", "version"],
+        )
+        .unwrap()
+    });
+
+pub(crate) static PARTIAL_WITNESS_PART_MESSAGES_RECEIVED_TOTAL: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "near_partial_witness_part_messages_received_total",
+            "Partial state witness part-messages received from chunk producers, \
+             labeled by wire version. Increments once per part-message.",
+            &["shard_id", "version"],
+        )
+        .unwrap()
+    });
+
+pub(crate) static PARTIAL_WITNESS_DB_LOOKUP_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_partial_witness_db_lookup_total",
+        "Hash-based chunk-producer lookups performed during V2 partial \
+         witness validation. `result` is `hit`, `miss`, or `error`.",
+        &["shard_id", "result"],
+    )
+    .unwrap()
+});
+
+pub(crate) static PARTIAL_WITNESS_PENDING_CACHE_SIZE: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_partial_witness_pending_cache_size",
+        "Current number of blocks with deferred V2 partial witnesses awaiting \
+         DBCol::ChunkProducers population.",
+    )
+    .unwrap()
+});
+
 pub(crate) static RECEIVE_WITNESS_ACCESSED_CONTRACT_CODES_TIME: LazyLock<HistogramVec> =
     LazyLock::new(|| {
         try_create_histogram_vec(
