@@ -270,34 +270,13 @@ mod versioned_witness_tests {
         PartialEncodedStateWitness, PartialEncodedStateWitnessV2,
         VersionedPartialEncodedStateWitness,
     };
-    use near_primitives::test_utils::create_test_signer;
+    use near_primitives::test_utils::{create_test_signer, test_chunk_header};
     use near_primitives::types::EpochId;
 
     fn make_test_v1_witness() -> PartialEncodedStateWitness {
         let signer = create_test_signer("test_account");
         let prev_block_hash = CryptoHash::hash_bytes(b"prev_block");
-        let chunk_header = near_primitives::sharding::ShardChunkHeader::V3(
-            near_primitives::sharding::ShardChunkHeaderV3::new(
-                prev_block_hash,
-                CryptoHash::default(),
-                CryptoHash::default(),
-                CryptoHash::default(),
-                0,
-                1,
-                near_primitives::types::ShardId::new(0),
-                near_primitives::types::Gas::ZERO,
-                near_primitives::types::Gas::ZERO,
-                near_primitives::types::Balance::ZERO,
-                CryptoHash::default(),
-                CryptoHash::default(),
-                vec![],
-                Default::default(),
-                near_primitives::bandwidth_scheduler::BandwidthRequests::empty(),
-                None,
-                &signer,
-                0,
-            ),
-        );
+        let chunk_header = test_chunk_header(prev_block_hash, &signer, 0);
         PartialEncodedStateWitness::new(
             EpochId(CryptoHash::default()),
             chunk_header,
@@ -311,28 +290,7 @@ mod versioned_witness_tests {
     fn make_test_v2_witness() -> PartialEncodedStateWitnessV2 {
         let signer = create_test_signer("test_account");
         let prev_block_hash = CryptoHash::hash_bytes(b"prev_block");
-        let chunk_header = near_primitives::sharding::ShardChunkHeader::V3(
-            near_primitives::sharding::ShardChunkHeaderV3::new(
-                prev_block_hash,
-                CryptoHash::default(),
-                CryptoHash::default(),
-                CryptoHash::default(),
-                0,
-                1,
-                near_primitives::types::ShardId::new(0),
-                near_primitives::types::Gas::ZERO,
-                near_primitives::types::Gas::ZERO,
-                near_primitives::types::Balance::ZERO,
-                CryptoHash::default(),
-                CryptoHash::default(),
-                vec![],
-                Default::default(),
-                near_primitives::bandwidth_scheduler::BandwidthRequests::empty(),
-                None,
-                &signer,
-                0,
-            ),
-        );
+        let chunk_header = test_chunk_header(prev_block_hash, &signer, 0);
         PartialEncodedStateWitnessV2::new(
             EpochId(CryptoHash::default()),
             chunk_header,

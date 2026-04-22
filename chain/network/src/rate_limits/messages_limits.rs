@@ -511,4 +511,71 @@ mod tests {
         clock.advance(Duration::seconds(30));
         assert!(rate_limits.is_allowed(&msg, clock.now()));
     }
+
+    /// V1 legacy and V2 versioned wire variants must share the same rate-limit
+    /// bucket so that rolling from V1 to V2 doesn't double a peer's budget.
+    /// Mirrors the invariant for `*Forward` bodies too.
+    #[test]
+    fn test_versioned_witness_rate_limit_bucket_matches_v1() {
+        use crate::network_protocol::testonly as data;
+        use crate::testonly::make_rng;
+        use near_primitives::stateless_validation::partial_witness::{
+            PartialEncodedStateWitness, PartialEncodedStateWitnessV2,
+            VersionedPartialEncodedStateWitness,
+        };
+        use near_primitives::test_utils::{create_test_signer, test_chunk_header};
+        use near_primitives::types::EpochId;
+
+        let signer = create_test_signer("test_account");
+        let prev_block_hash = CryptoHash::hash_bytes(b"prev_block");
+        let header = test_chunk_header(prev_block_hash, &signer, 0);
+        let epoch_id = EpochId(CryptoHash::default());
+
+        let v1 = PartialEncodedStateWitness::new(
+            epoch_id,
+            header.clone(),
+            0,
+            b"data".to_vec(),
+            4,
+            &signer,
+        );
+        let v2 =
+            PartialEncodedStateWitnessV2::new(epoch_id, header, 0, b"data".to_vec(), 4, &signer);
+        let versioned = VersionedPartialEncodedStateWitness::V2(v2);
+
+        let mut rng = make_rng(0xbeef_1234);
+        // Legacy wire (V1) and versioned wire (V2) for the initial emit.
+        let legacy_emit = PeerMessage::Routed(Box::new(data::make_routed_message(
+            &mut rng,
+            TieredMessageBody::T1(Box::new(T1MessageBody::PartialEncodedStateWitness(v1.clone()))),
+        )));
+        let versioned_emit = PeerMessage::Routed(Box::new(data::make_routed_message(
+            &mut rng,
+            TieredMessageBody::T1(Box::new(T1MessageBody::VersionedPartialEncodedStateWitness(
+                versioned.clone(),
+            ))),
+        )));
+        assert_eq!(
+            get_key_and_token_cost(&legacy_emit),
+            get_key_and_token_cost(&versioned_emit),
+            "initial-emit legacy/versioned wire must share the same rate-limit bucket",
+        );
+
+        // Forward wire — same invariant for the amplification path.
+        let legacy_forward = PeerMessage::Routed(Box::new(data::make_routed_message(
+            &mut rng,
+            TieredMessageBody::T1(Box::new(T1MessageBody::PartialEncodedStateWitnessForward(v1))),
+        )));
+        let versioned_forward = PeerMessage::Routed(Box::new(data::make_routed_message(
+            &mut rng,
+            TieredMessageBody::T1(Box::new(
+                T1MessageBody::VersionedPartialEncodedStateWitnessForward(versioned),
+            )),
+        )));
+        assert_eq!(
+            get_key_and_token_cost(&legacy_forward),
+            get_key_and_token_cost(&versioned_forward),
+            "forward legacy/versioned wire must share the same rate-limit bucket",
+        );
+    }
 }

@@ -1141,13 +1141,10 @@ pub fn compress_witness(witness: &ChunkStateWitness) -> Result<EncodedChunkState
 #[cfg(test)]
 mod tests {
     use super::{PENDING_V2_WITNESS_CACHE_SIZE, PendingV2WitnessCache};
-    use near_primitives::bandwidth_scheduler::BandwidthRequests;
-    use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::hash::CryptoHash;
-    use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
     use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
-    use near_primitives::test_utils::create_test_signer;
-    use near_primitives::types::{Balance, EpochId, Gas, ShardId};
+    use near_primitives::test_utils::{create_test_signer, test_chunk_header};
+    use near_primitives::types::EpochId;
     use near_primitives::validator_signer::ValidatorSigner;
     use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 
@@ -1164,26 +1161,7 @@ mod tests {
         prev_block_hash: CryptoHash,
         protocol_version: ProtocolVersion,
     ) -> VersionedPartialEncodedStateWitness {
-        let chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-            prev_block_hash,
-            CryptoHash::default(),
-            CryptoHash::default(),
-            CryptoHash::default(),
-            0,
-            1,
-            ShardId::new(0),
-            Gas::ZERO,
-            Gas::ZERO,
-            Balance::ZERO,
-            CryptoHash::default(),
-            CryptoHash::default(),
-            vec![],
-            CongestionInfo::default(),
-            BandwidthRequests::empty(),
-            None,
-            signer,
-            protocol_version,
-        ));
+        let chunk_header = test_chunk_header(prev_block_hash, signer, protocol_version);
         VersionedPartialEncodedStateWitness::new(
             EpochId(CryptoHash::default()),
             chunk_header,
