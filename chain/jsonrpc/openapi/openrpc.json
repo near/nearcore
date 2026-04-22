@@ -9775,7 +9775,7 @@
             },
             "type": "array"
           },
-          "validators_reward_paid_prev_epoch": {
+          "validator_reward_paid_prev_epoch": {
             "additionalProperties": {
               "$ref": "#/components/schemas/NearToken"
             },
