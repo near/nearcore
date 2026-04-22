@@ -38,9 +38,14 @@ pub(crate) struct BackfillReceiptToTxCommand {
     #[arg(long, default_value_t = 1_000)]
     batch_size: usize,
 
-    /// Number of parallel threads for reading block data.
-    #[arg(long, default_value_t = 1000)]
+    /// Number of parallel threads for reading block data. High default to saturate the disk
+    /// I/O queue on HDD-backed archival nodes where most threads block on seeks.
+    #[arg(long, default_value_t = 128)]
     num_threads: usize,
+
+    /// Disable checkpoint persistence. Useful for re-processing specific height ranges.
+    #[arg(long, default_value_t = false)]
+    no_checkpoint: bool,
 }
 
 impl BackfillReceiptToTxCommand {
@@ -51,6 +56,12 @@ impl BackfillReceiptToTxCommand {
     ) -> anyhow::Result<()> {
         let near_config = nearcore::config::load_config(home, genesis_validation)
             .context("failed to load config")?;
+        if !near_config.client_config.save_tx_outcomes {
+            tracing::warn!(
+                "save_tx_outcomes is disabled in config; \
+                 backfill may produce incorrect origin data"
+            );
+        }
         let node_storage = open_storage(home, &near_config).context("failed to open storage")?;
 
         let storage = BackfillStorage::for_node(&node_storage);
@@ -100,7 +111,7 @@ impl BackfillReceiptToTxCommand {
         let options = BackfillOptions {
             batch_size: self.batch_size,
             num_threads: self.num_threads,
-            use_checkpoint: true,
+            use_checkpoint: !self.no_checkpoint,
         };
         let stats = backfill_receipt_to_tx(
             &chain_store,
