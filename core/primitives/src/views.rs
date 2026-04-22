@@ -2503,6 +2503,13 @@ pub struct EpochValidatorInfo {
     pub epoch_start_height: BlockHeight,
     /// Epoch height
     pub epoch_height: EpochHeight,
+    /// Validator rewards earned two epochs ago, delivered at the start of
+    /// this epoch. For epoch E, this contains the rewards for epoch E-2's
+    /// performance that were added to each validator's locked balance at
+    /// the first block of epoch E (via `ValidatorAccountsUpdate`).
+    /// Includes the protocol treasury reward.
+    #[serde(default)]
+    pub prev_prev_epoch_validators_reward: HashMap<AccountId, Balance>,
 }
 
 #[derive(
