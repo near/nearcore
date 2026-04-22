@@ -37,6 +37,7 @@ tracing.workspace = true
 
 near-async.workspace = true
 near-chain.workspace = true
+near-database-tool.workspace = true
 near-chain-configs.workspace = true
 near-chunks.workspace = true
 near-client.workspace = true
@@ -79,6 +80,7 @@ nightly = [
     "near-chain/nightly",
     "near-chunks/nightly",
     "near-client/nightly",
+    "near-database-tool/nightly",
     "near-epoch-manager/nightly",
     "near-jsonrpc/nightly",
     "near-network/nightly",

@@ -37,6 +37,8 @@
         "appender",
         "archivals",
         "argjson",
+        "backfill",
+        "checkpointed",
         "asbuild",
         "assemblyscript",
         "autofail",

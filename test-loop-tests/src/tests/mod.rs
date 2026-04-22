@@ -1,3 +1,4 @@
+mod backfill_receipt_to_tx;
 mod bandwidth_scheduler;
 #[cfg(feature = "test_features")]
 mod block_chunk_signature;
