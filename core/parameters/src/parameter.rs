@@ -261,7 +261,7 @@ pub enum Parameter {
     OneYoctoOnPromise,
 
     // Flag to enable the P-256 verification host function
-    P256Verify,
+    P256VerifyHostFn,
 }
 
 #[derive(

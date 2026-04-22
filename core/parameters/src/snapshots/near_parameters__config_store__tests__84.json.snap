@@ -208,7 +208,7 @@ snapshot_kind: text
     "deterministic_account_ids": true,
     "gas_key_host_fns": false,
     "one_yocto_on_promise": false,
-    "p256_verify": false,
+    "p256_verify_host_fn": false,
     "storage_get_mode": "FlatStorage",
     "fix_contract_loading_cost": false,
     "implicit_account_creation": true,

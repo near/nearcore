@@ -20499,8 +20499,8 @@
             "description": "See [VMConfig::one_yocto_on_promise](crate::vm::Config::one_yocto_on_promise).",
             "type": "boolean"
           },
-          "p256_verify": {
-            "description": "See [VMConfig::p256_verify](crate::vm::Config::p256_verify).",
+          "p256_verify_host_fn": {
+            "description": "See [VMConfig::p256_verify_host_fn](crate::vm::Config::p256_verify_host_fn).",
             "type": "boolean"
           },
           "reftypes_bulk_memory": {
