@@ -9,7 +9,7 @@ use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ContractCodeRequest, PartialEncodedContractDeploys,
 };
 use near_primitives::stateless_validation::partial_witness::{
-    MAX_COMPRESSED_STATE_WITNESS_SIZE, PartialEncodedStateWitness,
+    MAX_COMPRESSED_STATE_WITNESS_SIZE, VersionedPartialEncodedStateWitness,
 };
 use near_primitives::types::{AccountId, BlockHeightDelta};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -62,7 +62,7 @@ macro_rules! require_relevant {
 /// These include checks based on epoch_id validity, witness size, height_created, distance from chain head, etc.
 pub fn validate_partial_encoded_state_witness(
     epoch_manager: &dyn EpochManagerAdapter,
-    partial_witness: &PartialEncodedStateWitness,
+    partial_witness: &VersionedPartialEncodedStateWitness,
     validator_account_id: &AccountId,
     store: &Store,
 ) -> Result<ChunkRelevance, Error> {

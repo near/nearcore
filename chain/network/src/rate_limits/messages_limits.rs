@@ -238,6 +238,12 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
                 }
                 T1MessageBody::SpiceContractCodeRequest(_) => Some((SpiceContractCodeRequest, 1)),
                 T1MessageBody::SpiceContractCodeResponse(_) => Some((SpiceContractCodeResponse, 1)),
+                T1MessageBody::VersionedPartialEncodedStateWitness(_) => {
+                    Some((PartialEncodedStateWitness, 1))
+                }
+                T1MessageBody::VersionedPartialEncodedStateWitnessForward(_) => {
+                    Some((PartialEncodedStateWitnessForward, 1))
+                }
             },
             TieredMessageBody::T2(msg) => match msg.as_ref() {
                 T2MessageBody::ForwardTx(_) => Some((ForwardTx, 1)),

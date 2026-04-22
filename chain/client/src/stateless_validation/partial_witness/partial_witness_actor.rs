@@ -37,7 +37,7 @@ use near_primitives::stateless_validation::contract_distribution::{
     ContractCodeResponse, ContractUpdates, MainTransitionKey, PartialEncodedContractDeploys,
     PartialEncodedContractDeploysPart,
 };
-use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
+use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessAck, EncodedChunkStateWitness,
 };
@@ -390,7 +390,7 @@ impl PartialWitnessActor {
     /// Function to handle receiving partial_encoded_state_witness message from chunk producer.
     fn handle_partial_encoded_state_witness(
         &self,
-        partial_witness: PartialEncodedStateWitness,
+        partial_witness: VersionedPartialEncodedStateWitness,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(
             target: "client",
@@ -480,7 +480,7 @@ impl PartialWitnessActor {
     /// Function to handle receiving partial_encoded_state_witness_forward message from chunk producer.
     fn handle_partial_encoded_state_witness_forward(
         &self,
-        partial_witness: PartialEncodedStateWitness,
+        partial_witness: VersionedPartialEncodedStateWitness,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(
             target: "client",
@@ -889,7 +889,7 @@ pub fn generate_state_witness_parts(
     witness_bytes: EncodedChunkStateWitness,
     chunk_validators: &[AccountId],
     signer: &ValidatorSigner,
-) -> Vec<(AccountId, PartialEncodedStateWitness)> {
+) -> Vec<(AccountId, VersionedPartialEncodedStateWitness)> {
     let _span = tracing::debug_span!(
         target: "client",
         "generate_state_witness_parts",
@@ -909,15 +909,14 @@ pub fn generate_state_witness_parts(
         .zip_eq(parts)
         .enumerate()
         .map(|(part_ord, (chunk_validator, part))| {
-            // It's fine to unwrap part here as we just constructed the parts above and we expect
-            // all of them to be present.
-            let partial_witness = PartialEncodedStateWitness::new(
+            let partial_witness = VersionedPartialEncodedStateWitness::new(
                 epoch_id,
                 chunk_header.clone(),
                 part_ord,
                 part.unwrap().into_vec(),
                 encoded_length,
                 signer,
+                false,
             );
             (chunk_validator.clone(), partial_witness)
         })
