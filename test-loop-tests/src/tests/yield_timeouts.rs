@@ -157,12 +157,12 @@ fn get_promise_yield_statuses_in_state(
 pub(crate) fn assert_no_promise_yield_status_in_state(env: &TestLoopEnv) {
     let node = env.validator();
     let client = node.client();
-    let head = client.chain.head().unwrap();
-    let epoch_id = head.epoch_id;
+    let last_executed = node.last_executed();
+    let epoch_id = last_executed.epoch_id;
     let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
     let shard_uid = shard_layout.account_id_to_shard_uid(&"test0".parse::<AccountId>().unwrap());
 
-    let state_root = get_latest_state_state_root(client, head.last_block_hash, shard_uid);
+    let state_root = get_latest_state_state_root(client, last_executed.last_block_hash, shard_uid);
     let promise_yield_statuses = get_promise_yield_statuses_in_state(client, state_root, shard_uid);
     assert_eq!(promise_yield_statuses, Vec::new());
 }
