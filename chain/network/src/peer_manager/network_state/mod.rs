@@ -521,6 +521,7 @@ impl NetworkState {
         clock: &time::Clock,
         info: &PeerDisconnectInfo,
         reason: ClosingReason,
+        #[cfg(test)] stream_id: tcp::StreamId,
     ) {
         self.peers.remove(info.tier, &info.peer_info.id);
 
@@ -556,6 +557,16 @@ impl NetworkState {
                 self.pending_reconnect.lock().push(info.peer_info.clone());
             }
         }
+
+        // Emit after all state changes so tests waiting on
+        // `ConnectionClosed` observe the peer_store / connection_store
+        // updates. `#[cfg(test)]` keeps stream_id out of production paths.
+        #[cfg(test)]
+        self.config.event_sink.send(
+            crate::peer_manager::peer_manager_actor::Event::ConnectionClosed(
+                crate::peer::peer_actor::ConnectionClosedEvent { stream_id, reason },
+            ),
+        );
     }
 
     /// Register a direct connection to a new peer. Called after a handshake
@@ -599,6 +610,7 @@ impl NetworkState {
         self: &Arc<Self>,
         clock: &time::Clock,
         conn: &Arc<connection::Connection>,
+        #[cfg(test)] stream_id: tcp::StreamId,
         reason: ClosingReason,
     ) {
         let this = self.clone();
@@ -611,7 +623,14 @@ impl NetworkState {
                 tcp::Tier::T3 => this.tier3.remove(&conn),
             }
             let info: PeerDisconnectInfo = conn.as_ref().into();
-            this.on_peer_disconnected(&clock, &info, reason).await;
+            this.on_peer_disconnected(
+                &clock,
+                &info,
+                reason,
+                #[cfg(test)]
+                stream_id,
+            )
+            .await;
         });
     }
 
