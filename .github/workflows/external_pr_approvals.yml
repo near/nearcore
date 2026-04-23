@@ -21,16 +21,42 @@ jobs:
             const pr = context.payload.pull_request;
             const { owner, repo } = context.repo;
 
-            // Treat MEMBER, OWNER, COLLABORATOR as internal. Everyone else is external.
-            const internalAssociations = new Set(['MEMBER', 'OWNER', 'COLLABORATOR']);
-            const isExternal = !internalAssociations.has(pr.author_association);
-            const required = isExternal ? 2 : 1;
+            // A user is "internal" if they have write/maintain/admin access to the repo
+            // (including access granted via org team membership — this is the reason we
+            // use this endpoint instead of author_association, which misses private
+            // org members).
+            const internalPermissions = new Set(['admin', 'maintain', 'write']);
+            const permissionCache = new Map();
+            async function isInternal(login) {
+              if (permissionCache.has(login)) return permissionCache.get(login);
+              let permission = 'none';
+              try {
+                const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                  owner, repo, username: login,
+                });
+                permission = data.permission;
+              } catch (e) {
+                if (e.status !== 404) throw e;
+              }
+              const internal = internalPermissions.has(permission);
+              core.info(`  ${login}: permission=${permission} internal=${internal}`);
+              permissionCache.set(login, internal);
+              return internal;
+            }
 
-            // Count approvals from internal reviewers only, and only the latest review per user.
+            core.info(`author:`);
+            if (await isInternal(pr.user.login)) {
+              core.info(`internal PR; branch protection handles approval count`);
+              return;
+            }
+
+            const required = 2;
+
             const reviews = await github.paginate(github.rest.pulls.listReviews, {
               owner, repo, pull_number: pr.number, per_page: 100,
             });
 
+            // Latest review per user on the current HEAD commit.
             const latestByUser = new Map();
             for (const r of reviews) {
               if (!r.user) continue;
@@ -39,15 +65,16 @@ jobs:
               latestByUser.set(r.user.login, r);
             }
 
+            core.info(`reviewers:`);
             let approvals = 0;
-            for (const r of latestByUser.values()) {
+            for (const [login, r] of latestByUser) {
               if (r.state !== 'APPROVED') continue;
-              if (!internalAssociations.has(r.author_association)) continue;
+              if (!(await isInternal(login))) continue;
               approvals++;
             }
 
-            core.info(`author_association=${pr.author_association} external=${isExternal} required=${required} approvals=${approvals}`);
+            core.info(`external PR by ${pr.user.login}: required=${required} internal-approvals=${approvals}`);
 
             if (approvals < required) {
-              core.setFailed(`needs ${required} internal approval(s) on HEAD commit, have ${approvals}`);
+              core.setFailed(`external PRs require ${required} approvals from internal reviewers on HEAD commit, have ${approvals}`);
             }
