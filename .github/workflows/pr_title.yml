@@ -2,11 +2,17 @@ name: PR Title
 
 on:
   pull_request:
-    types: [opened, edited, synchronize, reopened]
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed, edited]
   merge_group:
+
+permissions:
+  pull-requests: read
 
 jobs:
   check-pr-title:
+    if: ${{ github.event_name != 'pull_request_review' }}
     name: "PR Title"
     runs-on: ubuntu-latest
     steps:
@@ -47,3 +53,48 @@ jobs:
           fi
 
           echo "PR title is valid: $PR_TITLE"
+
+  check-approvals:
+    name: "External PR Approvals"
+    if: ${{ github.event_name != 'merge_group' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check required approvals
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const { owner, repo } = context.repo;
+
+            // Treat MEMBER, OWNER, COLLABORATOR as internal. Everyone else is external.
+            const internalAssociations = new Set(['MEMBER', 'OWNER', 'COLLABORATOR']);
+            const isExternal = true; // TESTING: force external path
+            void internalAssociations.has(pr.author_association);
+            const required = isExternal ? 2 : 1;
+
+            // Only count approvals that are on the current HEAD, from internal reviewers,
+            // and reflect the reviewer's latest review state.
+            const reviews = await github.paginate(github.rest.pulls.listReviews, {
+              owner, repo, pull_number: pr.number, per_page: 100,
+            });
+
+            const latestByUser = new Map();
+            for (const r of reviews) {
+              if (!r.user) continue;
+              if (r.commit_id !== pr.head.sha) continue;
+              if (!['APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'].includes(r.state)) continue;
+              latestByUser.set(r.user.login, r);
+            }
+
+            let approvals = 0;
+            for (const r of latestByUser.values()) {
+              if (r.state !== 'APPROVED') continue;
+              if (!internalAssociations.has(r.author_association)) continue;
+              approvals++;
+            }
+
+            core.info(`author_association=${pr.author_association} external=${isExternal} required=${required} approvals=${approvals}`);
+
+            if (approvals < required) {
+              core.setFailed(`needs ${required} internal approval(s) on HEAD commit, have ${approvals}`);
+            }
