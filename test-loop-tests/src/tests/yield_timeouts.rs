@@ -326,8 +326,6 @@ fn create_congestion(env: &TestLoopEnv) {
 /// Simple test of timeout execution.
 /// Advances sufficiently many blocks, then verifies that the callback was executed.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_simple_yield_timeout() {
     let (mut env, yield_tx_hash, data_id) = prepare_env_with_yield(vec![], None);
     assert!(NEXT_BLOCK_HEIGHT_AFTER_SETUP < YIELD_TIMEOUT_HEIGHT);
@@ -349,7 +347,11 @@ fn test_simple_yield_timeout() {
     }
 
     // In this block the timeout is processed, producing a YieldResume receipt.
-    env.validator_runner().run_until_head_height(YIELD_TIMEOUT_HEIGHT);
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        env.validator_runner().run_until_executed_height(YIELD_TIMEOUT_HEIGHT);
+    } else {
+        env.validator_runner().run_until_head_height(YIELD_TIMEOUT_HEIGHT);
+    }
     // Checks that the anticipated YieldResume receipt was produced.
     assert_eq!(find_yield_data_ids_from_latest_block(&env), vec![data_id]);
     assert_eq!(
@@ -363,7 +365,11 @@ fn test_simple_yield_timeout() {
     );
 
     // In this block the resume receipt is applied and the callback will execute.
-    env.validator_runner().run_until_head_height(YIELD_TIMEOUT_HEIGHT + 1);
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        env.validator_runner().run_until_executed_height(YIELD_TIMEOUT_HEIGHT + 1);
+    } else {
+        env.validator_runner().run_until_head_height(YIELD_TIMEOUT_HEIGHT + 1);
+    }
     assert_eq!(
         env.validator()
             .client()
@@ -429,8 +435,6 @@ fn test_yield_timeout_under_congestion() {
 
 /// In this case we invoke yield_resume at the last block possible.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_yield_resume_just_before_timeout() {
     let yield_payload = vec![6u8; 16];
     let (mut env, yield_tx_hash, data_id) = prepare_env_with_yield(yield_payload.clone(), None);
@@ -457,7 +461,11 @@ fn test_yield_resume_just_before_timeout() {
     }
 
     // In this block the `yield_resume` host function is invoked, producing a YieldResume receipt.
-    env.validator_runner().run_until_head_height(YIELD_TIMEOUT_HEIGHT);
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        env.validator_runner().run_until_executed_height(YIELD_TIMEOUT_HEIGHT);
+    } else {
+        env.validator_runner().run_until_head_height(YIELD_TIMEOUT_HEIGHT);
+    }
     assert_eq!(
         env.validator()
             .client()
@@ -471,7 +479,11 @@ fn test_yield_resume_just_before_timeout() {
     assert_eq!(find_yield_data_ids_from_latest_block(&env), vec![data_id, data_id]);
 
     // In this block the resume receipt is applied and the callback is executed with the resume payload.
-    env.validator_runner().run_until_head_height(YIELD_TIMEOUT_HEIGHT + 1);
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        env.validator_runner().run_until_executed_height(YIELD_TIMEOUT_HEIGHT + 1);
+    } else {
+        env.validator_runner().run_until_head_height(YIELD_TIMEOUT_HEIGHT + 1);
+    }
     assert_eq!(
         env.validator()
             .client()
@@ -540,9 +552,7 @@ fn test_yield_resume_after_timeout_height() {
 
 /// In this test there is no block produced at height YIELD_TIMEOUT_HEIGHT.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg(feature = "test_features")]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_skip_timeout_height() {
     use assert_matches::assert_matches;
     use near_chain::Error;
@@ -580,6 +590,9 @@ fn test_skip_timeout_height() {
     env.validator_runner()
         .run_until_head_height_with_timeout(YIELD_TIMEOUT_HEIGHT + 1, Duration::seconds(3));
     assert_eq!(env.validator().head().height, YIELD_TIMEOUT_HEIGHT + 1);
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        env.validator_runner().run_until_executed_height(YIELD_TIMEOUT_HEIGHT + 1);
+    }
     // The block at YIELD_TIMEOUT_HEIGHT should be missing.
     assert_matches!(
         env.validator().client().chain.get_block_by_height(YIELD_TIMEOUT_HEIGHT),
@@ -599,7 +612,11 @@ fn test_skip_timeout_height() {
     );
 
     // In this block the resume receipt is applied and the callback will execute.
-    env.validator_runner().run_until_head_height(YIELD_TIMEOUT_HEIGHT + 2);
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        env.validator_runner().run_until_executed_height(YIELD_TIMEOUT_HEIGHT + 2);
+    } else {
+        env.validator_runner().run_until_head_height(YIELD_TIMEOUT_HEIGHT + 2);
+    }
     assert_eq!(
         env.validator()
             .client()
