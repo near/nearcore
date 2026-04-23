@@ -4173,7 +4173,7 @@ fn test_function_call_after_same_chunk_delete_recreate_resolves_fresh_code() {
     );
     let create_and_call = build_receipt(
         "create_and_call",
-        parent.clone(),
+        parent,
         &parent_signer,
         vec![
             Action::CreateAccount(CreateAccountAction {}),
