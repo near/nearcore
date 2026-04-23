@@ -61,7 +61,6 @@ use rayon::iter::{
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 const PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE: usize = 30;
 
@@ -221,11 +220,6 @@ pub struct PartialWitnessActor {
     /// V2 witnesses deferred on `DBCol::ChunkProducers` miss. Drained on
     /// `BlockNotificationMessage`. See `PendingV2WitnessCache`.
     pending_v2_witnesses: Arc<Mutex<PendingV2WitnessCache>>,
-    /// Transition latch for the `partial_witness_signer_unavailable` gauge.
-    /// Flipped to `true` the first time a signer access fails during replay,
-    /// and back to `false` on the next success. Keeps the warn log from
-    /// firing once per block notification during a sustained outage.
-    signer_unavailable: AtomicBool,
 }
 
 impl Actor for PartialWitnessActor {}
@@ -347,34 +341,6 @@ impl PartialWitnessActor {
                 NonZeroUsize::new(PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE).unwrap(),
             ),
             pending_v2_witnesses: Arc::new(Mutex::new(PendingV2WitnessCache::new())),
-            signer_unavailable: AtomicBool::new(false),
-        }
-    }
-
-    /// Return the current validator signer, updating the signer-unavailable
-    /// gauge and emitting a one-shot warn on the outage-entry transition.
-    /// Reset back to 0 on the next successful call. Keeps the warn log from
-    /// firing on every block notification during a sustained outage (which
-    /// would be the case with a naive silent `Err(_) => return`).
-    fn signer_for_replay(&self) -> Option<Arc<ValidatorSigner>> {
-        match self.my_validator_signer() {
-            Ok(signer) => {
-                if self.signer_unavailable.swap(false, Ordering::Relaxed) {
-                    metrics::PARTIAL_WITNESS_SIGNER_UNAVAILABLE.set(0);
-                }
-                Some(signer)
-            }
-            Err(err) => {
-                if !self.signer_unavailable.swap(true, Ordering::Relaxed) {
-                    tracing::warn!(
-                        target: "client",
-                        ?err,
-                        "partial-witness signer unavailable; deferred V2 witnesses will not be replayed",
-                    );
-                    metrics::PARTIAL_WITNESS_SIGNER_UNAVAILABLE.set(1);
-                }
-                None
-            }
         }
     }
 
@@ -765,7 +731,7 @@ impl PartialWitnessActor {
     /// Terminal outcomes (`TooLate`, `NotAChunkValidator`, other hard
     /// validation errors) return `Retire`; the caller drops the witness.
     fn pre_check_replay(&self, witness: &VersionedPartialEncodedStateWitness) -> ReplayDisposition {
-        let Some(signer) = self.signer_for_replay() else {
+        let Ok(signer) = self.my_validator_signer() else {
             return ReplayDisposition::Requeue;
         };
         let validator_account_id = signer.validator_id().clone();
@@ -893,7 +859,7 @@ impl PartialWitnessActor {
         &self,
         partial_witness: VersionedPartialEncodedStateWitness,
     ) {
-        let Some(signer) = self.signer_for_replay() else {
+        let Ok(signer) = self.my_validator_signer() else {
             return;
         };
         let validator_account_id = signer.validator_id().clone();

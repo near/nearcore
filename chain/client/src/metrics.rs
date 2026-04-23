@@ -815,18 +815,6 @@ pub(crate) static PARTIAL_WITNESS_PENDING_CACHE_EVICTIONS_TOTAL: LazyLock<IntCou
         .unwrap()
     });
 
-// 0 or 1. Flips to 1 when the validator signer becomes unavailable during
-// witness handling (e.g., HSM hiccup, key rotation), back to 0 on the next
-// successful signer access. Prometheus scrape sees the current state; pair
-// with an alert on `max_over_time` to catch outages between scrapes.
-pub(crate) static PARTIAL_WITNESS_SIGNER_UNAVAILABLE: LazyLock<IntGauge> = LazyLock::new(|| {
-    try_create_int_gauge(
-        "near_partial_witness_signer_unavailable",
-        "1 when the partial-witness handler has a current signer outage, 0 otherwise.",
-    )
-    .unwrap()
-});
-
 pub(crate) static RECEIVE_WITNESS_ACCESSED_CONTRACT_CODES_TIME: LazyLock<HistogramVec> =
     LazyLock::new(|| {
         try_create_histogram_vec(
