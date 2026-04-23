@@ -1075,3 +1075,15 @@ pub enum SandboxResponse {
 pub struct BlockNotificationMessage {
     pub block: Arc<Block>,
 }
+
+/// Notification that a block header has been processed and its chain-store
+/// side effects (notably `DBCol::ChunkProducers` via
+/// `save_chunk_producers_for_header`) are committed. Fires from both full
+/// block processing and header sync. Consumers that only need the hash
+/// (currently `PartialWitnessActor` for replaying deferred V2 witnesses)
+/// subscribe here instead of `BlockNotificationMessage`, because header
+/// sync never produces a full block.
+#[derive(Debug, Clone)]
+pub struct BlockHeaderProcessedMessage {
+    pub block_hash: CryptoHash,
+}

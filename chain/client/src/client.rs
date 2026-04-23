@@ -44,7 +44,9 @@ use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdatableClientCo
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::DecodedChunk;
 use near_chunks::logic::{create_partial_chunk, persist_chunk};
-use near_client_primitives::types::{BlockNotificationMessage, Error, StateSyncStatus, SyncStatus};
+use near_client_primitives::types::{
+    BlockHeaderProcessedMessage, BlockNotificationMessage, Error, StateSyncStatus, SyncStatus,
+};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -1557,7 +1559,19 @@ impl Client {
                 "Cannot sync block headers during an epoch sync".to_owned(),
             ));
         };
+        // Capture hashes before `Chain::sync_block_headers` consumes the vec.
+        // On success, each of these headers had `save_chunk_producers_for_header`
+        // committed, which makes any V2 witness deferred on that hash
+        // replay-eligible. Without this notification, such witnesses would
+        // sit in the pending cache until the full block arrives — in a state
+        // sync flow that may be much later or after LRU eviction.
+        let header_hashes: Vec<_> = headers.iter().map(|h| *h.hash()).collect();
         self.chain.sync_block_headers(headers)?;
+        for block_hash in header_hashes {
+            self.partial_witness_adapter
+                .block_header_processed
+                .send(BlockHeaderProcessedMessage { block_hash });
+        }
         let head = self.chain.head().unwrap();
         let header_head = self.chain.header_head().unwrap();
         self.shards_manager_adapter.send(ShardsManagerRequestFromClient::UpdateChainHeads {
@@ -1815,6 +1829,12 @@ impl Client {
         let block_notification = BlockNotificationMessage { block: block.clone() };
         self.chunk_validation_sender.block_notification.send(block_notification.clone());
         self.partial_witness_adapter.block_notification.send(block_notification.clone());
+        // Also fire the header-processed notification so the partial-witness
+        // actor's pending cache sees the same trigger from both the full
+        // block path and the header-sync path.
+        self.partial_witness_adapter
+            .block_header_processed
+            .send(BlockHeaderProcessedMessage { block_hash: *block.hash() });
 
         // Notify all subscribed watchers about the new block.
         self.block_notification_watch_sender.send_replace(Some(block_notification));
