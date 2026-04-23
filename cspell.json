@@ -292,6 +292,8 @@
         "Prefetcher",
         "prefetchers",
         "prefunded",
+        "prehash",
+        "prehashed",
         "privkey",
         "profraw",
         "profraws",
