@@ -354,9 +354,9 @@ fn test_yield_then_resume_two_actions() {
         ],
         *genesis_block.hash(),
     );
-    env.validator().submit_tx(yield_resume_transaction.clone());
-    let target_height = env.validator().head().height + 3;
-    env.validator_runner().run_until_executed_height(target_height);
+    env.validator_runner()
+        .execute_tx(yield_resume_transaction.clone(), Duration::seconds(5))
+        .unwrap();
 
     {
         let node = env.validator();
