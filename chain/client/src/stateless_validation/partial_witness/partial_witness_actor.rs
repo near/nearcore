@@ -88,13 +88,13 @@ const PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE: usize = 30;
 /// requeue-transient, retire-terminal; see `handle_block_notification`)
 /// already landed. The remaining work above is pure admission-control
 /// policy, independent of the replay semantics.
-const PENDING_V2_WITNESS_CACHE_SIZE: usize = 64;
+pub(super) const PENDING_V2_WITNESS_CACHE_SIZE: usize = 64;
 
 /// Origin of a deferred V2 witness. Replay dispatches on this so forwarded
 /// entries go through a store-only path — re-broadcasting a part we already
 /// received as a forward would duplicate what other validators just received.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DeferOrigin {
+pub(super) enum DeferOrigin {
     /// Witness arrived directly from the chunk producer via
     /// `PartialEncodedStateWitnessMessage`. Replay re-enters
     /// `handle_partial_encoded_state_witness`, which forwards after validation.
@@ -106,9 +106,9 @@ enum DeferOrigin {
 
 /// A single deferred V2 witness plus the handler it arrived at.
 #[derive(Debug)]
-struct PendingV2WitnessEntry {
-    witness: VersionedPartialEncodedStateWitness,
-    origin: DeferOrigin,
+pub(super) struct PendingV2WitnessEntry {
+    pub(super) witness: VersionedPartialEncodedStateWitness,
+    pub(super) origin: DeferOrigin,
 }
 
 /// Small cache for V2 witnesses deferred when their `prev_block_hash` is not
@@ -119,18 +119,18 @@ struct PendingV2WitnessEntry {
 /// only to keep liveness during EarlyKickout rollout and epoch-sync edge
 /// cases. Witnesses for orphaned forks expire naturally via LRU eviction —
 /// the producer retransmits on the canonical fork.
-struct PendingV2WitnessCache {
+pub(super) struct PendingV2WitnessCache {
     /// Keyed by `prev_block_hash`. Each entry is the list of deferred
     /// witnesses queued for that block (covers multiple parts/validators).
     entries: LruCache<CryptoHash, Vec<PendingV2WitnessEntry>>,
 }
 
 impl PendingV2WitnessCache {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self { entries: LruCache::new(NonZeroUsize::new(PENDING_V2_WITNESS_CACHE_SIZE).unwrap()) }
     }
 
-    fn insert(
+    pub(super) fn insert(
         &mut self,
         prev_block_hash: CryptoHash,
         witness: VersionedPartialEncodedStateWitness,
@@ -150,7 +150,7 @@ impl PendingV2WitnessCache {
     // Kept for tests that exercise LRU eviction semantics; production uses
     // `drain_all` on every block notification.
     #[cfg(test)]
-    fn drain(&mut self, prev_block_hash: &CryptoHash) -> Vec<PendingV2WitnessEntry> {
+    pub(super) fn drain(&mut self, prev_block_hash: &CryptoHash) -> Vec<PendingV2WitnessEntry> {
         self.entries.pop(prev_block_hash).unwrap_or_default()
     }
 
@@ -159,7 +159,7 @@ impl PendingV2WitnessCache {
     /// so draining everything and selectively re-inserting transient
     /// entries is cheaper than per-bucket walks and keeps the interface
     /// simple.
-    fn drain_all(&mut self) -> Vec<(CryptoHash, PendingV2WitnessEntry)> {
+    pub(super) fn drain_all(&mut self) -> Vec<(CryptoHash, PendingV2WitnessEntry)> {
         let mut out = Vec::new();
         while let Some((hash, entries)) = self.entries.pop_lru() {
             for entry in entries {
@@ -169,7 +169,7 @@ impl PendingV2WitnessCache {
         out
     }
 
-    fn len(&self) -> usize {
+    pub(super) fn len(&self) -> usize {
         self.entries.len()
     }
 }
@@ -1401,186 +1401,4 @@ pub fn compress_witness(witness: &ChunkStateWitness) -> Result<EncodedChunkState
         witness,
     );
     Ok(witness_bytes)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{DeferOrigin, PENDING_V2_WITNESS_CACHE_SIZE, PendingV2WitnessCache};
-    use near_primitives::hash::CryptoHash;
-    use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
-    use near_primitives::test_utils::{create_test_signer, test_chunk_header};
-    use near_primitives::types::EpochId;
-    use near_primitives::validator_signer::ValidatorSigner;
-    use near_primitives::version::{ProtocolFeature, ProtocolVersion};
-
-    fn post_kickout_version() -> ProtocolVersion {
-        ProtocolFeature::EarlyKickout.protocol_version()
-    }
-
-    fn pre_kickout_version() -> ProtocolVersion {
-        ProtocolFeature::EarlyKickout.protocol_version().checked_sub(1).unwrap()
-    }
-
-    fn make_witness(
-        signer: &ValidatorSigner,
-        prev_block_hash: CryptoHash,
-        protocol_version: ProtocolVersion,
-    ) -> VersionedPartialEncodedStateWitness {
-        let chunk_header = test_chunk_header(prev_block_hash, signer, protocol_version);
-        VersionedPartialEncodedStateWitness::new(
-            EpochId(CryptoHash::default()),
-            chunk_header,
-            0,
-            b"payload".to_vec(),
-            7,
-            signer,
-            protocol_version,
-        )
-    }
-
-    #[test]
-    fn inserts_group_by_prev_block_hash() {
-        let signer = create_test_signer("test_account");
-        let block_a = CryptoHash::hash_bytes(b"block_a");
-        let block_b = CryptoHash::hash_bytes(b"block_b");
-        let mut cache = PendingV2WitnessCache::new();
-
-        cache.insert(
-            block_a,
-            make_witness(&signer, block_a, post_kickout_version()),
-            DeferOrigin::InitEmit,
-        );
-        cache.insert(
-            block_a,
-            make_witness(&signer, block_a, post_kickout_version()),
-            DeferOrigin::Forwarded,
-        );
-        cache.insert(
-            block_b,
-            make_witness(&signer, block_b, post_kickout_version()),
-            DeferOrigin::InitEmit,
-        );
-        assert_eq!(cache.len(), 2);
-
-        let drained_a = cache.drain(&block_a);
-        assert_eq!(drained_a.len(), 2);
-        assert!(
-            drained_a.iter().all(|e| e.witness.prev_block_hash() == Some(&block_a)),
-            "drained witnesses must all point to block_a",
-        );
-        // Both origins are preserved so replay can dispatch correctly.
-        assert!(
-            drained_a.iter().any(|e| e.origin == DeferOrigin::InitEmit),
-            "init-emit entry present",
-        );
-        assert!(
-            drained_a.iter().any(|e| e.origin == DeferOrigin::Forwarded),
-            "forward entry present",
-        );
-
-        let drained_b = cache.drain(&block_b);
-        assert_eq!(drained_b.len(), 1);
-        assert_eq!(drained_b[0].witness.prev_block_hash(), Some(&block_b));
-        assert_eq!(drained_b[0].origin, DeferOrigin::InitEmit);
-
-        assert_eq!(cache.len(), 0);
-        assert!(cache.drain(&block_a).is_empty(), "re-draining yields nothing");
-    }
-
-    #[test]
-    fn drain_unknown_block_is_empty() {
-        let mut cache = PendingV2WitnessCache::new();
-        assert!(cache.drain(&CryptoHash::hash_bytes(b"absent")).is_empty());
-    }
-
-    #[test]
-    fn capacity_cap_evicts_oldest_block() {
-        let signer = create_test_signer("test_account");
-        let mut cache = PendingV2WitnessCache::new();
-        // Insert one entry per block hash until we overflow the cap.
-        let total = PENDING_V2_WITNESS_CACHE_SIZE + 2;
-        let hashes: Vec<CryptoHash> =
-            (0..total).map(|i| CryptoHash::hash_bytes(format!("blk_{i}").as_bytes())).collect();
-        for h in &hashes {
-            cache.insert(
-                *h,
-                make_witness(&signer, *h, post_kickout_version()),
-                DeferOrigin::InitEmit,
-            );
-        }
-        assert_eq!(cache.len(), PENDING_V2_WITNESS_CACHE_SIZE);
-
-        // Oldest entries were evicted.
-        for h in &hashes[..total - PENDING_V2_WITNESS_CACHE_SIZE] {
-            assert!(cache.drain(h).is_empty(), "oldest block {h:?} should have been evicted",);
-        }
-        // Newer entries remain.
-        for h in &hashes[total - PENDING_V2_WITNESS_CACHE_SIZE..] {
-            assert_eq!(cache.drain(h).len(), 1, "newer block {h:?} must still be cached");
-        }
-    }
-
-    /// V1 witnesses never carry a `prev_block_hash`, so they are never inserted
-    /// into the pending pool. This test guards the invariant that V1
-    /// discriminants can't accidentally slip through the cache if a caller
-    /// mistakenly routes them here.
-    #[test]
-    fn prev_block_hash_absent_for_v1() {
-        let signer = create_test_signer("test_account");
-        let block = CryptoHash::hash_bytes(b"block");
-        let v1 = make_witness(&signer, block, pre_kickout_version());
-        assert!(v1.prev_block_hash().is_none(), "V1 witness must not carry prev_block_hash");
-        let v2 = make_witness(&signer, block, post_kickout_version());
-        assert_eq!(v2.prev_block_hash(), Some(&block));
-    }
-
-    /// `drain_all` is the scan-on-notification replay primitive. It must
-    /// return every entry across every bucket (preserving the
-    /// `prev_block_hash` key so the caller can re-insert transient ones),
-    /// and leave the cache empty.
-    #[test]
-    fn drain_all_returns_every_entry_and_empties_cache() {
-        let signer = create_test_signer("test_account");
-        let block_a = CryptoHash::hash_bytes(b"drain_all_a");
-        let block_b = CryptoHash::hash_bytes(b"drain_all_b");
-        let mut cache = PendingV2WitnessCache::new();
-
-        cache.insert(
-            block_a,
-            make_witness(&signer, block_a, post_kickout_version()),
-            DeferOrigin::InitEmit,
-        );
-        cache.insert(
-            block_a,
-            make_witness(&signer, block_a, post_kickout_version()),
-            DeferOrigin::Forwarded,
-        );
-        cache.insert(
-            block_b,
-            make_witness(&signer, block_b, post_kickout_version()),
-            DeferOrigin::InitEmit,
-        );
-        assert_eq!(cache.len(), 2);
-
-        let drained = cache.drain_all();
-        assert_eq!(drained.len(), 3, "every entry across both buckets returned");
-        assert_eq!(cache.len(), 0, "cache empty after drain_all");
-
-        // Both origin variants survived the drain.
-        assert!(drained.iter().any(|(_, e)| e.origin == DeferOrigin::InitEmit));
-        assert!(drained.iter().any(|(_, e)| e.origin == DeferOrigin::Forwarded));
-
-        // Each entry is paired with its source prev_block_hash — required by
-        // the scan-on-notification caller to re-insert transient entries.
-        for (hash, entry) in &drained {
-            assert_eq!(
-                entry.witness.prev_block_hash(),
-                Some(hash),
-                "drained entry's prev_block_hash must match its bucket key",
-            );
-        }
-
-        // Draining an already-empty cache is safe and returns nothing.
-        assert!(cache.drain_all().is_empty());
-    }
 }
