@@ -73,10 +73,22 @@ const PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE: usize = 30;
 /// well-connected node. 64 buckets comfortably covers ~4 epoch-transition
 /// blocks × ~10-20 concurrent races per block.
 ///
-/// TODO: DoS caps (per-bucket dedup, total bytes, total witness count) and
-/// revisit this capacity are tracked in a dedicated follow-up PR. The parent
-/// PR's description calls this a placeholder — admission-control policy
-/// belongs in its own review surface.
+/// TODO(follow-up PR): the follow-up that replaces this placeholder should:
+/// (1) add DoS caps (per-bucket dedup, total bytes, total witness count) —
+///     the parent PR description calls the current LRU-only policy a
+///     placeholder,
+/// (2) bump the cap to exceed `block_fetch_horizon` (=50) with headroom so
+///     a syncing validator cannot evict legitimate entries before their
+///     full block lands — there is no witness-part retransmission loop, so
+///     LRU eviction here is permanent loss for that (validator, part),
+/// (3) revisit the napkin math against measured
+///     `PARTIAL_WITNESS_PENDING_CACHE_EVICTIONS_TOTAL` once V2 is on
+///     nightly rollout.
+///
+/// The replay-path correctness piece (scan-on-notification,
+/// requeue-transient, retire-terminal; see `handle_block_notification`)
+/// already landed. The remaining work above is pure admission-control
+/// policy, independent of the replay semantics.
 const PENDING_V2_WITNESS_CACHE_SIZE: usize = 64;
 
 /// Origin of a deferred V2 witness. Replay dispatches on this so forwarded
