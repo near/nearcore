@@ -150,7 +150,10 @@ pub(crate) struct PeerActor {
     /// This node's id and address (either listening or socket address).
     my_node_info: PeerInfo,
 
-    /// TEST-ONLY
+    /// TEST-ONLY. Identity of the underlying stream; surfaced only in
+    /// `#[cfg(test)]` event emissions. NetworkState no longer receives
+    /// it.
+    #[allow(dead_code)]
     stream_id: crate::tcp::StreamId,
     /// Peer address from connection.
     peer_addr: SocketAddr,
@@ -1426,27 +1429,33 @@ impl messaging::Actor for PeerActor {
             self.peer_type == PeerType::Inbound && closing_reason.remove_from_connection_store();
         self.send_message(&PeerMessage::Disconnect(Disconnect { remove_from_connection_store }));
 
+        // Clone upfront for the test event emission below so we can
+        // move `closing_reason` into `unregister` without a redundant
+        // clone in release builds. stream_id stays on PeerActor
+        // (transport-specific identity) and is intentionally not
+        // passed to NetworkState.
+        #[cfg(test)]
+        let closing_reason_for_event = closing_reason.clone();
         match &self.peer_status {
             // If PeerActor is in Connecting state, then
             // it was not registered in the NetworkState,
             // so there is nothing to be done.
-            PeerStatus::Connecting(..) => {
-                // TODO(gprusak): reporting ConnectionClosed event is quite scattered right now and
-                // it is very ugly: it may happen here, in spawn_inner, or in NetworkState::unregister().
-                // We should find a way to centralize it.
-                #[cfg(test)]
-                self.network_state.config.event_sink.send(Event::ConnectionClosed(
-                    ConnectionClosedEvent { stream_id: self.stream_id, reason: closing_reason },
-                ));
-            }
+            PeerStatus::Connecting(..) => {}
             // Clean up the Connection from the NetworkState.
             PeerStatus::Ready(conn) => {
                 let network_state = self.network_state.clone();
                 let clock = self.clock.clone();
                 let conn = conn.clone();
-                network_state.unregister(&clock, &conn, self.stream_id, closing_reason);
+                network_state.unregister(&clock, &conn, closing_reason);
             }
         }
+        // Single emission point for the test event: both the Connecting
+        // and Ready shutdown paths flow through here.
+        #[cfg(test)]
+        self.network_state.config.event_sink.send(Event::ConnectionClosed(ConnectionClosedEvent {
+            stream_id: self.stream_id,
+            reason: closing_reason_for_event,
+        }));
     }
 }
 
