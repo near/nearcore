@@ -209,13 +209,8 @@ fn prepare_env_with_yield(
     );
     env.validator().submit_tx(deploy_contract_tx.clone());
 
-    // Allow two blocks for the contract to be deployed.
-    // With spice, execution is async so we must wait for execution, not just consensus.
-    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-        env.validator_runner().run_until_executed_height(2);
-    } else {
-        env.validator_runner().run_until_head_height(2);
-    }
+    // Allow two blocks to execute for the contract to be deployed.
+    env.validator_runner().run_until_executed_height(2);
     assert!(matches!(
         env.validator()
             .client()
@@ -242,11 +237,7 @@ fn prepare_env_with_yield(
     );
     let yield_tx_hash = yield_transaction.get_hash();
     env.validator().submit_tx(yield_transaction);
-    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-        env.validator_runner().run_until_executed_height(4);
-    } else {
-        env.validator_runner().run_until_head_height(4);
-    }
+    env.validator_runner().run_until_executed_height(4);
     assert!(matches!(
         env.validator()
             .client()
@@ -347,12 +338,8 @@ fn test_simple_yield_timeout() {
         );
     }
 
-    // In this block the timeout is processed, producing a YieldResume receipt.
-    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-        env.validator_runner().run_until_executed_height(YIELD_TIMEOUT_HEIGHT);
-    } else {
-        env.validator_runner().run_until_head_height(YIELD_TIMEOUT_HEIGHT);
-    }
+    // When this block executes, the timeout is processed, producing a YieldResume receipt.
+    env.validator_runner().run_until_executed_height(YIELD_TIMEOUT_HEIGHT);
     // Checks that the anticipated YieldResume receipt was produced.
     assert_eq!(find_yield_data_ids_from_latest_block(&env), vec![data_id]);
     assert_eq!(
@@ -365,12 +352,8 @@ fn test_simple_yield_timeout() {
         FinalExecutionStatus::Started
     );
 
-    // In this block the resume receipt is applied and the callback will execute.
-    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-        env.validator_runner().run_until_executed_height(YIELD_TIMEOUT_HEIGHT + 1);
-    } else {
-        env.validator_runner().run_until_head_height(YIELD_TIMEOUT_HEIGHT + 1);
-    }
+    // When this block executes, the resume receipt is applied and the callback will execute.
+    env.validator_runner().run_until_executed_height(YIELD_TIMEOUT_HEIGHT + 1);
     assert_eq!(
         env.validator()
             .client()
@@ -461,12 +444,8 @@ fn test_yield_resume_just_before_timeout() {
         );
     }
 
-    // In this block the `yield_resume` host function is invoked, producing a YieldResume receipt.
-    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-        env.validator_runner().run_until_executed_height(YIELD_TIMEOUT_HEIGHT);
-    } else {
-        env.validator_runner().run_until_head_height(YIELD_TIMEOUT_HEIGHT);
-    }
+    // When this block executes `yield_resume` host function is invoked, producing a YieldResume receipt.
+    env.validator_runner().run_until_executed_height(YIELD_TIMEOUT_HEIGHT);
     assert_eq!(
         env.validator()
             .client()
@@ -479,12 +458,8 @@ fn test_yield_resume_just_before_timeout() {
     // Here we expect two receipts to be produced; one from yield_resume and one from timeout.
     assert_eq!(find_yield_data_ids_from_latest_block(&env), vec![data_id, data_id]);
 
-    // In this block the resume receipt is applied and the callback is executed with the resume payload.
-    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-        env.validator_runner().run_until_executed_height(YIELD_TIMEOUT_HEIGHT + 1);
-    } else {
-        env.validator_runner().run_until_head_height(YIELD_TIMEOUT_HEIGHT + 1);
-    }
+    // When this block executes, the resume receipt is applied and the callback is executed with the resume payload.
+    env.validator_runner().run_until_executed_height(YIELD_TIMEOUT_HEIGHT + 1);
     assert_eq!(
         env.validator()
             .client()
@@ -591,9 +566,8 @@ fn test_skip_timeout_height() {
     env.validator_runner()
         .run_until_head_height_with_timeout(YIELD_TIMEOUT_HEIGHT + 1, Duration::seconds(3));
     assert_eq!(env.validator().head().height, YIELD_TIMEOUT_HEIGHT + 1);
-    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-        env.validator_runner().run_until_executed_height(YIELD_TIMEOUT_HEIGHT + 1);
-    }
+    // In spice, this waits for the specified block to execute.
+    env.validator_runner().run_until_executed_height(YIELD_TIMEOUT_HEIGHT + 1);
     // The block at YIELD_TIMEOUT_HEIGHT should be missing.
     assert_matches!(
         env.validator().client().chain.get_block_by_height(YIELD_TIMEOUT_HEIGHT),
@@ -612,12 +586,8 @@ fn test_skip_timeout_height() {
         FinalExecutionStatus::Started
     );
 
-    // In this block the resume receipt is applied and the callback will execute.
-    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-        env.validator_runner().run_until_executed_height(YIELD_TIMEOUT_HEIGHT + 2);
-    } else {
-        env.validator_runner().run_until_head_height(YIELD_TIMEOUT_HEIGHT + 2);
-    }
+    // When this block executes, the resume receipt is applied and the callback will execute.
+    env.validator_runner().run_until_executed_height(YIELD_TIMEOUT_HEIGHT + 2);
     assert_eq!(
         env.validator()
             .client()
@@ -667,23 +637,14 @@ fn test_yield_timeout_resume_receipt_has_receipt_to_tx() {
         env.validator_runner().run_until_head_height(block_height);
     }
 
-    // In this block the timeout fires, producing a PromiseResume receipt.
-    // With spice, we must wait for execution to complete before querying results.
-    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-        env.validator_runner().run_until_executed_height(YIELD_TIMEOUT_HEIGHT);
-    } else {
-        env.validator_runner().run_until_head_height(YIELD_TIMEOUT_HEIGHT);
-    }
+    // When this block executes, the timeout fires, producing a PromiseResume receipt.
+    env.validator_runner().run_until_executed_height(YIELD_TIMEOUT_HEIGHT);
     let resume_receipt_ids = find_promise_resume_receipt_ids_from_latest_block(&env);
     assert_eq!(resume_receipt_ids.len(), 1, "expected exactly one PromiseResume receipt");
     let resume_receipt_id = resume_receipt_ids[0];
 
-    // In this block the resume receipt is applied and the callback executes.
-    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-        env.validator_runner().run_until_executed_height(YIELD_TIMEOUT_HEIGHT + 1);
-    } else {
-        env.validator_runner().run_until_head_height(YIELD_TIMEOUT_HEIGHT + 1);
-    }
+    // When this block executes, the resume receipt is applied and the callback executes.
+    env.validator_runner().run_until_executed_height(YIELD_TIMEOUT_HEIGHT + 1);
     assert_eq!(
         env.validator()
             .client()
