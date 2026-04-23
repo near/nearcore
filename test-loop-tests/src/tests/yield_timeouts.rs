@@ -66,9 +66,9 @@ fn find_yield_data_ids_from_latest_block(env: &TestLoopEnv) -> Vec<CryptoHash> {
 pub(crate) fn get_yield_data_ids_in_latest_state(env: &TestLoopEnv) -> Vec<CryptoHash> {
     let node = env.validator();
     let client = node.client();
-    let head = client.chain.head().unwrap();
-    let block_hash = head.last_block_hash;
-    let epoch_id = head.epoch_id;
+    let last_executed = node.last_executed();
+    let block_hash = last_executed.last_block_hash;
+    let epoch_id = last_executed.epoch_id;
     let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
     let shard_uid = shard_layout.account_id_to_shard_uid(&"test0".parse::<AccountId>().unwrap());
 
@@ -266,7 +266,7 @@ fn prepare_env_with_yield(
     };
     assert_eq!(yield_data_ids.len(), 1);
 
-    let last_block_height = env.validator().head().height;
+    let last_block_height = env.validator().last_executed().height;
     assert_eq!(NEXT_BLOCK_HEIGHT_AFTER_SETUP, last_block_height + 1);
 
     (env, yield_tx_hash, yield_data_ids[0])
