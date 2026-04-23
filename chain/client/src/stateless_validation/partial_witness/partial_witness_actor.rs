@@ -7,8 +7,9 @@ use crate::stateless_validation::chunk_validation_actor::ChunkValidationSenderFo
 use crate::stateless_validation::contracts_cache_contains_contract;
 use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
 use crate::stateless_validation::validate::{
-    ChunkRelevance, validate_chunk_contract_accesses, validate_contract_code_request,
-    validate_partial_encoded_contract_deploys, validate_partial_encoded_state_witness,
+    ChunkRelevance, validate_chunk_contract_accesses, validate_chunk_relevant_as_validator,
+    validate_contract_code_request, validate_partial_encoded_contract_deploys,
+    validate_partial_encoded_state_witness,
 };
 use itertools::Itertools;
 use lru::LruCache;
@@ -135,13 +136,49 @@ impl PendingV2WitnessCache {
         }
     }
 
+    // Kept for tests that exercise LRU eviction semantics; production uses
+    // `drain_all` on every block notification.
+    #[cfg(test)]
     fn drain(&mut self, prev_block_hash: &CryptoHash) -> Vec<PendingV2WitnessEntry> {
         self.entries.pop(prev_block_hash).unwrap_or_default()
+    }
+
+    /// Remove and return every entry across every bucket. Used by the
+    /// scan-on-notification replay path: the cache is always a small LRU,
+    /// so draining everything and selectively re-inserting transient
+    /// entries is cheaper than per-bucket walks and keeps the interface
+    /// simple.
+    fn drain_all(&mut self) -> Vec<(CryptoHash, PendingV2WitnessEntry)> {
+        let mut out = Vec::new();
+        while let Some((hash, entries)) = self.entries.pop_lru() {
+            for entry in entries {
+                out.push((hash, entry));
+            }
+        }
+        out
     }
 
     fn len(&self) -> usize {
         self.entries.len()
     }
+}
+
+/// Outcome of the synchronous pre-check run on the actor thread before
+/// dispatching a deferred V2 witness to the spawner-side validate/store path.
+/// Decides whether the witness can make progress right now (`Ready`),
+/// should be held in the cache pending a future notification (`Requeue`),
+/// or is permanently non-relevant and can be dropped (`Retire`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReplayDisposition {
+    /// Pre-checks passed; dispatch through the normal handler path.
+    Ready,
+    /// Transient condition blocking progress (signer unavailable, prev block
+    /// not yet known, relevance-window mismatch). Keep the witness cached;
+    /// the next block notification will re-classify it.
+    Requeue,
+    /// Permanently irrelevant (past final head, not a chunk validator for
+    /// this chunk, malformed data). Drop the witness.
+    Retire,
 }
 
 pub struct PartialWitnessActor {
@@ -702,44 +739,135 @@ impl PartialWitnessActor {
         metrics::PARTIAL_WITNESS_PENDING_CACHE_SIZE.set(cache.len() as i64);
     }
 
-    /// Drain and replay any V2 witnesses deferred on this block's hash.
-    /// Dispatches per entry based on origin: init-emit entries re-enter
-    /// `handle_partial_encoded_state_witness` (which forwards to peers);
-    /// forward entries bypass re-forwarding via `replay_forwarded_partial_witness`
-    /// to avoid O(n²) amplification — every other chunk validator also
-    /// received the original forward.
-    fn handle_block_notification(&self, block_hash: &CryptoHash) {
-        let pending = {
-            let mut cache = self.pending_v2_witnesses.lock();
-            let pending = cache.drain(block_hash);
-            metrics::PARTIAL_WITNESS_PENDING_CACHE_SIZE.set(cache.len() as i64);
-            pending
+    /// Classify a deferred V2 witness on the actor thread before dispatching
+    /// it to the spawner-side validate + store path. Runs only the cheap
+    /// checks that rule out transient or terminal conditions: signer
+    /// availability, chunk relevance (`HEAD` / `FINAL_HEAD` window, epoch
+    /// admissibility), `ensure_chunk_validator`, and V2 producer-DB
+    /// resolvability. Does not perform signature verification — that stays
+    /// on the spawner.
+    ///
+    /// Transient outcomes (`TooEarly`, `UnknownEpochId`, `MissingBlock`,
+    /// `ChunkProducerNotInDB`, signer unavailable) return `Requeue`; the
+    /// caller keeps the witness cached for the next block notification.
+    /// Terminal outcomes (`TooLate`, `NotAChunkValidator`, other hard
+    /// validation errors) return `Retire`; the caller drops the witness.
+    fn pre_check_replay(&self, witness: &VersionedPartialEncodedStateWitness) -> ReplayDisposition {
+        let Some(signer) = self.signer_for_replay() else {
+            return ReplayDisposition::Requeue;
         };
-        if pending.is_empty() {
+        let validator_account_id = signer.validator_id().clone();
+        drop(signer);
+
+        match validate_chunk_relevant_as_validator(
+            self.epoch_manager.as_ref(),
+            &witness.chunk_production_key(),
+            &validator_account_id,
+            self.runtime.store(),
+        ) {
+            Ok(ChunkRelevance::Relevant) => {}
+            Ok(ChunkRelevance::TooLate) => return ReplayDisposition::Retire,
+            Ok(ChunkRelevance::TooEarly | ChunkRelevance::UnknownEpochId) => {
+                return ReplayDisposition::Requeue;
+            }
+            Err(Error::DBNotFoundErr(_)) => return ReplayDisposition::Requeue,
+            Err(Error::NotAChunkValidator) => return ReplayDisposition::Retire,
+            // Anything else (bad shard, malformed, other epoch-manager failure)
+            // is not going to become valid by waiting. Retire, don't requeue.
+            Err(_) => return ReplayDisposition::Retire,
+        }
+
+        // For V2, also verify the prev-block-backed producer lookup would
+        // succeed now. If it still can't resolve, the witness is waiting on
+        // header sync / block processing; keep it cached.
+        if let VersionedPartialEncodedStateWitness::V2(v2) = witness {
+            let shard_id = witness.chunk_production_key().shard_id;
+            match self.epoch_manager.get_chunk_producer_info_db(v2.prev_block_hash(), shard_id) {
+                Ok(_) => {}
+                Err(EpochError::MissingBlock(_) | EpochError::ChunkProducerNotInDB(_, _)) => {
+                    return ReplayDisposition::Requeue;
+                }
+                Err(_) => return ReplayDisposition::Retire,
+            }
+        }
+
+        ReplayDisposition::Ready
+    }
+
+    /// Scan all deferred V2 witnesses on every block notification and
+    /// re-classify each via `pre_check_replay`. Transient entries are
+    /// re-inserted into the cache; terminal entries are dropped; ready
+    /// entries are dispatched through the existing init-emit /
+    /// forwarded-replay paths.
+    ///
+    /// The scan ignores the incoming `block_hash` because the relevant
+    /// trigger is that HEAD / FINAL_HEAD may have advanced, not that any
+    /// particular `prev_block_hash` bucket was just populated. Keying the
+    /// replay on block-hash matches (the original design) lost witnesses
+    /// that stayed `TooEarly` / `UnknownEpochId` across a block
+    /// notification — with no retransmission path, each validator owns
+    /// one unique RS part, and correlated losses across syncing validators
+    /// can exhaust the Reed-Solomon parity budget.
+    fn handle_block_notification(&self, _block_hash: &CryptoHash) {
+        let all_entries = {
+            let mut cache = self.pending_v2_witnesses.lock();
+            let entries = cache.drain_all();
+            metrics::PARTIAL_WITNESS_PENDING_CACHE_SIZE.set(0);
+            entries
+        };
+        if all_entries.is_empty() {
             return;
         }
-        tracing::debug!(
-            target: "client",
-            ?block_hash,
-            count = pending.len(),
-            "replaying deferred V2 partial witnesses",
-        );
-        for entry in pending {
-            let PendingV2WitnessEntry { witness, origin } = entry;
-            match origin {
-                DeferOrigin::Forwarded => self.replay_forwarded_partial_witness(witness),
-                DeferOrigin::InitEmit => {
-                    if let Err(err) = self.handle_partial_encoded_state_witness(witness) {
-                        tracing::warn!(
-                            target: "client",
-                            ?err,
-                            ?block_hash,
-                            "failed to replay deferred V2 partial witness",
-                        );
+
+        let total = all_entries.len();
+        let mut to_requeue: Vec<(CryptoHash, PendingV2WitnessEntry)> = Vec::new();
+        let mut dispatched = 0usize;
+        let mut retired = 0usize;
+
+        for (prev_block_hash, entry) in all_entries {
+            match self.pre_check_replay(&entry.witness) {
+                ReplayDisposition::Ready => {
+                    dispatched += 1;
+                    let PendingV2WitnessEntry { witness, origin } = entry;
+                    match origin {
+                        DeferOrigin::Forwarded => self.replay_forwarded_partial_witness(witness),
+                        DeferOrigin::InitEmit => {
+                            if let Err(err) = self.handle_partial_encoded_state_witness(witness) {
+                                tracing::warn!(
+                                    target: "client",
+                                    ?err,
+                                    "failed to dispatch ready deferred V2 partial witness",
+                                );
+                            }
+                        }
                     }
+                }
+                ReplayDisposition::Requeue => {
+                    to_requeue.push((prev_block_hash, entry));
+                }
+                ReplayDisposition::Retire => {
+                    retired += 1;
                 }
             }
         }
+
+        let requeued = to_requeue.len();
+        if !to_requeue.is_empty() {
+            let mut cache = self.pending_v2_witnesses.lock();
+            for (hash, entry) in to_requeue {
+                cache.insert(hash, entry.witness, entry.origin);
+            }
+            metrics::PARTIAL_WITNESS_PENDING_CACHE_SIZE.set(cache.len() as i64);
+        }
+
+        tracing::debug!(
+            target: "client",
+            total,
+            dispatched,
+            requeued,
+            retired,
+            "processed deferred V2 partial witnesses on block notification",
+        );
     }
 
     /// Validate and store a replayed V2 witness that originally arrived as
@@ -1426,5 +1554,55 @@ mod tests {
         assert!(v1.prev_block_hash().is_none(), "V1 witness must not carry prev_block_hash");
         let v2 = make_witness(&signer, block, post_kickout_version());
         assert_eq!(v2.prev_block_hash(), Some(&block));
+    }
+
+    /// `drain_all` is the scan-on-notification replay primitive. It must
+    /// return every entry across every bucket (preserving the
+    /// `prev_block_hash` key so the caller can re-insert transient ones),
+    /// and leave the cache empty.
+    #[test]
+    fn drain_all_returns_every_entry_and_empties_cache() {
+        let signer = create_test_signer("test_account");
+        let block_a = CryptoHash::hash_bytes(b"drain_all_a");
+        let block_b = CryptoHash::hash_bytes(b"drain_all_b");
+        let mut cache = PendingV2WitnessCache::new();
+
+        cache.insert(
+            block_a,
+            make_witness(&signer, block_a, post_kickout_version()),
+            DeferOrigin::InitEmit,
+        );
+        cache.insert(
+            block_a,
+            make_witness(&signer, block_a, post_kickout_version()),
+            DeferOrigin::Forwarded,
+        );
+        cache.insert(
+            block_b,
+            make_witness(&signer, block_b, post_kickout_version()),
+            DeferOrigin::InitEmit,
+        );
+        assert_eq!(cache.len(), 2);
+
+        let drained = cache.drain_all();
+        assert_eq!(drained.len(), 3, "every entry across both buckets returned");
+        assert_eq!(cache.len(), 0, "cache empty after drain_all");
+
+        // Both origin variants survived the drain.
+        assert!(drained.iter().any(|(_, e)| e.origin == DeferOrigin::InitEmit));
+        assert!(drained.iter().any(|(_, e)| e.origin == DeferOrigin::Forwarded));
+
+        // Each entry is paired with its source prev_block_hash — required by
+        // the scan-on-notification caller to re-insert transient entries.
+        for (hash, entry) in &drained {
+            assert_eq!(
+                entry.witness.prev_block_hash(),
+                Some(hash),
+                "drained entry's prev_block_hash must match its bucket key",
+            );
+        }
+
+        // Draining an already-empty cache is safe and returns nothing.
+        assert!(cache.drain_all().is_empty());
     }
 }

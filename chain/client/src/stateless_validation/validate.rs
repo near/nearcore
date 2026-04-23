@@ -256,7 +256,7 @@ pub fn validate_contract_code_request(
     Ok(ChunkRelevance::Relevant)
 }
 
-fn validate_chunk_relevant_as_validator(
+pub fn validate_chunk_relevant_as_validator(
     epoch_manager: &dyn EpochManagerAdapter,
     chunk: &ChunkProductionKey,
     validator_account_id: &AccountId,
