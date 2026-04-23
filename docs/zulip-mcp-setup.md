@@ -48,6 +48,10 @@ security add-generic-password -s zulip-mcp -a you@nearone.org -w
 Paste your API key at the prompt (it won't echo). The key is now in your login
 keychain; it will not appear in any file on disk.
 
+**Important:** also do the [Keychain ACL hardening](#required-require-confirmation-on-keychain-access)
+below. Without it, the entry is silently readable by any process running as
+your user — no safer than a chmod-600 file.
+
 ### 3. Create `.env` (no secrets)
 
 ```bash
@@ -137,11 +141,14 @@ stop Claude from calling them:
 }
 ```
 
-## Optional: require confirmation on Keychain access
+## Required: require confirmation on Keychain access
 
-By default, any process running as your user can read the `zulip-mcp` Keychain
-entry silently (including Claude Code if you run it natively on macOS). To
-require a TouchID / password prompt on every read:
+By default the `zulip-mcp` Keychain entry is silently readable by any process
+running as your user (including Claude Code if you run it natively on macOS).
+That makes the Keychain no safer than a chmod-600 file in your home directory —
+the TouchID / password prompt below is what actually buys you protection over
+storing the token in a file. Skip this and you've spent the Keychain's
+ergonomics for none of its security:
 
 1. Open Keychain Access — it's tucked away on Sequoia+:
    ```bash
@@ -228,6 +235,7 @@ Confirm with `claude mcp list`.
 - Use a **dedicated bot key** so rotation is cheap and blast radius is
   bounded to streams the bot is subscribed to.
 - Keep the **write-tool allowlist** above to prevent accidental sends.
-- On Keychain, optionally turn on **Confirm before allowing access** (see
-  section above) — raises the bar for silent reads, at the cost of prompts
-  on every `./start.sh`.
+- Lock down the Keychain entry with **Confirm before allowing access** (see
+  required section above). Without it the Keychain adds nothing over a file,
+  since any user-owned process can read it silently. The trade-off is a
+  TouchID/password prompt on every `./start.sh`.
