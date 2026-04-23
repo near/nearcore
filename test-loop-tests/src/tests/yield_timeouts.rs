@@ -31,7 +31,7 @@ const NEXT_BLOCK_HEIGHT_AFTER_SETUP: u64 = 5;
 // producing a YieldResume receipt.
 const YIELD_TIMEOUT_HEIGHT: u64 = YIELD_CREATE_HEIGHT + TEST_CONFIG_YIELD_TIMEOUT_LENGTH;
 
-/// Helper function which checks the outgoing receipts from the latest block.
+/// Helper function which checks the outgoing receipts from the latest executed block.
 /// Returns yield data ids for all PromiseYield and PromiseResume receipts.
 fn find_yield_data_ids_from_latest_block(env: &TestLoopEnv) -> Vec<CryptoHash> {
     let node = env.validator();
@@ -40,8 +40,9 @@ fn find_yield_data_ids_from_latest_block(env: &TestLoopEnv) -> Vec<CryptoHash> {
     let epoch_id = *genesis_block.header().epoch_id();
     let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
     let shard_id = shard_layout.account_id_to_shard_id(&"test0".parse::<AccountId>().unwrap());
-    let last_block_hash = client.chain.head().unwrap().last_block_hash;
-    let last_block_height = client.chain.head().unwrap().height;
+    let last_executed = node.last_executed();
+    let last_block_hash = last_executed.last_block_hash;
+    let last_block_height = last_executed.height;
 
     let mut result = vec![];
 
@@ -630,7 +631,7 @@ fn test_skip_timeout_height() {
     assert_no_promise_yield_status_in_state(&env);
 }
 
-/// Helper: finds PromiseResume receipt IDs from the outgoing receipts at the latest block.
+/// Helper: finds PromiseResume receipt IDs from the outgoing receipts at the latest executed block.
 fn find_promise_resume_receipt_ids_from_latest_block(env: &TestLoopEnv) -> Vec<CryptoHash> {
     let node = env.validator();
     let client = node.client();
@@ -638,8 +639,9 @@ fn find_promise_resume_receipt_ids_from_latest_block(env: &TestLoopEnv) -> Vec<C
     let epoch_id = *genesis_block.header().epoch_id();
     let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
     let shard_id = shard_layout.account_id_to_shard_id(&"test0".parse::<AccountId>().unwrap());
-    let last_block_hash = client.chain.head().unwrap().last_block_hash;
-    let last_block_height = client.chain.head().unwrap().height;
+    let last_executed = node.last_executed();
+    let last_block_hash = last_executed.last_block_hash;
+    let last_block_height = last_executed.height;
 
     let mut result = vec![];
     for receipt in client
