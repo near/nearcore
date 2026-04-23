@@ -65,6 +65,8 @@ pub enum CloudArchivalInitializationError {
     UpdateError { error: CloudArchivingError },
     #[error("Error when retrieving from cloud archival during initialization: {error}")]
     RetrievalError { error: CloudRetrievalError },
+    #[error("batch_size ({batch_size}) must be < epoch_length ({epoch_length})")]
+    InvalidBatchSize { batch_size: u64, epoch_length: u64 },
 }
 
 impl From<std::io::Error> for CloudArchivalInitializationError {
@@ -424,7 +426,7 @@ impl CloudArchivalWriter {
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
     ) -> Result<(), CloudArchivalInitializationError> {
         self.cloud_storage.ensure_bucket_config().await?;
-        self.assert_batch_size_below_epoch_length()?;
+        self.check_batch_size_below_epoch_length()?;
         let hot_final_height = self.get_hot_final_head_height()?;
         // TODO(cloud_archival): support resharding
         let tracked_shard_ids = self.get_tracked_shard_ids(hot_final_height)?;
@@ -564,7 +566,7 @@ impl CloudArchivalWriter {
     /// a batch crosses at most one epoch boundary (the writer resolves
     /// `shard_layout` once from the batch's start). `batch_size == epoch_length`
     /// would satisfy this, but we keep a strict `<` as a defensive margin.
-    fn assert_batch_size_below_epoch_length(&self) -> Result<(), CloudArchivalInitializationError> {
+    fn check_batch_size_below_epoch_length(&self) -> Result<(), CloudArchivalInitializationError> {
         let height = self.get_hot_final_head_height()?;
         let block_hash = self.hot_store.chain_store().get_block_hash_by_height(height)?;
         let epoch_id = self
@@ -577,10 +579,12 @@ impl CloudArchivalWriter {
             .map_err(near_chain_primitives::Error::from)?
             .epoch_length;
         let batch_size = self.cloud_storage.batch_size() as u64;
-        assert!(
-            batch_size < epoch_length,
-            "batch_size ({batch_size}) must be < epoch_length ({epoch_length})",
-        );
+        if batch_size >= epoch_length {
+            return Err(CloudArchivalInitializationError::InvalidBatchSize {
+                batch_size,
+                epoch_length,
+            });
+        }
         Ok(())
     }
 
