@@ -613,15 +613,17 @@ pub unsafe fn p256_verify_32b_500() {
         184, 146, 59, 97, 250, 108, 230, 105, 98, 46, 96, 242, 159, 182,
     ];
 
-    // 32-byte message (all 0x07)
+    // 32-byte prehash (all 0x07). The host does not hash — per NEP-635 the
+    // caller supplies a prehashed digest — so this array is what gets signed
+    // and verified directly.
     let message: [u8; 32] = [7; 32];
 
-    // ECDSA signature (r || s, 64 bytes) over `message` using the above key.
+    // ECDSA signature (r || s, 64 bytes) over the prehash using the above key.
     let signature: [u8; 64] = [
-        17, 132, 253, 183, 29, 227, 67, 230, 123, 146, 104, 48, 119, 115, 205, 207, 181, 155,
-        202, 61, 112, 54, 186, 139, 38, 91, 136, 236, 108, 41, 63, 187, 146, 208, 118, 6, 188,
-        199, 222, 167, 51, 238, 177, 150, 114, 42, 134, 96, 20, 142, 18, 56, 236, 90, 141, 79,
-        37, 166, 192, 105, 219, 112, 212, 207,
+        17, 55, 25, 23, 171, 17, 204, 202, 8, 236, 116, 68, 216, 160, 93, 172, 108, 37, 59, 25,
+        207, 22, 60, 251, 117, 180, 8, 205, 210, 19, 79, 251, 80, 37, 55, 199, 202, 214, 102, 97,
+        212, 16, 80, 5, 254, 23, 162, 155, 94, 39, 255, 35, 168, 31, 146, 54, 165, 72, 178, 237,
+        166, 134, 29, 100,
     ];
 
     for _ in 0..500 {
@@ -642,10 +644,10 @@ pub unsafe fn p256_verify_32b_500() {
 /// Function to measure `p256_verify_byte`.
 #[unsafe(no_mangle)]
 pub unsafe fn p256_verify_16kib_64() {
-    // 16 KiB message. Every byte participates in verification — SHA-256 hashes
-    // the whole message before the curve math — so `p256_verify_byte` is
-    // priced to cover that linear message-dependent cost (host-side
-    // marshalling plus the hash itself).
+    // 16 KiB prehash input. The host does not hash, so the curve math only
+    // sees the leading field-bytes of the input after `bits2field`
+    // truncation; `p256_verify_byte` is priced to cover the host-side
+    // marshalling of every byte of the declared input length.
     let message = [b'a'; 16384];
 
     // Same key pair as p256_verify_32b_500.
@@ -654,12 +656,12 @@ pub unsafe fn p256_verify_16kib_64() {
         184, 146, 59, 97, 250, 108, 230, 105, 98, 46, 96, 242, 159, 182,
     ];
 
-    // Signature over the 16 KiB message using the same secret key.
+    // Signature over the 16 KiB prehash using the same secret key.
     let signature: [u8; 64] = [
-        244, 82, 38, 60, 140, 34, 239, 251, 245, 7, 113, 222, 224, 9, 20, 186, 140, 83, 208, 10,
-        184, 222, 51, 61, 96, 27, 127, 22, 221, 130, 84, 136, 159, 222, 96, 50, 142, 161, 131,
-        254, 145, 40, 210, 13, 73, 198, 47, 118, 91, 233, 77, 21, 244, 173, 178, 125, 52, 67,
-        212, 40, 249, 21, 182, 120,
+        19, 216, 85, 47, 78, 51, 197, 229, 248, 83, 63, 76, 66, 105, 230, 101, 15, 57, 161, 173,
+        167, 74, 125, 119, 137, 44, 200, 17, 110, 202, 129, 11, 43, 11, 18, 12, 185, 66, 191,
+        147, 75, 162, 163, 237, 197, 169, 172, 178, 92, 201, 144, 78, 232, 171, 46, 74, 221, 11,
+        63, 51, 73, 241, 78, 180,
     ];
 
     for _ in 0..64 {

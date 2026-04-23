@@ -1822,12 +1822,16 @@ pub fn ed25519_verify(
     }
 }
 
-/// Verify a P-256 ECDSA signature given a message and a public key.
+/// Verify a P-256 ECDSA signature given a prehashed message and a public key.
 ///
-/// The signature must be 64 bytes, encoded as `r || s`. The public key must be
-/// a 33-byte compressed SEC1 encoding.
+/// The signature must be 64 bytes, encoded as `r || s`. The public key must
+/// be a 33-byte compressed SEC1 encoding. Per [NEP-635], this host function
+/// does not hash the message: the caller is responsible for applying the
+/// appropriate protocol (for example SHA-256 for WebAuthn) before calling.
 ///
 /// Returns a bool indicating success (1) or failure (0) as a `u64`.
+///
+/// [NEP-635]: https://github.com/near/NEPs/pull/635
 ///
 /// # Errors
 ///
@@ -1859,7 +1863,7 @@ pub fn p256_verify(
     public_key_len: u64,
     public_key_ptr: u64,
 ) -> Result<u64> {
-    use p256::ecdsa::signature::Verifier;
+    use p256::ecdsa::signature::hazmat::PrehashVerifier;
     use p256::ecdsa::{Signature, VerifyingKey};
 
     ctx.result_state.gas_counter.pay_base(p256_verify_base)?;
@@ -1911,7 +1915,7 @@ pub fn p256_verify(
         }
     };
 
-    match public_key.verify(&message, &signature) {
+    match public_key.verify_prehash(&message, &signature) {
         Err(_) => Ok(false as u64),
         Ok(()) => Ok(true as u64),
     }

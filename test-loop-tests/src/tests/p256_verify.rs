@@ -7,7 +7,7 @@ use near_primitives::errors::{ActionError, ActionErrorKind, TxExecutionError};
 use near_primitives::gas::Gas;
 use near_primitives::types::Balance;
 use near_primitives::views::FinalExecutionStatus;
-use p256::ecdsa::{Signature, SigningKey, VerifyingKey, signature::Signer};
+use p256::ecdsa::{Signature, SigningKey, VerifyingKey, signature::hazmat::PrehashSigner};
 
 /// Build a WASM contract that imports `env.p256_verify`, bakes the supplied
 /// `signature || public_key || message` into linear memory at fixed offsets,
@@ -68,8 +68,8 @@ fn p256_verify_wasm(signature: &[u8], public_key: &[u8], message: &[u8]) -> Vec<
 }
 
 /// Deterministic signing key (shared with the vm-runner unit tests). RustCrypto
-/// uses RFC6979, so `sign` on the same key+message always yields the same
-/// signature.
+/// uses RFC6979, so `sign_prehash` on the same key+prehash always yields the
+/// same signature.
 const DETERMINISTIC_SECRET: [u8; 32] = [
     0xc9, 0xaf, 0xa9, 0xd8, 0x45, 0xba, 0x75, 0x16, 0x6b, 0x5c, 0x21, 0x57, 0x67, 0xb1, 0xd6, 0x93,
     0x4e, 0x50, 0xc3, 0xdb, 0x36, 0xe8, 0x9b, 0x12, 0x7b, 0x8a, 0x62, 0x2b, 0x12, 0x0f, 0x67, 0x21,
@@ -77,7 +77,7 @@ const DETERMINISTIC_SECRET: [u8; 32] = [
 
 fn sign_and_keys(message: &[u8]) -> (Vec<u8>, Vec<u8>) {
     let signing_key = SigningKey::from_bytes(&DETERMINISTIC_SECRET.into()).unwrap();
-    let signature: Signature = signing_key.sign(message);
+    let signature: Signature = signing_key.sign_prehash(message).unwrap();
     let public_key = VerifyingKey::from(&signing_key).to_encoded_point(true).as_bytes().to_vec();
     (signature.to_vec(), public_key)
 }

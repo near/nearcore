@@ -7,6 +7,10 @@
 //! (33 bytes). These exist to catch regressions where the p256 crate or our
 //! wrapper changes behavior around edge-case signatures.
 //!
+//! The `_sha256_` suite signs `SHA-256(msg)`, and our host function expects a
+//! prehashed digest (NEP-635 leaves hashing to the caller), so the test helper
+//! feeds `SHA-256(msg)` into `p256_verify`.
+//!
 //! These tests cover the RustCrypto `p256` crate's behavior rather than our
 //! own code — we pass signatures through unchanged. In particular, `p256`
 //! accepts high-s signatures (FIPS 186-5 compliant; low-s enforcement is a
@@ -14,24 +18,26 @@
 //! be protocol-breaking. See `test_p256_verify_wycheproof_high_s_accepted`.
 
 use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
+use sha2::{Digest, Sha256};
 
 fn run_wycheproof(pubkey_hex: &str, msg_hex: &str, sig_hex: &str, expected: u64) {
     let signature = hex::decode(sig_hex).expect("bad sig hex");
     let message = hex::decode(msg_hex).expect("bad msg hex");
+    let prehash = Sha256::digest(&message).to_vec();
     let public_key = hex::decode(pubkey_hex).expect("bad pk hex");
 
     let mut builder = VMLogicBuilder::default();
     let mut logic = builder.build();
 
     let sig_ptr = logic.internal_mem_write(&signature).ptr;
-    let msg_ptr = logic.internal_mem_write(&message).ptr;
+    let msg_ptr = logic.internal_mem_write(&prehash).ptr;
     let pk_ptr = logic.internal_mem_write(&public_key).ptr;
 
     let result = logic
         .p256_verify(
             signature.len() as u64,
             sig_ptr,
-            message.len() as u64,
+            prehash.len() as u64,
             msg_ptr,
             public_key.len() as u64,
             pk_ptr,

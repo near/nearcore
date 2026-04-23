@@ -16,7 +16,7 @@ use crate::runner::VMKindExt;
 use crate::tests::{create_context, test_vm_config, with_vm_variants};
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::VMKind;
-use p256::ecdsa::{Signature, SigningKey, VerifyingKey, signature::Signer};
+use p256::ecdsa::{Signature, SigningKey, VerifyingKey, signature::hazmat::PrehashSigner};
 use std::cell::RefCell;
 use std::sync::Arc;
 
@@ -92,7 +92,7 @@ fn make_signing_key() -> SigningKey {
 
 fn sign_and_keys(message: &[u8; 32]) -> (Vec<u8>, Vec<u8>) {
     let signing_key = make_signing_key();
-    let signature: Signature = signing_key.sign(message);
+    let signature: Signature = signing_key.sign_prehash(message).unwrap();
     let signature_bytes = signature.to_vec();
     let public_key = VerifyingKey::from(&signing_key).to_encoded_point(true).as_bytes().to_vec();
     (signature_bytes, public_key)
