@@ -97,7 +97,7 @@ impl Inner {
             EdgeState::Removed => self.graph.remove_edge(&key.0, &key.1),
         }
         // Pin edges to their original introducing source. We intentionally
-        // don't reattribute on nonce updates so that an attacker cannot recycle
+        // don't reassign attribution on nonce updates so that an attacker cannot recycle
         // budget across multiple colluding peers by replaying edges with bumped
         // nonces from a fresh source.
         if is_new_key {
