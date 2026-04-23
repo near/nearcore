@@ -2,11 +2,17 @@ name: PR Title
 
 on:
   pull_request:
-    types: [opened, edited, synchronize, reopened]
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed, edited]
   merge_group:
+
+permissions:
+  pull-requests: read
 
 jobs:
   check-pr-title:
+    if: ${{ github.event_name != 'pull_request_review' }}
     name: "PR Title"
     runs-on: ubuntu-latest
     steps:
@@ -47,3 +53,70 @@ jobs:
           fi
 
           echo "PR title is valid: $PR_TITLE"
+
+  # TEMPORARY: mirror of external_pr_approvals.yml so the logic runs from this PR
+  # branch (pull_request_target only runs the default-branch copy). Remove before merging.
+  check-approvals-test:
+    name: "External PR Approvals (test)"
+    if: ${{ github.event_name != 'merge_group' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check required approvals
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const { owner, repo } = context.repo;
+
+            const internalPermissions = new Set(['admin', 'maintain', 'write']);
+            const permissionCache = new Map();
+            async function isInternal(login) {
+              if (permissionCache.has(login)) return permissionCache.get(login);
+              let permission = 'none';
+              try {
+                const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                  owner, repo, username: login,
+                });
+                permission = data.permission;
+              } catch (e) {
+                if (e.status !== 404) throw e;
+              }
+              const internal = internalPermissions.has(permission);
+              core.info(`  ${login}: permission=${permission} internal=${internal}`);
+              permissionCache.set(login, internal);
+              return internal;
+            }
+
+            core.info(`author:`);
+            if (await isInternal(pr.user.login)) {
+              core.info(`internal PR; branch protection handles approval count`);
+              return;
+            }
+
+            const required = 2;
+
+            const reviews = await github.paginate(github.rest.pulls.listReviews, {
+              owner, repo, pull_number: pr.number, per_page: 100,
+            });
+
+            const latestByUser = new Map();
+            for (const r of reviews) {
+              if (!r.user) continue;
+              if (r.commit_id !== pr.head.sha) continue;
+              if (!['APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'].includes(r.state)) continue;
+              latestByUser.set(r.user.login, r);
+            }
+
+            core.info(`reviewers:`);
+            let approvals = 0;
+            for (const [login, r] of latestByUser) {
+              if (r.state !== 'APPROVED') continue;
+              if (!(await isInternal(login))) continue;
+              approvals++;
+            }
+
+            core.info(`external PR by ${pr.user.login}: required=${required} internal-approvals=${approvals}`);
+
+            if (approvals < required) {
+              core.setFailed(`external PRs require ${required} approvals from internal reviewers on HEAD commit, have ${approvals}`);
+            }
