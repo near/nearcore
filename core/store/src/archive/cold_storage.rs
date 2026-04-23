@@ -413,12 +413,26 @@ pub fn get_cold_head(cold_db: &ColdDB) -> io::Result<Option<Tip>> {
 /// so `update_cold_db`'s `copy_state_from_store` copies nothing at genesis.
 /// Call this before the cold store loop processes genesis height.
 pub fn copy_state_to_cold(cold_db: &ColdDB, hot_store: &Store) -> io::Result<()> {
-    copy_from_store(
-        cold_db,
-        hot_store,
-        DBCol::State,
-        hot_store.iter(DBCol::State).map(|(k, _)| k.to_vec()).collect(),
-    )
+    const BATCH_SIZE_BYTES: usize = 500_000_000;
+
+    let _span = tracing::debug_span!(target: "cold_store", "copy_state_to_cold");
+    let mut transaction = DBTransaction::new();
+    let mut batch_bytes = 0;
+    for (key, value) in hot_store.iter(DBCol::State) {
+        metrics::COLD_MIGRATION_READS.with_label_values(&[<&str>::from(DBCol::State)]).inc();
+        batch_bytes += key.len() + value.len();
+        rc_aware_set(&mut transaction, DBCol::State, key.to_vec(), value.to_vec());
+        if batch_bytes >= BATCH_SIZE_BYTES {
+            let mut swap_tx = DBTransaction::new();
+            std::mem::swap(&mut swap_tx, &mut transaction);
+            cold_db.write(swap_tx);
+            batch_bytes = 0;
+        }
+    }
+    if !transaction.ops.is_empty() {
+        cold_db.write(transaction);
+    }
+    Ok(())
 }
 
 // The copy_state_from_store function depends on the state nodes to be present
