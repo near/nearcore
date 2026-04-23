@@ -28,9 +28,7 @@ impl BucketConfig {
     /// The bucket stores one copy of this; mismatches across writers are rejected.
     pub fn canonical() -> Self {
         // TODO(cloud_archival): Benchmark compression levels before releasing.
-        // TODO(cloud_archival): Bump batch_size once writer batches multiple
-        // heights per upload.
-        Self::V1(BucketConfigV1::new(3, 1))
+        Self::V1(BucketConfigV1::new(3, 32))
     }
 
     /// Test-only constructor that overrides `batch_size`. All other fields match `canonical()`.
