@@ -33,7 +33,10 @@ use std::collections::HashMap;
 pub(crate) struct ConnectedPeerState {
     pub peer_info: PeerInfo,
     /// Highest block we've heard of from this peer. `None` until the
-    /// first `Block` message arrives.
+    /// first `Block` message arrives. Distinct from `Connection::last_block`:
+    /// this is the business-logic view (updated by `handle_peer_message`),
+    /// independent of the TCP-transport layer. Allows routing decisions
+    /// to work without touching `Connection`.
     pub block_info: Option<BlockInfo>,
     pub tier: tcp::Tier,
     pub archival: bool,
@@ -78,13 +81,18 @@ impl ConnectedPeers {
 
     /// Insert a peer on registration. If the peer is T1 and has an
     /// `owned_account_key`, also populates the T1 secondary index.
+    ///
+    /// Lock order: `peers_for(tier)` then `tier1_by_account_key`. Matches
+    /// `remove` to keep the acquisition order consistent across methods.
+    /// Neither lock is held simultaneously (both use short-lived
+    /// `parking_lot::Mutex` guards bounded by statement lifetime).
     pub fn insert(&self, peer_id: PeerId, state: ConnectedPeerState) {
-        if state.tier == tcp::Tier::T1 {
-            if let Some(key) = state.owned_account_key.clone() {
-                self.tier1_by_account_key.lock().insert(key, peer_id.clone());
-            }
+        let account_key =
+            if state.tier == tcp::Tier::T1 { state.owned_account_key.clone() } else { None };
+        self.peers_for(state.tier).lock().insert(peer_id.clone(), state);
+        if let Some(key) = account_key {
+            self.tier1_by_account_key.lock().insert(key, peer_id);
         }
-        self.peers_for(state.tier).lock().insert(peer_id, state);
     }
 
     /// Remove a peer on disconnection. Returns the prior state so the
@@ -109,9 +117,12 @@ impl ConnectedPeers {
         Some(removed)
     }
 
-    /// Monotonic `block_info` update: applies only if `new.height` is
-    /// at least the peer's current recorded height. No-op if the peer
-    /// isn't connected on any tier.
+    /// Non-decreasing `block_info` update: applies if `new.height` is
+    /// at least the peer's current recorded height. Same-height updates
+    /// ARE applied — a peer can switch to a different fork at the same
+    /// height and we want to record the new hash. Strict regressions
+    /// (lower height) are dropped. No-op if the peer isn't connected
+    /// on any tier.
     pub fn update_block_info(&self, peer_id: &PeerId, new: BlockInfo) {
         for tier_map in [&self.tier1_peers, &self.tier2_peers, &self.tier3_peers] {
             let mut peers = tier_map.lock();
@@ -303,6 +314,25 @@ mod tests {
     }
 
     #[test]
+    fn update_block_info_same_height_updates_hash() {
+        // Same-height updates ARE applied — a peer can switch to a
+        // different fork at the same height.
+        let peers = ConnectedPeers::new();
+        let p = peer(11);
+        peers.insert(p.clone(), test_state(&p, tcp::Tier::T2, PeerType::Outbound, None));
+
+        let hash_a = CryptoHash::hash_bytes(b"fork_a");
+        let hash_b = CryptoHash::hash_bytes(b"fork_b");
+
+        peers.update_block_info(&p, BlockInfo { height: 10, hash: hash_a });
+        assert_eq!(peers.get(&p).unwrap().block_info, Some(BlockInfo { height: 10, hash: hash_a }));
+
+        // Same height, different hash — should update.
+        peers.update_block_info(&p, BlockInfo { height: 10, hash: hash_b });
+        assert_eq!(peers.get(&p).unwrap().block_info, Some(BlockInfo { height: 10, hash: hash_b }));
+    }
+
+    #[test]
     fn update_block_info_unknown_peer_is_noop() {
         let peers = ConnectedPeers::new();
         let p = peer(9);
@@ -322,5 +352,26 @@ mod tests {
         // Original state unaffected.
         assert!(peers.is_connected_on_tier(&p, tcp::Tier::T2));
         assert_eq!(peers.tier2().len(), 1);
+    }
+
+    #[test]
+    fn tier3_insert_remove_no_account_index() {
+        // T3 peers use `ConnectedPeers::insert`/`remove` exactly like
+        // T1/T2, but MUST NOT touch the T1 account-key index even if
+        // `owned_account_key` is set (T3 is an ad-hoc request tier).
+        let peers = ConnectedPeers::new();
+        let p = peer(12);
+        let k = key(105);
+        peers.insert(p.clone(), test_state(&p, tcp::Tier::T3, PeerType::Outbound, Some(k.clone())));
+
+        assert!(peers.is_connected_on_tier(&p, tcp::Tier::T3));
+        assert!(!peers.is_connected_on_tier(&p, tcp::Tier::T2));
+        assert_eq!(peers.tier3().len(), 1);
+        assert_eq!(peers.tier1_peer_for_account(&k), None);
+
+        peers.remove(tcp::Tier::T3, &p);
+        assert!(!peers.is_connected(&p));
+        assert_eq!(peers.tier3().len(), 0);
+        assert_eq!(peers.tier1_peer_for_account(&k), None);
     }
 }
