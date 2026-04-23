@@ -1,6 +1,6 @@
 use near_async::messaging::CanSend;
 use near_client::DistributeStateWitnessRequest;
-use near_client_primitives::types::{BlockHeaderProcessedMessage, BlockNotificationMessage};
+use near_client_primitives::types::BlockNotificationMessage;
 use parking_lot::RwLock;
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -18,10 +18,6 @@ impl CanSend<DistributeStateWitnessRequest> for MockPartialWitnessAdapter {
 
 impl CanSend<BlockNotificationMessage> for MockPartialWitnessAdapter {
     fn send(&self, _msg: BlockNotificationMessage) {}
-}
-
-impl CanSend<BlockHeaderProcessedMessage> for MockPartialWitnessAdapter {
-    fn send(&self, _msg: BlockHeaderProcessedMessage) {}
 }
 
 impl MockPartialWitnessAdapter {

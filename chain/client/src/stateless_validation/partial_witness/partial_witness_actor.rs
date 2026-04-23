@@ -19,7 +19,7 @@ use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::Error;
 use near_chain::types::RuntimeAdapter;
 use near_chain_configs::MutableValidatorSigner;
-use near_client_primitives::types::{BlockHeaderProcessedMessage, BlockNotificationMessage};
+use near_client_primitives::types::BlockNotificationMessage;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_network::state_witness::{
@@ -192,7 +192,6 @@ pub struct DistributeStateWitnessRequest {
 pub struct PartialWitnessSenderForClient {
     pub distribute_chunk_state_witness: Sender<DistributeStateWitnessRequest>,
     pub block_notification: Sender<BlockNotificationMessage>,
-    pub block_header_processed: Sender<BlockHeaderProcessedMessage>,
 }
 
 impl Handler<DistributeStateWitnessRequest> for PartialWitnessActor {
@@ -261,13 +260,6 @@ impl Handler<BlockNotificationMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: BlockNotificationMessage) {
         let BlockNotificationMessage { block } = msg;
         self.handle_block_notification(block.hash());
-    }
-}
-
-impl Handler<BlockHeaderProcessedMessage> for PartialWitnessActor {
-    fn handle(&mut self, msg: BlockHeaderProcessedMessage) {
-        let BlockHeaderProcessedMessage { block_hash } = msg;
-        self.handle_block_notification(&block_hash);
     }
 }
 
