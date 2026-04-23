@@ -66,6 +66,10 @@ fn test_config_duration_all_std() {
                     received_messages_rate_limits: Some(
                         near_network::MessagesLimitsOverrideConfig::default(),
                     ),
+                    routing_graph_max_edges_per_message: Some(50_000),
+                    routing_graph_max_edges_per_source: Some(50_000),
+                    routing_graph_max_peers: Some(100_000),
+                    routing_graph_max_edges: Some(1_000_000),
                 },
                 ..Default::default()
             },

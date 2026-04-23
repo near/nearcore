@@ -182,13 +182,15 @@ pub(crate) struct NetworkState {
 /// Self-connected edges are not allowed from remote peers.
 pub(crate) enum EdgesWithSource {
     Local(Vec<Edge>),
-    Remote(Vec<Edge>),
+    Remote { edges: Vec<Edge>, source: PeerId },
 }
 
 impl EdgesWithSource {
     pub(crate) fn is_empty(&self) -> bool {
         match self {
-            EdgesWithSource::Local(edges) | EdgesWithSource::Remote(edges) => edges.is_empty(),
+            EdgesWithSource::Local(edges) | EdgesWithSource::Remote { edges, .. } => {
+                edges.is_empty()
+            }
         }
     }
 }
@@ -218,6 +220,9 @@ impl NetworkState {
                     node_id: config.node_id(),
                     prune_unreachable_peers_after: PRUNE_UNREACHABLE_PEERS_AFTER,
                     prune_edges_after: Some(PRUNE_EDGES_AFTER),
+                    max_edges_per_source: config.routing_graph_max_edges_per_source,
+                    max_total_edges: config.routing_graph_max_edges,
+                    max_graph_peers: config.routing_graph_max_peers,
                 },
             ),
             genesis_id,

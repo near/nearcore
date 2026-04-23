@@ -1488,8 +1488,27 @@ impl PeerActor {
         conn: Arc<connection::Connection>,
         rtu: RoutingTableUpdate,
     ) {
-        if let Err(ban_reason) =
-            network_state.add_edges(&clock, EdgesWithSource::Remote(rtu.edges.clone())).await
+        // Ingress cap: check BEFORE dedup/verification to avoid wasted work.
+        let max_edges = network_state.config.routing_graph_max_edges_per_message;
+        if rtu.edges.len() > max_edges {
+            tracing::warn!(
+                target: "network",
+                peer_id = %conn.peer_info.id,
+                edges_count = rtu.edges.len(),
+                limit = max_edges,
+                "too many edges in SyncRoutingTable message, dropping edges"
+            );
+            metrics::EDGE_DROPPED.inc_by(rtu.edges.len() as u64);
+            // Don't process edges at all, but still process accounts below.
+        } else if let Err(ban_reason) = network_state
+            .add_edges(
+                &clock,
+                EdgesWithSource::Remote {
+                    edges: rtu.edges.clone(),
+                    source: conn.peer_info.id.clone(),
+                },
+            )
+            .await
         {
             conn.stop(Some(ban_reason));
         }
