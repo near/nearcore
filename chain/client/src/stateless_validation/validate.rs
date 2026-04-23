@@ -115,7 +115,8 @@ pub fn validate_partial_encoded_state_witness(
         }
         VersionedPartialEncodedStateWitness::V2(v2) => {
             let shard_id_label = shard_id.to_string();
-            match epoch_manager.get_chunk_producer_info_db(v2.prev_block_hash(), shard_id) {
+            let prev_block_hash = v2.prev_block_hash();
+            let info = match epoch_manager.get_chunk_producer_info_db(prev_block_hash, shard_id) {
                 Ok(info) => {
                     metrics::PARTIAL_WITNESS_DB_LOOKUP_TOTAL
                         .with_label_values(&[shard_id_label.as_str(), "hit"])
@@ -148,7 +149,27 @@ pub fn validate_partial_encoded_state_witness(
                         .inc();
                     return Err(err.into());
                 }
+            };
+            // Cross-check the signed chunk key against what `prev_block_hash`
+            // implies. The producer's signature authenticates all of (epoch_id,
+            // shard_id, height_created, prev_block_hash), but without this
+            // check an authenticated producer for `(prev_block, shard)` could
+            // sign a witness claiming any (epoch_id, height_created) and we
+            // would store/forward it under that forged key. `prev_block_hash`
+            // uniquely determines the chunk slot: the chunk at the next height
+            // in the epoch implied by the prev block. Both lookups are cheap —
+            // `prev_block_hash` is already known to the epoch manager (we just
+            // resolved the producer via it), so these should not fault.
+            let expected_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
+            let expected_height = epoch_manager.get_block_info(prev_block_hash)?.height() + 1;
+            if expected_epoch_id != epoch_id || expected_height != height_created {
+                return Err(Error::InvalidPartialChunkStateWitness(format!(
+                    "V2 witness chunk key mismatch: signed (epoch_id={:?}, height={}) does not \
+                     match prev_block_hash-implied (epoch_id={:?}, height={})",
+                    epoch_id, height_created, expected_epoch_id, expected_height,
+                )));
             }
+            info
         }
     };
     if !partial_witness.verify(chunk_producer.public_key()) {
