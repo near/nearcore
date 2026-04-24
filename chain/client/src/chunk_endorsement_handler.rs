@@ -7,8 +7,17 @@ use std::sync::Arc;
 
 impl Handler<ChunkEndorsementMessage> for ChunkEndorsementHandlerActor {
     fn handle(&mut self, msg: ChunkEndorsementMessage) {
-        if let Err(err) = self.chunk_endorsement_tracker.process_chunk_endorsement(msg.0) {
-            tracing::error!(target: "client", ?err, "error processing chunk endorsement");
+        let endorsement = msg.0;
+        let account_id = endorsement.account_id().clone();
+        let key = endorsement.chunk_production_key();
+        if let Err(err) = self.chunk_endorsement_tracker.process_chunk_endorsement(endorsement) {
+            tracing::error!(
+                target: "client",
+                ?err,
+                %account_id,
+                ?key,
+                "error processing chunk endorsement",
+            );
         }
     }
 }
