@@ -549,7 +549,7 @@ pub fn default_state_sync_external_backoff() -> Duration {
 }
 
 pub fn default_chunk_wait_mult() -> Rational32 {
-    Rational32::new(1, 6)
+    Rational32::new(1, 3)
 }
 
 pub fn default_header_sync_expected_height_per_second() -> u64 {
