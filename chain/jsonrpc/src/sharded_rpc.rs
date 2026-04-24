@@ -9,6 +9,7 @@ use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{AccountId, BlockHeight, BlockId, BlockReference, EpochId, ShardId};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
+use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr, UdpSocket};
 use std::sync::Arc;
 use url::Url;
@@ -79,6 +80,15 @@ pub enum RpcNodeHandle {
     RemoteNode(Arc<JsonRpcClient>),
     /// Handle the request locally.
     LocalNode,
+}
+
+/// A node assignment for scatter-gather: a node handle, its index in the pool,
+/// and the shards it has been assigned to serve.
+pub struct NodeRequestAssignment {
+    pub handle: RpcNodeHandle,
+    /// 0 for the local node, `i + 1` for `pool.nodes[i]`.
+    pub node_idx: usize,
+    pub assigned_shards: Vec<ShardId>,
 }
 
 /// A remote RPC node in the pool, along with the shards it tracks.
@@ -353,6 +363,72 @@ impl ShardedRpcPool {
                 None
             }
         }
+    }
+
+    /// Assigns groups of target shards to nodes, returning disjoint shard groups.
+    ///
+    /// Each shard in `target_shards` is assigned to exactly one node. Shards
+    /// assigned to the same node are grouped together so only one request is
+    /// needed per node.
+    ///
+    /// Prefers the local node (index 0) when it tracks a shard. Falls back to
+    /// the first non-excluded remote node. Returns Error if target_shards cannot be
+    /// covered by non-excluded nodes.
+    pub fn one_node_per_group_of_shard(
+        &self,
+        epoch_id: &EpochId,
+        target_shards: &HashSet<ShardId>,
+        exclude: &HashSet<usize>,
+    ) -> Result<Vec<NodeRequestAssignment>, RpcError> {
+        let mut node_groups: HashMap<usize, (RpcNodeHandle, Vec<ShardId>)> = HashMap::new();
+
+        for &shard_id in target_shards {
+            let (node_idx, handle) = self.pick_node_for_shard(shard_id, epoch_id, exclude)?;
+            node_groups.entry(node_idx).or_insert_with(|| (handle, Vec::new())).1.push(shard_id);
+        }
+
+        Ok(node_groups
+            .into_iter()
+            .map(|(node_idx, (handle, shards))| NodeRequestAssignment {
+                handle,
+                node_idx,
+                assigned_shards: shards,
+            })
+            .collect())
+    }
+
+    /// Pick the best node for a single shard: local if it tracks it, then
+    /// first non-excluded remote. Returns `Error` if all candidates are excluded.
+    fn pick_node_for_shard(
+        &self,
+        shard_id: ShardId,
+        epoch_id: &EpochId,
+        exclude: &HashSet<usize>,
+    ) -> Result<(usize, RpcNodeHandle), RpcError> {
+        // Prefer local node (index 0).
+        if !exclude.contains(&0) {
+            match self.shard_tracker.rpc_tracks_shard_at_epoch(shard_id, epoch_id) {
+                Ok(true) => return Ok((0, RpcNodeHandle::LocalNode)),
+                Ok(false) => {}
+                Err(EpochError::EpochOutOfBounds(_)) => return Ok((0, RpcNodeHandle::LocalNode)),
+                Err(e) => return Err(make_rpc_error(e)),
+            }
+        }
+
+        // Try remote nodes.
+        for (i, node) in self.nodes.iter().enumerate() {
+            let node_index = i + 1;
+            if exclude.contains(&node_index) {
+                continue;
+            }
+            if node.tracked_shards.contains(&shard_id) {
+                return Ok((node_index, RpcNodeHandle::RemoteNode(node.client.clone())));
+            }
+        }
+
+        // No non-excluded node available for this shard.
+        tracing::debug!(target: "jsonrpc", ?shard_id, ?epoch_id, "no available node found for shard");
+        Err(make_rpc_error("No available host for given shard."))
     }
 }
 

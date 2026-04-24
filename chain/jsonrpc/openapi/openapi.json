@@ -16393,6 +16393,32 @@
               "info"
             ],
             "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "shard_id": {
+                    "$ref": "#/components/schemas/ShardId"
+                  }
+                },
+                "required": [
+                  "shard_id"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "SHARD_NOT_APPLIED"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
           }
         ]
       },

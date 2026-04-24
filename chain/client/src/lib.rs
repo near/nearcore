@@ -20,7 +20,7 @@ pub use near_chain::stateless_validation::processing_tracker::{
 pub use near_client_primitives::debug::DebugStatus;
 pub use near_client_primitives::types::{
     Error, GetBlock, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree, GetChunk,
-    GetClientConfig, GetExecutionOutcome, GetExecutionOutcomeResponse,
+    GetChunkExtraExists, GetClientConfig, GetExecutionOutcome, GetExecutionOutcomeResponse,
     GetExecutionOutcomesForBlock, GetGasPrice, GetMaintenanceWindows, GetNetworkInfo,
     GetNextLightClientBlock, GetProcessedReceiptIds, GetProtocolConfig, GetReceipt, GetReceiptToTx,
     GetReceiptToTxResponse, GetShardChunk, GetSplitStorageInfo, GetStateChanges,
