@@ -16,8 +16,6 @@ use near_primitives::types::{AccountId, Balance};
 /// and loading memtrie failed because of missing `ChunkExtra` with desired
 /// state root.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_load_memtrie_after_empty_chunks() {
     init_test_logger();
     let builder = TestLoopBuilder::new();
