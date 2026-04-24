@@ -37,6 +37,14 @@ class TestReleaseCandidate(TestSetup):
         self.first_upgrade_delay_minutes = 45
         self.second_upgrade_delay_minutes = 75
 
+    def amend_epoch_config(self):
+        """
+        This is a workaround to set the protocol upgrade threshold to 1, so that the upgrade happens when all the **block producers** have upgraded.
+        This avoid the need to properly calculate the upgrade timeline based on the epoch length and the upgrade interval.
+        """
+        super().amend_epoch_config()
+        self._amend_epoch_config(f".protocol_upgrade_stake_threshold = [1,1]")
+
     def _upgrade_nodes_in_four_batches(self):
         """
         Upgrade the nodes in two steps, upgrade_delay_minutes apart.
