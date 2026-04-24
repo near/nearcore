@@ -141,6 +141,8 @@ pub(crate) fn resolve_chunk_producer_for_witness<L: ChunkProducerLookup + ?Sized
     }
 }
 
+// TODO: this cross-check becomes unnecessary once epoch_id/height_created are
+// removed from V2's inner (they'd be derived from prev_block_hash, not carried).
 fn check_cpk_matches_prev_block<L: ChunkProducerLookup + ?Sized>(
     lookup: &L,
     cpk: &ChunkProductionKey,

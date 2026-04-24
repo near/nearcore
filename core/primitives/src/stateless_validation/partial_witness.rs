@@ -198,6 +198,10 @@ impl PartialEncodedStateWitnessV2 {
 
 #[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct PartialEncodedStateWitnessInnerV2 {
+    // TODO: epoch_id and height_created are derivable from prev_block_hash and
+    // only needed for the MissingBlock -> CPK fallback (when a witness arrives
+    // before the parent block is processed). Remove both once the pending
+    // side-channel pool enables deferral of such witnesses.
     epoch_id: EpochId,
     shard_id: ShardId,
     height_created: BlockHeight,
