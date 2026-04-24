@@ -2722,6 +2722,13 @@
               "secs": 1
             },
             "description": "Interval at which the system checks for new blocks or chunks to archive."
+          },
+          "snapshot_every_n_epochs": {
+            "default": 10,
+            "description": "Cadence of state snapshots, in epochs. Higher values reduce bucket cost at\nthe expense of potentially longer delta replay during reader bootstrap.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
           }
         },
         "title": "CloudArchivalWriterConfig",
