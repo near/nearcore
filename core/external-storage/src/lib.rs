@@ -73,7 +73,7 @@ impl ExternalConnection {
                         );
                     }
                 }
-                ExternalConnection::S3 { bucket: Arc::new(*bucket.unwrap()) }
+                ExternalConnection::S3 { bucket: Arc::from(bucket.unwrap()) }
             }
             ExternalStorageLocation::Filesystem { root_dir } => {
                 ExternalConnection::Filesystem { root_dir: root_dir.clone() }
