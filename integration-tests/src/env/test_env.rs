@@ -444,7 +444,7 @@ impl TestEnv {
                         tracing::warn!(target: "test", %account_id, "client not found for account_id");
                         return None;
                     }
-                    let processing_result = self.client(&account_id).chunk_endorsement_tracker.process_chunk_endorsement(endorsement);
+                    let processing_result = self.client(&account_id).chunk_endorsement_tracker.process_chunk_endorsement(&endorsement);
                     if !allow_errors {
                         processing_result.unwrap();
                     }
