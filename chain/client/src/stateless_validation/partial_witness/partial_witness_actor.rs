@@ -49,7 +49,7 @@ use near_primitives::stateless_validation::stored_chunk_state_transition_data::S
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::utils::compression::CompressedData;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::{DBCol, StorageError, TrieDBStorage, TrieStorage};
 use near_vm_runner::ContractCode;
@@ -171,6 +171,27 @@ impl PendingV2WitnessCache {
 
     pub(super) fn len(&self) -> usize {
         self.entries.len()
+    }
+
+    /// Try to defer a witness into the pending cache. Returns `true` if
+    /// the witness was inserted (V2 with a `prev_block_hash`), `false`
+    /// if it was a V1 witness (which cannot be deferred). Updates the
+    /// gauge on success and logs a warning on V1.
+    pub(super) fn try_defer(
+        &mut self,
+        witness: VersionedPartialEncodedStateWitness,
+        origin: DeferOrigin,
+    ) -> bool {
+        let Some(prev_block_hash) = witness.prev_block_hash().copied() else {
+            tracing::warn!(
+                target: "client",
+                "DBNotFoundErr on V1 witness, unexpected",
+            );
+            return false;
+        };
+        self.insert(prev_block_hash, witness, origin);
+        metrics::PARTIAL_WITNESS_PENDING_CACHE_SIZE.set(self.len() as i64);
+        true
     }
 }
 
@@ -574,6 +595,17 @@ impl PartialWitnessActor {
             .with_label_values(&[shard_id.to_string().as_str(), partial_witness.version_label()])
             .inc();
 
+        if let VersionedPartialEncodedStateWitness::V2(_) = &partial_witness {
+            if !self.is_early_kickout_enabled(&epoch_id) {
+                tracing::debug!(
+                    target: "client",
+                    ?epoch_id,
+                    "dropping V2 partial witness: EarlyKickout not enabled",
+                );
+                return Ok(());
+            }
+        }
+
         // V1 witnesses resolve the chunk producer via the epoch-based sampler;
         // V2 witnesses carry `prev_block_hash` and use the DB-backed hash
         // lookup. Two defer conditions for V2:
@@ -598,7 +630,9 @@ impl PartialWitnessActor {
         };
         let chunk_producer = match chunk_producer_info {
             Ok(info) => info.take_account_id(),
-            Err(EpochError::ChunkProducerNotInDB(_, _) | EpochError::MissingBlock(_)) => {
+            Err(EpochError::ChunkProducerNotInDB(_, _) | EpochError::MissingBlock(_))
+                if partial_witness.prev_block_hash().is_some() =>
+            {
                 self.defer_pending_v2_witness(partial_witness, DeferOrigin::InitEmit);
                 return Ok(());
             }
@@ -654,22 +688,9 @@ impl PartialWitnessActor {
                     );
                 }
                 Err(Error::DBNotFoundErr(_)) => {
-                    // V2 witness whose prev block isn't available yet
-                    // (either the block header isn't processed, or
-                    // `DBCol::ChunkProducers` hasn't been populated for
-                    // this shard). Defer and replay on block arrival.
-                    // V1 witnesses can't reach this path because the
-                    // epoch-based lookup is purely in-memory.
-                    if let Some(prev_block_hash) = partial_witness.prev_block_hash().copied() {
-                        let mut cache = pending_v2_witnesses.lock();
-                        cache.insert(prev_block_hash, partial_witness, DeferOrigin::InitEmit);
-                        metrics::PARTIAL_WITNESS_PENDING_CACHE_SIZE.set(cache.len() as i64);
-                    } else {
-                        tracing::warn!(
-                            target: "client",
-                            "DBNotFoundErr on V1 witness validation, unexpected",
-                        );
-                    }
+                    pending_v2_witnesses
+                        .lock()
+                        .try_defer(partial_witness, DeferOrigin::InitEmit);
                 }
                 Err(err) => {
                     // TODO: ban sending peer
@@ -925,6 +946,18 @@ impl PartialWitnessActor {
             .with_label_values(&[shard_id_label.as_str(), partial_witness.version_label()])
             .inc();
 
+        if let VersionedPartialEncodedStateWitness::V2(_) = &partial_witness {
+            let epoch_id = partial_witness.chunk_production_key().epoch_id;
+            if !self.is_early_kickout_enabled(&epoch_id) {
+                tracing::debug!(
+                    target: "client",
+                    ?epoch_id,
+                    "dropping forwarded V2 partial witness: EarlyKickout not enabled",
+                );
+                return Ok(());
+            }
+        }
+
         let signer = self.my_validator_signer()?;
         let validator_account_id = signer.validator_id().clone();
         let partial_witness_tracker = self.partial_witness_tracker.clone();
@@ -954,22 +987,9 @@ impl PartialWitnessActor {
                         );
                     }
                     Err(Error::DBNotFoundErr(_)) => {
-                        // Forwarded V2 witness whose prev block isn't
-                        // available yet. Defer in the same pending cache
-                        // as init-emit deferrals, tagged so that replay
-                        // goes through the store-only path (we don't want
-                        // to re-forward a witness that already arrived
-                        // as a forward).
-                        if let Some(prev_block_hash) = partial_witness.prev_block_hash().copied() {
-                            let mut cache = pending_v2_witnesses.lock();
-                            cache.insert(prev_block_hash, partial_witness, DeferOrigin::Forwarded);
-                            metrics::PARTIAL_WITNESS_PENDING_CACHE_SIZE.set(cache.len() as i64);
-                        } else {
-                            tracing::warn!(
-                                target: "client",
-                                "DBNotFoundErr on V1 forwarded witness, unexpected",
-                            );
-                        }
+                        pending_v2_witnesses
+                            .lock()
+                            .try_defer(partial_witness, DeferOrigin::Forwarded);
                     }
                     Err(err) => {
                         // TODO: ban sending peer
@@ -1298,6 +1318,13 @@ impl PartialWitnessActor {
 
     fn my_validator_signer(&self) -> Result<Arc<ValidatorSigner>, Error> {
         self.my_signer.get().ok_or_else(|| Error::NotAValidator("not a validator".to_owned()))
+    }
+
+    fn is_early_kickout_enabled(&self, epoch_id: &EpochId) -> bool {
+        match self.epoch_manager.get_epoch_protocol_version(epoch_id) {
+            Ok(version) => ProtocolFeature::EarlyKickout.enabled(version),
+            Err(_) => false,
+        }
     }
 
     fn contract_deploys_encoder(&mut self, validators_count: usize) -> Arc<ReedSolomonEncoder> {
