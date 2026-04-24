@@ -149,19 +149,25 @@ impl OrphanBlockPool {
                     break;
                 }
             }
-            self.height_idx.retain(|_, xs| {
-                xs.retain(|x| !removed_hashes.contains(x));
-                !xs.is_empty()
-            });
-            self.prev_hash_idx.retain(|_, xs| {
-                xs.retain(|x| !removed_hashes.contains(x));
-                !xs.is_empty()
-            });
-            self.orphans_requested_missing_chunks.retain(|x| !removed_hashes.contains(x));
+            self.prune_side_indexes(&removed_hashes);
 
             self.evicted += old_len - self.orphans.len();
         }
         metrics::NUM_ORPHANS.set(self.orphans.len() as i64);
+    }
+
+    /// Prune `removed` hashes from every side-index and drop empty buckets.
+    /// Precondition: `self.orphans` no longer contains any of these hashes.
+    fn prune_side_indexes(&mut self, removed: &HashSet<CryptoHash>) {
+        self.height_idx.retain(|_, xs| {
+            xs.retain(|x| !removed.contains(x));
+            !xs.is_empty()
+        });
+        self.prev_hash_idx.retain(|_, xs| {
+            xs.retain(|x| !removed.contains(x));
+            !xs.is_empty()
+        });
+        self.orphans_requested_missing_chunks.retain(|x| !removed.contains(x));
     }
 
     pub fn contains(&self, hash: &CryptoHash) -> bool {
@@ -201,7 +207,7 @@ impl OrphanBlockPool {
                 .collect()
         });
 
-        self.height_idx.retain(|_, ref mut xs| xs.iter().any(|x| !removed_hashes.contains(x)));
+        self.prune_side_indexes(&removed_hashes);
 
         metrics::NUM_ORPHANS.set(self.orphans.len() as i64);
         ret
@@ -622,6 +628,41 @@ mod tests {
         }
 
         assert!(pool.len() < MAX_ORPHAN_SIZE);
+        assert_pool_consistency(&pool);
+    }
+
+    /// remove_by_prev_hash must prune stale hashes from height_idx when the
+    /// removed orphans share heights with orphans under a different parent.
+    /// The surviving siblings keep the bucket alive, so stale hashes must be
+    /// pruned from inside the bucket, not only from fully-empty buckets.
+    #[test]
+    fn test_remove_by_prev_hash_preserves_side_index_consistency() {
+        let clock = Clock::real();
+        let signer = Arc::new(create_test_signer("test"));
+
+        let genesis = make_genesis();
+        let parent_p =
+            TestBlockBuilder::from_prev_block(clock.clone(), &genesis, signer.clone()).build();
+        let parent_p_hash = *parent_p.hash();
+        let parent_q_hash = *genesis.hash();
+        let base_height = parent_p.header().height();
+
+        let mut pool = OrphanBlockPool::new();
+
+        // Children of P and Q share the same three heights.
+        for i in 1..=3u64 {
+            let p_child = make_block_at(&parent_p, base_height + i, parent_p_hash, &signer);
+            let q_child = make_block_at(&parent_p, base_height + i, parent_q_hash, &signer);
+            pool.add(make_orphan(&clock, p_child), false);
+            pool.add(make_orphan(&clock, q_child), false);
+        }
+        assert_eq!(pool.len(), 6);
+
+        // Remove children of P. Children of Q keep the height buckets alive,
+        // so the P-children hashes would remain stale without inner pruning.
+        let removed = pool.remove_by_prev_hash(parent_p_hash).unwrap();
+        assert_eq!(removed.len(), 3);
+        assert_eq!(pool.len(), 3);
         assert_pool_consistency(&pool);
     }
 
