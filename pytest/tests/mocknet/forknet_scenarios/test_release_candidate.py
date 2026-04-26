@@ -39,11 +39,12 @@ class TestReleaseCandidate(TestSetup):
 
     def amend_epoch_config(self):
         """
-        This is a workaround to set the protocol upgrade threshold to 1, so that the upgrade happens when all the **block producers** have upgraded.
+        This is a workaround to set the protocol upgrade threshold close to 1, so that the upgrade happens when all the **block producers** have upgraded.
         This avoid the need to properly calculate the upgrade timeline based on the epoch length and the upgrade interval.
         """
         super().amend_epoch_config()
-        self._amend_epoch_config(f".protocol_upgrade_stake_threshold = [1,1]")
+        self._amend_epoch_config(
+            f".protocol_upgrade_stake_threshold = [9999,10000]")
 
     def _upgrade_nodes_in_four_batches(self):
         """
