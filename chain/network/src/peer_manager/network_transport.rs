@@ -79,9 +79,11 @@ pub struct PeerTransportStats {
 }
 
 /// Error returned by connect_to_peer.
-#[allow(dead_code)]
 #[derive(Debug)]
 pub enum ConnectError {
+    /// The connection attempt failed (TCP dial, handshake, or register).
+    Failed,
+    /// The sender was dropped before a result was sent.
     Cancelled,
 }
 
@@ -95,7 +97,6 @@ pub struct ConnectHandle {
     rx: oneshot::Receiver<Result<(), ConnectError>>,
 }
 
-#[allow(dead_code)]
 impl ConnectHandle {
     pub(crate) fn new(rx: oneshot::Receiver<Result<(), ConnectError>>) -> Self {
         Self { rx }

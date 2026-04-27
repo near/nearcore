@@ -13,7 +13,6 @@ use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{
     EdgesWithSource, NetworkState, PRUNE_EDGES_AFTER, RoutedAction,
 };
-use crate::peer_manager::network_transport::NetworkTransport;
 #[cfg(test)]
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_manager_actor::MAX_TIER2_PEERS;
@@ -149,7 +148,7 @@ pub(crate) struct PeerActor {
     /// Shared state of the network module.
     network_state: Arc<NetworkState>,
     /// Transport for sending/broadcasting messages.
-    transport: Arc<dyn NetworkTransport>,
+    tcp: Arc<TcpTransport>,
     /// This node's id and address (either listening or socket address).
     my_node_info: PeerInfo,
 
@@ -229,10 +228,10 @@ impl PeerActor {
         actor_system: ActorSystem,
         stream: tcp::Stream,
         network_state: Arc<NetworkState>,
+        tcp: Arc<TcpTransport>,
     ) -> anyhow::Result<TokioRuntimeHandle<Self>> {
-        let transport = TcpTransport::new(network_state.clone());
         let (addr, handshake_signal) =
-            Self::spawn(clock, actor_system, stream, network_state, transport)?;
+            Self::spawn(clock, actor_system, stream, network_state, tcp)?;
         // Await for the handshake to complete, by awaiting the handshake_signal channel.
         // This is a receiver of Infallible, so it only completes when the channel is closed.
         handshake_signal.await.err().unwrap();
@@ -248,13 +247,13 @@ impl PeerActor {
         actor_system: ActorSystem,
         stream: tcp::Stream,
         network_state: Arc<NetworkState>,
-        transport: Arc<dyn NetworkTransport>,
+        tcp: Arc<TcpTransport>,
     ) -> anyhow::Result<(TokioRuntimeHandle<Self>, HandshakeSignal)> {
         #[cfg(test)]
         let stream_id = stream.id();
         #[cfg(test)]
         let network_state_clone = network_state.clone();
-        match Self::spawn_inner(clock, actor_system, stream, network_state, transport) {
+        match Self::spawn_inner(clock, actor_system, stream, network_state, tcp) {
             Ok(it) => Ok(it),
             Err(reason) => {
                 #[cfg(test)]
@@ -271,7 +270,7 @@ impl PeerActor {
         actor_system: ActorSystem,
         stream: tcp::Stream,
         network_state: Arc<NetworkState>,
-        transport: Arc<dyn NetworkTransport>,
+        tcp: Arc<TcpTransport>,
     ) -> Result<(TokioRuntimeHandle<Self>, HandshakeSignal), ClosingReason> {
         let connecting_status = match &stream.type_ {
             tcp::StreamType::Inbound => ConnectingStatus::Inbound(
@@ -376,7 +375,7 @@ impl PeerActor {
             }
             .into(),
             network_state,
-            transport,
+            tcp,
             received_messages_rate_limits,
             registration_buffered_actions: RegistrationBufferedActions::NotRegistering,
         };
@@ -696,7 +695,7 @@ impl PeerActor {
             let network_state = self.network_state.clone();
             let clock = self.clock.clone();
             let handle = self.handle.clone();
-            let transport = self.transport.clone();
+            let transport = self.tcp.clone();
             async move {
                 let register_result = network_state.register(&clock, edge, conn.clone(), transport).await;
                 handle.clone().run_later("register peer followup", Duration::ZERO, move |act, _| {
@@ -1115,7 +1114,7 @@ impl PeerActor {
             PeerMessage::RequestUpdateNonce(edge_info) => {
                 let clock = self.clock.clone();
                 let network_state = self.network_state.clone();
-                let transport = self.transport.clone();
+                let transport = self.tcp.clone();
                 self.handle.spawn("handle request update nonce", async move {
                     if let Err(err) = verify_nonce(&clock, edge_info.nonce) {
                         tracing::debug!(
@@ -1161,7 +1160,7 @@ impl PeerActor {
             PeerMessage::SyncRoutingTable(rtu) => {
                 let clock = self.clock.clone();
                 let network_state = self.network_state.clone();
-                let transport = self.transport.clone();
+                let transport = self.tcp.clone();
                 self.handle.spawn("handle sync routing table", async move {
                     Self::handle_sync_routing_table(
                         &clock,
@@ -1307,7 +1306,7 @@ impl PeerActor {
                                         conn.tier,
                                         ping.nonce,
                                         msg.hash(),
-                                        &*self.transport,
+                                        &*self.tcp,
                                     );
                                     // TODO(gprusak): deprecate Event::Ping/Pong in favor of
                                     // MessageProcessed.
@@ -1338,7 +1337,7 @@ impl PeerActor {
                             &self.clock,
                             conn.tier,
                             msg,
-                            &*self.transport,
+                            &*self.tcp,
                         );
                     }
                     RoutedAction::Dropped => {}
@@ -1359,7 +1358,7 @@ impl PeerActor {
         network_state: &Arc<NetworkState>,
         conn: Arc<connection::Connection>,
         rtu: RoutingTableUpdate,
-        transport: Arc<dyn NetworkTransport>,
+        tcp: Arc<TcpTransport>,
     ) {
         // Ingress cap: check BEFORE dedup/verification to avoid wasted work.
         let max_edges = network_state.config.routing_graph_max_edges_per_message;
@@ -1380,7 +1379,7 @@ impl PeerActor {
                     edges: rtu.edges.clone(),
                     source: conn.peer_info.id.clone(),
                 },
-                transport.clone(),
+                tcp.clone(),
             )
             .await
         {
@@ -1404,7 +1403,7 @@ impl PeerActor {
             .collect();
         match network_state.client.send_async(AnnounceAccountRequest(accounts)).await {
             Ok(Err(ban_reason)) => conn.stop(Some(ban_reason)),
-            Ok(Ok(accounts)) => network_state.add_accounts(accounts, transport).await,
+            Ok(Ok(accounts)) => network_state.add_accounts(accounts, tcp).await,
             Err(_) => {}
         }
     }
@@ -1478,7 +1477,7 @@ impl messaging::Actor for PeerActor {
                 let network_state = self.network_state.clone();
                 let clock = self.clock.clone();
                 let conn = conn.clone();
-                let transport = self.transport.clone();
+                let transport = self.tcp.clone();
                 network_state.unregister(
                     &clock,
                     &conn,

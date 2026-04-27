@@ -15,7 +15,6 @@ use crate::network_protocol::{
     SyncSnapshotHosts, T1MessageBody, T2MessageBody, TieredMessageBody,
 };
 use crate::peer::peer_actor::ClosingReason;
-use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connected_peers::{ConnectedPeerState, ConnectedPeers};
 use crate::peer_manager::connection;
 use crate::peer_manager::connection_store;
@@ -23,7 +22,6 @@ use crate::peer_manager::network_transport::NetworkTransport;
 #[cfg(test)]
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
-use crate::peer_manager::tcp_transport::TcpTransport;
 use crate::private_messages::RegisterPeerError;
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
@@ -47,12 +45,11 @@ use crate::types::{
     StateHeaderRequestBody, StatePartRequestBody, StateRequestSenderForNetwork, Tier3Request,
     Tier3RequestBody,
 };
-use anyhow::Context;
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{CanSend, CanSendAsync, Sender};
-use near_async::{ActorSystem, new_owned_future_spawner, time};
+use near_async::{new_owned_future_spawner, time};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
@@ -678,7 +675,7 @@ impl NetworkState {
     pub async fn reconnect(
         self: &Arc<Self>,
         clock: time::Clock,
-        actor_system: ActorSystem,
+        transport: Arc<dyn NetworkTransport>,
         peer_info: PeerInfo,
         max_attempts: usize,
     ) {
@@ -686,24 +683,12 @@ impl NetworkState {
         for _attempt in 0..max_attempts {
             interval.tick(&clock).await;
 
-            let result = async {
-                let stream =
-                    tcp::Stream::connect(&peer_info, tcp::Tier::T2, &self.config.socket_options)
-                        .await
-                        .context("tcp::Stream::connect()")?;
-                PeerActor::spawn_and_handshake(
-                    clock.clone(),
-                    actor_system.clone(),
-                    stream,
-                    self.clone(),
-                )
+            let result = transport
+                .connect_to_peer(&clock, peer_info.clone(), tcp::Tier::T2)
                 .await
-                .context("PeerActor::spawn()")?;
-                anyhow::Ok(())
-            }
-            .await;
+                .map_err(|err| anyhow::anyhow!("connect_to_peer: {err:?}"));
 
-            let succeeded = !result.is_err();
+            let succeeded = result.is_ok();
 
             if let Err(ref err) = result {
                 tracing::info!(target:"network", %err, %peer_info, "failed to connect");
@@ -1460,7 +1445,12 @@ impl NetworkState {
     /// b) there is an edge indicating that we should be disconnected from a peer, but we are connected.
     /// Try to resolve the inconsistency.
     /// We call this function every FIX_LOCAL_EDGES_INTERVAL from peer_manager_actor.rs.
-    pub async fn fix_local_edges(self: &Arc<Self>, clock: &time::Clock, timeout: time::Duration) {
+    pub async fn fix_local_edges(
+        self: &Arc<Self>,
+        clock: &time::Clock,
+        timeout: time::Duration,
+        transport: Arc<dyn NetworkTransport>,
+    ) {
         let this = self.clone();
         let clock = clock.clone();
         self.spawn("fix_local_edges", async move {
@@ -1508,6 +1498,7 @@ impl NetworkState {
                         let this = this.clone();
                         let clock = clock.clone();
                         let other_peer = other_peer.clone();
+                        let transport = transport.clone();
                         async move {
                             // This edge says this is an connected peer, which is currently not in the set of connected peers.
                             // Wait for some time to let the connection begin or broadcast edge removal instead.
@@ -1519,7 +1510,6 @@ impl NetworkState {
                             // Unwrap is safe, because new_edge is always valid.
                             let new_edge =
                                 edge.remove_edge(this.config.node_id(), &this.config.node_key);
-                            let transport = TcpTransport::new(this.clone());
                             this.add_edges(
                                 &clock,
                                 EdgesWithSource::Local(vec![new_edge.clone()]),

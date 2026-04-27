@@ -1,22 +1,136 @@
+use crate::network_protocol::PeerInfo;
+use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::network_state::NetworkState;
-use crate::peer_manager::network_transport::{NetworkTransport, PeerTransportStats, TransportInfo};
+use crate::peer_manager::network_transport::{
+    ConnectError, ConnectHandle, NetworkTransport, PeerTransportStats, TransportInfo,
+};
+#[cfg(test)]
+use crate::peer_manager::peer_manager_actor::Event;
+use crate::peer_manager::peer_manager_actor::PeerManagerActor;
 use crate::tcp;
 use crate::types::{PeerMessage, ReasonForBan};
+use anyhow::Context as _;
+use near_async::ActorSystem;
+use near_async::futures::FutureSpawner;
+use near_async::time;
+use near_async::tokio::TokioRuntimeHandle;
 use near_primitives::network::PeerId;
+use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Weak};
+use tokio::sync::oneshot;
 
-/// Production implementation of NetworkTransport.
-/// Transitional: wraps NetworkState's Pools. In PR 10, Pools move to
-/// TcpTransport directly.
-pub(crate) struct TcpTransport {
-    pub state: Arc<NetworkState>,
+/// Production implementation of `NetworkTransport`.
+///
+/// Holds `Arc<NetworkState>` to pass to `PeerActor::spawn` when
+/// accepting inbound connections or initiating outbound ones, and to
+/// reach the connection Pools via `self.state.tier_N` for trait-impl
+/// routing. TcpTransport's own methods never call NetworkState for
+/// business logic — only PeerActor does.
+pub struct TcpTransport {
+    pub(crate) state: Arc<NetworkState>,
+    clock: time::Clock,
+    #[allow(dead_code)]
+    actor_system: ActorSystem,
+    spawner: Box<dyn FutureSpawner>,
+    /// Self-reference used by `connect_to_peer` to pass an
+    /// `Arc<TcpTransport>` to `PeerActor::spawn_and_handshake`.
+    /// Populated at construction via `Arc::new_cyclic`.
+    self_weak: Weak<Self>,
+    /// Signals the TCP listener to exit. `shutdown()` drops the sender,
+    /// which closes the receiver and breaks the accept loop.
+    shutdown_tx: Mutex<Option<oneshot::Sender<()>>>,
 }
 
 impl TcpTransport {
-    pub fn new(state: Arc<NetworkState>) -> Arc<Self> {
-        Arc::new(Self { state })
+    /// Production constructor.
+    pub(crate) fn new(
+        state: Arc<NetworkState>,
+        clock: time::Clock,
+        actor_system: ActorSystem,
+        handle: TokioRuntimeHandle<PeerManagerActor>,
+    ) -> Arc<Self> {
+        Self::new_with_spawner(state, clock, actor_system, handle.future_spawner())
+    }
+
+    /// Shared constructor. Production passes a PMA-backed spawner;
+    /// tests can pass a standalone tokio spawner.
+    pub(crate) fn new_with_spawner(
+        state: Arc<NetworkState>,
+        clock: time::Clock,
+        actor_system: ActorSystem,
+        spawner: Box<dyn FutureSpawner>,
+    ) -> Arc<Self> {
+        Arc::new_cyclic(|self_weak| Self {
+            state,
+            clock,
+            actor_system,
+            spawner,
+            self_weak: self_weak.clone(),
+            shutdown_tx: Mutex::new(None),
+        })
+    }
+
+    /// Spawns the TCP accept loop if `node_addr` is configured. Intended
+    /// to be called exactly once, after PMA construction.
+    pub fn start(self: &Arc<Self>) {
+        let Some(server_addr) = self.state.config.node_addr else {
+            return;
+        };
+        tracing::debug!(target: "network", at = ?server_addr, "starting public server");
+        let listener = match server_addr.listener() {
+            Ok(it) => it,
+            Err(e) => panic!("failed to start listening on server_addr={server_addr:?} e={e:?}"),
+        };
+        #[cfg(test)]
+        self.state.config.event_sink.send(Event::ServerStarted);
+
+        let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
+        *self.shutdown_tx.lock() = Some(shutdown_tx);
+
+        let this = self.clone();
+        self.spawner.spawn_boxed("PeerManagerActor listener loop", Box::pin(async move {
+            loop {
+                tokio::select! {
+                    _ = &mut shutdown_rx => break,
+                    res = listener.accept() => {
+                        let Ok(stream) = res else { continue };
+                        // Always let the new peer to send a handshake message.
+                        // Only then we can decide whether we should accept a connection.
+                        // It is expected to be reasonably cheap: eventually, for TIER2 network
+                        // we would like to exchange set of connected peers even without establishing
+                        // a proper connection.
+                        tracing::debug!(target: "network", from = ?stream.peer_addr, "got new connection");
+                        if let Err(err) = PeerActor::spawn(
+                            this.clock.clone(),
+                            this.actor_system.clone(),
+                            stream,
+                            this.state.clone(),
+                            this.clone(),
+                        ) {
+                            tracing::info!(target:"network", ?err, "peer actor spawn failed");
+                        }
+                    }
+                }
+            }
+        }));
+    }
+
+    /// Spawn a PeerActor from an already-opened stream. Intended for
+    /// test fixtures (both unit tests and integration-tests) that need to
+    /// exercise the handshake flow without going through the production
+    /// `connect_to_peer` dial. Tests drive this method directly via the
+    /// `Arc<TcpTransport>` exposed from `PeerManagerActor::spawn`.
+    pub fn spawn_outbound_from_stream(self: &Arc<Self>, stream: tcp::Stream) -> anyhow::Result<()> {
+        PeerActor::spawn(
+            self.clock.clone(),
+            self.actor_system.clone(),
+            stream,
+            self.state.clone(),
+            self.clone(),
+        )?;
+        Ok(())
     }
 }
 
@@ -33,6 +147,64 @@ impl NetworkTransport for TcpTransport {
         self.state.tier2.broadcast_message(msg);
     }
 
+    fn connect_to_peer(
+        &self,
+        clock: &time::Clock,
+        peer_info: PeerInfo,
+        tier: tcp::Tier,
+    ) -> ConnectHandle {
+        // Idempotency guard: if we already have a ready connection on this
+        // tier, skip the dial. The Pool's `start_outbound` inside
+        // PeerActor::spawn_inner is the authoritative check against
+        // duplicate in-flight handshakes; this early-return just avoids a
+        // wasted TCP dial when we already have the peer in the Pool.
+        let already_ready = match tier {
+            tcp::Tier::T1 => self.state.tier1.load().ready.contains_key(&peer_info.id),
+            tcp::Tier::T2 => self.state.tier2.load().ready.contains_key(&peer_info.id),
+            tcp::Tier::T3 => self.state.tier3.load().ready.contains_key(&peer_info.id),
+        };
+        if already_ready {
+            return ConnectHandle::noop();
+        }
+
+        // Recover Arc<Self> via the stored Weak. The Weak is always live
+        // here because PMA holds an Arc to us for the duration of the
+        // actor's lifetime.
+        let Some(this) = self.self_weak.upgrade() else {
+            return ConnectHandle::noop();
+        };
+        let (tx, rx) = oneshot::channel();
+        let clock = clock.clone();
+        self.spawner.spawn_boxed("connect_to_peer", Box::pin(async move {
+            let result: anyhow::Result<()> = async {
+                let stream = tcp::Stream::connect(
+                    &peer_info,
+                    tier,
+                    &this.state.config.socket_options,
+                )
+                .await
+                .context("tcp::Stream::connect()")?;
+                PeerActor::spawn_and_handshake(
+                    clock,
+                    this.actor_system.clone(),
+                    stream,
+                    this.state.clone(),
+                    this.clone(),
+                )
+                .await
+                .context("PeerActor::spawn()")?;
+                Ok(())
+            }
+            .await;
+            let result = result.map_err(|err| {
+                tracing::info!(target: "network", %err, %peer_info, ?tier, "connect_to_peer failed");
+                ConnectError::Failed
+            });
+            let _ = tx.send(result);
+        }));
+        ConnectHandle::new(rx)
+    }
+
     fn disconnect_peer(&self, peer_id: &PeerId, ban_reason: Option<ReasonForBan>) {
         // A peer may be connected on multiple tiers simultaneously
         // (e.g. T1 + T2 for a validator). Stop the connection on every
@@ -44,6 +216,11 @@ impl NetworkTransport for TcpTransport {
                 conn.stop(ban_reason);
             }
         }
+    }
+
+    fn shutdown(&self) {
+        // Drop the sender — the listener's select! closes and the loop exits.
+        drop(self.shutdown_tx.lock().take());
     }
 
     fn transport_info(&self) -> TransportInfo {

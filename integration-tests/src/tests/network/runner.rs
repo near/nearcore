@@ -55,7 +55,7 @@ fn setup_network_node(
     validators: Vec<AccountId>,
     chain_genesis: ChainGenesis,
     config: config::NetworkConfig,
-) -> TokioRuntimeHandle<PeerManagerActor> {
+) -> (TokioRuntimeHandle<PeerManagerActor>, Arc<near_network::TcpTransport>) {
     let node_storage = create_in_memory_rpc_node_storage();
     let num_validators = validators.len() as ValidatorId;
 
@@ -220,7 +220,7 @@ fn setup_network_node(
         Arc::new(RayonAsyncComputationSpawner),
     ));
     shards_manager_adapter.bind(shards_manager_actor);
-    let peer_manager = PeerManagerActor::spawn(
+    let (peer_manager, tcp) = PeerManagerActor::spawn(
         time::Clock::real(),
         actor_system,
         db.clone(),
@@ -241,7 +241,7 @@ fn setup_network_node(
     )
     .unwrap();
     network_adapter.bind(peer_manager.clone());
-    peer_manager
+    (peer_manager, tcp)
 }
 
 // TODO: Deprecate this in favor of separate functions.
@@ -305,11 +305,13 @@ impl StateMachine {
             Action::AddEdge { from, to, force } => {
                 self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
                     tracing::debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: action");
-                    let pm = info.get_node(from)?.actor.clone();
+                    let node = info.get_node(from)?;
+                    let pm = node.actor.clone();
+                    let tcp_transport = node.tcp.clone();
                     let peer_info = info.runner.test_config[to].peer_info();
                     match tcp::Stream::connect(&peer_info, tcp::Tier::T2, &config::SocketOptions::default()).await {
                         Ok(stream) => {
-                            let _: PeerManagerMessageResponse = pm.send_async(PeerManagerMessageRequest::OutboundTcpConnect(stream)).await?;
+                            let _ = tcp_transport.spawn_outbound_from_stream(stream);
                         },
                         Err(err) => tracing::debug!("tcp::Stream::connect({peer_info}): {err}"),
                     }
@@ -409,6 +411,7 @@ pub(crate) struct Runner {
 
 struct NodeHandle {
     actor: AutoStopActor<PeerManagerActor>,
+    tcp: Arc<near_network::TcpTransport>,
 }
 
 impl Runner {
@@ -547,15 +550,14 @@ impl Runner {
         let validators = self.validators.clone();
         let chain_genesis = self.chain_genesis.clone();
 
-        Ok(NodeHandle {
-            actor: AutoStopActor(setup_network_node(
-                self.actor_system.clone(),
-                account_id,
-                validators,
-                chain_genesis,
-                network_config,
-            )),
-        })
+        let (actor, tcp) = setup_network_node(
+            self.actor_system.clone(),
+            account_id,
+            validators,
+            chain_genesis,
+            network_config,
+        );
+        Ok(NodeHandle { actor: AutoStopActor(actor), tcp })
     }
 
     fn build(self) -> anyhow::Result<RunningInfo> {

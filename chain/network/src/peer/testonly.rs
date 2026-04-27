@@ -7,7 +7,6 @@ use crate::network_protocol::{
 use crate::network_protocol::{RoutedMessage, testonly as data};
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::network_state::NetworkState;
-use crate::peer_manager::network_transport::NetworkTransport;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::peer_manager::tcp_transport::TcpTransport;
@@ -108,9 +107,14 @@ impl PeerHandle {
             noop().into_multi_sender(),
             noop().into_sender(),
         ));
-        let transport: Arc<dyn NetworkTransport> = TcpTransport::new(network_state.clone());
+        let tcp = TcpTransport::new_with_spawner(
+            network_state.clone(),
+            clock.clone(),
+            actor_system.clone(),
+            actor_system.new_future_spawner("peer testonly"),
+        );
         let actor = AutoStopActor(
-            PeerActor::spawn(clock, actor_system, stream, network_state, transport).unwrap().0,
+            PeerActor::spawn(clock, actor_system, stream, network_state, tcp).unwrap().0,
         );
         Self { actor, cfg, events: recv, edge: None }
     }
