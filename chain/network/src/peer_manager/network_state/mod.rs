@@ -506,7 +506,9 @@ impl NetworkState {
             // never fail for a pre-verified local edge. On master this was done
             // before pool_insert; now done after — the broadcast is independent
             // of whether the peer is in the pool.
-            let _ = self.add_edges(clock, EdgesWithSource::Local(vec![edge])).await;
+            self.add_edges(clock, EdgesWithSource::Local(vec![edge]))
+                .await
+                .expect("local edge was verified in validate_new_connection");
             self.peer_store.peer_connected(clock, &peer_info);
         }
     }

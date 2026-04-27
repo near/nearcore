@@ -1436,6 +1436,11 @@ impl messaging::Actor for PeerActor {
             // synchronously here (the Ready path's emission happens
             // inside on_peer_disconnected so it follows peer_store
             // updates).
+            //
+            // TODO(gprusak): ConnectionClosed reporting is still split
+            // across two sites — synchronously here for Connecting, and
+            // asynchronously from on_peer_disconnected for Ready.
+            // Centralize once we get rid of actix.
             PeerStatus::Connecting(..) => {
                 #[cfg(test)]
                 self.network_state.config.event_sink.send(Event::ConnectionClosed(
