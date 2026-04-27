@@ -28,21 +28,25 @@ impl NetworkTransport for TcpTransport {
     }
 
     fn broadcast_message(&self, tier: tcp::Tier, msg: Arc<PeerMessage>) {
-        debug_assert!(tier == tcp::Tier::T2);
+        // Broadcast is only supported on T2. T1 and T3 are direct
+        // tiers — the trait contract forbids broadcasting over them.
         match tier {
-            tcp::Tier::T1 => self.state.tier1.broadcast_message(msg),
             tcp::Tier::T2 => self.state.tier2.broadcast_message(msg),
-            tcp::Tier::T3 => self.state.tier3.broadcast_message(msg),
+            tcp::Tier::T1 | tcp::Tier::T3 => {
+                unreachable!("broadcast_message called with unsupported tier {:?}", tier);
+            }
         }
     }
 
     fn disconnect_peer(&self, peer_id: &PeerId, ban_reason: Option<ReasonForBan>) {
-        // Search all tiers for the connection.
+        // A peer may be connected on multiple tiers simultaneously
+        // (e.g. T1 + T2 for a validator). Stop the connection on every
+        // tier we find it on — partial disconnect would leave a stale
+        // entry on the other tier.
         for pool in [&self.state.tier1, &self.state.tier2, &self.state.tier3] {
             let snapshot = pool.load();
             if let Some(conn) = snapshot.ready.get(peer_id) {
                 conn.stop(ban_reason);
-                return;
             }
         }
     }
