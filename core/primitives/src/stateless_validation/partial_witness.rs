@@ -231,13 +231,12 @@ impl PartialEncodedStateWitnessInnerV2 {
 /// hash-based chunk-producer lookup against `DBCol::ChunkProducers`.
 ///
 /// Rollout policy:
-/// - V1 is accepted at all protocol versions and remains accepted for the
-///   duration of the EarlyKickout rollout window.
-/// - V2 is emitted only when the epoch's protocol version is at least
-///   `ProtocolFeature::EarlyKickout`. [`VersionedPartialEncodedStateWitness::new`]
-///   selects the variant based on the `protocol_version` argument.
-/// - At/after EarlyKickout activation, producers stop emitting V1. Receivers
-///   continue accepting V1 indefinitely (stale-node resilience).
+/// - Before EarlyKickout activation: only V1 is emitted and accepted.
+///   V2 arriving over the wire is dropped.
+/// - At/after EarlyKickout activation: only V2 is emitted and accepted.
+///   V1 arriving over the wire is dropped.
+/// - [`VersionedPartialEncodedStateWitness::new`] selects the variant
+///   based on the `protocol_version` argument.
 ///
 /// Cross-version replay resistance: V1 and V2 use distinct
 /// `signature_differentiator` strings, so a signature produced over V1's
