@@ -755,6 +755,66 @@ pub(crate) static PARTIAL_WITNESS_CACHE_SIZE: LazyLock<GaugeVec> = LazyLock::new
     .unwrap()
 });
 
+pub(crate) static PARTIAL_WITNESS_PART_MESSAGES_EMITTED_TOTAL: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "near_partial_witness_part_messages_emitted_total",
+            "Partial state witness part-messages emitted to chunk validators, \
+             labeled by wire version. Increments once per (chunk_validator, part).",
+            &["shard_id", "version"],
+        )
+        .unwrap()
+    });
+
+pub(crate) static PARTIAL_WITNESS_PART_MESSAGES_RECEIVED_TOTAL: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "near_partial_witness_part_messages_received_total",
+            "Partial state witness part-messages received from chunk producers, \
+             labeled by wire version. Increments once per part-message.",
+            &["shard_id", "version"],
+        )
+        .unwrap()
+    });
+
+pub(crate) static PARTIAL_WITNESS_DB_LOOKUP_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_partial_witness_db_lookup_total",
+        "Hash-based chunk-producer lookups performed during V2 partial \
+         witness validation. `result` is one of: `hit` (producer \
+         returned), `miss_prev_block` (prev block header not yet in the \
+         epoch manager — witness will be deferred), `miss_db_entry` \
+         (block known but DBCol::ChunkProducers entry absent — also \
+         deferred; a persistent non-zero rate signals an upstream writer \
+         bug), or `error` (other EpochError).",
+        &["shard_id", "result"],
+    )
+    .unwrap()
+});
+
+pub(crate) static PARTIAL_WITNESS_PENDING_CACHE_SIZE: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_partial_witness_pending_cache_size",
+        "Current number of blocks with deferred V2 partial witnesses awaiting \
+         DBCol::ChunkProducers population.",
+    )
+    .unwrap()
+});
+
+// No shard_id label: an eviction removes one `prev_block_hash` bucket, which
+// can contain witnesses from multiple shards — there is no single correct
+// shard to attribute the eviction to.
+pub(crate) static PARTIAL_WITNESS_PENDING_CACHE_EVICTIONS_TOTAL: LazyLock<IntCounter> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "near_partial_witness_pending_cache_evictions_total",
+            "Total LRU evictions from the V2 partial witness pending cache. \
+             Sustained non-zero rate indicates the 64-block capacity is tight \
+             relative to header-sync slowness or witness flood traffic.",
+        )
+        .unwrap()
+    });
+
 pub(crate) static RECEIVE_WITNESS_ACCESSED_CONTRACT_CODES_TIME: LazyLock<HistogramVec> =
     LazyLock::new(|| {
         try_create_histogram_vec(

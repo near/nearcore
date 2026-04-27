@@ -7,6 +7,7 @@ use bytesize::ByteSize;
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{BlockHeight, ProtocolVersion, ShardId};
+use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::{Debug, Formatter};
 
@@ -275,15 +276,25 @@ impl VersionedPartialEncodedStateWitness {
         signer: &ValidatorSigner,
         protocol_version: ProtocolVersion,
     ) -> Self {
-        let _ = protocol_version;
-        Self::V1(PartialEncodedStateWitness::new(
-            epoch_id,
-            chunk_header,
-            part_ord,
-            part,
-            encoded_length,
-            signer,
-        ))
+        if ProtocolFeature::EarlyKickout.enabled(protocol_version) {
+            Self::V2(PartialEncodedStateWitnessV2::new(
+                epoch_id,
+                chunk_header,
+                part_ord,
+                part,
+                encoded_length,
+                signer,
+            ))
+        } else {
+            Self::V1(PartialEncodedStateWitness::new(
+                epoch_id,
+                chunk_header,
+                part_ord,
+                part,
+                encoded_length,
+                signer,
+            ))
+        }
     }
 
     pub fn chunk_production_key(&self) -> ChunkProductionKey {
