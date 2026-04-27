@@ -1357,11 +1357,20 @@ impl NetworkState {
             // This will prevent a malicious peer from forcing us to re-verify valid
             // datasets. See accounts_data::Cache documentation for details.
             if !new_data.is_empty() {
-                let tasks: Vec<_> = this
+                // Snapshot the demux map first so the MutexGuard is released
+                // before we start spawning tasks (each `this.spawn` may take
+                // unrelated locks). The intermediate `collect` is required
+                // for the lock to drop — clippy's `needless_collect` doesn't
+                // know that.
+                #[allow(clippy::needless_collect)]
+                let peers: Vec<_> = this
                     .accounts_data_demuxes
                     .lock()
                     .iter()
                     .map(|(id, demux)| (id.clone(), demux.clone()))
+                    .collect();
+                let tasks: Vec<_> = peers
+                    .into_iter()
                     .map(|(peer_id, demux)| {
                         this.spawn(
                             "send_accounts_data",
@@ -1394,11 +1403,18 @@ impl NetworkState {
             // Broadcast any valid new data, even if an err was returned.
             // The presence of one invalid entry doesn't invalidate the remaining ones.
             if !new_data.is_empty() {
-                let tasks: Vec<_> = this
+                // Snapshot first, then spawn — same reasoning as
+                // `add_accounts_data` (drop the MutexGuard before
+                // spawning).
+                #[allow(clippy::needless_collect)]
+                let peers: Vec<_> = this
                     .snapshot_hosts_demuxes
                     .lock()
                     .iter()
                     .map(|(id, demux)| (id.clone(), demux.clone()))
+                    .collect();
+                let tasks: Vec<_> = peers
+                    .into_iter()
                     .map(|(peer_id, demux)| {
                         this.spawn(
                             "send_snapshot_hosts",
