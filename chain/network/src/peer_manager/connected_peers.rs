@@ -138,8 +138,9 @@ impl ConnectedPeers {
     /// at least the peer's current recorded height. Same-height updates
     /// ARE applied — a peer can switch to a different fork at the same
     /// height and we want to record the new hash. Strict regressions
-    /// (lower height) are dropped. No-op if the peer isn't connected
-    /// on any tier.
+    /// (lower height) are dropped. Updates the entry on every tier the
+    /// peer is connected on; no-op if the peer isn't connected on any
+    /// tier.
     pub fn update_block_info(&self, peer_id: &PeerId, new: BlockInfo) {
         for tier_map in [&self.tier1_peers, &self.tier2_peers, &self.tier3_peers] {
             let mut peers = tier_map.lock();
@@ -147,7 +148,6 @@ impl ConnectedPeers {
                 if s.block_info.as_ref().map_or(true, |bi| bi.height <= new.height) {
                     s.block_info = Some(new);
                 }
-                return;
             }
         }
     }
