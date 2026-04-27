@@ -595,8 +595,9 @@ impl PartialWitnessActor {
             .with_label_values(&[shard_id.to_string().as_str(), partial_witness.version_label()])
             .inc();
 
-        if let VersionedPartialEncodedStateWitness::V2(_) = &partial_witness {
-            if !self.is_early_kickout_enabled(&epoch_id) {
+        let early_kickout = self.is_early_kickout_enabled(&epoch_id);
+        match &partial_witness {
+            VersionedPartialEncodedStateWitness::V2(_) if !early_kickout => {
                 tracing::debug!(
                     target: "client",
                     ?epoch_id,
@@ -604,6 +605,15 @@ impl PartialWitnessActor {
                 );
                 return Ok(());
             }
+            VersionedPartialEncodedStateWitness::V1(_) if early_kickout => {
+                tracing::debug!(
+                    target: "client",
+                    ?epoch_id,
+                    "dropping V1 partial witness: EarlyKickout enabled, V1 no longer accepted",
+                );
+                return Ok(());
+            }
+            _ => {}
         }
 
         // V1 witnesses resolve the chunk producer via the epoch-based sampler;
@@ -946,15 +956,27 @@ impl PartialWitnessActor {
             .with_label_values(&[shard_id_label.as_str(), partial_witness.version_label()])
             .inc();
 
-        if let VersionedPartialEncodedStateWitness::V2(_) = &partial_witness {
+        {
             let epoch_id = partial_witness.chunk_production_key().epoch_id;
-            if !self.is_early_kickout_enabled(&epoch_id) {
-                tracing::debug!(
-                    target: "client",
-                    ?epoch_id,
-                    "dropping forwarded V2 partial witness: EarlyKickout not enabled",
-                );
-                return Ok(());
+            let early_kickout = self.is_early_kickout_enabled(&epoch_id);
+            match &partial_witness {
+                VersionedPartialEncodedStateWitness::V2(_) if !early_kickout => {
+                    tracing::debug!(
+                        target: "client",
+                        ?epoch_id,
+                        "dropping forwarded V2 partial witness: EarlyKickout not enabled",
+                    );
+                    return Ok(());
+                }
+                VersionedPartialEncodedStateWitness::V1(_) if early_kickout => {
+                    tracing::debug!(
+                        target: "client",
+                        ?epoch_id,
+                        "dropping forwarded V1 partial witness: EarlyKickout enabled, V1 no longer accepted",
+                    );
+                    return Ok(());
+                }
+                _ => {}
             }
         }
 
