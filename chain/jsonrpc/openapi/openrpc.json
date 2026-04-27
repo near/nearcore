@@ -32,7 +32,7 @@
           "full_access_cost": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/FeeView"
+                "$ref": "#/components/schemas/Fee"
               }
             ],
             "description": "Base cost of creating a full access access-key."
@@ -40,7 +40,7 @@
           "function_call_cost": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/FeeView"
+                "$ref": "#/components/schemas/Fee"
               }
             ],
             "description": "Base cost of creating an access-key restricted to specific functions."
@@ -48,7 +48,7 @@
           "function_call_cost_per_byte": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/FeeView"
+                "$ref": "#/components/schemas/Fee"
               }
             ],
             "description": "Cost per byte of method_names of creating a restricted access-key."
@@ -417,7 +417,7 @@
           "create_account_cost": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/FeeView"
+                "$ref": "#/components/schemas/Fee"
               }
             ],
             "description": "Base cost of creating an account."
@@ -425,7 +425,7 @@
           "delegate_cost": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/FeeView"
+                "$ref": "#/components/schemas/Fee"
               }
             ],
             "description": "Base cost for processing a delegate action.\n\nThis is on top of the costs for the actions inside the delegate action."
@@ -433,7 +433,7 @@
           "delete_account_cost": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/FeeView"
+                "$ref": "#/components/schemas/Fee"
               }
             ],
             "description": "Base cost of deleting an account."
@@ -441,7 +441,7 @@
           "delete_key_cost": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/FeeView"
+                "$ref": "#/components/schemas/Fee"
               }
             ],
             "description": "Base cost of deleting a key."
@@ -449,7 +449,7 @@
           "deploy_contract_cost": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/FeeView"
+                "$ref": "#/components/schemas/Fee"
               }
             ],
             "description": "Base cost of deploying a contract."
@@ -457,7 +457,7 @@
           "deploy_contract_cost_per_byte": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/FeeView"
+                "$ref": "#/components/schemas/Fee"
               }
             ],
             "description": "Cost per byte of deploying a contract."
@@ -465,7 +465,7 @@
           "function_call_cost": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/FeeView"
+                "$ref": "#/components/schemas/Fee"
               }
             ],
             "description": "Base cost of calling a function."
@@ -473,7 +473,7 @@
           "function_call_cost_per_byte": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/FeeView"
+                "$ref": "#/components/schemas/Fee"
               }
             ],
             "description": "Cost per byte of method name and arguments of calling a function."
@@ -481,7 +481,7 @@
           "stake_cost": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/FeeView"
+                "$ref": "#/components/schemas/Fee"
               }
             ],
             "description": "Base cost of staking."
@@ -489,7 +489,7 @@
           "transfer_cost": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/FeeView"
+                "$ref": "#/components/schemas/Fee"
               }
             ],
             "description": "Base cost of making a transfer."
@@ -3076,7 +3076,7 @@
           "base_cost": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/FeeView"
+                "$ref": "#/components/schemas/Fee"
               }
             ],
             "description": "Base cost of creating a data receipt.\nBoth `send` and `exec` costs are burned when a new receipt has input dependencies. The gas\nis charged for each input dependency. The dependencies are specified when a receipt is\ncreated using `promise_then` and `promise_batch_then`.\nNOTE: Any receipt with output dependencies will produce data receipts. Even if it fails.\nEven if the last action is not a function call (in case of success it will return empty\nvalue)."
@@ -3084,7 +3084,7 @@
           "cost_per_byte": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/FeeView"
+                "$ref": "#/components/schemas/Fee"
               }
             ],
             "description": "Additional cost per byte sent.\nBoth `send` and `exec` costs are burned when a function call finishes execution and returns\n`N` bytes of data to every output dependency. For each output dependency the cost is\n`(send(sir) + exec()) * N`."
@@ -4437,34 +4437,32 @@
         ],
         "title": "ExternalStorageLocation"
       },
-      "FeeComponentView": {
-        "description": "JSON-safe view of a [`FeeComponent`]\n\nWhile internally we differentiate between `compute` being specified or left\nas default, this view only shows the effective values. How exactly these are\nspecified are an internal detail not to be exposed on the API level.",
-        "properties": {
-          "compute": {
-            "type": "string"
-          },
-          "gas": {
-            "$ref": "#/components/schemas/NearGas"
-          }
-        },
-        "required": [
-          "gas",
-          "compute"
-        ],
-        "title": "FeeComponentView",
-        "type": "object"
-      },
-      "FeeView": {
-        "description": "JSON-safe view of a [`Fee`].",
+      "Fee": {
+        "description": "Costs associated with an object that can only be sent over the network (and executed\nby the receiver).\nNOTE: `send_sir` or `send_not_sir` fees are usually burned when the item is being created.\nAnd `execution` fee is burned when the item is being executed.",
         "properties": {
           "execution": {
-            "$ref": "#/components/schemas/FeeComponentView"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Fee for executing the object."
           },
           "send_not_sir": {
-            "$ref": "#/components/schemas/FeeComponentView"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Fee for sending an object potentially across the shards."
           },
           "send_sir": {
-            "$ref": "#/components/schemas/FeeComponentView"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Fee for sending an object from the sender to itself, guaranteeing that it does not leave\nthe shard."
           }
         },
         "required": [
@@ -4472,7 +4470,7 @@
           "send_not_sir",
           "execution"
         ],
-        "title": "FeeView",
+        "title": "Fee",
         "type": "object"
       },
       "FinalExecutionOutcomeView": {
@@ -10408,7 +10406,7 @@
           "action_receipt_creation_config": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/FeeView"
+                "$ref": "#/components/schemas/Fee"
               }
             ],
             "description": "Describes the cost of creating an action receipt, `ActionReceipt`, excluding the actual cost\nof actions.\n- `send` cost is burned when a receipt is created using `promise_create` or\n    `promise_batch_create`\n- `exec` cost is burned when the receipt is being executed."

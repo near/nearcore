@@ -1,7 +1,7 @@
 use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords, get_initial_supply};
 use near_crypto::{InMemorySigner, Signer};
 use near_parameters::ActionCosts;
-use near_parameters::cost::FeeComponent;
+use near_parameters::parameter_table::FeeComponent;
 use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;

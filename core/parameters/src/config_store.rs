@@ -275,7 +275,7 @@ impl RuntimeConfigStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{FeeComponent, cost::ActionCosts};
+    use crate::{cost::ActionCosts, parameter_table::FeeComponent};
     use near_primitives_core::types::Gas;
     use std::collections::HashSet;
 

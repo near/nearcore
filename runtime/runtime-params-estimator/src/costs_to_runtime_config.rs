@@ -1,7 +1,7 @@
 use crate::cost::Cost;
 use crate::cost_table::CostTable;
 use anyhow::Context;
-use near_parameters::cost::FeeComponent;
+use near_parameters::parameter_table::FeeComponent;
 use near_parameters::vm::Config as VMConfig;
 use near_parameters::{
     AccountCreationConfig, ActionCosts, ExtCosts, ExtCostsConfig, Fee, ParameterCost,

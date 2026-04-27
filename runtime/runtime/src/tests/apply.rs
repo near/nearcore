@@ -13,7 +13,7 @@ use crate::{SignedValidPeriodTransactions, total_prepaid_exec_fees};
 use assert_matches::assert_matches;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
-use near_parameters::cost::FeeComponent;
+use near_parameters::parameter_table::FeeComponent;
 use near_parameters::{ActionCosts, RuntimeConfig};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
