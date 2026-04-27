@@ -282,6 +282,7 @@ impl Inner {
         if dropped_by_pre_check + dropped_by_update > 0 {
             tracing::info!(
                 target: "network",
+                ?source,
                 dropped_by_pre_check,
                 dropped_by_update,
                 "edges dropped due to routing graph limits"
