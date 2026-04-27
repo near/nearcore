@@ -2,6 +2,7 @@
 Test case classes for release tests on forknet.
 """
 from .base import TestSetup, NodeHardware
+from mirror import CommandContext, update_config_cmd
 
 import copy
 from utils import PartitionSelector
@@ -45,6 +46,12 @@ class TestReleaseCandidate(TestSetup):
         super().amend_epoch_config()
         self._amend_epoch_config(
             f".protocol_upgrade_stake_threshold = [9999,10000]")
+
+    def amend_configs_before_test_start(self):
+        super().amend_configs_before_test_start()
+        cfg_args = copy.deepcopy(self.args)
+        cfg_args.set = 'save_invalid_witnesses=true'
+        update_config_cmd(CommandContext(cfg_args))
 
     def _upgrade_nodes_in_four_batches(self):
         """
