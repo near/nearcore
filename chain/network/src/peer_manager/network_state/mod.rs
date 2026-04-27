@@ -132,14 +132,12 @@ pub(crate) struct NetworkState {
 
     /// Network-related info about the chain.
     pub chain_info: ArcSwap<Option<ChainInfo>>,
-    /// Per-peer gossip demuxes for T2 peers (moved from Connection).
-    /// Kept as two separate maps rather than a struct so
-    /// `add_accounts_data` and `add_snapshot_hosts` iterate the map
-    /// they need directly — no struct-field extraction step.
-    pub accounts_data_demuxes:
-        Mutex<HashMap<PeerId, demux::Demux<Vec<Arc<SignedAccountData>>, ()>>>,
-    pub snapshot_hosts_demuxes:
-        Mutex<HashMap<PeerId, demux::Demux<Vec<Arc<SnapshotHostInfo>>, ()>>>,
+    /// Per-peer gossip demuxes for T2 peers. Kept as two separate
+    /// maps rather than a struct so `add_accounts_data` and
+    /// `add_snapshot_hosts` iterate the map they need directly — no
+    /// struct-field extraction step.
+    accounts_data_demuxes: Mutex<HashMap<PeerId, demux::Demux<Vec<Arc<SignedAccountData>>, ()>>>,
+    snapshot_hosts_demuxes: Mutex<HashMap<PeerId, demux::Demux<Vec<Arc<SnapshotHostInfo>>, ()>>>,
 
     /// AccountsData for TIER1 accounts.
     pub accounts_data: Arc<AccountDataCache>,
@@ -553,10 +551,10 @@ impl NetworkState {
     ) {
         self.peers.remove(info.tier, &info.peer_info.id);
 
-        self.accounts_data_demuxes.lock().remove(&info.peer_info.id);
-        self.snapshot_hosts_demuxes.lock().remove(&info.peer_info.id);
-
         if info.tier == tcp::Tier::T2 {
+            self.accounts_data_demuxes.lock().remove(&info.peer_info.id);
+            self.snapshot_hosts_demuxes.lock().remove(&info.peer_info.id);
+
             let peer_id = info.peer_info.id.clone();
 
             // If the last edge represents a connection addition, create an edge
@@ -1356,35 +1354,27 @@ impl NetworkState {
             // Broadcast any new data we have found, even in presence of an error.
             // This will prevent a malicious peer from forcing us to re-verify valid
             // datasets. See accounts_data::Cache documentation for details.
-            if !new_data.is_empty() {
-                // Snapshot the demux map first so the MutexGuard is released
-                // before we start spawning tasks (each `this.spawn` may take
-                // unrelated locks). The intermediate `collect` is required
-                // for the lock to drop — clippy's `needless_collect` doesn't
-                // know that.
-                #[allow(clippy::needless_collect)]
-                let peers: Vec<_> = this
-                    .accounts_data_demuxes
-                    .lock()
-                    .iter()
-                    .map(|(id, demux)| (id.clone(), demux.clone()))
-                    .collect();
-                let tasks: Vec<_> = peers
-                    .into_iter()
-                    .map(|(peer_id, demux)| {
-                        this.spawn(
-                            "send_accounts_data",
-                            this.clone().gossip_accounts_data_to_peer(
-                                peer_id,
-                                demux,
-                                new_data.clone(),
-                            ),
-                        )
-                    })
-                    .collect();
-                for t in tasks {
-                    t.await.unwrap();
-                }
+            if new_data.is_empty() {
+                return err;
+            }
+            // Snapshot the demux map in a scoped block so the MutexGuard
+            // drops before we start spawning tasks (each `this.spawn`
+            // may take unrelated locks).
+            let peers: Vec<_> = {
+                let guard = this.accounts_data_demuxes.lock();
+                guard.iter().map(|(id, demux)| (id.clone(), demux.clone())).collect()
+            };
+            let tasks: Vec<_> = peers
+                .into_iter()
+                .map(|(peer_id, demux)| {
+                    this.spawn(
+                        "send_accounts_data",
+                        this.clone().gossip_accounts_data_to_peer(peer_id, demux, new_data.clone()),
+                    )
+                })
+                .collect();
+            for t in tasks {
+                t.await.unwrap();
             }
             err
         })
@@ -1402,33 +1392,30 @@ impl NetworkState {
             let (new_data, err) = this.snapshot_hosts.clone().insert(hosts).await;
             // Broadcast any valid new data, even if an err was returned.
             // The presence of one invalid entry doesn't invalidate the remaining ones.
-            if !new_data.is_empty() {
-                // Snapshot first, then spawn — same reasoning as
-                // `add_accounts_data` (drop the MutexGuard before
-                // spawning).
-                #[allow(clippy::needless_collect)]
-                let peers: Vec<_> = this
-                    .snapshot_hosts_demuxes
-                    .lock()
-                    .iter()
-                    .map(|(id, demux)| (id.clone(), demux.clone()))
-                    .collect();
-                let tasks: Vec<_> = peers
-                    .into_iter()
-                    .map(|(peer_id, demux)| {
-                        this.spawn(
-                            "send_snapshot_hosts",
-                            this.clone().gossip_snapshot_hosts_to_peer(
-                                peer_id,
-                                demux,
-                                new_data.clone(),
-                            ),
-                        )
-                    })
-                    .collect();
-                for t in tasks {
-                    t.await.unwrap();
-                }
+            if new_data.is_empty() {
+                return err;
+            }
+            // Snapshot first, drop the guard, then spawn — same
+            // reasoning as `add_accounts_data`.
+            let peers: Vec<_> = {
+                let guard = this.snapshot_hosts_demuxes.lock();
+                guard.iter().map(|(id, demux)| (id.clone(), demux.clone())).collect()
+            };
+            let tasks: Vec<_> = peers
+                .into_iter()
+                .map(|(peer_id, demux)| {
+                    this.spawn(
+                        "send_snapshot_hosts",
+                        this.clone().gossip_snapshot_hosts_to_peer(
+                            peer_id,
+                            demux,
+                            new_data.clone(),
+                        ),
+                    )
+                })
+                .collect();
+            for t in tasks {
+                t.await.unwrap();
             }
             err
         })
