@@ -48,7 +48,7 @@ pub enum Finality {
 }
 
 /// Account ID with its public key.
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccountWithPublicKey {
     pub account_id: AccountId,

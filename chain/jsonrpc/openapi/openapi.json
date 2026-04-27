@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.2.4"
+    "version": "1.2.5"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -16331,6 +16331,32 @@
               "name": {
                 "enum": [
                   "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "shard_id": {
+                    "$ref": "#/components/schemas/ShardId"
+                  }
+                },
+                "required": [
+                  "shard_id"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "SHARD_NOT_APPLIED"
                 ],
                 "type": "string"
               }

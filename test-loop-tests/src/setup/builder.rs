@@ -1,5 +1,6 @@
 use super::env::TestLoopEnv;
 use super::peer_manager_actor::{TestLoopNetworkSharedState, UnreachableActor};
+use super::rpc::{FaultyRpcTransport, RpcFaultHandle};
 use super::setup::setup_client;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 use crate::utils::account::{
@@ -17,7 +18,7 @@ use near_chain_configs::{
     ClientConfig, DumpConfig, ExternalStorageConfig, ExternalStorageLocation, Genesis,
     StateSyncConfig, SyncConfig, TrackedShardsConfig,
 };
-use near_jsonrpc::client::JsonRpcClient;
+use near_jsonrpc::client::{JsonRpcClient, RpcTransport};
 use near_jsonrpc::sharded_rpc::ShardedRpcNode;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
@@ -31,6 +32,7 @@ use near_store::archive::cloud_storage::bucket_config::BucketConfig;
 use near_store::archive::cloud_storage::config::test_cloud_archival_config;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::{TestNodeStorage, create_test_node_storage};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -67,6 +69,10 @@ pub(crate) struct TestLoopBuilder {
     /// `BucketConfig::canonical()`; tests override to use a batch size
     /// different from production.
     bucket_config: BucketConfig,
+    /// Fault handles for pool entries. When a handle is set to `Some(msg)`,
+    /// the corresponding pool entry's transport returns `Err(msg)` instead of
+    /// dispatching the request. Used to simulate unreachable / stale nodes.
+    rpc_pool_fault_handles: HashMap<AccountId, RpcFaultHandle>,
 }
 
 impl TestLoopBuilder {
@@ -85,6 +91,7 @@ impl TestLoopBuilder {
             upgrade_schedule: None,
             rpc_pool: None,
             bucket_config: BucketConfig::canonical(),
+            rpc_pool_fault_handles: HashMap::new(),
         }
     }
 
@@ -325,6 +332,15 @@ impl TestLoopBuilder {
         self
     }
 
+    /// Register a fault handle for a pool entry. Returns the shared handle the
+    /// caller can flip at runtime; setting it to `Some(msg)` makes every pool
+    /// caller receive `Err(msg)` when trying to reach `account`.
+    pub(crate) fn rpc_pool_fault_handle(&mut self, account: AccountId) -> RpcFaultHandle {
+        let handle = Arc::new(parking_lot::RwLock::new(None));
+        self.rpc_pool_fault_handles.insert(account, handle.clone());
+        handle
+    }
+
     /// Custom function to change the configs before constructing each client.
     pub fn config_modifier(
         mut self,
@@ -409,6 +425,7 @@ impl TestLoopBuilder {
         }
 
         let rpc_pool = self.rpc_pool.take();
+        let rpc_pool_fault_handles = std::mem::take(&mut self.rpc_pool_fault_handles);
         let node_states = (0..clients.len())
             .map(|idx| self.setup_node_state(idx, &genesis, &clients))
             .collect_vec();
@@ -421,7 +438,7 @@ impl TestLoopBuilder {
             })
             .collect_vec();
 
-        Self::setup_sharded_rpc_pools(&datas, rpc_pool.as_deref());
+        Self::setup_sharded_rpc_pools(&datas, rpc_pool.as_deref(), &rpc_pool_fault_handles);
 
         TestLoopEnv { test_loop, node_datas: datas, shared_state }
     }
@@ -429,9 +446,12 @@ impl TestLoopBuilder {
     /// Wire each node's sharded RPC pool with clients pointing to other nodes.
     /// When `rpc_pool_accounts` is provided, only those accounts are included
     /// as remote nodes in the pool. Otherwise all nodes are included.
+    /// Pool entries with a registered fault handle have their transport wrapped
+    /// so tests can inject failures at runtime.
     fn setup_sharded_rpc_pools(
         datas: &[NodeExecutionData],
         rpc_pool_accounts: Option<&[AccountId]>,
+        fault_handles: &HashMap<AccountId, RpcFaultHandle>,
     ) {
         let pool_nodes: Vec<ShardedRpcNode> = datas
             .iter()
@@ -439,8 +459,14 @@ impl TestLoopBuilder {
                 rpc_pool_accounts.map_or(true, |accounts| accounts.contains(&data.account_id))
             })
             .map(|data| {
-                let client =
-                    Arc::new(JsonRpcClient::new_with_transport(data.jsonrpc_transport.clone()));
+                let transport: Arc<dyn RpcTransport> = match fault_handles.get(&data.account_id) {
+                    Some(handle) => Arc::new(FaultyRpcTransport::new(
+                        data.jsonrpc_transport.clone(),
+                        handle.clone(),
+                    )),
+                    None => data.jsonrpc_transport.clone(),
+                };
+                let client = Arc::new(JsonRpcClient::new_with_transport(transport));
                 let pool = data.sharded_rpc_pool.read();
                 // TODO(sharded-rpc): find the right shard_ids in TestLoop.
                 let tracked_shards = match pool.shard_tracker.tracked_shards_config() {
