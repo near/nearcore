@@ -377,13 +377,13 @@ pub(crate) enum InvalidConfigError {
     #[error("could not parse YAML that defines the structure of the config")]
     InvalidYaml(#[source] serde_yaml::Error),
     #[error("config diff expected to contain old value `{1:?}` for parameter `{0}`")]
-    OldValueExists(Parameter, ParameterValue),
+    OldValueExists(Parameter, Box<ParameterValue>),
     #[error(
         "unexpected old value `{1:?}` for parameter `{0}` in config diff, previous version does not have such a value"
     )]
-    NoOldValueExists(Parameter, ParameterValue),
+    NoOldValueExists(Parameter, Box<ParameterValue>),
     #[error("expected old value `{1:?}` but found `{2:?}` for parameter `{0}` in config diff")]
-    WrongOldValue(Parameter, ParameterValue, ParameterValue),
+    WrongOldValue(Parameter, Box<ParameterValue>, Box<ParameterValue>),
     #[error("expected a value for `{0}` but found none")]
     MissingParameter(Parameter),
     #[error("failed to convert a value for `{1}`")]
@@ -518,18 +518,21 @@ impl ParameterTable {
             let old_value = self.parameters.get(&key);
             if old_value != before.as_ref() {
                 if old_value.is_none() {
-                    return Err(InvalidConfigError::NoOldValueExists(key, before.unwrap()));
+                    return Err(InvalidConfigError::NoOldValueExists(
+                        key,
+                        Box::new(before.unwrap()),
+                    ));
                 }
                 if before.is_none() {
                     return Err(InvalidConfigError::OldValueExists(
                         key,
-                        old_value.unwrap().clone(),
+                        Box::new(old_value.unwrap().clone()),
                     ));
                 }
                 return Err(InvalidConfigError::WrongOldValue(
                     key,
-                    old_value.unwrap().clone(),
-                    before.unwrap(),
+                    Box::new(old_value.unwrap().clone()),
+                    Box::new(before.unwrap()),
                 ));
             }
 
@@ -889,8 +892,8 @@ mod tests {
                 expected,
                 found
             ) => {
-                assert_eq!(expected, ParameterValue::U64(3200000000));
-                assert_eq!(found, ParameterValue::U64(3200000));
+                assert_eq!(expected, Box::new(ParameterValue::U64(3200000000)));
+                assert_eq!(found, Box::new(ParameterValue::U64(3200000)));
             }
         );
     }
@@ -903,7 +906,7 @@ mod tests {
                 &["min_allowed_top_level_account_length: { new: 1_600_000 }"]
             ),
             InvalidConfigError::OldValueExists(Parameter::MinAllowedTopLevelAccountLength, expected) => {
-                assert_eq!(expected, ParameterValue::U64(3200000000));
+                assert_eq!(expected, Box::new(ParameterValue::U64(3200000000)));
             }
         );
     }
@@ -916,7 +919,7 @@ mod tests {
                 &["wasm_regular_op_cost: { old: 3_200_000, new: 1_600_000 }"]
             ),
             InvalidConfigError::NoOldValueExists(Parameter::WasmRegularOpCost, found) => {
-                assert_eq!(found, ParameterValue::U64(3200000));
+                assert_eq!(found, Box::new(ParameterValue::U64(3200000)));
             }
         );
     }
