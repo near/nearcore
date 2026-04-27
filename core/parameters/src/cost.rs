@@ -1,5 +1,4 @@
 use crate::parameter::Parameter;
-use crate::parameter_table::FeeComponent;
 use enum_map::{EnumMap, enum_map};
 use near_account_id::AccountType;
 use near_primitives_core::account::{AccessKey, GasKeyInfo};
@@ -13,7 +12,6 @@ use num_rational::Rational32;
 /// NOTE: `send_sir` or `send_not_sir` fees are usually burned when the item is being created.
 /// And `execution` fee is burned when the item is being executed.
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Fee {
     /// Fee for sending an object from the sender to itself, guaranteeing that it does not leave
     /// the shard.
@@ -72,6 +70,31 @@ pub struct ParameterCost {
     pub compute: Compute,
 }
 
+/// A single component of a `Fee` (send_sir, send_not_sir, exec), specified as
+/// either a plain gas value or as separate gas and compute costs.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Hash, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum FeeComponent {
+    Gas(Gas),
+    GasAndCompute { gas: Gas, compute: Compute },
+}
+
+impl FeeComponent {
+    pub fn gas(&self) -> Gas {
+        match self {
+            FeeComponent::Gas(gas) => *gas,
+            FeeComponent::GasAndCompute { gas, .. } => *gas,
+        }
+    }
+
+    pub fn compute(&self) -> Compute {
+        match self {
+            // if not specified separately, compute = gas
+            FeeComponent::Gas(gas) => Compute::from(gas.as_gas()),
+            FeeComponent::GasAndCompute { compute, .. } => *compute,
+        }
+    }
+}
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct ExtCostsConfig {
     pub costs: EnumMap<ExtCosts, ParameterCost>,

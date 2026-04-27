@@ -1,13 +1,14 @@
 use super::config::{AccountCreationConfig, RuntimeConfig};
 use crate::config::{BandwidthSchedulerConfig, CongestionControlConfig, WitnessConfig};
 use crate::cost::{
-    ActionCosts, ExtCostsConfig, Fee, ParameterCost, RuntimeFeesConfig, StorageUsageConfig,
+    ActionCosts, ExtCostsConfig, Fee, FeeComponent, ParameterCost, RuntimeFeesConfig,
+    StorageUsageConfig,
 };
 use crate::parameter::{FeeParameter, Parameter};
 use crate::vm::VMKind;
 use crate::vm::{Config, StorageGetMode};
 use near_primitives_core::account::id::ParseAccountError;
-use near_primitives_core::types::{AccountId, Balance, Compute, Gas, ShardId};
+use near_primitives_core::types::{AccountId, Balance, Gas, ShardId};
 use num_rational::Rational32;
 use std::collections::BTreeMap;
 use std::fmt;
@@ -20,7 +21,6 @@ pub(crate) enum ParameterValue {
     U64(u64),
     Rational { numerator: i32, denominator: i32 },
     ParameterCost { gas: u64, compute: u64 },
-    // TODO: think about openapi breakage
     Fee { send_sir: FeeComponent, send_not_sir: FeeComponent, execution: FeeComponent },
     // Can be used to store either a string or u128. Ideally, we would use a dedicated enum member
     // for u128, but this is currently impossible to express in YAML (see
@@ -28,34 +28,6 @@ pub(crate) enum ParameterValue {
     String(String),
     Flag(bool),
     Vec(Vec<ParameterValue>),
-}
-
-/// A single component of a `Fee` (send_sir, send_not_sir, exec), specified as
-/// either a plain gas value or as separate gas and compute costs.
-#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Hash, PartialEq, Eq)]
-#[serde(untagged)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub enum FeeComponent {
-    Gas(Gas),
-    // TODO: serde JSON serialize is not good for u64
-    GasAndCompute { gas: Gas, compute: Compute },
-}
-
-impl FeeComponent {
-    pub fn gas(&self) -> Gas {
-        match self {
-            FeeComponent::Gas(gas) => *gas,
-            FeeComponent::GasAndCompute { gas, .. } => *gas,
-        }
-    }
-
-    pub fn compute(&self) -> Compute {
-        match self {
-            // if not specified separately, compute = gas
-            FeeComponent::Gas(gas) => Compute::from(gas.as_gas()),
-            FeeComponent::GasAndCompute { compute, .. } => *compute,
-        }
-    }
 }
 
 #[derive(thiserror::Error, Debug)]
