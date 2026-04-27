@@ -79,3 +79,32 @@ class TestReleaseCandidate(TestSetup):
         """
         super().after_test_start()
         self._upgrade_nodes_in_four_batches()
+
+
+class TestReleaseCandidateFast(TestReleaseCandidate):
+    """
+    Variant of TestReleaseCandidate optimized for protocol-transition
+    wall-clock time. Useful for smoke tests; not representative of a real
+    release rollout.
+
+    Differences from TestReleaseCandidate:
+        - Shorter epochs (epoch_len=500). The new protocol activates 2 epoch
+          boundaries after the vote, so epoch length dominates the post-
+          upgrade tail.
+        - Single-batch upgrade a few minutes after start, instead of four
+          staged batches spread over ~45 minutes. The 99.99% stake threshold
+          inherited from the parent is still fine because all nodes flip at
+          once.
+    """
+
+    def __init__(self, args):
+        super().__init__(args)
+        self.epoch_len = 500
+        self.first_upgrade_delay_minutes = 5
+
+    def after_test_start(self):
+        # Skip TestReleaseCandidate's 4-batch rollout; upgrade all nodes once.
+        TestSetup.after_test_start(self)
+        upgrade_time = datetime.now() + timedelta(
+            minutes=self.first_upgrade_delay_minutes)
+        self.schedule_binary_upgrade(upgrade_time, 0, binary_idx=1)
