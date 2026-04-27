@@ -2405,6 +2405,7 @@ fn test_execution_metadata() {
         .fees
         .fee(ActionCosts::new_action_receipt)
         .execution
+        .gas()
         .checked_add(config.fees.fee(ActionCosts::function_call_base).exec_fee())
         .unwrap()
         .checked_add(

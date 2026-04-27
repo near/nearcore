@@ -1,6 +1,7 @@
 use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords, get_initial_supply};
 use near_crypto::{InMemorySigner, Signer};
 use near_parameters::ActionCosts;
+use near_parameters::parameter_table::FeeComponent;
 use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
@@ -58,10 +59,12 @@ impl StandaloneRuntime {
         // Bumping costs to avoid inflation overflows.
         wasm_config.limit_config.max_total_prepaid_gas = Gas::from_teragas(1000);
         let fees = Arc::make_mut(&mut runtime_config.fees);
-        fees.action_fees[ActionCosts::new_action_receipt].execution =
-            runtime_config.wasm_config.limit_config.max_total_prepaid_gas.checked_div(64).unwrap();
-        fees.action_fees[ActionCosts::new_data_receipt_base].execution =
-            runtime_config.wasm_config.limit_config.max_total_prepaid_gas.checked_div(64).unwrap();
+        fees.action_fees[ActionCosts::new_action_receipt].execution = FeeComponent::Gas(
+            runtime_config.wasm_config.limit_config.max_total_prepaid_gas.checked_div(64).unwrap(),
+        );
+        fees.action_fees[ActionCosts::new_data_receipt_base].execution = FeeComponent::Gas(
+            runtime_config.wasm_config.limit_config.max_total_prepaid_gas.checked_div(64).unwrap(),
+        );
 
         let runtime = Runtime::new();
         let genesis = Genesis::new(
