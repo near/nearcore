@@ -7,9 +7,10 @@ use crate::parameter::{FeeParameter, Parameter};
 use crate::vm::VMKind;
 use crate::vm::{Config, StorageGetMode};
 use near_primitives_core::account::id::ParseAccountError;
-use near_primitives_core::types::{AccountId, Balance, Gas, ShardId};
+use near_primitives_core::types::{AccountId, Balance, Compute, Gas, ShardId};
 use num_rational::Rational32;
 use std::collections::BTreeMap;
+use std::fmt;
 use std::sync::Arc;
 
 /// Represents values supported by parameter config.
@@ -19,13 +20,42 @@ pub(crate) enum ParameterValue {
     U64(u64),
     Rational { numerator: i32, denominator: i32 },
     ParameterCost { gas: u64, compute: u64 },
-    Fee { send_sir: Gas, send_not_sir: Gas, execution: Gas },
+    // TODO: think about openapi breakage
+    Fee { send_sir: FeeComponent, send_not_sir: FeeComponent, execution: FeeComponent },
     // Can be used to store either a string or u128. Ideally, we would use a dedicated enum member
     // for u128, but this is currently impossible to express in YAML (see
     // `canonicalize_yaml_string`).
     String(String),
     Flag(bool),
     Vec(Vec<ParameterValue>),
+}
+
+/// A single component of a `Fee` (send_sir, send_not_sir, exec), specified as
+/// either a plain gas value or as separate gas and compute costs.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Hash, PartialEq, Eq)]
+#[serde(untagged)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub enum FeeComponent {
+    Gas(Gas),
+    // TODO: serde JSON serialize is not good for u64
+    GasAndCompute { gas: Gas, compute: Compute },
+}
+
+impl FeeComponent {
+    pub fn gas(&self) -> Gas {
+        match self {
+            FeeComponent::Gas(gas) => *gas,
+            FeeComponent::GasAndCompute { gas, .. } => *gas,
+        }
+    }
+
+    pub fn compute(&self) -> Compute {
+        match self {
+            // if not specified separately, compute = gas
+            FeeComponent::Gas(gas) => Compute::from(gas.as_gas()),
+            FeeComponent::GasAndCompute { compute, .. } => *compute,
+        }
+    }
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -162,13 +192,19 @@ impl TryFrom<&ParameterValue> for Balance {
     }
 }
 
+impl From<&ParameterCost> for FeeComponent {
+    fn from(cost: &ParameterCost) -> Self {
+        FeeComponent::GasAndCompute { gas: cost.gas, compute: cost.compute }
+    }
+}
+
 impl TryFrom<&ParameterValue> for Fee {
     type Error = ValueConversionError;
 
     fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
         match value {
             &ParameterValue::Fee { send_sir, send_not_sir, execution } => {
-                Ok(Fee { send_sir, send_not_sir, execution })
+                Ok(Fee { send_sir: send_sir, send_not_sir: send_not_sir, execution: execution })
             }
             _ => Err(ValueConversionError::ParseType(std::any::type_name::<Fee>(), value.clone())),
         }
@@ -238,37 +274,70 @@ where
     }
 }
 
-fn format_number(mut n: u64) -> String {
-    let mut parts = Vec::new();
-    while n >= 1000 {
-        parts.push(format!("{:03?}", n % 1000));
-        n /= 1000;
+struct FormattedNumber(u64);
+
+impl fmt::Display for FormattedNumber {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut n = self.0;
+        let mut parts = Vec::new();
+        while n >= 1000 {
+            parts.push(format!("{:03}", n % 1000));
+            n /= 1000;
+        }
+        parts.push(n.to_string());
+        parts.reverse();
+        f.pad(&parts.join("_"))
     }
-    parts.push(n.to_string());
-    parts.reverse();
-    parts.join("_")
+}
+
+struct FormattedGasComputePair {
+    gas: u64,
+    compute: u64,
+}
+
+impl fmt::Display for FormattedGasComputePair {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{:>20}, compute: {:>20}",
+            FormattedNumber(self.gas),
+            FormattedNumber(self.compute)
+        )
+    }
+}
+
+struct FormattedFeeComponent(FeeComponent);
+
+impl fmt::Display for FormattedFeeComponent {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.0 {
+            FeeComponent::Gas(gas) => write!(f, "{:>20}", FormattedNumber(gas.as_gas())),
+            FeeComponent::GasAndCompute { gas, compute } => {
+                write!(f, "{}", FormattedGasComputePair { gas: gas.as_gas(), compute })
+            }
+        }
+    }
 }
 
 impl core::fmt::Display for ParameterValue {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         match self {
-            ParameterValue::U64(v) => write!(f, "{:>20}", format_number(*v)),
+            ParameterValue::U64(v) => write!(f, "{:>20}", FormattedNumber(*v)),
             ParameterValue::Rational { numerator, denominator } => {
                 write!(f, "{numerator} / {denominator}")
             }
             ParameterValue::ParameterCost { gas, compute } => {
-                write!(f, "{:>20}, compute: {:>20}", format_number(*gas), format_number(*compute))
+                write!(f, "{}", FormattedGasComputePair { gas: *gas, compute: *compute })
             }
             ParameterValue::Fee { send_sir, send_not_sir, execution } => {
                 write!(
                     f,
-                    r#"
-- send_sir:     {:>20}
-- send_not_sir: {:>20}
-- execution:    {:>20}"#,
-                    format_number((*send_sir).as_gas()),
-                    format_number((*send_not_sir).as_gas()),
-                    format_number((*execution).as_gas())
+                    "\n- send_sir:     {}\
+                    \n- send_not_sir: {}\
+                    \n- execution:    {}",
+                    FormattedFeeComponent(*send_sir),
+                    FormattedFeeComponent(*send_not_sir),
+                    FormattedFeeComponent(*execution),
                 )
             }
             ParameterValue::String(v) => write!(f, "{v}"),
@@ -849,6 +918,82 @@ mod tests {
             InvalidConfigError::NoOldValueExists(Parameter::WasmRegularOpCost, found) => {
                 assert_eq!(found, ParameterValue::U64(3200000));
             }
+        );
+    }
+
+    /// Fee with specified compute limits.
+    #[test]
+    fn test_fee_gas_and_compute_format() {
+        check_parameter_table(
+            "action_receipt_creation: {
+                send_sir: { gas: 10_000, compute: 20_000 },
+                send_not_sir: { gas: 30_000, compute: 40_000 },
+                execution: { gas: 50_000, compute: 60_000 }
+            }",
+            &[],
+            [(
+                Parameter::ActionReceiptCreation,
+                "{ 
+                    send_sir: { gas: 10_000, compute: 20_000 },
+                    send_not_sir: { gas: 30_000, compute: 40_000 },
+                    execution: { gas: 50_000, compute: 60_000 }
+                }",
+            )],
+        );
+    }
+
+    /// Change a fee from gas only to new value with specified compute limits.
+    #[test]
+    fn test_fee_diff_plain_to_gas_and_compute() {
+        check_parameter_table(
+            "action_receipt_creation: { send_sir: 10_000, send_not_sir: 10_000, execution: 10_000 }",
+            &["action_receipt_creation: {
+                    old: { send_sir: 10_000, send_not_sir: 10_000, execution: 10_000 },
+                    new: {
+                        send_sir: { gas: 10_000, compute: 20_000 },
+                        send_not_sir: { gas: 10_000, compute: 20_000 },
+                        execution: { gas: 10_000, compute: 20_000 }
+                    }
+                }"],
+            [(
+                Parameter::ActionReceiptCreation,
+                "{ send_sir: { gas: 10_000, compute: 20_000 },
+                   send_not_sir: { gas: 10_000, compute: 20_000 },
+                   execution: { gas: 10_000, compute: 20_000 }
+                }",
+            )],
+        );
+    }
+
+    /// Fee diff with a mix of specified compute limits and plain gas values.
+    #[test]
+    fn test_fee_diff_gas_and_compute_to_gas_and_compute() {
+        check_parameter_table(
+            "action_receipt_creation: {
+                send_sir: { gas: 10_000, compute: 20_000 },
+                send_not_sir: { gas: 30_000, compute: 40_000 },
+                execution: 50_000
+            }",
+            &["action_receipt_creation: {
+                old: {
+                    send_sir: { gas: 10_000, compute: 20_000 },
+                    send_not_sir: { gas: 30_000, compute: 40_000 },
+                    execution: 50_000
+                },
+                new: {
+                    send_sir: { gas: 100_000, compute: 200_000 },
+                    send_not_sir: { gas: 300_000, compute: 400_000 },
+                    execution: { gas: 500_000, compute: 600_000 }
+                }
+            }"],
+            [(
+                Parameter::ActionReceiptCreation,
+                "{ 
+                    send_sir: { gas: 100_000, compute: 200_000 },
+                    send_not_sir: { gas: 300_000, compute: 400_000 },
+                    execution: { gas: 500_000, compute: 600_000 }
+                }",
+            )],
         );
     }
 

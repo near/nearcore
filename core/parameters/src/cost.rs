@@ -1,4 +1,5 @@
 use crate::parameter::Parameter;
+use crate::parameter_table::FeeComponent;
 use enum_map::{EnumMap, enum_map};
 use near_account_id::AccountType;
 use near_primitives_core::account::{AccessKey, GasKeyInfo};
@@ -16,45 +17,55 @@ use num_rational::Rational32;
 pub struct Fee {
     /// Fee for sending an object from the sender to itself, guaranteeing that it does not leave
     /// the shard.
-    pub send_sir: Gas,
+    pub send_sir: FeeComponent,
     /// Fee for sending an object potentially across the shards.
-    pub send_not_sir: Gas,
+    pub send_not_sir: FeeComponent,
     /// Fee for executing the object.
-    pub execution: Gas,
+    pub execution: FeeComponent,
 }
 
 impl Fee {
     pub fn new(send_sir: u64, send_not_sir: u64, execution: u64) -> Self {
         Self {
-            send_sir: Gas::from_gas(send_sir),
-            send_not_sir: Gas::from_gas(send_not_sir),
-            execution: Gas::from_gas(execution),
+            send_sir: FeeComponent::Gas(Gas::from_gas(send_sir)),
+            send_not_sir: FeeComponent::Gas(Gas::from_gas(send_not_sir)),
+            execution: FeeComponent::Gas(Gas::from_gas(execution)),
         }
     }
 
     #[inline]
     pub fn send_fee(&self, sir: bool) -> Gas {
-        if sir { self.send_sir } else { self.send_not_sir }
+        if sir { self.send_sir.gas() } else { self.send_not_sir.gas() }
     }
 
     pub fn exec_fee(&self) -> Gas {
-        self.execution
+        self.execution.gas()
+    }
+
+    #[inline]
+    pub fn compute_send_fee(&self, sir: bool) -> Compute {
+        if sir { self.send_sir.compute() } else { self.send_not_sir.compute() }
+    }
+
+    pub fn compute_exec_fee(&self) -> Compute {
+        self.execution.compute()
     }
 
     /// The minimum fee to send and execute.
     pub fn min_send_and_exec_fee(&self) -> Gas {
-        std::cmp::min(self.send_sir, self.send_not_sir).checked_add(self.execution).unwrap()
+        std::cmp::min(self.send_sir.gas(), self.send_not_sir.gas())
+            .checked_add(self.execution.gas())
+            .unwrap()
     }
 
     fn test_value(value: u64) -> Self {
         Self {
-            send_sir: Gas::from_gas(value),
-            send_not_sir: Gas::from_gas(value),
-            execution: Gas::from_gas(value),
+            send_sir: FeeComponent::Gas(Gas::from_gas(value)),
+            send_not_sir: FeeComponent::Gas(Gas::from_gas(value)),
+            execution: FeeComponent::Gas(Gas::from_gas(value)),
         }
     }
 }
-
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct ParameterCost {
     pub gas: Gas,
