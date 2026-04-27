@@ -830,6 +830,15 @@ pub(crate) static SPICE_BLOCK_PRODUCTION_DELAY_MS: LazyLock<IntGauge> = LazyLock
     .unwrap()
 });
 
+pub(crate) static BACKFILL_RECEIPT_TO_TX_LOWEST_COMPLETED_HEIGHT: LazyLock<IntGauge> =
+    LazyLock::new(|| {
+        try_create_int_gauge(
+            "near_backfill_receipt_to_tx_lowest_completed_height",
+            "Lowest height that has been backfilled for ReceiptToTx mapping",
+        )
+        .unwrap()
+    });
+
 pub static SPICE_INVALID_CHUNK_REPLACED_WITH_EMPTY_TOTAL: LazyLock<IntCounterVec> =
     LazyLock::new(|| {
         try_create_int_counter_vec(

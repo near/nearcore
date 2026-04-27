@@ -593,7 +593,7 @@ pub async fn start_with_config_and_synchronization_impl(
                 config.client_config.save_trie_changes,
                 &chain_genesis,
                 config.client_config.backfill_receipt_to_tx.clone(),
-            ));
+            )?);
         } else {
             tracing::warn!(
                 "receipt-to-tx backfill actor not started: \

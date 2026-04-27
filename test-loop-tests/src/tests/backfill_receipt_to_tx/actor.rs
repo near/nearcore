@@ -153,7 +153,8 @@ fn test_backfill_actor_processes_heights() {
             num_threads: 4,
             start_height: None,
         },
-    );
+    )
+    .unwrap();
 
     // Drive the actor manually by calling backfill_batch in a loop.
     // This tests the real batch method (checkpoint management, height iteration).
@@ -288,7 +289,8 @@ fn test_actor_respects_start_height() {
             num_threads: 1,
             start_height: Some(mid_height),
         },
-    );
+    )
+    .unwrap();
 
     loop {
         match actor.backfill_batch() {
@@ -358,6 +360,7 @@ fn test_actor_rejects_invalid_start_height() {
                 start_height: Some(start_height),
             },
         )
+        .unwrap()
     };
 
     // Above head.
@@ -442,7 +445,8 @@ fn test_sequential_forward_then_backward_converge() {
             num_threads: 1,
             start_height: None,
         },
-    );
+    )
+    .unwrap();
     loop {
         match actor.backfill_batch() {
             Ok(true) => break,
@@ -489,5 +493,156 @@ fn test_sequential_forward_then_backward_converge() {
     for ((ck, cv), (rk, rv)) in combined_entries.iter().zip(reference_entries.iter()) {
         assert_eq!(ck, rk, "entry key mismatch");
         assert_eq!(cv, rv, "entry value mismatch");
+    }
+}
+
+/// Actor resumes from checkpoint after restart: partial run + fresh actor = complete backfill.
+///
+/// Drives `backfill_batch()` for a few iterations (partial progress), drops the actor,
+/// builds a fresh actor with the same storage, drives to completion, and asserts the
+/// combined output equals a from-scratch forward backfill.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_actor_resumes_from_checkpoint_after_restart() {
+    init_test_logger();
+
+    let user_account = create_account_id("account0");
+    let receiver_account = create_account_id("account1");
+
+    let mut env = TestLoopBuilder::new()
+        .add_user_account(&user_account, Balance::from_near(1_000_000))
+        .add_user_account(&receiver_account, Balance::from_near(1_000_000))
+        .epoch_length(EPOCH_LENGTH)
+        .config_modifier(|config, _| {
+            config.save_receipt_to_tx = false;
+        })
+        .gc_num_epochs_to_keep(20)
+        .build();
+
+    generate_diverse_traffic(&mut env);
+
+    let store = env.validator().store();
+    let chain_store = env.validator().client().chain.chain_store();
+    let genesis_height = chain_store.get_genesis_height();
+    let head_height = env.validator().head().height;
+
+    let genesis = &env.shared_state.genesis;
+    let chain_genesis = ChainGenesis::new(&genesis.config);
+
+    // Phase 1: run a fresh actor for a few batches (partial progress).
+    {
+        let mut actor = BackfillReceiptToTxActor::new(
+            shared_storage(&store),
+            true,
+            &chain_genesis,
+            BackfillReceiptToTxConfig {
+                enabled: true,
+                batch_size: 5,
+                batch_delay: Duration::milliseconds(1),
+                num_threads: 1,
+                start_height: None,
+            },
+        )
+        .unwrap();
+
+        let mut batches_run = 0;
+        loop {
+            match actor.backfill_batch() {
+                Ok(true) => panic!("backfill should not complete in only 2 batches"),
+                Ok(false) => {
+                    batches_run += 1;
+                    if batches_run >= 2 {
+                        break;
+                    }
+                }
+                Err(e) => panic!("backfill_batch failed: {e}"),
+            }
+        }
+    }
+    // Actor is dropped; checkpoint persists in the store.
+
+    let checkpoint_after_phase1 = store
+        .get_ser::<BlockHeight>(DBCol::Misc, BACKFILL_CHECKPOINT_KEY_LOW)
+        .expect("checkpoint should exist after partial run");
+    assert!(
+        checkpoint_after_phase1 > genesis_height,
+        "checkpoint should be above genesis after partial run"
+    );
+    let partial_entry_count = store.iter(DBCol::ReceiptToTx).count();
+    assert!(partial_entry_count > 0, "should have written some entries in partial run");
+
+    // Phase 2: create a fresh actor and drive to completion.
+    {
+        let mut actor = BackfillReceiptToTxActor::new(
+            shared_storage(&store),
+            true,
+            &chain_genesis,
+            BackfillReceiptToTxConfig {
+                enabled: true,
+                batch_size: 5,
+                batch_delay: Duration::milliseconds(1),
+                num_threads: 1,
+                start_height: None,
+            },
+        )
+        .unwrap();
+
+        loop {
+            match actor.backfill_batch() {
+                Ok(true) => break,
+                Ok(false) => continue,
+                Err(e) => panic!("backfill_batch failed: {e}"),
+            }
+        }
+    }
+
+    // Verify checkpoint reached genesis.
+    let checkpoint_final = store
+        .get_ser::<BlockHeight>(DBCol::Misc, BACKFILL_CHECKPOINT_KEY_LOW)
+        .expect("checkpoint should exist after completion");
+    assert!(checkpoint_final <= genesis_height, "checkpoint should reach genesis after completion");
+
+    // Verify combined result matches a fresh forward backfill.
+    let combined_entries: Vec<(Vec<u8>, ReceiptToTxInfo)> = store
+        .iter_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx)
+        .map(|(k, v)| (k.to_vec(), v))
+        .collect();
+
+    // Wipe and run forward backfill for comparison.
+    {
+        let mut update = store.store_update();
+        for (key, _) in &combined_entries {
+            update.delete(DBCol::ReceiptToTx, key);
+        }
+        update.delete(DBCol::Misc, BACKFILL_CHECKPOINT_KEY_LOW);
+        update.commit();
+    }
+
+    let forward_stats = backfill_receipt_to_tx(
+        chain_store,
+        &shared_storage(&store),
+        genesis_height,
+        head_height,
+        &default_options(),
+        None,
+    )
+    .expect("forward backfill should succeed");
+
+    assert_eq!(
+        combined_entries.len(),
+        forward_stats.entries_written as usize,
+        "restart-resume should produce the same number of entries as forward backfill"
+    );
+
+    for (key, expected_info) in &combined_entries {
+        let actual_info =
+            store.get_ser::<ReceiptToTxInfo>(DBCol::ReceiptToTx, key).unwrap_or_else(|| {
+                panic!("forward entry missing for restart-resume key {:?}", key);
+            });
+        assert_eq!(
+            expected_info, &actual_info,
+            "restart-resume entry should match forward for key {:?}",
+            key
+        );
     }
 }
