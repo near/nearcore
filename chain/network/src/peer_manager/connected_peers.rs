@@ -9,7 +9,7 @@
 //! All read access returns owned data. No borrow-level iterator or
 //! `MutexGuard` escapes this module. Every method takes the lock,
 //! reads/writes, and returns — so it's impossible to hold a lock
-//! across external calls (the PR 9 block-handler contention pattern).
+//! across external calls.
 //!
 //! Transport-layer state (bandwidth, `last_time_received_message`)
 //! lives on `Connection` and is surfaced through `TransportInfo`. This
@@ -82,46 +82,56 @@ impl ConnectedPeers {
     /// Insert a peer on registration. If the peer is T1 and has an
     /// `owned_account_key`, also populates the T1 secondary index.
     ///
-    /// Lock order: `peers_for(tier)` then `tier1_by_account_key`, held
-    /// atomically across both writes. Matches `remove` for a consistent
-    /// acquisition order. Holding both is required: if we wrote the tier
-    /// map first, dropped, then took the index lock, a concurrent
+    /// When the T1 secondary index must be updated, lock order is
+    /// `peers_for(tier)` then `tier1_by_account_key`, held atomically
+    /// across both writes. Matches `remove` for a consistent acquisition
+    /// order. Holding both is required on that path: if we wrote the
+    /// tier map first, dropped, then took the index lock, a concurrent
     /// `remove` could pop the tier entry and skip the index cleanup
     /// (because the index hasn't been written yet) — the index would
     /// then be left dangling when this insert completes step 2.
+    ///
+    /// For peers that don't contribute to the T1 secondary index
+    /// (non-T1, or T1 without an `owned_account_key`), only the tier
+    /// map is locked — avoids unnecessary contention with T1 index
+    /// readers like `tier1_peer_for_account`.
     pub fn insert(&self, peer_id: PeerId, state: ConnectedPeerState) {
-        let account_key =
-            if state.tier == tcp::Tier::T1 { state.owned_account_key.clone() } else { None };
-        let mut peers = self.peers_for(state.tier).lock();
-        let mut index = self.tier1_by_account_key.lock();
-        peers.insert(peer_id.clone(), state);
-        if let Some(key) = account_key {
-            index.insert(key, peer_id);
+        if state.tier == tcp::Tier::T1 {
+            if let Some(account_key) = state.owned_account_key.clone() {
+                let mut peers = self.peers_for(state.tier).lock();
+                let mut index = self.tier1_by_account_key.lock();
+                peers.insert(peer_id.clone(), state);
+                index.insert(account_key, peer_id);
+                return;
+            }
         }
+        self.peers_for(state.tier).lock().insert(peer_id, state);
     }
 
     /// Remove a peer on disconnection. Returns the prior state so the
     /// caller can drive follow-up cleanup (peer_store ban, edge
     /// removal broadcast, etc.).
     ///
-    /// Mirrors `insert`: holds both `peers_for(tier)` and the T1 index
-    /// atomically (lock order: tier map first, then index — same as
-    /// insert). The T1 index is touched only when `tier == T1`, and
-    /// cleared only if it still points to *this* peer_id — protects
-    /// against a later peer with the same `account_key` registering
-    /// before this remove drains.
+    /// Mirrors `insert`: when `tier == T1`, holds both
+    /// `peers_for(tier)` and the T1 index atomically (lock order: tier
+    /// map first, then index — same as insert). The T1 index is touched
+    /// only when `tier == T1`, and cleared only if it still points to
+    /// *this* peer_id — protects against a later peer with the same
+    /// `account_key` registering before this remove drains.
     pub fn remove(&self, tier: tcp::Tier, peer_id: &PeerId) -> Option<ConnectedPeerState> {
         let mut peers = self.peers_for(tier).lock();
-        let mut index = self.tier1_by_account_key.lock();
-        let removed = peers.remove(peer_id)?;
         if tier == tcp::Tier::T1 {
+            let mut index = self.tier1_by_account_key.lock();
+            let removed = peers.remove(peer_id)?;
             if let Some(key) = &removed.owned_account_key {
                 if index.get(key) == Some(peer_id) {
                     index.remove(key);
                 }
             }
+            Some(removed)
+        } else {
+            peers.remove(peer_id)
         }
-        Some(removed)
     }
 
     /// Non-decreasing `block_info` update: applies if `new.height` is

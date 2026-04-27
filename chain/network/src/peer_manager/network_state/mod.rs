@@ -982,14 +982,17 @@ impl NetworkState {
         }
     }
 
-    /// Processes an incoming routed message after per-connection checks
-    /// (signature dedup, ForwardTx rate limiting, signature verification)
-    /// have passed.
+    /// Classifies an incoming routed message as for this node, to be
+    /// forwarded, or dropped, after per-connection checks (signature
+    /// dedup, ForwardTx rate limiting, signature verification) have
+    /// passed.
     ///
-    /// Handles: for-me check, route-back recording, network-wide dedup,
-    /// Ping/Pong, forwarding (TTL decrement + next-hop).
+    /// Records route-back; applies network-wide dedup/metrics for
+    /// messages addressed to this node; decrements TTL for messages
+    /// that need forwarding.
     ///
-    /// Returns a `RoutedAction` for the caller to execute.
+    /// Returns a `RoutedAction` for the caller to execute. Ping/Pong
+    /// special-casing happens on the caller side.
     pub(crate) fn process_incoming_routed(
         &self,
         clock: &time::Clock,
