@@ -1,95 +1,238 @@
 ---
 source: core/parameters/src/config_store.rs
 expression: config_view
-snapshot_kind: text
 ---
 {
   "storage_amount_per_byte": "100000000000000000000",
   "transaction_costs": {
     "action_receipt_creation_config": {
-      "send_sir": 108059500000,
-      "send_not_sir": 108059500000,
-      "execution": 108059500000
+      "send_sir": {
+        "gas": 108059500000,
+        "compute": "108059500000"
+      },
+      "send_not_sir": {
+        "gas": 108059500000,
+        "compute": "108059500000"
+      },
+      "execution": {
+        "gas": 108059500000,
+        "compute": "108059500000"
+      }
     },
     "data_receipt_creation_config": {
       "base_cost": {
-        "send_sir": 4697339419375,
-        "send_not_sir": 4697339419375,
-        "execution": 4697339419375
+        "send_sir": {
+          "gas": 4697339419375,
+          "compute": "4697339419375"
+        },
+        "send_not_sir": {
+          "gas": 4697339419375,
+          "compute": "4697339419375"
+        },
+        "execution": {
+          "gas": 4697339419375,
+          "compute": "4697339419375"
+        }
       },
       "cost_per_byte": {
-        "send_sir": 59357464,
-        "send_not_sir": 59357464,
-        "execution": 59357464
+        "send_sir": {
+          "gas": 59357464,
+          "compute": "59357464"
+        },
+        "send_not_sir": {
+          "gas": 59357464,
+          "compute": "59357464"
+        },
+        "execution": {
+          "gas": 59357464,
+          "compute": "59357464"
+        }
       }
     },
     "action_creation_config": {
       "create_account_cost": {
-        "send_sir": 99607375000,
-        "send_not_sir": 99607375000,
-        "execution": 99607375000
+        "send_sir": {
+          "gas": 99607375000,
+          "compute": "99607375000"
+        },
+        "send_not_sir": {
+          "gas": 99607375000,
+          "compute": "99607375000"
+        },
+        "execution": {
+          "gas": 99607375000,
+          "compute": "99607375000"
+        }
       },
       "deploy_contract_cost": {
-        "send_sir": 184765750000,
-        "send_not_sir": 184765750000,
-        "execution": 184765750000
+        "send_sir": {
+          "gas": 184765750000,
+          "compute": "184765750000"
+        },
+        "send_not_sir": {
+          "gas": 184765750000,
+          "compute": "184765750000"
+        },
+        "execution": {
+          "gas": 184765750000,
+          "compute": "184765750000"
+        }
       },
       "deploy_contract_cost_per_byte": {
-        "send_sir": 6812999,
-        "send_not_sir": 6812999,
-        "execution": 6812999
+        "send_sir": {
+          "gas": 6812999,
+          "compute": "6812999"
+        },
+        "send_not_sir": {
+          "gas": 6812999,
+          "compute": "6812999"
+        },
+        "execution": {
+          "gas": 6812999,
+          "compute": "6812999"
+        }
       },
       "function_call_cost": {
-        "send_sir": 2319861500000,
-        "send_not_sir": 2319861500000,
-        "execution": 2319861500000
+        "send_sir": {
+          "gas": 2319861500000,
+          "compute": "2319861500000"
+        },
+        "send_not_sir": {
+          "gas": 2319861500000,
+          "compute": "2319861500000"
+        },
+        "execution": {
+          "gas": 2319861500000,
+          "compute": "2319861500000"
+        }
       },
       "function_call_cost_per_byte": {
-        "send_sir": 2235934,
-        "send_not_sir": 2235934,
-        "execution": 2235934
+        "send_sir": {
+          "gas": 2235934,
+          "compute": "2235934"
+        },
+        "send_not_sir": {
+          "gas": 2235934,
+          "compute": "2235934"
+        },
+        "execution": {
+          "gas": 2235934,
+          "compute": "2235934"
+        }
       },
       "transfer_cost": {
-        "send_sir": 115123062500,
-        "send_not_sir": 115123062500,
-        "execution": 115123062500
+        "send_sir": {
+          "gas": 115123062500,
+          "compute": "115123062500"
+        },
+        "send_not_sir": {
+          "gas": 115123062500,
+          "compute": "115123062500"
+        },
+        "execution": {
+          "gas": 115123062500,
+          "compute": "115123062500"
+        }
       },
       "stake_cost": {
-        "send_sir": 141715687500,
-        "send_not_sir": 141715687500,
-        "execution": 102217625000
+        "send_sir": {
+          "gas": 141715687500,
+          "compute": "141715687500"
+        },
+        "send_not_sir": {
+          "gas": 141715687500,
+          "compute": "141715687500"
+        },
+        "execution": {
+          "gas": 102217625000,
+          "compute": "102217625000"
+        }
       },
       "add_key_cost": {
         "full_access_cost": {
-          "send_sir": 101765125000,
-          "send_not_sir": 101765125000,
-          "execution": 101765125000
+          "send_sir": {
+            "gas": 101765125000,
+            "compute": "101765125000"
+          },
+          "send_not_sir": {
+            "gas": 101765125000,
+            "compute": "101765125000"
+          },
+          "execution": {
+            "gas": 101765125000,
+            "compute": "101765125000"
+          }
         },
         "function_call_cost": {
-          "send_sir": 102217625000,
-          "send_not_sir": 102217625000,
-          "execution": 102217625000
+          "send_sir": {
+            "gas": 102217625000,
+            "compute": "102217625000"
+          },
+          "send_not_sir": {
+            "gas": 102217625000,
+            "compute": "102217625000"
+          },
+          "execution": {
+            "gas": 102217625000,
+            "compute": "102217625000"
+          }
         },
         "function_call_cost_per_byte": {
-          "send_sir": 1925331,
-          "send_not_sir": 1925331,
-          "execution": 1925331
+          "send_sir": {
+            "gas": 1925331,
+            "compute": "1925331"
+          },
+          "send_not_sir": {
+            "gas": 1925331,
+            "compute": "1925331"
+          },
+          "execution": {
+            "gas": 1925331,
+            "compute": "1925331"
+          }
         }
       },
       "delete_key_cost": {
-        "send_sir": 94946625000,
-        "send_not_sir": 94946625000,
-        "execution": 94946625000
+        "send_sir": {
+          "gas": 94946625000,
+          "compute": "94946625000"
+        },
+        "send_not_sir": {
+          "gas": 94946625000,
+          "compute": "94946625000"
+        },
+        "execution": {
+          "gas": 94946625000,
+          "compute": "94946625000"
+        }
       },
       "delete_account_cost": {
-        "send_sir": 147489000000,
-        "send_not_sir": 147489000000,
-        "execution": 147489000000
+        "send_sir": {
+          "gas": 147489000000,
+          "compute": "147489000000"
+        },
+        "send_not_sir": {
+          "gas": 147489000000,
+          "compute": "147489000000"
+        },
+        "execution": {
+          "gas": 147489000000,
+          "compute": "147489000000"
+        }
       },
       "delegate_cost": {
-        "send_sir": 200000000000,
-        "send_not_sir": 200000000000,
-        "execution": 200000000000
+        "send_sir": {
+          "gas": 200000000000,
+          "compute": "200000000000"
+        },
+        "send_not_sir": {
+          "gas": 200000000000,
+          "compute": "200000000000"
+        },
+        "execution": {
+          "gas": 200000000000,
+          "compute": "200000000000"
+        }
       }
     },
     "storage_usage_config": {
