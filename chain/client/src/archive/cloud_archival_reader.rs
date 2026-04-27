@@ -173,7 +173,7 @@ pub fn find_snapshot_at_or_before(
 
         tracing::info!(epoch_height, ?epoch_id, "probing for state snapshot");
 
-        if cloud_storage.get_state_header(epoch_height, epoch_id, shard_id).is_ok() {
+        if cloud_storage.is_state_header_stored(epoch_height, epoch_id, shard_id)? {
             return Ok(Some((epoch_height, epoch_id)));
         }
 
