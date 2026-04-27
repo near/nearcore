@@ -198,12 +198,12 @@ impl messaging::Actor for PeerManagerActor {
         // Periodically prints bandwidth stats for each peer.
         self.report_bandwidth_stats_trigger(REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL);
 
-        // Connect to TIER1 proxies and broadcast the list of those connections periodically.
+        // Connect to TIER1 proxies and broadcast the list those connections periodically.
         let tier1 = self.state.config.tier1.clone();
-        let clock = self.clock.clone();
-        let state = self.state.clone();
-        let actor_system = self.actor_system.clone();
         self.handle.spawn("connect to TIER1 proxies", {
+            let clock = self.clock.clone();
+            let state = self.state.clone();
+            let actor_system = self.actor_system.clone();
             let mut interval = time::Interval::new(clock.now(), tier1.advertise_proxies_interval);
             async move {
                 loop {
@@ -215,10 +215,10 @@ impl messaging::Actor for PeerManagerActor {
         });
 
         // Update TIER1 connections periodically.
-        let clock = self.clock.clone();
-        let state = self.state.clone();
-        let actor_system = self.actor_system.clone();
         self.handle.spawn("update TIER1 connections", {
+            let clock = self.clock.clone();
+            let state = self.state.clone();
+            let actor_system = self.actor_system.clone();
             let mut interval = tokio::time::interval(tier1.connect_interval.try_into().unwrap());
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             async move {
@@ -229,30 +229,39 @@ impl messaging::Actor for PeerManagerActor {
             }
         });
 
-        // Periodically poll the connection store for connections we'd like to re-establish.
-        let clock = self.clock.clone();
-        let state = self.state.clone();
-        let actor_system = self.actor_system.clone();
-        let handle = self.handle.clone();
+        // Periodically poll the connection store for connections we'd like to re-establish
         self.handle.spawn("poll connection store for reconnects", {
+            let clock = self.clock.clone();
+            let actor_system = self.actor_system.clone();
+            let state = self.state.clone();
+            let handle = self.handle.clone();
             let mut interval = time::Interval::new(clock.now(), POLL_CONNECTION_STORE_INTERVAL);
             async move {
                 loop {
                     interval.tick(&clock).await;
-                    for peer_info in state.poll_pending_reconnect() {
-                        #[cfg(test)]
-                        state
-                            .config
-                            .event_sink
-                            .send(Event::ReconnectLoopSpawned(peer_info.clone()));
-                        let state = state.clone();
-                        let clock = clock.clone();
-                        let actor_system = actor_system.clone();
-                        handle.spawn("reconnect peer", async move {
-                            state
-                                .reconnect(clock, actor_system, peer_info, MAX_RECONNECT_ATTEMPTS)
-                                .await;
+                    // Poll the NetworkState for all pending reconnect attempts
+                    let pending_reconnect = state.poll_pending_reconnect();
+                    // Spawn a separate reconnect loop for each pending reconnect attempt
+                    for peer_info in pending_reconnect {
+                        handle.spawn("reconnect peer", {
+                            let state = state.clone();
+                            let clock = clock.clone();
+                            let peer_info = peer_info.clone();
+                            let actor_system = actor_system.clone();
+                            async move {
+                                state
+                                    .reconnect(
+                                        clock,
+                                        actor_system,
+                                        peer_info,
+                                        MAX_RECONNECT_ATTEMPTS,
+                                    )
+                                    .await;
+                            }
                         });
+
+                        #[cfg(test)]
+                        state.config.event_sink.send(Event::ReconnectLoopSpawned(peer_info));
                     }
                 }
             }
