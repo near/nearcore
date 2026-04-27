@@ -1,9 +1,11 @@
 use crate::accounts_data::{AccountDataCache, AccountDataError};
 use crate::announce_accounts::AnnounceAccountCache;
 use crate::client::{
-    BlockApproval, ChunkEndorsementMessage, ClientSenderForNetwork, ProcessTxRequest,
-    SpiceChunkEndorsementMessage, StateResponse, StateResponseReceived, TxStatusRequest,
-    TxStatusResponse,
+    BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
+    ChunkEndorsementMessage, ClientSenderForNetwork, EpochSyncRequestMessage,
+    EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
+    SpiceChunkEndorsementMessage, StateRequestHeader, StateRequestPart, StateResponse,
+    StateResponseReceived, TxStatusRequest, TxStatusResponse,
 };
 use crate::concurrency::demux;
 use crate::config;
@@ -16,6 +18,8 @@ use crate::peer::peer_actor::ClosingReason;
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
 use crate::peer_manager::connection_store;
+#[cfg(test)]
+use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::private_messages::RegisterPeerError;
 use crate::routing::route_back_cache::RouteBackCache;
@@ -191,6 +195,20 @@ impl EdgesWithSource {
             EdgesWithSource::Local(edges) | EdgesWithSource::Remote(edges) => edges.is_empty(),
         }
     }
+}
+
+/// Action to take after processing an incoming routed message.
+/// Returned by `NetworkState::process_incoming_routed` for the caller
+/// (PeerActor or TestLoopTransport) to execute.
+pub(crate) enum RoutedAction {
+    /// Message is for us — caller should handle (Ping/Pong synchronously,
+    /// others via `handle_peer_message`).
+    ForMe(Box<RoutedMessage>),
+    /// Not for us — caller should forward via `send_message_to_peer`.
+    /// TTL already decremented, num_hops incremented.
+    Forward(Box<RoutedMessage>),
+    /// Message dropped (TTL expired, etc). Metrics/logging already done.
+    Dropped,
 }
 
 impl NetworkState {
@@ -927,6 +945,167 @@ impl NetworkState {
                 }
             },
         }
+    }
+
+    /// Processes an incoming routed message after per-connection checks
+    /// (signature dedup, ForwardTx rate limiting, signature verification)
+    /// have passed.
+    ///
+    /// Handles: for-me check, route-back recording, network-wide dedup,
+    /// Ping/Pong, forwarding (TTL decrement + next-hop).
+    ///
+    /// Returns a `RoutedAction` for the caller to execute.
+    pub(crate) fn process_incoming_routed(
+        &self,
+        clock: &time::Clock,
+        from: &PeerId,
+        tier: tcp::Tier,
+        mut msg: Box<RoutedMessage>,
+    ) -> RoutedAction {
+        let for_me = self.message_for_me(msg.target());
+        if for_me {
+            // Network-wide dedup: check if we already received this message
+            // (could arrive via both T1 and T2).
+            let new_hash = CryptoHash::hash_borsh(msg.body());
+            let fastest = self.recent_routed_messages.lock().put(new_hash, ()).is_none();
+            metrics::record_routed_msg_metrics(clock, &msg, tier, fastest);
+        }
+
+        self.add_route_back(clock, from, tier, &msg);
+
+        if for_me {
+            RoutedAction::ForMe(msg)
+        } else {
+            if msg.decrease_ttl() {
+                let num_hops = msg.num_hops_mut();
+                *num_hops = num_hops.saturating_add(1);
+                RoutedAction::Forward(msg)
+            } else {
+                #[cfg(test)]
+                self.config.event_sink.send(Event::RoutedMessageDropped);
+                tracing::debug!(target: "network", ?msg, from = ?from, "message dropped because ttl reached 0");
+                metrics::ROUTED_MESSAGE_DROPPED.with_label_values(&[msg.body_variant()]).inc();
+                RoutedAction::Dropped
+            }
+        }
+    }
+
+    /// Dispatches an inbound peer message to the appropriate handler.
+    ///
+    /// Messages handled here are "business logic" messages — TCP-protocol
+    /// messages (handshake, peers, gossip, routed forwarding) are handled
+    /// by PeerActor directly.
+    ///
+    /// Returns:
+    /// - `Ok(Some(response))` — caller should send response back to peer
+    /// - `Ok(None)` — message consumed, no response needed
+    /// - `Err(ban_reason)` — caller should ban the peer
+    pub async fn handle_peer_message(
+        self: &Arc<Self>,
+        clock: &time::Clock,
+        peer_id: PeerId,
+        msg: PeerMessage,
+        was_requested: bool,
+    ) -> Result<Option<PeerMessage>, ReasonForBan> {
+        Ok(match msg {
+            PeerMessage::Routed(msg) => {
+                let msg_hash = msg.hash();
+                self.receive_routed_message(
+                    clock,
+                    msg.author().clone(),
+                    peer_id.clone(),
+                    msg_hash,
+                    msg.body_owned(),
+                )
+                .await
+                .map(|body| {
+                    PeerMessage::Routed(self.sign_message(
+                        clock,
+                        RawRoutedMessage { target: PeerIdOrHash::Hash(msg_hash), body },
+                    ))
+                })
+            }
+            PeerMessage::BlockRequest(hash) => {
+                let response = self.client.send_async(BlockRequest(hash)).await;
+                response.ok().flatten().map(|block| PeerMessage::Block(block))
+            }
+            PeerMessage::BlockHeadersRequest(hashes) => {
+                let response = self.client.send_async(BlockHeadersRequest(hashes)).await;
+                response.ok().flatten().map(PeerMessage::BlockHeaders)
+            }
+            PeerMessage::Block(block) => {
+                self.client
+                    .send_async(BlockResponse { block, peer_id, was_requested }.span_wrap())
+                    .await
+                    .ok();
+                None
+            }
+            PeerMessage::Transaction(transaction) => {
+                self.client
+                    .send_async(ProcessTxRequest {
+                        transaction,
+                        is_forwarded: false,
+                        check_only: false,
+                    })
+                    .await
+                    .ok();
+                None
+            }
+            PeerMessage::BlockHeaders(headers) => {
+                if let Ok(Err(ban_reason)) =
+                    self.client.send_async(BlockHeadersResponse(headers, peer_id).span_wrap()).await
+                {
+                    return Err(ban_reason);
+                }
+                None
+            }
+            PeerMessage::Challenge(_) => None,
+            PeerMessage::StateRequestHeader(shard_id, sync_hash) => {
+                let response = self
+                    .state_request_adapter
+                    .send_async(StateRequestHeader { shard_id, sync_hash })
+                    .await;
+                response.ok().flatten().map(|r| PeerMessage::VersionedStateResponse(*r.0))
+            }
+            PeerMessage::StateRequestPart(shard_id, sync_hash, part_id) => {
+                let response = self
+                    .state_request_adapter
+                    .send_async(StateRequestPart { shard_id, sync_hash, part_id })
+                    .await;
+                response.ok().flatten().map(|r| PeerMessage::VersionedStateResponse(*r.0))
+            }
+            PeerMessage::VersionedStateResponse(info) => {
+                self.client
+                    .send_async(
+                        StateResponseReceived {
+                            peer_id,
+                            state_response: StateResponse::State(info.into()),
+                        }
+                        .span_wrap(),
+                    )
+                    .await
+                    .ok();
+                None
+            }
+            PeerMessage::EpochSyncRequest => {
+                self.client.send(EpochSyncRequestMessage { from_peer: peer_id });
+                None
+            }
+            PeerMessage::EpochSyncResponse(proof) => {
+                self.client.send(EpochSyncResponseMessage { from_peer: peer_id, proof });
+                None
+            }
+            PeerMessage::OptimisticBlock(ob) => {
+                self.client.send(
+                    OptimisticBlockMessage { from_peer: peer_id, optimistic_block: ob }.span_wrap(),
+                );
+                None
+            }
+            msg => {
+                tracing::error!(target: "network", ?msg, "peer received unexpected type");
+                None
+            }
+        })
     }
 
     pub async fn add_accounts_data(
