@@ -39,6 +39,9 @@ use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::state_sync::{PartIdOrHeader, StateRequestAckBody};
+use near_primitives::stateless_validation::partial_witness::{
+    PartialEncodedStateWitness, VersionedPartialEncodedStateWitness,
+};
 use near_primitives::views::{
     ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, PeerStoreView,
     RecentOutboundConnectionsView, SnapshotHostInfoView, SnapshotHostsView,
@@ -149,6 +152,20 @@ pub enum Event {
     HandshakeCompleted(crate::peer::peer_actor::HandshakeCompletedEvent),
     // Reported when the TCP connection has been closed.
     ConnectionClosed(crate::peer::peer_actor::ConnectionClosedEvent),
+}
+
+/// Borrowed witness-forward wire selection, used to decide the `T1MessageBody`
+/// variant once outside the recipient loop instead of re-matching per-recipient
+/// (which required an `unreachable!` arm). Holds only references, so `Copy`
+/// is cheap and the enum doesn't own any witness state.
+#[derive(Clone, Copy)]
+enum ForwardTarget<'a> {
+    /// Emit the legacy `PartialEncodedStateWitnessForward` wire. Only valid
+    /// for V1 witnesses.
+    Legacy(&'a PartialEncodedStateWitness),
+    /// Emit the versioned `VersionedPartialEncodedStateWitnessForward` wire,
+    /// which carries the whole enum (including V2's `prev_block_hash`).
+    Versioned(&'a VersionedPartialEncodedStateWitness),
 }
 
 impl messaging::Actor for PeerManagerActor {
@@ -1200,33 +1217,54 @@ impl PeerManagerActor {
                 )
                 .entered();
 
-                for (chunk_validator, partial_witness) in validator_witness_tuple {
+                for (chunk_validator, versioned_witness) in validator_witness_tuple {
+                    let t1_body = match versioned_witness {
+                        VersionedPartialEncodedStateWitness::V1(w) => {
+                            T1MessageBody::PartialEncodedStateWitness(w)
+                        }
+                        v @ VersionedPartialEncodedStateWitness::V2(_) => {
+                            T1MessageBody::VersionedPartialEncodedStateWitness(v)
+                        }
+                    };
                     self.state.send_message_to_account(
                         &self.clock,
                         &chunk_validator,
-                        T1MessageBody::PartialEncodedStateWitness(partial_witness).into(),
+                        t1_body.into(),
                     );
                 }
                 NetworkResponses::NoResponse
             }
             NetworkRequests::PartialEncodedStateWitnessForward(
                 chunk_validators,
-                partial_witness,
+                versioned_witness,
             ) => {
                 let _span = tracing::debug_span!(target: "network",
                     "send partial_encoded_state_witness_forward",
-                    height = partial_witness.chunk_production_key().height_created,
-                    shard_id = %partial_witness.chunk_production_key().shard_id,
-                    part_ord = partial_witness.part_ord(),
+                    height = versioned_witness.chunk_production_key().height_created,
+                    shard_id = %versioned_witness.chunk_production_key().shard_id,
+                    part_ord = versioned_witness.part_ord(),
                     tag_witness_distribution = true,
                 )
                 .entered();
+                let target = match &versioned_witness {
+                    VersionedPartialEncodedStateWitness::V1(w) => ForwardTarget::Legacy(w),
+                    VersionedPartialEncodedStateWitness::V2(_) => {
+                        ForwardTarget::Versioned(&versioned_witness)
+                    }
+                };
                 for chunk_validator in chunk_validators {
+                    let t1_body = match target {
+                        ForwardTarget::Legacy(w) => {
+                            T1MessageBody::PartialEncodedStateWitnessForward(w.clone())
+                        }
+                        ForwardTarget::Versioned(v) => {
+                            T1MessageBody::VersionedPartialEncodedStateWitnessForward(v.clone())
+                        }
+                    };
                     self.state.send_message_to_account(
                         &self.clock,
                         &chunk_validator,
-                        T1MessageBody::PartialEncodedStateWitnessForward(partial_witness.clone())
-                            .into(),
+                        t1_body.into(),
                     );
                 }
                 NetworkResponses::NoResponse

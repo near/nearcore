@@ -17,7 +17,9 @@ use near_primitives::stateless_validation::contract_distribution::PartialEncoded
 use near_primitives::stateless_validation::contract_distribution::SpiceChunkContractAccesses;
 use near_primitives::stateless_validation::contract_distribution::SpiceContractCodeRequest;
 use near_primitives::stateless_validation::contract_distribution::SpiceContractCodeResponse;
-use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
+use near_primitives::stateless_validation::partial_witness::{
+    PartialEncodedStateWitness, VersionedPartialEncodedStateWitness,
+};
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 pub use peer::*;
@@ -496,16 +498,31 @@ impl fmt::Debug for TieredMessageBody {
     }
 }
 
+/// Coalesce the versioned partial-witness wire variants onto the legacy
+/// labels so downstream metric dashboards (watching `PartialEncodedStateWitness`
+/// / `PartialEncodedStateWitnessForward`) keep working after the V2 rollout
+/// introduces `VersionedPartialEncodedStateWitness*` as separate enum variants.
+/// Rate limiting already coalesces at the bucket level (see
+/// `rate_limits/messages_limits.rs`); this is the matching view for metrics.
+fn coalesce_legacy_witness_variant(raw: &'static str) -> &'static str {
+    match raw {
+        "VersionedPartialEncodedStateWitness" => "PartialEncodedStateWitness",
+        "VersionedPartialEncodedStateWitnessForward" => "PartialEncodedStateWitnessForward",
+        other => other,
+    }
+}
+
 impl TieredMessageBody {
     pub fn is_t1(&self) -> bool {
         matches!(self, TieredMessageBody::T1(_))
     }
 
     pub fn variant(&self) -> &'static str {
-        match self {
+        let raw: &'static str = match self {
             TieredMessageBody::T1(body) => (&(**body)).into(),
             TieredMessageBody::T2(body) => (&(**body)).into(),
-        }
+        };
+        coalesce_legacy_witness_variant(raw)
     }
 
     pub fn message_resend_count(&self) -> usize {
@@ -608,6 +625,12 @@ impl TieredMessageBody {
             RoutedMessageBody::SpiceContractCodeResponse(response) => {
                 T1MessageBody::SpiceContractCodeResponse(response).into()
             }
+            RoutedMessageBody::VersionedPartialEncodedStateWitness(witness) => {
+                T1MessageBody::VersionedPartialEncodedStateWitness(witness).into()
+            }
+            RoutedMessageBody::VersionedPartialEncodedStateWitnessForward(witness) => {
+                T1MessageBody::VersionedPartialEncodedStateWitnessForward(witness).into()
+            }
         }
     }
 }
@@ -653,6 +676,8 @@ pub enum T1MessageBody {
     SpiceChunkContractAccesses(SpiceChunkContractAccesses) = 12,
     SpiceContractCodeRequest(SpiceContractCodeRequest) = 13,
     SpiceContractCodeResponse(SpiceContractCodeResponse) = 14,
+    VersionedPartialEncodedStateWitness(VersionedPartialEncodedStateWitness) = 15,
+    VersionedPartialEncodedStateWitnessForward(VersionedPartialEncodedStateWitness) = 16,
 }
 
 impl T1MessageBody {
@@ -669,6 +694,8 @@ impl T1MessageBody {
         match self {
             T1MessageBody::PartialEncodedStateWitness(_)
             | T1MessageBody::PartialEncodedStateWitnessForward(_)
+            | T1MessageBody::VersionedPartialEncodedStateWitness(_)
+            | T1MessageBody::VersionedPartialEncodedStateWitnessForward(_)
             | T1MessageBody::VersionedChunkEndorsement(_) => true,
             _ => false,
         }
@@ -758,6 +785,8 @@ pub enum RoutedMessageBody {
     SpiceChunkContractAccesses(SpiceChunkContractAccesses) = 37,
     SpiceContractCodeRequest(SpiceContractCodeRequest) = 38,
     SpiceContractCodeResponse(SpiceContractCodeResponse) = 39,
+    VersionedPartialEncodedStateWitness(VersionedPartialEncodedStateWitness) = 40,
+    VersionedPartialEncodedStateWitnessForward(VersionedPartialEncodedStateWitness) = 41,
 }
 
 impl RoutedMessageBody {
@@ -782,6 +811,8 @@ impl RoutedMessageBody {
         match self {
             RoutedMessageBody::PartialEncodedStateWitness(_)
             | RoutedMessageBody::PartialEncodedStateWitnessForward(_)
+            | RoutedMessageBody::VersionedPartialEncodedStateWitness(_)
+            | RoutedMessageBody::VersionedPartialEncodedStateWitnessForward(_)
             | RoutedMessageBody::VersionedChunkEndorsement(_) => true,
             _ => false,
         }
@@ -881,6 +912,12 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::SpiceContractCodeResponse(response) => {
                 write!(f, "SpiceContractCodeResponse(chunk_id={:?})", response.chunk_id())
             }
+            RoutedMessageBody::VersionedPartialEncodedStateWitness(_) => {
+                write!(f, "VersionedPartialEncodedStateWitness")
+            }
+            RoutedMessageBody::VersionedPartialEncodedStateWitnessForward(_) => {
+                write!(f, "VersionedPartialEncodedStateWitnessForward")
+            }
         }
     }
 }
@@ -935,6 +972,12 @@ impl From<TieredMessageBody> for RoutedMessageBody {
                 }
                 T1MessageBody::SpiceContractCodeResponse(response) => {
                     RoutedMessageBody::SpiceContractCodeResponse(response)
+                }
+                T1MessageBody::VersionedPartialEncodedStateWitness(witness) => {
+                    RoutedMessageBody::VersionedPartialEncodedStateWitness(witness)
+                }
+                T1MessageBody::VersionedPartialEncodedStateWitnessForward(witness) => {
+                    RoutedMessageBody::VersionedPartialEncodedStateWitnessForward(witness)
                 }
             },
             TieredMessageBody::T2(body) => match *body {
@@ -1247,11 +1290,12 @@ impl RoutedMessage {
     }
 
     pub fn body_variant(&self) -> &'static str {
-        match self {
+        let raw: &'static str = match self {
             RoutedMessage::V1(msg) => (&msg.body).into(),
             RoutedMessage::V2(msg) => (&msg.msg.body).into(),
             RoutedMessage::V3(msg) => msg.body.variant(),
-        }
+        };
+        coalesce_legacy_witness_variant(raw)
     }
 
     pub fn ttl(&self) -> u8 {
