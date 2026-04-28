@@ -1,0 +1,61 @@
+name: Notify Zulip on External Contributor Merge
+
+on:
+  pull_request_target:
+    types: [closed]
+    branches: [master]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  notify:
+    name: "Notify Zulip"
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.author_association != 'MEMBER' &&
+      github.event.pull_request.author_association != 'OWNER' &&
+      github.event.pull_request.author_association != 'COLLABORATOR'
+    runs-on: ubuntu-latest
+    steps:
+      - name: "notify zulip on external contributor merge"
+        env:
+          ZULIP_API_KEY: ${{ secrets.ZULIP_GHA_API_KEY }}
+          ZULIP_EMAIL: "gha-bot@near.zulipchat.com"
+          ZULIP_URL: "https://near.zulipchat.com"
+          ZULIP_STREAM: "nearone/private"
+          ZULIP_TOPIC: "Security"
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_AUTHOR_URL: ${{ github.event.pull_request.user.html_url }}
+          PR_AUTHOR_ASSOC: ${{ github.event.pull_request.author_association }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          set -euo pipefail
+
+          SHORT_SHA="${MERGE_SHA:0:12}"
+          CONTENT=":merge: External contributor merge to \`near/nearcore\` \`master\` branch
+          **PR**: [#${PR_NUMBER} — ${PR_TITLE}](${PR_URL})
+          **Author**: [@${PR_AUTHOR}](${PR_AUTHOR_URL}) (\`${PR_AUTHOR_ASSOC}\`)
+          **Merge commit**: \`${SHORT_SHA}\`"
+
+          response=$(curl -sS -w '\n%{http_code}' -X POST "${ZULIP_URL%/}/api/v1/messages" \
+            -u "${ZULIP_EMAIL}:${ZULIP_API_KEY}" \
+            --data-urlencode "type=stream" \
+            --data-urlencode "to=${ZULIP_STREAM}" \
+            --data-urlencode "topic=${ZULIP_TOPIC}" \
+            --data-urlencode "content=${CONTENT}")
+
+          body=$(printf '%s\n' "$response" | sed '$d')
+          status=$(printf '%s\n' "$response" | tail -n1)
+
+          echo "Zulip API HTTP $status"
+          echo "$body"
+
+          if [[ "$status" != "200" ]]; then
+            echo "::error::Zulip API call failed (HTTP $status)"
+            exit 1
+          fi
