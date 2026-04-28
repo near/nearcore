@@ -903,6 +903,10 @@ impl StateDumper {
                     "canceling existing dump of state for epoch upon new epoch"
                 );
                 dump.cancel().await;
+                // TODO(cloud_archival): test cancel-then-skip. `cancel()` empties
+                // `dump.dump_state`; leaving `InProgress` would panic the next
+                // `await_parts_upload`.
+                self.current_dump = CurrentDump::None;
             }
             CurrentDump::Done(epoch_id) => {
                 if epoch_id == sync_header.epoch_id() {
