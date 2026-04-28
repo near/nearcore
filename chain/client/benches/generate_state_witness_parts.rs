@@ -40,7 +40,10 @@ fn generate_signer() -> ValidatorSigner {
     )
 }
 
-/// Benchmark state witness part generation
+/// Benchmark state witness part generation for both V1 (pre-EarlyKickout)
+/// and V2 (post-EarlyKickout). V2 carries an extra 32-byte prev_block_hash
+/// per part and a different signature_differentiator; worth measuring so we
+/// notice if encoding cost changes materially.
 fn bench_generate_state_witness_parts(c: &mut Criterion) {
     let chunk_validators = generate_validators(VALIDATOR_COUNT);
     let encoder = ReedSolomonEncoderCache::new(WITNESS_RATIO_DATA_PARTS).entry(VALIDATOR_COUNT);
@@ -49,18 +52,30 @@ fn bench_generate_state_witness_parts(c: &mut Criterion) {
     let signer = generate_signer();
     let witness_bytes = generate_test_witness_bytes(15_000_000);
 
-    c.bench_function("generate_state_witness_parts", |b| {
-        b.iter(|| {
-            black_box(generate_state_witness_parts(
-                encoder.clone(),
-                epoch_id,
-                &chunk_header,
-                witness_bytes.clone(),
-                &chunk_validators,
-                &signer,
-            ));
+    for (label, protocol_version) in [
+        (
+            "generate_state_witness_parts_v1",
+            near_primitives::version::MIN_SUPPORTED_PROTOCOL_VERSION,
+        ),
+        (
+            "generate_state_witness_parts_v2",
+            near_primitives::version::ProtocolFeature::EarlyKickout.protocol_version(),
+        ),
+    ] {
+        c.bench_function(label, |b| {
+            b.iter(|| {
+                black_box(generate_state_witness_parts(
+                    encoder.clone(),
+                    epoch_id,
+                    &chunk_header,
+                    witness_bytes.clone(),
+                    &chunk_validators,
+                    &signer,
+                    protocol_version,
+                ));
+            });
         });
-    });
+    }
 }
 
 /// Benchmark Reed Solomon encoding performance separately

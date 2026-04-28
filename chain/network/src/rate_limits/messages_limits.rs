@@ -176,6 +176,12 @@ pub enum RateLimitedPeerMessageKey {
     ChunkStateWitnessAck,
     PartialEncodedStateWitness,
     PartialEncodedStateWitnessForward,
+    // TODO(early-kickout): merge these with the legacy buckets above once the
+    // legacy wire path retires. During the transition a peer that emits both
+    // V1 and V2 would get 2x per-key budget; benign in practice because only
+    // one variant is active per peer at a time (gated on EarlyKickout).
+    VersionedPartialEncodedStateWitness,
+    VersionedPartialEncodedStateWitnessForward,
     ChunkContractAccesses,
     ContractCodeRequest,
     ContractCodeResponse,
@@ -225,6 +231,12 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
                 }
                 T1MessageBody::PartialEncodedStateWitnessForward(_) => {
                     Some((PartialEncodedStateWitnessForward, 1))
+                }
+                T1MessageBody::VersionedPartialEncodedStateWitness(_) => {
+                    Some((VersionedPartialEncodedStateWitness, 1))
+                }
+                T1MessageBody::VersionedPartialEncodedStateWitnessForward(_) => {
+                    Some((VersionedPartialEncodedStateWitnessForward, 1))
                 }
                 T1MessageBody::ChunkContractAccesses(_) => Some((ChunkContractAccesses, 1)),
                 T1MessageBody::ContractCodeRequest(_) => Some((ContractCodeRequest, 1)),

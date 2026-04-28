@@ -31,7 +31,9 @@ use near_primitives::stateless_validation::contract_distribution::{
     PartialEncodedContractDeploys, SpiceChunkContractAccesses, SpiceContractCodeRequest,
     SpiceContractCodeResponse,
 };
-use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
+use near_primitives::stateless_validation::partial_witness::{
+    PartialEncodedStateWitness, VersionedPartialEncodedStateWitness,
+};
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 use near_primitives::transaction::SignedTransaction;
@@ -300,6 +302,12 @@ pub enum NetworkRequests {
     PartialEncodedStateWitness(Vec<(AccountId, PartialEncodedStateWitness)>),
     /// Message from chunk validator to all other chunk validators to forward state witness part.
     PartialEncodedStateWitnessForward(Vec<AccountId>, PartialEncodedStateWitness),
+    /// Versioned variant of PartialEncodedStateWitness. Used once the chunk
+    /// producer is configured to emit `VersionedPartialEncodedStateWitness`
+    /// (e.g. after `ProtocolFeature::EarlyKickout` is enabled).
+    VersionedPartialEncodedStateWitness(Vec<(AccountId, VersionedPartialEncodedStateWitness)>),
+    /// Versioned variant of PartialEncodedStateWitnessForward.
+    VersionedPartialEncodedStateWitnessForward(Vec<AccountId>, VersionedPartialEncodedStateWitness),
     /// Requests an epoch sync
     EpochSyncRequest { peer_id: PeerId },
     /// Response to an epoch sync request

@@ -374,6 +374,18 @@ class PartialEncodedStateWitnessInner:
     pass
 
 
+class PartialEncodedStateWitnessV2:
+    pass
+
+
+class PartialEncodedStateWitnessInnerV2:
+    pass
+
+
+class VersionedPartialEncodedStateWitness:
+    pass
+
+
 class SignatureDifferentiator:
     pass
 
@@ -1246,6 +1258,49 @@ block_schema = [
                 ['part', ['u8']],
                 ['encoded_length', 'u64'],
                 ['signature_differentiator', SignatureDifferentiator],
+            ]
+        }
+    ],
+    [
+        PartialEncodedStateWitnessV2, {
+            'kind':
+                'struct',
+            'fields': [
+                ['inner', PartialEncodedStateWitnessInnerV2],
+                ['signature', Signature],
+            ]
+        }
+    ],
+    [
+        PartialEncodedStateWitnessInnerV2, {
+            'kind':
+                'struct',
+            'fields': [
+                ['epoch_id', [32]],
+                ['shard_id', 'u64'],
+                ['height_created', 'u64'],
+                ['prev_block_hash', [32]],
+                ['part_ord', 'u64'],
+                ['part', ['u8']],
+                ['encoded_length', 'u64'],
+                ['signature_differentiator', SignatureDifferentiator],
+            ]
+        }
+    ],
+    [
+        VersionedPartialEncodedStateWitness,
+        {
+            'kind':
+                'enum',
+            'field':
+                'enum',
+            # DO NOT REMOVE V0_Unused: borsh-py indexes enum variants
+            # positionally, so this placeholder keeps V1/V2 at positions 1/2
+            # to match Rust's #[repr(u8)] discriminants (V1 = 1, V2 = 2).
+            'values': [
+                ['V0_Unused', 'u8'],
+                ['V1', PartialEncodedStateWitness],
+                ['V2', PartialEncodedStateWitnessV2],
             ]
         }
     ],

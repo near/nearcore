@@ -7,8 +7,9 @@ use crate::stateless_validation::chunk_validation_actor::ChunkValidationSenderFo
 use crate::stateless_validation::contracts_cache_contains_contract;
 use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
 use crate::stateless_validation::validate::{
-    ChunkRelevance, validate_chunk_contract_accesses, validate_contract_code_request,
-    validate_partial_encoded_contract_deploys, validate_partial_encoded_state_witness,
+    ChunkRelevance, resolve_chunk_producer_for_witness, validate_chunk_contract_accesses,
+    validate_contract_code_request, validate_partial_encoded_contract_deploys,
+    validate_partial_encoded_state_witness,
 };
 use itertools::Itertools;
 use lru::LruCache;
@@ -25,6 +26,7 @@ use near_network::state_witness::{
     ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
     ContractCodeResponseMessage, PartialEncodedContractDeploysMessage,
     PartialEncodedStateWitnessForwardMessage, PartialEncodedStateWitnessMessage,
+    VersionedPartialEncodedStateWitnessForwardMessage, VersionedPartialEncodedStateWitnessMessage,
 };
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_primitives::reed_solomon::{
@@ -37,14 +39,18 @@ use near_primitives::stateless_validation::contract_distribution::{
     ContractCodeResponse, ContractUpdates, MainTransitionKey, PartialEncodedContractDeploys,
     PartialEncodedContractDeploysPart,
 };
-use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
+use near_primitives::stateless_validation::partial_witness::{
+    PartialEncodedStateWitness, VersionedPartialEncodedStateWitness,
+};
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessAck, EncodedChunkStateWitness,
 };
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::StoredChunkStateTransitionData;
+use near_primitives::types::ProtocolVersion;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::utils::compression::CompressedData;
 use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::version::ProtocolFeature;
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::{DBCol, StorageError, TrieDBStorage, TrieStorage};
 use near_vm_runner::ContractCode;
@@ -116,7 +122,10 @@ impl Handler<ChunkStateWitnessAckMessage> for PartialWitnessActor {
 
 impl Handler<PartialEncodedStateWitnessMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: PartialEncodedStateWitnessMessage) {
-        if let Err(err) = self.handle_partial_encoded_state_witness(msg.0) {
+        // Legacy raw-V1 receive path wraps in V1 so downstream processing
+        // operates exclusively on the versioned enum.
+        let versioned = VersionedPartialEncodedStateWitness::V1(msg.0);
+        if let Err(err) = self.handle_partial_encoded_state_witness(versioned) {
             tracing::error!(target: "client", ?err, "failed to handle partial encoded state witness message");
         }
     }
@@ -124,9 +133,41 @@ impl Handler<PartialEncodedStateWitnessMessage> for PartialWitnessActor {
 
 impl Handler<PartialEncodedStateWitnessForwardMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: PartialEncodedStateWitnessForwardMessage) {
-        if let Err(err) = self.handle_partial_encoded_state_witness_forward(msg.0) {
+        let versioned = VersionedPartialEncodedStateWitness::V1(msg.0);
+        if let Err(err) = self.handle_partial_encoded_state_witness_forward(versioned) {
             tracing::error!(target: "client", ?err, "failed to handle partial encoded state witness forward message");
         }
+    }
+}
+
+impl Handler<VersionedPartialEncodedStateWitnessMessage> for PartialWitnessActor {
+    fn handle(&mut self, msg: VersionedPartialEncodedStateWitnessMessage) {
+        warn_if_v1_on_versioned_channel(&msg.0);
+        if let Err(err) = self.handle_partial_encoded_state_witness(msg.0) {
+            tracing::error!(target: "client", ?err, "failed to handle versioned partial encoded state witness message");
+        }
+    }
+}
+
+impl Handler<VersionedPartialEncodedStateWitnessForwardMessage> for PartialWitnessActor {
+    fn handle(&mut self, msg: VersionedPartialEncodedStateWitnessForwardMessage) {
+        warn_if_v1_on_versioned_channel(&msg.0);
+        if let Err(err) = self.handle_partial_encoded_state_witness_forward(msg.0) {
+            tracing::error!(target: "client", ?err, "failed to handle versioned partial encoded state witness forward message");
+        }
+    }
+}
+
+/// Canary for producer-side bugs: with the current dispatch rule, V1 only
+/// arrives on the legacy channel and V2 only on the versioned channel. If V1
+/// shows up here, some peer is emitting inconsistent payloads.
+fn warn_if_v1_on_versioned_channel(witness: &VersionedPartialEncodedStateWitness) {
+    if matches!(witness, VersionedPartialEncodedStateWitness::V1(_)) {
+        tracing::warn!(
+            target: "client",
+            chunk_production_key = ?witness.chunk_production_key(),
+            "received V1 witness on the versioned channel; peer may be misbehaving",
+        );
     }
 }
 
@@ -233,6 +274,8 @@ impl PartialWitnessActor {
             .get_chunk_validator_assignments(&key.epoch_id, key.shard_id, key.height_created)
             .expect("Chunk validators must be defined")
             .ordered_chunk_validators();
+        let protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(state_witness.epoch_id())?;
 
         if !contract_accesses.is_empty() {
             self.send_contract_accesses_to_chunk_validators(
@@ -261,6 +304,7 @@ impl PartialWitnessActor {
                 network_adapter,
                 state_witness_tracker,
                 encoder,
+                protocol_version,
             ) {
                 tracing::error!(target: "client", ?err, "failed to compress and distribute chunk state witness");
             }
@@ -279,6 +323,7 @@ impl PartialWitnessActor {
         network_adapter: PeerManagerAdapter,
         state_witness_tracker: Arc<Mutex<ChunkStateWitnessTracker>>,
         encoder: Arc<ReedSolomonEncoder>,
+        protocol_version: ProtocolVersion,
     ) -> Result<(), Error> {
         let witness_bytes = compress_witness(&state_witness)?;
 
@@ -291,6 +336,7 @@ impl PartialWitnessActor {
             &signer,
             &network_adapter,
             &state_witness_tracker,
+            protocol_version,
         );
 
         Ok(())
@@ -343,6 +389,7 @@ impl PartialWitnessActor {
         signer: &ValidatorSigner,
         network_adapter: &PeerManagerAdapter,
         state_witness_tracker: &Arc<Mutex<ChunkStateWitnessTracker>>,
+        protocol_version: ProtocolVersion,
     ) {
         let _span = tracing::debug_span!(
             target: "client",
@@ -370,6 +417,7 @@ impl PartialWitnessActor {
             witness_bytes,
             chunk_validators,
             signer,
+            protocol_version,
         );
         encode_timer.observe_duration();
 
@@ -381,16 +429,33 @@ impl PartialWitnessActor {
             validator_witness_tuple.len(),
         );
 
-        // Send the parts to the corresponding chunk validator owners.
-        network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple),
-        ));
+        // Dispatch-site gating matches the construction-site gating in
+        // `generate_state_witness_parts`: protocol_version is the single
+        // source of truth for which variant every element carries. V1 goes
+        // over the legacy discriminant so old receivers keep decoding; V2
+        // goes over the new `Versioned*` discriminant.
+        let request = if ProtocolFeature::EarlyKickout.enabled(protocol_version) {
+            NetworkRequests::VersionedPartialEncodedStateWitness(validator_witness_tuple)
+        } else {
+            let unwrapped_v1: Vec<(AccountId, PartialEncodedStateWitness)> =
+                validator_witness_tuple
+                    .into_iter()
+                    .map(|(account, versioned)| match versioned {
+                        VersionedPartialEncodedStateWitness::V1(raw) => (account, raw),
+                        VersionedPartialEncodedStateWitness::V2(_) => unreachable!(
+                            "new_versioned gated on EarlyKickout; V2 only appears when feature enabled"
+                        ),
+                    })
+                    .collect();
+            NetworkRequests::PartialEncodedStateWitness(unwrapped_v1)
+        };
+        network_adapter.send(PeerManagerMessageRequest::NetworkRequests(request));
     }
 
     /// Function to handle receiving partial_encoded_state_witness message from chunk producer.
     fn handle_partial_encoded_state_witness(
         &self,
-        partial_witness: PartialEncodedStateWitness,
+        partial_witness: VersionedPartialEncodedStateWitness,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(
             target: "client",
@@ -410,10 +475,13 @@ impl PartialWitnessActor {
         let ChunkProductionKey { shard_id, epoch_id, height_created } =
             partial_witness.chunk_production_key();
 
-        let chunk_producer = self
-            .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey { epoch_id, height_created, shard_id })?
-            .take_account_id();
+        let cpk = ChunkProductionKey { epoch_id, height_created, shard_id };
+        let chunk_producer_account_id = resolve_chunk_producer_for_witness(
+            self.epoch_manager.as_ref(),
+            &cpk,
+            partial_witness.prev_block_hash(),
+        )?
+        .take_account_id();
 
         // Forward witness part to chunk validators except the validator that produced the chunk and witness.
         let target_chunk_validators = self
@@ -421,7 +489,7 @@ impl PartialWitnessActor {
             .get_chunk_validator_assignments(&epoch_id, shard_id, height_created)?
             .ordered_chunk_validators()
             .into_iter()
-            .filter(|validator| validator != &chunk_producer)
+            .filter(|validator| validator != &chunk_producer_account_id)
             .collect_vec();
 
         let network_adapter = self.network_adapter.clone();
@@ -443,12 +511,22 @@ impl PartialWitnessActor {
                         .collect();
 
                     if !other_validators.is_empty() {
-                        network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::PartialEncodedStateWitnessForward(
-                                other_validators,
-                                partial_witness.clone(),
-                            ),
-                        ));
+                        let request = match &partial_witness {
+                            VersionedPartialEncodedStateWitness::V1(raw) => {
+                                NetworkRequests::PartialEncodedStateWitnessForward(
+                                    other_validators,
+                                    raw.clone(),
+                                )
+                            }
+                            VersionedPartialEncodedStateWitness::V2(_) => {
+                                NetworkRequests::VersionedPartialEncodedStateWitnessForward(
+                                    other_validators,
+                                    partial_witness.clone(),
+                                )
+                            }
+                        };
+                        network_adapter
+                            .send(PeerManagerMessageRequest::NetworkRequests(request));
                     }
                     // Store the part locally (as part owner) to avoid need for self-forwarding.
                     if let Err(err) = partial_witness_tracker.store_partial_encoded_state_witness(partial_witness) {
@@ -480,7 +558,7 @@ impl PartialWitnessActor {
     /// Function to handle receiving partial_encoded_state_witness_forward message from chunk producer.
     fn handle_partial_encoded_state_witness_forward(
         &self,
-        partial_witness: PartialEncodedStateWitness,
+        partial_witness: VersionedPartialEncodedStateWitness,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(
             target: "client",
@@ -889,7 +967,8 @@ pub fn generate_state_witness_parts(
     witness_bytes: EncodedChunkStateWitness,
     chunk_validators: &[AccountId],
     signer: &ValidatorSigner,
-) -> Vec<(AccountId, PartialEncodedStateWitness)> {
+    protocol_version: ProtocolVersion,
+) -> Vec<(AccountId, VersionedPartialEncodedStateWitness)> {
     let _span = tracing::debug_span!(
         target: "client",
         "generate_state_witness_parts",
@@ -911,7 +990,8 @@ pub fn generate_state_witness_parts(
         .map(|(part_ord, (chunk_validator, part))| {
             // It's fine to unwrap part here as we just constructed the parts above and we expect
             // all of them to be present.
-            let partial_witness = PartialEncodedStateWitness::new(
+            let partial_witness = VersionedPartialEncodedStateWitness::new_versioned(
+                protocol_version,
                 epoch_id,
                 chunk_header.clone(),
                 part_ord,

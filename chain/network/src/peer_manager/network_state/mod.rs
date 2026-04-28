@@ -35,7 +35,8 @@ use crate::state_witness::{
     ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
     ContractCodeResponseMessage, PartialEncodedContractDeploysMessage,
     PartialEncodedStateWitnessForwardMessage, PartialEncodedStateWitnessMessage,
-    PartialWitnessSenderForNetwork,
+    PartialWitnessSenderForNetwork, VersionedPartialEncodedStateWitnessForwardMessage,
+    VersionedPartialEncodedStateWitnessMessage,
 };
 use crate::stats::metrics;
 use crate::store;
@@ -954,6 +955,16 @@ impl NetworkState {
                 T1MessageBody::PartialEncodedStateWitnessForward(witness) => {
                     self.partial_witness_adapter
                         .send(PartialEncodedStateWitnessForwardMessage(witness));
+                    None
+                }
+                T1MessageBody::VersionedPartialEncodedStateWitness(witness) => {
+                    self.partial_witness_adapter
+                        .send(VersionedPartialEncodedStateWitnessMessage(witness));
+                    None
+                }
+                T1MessageBody::VersionedPartialEncodedStateWitnessForward(witness) => {
+                    self.partial_witness_adapter
+                        .send(VersionedPartialEncodedStateWitnessForwardMessage(witness));
                     None
                 }
                 T1MessageBody::VersionedChunkEndorsement(endorsement) => {

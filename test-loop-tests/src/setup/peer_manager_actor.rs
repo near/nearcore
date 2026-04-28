@@ -24,7 +24,8 @@ use near_network::state_witness::{
     ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
     ContractCodeResponseMessage, PartialEncodedContractDeploysMessage,
     PartialEncodedStateWitnessForwardMessage, PartialEncodedStateWitnessMessage,
-    PartialWitnessSenderForNetwork,
+    PartialWitnessSenderForNetwork, VersionedPartialEncodedStateWitnessForwardMessage,
+    VersionedPartialEncodedStateWitnessMessage,
 };
 use near_network::types::{
     HighestHeightPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses, PeerInfo,
@@ -675,6 +676,29 @@ fn network_message_to_partial_witness_handler(
                     .senders_for_account(&my_account_id, &target)
                     .partial_witness_sender
                     .send(PartialEncodedStateWitnessForwardMessage(partial_witness.clone()));
+            }
+            HandlerResult::Handled(NetworkResponses::NoResponse)
+        }
+        NetworkRequests::VersionedPartialEncodedStateWitness(validator_witness_tuple) => {
+            for (target, partial_witness) in validator_witness_tuple {
+                shared_state
+                    .senders_for_account(&my_account_id, &target)
+                    .partial_witness_sender
+                    .send(VersionedPartialEncodedStateWitnessMessage(partial_witness));
+            }
+            HandlerResult::Handled(NetworkResponses::NoResponse)
+        }
+        NetworkRequests::VersionedPartialEncodedStateWitnessForward(
+            chunk_validators,
+            partial_witness,
+        ) => {
+            for target in chunk_validators {
+                shared_state
+                    .senders_for_account(&my_account_id, &target)
+                    .partial_witness_sender
+                    .send(VersionedPartialEncodedStateWitnessForwardMessage(
+                        partial_witness.clone(),
+                    ));
             }
             HandlerResult::Handled(NetworkResponses::NoResponse)
         }

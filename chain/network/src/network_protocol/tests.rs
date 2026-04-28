@@ -9,7 +9,11 @@ use anyhow::{Context as _, bail};
 use itertools::Itertools as _;
 use near_async::time;
 use near_primitives::network::PeerId;
-use rand::Rng as _;
+use near_primitives::stateless_validation::partial_witness::{
+    PartialEncodedStateWitness, PartialEncodedStateWitnessV2, VersionedPartialEncodedStateWitness,
+};
+use near_primitives::types::{EpochId, ShardId};
+use rand::Rng;
 
 #[test]
 fn deduplicate_edges() {
@@ -262,4 +266,175 @@ fn test_t2_is_signed() {
 fn test_body_variant_granularity() {
     let message_v3 = make_chunk_request_message();
     assert_eq!(message_v3.body_variant(), "PartialEncodedChunkRequest");
+}
+
+// -----------------------------------------------------------------------------
+// Versioned PartialEncodedStateWitness wire-format compatibility tests.
+//
+// These tests pin the on-the-wire byte layout of the legacy
+// `PartialEncodedStateWitness` (T1 discriminant 3 / Routed discriminant 22) and
+// check that the new `VersionedPartialEncodedStateWitness` wrappers (T1 15/16
+// and Routed 40/41) round-trip correctly.
+// -----------------------------------------------------------------------------
+
+fn make_test_partial_witness<R: Rng>(rng: &mut R) -> PartialEncodedStateWitness {
+    let signer = data::make_validator_signer(rng);
+    let shard_id = ShardId::new(0);
+    let header = near_primitives::sharding::ShardChunkHeader::new_dummy(
+        42,
+        shard_id,
+        CryptoHash::hash_bytes(b"prev"),
+    );
+    PartialEncodedStateWitness::new(EpochId::default(), header, 1, vec![7; 8], 8, &signer)
+}
+
+fn make_test_partial_witness_v2<R: Rng>(rng: &mut R) -> PartialEncodedStateWitnessV2 {
+    let signer = data::make_validator_signer(rng);
+    let shard_id = ShardId::new(0);
+    let header = near_primitives::sharding::ShardChunkHeader::new_dummy(
+        42,
+        shard_id,
+        CryptoHash::hash_bytes(b"prev-v2"),
+    );
+    PartialEncodedStateWitnessV2::new(EpochId::default(), header, 1, vec![7; 8], 8, &signer)
+}
+
+/// Golden byte test: old-shape `PartialEncodedStateWitness` at T1 discriminant
+/// 3 must still start with the `3` tag byte. Catches accidental drift in the
+/// legacy wire format — a real concern because old nodes on 3/4 depend on this.
+#[test]
+fn test_t1_partial_encoded_state_witness_legacy_discriminant_unchanged() {
+    let mut rng = make_rng(19385389);
+    let witness = make_test_partial_witness(&mut rng);
+    let msg = T1MessageBody::PartialEncodedStateWitness(witness.clone());
+    let bytes = borsh::to_vec(&msg).unwrap();
+    assert_eq!(bytes[0], 3, "T1 PartialEncodedStateWitness discriminant must be 3");
+    // The remaining bytes must be byte-identical to the flat struct encoding.
+    let flat = borsh::to_vec(&witness).unwrap();
+    assert_eq!(&bytes[1..], flat.as_slice());
+}
+
+#[test]
+fn test_routed_partial_encoded_state_witness_legacy_discriminant_unchanged() {
+    let mut rng = make_rng(19385389);
+    let witness = make_test_partial_witness(&mut rng);
+    let msg = RoutedMessageBody::PartialEncodedStateWitness(witness.clone());
+    let bytes = borsh::to_vec(&msg).unwrap();
+    assert_eq!(bytes[0], 22, "Routed PartialEncodedStateWitness discriminant must be 22");
+    let flat = borsh::to_vec(&witness).unwrap();
+    assert_eq!(&bytes[1..], flat.as_slice());
+}
+
+/// A minimal legacy-shape replica of `T1MessageBody` that only knows the old
+/// discriminants — no `VersionedPartialEncodedStateWitness` variant. Proves
+/// that an old binary can decode the bytes produced by the new binary when it
+/// uses the legacy discriminant 3 (or 4).
+#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Debug)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+enum LegacyT1MessageBody {
+    BlockApproval(Approval) = 0,
+    VersionedPartialEncodedChunk(Box<PartialEncodedChunk>) = 1,
+    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg) = 2,
+    PartialEncodedStateWitness(PartialEncodedStateWitness) = 3,
+    PartialEncodedStateWitnessForward(PartialEncodedStateWitness) = 4,
+}
+
+#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Debug)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+enum LegacyRoutedMessageBody {
+    BlockApproval(Approval) = 0,
+    PartialEncodedStateWitness(PartialEncodedStateWitness) = 22,
+    PartialEncodedStateWitnessForward(PartialEncodedStateWitness) = 23,
+}
+
+#[test]
+fn test_legacy_t1_message_body_decodes_new_partial_encoded_state_witness_bytes() {
+    let mut rng = make_rng(19385389);
+    let witness = make_test_partial_witness(&mut rng);
+
+    let new_encoded =
+        borsh::to_vec(&T1MessageBody::PartialEncodedStateWitness(witness.clone())).unwrap();
+    let decoded: LegacyT1MessageBody = borsh::from_slice(&new_encoded).unwrap();
+    assert_eq!(decoded, LegacyT1MessageBody::PartialEncodedStateWitness(witness.clone()));
+
+    let new_encoded_forward =
+        borsh::to_vec(&T1MessageBody::PartialEncodedStateWitnessForward(witness.clone())).unwrap();
+    let decoded_forward: LegacyT1MessageBody = borsh::from_slice(&new_encoded_forward).unwrap();
+    assert_eq!(decoded_forward, LegacyT1MessageBody::PartialEncodedStateWitnessForward(witness));
+}
+
+#[test]
+fn test_legacy_routed_message_body_decodes_new_partial_encoded_state_witness_bytes() {
+    let mut rng = make_rng(19385389);
+    let witness = make_test_partial_witness(&mut rng);
+
+    let new_encoded =
+        borsh::to_vec(&RoutedMessageBody::PartialEncodedStateWitness(witness.clone())).unwrap();
+    let decoded: LegacyRoutedMessageBody = borsh::from_slice(&new_encoded).unwrap();
+    assert_eq!(decoded, LegacyRoutedMessageBody::PartialEncodedStateWitness(witness.clone()));
+
+    let new_encoded_forward =
+        borsh::to_vec(&RoutedMessageBody::PartialEncodedStateWitnessForward(witness.clone()))
+            .unwrap();
+    let decoded_forward: LegacyRoutedMessageBody = borsh::from_slice(&new_encoded_forward).unwrap();
+    assert_eq!(
+        decoded_forward,
+        LegacyRoutedMessageBody::PartialEncodedStateWitnessForward(witness)
+    );
+}
+
+#[test]
+fn test_t1_versioned_partial_encoded_state_witness_roundtrip_v1() {
+    let mut rng = make_rng(19385389);
+    let witness = make_test_partial_witness(&mut rng);
+    let versioned = VersionedPartialEncodedStateWitness::V1(witness);
+    let msg = T1MessageBody::VersionedPartialEncodedStateWitness(versioned);
+    let bytes = borsh::to_vec(&msg).unwrap();
+    assert_eq!(bytes[0], 15);
+    let decoded = T1MessageBody::try_from_slice(&bytes).unwrap();
+    assert_eq!(msg, decoded);
+}
+
+#[test]
+fn test_t1_versioned_partial_encoded_state_witness_roundtrip_v2() {
+    let mut rng = make_rng(19385389);
+    let witness = make_test_partial_witness_v2(&mut rng);
+    let versioned = VersionedPartialEncodedStateWitness::V2(witness);
+    let msg = T1MessageBody::VersionedPartialEncodedStateWitness(versioned.clone());
+    let bytes = borsh::to_vec(&msg).unwrap();
+    assert_eq!(bytes[0], 15);
+    let decoded = T1MessageBody::try_from_slice(&bytes).unwrap();
+    assert_eq!(msg, decoded);
+
+    let msg_forward = T1MessageBody::VersionedPartialEncodedStateWitnessForward(versioned);
+    let bytes = borsh::to_vec(&msg_forward).unwrap();
+    assert_eq!(bytes[0], 16);
+    let decoded = T1MessageBody::try_from_slice(&bytes).unwrap();
+    assert_eq!(msg_forward, decoded);
+}
+
+#[test]
+fn test_routed_versioned_partial_encoded_state_witness_roundtrip() {
+    let mut rng = make_rng(19385389);
+    let witness_v1 = make_test_partial_witness(&mut rng);
+    let witness_v2 = make_test_partial_witness_v2(&mut rng);
+
+    for versioned in [
+        VersionedPartialEncodedStateWitness::V1(witness_v1),
+        VersionedPartialEncodedStateWitness::V2(witness_v2),
+    ] {
+        let msg = RoutedMessageBody::VersionedPartialEncodedStateWitness(versioned.clone());
+        let bytes = borsh::to_vec(&msg).unwrap();
+        assert_eq!(bytes[0], 40);
+        let decoded = RoutedMessageBody::try_from_slice(&bytes).unwrap();
+        assert_eq!(msg, decoded);
+
+        let msg_forward = RoutedMessageBody::VersionedPartialEncodedStateWitnessForward(versioned);
+        let bytes = borsh::to_vec(&msg_forward).unwrap();
+        assert_eq!(bytes[0], 41);
+        let decoded = RoutedMessageBody::try_from_slice(&bytes).unwrap();
+        assert_eq!(msg_forward, decoded);
+    }
 }

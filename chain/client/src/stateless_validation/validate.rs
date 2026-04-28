@@ -1,16 +1,20 @@
 use super::partial_witness::witness_part_length;
+use crate::metrics;
 use itertools::Itertools;
 use near_chain::types::Tip;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::errors::EpochError;
+use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ContractCodeRequest, PartialEncodedContractDeploys,
 };
 use near_primitives::stateless_validation::partial_witness::{
-    MAX_COMPRESSED_STATE_WITNESS_SIZE, PartialEncodedStateWitness,
+    MAX_COMPRESSED_STATE_WITNESS_SIZE, VersionedPartialEncodedStateWitness,
 };
+use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeightDelta};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::{DBCol, FINAL_HEAD_KEY, HEAD_KEY, Store};
@@ -55,6 +59,112 @@ macro_rules! require_relevant {
     };
 }
 
+/// Narrow subset of `EpochManagerAdapter` used by
+/// `resolve_chunk_producer_for_witness`. Extracted so the resolution logic can
+/// be unit-tested without mocking the full adapter.
+pub(crate) trait ChunkProducerLookup {
+    fn cpk_producer(&self, cpk: &ChunkProductionKey) -> Result<ValidatorStake, EpochError>;
+    fn db_producer(
+        &self,
+        prev_block_hash: &CryptoHash,
+        shard_id: near_primitives::types::ShardId,
+    ) -> Result<ValidatorStake, EpochError>;
+    fn epoch_id_from_prev_block(
+        &self,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<near_primitives::types::EpochId, EpochError>;
+    fn prev_block_height(
+        &self,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<near_primitives::types::BlockHeight, EpochError>;
+}
+
+impl<T: EpochManagerAdapter + ?Sized> ChunkProducerLookup for T {
+    fn cpk_producer(&self, cpk: &ChunkProductionKey) -> Result<ValidatorStake, EpochError> {
+        self.get_chunk_producer_info(cpk)
+    }
+    fn db_producer(
+        &self,
+        prev_block_hash: &CryptoHash,
+        shard_id: near_primitives::types::ShardId,
+    ) -> Result<ValidatorStake, EpochError> {
+        self.get_chunk_producer_info_db(prev_block_hash, shard_id)
+    }
+    fn epoch_id_from_prev_block(
+        &self,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<near_primitives::types::EpochId, EpochError> {
+        self.get_epoch_id_from_prev_block(prev_block_hash)
+    }
+    fn prev_block_height(
+        &self,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<near_primitives::types::BlockHeight, EpochError> {
+        Ok(self.get_block_info(prev_block_hash)?.height())
+    }
+}
+
+/// Resolves the chunk producer used to verify a witness signature.
+///
+/// For V2 witnesses (with `prev_block_hash`), we prefer the hash-based DB
+/// lookup and cross-check that the witness's `cpk.epoch_id` and
+/// `cpk.height_created` agree with what the parent block implies. The
+/// signature only binds to `prev_block_hash` and the inner fields, not to the
+/// epoch/height being consistent with each other — without the cross-check, a
+/// legitimate producer at any `(prev_block_hash, shard)` could sign for an
+/// arbitrary slot and burn downstream CPU before endorsement rejects.
+///
+/// For V1 witnesses (no `prev_block_hash`), or V2 witnesses whose parent
+/// block hasn't been processed locally (`MissingBlock`), we fall back to the
+/// CPK-based lookup. This is safe while blacklist writes to
+/// `DBCol::ChunkProducers` are gated off (pre-PR 6) — the CPK lookup computes
+/// the same producer the DB would have returned. `ChunkProducerNotInDB`
+/// remains a hard error (data integrity).
+pub(crate) fn resolve_chunk_producer_for_witness<L: ChunkProducerLookup + ?Sized>(
+    lookup: &L,
+    cpk: &ChunkProductionKey,
+    prev_block_hash: Option<&CryptoHash>,
+) -> Result<ValidatorStake, Error> {
+    let Some(prev_block_hash) = prev_block_hash else {
+        return Ok(lookup.cpk_producer(cpk)?);
+    };
+    match lookup.db_producer(prev_block_hash, cpk.shard_id) {
+        Ok(info) => {
+            check_cpk_matches_prev_block(lookup, cpk, prev_block_hash)?;
+            Ok(info)
+        }
+        Err(EpochError::MissingBlock(_)) => {
+            metrics::PARTIAL_WITNESS_FALLBACK_MISSING_BLOCK.inc();
+            Ok(lookup.cpk_producer(cpk)?)
+        }
+        Err(err) => Err(err.into()),
+    }
+}
+
+// TODO: this cross-check becomes unnecessary once epoch_id/height_created are
+// removed from V2's inner (they'd be derived from prev_block_hash, not carried).
+fn check_cpk_matches_prev_block<L: ChunkProducerLookup + ?Sized>(
+    lookup: &L,
+    cpk: &ChunkProductionKey,
+    prev_block_hash: &CryptoHash,
+) -> Result<(), Error> {
+    let expected_epoch_id = lookup.epoch_id_from_prev_block(prev_block_hash)?;
+    if cpk.epoch_id != expected_epoch_id {
+        return Err(Error::InvalidPartialChunkStateWitness(format!(
+            "cpk epoch_id {:?} does not match epoch implied by prev_block_hash {:?} (expected {:?})",
+            cpk.epoch_id, prev_block_hash, expected_epoch_id
+        )));
+    }
+    let expected_height = lookup.prev_block_height(prev_block_hash)? + 1;
+    if cpk.height_created != expected_height {
+        return Err(Error::InvalidPartialChunkStateWitness(format!(
+            "cpk height_created {} does not match prev_block.height + 1 = {} for prev_block_hash {:?}",
+            cpk.height_created, expected_height, prev_block_hash
+        )));
+    }
+    Ok(())
+}
+
 /// Function to validate the partial encoded state witness. In addition of ChunkProductionKey, we check the following:
 /// - part_ord is valid and within range of the number of expected parts for this chunk
 /// - partial_witness signature is valid and from the expected chunk_producer
@@ -62,12 +172,12 @@ macro_rules! require_relevant {
 /// These include checks based on epoch_id validity, witness size, height_created, distance from chain head, etc.
 pub fn validate_partial_encoded_state_witness(
     epoch_manager: &dyn EpochManagerAdapter,
-    partial_witness: &PartialEncodedStateWitness,
+    partial_witness: &VersionedPartialEncodedStateWitness,
     validator_account_id: &AccountId,
     store: &Store,
 ) -> Result<ChunkRelevance, Error> {
-    let ChunkProductionKey { shard_id, epoch_id, height_created } =
-        partial_witness.chunk_production_key();
+    let cpk = partial_witness.chunk_production_key();
+    let ChunkProductionKey { shard_id, epoch_id, height_created } = cpk;
     let _span = tracing::debug_span!(
         target: "client",
         "validate_partial_encoded_state_witness",
@@ -105,7 +215,7 @@ pub fn validate_partial_encoded_state_witness(
     )?);
 
     let chunk_producer =
-        epoch_manager.get_chunk_producer_info(&partial_witness.chunk_production_key())?;
+        resolve_chunk_producer_for_witness(epoch_manager, &cpk, partial_witness.prev_block_hash())?;
     if !partial_witness.verify(chunk_producer.public_key()) {
         return Err(Error::InvalidPartialChunkStateWitness("Invalid signature".to_string()));
     }
@@ -335,4 +445,173 @@ fn validate_witness_contract_accesses_signature(
         return Err(Error::Other("Invalid witness contract accesses signature".to_owned()));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod resolve_chunk_producer_tests {
+    use super::*;
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::types::{BlockHeight, EpochId, ShardId};
+    use std::cell::Cell;
+
+    /// Test stub that answers each method from a pre-seeded `Result`. Methods
+    /// default to `panic!()` so an unexpected call fails loudly rather than
+    /// silently returning wrong data.
+    #[derive(Default)]
+    struct StubLookup {
+        cpk_answer: Option<Result<ValidatorStake, EpochError>>,
+        db_answer: Option<Result<ValidatorStake, EpochError>>,
+        epoch_id_answer: Option<Result<EpochId, EpochError>>,
+        prev_height_answer: Option<Result<BlockHeight, EpochError>>,
+        cpk_calls: Cell<u32>,
+        db_calls: Cell<u32>,
+    }
+
+    impl ChunkProducerLookup for StubLookup {
+        fn cpk_producer(&self, _cpk: &ChunkProductionKey) -> Result<ValidatorStake, EpochError> {
+            self.cpk_calls.set(self.cpk_calls.get() + 1);
+            self.cpk_answer.clone().expect("cpk_producer called but no answer seeded")
+        }
+        fn db_producer(
+            &self,
+            _prev_block_hash: &CryptoHash,
+            _shard_id: ShardId,
+        ) -> Result<ValidatorStake, EpochError> {
+            self.db_calls.set(self.db_calls.get() + 1);
+            self.db_answer.clone().expect("db_producer called but no answer seeded")
+        }
+        fn epoch_id_from_prev_block(
+            &self,
+            _prev_block_hash: &CryptoHash,
+        ) -> Result<EpochId, EpochError> {
+            self.epoch_id_answer
+                .clone()
+                .expect("epoch_id_from_prev_block called but no answer seeded")
+        }
+        fn prev_block_height(
+            &self,
+            _prev_block_hash: &CryptoHash,
+        ) -> Result<BlockHeight, EpochError> {
+            self.prev_height_answer.clone().expect("prev_block_height called but no answer seeded")
+        }
+    }
+
+    fn cpk(epoch_id: EpochId, height_created: BlockHeight) -> ChunkProductionKey {
+        ChunkProductionKey { shard_id: ShardId::new(0), epoch_id, height_created }
+    }
+
+    fn producer(name: &str) -> ValidatorStake {
+        ValidatorStake::test(name.parse().unwrap())
+    }
+
+    /// V1 witness (no prev_block_hash) hits the CPK-based lookup only, never
+    /// consults the DB or the cross-check.
+    #[test]
+    fn v1_uses_cpk_lookup_only() {
+        let stub = StubLookup { cpk_answer: Some(Ok(producer("cpk.near"))), ..Default::default() };
+        let key = cpk(EpochId(CryptoHash::hash_bytes(b"epoch")), 100);
+        let got = resolve_chunk_producer_for_witness(&stub, &key, None).unwrap();
+        assert_eq!(got.account_id().as_str(), "cpk.near");
+        assert_eq!(stub.cpk_calls.get(), 1);
+        assert_eq!(stub.db_calls.get(), 0);
+    }
+
+    /// V2 with a live parent block → DB lookup wins and the cross-check
+    /// passes when cpk agrees with what the parent block implies.
+    #[test]
+    fn v2_db_hit_uses_db_lookup_and_cross_check_passes() {
+        let epoch = EpochId(CryptoHash::hash_bytes(b"epoch"));
+        let stub = StubLookup {
+            cpk_answer: Some(Ok(producer("cpk.near"))),
+            db_answer: Some(Ok(producer("db.near"))),
+            epoch_id_answer: Some(Ok(epoch)),
+            prev_height_answer: Some(Ok(99)),
+            ..Default::default()
+        };
+        let key = cpk(epoch, 100);
+        let prev = CryptoHash::hash_bytes(b"prev");
+        let got = resolve_chunk_producer_for_witness(&stub, &key, Some(&prev)).unwrap();
+        assert_eq!(got.account_id().as_str(), "db.near");
+        assert_eq!(stub.cpk_calls.get(), 0);
+        assert_eq!(stub.db_calls.get(), 1);
+    }
+
+    /// V2 with DB hit but cpk.epoch_id disagrees with the parent's epoch →
+    /// hard error (Issue 1.1 — widened forgery surface closed).
+    #[test]
+    fn v2_db_hit_but_cpk_epoch_mismatch_rejects() {
+        let stub = StubLookup {
+            db_answer: Some(Ok(producer("db.near"))),
+            epoch_id_answer: Some(Ok(EpochId(CryptoHash::hash_bytes(b"epoch-real")))),
+            prev_height_answer: Some(Ok(99)),
+            ..Default::default()
+        };
+        let key = cpk(EpochId(CryptoHash::hash_bytes(b"epoch-forged")), 100);
+        let prev = CryptoHash::hash_bytes(b"prev");
+        let err = resolve_chunk_producer_for_witness(&stub, &key, Some(&prev)).unwrap_err();
+        assert!(
+            matches!(err, Error::InvalidPartialChunkStateWitness(ref s) if s.contains("epoch_id")),
+            "expected epoch_id mismatch error, got {err:?}"
+        );
+    }
+
+    /// V2 with DB hit but cpk.height_created != prev.height + 1 → hard error.
+    #[test]
+    fn v2_db_hit_but_cpk_height_mismatch_rejects() {
+        let epoch = EpochId(CryptoHash::hash_bytes(b"epoch"));
+        let stub = StubLookup {
+            db_answer: Some(Ok(producer("db.near"))),
+            epoch_id_answer: Some(Ok(epoch)),
+            prev_height_answer: Some(Ok(99)),
+            ..Default::default()
+        };
+        // cpk.height_created should be 100 (99 + 1) but we send 200.
+        let key = cpk(epoch, 200);
+        let prev = CryptoHash::hash_bytes(b"prev");
+        let err = resolve_chunk_producer_for_witness(&stub, &key, Some(&prev)).unwrap_err();
+        assert!(
+            matches!(err, Error::InvalidPartialChunkStateWitness(ref s) if s.contains("height_created")),
+            "expected height_created mismatch error, got {err:?}"
+        );
+    }
+
+    /// V2 whose parent block hasn't been processed locally → DB returns
+    /// `MissingBlock` → fall back to CPK lookup, increment fallback metric.
+    #[test]
+    fn v2_missing_block_falls_back_to_cpk() {
+        let before = metrics::PARTIAL_WITNESS_FALLBACK_MISSING_BLOCK.get();
+        let stub = StubLookup {
+            cpk_answer: Some(Ok(producer("cpk.near"))),
+            db_answer: Some(Err(EpochError::MissingBlock(CryptoHash::hash_bytes(b"prev")))),
+            ..Default::default()
+        };
+        let key = cpk(EpochId(CryptoHash::hash_bytes(b"epoch")), 100);
+        let prev = CryptoHash::hash_bytes(b"prev");
+        let got = resolve_chunk_producer_for_witness(&stub, &key, Some(&prev)).unwrap();
+        assert_eq!(got.account_id().as_str(), "cpk.near");
+        assert_eq!(stub.cpk_calls.get(), 1);
+        assert_eq!(stub.db_calls.get(), 1);
+        assert_eq!(metrics::PARTIAL_WITNESS_FALLBACK_MISSING_BLOCK.get(), before + 1);
+    }
+
+    /// V2 with a processed parent but the DB column has no entry →
+    /// `ChunkProducerNotInDB` → data integrity error, hard fail.
+    #[test]
+    fn v2_chunk_producer_not_in_db_rejects() {
+        let stub = StubLookup {
+            db_answer: Some(Err(EpochError::ChunkProducerNotInDB(
+                CryptoHash::hash_bytes(b"prev"),
+                ShardId::new(0),
+            ))),
+            ..Default::default()
+        };
+        let key = cpk(EpochId(CryptoHash::hash_bytes(b"epoch")), 100);
+        let prev = CryptoHash::hash_bytes(b"prev");
+        let err = resolve_chunk_producer_for_witness(&stub, &key, Some(&prev)).unwrap_err();
+        assert!(
+            matches!(err, Error::DBNotFoundErr(ref s) if s.contains("chunk producer")),
+            "expected DBNotFoundErr from ChunkProducerNotInDB conversion, got {err:?}"
+        );
+        assert_eq!(stub.cpk_calls.get(), 0);
+    }
 }
