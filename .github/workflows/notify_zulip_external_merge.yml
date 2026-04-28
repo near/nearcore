@@ -12,22 +12,39 @@ permissions:
 jobs:
   notify:
     name: "Notify Zulip"
-    if: >-
-      github.event.pull_request.merged == true &&
-      github.event.pull_request.author_association != 'MEMBER' &&
-      github.event.pull_request.author_association != 'OWNER' &&
-      github.event.pull_request.author_association != 'COLLABORATOR'
-
+    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     steps:
-      - name: "notify zulip on external contributor merge"
+      - name: "check repo write access"
+        id: access-check
         env:
-          ZULIP_API_KEY: ${{ secrets.ZULIP_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          set -euo pipefail
+          # Treats anyone with write/maintain/admin on the repo (including org
+          # members with private membership who have access via teams) as internal.
+          permission=$(curl -sSf \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${REPO}/collaborators/${PR_AUTHOR}/permission" \
+            | jq -r '.permission')
+          echo "GitHub repo permission for ${PR_AUTHOR} on ${REPO}: ${permission}"
+          case "$permission" in
+            admin|maintain|write) echo "is_external=false" >> "$GITHUB_OUTPUT" ;;
+            *)                    echo "is_external=true"  >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: "notify zulip on external contributor merge"
+        if: steps.access-check.outputs.is_external == 'true'
+        env:
+          ZULIP_API_KEY: ${{ secrets.ZULIP_GHA_API_KEY }}
           ZULIP_EMAIL: "gha-bot@near.zulipchat.com"
           ZULIP_URL: "https://near.zulipchat.com"
           ZULIP_STREAM: "nearone/private"
           ZULIP_TOPIC: "Security"
-          EVENT_NAME: ${{ github.event_name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_URL: ${{ github.event.pull_request.html_url }}
@@ -38,12 +55,11 @@ jobs:
         run: |
           set -euo pipefail
 
-            SHORT_SHA="${MERGE_SHA:0:12}"
-            CONTENT=":merge: External contributor merge to \`near/nearcore\` \`master\` branch
+          SHORT_SHA="${MERGE_SHA:0:12}"
+          CONTENT="External contributor merge to \`near/nearcore\` \`master\` branch
           **PR**: [#${PR_NUMBER} — ${PR_TITLE}](${PR_URL})
           **Author**: [@${PR_AUTHOR}](${PR_AUTHOR_URL}) (\`${PR_AUTHOR_ASSOC}\`)
           **Merge commit**: \`${SHORT_SHA}\`"
-
 
           response=$(curl -sS -w '\n%{http_code}' -X POST "${ZULIP_URL%/}/api/v1/messages" \
             -u "${ZULIP_EMAIL}:${ZULIP_API_KEY}" \
