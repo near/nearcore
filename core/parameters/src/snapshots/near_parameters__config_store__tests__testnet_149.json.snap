@@ -1,6 +1,7 @@
 ---
 source: core/parameters/src/config_store.rs
 expression: config_view
+snapshot_kind: text
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
@@ -132,6 +133,8 @@ expression: config_view
       "ed25519_verify_base": 210000000000,
       "ed25519_verify_byte": 9000000,
       "ecrecover_base": 278821988457,
+      "p256_verify_base": 1300000000000,
+      "p256_verify_byte": 13000000,
       "log_base": 3543313050,
       "log_byte": 13198791,
       "storage_write_base": 64196736000,
@@ -205,6 +208,7 @@ expression: config_view
     "deterministic_account_ids": true,
     "gas_key_host_fns": true,
     "one_yocto_on_promise": true,
+    "p256_verify_host_fn": true,
     "storage_get_mode": "FlatStorage",
     "fix_contract_loading_cost": true,
     "implicit_account_creation": true,

@@ -1,3 +1,4 @@
+pub(crate) mod connected_peers;
 pub(crate) mod connection;
 pub(crate) mod connection_store;
 pub(crate) mod network_state;

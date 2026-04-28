@@ -45,6 +45,7 @@ impl NightshadeRuntime {
         trie_config: TrieConfig,
         gc_num_epochs_to_keep: u64,
         is_cloud_archival_writer: bool,
+        snapshot_every_n_epochs: u64,
         save_receipt_to_tx: bool,
     ) -> Arc<Self> {
         Self::new(
@@ -57,7 +58,10 @@ impl NightshadeRuntime {
             runtime_config_store,
             gc_num_epochs_to_keep,
             trie_config,
-            StateSnapshotConfig::enabled(home_dir.join("data")),
+            StateSnapshotConfig::enabled_with_cadence(
+                home_dir.join("data"),
+                snapshot_every_n_epochs,
+            ),
             DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
             is_cloud_archival_writer,
             save_receipt_to_tx,

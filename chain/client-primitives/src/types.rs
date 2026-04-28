@@ -728,6 +728,15 @@ pub struct GetStateChangesInBlock {
     pub block_hash: CryptoHash,
 }
 
+/// Probe whether the given shard's chunk at `block_hash` was applied on this
+/// node (i.e. `ChunkExtra` exists). Used by the sharded RPC coordinator to
+/// verify a peer actually has the data before trusting its response.
+#[derive(Debug)]
+pub struct GetChunkExtraExists {
+    pub block_hash: CryptoHash,
+    pub shard_uid: near_primitives::shard_layout::ShardUId,
+}
+
 #[derive(Debug)]
 pub struct GetStateChangesWithCauseInBlock {
     pub block_hash: CryptoHash,

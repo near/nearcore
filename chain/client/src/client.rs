@@ -42,6 +42,7 @@ use near_chain::{
 };
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdatableClientConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
+use near_chunks::client::DecodedChunk;
 use near_chunks::logic::{create_partial_chunk, persist_chunk};
 use near_client_primitives::types::{BlockNotificationMessage, Error, StateSyncStatus, SyncStatus};
 use near_epoch_manager::EpochManagerAdapter;
@@ -62,7 +63,7 @@ use near_primitives::network::PeerId;
 use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
-    EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader, ShardChunkWithEncoding,
+    EncodedShardChunk, PartialEncodedChunk, ShardChunkHeader, ShardChunkWithEncoding,
     StateSyncInfo, StateSyncInfoV1,
 };
 use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
@@ -1450,9 +1451,9 @@ impl Client {
     pub fn on_chunk_completed(
         &mut self,
         partial_chunk: PartialEncodedChunk,
-        shard_chunk: Option<ShardChunk>,
+        decoded_chunk: DecodedChunk,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
-    ) {
+    ) -> Result<(), Error> {
         let chunk_header = partial_chunk.cloned_header();
         self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header);
 
@@ -1468,6 +1469,41 @@ impl Client {
             shard_layout.get_shard_index(shard_id).expect("Could not obtain shard index");
         self.block_production_info
             .record_chunk_collected(partial_chunk.height_created(), shard_index);
+
+        let shard_chunk = match decoded_chunk {
+            DecodedChunk::Valid(shard_chunk) => Some(shard_chunk),
+            DecodedChunk::None => None,
+            DecodedChunk::Invalid(encoded_chunk) => {
+                self.save_invalid_chunk(encoded_chunk, &chunk_header);
+                let epoch_id = self
+                    .epoch_manager
+                    .get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
+                let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+                if !ProtocolFeature::Spice.enabled(protocol_version) {
+                    // Pre-SPICE, we don't process invalid chunks. This is okay as they cannot be
+                    // included on chain as validators will not endorse invalid chunks.
+                    return Ok(());
+                }
+                // We intentionally do NOT store a ShardChunk in DBCol::Chunks:
+                // the header commits to malicious content, so pairing it with an
+                // empty body would break validate_chunk_proofs for any reader.
+                // Instead the chunk executor checks DBCol::InvalidChunks and
+                // uses empty transactions.
+                //
+                // TODO(spice): paths that call get_chunk_clone_from_header on an
+                // invalid chunk will get ChunkMissing. Known affected:
+                //   - state sync: compute_state_response_header will fail to
+                //     build the response. Fix by either skipping malicious
+                //     chunks in the sync header or choosing a different sync
+                //     point.
+                //   - replay-archive: replay_chunk will bail. Fix by checking
+                //     DBCol::InvalidChunks and skipping validation.
+                metrics::SPICE_INVALID_CHUNK_REPLACED_WITH_EMPTY_TOTAL
+                    .with_label_values(&[&shard_id.to_string()])
+                    .inc();
+                None
+            }
+        };
 
         // Filter the parts if we don't need full storage for untracked shards
         let filtered_partial_chunk = if !self.config.save_untracked_partial_chunks_parts
@@ -1489,11 +1525,22 @@ impl Client {
 
         self.chain
             .maybe_process_optimistic_block(Some(self.myself_sender.apply_chunks_done.clone()));
+        Ok(())
     }
 
-    /// Called asynchronously when the ShardsManager finishes processing a chunk but the chunk
-    /// is invalid.
-    pub fn on_invalid_chunk(&mut self, encoded_chunk: EncodedShardChunk) {
+    fn save_invalid_chunk(
+        &mut self,
+        encoded_chunk: EncodedShardChunk,
+        chunk_header: &ShardChunkHeader,
+    ) {
+        let chunk_hash = encoded_chunk.chunk_hash();
+        tracing::warn!(
+            target: "client",
+            ?chunk_hash,
+            height = chunk_header.height_created(),
+            shard_id = %chunk_header.shard_id(),
+            "received invalid chunk, saving as evidence",
+        );
         let mut update = self.chain.mut_chain_store().store_update();
         update.save_invalid_chunk(encoded_chunk);
         if let Err(err) = update.commit() {

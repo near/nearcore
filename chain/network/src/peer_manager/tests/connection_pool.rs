@@ -17,6 +17,204 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::version::PROTOCOL_VERSION;
 use std::sync::Arc;
 
+// Verify that unsolicited inbound Tier3 connections are rejected.
+#[tokio::test]
+async fn unsolicited_tier3_rejected() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let pm = peer_manager::testonly::start(
+        clock.clock(),
+        near_store::db::TestDB::new(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
+
+    let cfg = chain.make_config(rng);
+
+    // Attempt an inbound Tier3 connection without any prior state sync request.
+    let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T3, &SocketOptions::default())
+        .await
+        .unwrap();
+    let stream_id = stream.id();
+    let port = stream.local_addr.port();
+    let mut events = pm.events.from_now();
+    let mut stream = Stream::new(stream);
+    stream
+        .write(&PeerMessage::Tier3Handshake(Handshake {
+            protocol_version: PROTOCOL_VERSION,
+            oldest_supported_version: PROTOCOL_VERSION,
+            sender_peer_id: cfg.node_id(),
+            target_peer_id: pm.cfg.node_id(),
+            sender_listen_port: Some(port),
+            sender_chain_info: chain.get_peer_chain_info(),
+            partial_edge_info: PartialEdgeInfo::new(
+                &cfg.node_id(),
+                &pm.cfg.node_id(),
+                Edge::create_fresh_nonce(&clock.clock()),
+                &cfg.node_key,
+            ),
+            owned_account: None,
+        }))
+        .await;
+    let reason = events
+        .recv_until(|ev| match ev {
+            Event::ConnectionClosed(ev) if ev.stream_id == stream_id => Some(ev.reason),
+            Event::HandshakeCompleted(ev) if ev.stream_id == stream_id => {
+                panic!("PeerManager accepted unsolicited Tier3 handshake")
+            }
+            _ => None,
+        })
+        .await;
+    assert_eq!(
+        ClosingReason::RejectedByPeerManager(RegisterPeerError::UnexpectedTier3Connection),
+        reason,
+    );
+}
+
+// Verify that an inbound Tier3 connection is accepted when we have a pending state sync
+// request for that peer.
+#[tokio::test]
+async fn expected_tier3_accepted() {
+    init_test_logger();
+    let mut rng = make_rng(921853234);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let pm = peer_manager::testonly::start(
+        clock.clock(),
+        near_store::db::TestDB::new(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
+
+    let cfg = chain.make_config(rng);
+    let peer_id = cfg.node_id();
+
+    // Simulate having sent a state sync request to this peer by inserting into
+    // pending_tier3_requests.
+    let now = clock.clock().now();
+    pm.with_state(move |s| async move {
+        s.pending_tier3_requests.insert(peer_id, now);
+    })
+    .await;
+
+    let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T3, &SocketOptions::default())
+        .await
+        .unwrap();
+    let stream_id = stream.id();
+    let port = stream.local_addr.port();
+    let mut events = pm.events.from_now();
+    let mut stream = Stream::new(stream);
+    stream
+        .write(&PeerMessage::Tier3Handshake(Handshake {
+            protocol_version: PROTOCOL_VERSION,
+            oldest_supported_version: PROTOCOL_VERSION,
+            sender_peer_id: cfg.node_id(),
+            target_peer_id: pm.cfg.node_id(),
+            sender_listen_port: Some(port),
+            sender_chain_info: chain.get_peer_chain_info(),
+            partial_edge_info: PartialEdgeInfo::new(
+                &cfg.node_id(),
+                &pm.cfg.node_id(),
+                Edge::create_fresh_nonce(&clock.clock()),
+                &cfg.node_key,
+            ),
+            owned_account: None,
+        }))
+        .await;
+    events
+        .recv_until(|ev| match ev {
+            Event::HandshakeCompleted(ev) if ev.stream_id == stream_id => Some(()),
+            Event::ConnectionClosed(ev) if ev.stream_id == stream_id => {
+                panic!("PeerManager rejected expected Tier3 handshake: {:?}", ev.reason)
+            }
+            _ => None,
+        })
+        .await;
+}
+
+// Verify that duplicate handshakes on established sessions close the connection immediately,
+// so the keepalive attempt itself terminates the session.
+#[tokio::test]
+async fn duplicate_handshake_closes_tier3() {
+    init_test_logger();
+    let mut rng = make_rng(921853235);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let pm = peer_manager::testonly::start(
+        clock.clock(),
+        near_store::db::TestDB::new(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
+
+    let cfg = chain.make_config(rng);
+    let peer_id = cfg.node_id();
+
+    // establish a legitimate T3 connection (we "sent" a state request).
+    let now = clock.clock().now();
+    pm.with_state(move |s| async move {
+        s.pending_tier3_requests.insert(peer_id, now);
+    })
+    .await;
+
+    let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T3, &SocketOptions::default())
+        .await
+        .unwrap();
+    let stream_id = stream.id();
+    let port = stream.local_addr.port();
+    let mut events = pm.events.from_now();
+    let mut stream = Stream::new(stream);
+    let handshake = Handshake {
+        protocol_version: PROTOCOL_VERSION,
+        oldest_supported_version: PROTOCOL_VERSION,
+        sender_peer_id: cfg.node_id(),
+        target_peer_id: pm.cfg.node_id(),
+        sender_listen_port: Some(port),
+        sender_chain_info: chain.get_peer_chain_info(),
+        partial_edge_info: PartialEdgeInfo::new(
+            &cfg.node_id(),
+            &pm.cfg.node_id(),
+            Edge::create_fresh_nonce(&clock.clock()),
+            &cfg.node_key,
+        ),
+        owned_account: None,
+    };
+    stream.write(&PeerMessage::Tier3Handshake(handshake.clone())).await;
+    events
+        .recv_until(|ev| match ev {
+            Event::HandshakeCompleted(ev) if ev.stream_id == stream_id => Some(()),
+            Event::ConnectionClosed(ev) if ev.stream_id == stream_id => {
+                panic!("handshake rejected: {:?}", ev.reason)
+            }
+            _ => None,
+        })
+        .await;
+
+    // a duplicate handshake just before the 15-second idle timeout would close the connection
+    clock.advance(time::Duration::seconds(14));
+    stream.write(&PeerMessage::Tier3Handshake(handshake)).await;
+
+    // the connection should be closed because duplicate handshakes are not tolerated
+    let reason = events
+        .recv_until(|ev| match ev {
+            Event::ConnectionClosed(ev) if ev.stream_id == stream_id => Some(ev.reason),
+            _ => None,
+        })
+        .await;
+    assert_eq!(reason, ClosingReason::DisallowedMessage);
+}
+
 // Verify that a Disconnect message received on a T3 connection is accepted
 // (not rejected as a disallowed message).
 #[tokio::test]
@@ -36,13 +234,55 @@ async fn t3_disconnect() {
     .await;
 
     let cfg = chain.make_config(rng);
-    let conn = pm.start_outbound(chain.clone(), cfg, tcp::Tier::T3).await;
-    let stream_id = conn.stream.id();
+    let peer_id = cfg.node_id();
+
+    // Register the peer as expected so the inbound T3 connection is accepted.
+    let now = clock.clock().now();
+    pm.with_state(move |s| async move {
+        s.pending_tier3_requests.insert(peer_id, now);
+    })
+    .await;
+
+    let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T3, &SocketOptions::default())
+        .await
+        .unwrap();
+    let stream_id = stream.id();
+    let port = stream.local_addr.port();
     let mut events = pm.events.from_now();
-    let peer = conn.handshake(&clock.clock()).await;
+    let mut stream = Stream::new(stream);
+    stream
+        .write(&PeerMessage::Tier3Handshake(Handshake {
+            protocol_version: PROTOCOL_VERSION,
+            oldest_supported_version: PROTOCOL_VERSION,
+            sender_peer_id: cfg.node_id(),
+            target_peer_id: pm.cfg.node_id(),
+            sender_listen_port: Some(port),
+            sender_chain_info: chain.get_peer_chain_info(),
+            partial_edge_info: PartialEdgeInfo::new(
+                &cfg.node_id(),
+                &pm.cfg.node_id(),
+                Edge::create_fresh_nonce(&clock.clock()),
+                &cfg.node_key,
+            ),
+            owned_account: None,
+        }))
+        .await;
+
+    // Wait for the handshake to complete.
+    events
+        .recv_until(|ev| match ev {
+            Event::HandshakeCompleted(ev) if ev.stream_id == stream_id => Some(()),
+            Event::ConnectionClosed(ev) if ev.stream_id == stream_id => {
+                panic!("handshake rejected: {:?}", ev.reason)
+            }
+            _ => None,
+        })
+        .await;
 
     // Send a Disconnect message from the peer side over T3.
-    peer.send(PeerMessage::Disconnect(Disconnect { remove_from_connection_store: false })).await;
+    stream
+        .write(&PeerMessage::Disconnect(Disconnect { remove_from_connection_store: false }))
+        .await;
 
     let reason = events
         .recv_until(|ev| match ev {
@@ -348,8 +588,68 @@ async fn invalid_edge() {
                 .await;
             assert_eq!(
                 ClosingReason::RejectedByPeerManager(RegisterPeerError::InvalidEdge),
-                reason
+                reason,
             );
         }
+    }
+
+    // Dedicated T3 sub-case: insert the peer into pending_tier3_requests so the
+    // connection passes the authorization check, then verify the invalid edge is
+    // still caught, and that the pending entry is NOT consumed by the failed attempt.
+    for (name, edge) in &testcases {
+        tracing::info!(target:"test", %name, tier=?tcp::Tier::T3, "test case (pending T3)");
+
+        let peer_id = cfg.node_id();
+        let now = clock.clock().now();
+        pm.with_state(move |s| async move {
+            s.pending_tier3_requests.insert(peer_id, now);
+        })
+        .await;
+
+        let stream =
+            tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T3, &SocketOptions::default())
+                .await
+                .unwrap();
+        let stream_id = stream.id();
+        let port = stream.local_addr.port();
+        let mut events = pm.events.from_now();
+        let mut stream = Stream::new(stream);
+        let signer = cfg.validator.signer.get().unwrap();
+        let handshake = Handshake {
+            protocol_version: PROTOCOL_VERSION,
+            oldest_supported_version: PROTOCOL_VERSION,
+            sender_peer_id: cfg.node_id(),
+            target_peer_id: pm.cfg.node_id(),
+            sender_listen_port: Some(port),
+            sender_chain_info: chain.get_peer_chain_info(),
+            partial_edge_info: edge.clone(),
+            owned_account: Some(
+                OwnedAccount {
+                    account_key: signer.public_key(),
+                    peer_id: cfg.node_id(),
+                    timestamp: clock.now_utc(),
+                }
+                .sign(&signer),
+            ),
+        };
+        stream.write(&PeerMessage::Tier3Handshake(handshake)).await;
+        let reason = events
+            .recv_until(|ev| match ev {
+                Event::ConnectionClosed(ev) if ev.stream_id == stream_id => Some(ev.reason),
+                Event::HandshakeCompleted(ev) if ev.stream_id == stream_id => {
+                    panic!("PeerManager accepted the handshake")
+                }
+                _ => None,
+            })
+            .await;
+        assert_eq!(ClosingReason::RejectedByPeerManager(RegisterPeerError::InvalidEdge), reason,);
+
+        // The pending entry must survive the failed attempt so the real peer
+        // can still connect.
+        let peer_id = cfg.node_id();
+        let still_pending = pm
+            .with_state(move |s| async move { s.pending_tier3_requests.contains_key(&peer_id) })
+            .await;
+        assert!(still_pending, "pending_tier3_requests entry was consumed by a failed edge check");
     }
 }

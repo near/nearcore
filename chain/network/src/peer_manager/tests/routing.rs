@@ -1290,3 +1290,125 @@ async fn connect_to_unbanned_peer() {
     drop(pm0);
     drop(pm1);
 }
+
+/// Oversized SyncRoutingTable messages should have their edges dropped,
+/// but the connection should stay alive and subsequent valid updates should work.
+#[tokio::test]
+async fn oversized_sync_routing_table_drops_edges_but_keeps_connection() {
+    abort_on_panic();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    // Set a small ingress cap for testing.
+    let mut cfg0 = chain.make_config(rng);
+    cfg0.routing_graph_max_edges_per_message = 10;
+    let mut pm = start_pm(clock.clock(), TestDB::new(), cfg0, chain.clone()).await;
+    let cfg = peer::testonly::PeerConfig { network: chain.make_config(rng), chain };
+    let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2, &SocketOptions::default())
+        .await
+        .unwrap();
+    let mut peer =
+        peer::testonly::PeerHandle::start_endpoint(clock.clock(), ActorSystem::new(), cfg, stream);
+    peer.complete_handshake().await;
+
+    let peer_id = peer.cfg.id();
+    pm.wait_for_routing_table(&[(peer_id.clone(), vec![peer_id.clone()])]).await;
+
+    // Send an oversized SyncRoutingTable (> 10 edges).
+    let fake_edges: Vec<Edge> = (0..20)
+        .map(|_| {
+            let k1 = data::make_secret_key(rng);
+            let k2 = data::make_secret_key(rng);
+            data::make_edge(&k1, &k2, 1)
+        })
+        .collect();
+    peer.send(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
+        edges: fake_edges.clone(),
+        accounts: vec![],
+    }))
+    .await;
+
+    // Send a valid small update afterwards.
+    let valid_key = data::make_secret_key(rng);
+    let valid_edge = data::make_edge(
+        &peer.cfg.network.node_key,
+        &valid_key,
+        Edge::create_fresh_nonce(&clock.clock()),
+    );
+    peer.send(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
+        edges: vec![valid_edge.clone()],
+        accounts: vec![],
+    }))
+    .await;
+
+    // Wait for the valid edge to be added. This proves:
+    // 1. The oversized message didn't ban/disconnect the peer.
+    // 2. Subsequent valid messages are still processed.
+    pm.events
+        .recv_until(|ev| match ev {
+            Event::EdgesAdded(edges) if edges.contains(&valid_edge) => Some(()),
+            _ => None,
+        })
+        .await;
+
+    // Verify oversized fake edges were NOT added.
+    let fake_keys: Vec<_> = fake_edges.iter().map(|e| e.key().clone()).collect();
+    let has_fake = pm
+        .with_state(move |s| async move {
+            let snapshot = s.graph.load();
+            fake_keys.iter().any(|k| snapshot.edges.contains_key(k))
+        })
+        .await;
+    assert!(!has_fake, "oversized edges should not have been added");
+}
+
+/// Oversized SyncRoutingTable should drop edges but still process accounts
+/// in the same message.
+#[tokio::test]
+async fn oversized_sync_routing_table_still_processes_accounts() {
+    abort_on_panic();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    // Set a small ingress cap for testing.
+    let mut cfg0 = chain.make_config(rng);
+    cfg0.routing_graph_max_edges_per_message = 5;
+    let mut pm = start_pm(clock.clock(), TestDB::new(), cfg0, chain.clone()).await;
+    let cfg = peer::testonly::PeerConfig { network: chain.make_config(rng), chain: chain.clone() };
+    let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2, &SocketOptions::default())
+        .await
+        .unwrap();
+    let mut peer =
+        peer::testonly::PeerHandle::start_endpoint(clock.clock(), ActorSystem::new(), cfg, stream);
+    peer.complete_handshake().await;
+
+    let peer_id = peer.cfg.id();
+    pm.wait_for_routing_table(&[(peer_id.clone(), vec![peer_id.clone()])]).await;
+
+    // Send an oversized SyncRoutingTable that also contains an account announcement.
+    let fake_edges: Vec<Edge> = (0..10)
+        .map(|_| {
+            let k1 = data::make_secret_key(rng);
+            let k2 = data::make_secret_key(rng);
+            data::make_edge(&k1, &k2, 1)
+        })
+        .collect();
+    let account = data::make_announce_account(rng);
+    peer.send(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
+        edges: fake_edges,
+        accounts: vec![account.clone()],
+    }))
+    .await;
+
+    // The account should still be processed even though edges were dropped.
+    pm.events
+        .recv_until(|ev| match ev {
+            Event::AccountsAdded(accounts) if accounts.contains(&account) => Some(()),
+            _ => None,
+        })
+        .await;
+}

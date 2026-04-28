@@ -23,8 +23,8 @@ use near_primitives::congestion_info::{
     BlockCongestionInfo, CongestionControl, CongestionInfo, ExtendedCongestionInfo,
 };
 use near_primitives::errors::{
-    ActionErrorKind, DepositCostFailureReason, FunctionCallError, InvalidTxError, MissingTrieValue,
-    TxExecutionError,
+    ActionError, ActionErrorKind, CompilationError, DepositCostFailureReason, FunctionCallError,
+    InvalidTxError, MissingTrieValue, TxExecutionError,
 };
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
@@ -33,8 +33,9 @@ use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
 use near_primitives::test_utils::{MockEpochInfoProvider, account_new};
 use near_primitives::transaction::{
-    AddKeyAction, DeleteKeyAction, DeployContractAction, ExecutionOutcomeWithId, ExecutionStatus,
-    FunctionCallAction, SignedTransaction, TransactionNonce, TransferAction,
+    AddKeyAction, CreateAccountAction, DeleteKeyAction, DeployContractAction,
+    ExecutionOutcomeWithId, ExecutionStatus, FunctionCallAction, SignedTransaction,
+    TransactionNonce, TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
@@ -4105,5 +4106,111 @@ fn test_one_yocto_subsidy_tracked_in_stats() {
         apply_result.stats.balance.subsidized_amount,
         Balance::from_yoctonear(2),
         "stats should track 2 yoctoNEAR subsidized across two zero-balance contract calls"
+    );
+}
+
+// A FunctionCall whose receiver is deleted and recreated within the same chunk must
+// resolve to the freshly recreated (no-code) account, not to a stale contract that
+// `ReceiptPreparationPipeline` compiled against the receiver's code as resolved at
+// preparation time.
+#[test]
+fn test_function_call_after_same_chunk_delete_recreate_resolves_fresh_code() {
+    let parent = alice_account();
+    let child: AccountId = "child.alice.near".parse().unwrap();
+    // initial_locked must be 0 so the self-DeleteAccount receipt below passes the
+    // DeleteAccountStaking check in `check_actor_permissions`.
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![parent.clone(), child.clone()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    let parent_signer = signers[0].clone();
+    let child_signer = signers[1].clone();
+
+    let deploy = create_receipt_with_actions(
+        child.clone(),
+        child_signer.clone(),
+        vec![Action::DeployContract(DeployContractAction {
+            code: near_test_contracts::trivial_contract().to_vec(),
+        })],
+    );
+    let deploy_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[deploy],
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    let root =
+        commit_apply_result(&deploy_result, &mut apply_state, &tries, ShardUId::single_shard());
+    apply_state.block_height += 1;
+
+    let build_receipt = |tag: &str, predecessor: AccountId, signer: &Signer, actions| -> Receipt {
+        Receipt::V0(ReceiptV0 {
+            predecessor_id: predecessor.clone(),
+            receiver_id: child.clone(),
+            receipt_id: CryptoHash::hash_borsh((tag, &child)),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: predecessor,
+                signer_public_key: signer.public_key(),
+                gas_price: GAS_PRICE,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions,
+            }),
+        })
+    };
+    let delete = build_receipt(
+        "delete",
+        child.clone(),
+        &child_signer,
+        vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id: parent.clone() })],
+    );
+    let create_and_call = build_receipt(
+        "create_and_call",
+        parent,
+        &parent_signer,
+        vec![
+            Action::CreateAccount(CreateAccountAction {}),
+            Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "main".to_string(),
+                args: vec![],
+                gas: Gas::from_teragas(10),
+                deposit: Balance::ZERO,
+            })),
+        ],
+    );
+    let call_id = *create_and_call.receipt_id();
+
+    let result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[delete, create_and_call],
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let call_outcome = result
+        .outcomes
+        .iter()
+        .find(|outcome| outcome.id == call_id)
+        .expect("function call outcome missing");
+    assert_matches!(
+        &call_outcome.outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            kind: ActionErrorKind::FunctionCallError(FunctionCallError::CompilationError(
+                CompilationError::CodeDoesNotExist { .. }
+            )),
+            ..
+        }))
     );
 }

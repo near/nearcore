@@ -12,7 +12,9 @@ use crate::network_protocol::{
 use crate::network_protocol::{SyncSnapshotHosts, T1MessageBody};
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
-use crate::peer_manager::network_state::{NetworkState, WhitelistNode};
+use crate::peer_manager::network_state::{
+    NetworkState, PENDING_TIER3_REQUEST_TIMEOUT, WhitelistNode,
+};
 use crate::peer_manager::peer_store;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::spice_data_distribution::SpiceDataDistributorSenderForNetwork;
@@ -196,6 +198,75 @@ impl messaging::Actor for PeerManagerActor {
         // Periodically prints bandwidth stats for each peer.
         self.report_bandwidth_stats_trigger(REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL);
 
+        // Connect to TIER1 proxies and broadcast the list those connections periodically.
+        let tier1 = self.state.config.tier1.clone();
+        self.handle.spawn("connect to TIER1 proxies", {
+            let clock = self.clock.clone();
+            let state = self.state.clone();
+            let actor_system = self.actor_system.clone();
+            let mut interval = time::Interval::new(clock.now(), tier1.advertise_proxies_interval);
+            async move {
+                loop {
+                    interval.tick(&clock).await;
+                    state.tier1_request_full_sync();
+                    state.tier1_advertise_proxies(&clock, actor_system.clone()).await;
+                }
+            }
+        });
+
+        // Update TIER1 connections periodically.
+        self.handle.spawn("update TIER1 connections", {
+            let clock = self.clock.clone();
+            let state = self.state.clone();
+            let actor_system = self.actor_system.clone();
+            let mut interval = tokio::time::interval(tier1.connect_interval.try_into().unwrap());
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            async move {
+                loop {
+                    interval.tick().await;
+                    state.tier1_connect(&clock, actor_system.clone()).await;
+                }
+            }
+        });
+
+        // Periodically poll the connection store for connections we'd like to re-establish
+        self.handle.spawn("poll connection store for reconnects", {
+            let clock = self.clock.clone();
+            let actor_system = self.actor_system.clone();
+            let state = self.state.clone();
+            let handle = self.handle.clone();
+            let mut interval = time::Interval::new(clock.now(), POLL_CONNECTION_STORE_INTERVAL);
+            async move {
+                loop {
+                    interval.tick(&clock).await;
+                    // Poll the NetworkState for all pending reconnect attempts
+                    let pending_reconnect = state.poll_pending_reconnect();
+                    // Spawn a separate reconnect loop for each pending reconnect attempt
+                    for peer_info in pending_reconnect {
+                        handle.spawn("reconnect peer", {
+                            let state = state.clone();
+                            let clock = clock.clone();
+                            let peer_info = peer_info.clone();
+                            let actor_system = actor_system.clone();
+                            async move {
+                                state
+                                    .reconnect(
+                                        clock,
+                                        actor_system,
+                                        peer_info,
+                                        MAX_RECONNECT_ATTEMPTS,
+                                    )
+                                    .await;
+                            }
+                        });
+
+                        #[cfg(test)]
+                        state.config.event_sink.send(Event::ReconnectLoopSpawned(peer_info));
+                    }
+                }
+            }
+        });
+
         #[cfg(test)]
         self.state.config.event_sink.send(Event::PeerManagerStarted);
     }
@@ -309,67 +380,6 @@ impl PeerManagerActor {
                     });
                 }
 
-                // Connect to TIER1 proxies and broadcast the list those connections periodically.
-                let tier1 = state.config.tier1.clone();
-                handle.spawn("connect to TIER1 proxies", {
-                    let clock = clock.clone();
-                    let state = state.clone();
-                    let actor_system = actor_system.clone();
-                    let mut interval = time::Interval::new(clock.now(), tier1.advertise_proxies_interval);
-                    async move {
-                        loop {
-                            interval.tick(&clock).await;
-                            state.tier1_request_full_sync();
-                            state.tier1_advertise_proxies(&clock, actor_system.clone()).await;
-                        }
-                    }
-                });
-
-                // Update TIER1 connections periodically.
-                handle.spawn("update TIER1 connections", {
-                    let clock = clock.clone();
-                    let state = state.clone();
-                    let actor_system = actor_system.clone();
-                    let mut interval = tokio::time::interval(tier1.connect_interval.try_into().unwrap());
-                    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                    async move {
-                        loop {
-                            interval.tick().await;
-                            state.tier1_connect(&clock, actor_system.clone()).await;
-                        }
-                    }
-                });
-
-                // Periodically poll the connection store for connections we'd like to re-establish
-                handle.spawn("poll connection store for reconnects", {
-                    let clock = clock.clone();
-                    let actor_system = actor_system.clone();
-                    let state = state.clone();
-                    let handle = handle.clone();
-                    let mut interval = time::Interval::new(clock.now(), POLL_CONNECTION_STORE_INTERVAL);
-                    async move {
-                        loop {
-                            interval.tick(&clock).await;
-                            // Poll the NetworkState for all pending reconnect attempts
-                            let pending_reconnect = state.poll_pending_reconnect();
-                            // Spawn a separate reconnect loop for each pending reconnect attempt
-                            for peer_info in pending_reconnect {
-                                handle.spawn("reconnect peer", {
-                                    let state = state.clone();
-                                    let clock = clock.clone();
-                                    let peer_info = peer_info.clone();
-                                    let actor_system = actor_system.clone();
-                                    async move {
-                                        state.reconnect(clock, actor_system, peer_info, MAX_RECONNECT_ATTEMPTS).await;
-                                    }
-                                });
-
-                                #[cfg(test)]
-                                state.config.event_sink.send(Event::ReconnectLoopSpawned(peer_info));
-                            }
-                        }
-                    }
-                });
             }
         });
         builder.spawn_tokio_actor(Self {
@@ -604,6 +614,12 @@ impl PeerManagerActor {
             .values()
             .filter(|p| now - p.last_time_received_message.load() > TIER3_IDLE_TIMEOUT)
             .for_each(|p| p.stop(None));
+        // Clean up stale pending Tier3 request entries for peers that never connected back.
+        // retain() does a full scan of the map, but this is fine: the map is bounded by the
+        // number of in-flight state sync requests (typically tens at most).
+        self.state
+            .pending_tier3_requests
+            .retain(|_, sent_at| now - *sent_at <= PENDING_TIER3_REQUEST_TIMEOUT);
     }
 
     /// Periodically monitor list of peers and:
@@ -872,10 +888,11 @@ impl PeerManagerActor {
                     },
                 );
 
+                self.state.pending_tier3_requests.insert(peer_id.clone(), self.clock.now());
                 if !self.state.send_message_to_peer(&self.clock, tcp::Tier::T2, routed_message) {
+                    self.state.pending_tier3_requests.remove(&peer_id);
                     return NetworkResponses::RouteNotFound;
                 }
-
                 tracing::debug!(target: "network", %shard_id, ?sync_hash, %peer_id, "requesting state header from host");
                 NetworkResponses::SelectedDestination(peer_id)
             }
@@ -916,10 +933,11 @@ impl PeerManagerActor {
                     },
                 );
 
+                self.state.pending_tier3_requests.insert(peer_id.clone(), self.clock.now());
                 if !self.state.send_message_to_peer(&self.clock, tcp::Tier::T2, routed_message) {
+                    self.state.pending_tier3_requests.remove(&peer_id);
                     return NetworkResponses::RouteNotFound;
                 }
-
                 tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_id, %peer_id, "requesting state part from host");
                 NetworkResponses::SelectedDestination(peer_id)
             }

@@ -55,7 +55,6 @@ use near_primitives_core::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
 };
 use near_primitives_core::types::NonceIndex;
-use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -2484,7 +2483,7 @@ impl TryFrom<ReceiptView> for Receipt {
 }
 
 /// Information about this epoch validators and next epoch validators
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone, ProtocolSchema)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct EpochValidatorInfo {
     /// Validators for the current epoch
@@ -2511,17 +2510,7 @@ pub struct EpochValidatorInfo {
     pub validator_reward_paid_prev_epoch: HashMap<AccountId, Balance>,
 }
 
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    Debug,
-    PartialEq,
-    Eq,
-    Clone,
-    serde::Serialize,
-    serde::Deserialize,
-    ProtocolSchema,
-)]
+#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ValidatorKickoutView {
     pub account_id: AccountId,
@@ -2529,7 +2518,7 @@ pub struct ValidatorKickoutView {
 }
 
 /// Describes information about the current epoch validator
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone, ProtocolSchema)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CurrentEpochValidatorInfo {
     pub account_id: AccountId,
@@ -2567,17 +2556,7 @@ pub struct CurrentEpochValidatorInfo {
     pub shards_endorsed: Vec<ShardId>,
 }
 
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    Debug,
-    PartialEq,
-    Eq,
-    Clone,
-    serde::Serialize,
-    serde::Deserialize,
-    ProtocolSchema,
-)]
+#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct NextEpochValidatorInfo {
     pub account_id: AccountId,
@@ -2708,6 +2687,17 @@ pub enum StateChangeKindView {
     ContractCodeTouched { account_id: AccountId },
 }
 
+impl StateChangeKindView {
+    pub fn account_id(&self) -> &AccountId {
+        match self {
+            Self::AccountTouched { account_id }
+            | Self::AccessKeyTouched { account_id }
+            | Self::DataTouched { account_id }
+            | Self::ContractCodeTouched { account_id } => account_id,
+        }
+    }
+}
+
 impl From<StateChangeKind> for StateChangeKindView {
     fn from(state_change_kind: StateChangeKind) -> Self {
         match state_change_kind {
@@ -2828,6 +2818,22 @@ pub enum StateChangeValueView {
     ContractCodeDeletion {
         account_id: AccountId,
     },
+}
+
+impl StateChangeValueView {
+    pub fn account_id(&self) -> &AccountId {
+        match self {
+            Self::AccountUpdate { account_id, .. }
+            | Self::AccountDeletion { account_id }
+            | Self::AccessKeyUpdate { account_id, .. }
+            | Self::AccessKeyDeletion { account_id, .. }
+            | Self::GasKeyNonceUpdate { account_id, .. }
+            | Self::DataUpdate { account_id, .. }
+            | Self::DataDeletion { account_id, .. }
+            | Self::ContractCodeUpdate { account_id, .. }
+            | Self::ContractCodeDeletion { account_id } => account_id,
+        }
+    }
 }
 
 impl From<StateChangeValue> for StateChangeValueView {
