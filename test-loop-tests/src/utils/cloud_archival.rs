@@ -38,6 +38,7 @@ pub(crate) struct WriterConfig {
     pub id: AccountId,
     pub archive_block_data: bool,
     pub tracked_shards: Vec<ShardUId>,
+    pub snapshot_every_n_epochs: u64,
 }
 
 pub fn run_node_until(env: &mut TestLoopEnv, account_id: &AccountId, target_height: BlockHeight) {
@@ -146,9 +147,13 @@ pub(crate) fn apply_writer_settings(
     config: &mut ClientConfig,
     archive_block_data: bool,
     tracked_shards: &[ShardUId],
+    snapshot_every_n_epochs: u64,
 ) {
-    config.cloud_archival_writer =
-        Some(CloudArchivalWriterConfig { archive_block_data, ..Default::default() });
+    config.cloud_archival_writer = Some(CloudArchivalWriterConfig {
+        archive_block_data,
+        snapshot_every_n_epochs,
+        ..Default::default()
+    });
     config.tracked_shards_config = if tracked_shards.is_empty() {
         TrackedShardsConfig::NoShards
     } else {
@@ -176,12 +181,18 @@ pub(crate) fn simulate_lagging_shard(
 pub(crate) fn add_writer_node(env: &mut TestLoopEnv, config: &WriterConfig) {
     let archive_block_data = config.archive_block_data;
     let tracked_shards = config.tracked_shards.clone();
+    let snapshot_every_n_epochs = config.snapshot_every_n_epochs;
     let node_state = env
         .node_state_builder()
         .account_id(&config.id)
         .cloud_storage(true)
         .config_modifier(move |cfg| {
-            apply_writer_settings(cfg, archive_block_data, &tracked_shards);
+            apply_writer_settings(
+                cfg,
+                archive_block_data,
+                &tracked_shards,
+                snapshot_every_n_epochs,
+            );
         })
         .build();
     env.add_node(config.id.as_ref(), node_state);
@@ -235,11 +246,13 @@ pub fn check_account_balance(
 
 /// Checks that each epoch (except the final one) has a state header uploaded for each
 /// shard and has epoch data uploaded. Panics if headers are missing for some shards
-/// within an epoch or if epoch data is missing.
+/// within an epoch or if epoch data is missing. With cadence > 1, only epoch heights
+/// that are multiples of the cadence are expected to carry snapshots.
 pub fn snapshots_sanity_check(
     env: &TestLoopEnv,
     archival_id: &AccountId,
     final_epoch_height: EpochHeight,
+    snapshot_every_n_epochs: u64,
 ) {
     let store = get_hot_store(env, archival_id);
     let cloud_storage = get_cloud_storage(env, archival_id);
@@ -279,7 +292,9 @@ pub fn snapshots_sanity_check(
         }
     }
     // Snapshots for the most recent epoch have not been uploaded yet.
-    let expected_snapshots = HashSet::from_iter(1..final_epoch_height);
+    // With a cadence > 1, only epoch heights that are multiples of the cadence carry a snapshot.
+    let expected_snapshots: HashSet<EpochHeight> =
+        (1..final_epoch_height).filter(|h| h % snapshot_every_n_epochs == 0).collect();
     assert_eq!(epoch_heights_with_snapshot, expected_snapshots);
 
     // Epoch data is uploaded by the cloud archival writer at the last block of each

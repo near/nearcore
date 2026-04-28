@@ -64,6 +64,16 @@ impl CloudStorage {
         Ok(state_header)
     }
 
+    pub fn is_state_header_stored(
+        &self,
+        epoch_height: EpochHeight,
+        epoch_id: EpochId,
+        shard_id: ShardId,
+    ) -> Result<bool> {
+        let dir = ListableCloudDir::StateHeader { epoch_height, epoch_id, shard_id };
+        block_on_future(self.dir_contains(&dir, "header")).map_err(Error::other)
+    }
+
     pub fn get_epoch_data(&self, epoch_id: EpochId) -> Result<EpochData> {
         let epoch_data =
             block_on_future(self.retrieve_epoch_data(epoch_id)).map_err(Error::other)?;

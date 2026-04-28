@@ -10,6 +10,7 @@ use crate::utils::cloud_archival::{
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::MIN_GC_NUM_EPOCHS_TO_KEEP;
+use near_client::archive::cloud_archival_reader::find_snapshot_at_or_before;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ShardId};
 use near_store::ShardUId;
@@ -26,6 +27,8 @@ struct CloudArchiveHarness {
     epoch_length: BlockHeightDelta,
     /// Whether cold (split) storage is enabled on the archival node.
     cold_storage_enabled: bool,
+    /// Cadence of state snapshots, passed through to assertions.
+    snapshot_every_n_epochs: u64,
     /// Account ID of the reader node, set after `bootstrap_reader()`.
     reader_id: Option<AccountId>,
 }
@@ -51,11 +54,17 @@ impl CloudArchiveHarnessBuilder {
         self
     }
 
+    fn snapshot_every_n_epochs(mut self, cadence: u64) -> Self {
+        self.writer.snapshot_every_n_epochs = cadence;
+        self
+    }
+
     fn build(self) -> CloudArchiveHarness {
         let user_account: AccountId = CloudArchiveHarness::USER_ACCOUNT.parse().unwrap();
         let archival_kind =
             if self.cold_storage { ArchivalKind::ColdAndCloud } else { ArchivalKind::Cloud };
         let archival_id = self.writer.id.clone();
+        let snapshot_every_n_epochs = self.writer.snapshot_every_n_epochs;
         let env = TestLoopBuilder::new()
             .shard_layout(CloudArchiveHarness::default_shard_layout())
             .epoch_length(CloudArchiveHarness::DEFAULT_EPOCH_LENGTH)
@@ -73,6 +82,7 @@ impl CloudArchiveHarnessBuilder {
                     config,
                     self.writer.archive_block_data,
                     &self.writer.tracked_shards,
+                    snapshot_every_n_epochs,
                 );
             })
             .build();
@@ -81,6 +91,7 @@ impl CloudArchiveHarnessBuilder {
             archival_id,
             epoch_length: CloudArchiveHarness::DEFAULT_EPOCH_LENGTH,
             cold_storage_enabled: self.cold_storage,
+            snapshot_every_n_epochs,
             reader_id: None,
         }
     }
@@ -99,6 +110,7 @@ impl CloudArchiveHarness {
                 id: archival_account_id(),
                 archive_block_data: true,
                 tracked_shards: Self::all_shard_uids(),
+                snapshot_every_n_epochs: 1,
             },
         }
     }
@@ -156,7 +168,12 @@ impl CloudArchiveHarness {
     fn assert_snapshots_ok(&self) {
         let head_height = self.env.archival_node().head().height;
         let final_epoch_height = head_height / self.epoch_length;
-        snapshots_sanity_check(&self.env, &self.archival_id, final_epoch_height);
+        snapshots_sanity_check(
+            &self.env,
+            &self.archival_id,
+            final_epoch_height,
+            self.snapshot_every_n_epochs,
+        );
     }
 
     fn assert_reader_blocks(&self, start_height: BlockHeight, end_height: BlockHeight) {
@@ -438,6 +455,7 @@ fn test_cloud_archival_writer_joins_later() {
         id: writer_b_id.clone(),
         archive_block_data: false,
         tracked_shards: vec![all_shard_uids[1], all_shard_uids[2]],
+        snapshot_every_n_epochs: 1,
     });
     get_writer_handle(&h.env, &writer_b_id).0.stop();
     // Let writer_b catch up to join_height (hot store advances) while its
@@ -476,6 +494,7 @@ fn test_cloud_archival_multi_writer_same_shards() {
         id: "writer_b".parse().unwrap(),
         archive_block_data: true,
         tracked_shards: all_shard_uids,
+        snapshot_every_n_epochs: 1,
     });
     h.run_until_epoch(MIN_GC_NUM_EPOCHS_TO_KEEP + 2);
     h.check_data(&[(2, &all_shard_ids), (h.epoch_length + 1, &all_shard_ids)]);
@@ -498,9 +517,36 @@ fn test_cloud_archival_multi_writer_disjoint_shards() {
         id: "writer_b".parse().unwrap(),
         archive_block_data: false,
         tracked_shards: vec![all_shard_uids[2]],
+        snapshot_every_n_epochs: 1,
     });
     h.run_until_epoch(MIN_GC_NUM_EPOCHS_TO_KEEP + 2);
     // Both writers start together: all shards are archived.
     h.check_data(&[(h.epoch_length / 2, &all_shard_ids), (h.epoch_length + 1, &all_shard_ids)]);
     h.assert_heads_and_gc_ok();
+}
+
+/// Verifies that a writer with `snapshot_every_n_epochs = 2` only snapshots even epochs
+/// and that the discovery helper locates the nearest snapshot at or before a given height.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_custom_snapshot_cadence() {
+    let mut h = CloudArchiveHarness::builder().snapshot_every_n_epochs(2).build();
+    h.run_until_epoch(6);
+    h.assert_snapshots_ok();
+
+    let shard_id = CloudArchiveHarness::all_shard_ids()[0];
+    let cloud_storage = get_cloud_storage(&h.env, &h.archival_id);
+    // Read epoch ids from cloud so the lookup survives local GC of the block.
+    let epoch_id_of =
+        |height| *cloud_storage.get_block_data(height).unwrap().block().header().epoch_id();
+
+    // Epoch 4 was snapshotted: first probe hits.
+    let hit_at_45 = find_snapshot_at_or_before(&cloud_storage, 45, shard_id).unwrap();
+    assert_eq!(hit_at_45, Some((4, epoch_id_of(45))));
+
+    // Epoch 3 was skipped: probe misses, walks back to epoch 2.
+    let hit_at_35 = find_snapshot_at_or_before(&cloud_storage, 35, shard_id).unwrap();
+    assert_eq!(hit_at_35, Some((2, epoch_id_of(25))));
+
+    h.shutdown();
 }

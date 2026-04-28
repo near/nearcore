@@ -8,6 +8,7 @@ use near_primitives::types::{EpochHeight, EpochId, ShardId};
 pub enum ListableCloudDir {
     Metadata,
     ShardHeads,
+    StateHeader { epoch_height: EpochHeight, epoch_id: EpochId, shard_id: ShardId },
 }
 
 impl ListableCloudDir {
@@ -15,6 +16,10 @@ impl ListableCloudDir {
         match self {
             Self::Metadata => "archive/metadata".into(),
             Self::ShardHeads => "archive/metadata/shard_head".into(),
+            Self::StateHeader { epoch_height, epoch_id, shard_id } => format!(
+                "epoch_height={epoch_height}/epoch_id={}/headers/shard_id={shard_id}",
+                epoch_id.0
+            ),
         }
     }
 }

@@ -875,9 +875,17 @@ impl NightshadeRuntime {
         #[allow(clippy::or_fun_call)] // Closure cannot return reference to a temporary value
         let state_snapshot_config =
             match config.config.store.state_snapshot_config.state_snapshot_type {
-                StateSnapshotType::Enabled => StateSnapshotConfig::enabled(
-                    home_dir.join(config.config.store.path.as_ref().unwrap_or(&"data".into())),
-                ),
+                StateSnapshotType::Enabled => {
+                    let hot_store_path =
+                        home_dir.join(config.config.store.path.as_ref().unwrap_or(&"data".into()));
+                    match &config.client_config.cloud_archival_writer {
+                        Some(writer_config) => StateSnapshotConfig::enabled_with_cadence(
+                            hot_store_path,
+                            writer_config.snapshot_every_n_epochs,
+                        ),
+                        None => StateSnapshotConfig::enabled(hot_store_path),
+                    }
+                }
                 StateSnapshotType::Disabled => StateSnapshotConfig::Disabled,
             };
         // FIXME: this (and other contract runtime resources) should probably get constructed by

@@ -227,6 +227,10 @@ pub fn default_archival_writer_polling_interval() -> Duration {
     Duration::seconds(1)
 }
 
+pub fn default_snapshot_every_n_epochs() -> u64 {
+    10
+}
+
 /// Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and
 /// writes chunk-related data based on the tracked shards. This config also controls additional archival
 /// behavior such as block data and polling interval.
@@ -242,6 +246,11 @@ pub struct CloudArchivalWriterConfig {
     #[cfg_attr(feature = "schemars", schemars(with = "DurationAsStdSchemaProvider"))]
     #[serde(default = "default_archival_writer_polling_interval")]
     pub polling_interval: Duration,
+
+    /// Cadence of state snapshots, in epochs. Higher values reduce bucket cost at
+    /// the expense of potentially longer delta replay during reader bootstrap.
+    #[serde(default = "default_snapshot_every_n_epochs")]
+    pub snapshot_every_n_epochs: u64,
 }
 
 impl Default for CloudArchivalWriterConfig {
@@ -249,6 +258,7 @@ impl Default for CloudArchivalWriterConfig {
         Self {
             archive_block_data: false,
             polling_interval: default_archival_writer_polling_interval(),
+            snapshot_every_n_epochs: default_snapshot_every_n_epochs(),
         }
     }
 }
