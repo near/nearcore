@@ -21,10 +21,10 @@ pub trait NetworkTransport: Send + Sync + 'static {
     /// Returns true if the message was enqueued; false if not connected.
     fn send_message(&self, tier: tcp::Tier, peer_id: PeerId, msg: Arc<PeerMessage>) -> bool;
 
-    /// Broadcast a message to all connected peers on the given tier.
-    /// Must be synchronous (enqueue-only) — stop_actor calls this and is
-    /// itself synchronous.
-    fn broadcast_message(&self, tier: tcp::Tier, msg: Arc<PeerMessage>);
+    /// Broadcast a message to all connected TIER2 peers. T1 and T3 do
+    /// not have broadcast semantics. Must be synchronous (enqueue-only)
+    /// — stop_actor calls this and is itself synchronous.
+    fn broadcast_message(&self, msg: Arc<PeerMessage>);
 
     /// Initiate a connection to a peer. Returns a ConnectHandle that can
     /// be awaited or dropped (fire-and-forget).

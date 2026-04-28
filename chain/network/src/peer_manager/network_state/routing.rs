@@ -27,7 +27,7 @@ impl NetworkState {
         }
         rtu.edges = Edge::deduplicate(rtu.edges);
         let msg = Arc::new(PeerMessage::SyncRoutingTable(rtu));
-        transport.broadcast_message(tcp::Tier::T2, msg);
+        transport.broadcast_message(msg);
     }
 
     /// Adds AnnounceAccounts (without validating them) to the routing table.

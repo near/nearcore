@@ -278,10 +278,9 @@ impl messaging::Actor for PeerManagerActor {
     /// Try to gracefully disconnect from connected peers.
     fn stop_actor(&mut self) {
         tracing::debug!(target: "network", "peer manager stopping");
-        self.transport.broadcast_message(
-            tcp::Tier::T2,
-            Arc::new(PeerMessage::Disconnect(Disconnect { remove_from_connection_store: false })),
-        );
+        self.transport.broadcast_message(Arc::new(PeerMessage::Disconnect(Disconnect {
+            remove_from_connection_store: false,
+        })));
         self.transport.shutdown();
     }
 }

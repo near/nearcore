@@ -27,15 +27,8 @@ impl NetworkTransport for TcpTransport {
         }
     }
 
-    fn broadcast_message(&self, tier: tcp::Tier, msg: Arc<PeerMessage>) {
-        // Broadcast is only supported on T2. T1 and T3 are direct
-        // tiers — the trait contract forbids broadcasting over them.
-        match tier {
-            tcp::Tier::T2 => self.state.tier2.broadcast_message(msg),
-            tcp::Tier::T1 | tcp::Tier::T3 => {
-                unreachable!("broadcast_message called with unsupported tier {:?}", tier);
-            }
-        }
+    fn broadcast_message(&self, msg: Arc<PeerMessage>) {
+        self.state.tier2.broadcast_message(msg);
     }
 
     fn disconnect_peer(&self, peer_id: &PeerId, ban_reason: Option<ReasonForBan>) {
