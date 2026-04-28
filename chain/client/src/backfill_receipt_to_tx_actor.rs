@@ -136,6 +136,11 @@ impl BackfillReceiptToTxActor {
     /// Process one batch of heights in descending order.
     /// Returns `Ok(true)` when backfill is complete (reached genesis).
     /// Returns `Ok(false)` when there's more work to do.
+    ///
+    /// Runs synchronously — including the SST ingest call when configured.
+    /// The actor is spawned via `spawn_tokio_actor`, which gives it a dedicated
+    /// single-worker tokio runtime, so blocking the worker only stalls this
+    /// actor's own iterations and never starves the rest of the node.
     pub fn backfill_batch(&mut self) -> anyhow::Result<bool> {
         let batch_start = Instant::now();
 
@@ -260,6 +265,16 @@ impl BackfillReceiptToTxActor {
 
 impl Actor for BackfillReceiptToTxActor {
     fn start_actor(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
+        // If a previous run of this PID left an SST temp directory behind (rare but
+        // possible after a hard crash + PID reuse), wipe it before starting fresh.
+        // The path is owned by this PID, so this only touches files we wrote.
+        if let Some(temp_dir) = &self.storage.sst_temp_dir {
+            if temp_dir.exists() {
+                if let Err(e) = std::fs::remove_dir_all(temp_dir) {
+                    tracing::warn!(?temp_dir, ?e, "failed to clean stale SST temp dir on startup",);
+                }
+            }
+        }
         self.backfill_loop(ctx);
     }
 }

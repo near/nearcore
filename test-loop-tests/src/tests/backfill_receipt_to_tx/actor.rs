@@ -47,7 +47,7 @@ fn test_backward_backfill_matches_forward() {
     // Run forward backfill to get the reference entries.
     let forward_stats = backfill_receipt_to_tx(
         chain_store,
-        &shared_storage(&store),
+        &shared_storage(&store, None),
         genesis_height,
         head_height,
         &default_options(),
@@ -74,7 +74,7 @@ fn test_backward_backfill_matches_forward() {
     let heights: Vec<BlockHeight> = (genesis_height..=head_height).rev().collect();
     let backward_stats = process_one_batch(
         chain_store,
-        &shared_storage(&store),
+        &shared_storage(&store, None),
         &pool,
         &heights,
         Some((BACKFILL_CHECKPOINT_KEY_LOW, genesis_height)),
@@ -143,7 +143,7 @@ fn test_backfill_actor_processes_heights() {
     let genesis = &env.shared_state.genesis;
     let chain_genesis = ChainGenesis::new(&genesis.config);
     let mut actor = BackfillReceiptToTxActor::new(
-        shared_storage(&store),
+        shared_storage(&store, None),
         true,
         &chain_genesis,
         BackfillReceiptToTxConfig {
@@ -199,7 +199,7 @@ fn test_backfill_actor_processes_heights() {
     let head_height = env.validator().head().height;
     let forward_stats = backfill_receipt_to_tx(
         chain_store,
-        &shared_storage(&store),
+        &shared_storage(&store, None),
         genesis_height,
         head_height,
         &default_options(),
@@ -279,7 +279,7 @@ fn test_actor_respects_start_height() {
     let genesis = &env.shared_state.genesis;
     let chain_genesis = ChainGenesis::new(&genesis.config);
     let mut actor = BackfillReceiptToTxActor::new(
-        shared_storage(&store),
+        shared_storage(&store, None),
         true,
         &chain_genesis,
         BackfillReceiptToTxConfig {
@@ -349,7 +349,7 @@ fn test_actor_rejects_invalid_start_height() {
 
     let make_actor = |start_height: BlockHeight| {
         BackfillReceiptToTxActor::new(
-            shared_storage(&store),
+            shared_storage(&store, None),
             true,
             &chain_genesis,
             BackfillReceiptToTxConfig {
@@ -423,7 +423,7 @@ fn test_sequential_forward_then_backward_converge() {
     // Phase 1: CLI forward backfill over [genesis, mid_height].
     backfill_receipt_to_tx(
         chain_store,
-        &shared_storage(&store),
+        &shared_storage(&store, None),
         genesis_height,
         mid_height,
         &BackfillOptions { batch_size: 100, num_threads: 1, use_checkpoint: true },
@@ -435,7 +435,7 @@ fn test_sequential_forward_then_backward_converge() {
     let genesis = &env.shared_state.genesis;
     let chain_genesis = ChainGenesis::new(&genesis.config);
     let mut actor = BackfillReceiptToTxActor::new(
-        shared_storage(&store),
+        shared_storage(&store, None),
         true,
         &chain_genesis,
         BackfillReceiptToTxConfig {
@@ -472,7 +472,7 @@ fn test_sequential_forward_then_backward_converge() {
     }
     backfill_receipt_to_tx(
         chain_store,
-        &shared_storage(&store),
+        &shared_storage(&store, None),
         genesis_height,
         head_height,
         &default_options(),
@@ -532,7 +532,7 @@ fn test_actor_resumes_from_checkpoint_after_restart() {
     // Phase 1: run a fresh actor for a few batches (partial progress).
     {
         let mut actor = BackfillReceiptToTxActor::new(
-            shared_storage(&store),
+            shared_storage(&store, None),
             true,
             &chain_genesis,
             BackfillReceiptToTxConfig {
@@ -574,7 +574,7 @@ fn test_actor_resumes_from_checkpoint_after_restart() {
     // Phase 2: create a fresh actor and drive to completion.
     {
         let mut actor = BackfillReceiptToTxActor::new(
-            shared_storage(&store),
+            shared_storage(&store, None),
             true,
             &chain_genesis,
             BackfillReceiptToTxConfig {
@@ -620,7 +620,7 @@ fn test_actor_resumes_from_checkpoint_after_restart() {
 
     let forward_stats = backfill_receipt_to_tx(
         chain_store,
-        &shared_storage(&store),
+        &shared_storage(&store, None),
         genesis_height,
         head_height,
         &default_options(),

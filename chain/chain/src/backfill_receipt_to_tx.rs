@@ -10,6 +10,7 @@ use near_primitives::types::BlockHeight;
 use near_primitives::utils::get_block_shard_id_rev;
 use near_store::{DBCol, NodeStorage, Store};
 use rayon::prelude::*;
+use std::path::PathBuf;
 
 /// Routes the three distinct storage roles used by the ReceiptToTx backfill:
 /// reads of chain state, writes of ReceiptToTx entries, and checkpoint state.
@@ -28,6 +29,22 @@ pub struct BackfillStorage {
     /// Where the backfill checkpoint is stored. Always `hot_store`: the
     /// checkpoint is transient operational state, not archival data.
     pub checkpoint_store: Store,
+    /// When `Some`, [`process_one_batch`] writes ReceiptToTx entries via
+    /// RocksDB SST file ingestion under this directory; when `None`, it
+    /// falls back to per-key `StoreUpdate.insert` and `commit()`.
+    ///
+    /// SST ingest avoids the compaction death spiral the legacy path triggers
+    /// on archival cold storage (many small writes → memtable flush to L0 →
+    /// L0 stack faster than compaction can merge → batch latency goes from
+    /// seconds to many minutes). The per-key path is kept for callers whose
+    /// underlying database doesn't implement `ingest_external_sst_files`
+    /// (e.g. the in-memory test store) or that haven't opted in yet.
+    ///
+    /// The directory must live on the same filesystem as `write_store` so
+    /// the underlying ingest can rename files into the DB instead of copying.
+    /// Callers are responsible for choosing a path that no other writer
+    /// (CLI or actor) will share, and for cleaning it up at startup.
+    pub sst_temp_dir: Option<PathBuf>,
 }
 
 impl BackfillStorage {
@@ -36,6 +53,9 @@ impl BackfillStorage {
     /// - `read_store`: `split_store` if present, else `hot_store`.
     /// - `write_store`: `cold_store` if present, else `hot_store`.
     /// - `checkpoint_store`: always `hot_store` (checkpoints are transient).
+    /// - `sst_temp_dir`: passed through verbatim. Path resolution lives at the
+    ///   caller (mirroring the migration-time SST ingest path) so this
+    ///   constructor stays purely about role wiring.
     ///
     /// IMPORTANT: on split-storage archival nodes, ReceiptToTx entries written
     /// by this backfill land only in cold. The RPC read path (`GetReceiptToTx`)
@@ -45,12 +65,13 @@ impl BackfillStorage {
     /// view_runtime wiring ever changes to use `hot_store` directly, backfilled
     /// entries become invisible to RPC queries. Keep the view_runtime ↔
     /// [`BackfillStorage`] invariant aligned.
-    pub fn for_node(storage: &NodeStorage) -> Self {
+    pub fn for_node(storage: &NodeStorage, sst_temp_dir: Option<PathBuf>) -> Self {
         let hot = storage.get_hot_store();
         Self {
             read_store: storage.get_split_store().unwrap_or_else(|| hot.clone()),
             write_store: storage.get_cold_store().unwrap_or_else(|| hot.clone()),
             checkpoint_store: hot,
+            sst_temp_dir,
         }
     }
 }
@@ -236,15 +257,32 @@ pub fn process_height(
 /// Shared by both the CLI (ascending direction, checkpoint key = [`BACKFILL_CHECKPOINT_KEY`])
 /// and the background actor (descending direction, checkpoint key = [`BACKFILL_CHECKPOINT_KEY_LOW`]).
 /// The caller controls iteration direction by the order of `heights` — `par_iter` preserves
-/// input order, so writes happen in the same order the caller supplied.
+/// input order.
 ///
 /// Semantics:
 /// 1. Reads for all `heights` run in parallel on `pool`.
-/// 2. Results are applied to `storage.write_store` in input order (single `store_update`).
+/// 2. Results are sorted+deduped by receipt id and applied to `storage.write_store` either
+///    via SST file ingestion (when `storage.sst_temp_dir` is `Some`) or per-key
+///    `StoreUpdate.insert` + `commit()` (when `None`).
 /// 3. If `checkpoint` is `Some((key, height))`, that entry is written to
 ///    `storage.checkpoint_store` *after* entries are committed. The two commits are
 ///    non-atomic; a crash between them replays safely because `DBCol::ReceiptToTx` is
 ///    insert-only. Pass `None` to skip the checkpoint write (e.g. one-shot CLI reruns).
+///
+/// # Production deployment assumption (SST path)
+///
+/// The SST path assumes a fresh archival deployment with **no pre-existing
+/// ReceiptToTx data**. Within a single actor instance no key overlap is
+/// possible: each height is processed exactly once, receipt ids are unique
+/// across the chain by construction, and the same-batch dedupe below catches
+/// the rare case where one receipt id is observed at multiple heights inside
+/// the same batch (e.g. cross-shard receipts visible at producer + receiver
+/// heights).
+///
+/// Cross-batch overlap with already-stored keys can only arise if the CLI
+/// tool ran first or if the CLI and actor run concurrently. Neither scenario
+/// happens on this deploy; `test_sequential_forward_then_backward_converge`
+/// is the regression net for the hypothetical concurrent path.
 pub fn process_one_batch(
     chain_store: &ChainStore,
     storage: &BackfillStorage,
@@ -257,12 +295,13 @@ pub fn process_one_batch(
     let results: Vec<_> =
         pool.install(|| heights.par_iter().map(|h| process_height(chain_store, *h)).collect());
 
-    let mut entry_update = storage.write_store.store_update();
+    let mut entries: Vec<(CryptoHash, Vec<u8>)> = Vec::new();
     for result in results {
         match result {
             Ok(Some(height_result)) => {
                 for (receipt_id, info) in height_result.entries {
-                    entry_update.insert_ser(DBCol::ReceiptToTx, receipt_id.as_ref(), &info);
+                    let value = borsh::to_vec(&info).context("serialize ReceiptToTxInfo")?;
+                    entries.push((receipt_id, value));
                     stats.entries_written += 1;
                 }
                 stats.blocks_processed += 1;
@@ -276,7 +315,51 @@ pub fn process_one_batch(
             Err(e) => return Err(e),
         }
     }
-    entry_update.commit();
+
+    if !entries.is_empty() {
+        // Sort + dedupe by raw key bytes. SST ingest requires strict ordering,
+        // and the legacy path's debug-only `assert_no_overwrite` is the
+        // correctness guarantee we replace here: if a duplicate key carries a
+        // different value, that's non-determinism in the chain-data resolution
+        // and we surface it as an error in release too.
+        entries.sort_by(|a, b| a.0.as_ref().cmp(b.0.as_ref()));
+        let mut deduped: Vec<(CryptoHash, Vec<u8>)> = Vec::with_capacity(entries.len());
+        for (k, v) in entries {
+            match deduped.last() {
+                Some((prev_k, prev_v)) if prev_k.as_ref() == k.as_ref() => {
+                    if prev_v != &v {
+                        return Err(anyhow::anyhow!(
+                            "backfill produced two different ReceiptToTxInfo values for receipt_id {k}; \
+                             this indicates non-determinism in chain data resolution"
+                        ));
+                    }
+                    // Pre-dedupe count included this duplicate; subtract it to keep
+                    // entries_written aligned with what actually lands in the DB.
+                    stats.entries_written -= 1;
+                }
+                _ => deduped.push((k, v)),
+            }
+        }
+
+        match &storage.sst_temp_dir {
+            Some(temp_dir) => {
+                let kvs: Vec<(&[u8], &[u8])> =
+                    deduped.iter().map(|(k, v)| (k.as_ref(), v.as_slice())).collect();
+                storage.write_store.ingest_insert_only_sst(DBCol::ReceiptToTx, &kvs, temp_dir)?;
+            }
+            None => {
+                let mut entry_update = storage.write_store.store_update();
+                for (receipt_id, value) in &deduped {
+                    entry_update.insert(
+                        DBCol::ReceiptToTx,
+                        receipt_id.as_ref().to_vec(),
+                        value.clone(),
+                    );
+                }
+                entry_update.commit();
+            }
+        }
+    }
 
     if let Some((key, height)) = checkpoint {
         let mut cp_update = storage.checkpoint_store.store_update();

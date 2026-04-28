@@ -64,7 +64,10 @@ impl BackfillReceiptToTxCommand {
         }
         let node_storage = open_storage(home, &near_config).context("failed to open storage")?;
 
-        let storage = BackfillStorage::for_node(&node_storage);
+        // CLI keeps the legacy per-key `insert + commit` write path. Switching the CLI
+        // to SST ingest is a deferred follow-up — the existing CLI is not on the urgent
+        // path that drove the actor change.
+        let storage = BackfillStorage::for_node(&node_storage, None);
 
         let chain_store = ChainStore::new(
             storage.read_store.clone(),

@@ -3,17 +3,31 @@ use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
 use crate::db::metadata::{DbKind, DbMetadata, DbVersion, KIND_KEY, VERSION_KEY};
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics, refcount};
 use crate::deserialized_column;
+use anyhow::Context as _;
 use borsh::{BorshDeserialize, BorshSerialize};
 use enum_map::EnumMap;
 use near_fmt::{AbbrBytes, StorageKey};
+use rocksdb::{DBCompressionType, Options as RocksDbOptions, SstFileWriter};
+use std::cmp::Ordering;
 use std::fs::File;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::{fmt, io};
 use strum::IntoEnumIterator;
 
 const STATE_COLUMNS: [DBCol; 2] = [DBCol::State, DBCol::FlatState];
 const STATE_FILE_END_MARK: u8 = 255;
+
+/// Hard cap on the size of an SST file produced by [`Store::ingest_insert_only_sst`].
+/// If a single batch ever exceeds this size, the helper fails loudly instead of
+/// producing an oversized file.
+const MAX_SST_INGEST_BYTES: u64 = 256 * 1024 * 1024;
+
+/// Process-wide monotonic counter used to disambiguate SST filenames produced by
+/// [`Store::ingest_insert_only_sst`]. Combined with the process id this makes
+/// filename collisions impossible without depending on system time.
+static SST_INGEST_FILE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// Node’s single storage source.
 ///
@@ -279,6 +293,90 @@ impl Store {
 
     pub fn get_store_statistics(&self) -> Option<StoreStatistics> {
         self.storage.get_store_statistics()
+    }
+
+    /// Bulk insert sorted, deduplicated `(key, value)` pairs into an insert-only column
+    /// via RocksDB SST file ingestion. Bypasses the memtable / WAL / L0 compaction path,
+    /// which is what makes this dramatically cheaper than per-key `insert()` for large
+    /// batches on archival storage.
+    ///
+    /// Caller invariants (asserted/checked):
+    /// - `col.is_insert_only()` — asserted; panics otherwise.
+    /// - `entries` are pre-sorted by key bytes and contain no duplicate keys — checked,
+    ///   returns an error if violated. (RocksDB's [`SstFileWriter::put`] requires both;
+    ///   we verify here so callers see a clear message instead of the underlying error.)
+    /// - `temp_dir` is on the same filesystem as the underlying database, so the
+    ///   `move_files=true` ingest below is a rename rather than a copy.
+    ///
+    /// Side effects:
+    /// - Creates `temp_dir` if it doesn't exist; the directory is owned by the caller.
+    /// - Writes a single SST file under `temp_dir`. On success the file is moved into
+    ///   the DB by the ingest call. On failure the file is removed so the caller can
+    ///   safely retry without leaking disk.
+    /// - Returns an error if the resulting SST file exceeds [`MAX_SST_INGEST_BYTES`];
+    ///   the operator's recourse is to reduce the caller's batch size.
+    pub fn ingest_insert_only_sst<K: AsRef<[u8]>, V: AsRef<[u8]>>(
+        &self,
+        col: DBCol,
+        entries: &[(K, V)],
+        temp_dir: &Path,
+    ) -> anyhow::Result<()> {
+        assert!(
+            col.is_insert_only(),
+            "ingest_insert_only_sst requires insert-only column, got {col:?}"
+        );
+        if entries.is_empty() {
+            return Ok(());
+        }
+
+        for w in entries.windows(2) {
+            match w[0].0.as_ref().cmp(w[1].0.as_ref()) {
+                Ordering::Less => {}
+                Ordering::Equal => {
+                    anyhow::bail!("ingest_insert_only_sst: duplicate key in entries");
+                }
+                Ordering::Greater => {
+                    anyhow::bail!("ingest_insert_only_sst: entries not sorted");
+                }
+            }
+        }
+
+        std::fs::create_dir_all(temp_dir)
+            .with_context(|| format!("create SST temp dir {}", temp_dir.display()))?;
+
+        let seq = SST_INGEST_FILE_SEQ.fetch_add(1, AtomicOrdering::Relaxed);
+        let path = temp_dir.join(format!("ingest-{}-{}.sst", std::process::id(), seq));
+
+        let mut opts = RocksDbOptions::default();
+        opts.set_compression_type(DBCompressionType::Lz4);
+        let mut writer = SstFileWriter::create(&opts);
+        writer.open(&path).with_context(|| format!("open SST writer at {}", path.display()))?;
+        for (k, v) in entries {
+            writer.put(k.as_ref(), v.as_ref()).with_context(|| {
+                format!("write SST entry to {} for column {col:?}", path.display())
+            })?;
+        }
+        writer.finish().with_context(|| format!("finalize SST file at {}", path.display()))?;
+
+        let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        if file_size > MAX_SST_INGEST_BYTES {
+            let _ = std::fs::remove_file(&path);
+            anyhow::bail!(
+                "ingest_insert_only_sst: SST file size {file_size} exceeds cap {MAX_SST_INGEST_BYTES}; \
+                 reduce caller batch size",
+            );
+        }
+
+        // move_files=true asks RocksDB to rename the file into the DB on success. On
+        // failure it stays put, so we delete it ourselves to keep the temp dir clean
+        // and leave the caller free to retry.
+        if let Err(e) =
+            self.storage.ingest_external_sst_files(col, &[path.clone()], /*move_files=*/ true)
+        {
+            let _ = std::fs::remove_file(&path);
+            return Err(e);
+        }
+        Ok(())
     }
 }
 
