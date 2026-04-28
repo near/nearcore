@@ -442,6 +442,7 @@
         "unsync",
         "unvalidated",
         "upto",
+        "urlencode",
         "useragent",
         "usize",
         "utoipa",
