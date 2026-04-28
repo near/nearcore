@@ -2346,18 +2346,7 @@ impl Client {
                     == Some(id)
             })
         });
-        let result = chosen.copied().or(first)?;
-        if chosen.is_some() && first.is_some_and(|f| f != result) {
-            tracing::debug!(
-                target: "client",
-                parent_height,
-                hash = ?result,
-                first_hash = ?first.unwrap(),
-                target_height,
-                "skip approval: preferred producer-matching parent hash over first hash at fork"
-            );
-        }
-        Some(result)
+        chosen.copied().or(first)
     }
 
     pub fn collect_block_approval(&mut self, approval: &Approval, approval_type: ApprovalType) {
