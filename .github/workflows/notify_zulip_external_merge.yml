@@ -4,14 +4,6 @@ on:
   pull_request_target:
     types: [closed]
     branches: [master]
-  # TODO: remove workflow_dispatch + the dispatch branch in the run script
-  # once this notifier has been verified end-to-end against Zulip.
-  workflow_dispatch:
-    inputs:
-      message:
-        description: "Custom Zulip message (for testing the notifier end-to-end)"
-        required: false
-        default: ":test_tube: Test message from `notify_zulip_external_merge` workflow"
 
 permissions:
   contents: read
@@ -21,12 +13,11 @@ jobs:
   notify:
     name: "Notify Zulip"
     if: >-
-      github.event_name == 'workflow_dispatch' || (
       github.event.pull_request.merged == true &&
       github.event.pull_request.author_association != 'MEMBER' &&
       github.event.pull_request.author_association != 'OWNER' &&
       github.event.pull_request.author_association != 'COLLABORATOR'
-      )
+
     runs-on: ubuntu-latest
     steps:
       - name: "notify zulip on external contributor merge"
@@ -37,7 +28,6 @@ jobs:
           ZULIP_STREAM: "nearone/private"
           ZULIP_TOPIC: "Security"
           EVENT_NAME: ${{ github.event_name }}
-          DISPATCH_MESSAGE: ${{ inputs.message }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_URL: ${{ github.event.pull_request.html_url }}
@@ -48,15 +38,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            CONTENT="$DISPATCH_MESSAGE"
-          else
             SHORT_SHA="${MERGE_SHA:0:12}"
             CONTENT=":merge: External contributor merge to \`near/nearcore\` \`master\` branch
           **PR**: [#${PR_NUMBER} — ${PR_TITLE}](${PR_URL})
           **Author**: [@${PR_AUTHOR}](${PR_AUTHOR_URL}) (\`${PR_AUTHOR_ASSOC}\`)
           **Merge commit**: \`${SHORT_SHA}\`"
-          fi
+
 
           response=$(curl -sS -w '\n%{http_code}' -X POST "${ZULIP_URL%/}/api/v1/messages" \
             -u "${ZULIP_EMAIL}:${ZULIP_API_KEY}" \
