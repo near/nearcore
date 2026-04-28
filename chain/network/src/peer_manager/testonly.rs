@@ -388,7 +388,7 @@ impl ActorHandler {
     ) -> Option<Arc<SignedAccountData>> {
         let clock = clock.clone();
         self.with_state_and_transport(move |s, transport| async move {
-            s.tier1_advertise_proxies(&clock, &*transport).await
+            s.tier1_advertise_proxies(&clock, transport.as_ref()).await
         })
         .await
     }
@@ -434,7 +434,7 @@ impl ActorHandler {
     pub async fn send_ping(&self, clock: &time::Clock, nonce: u64, target: PeerId) {
         let clock = clock.clone();
         self.with_state_and_transport(move |s, transport| async move {
-            s.send_ping(&clock, tcp::Tier::T2, nonce, target, &*transport);
+            s.send_ping(&clock, tcp::Tier::T2, nonce, target, transport.as_ref());
         })
         .await;
     }
@@ -570,7 +570,7 @@ impl ActorHandler {
     pub async fn tier1_connect(&self, clock: &time::Clock) {
         let clock = clock.clone();
         self.with_state_and_transport(move |s, transport| async move {
-            s.tier1_connect(&clock, &*transport).await;
+            s.tier1_connect(&clock, transport.as_ref()).await;
         })
         .await;
     }
