@@ -380,6 +380,13 @@ pub enum ProtocolFeature {
     /// during header sync and block processing. Foundation for early chunk producer
     /// kickout without epoch manager recomputation.
     EarlyKickout,
+    /// Defer receipts containing `DeployContract` actions into a per-shard
+    /// pending-compile queue. Compilation runs asynchronously; the chunk
+    /// producer signals advancement via `compiled_indices` in the chunk
+    /// header. Bounded by an admission cap, a TTL, and a per-chunk eviction
+    /// cap. Adds `ShardChunkHeaderInnerV7` and a new trie column for the
+    /// queue.
+    CompileQueueDeferral,
 }
 
 impl ProtocolFeature {
@@ -489,7 +496,8 @@ impl ProtocolFeature {
             | ProtocolFeature::InstantDeleteAccount => 83,
             ProtocolFeature::Wasmtime => 84,
             ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
-            | ProtocolFeature::ContinuousEpochSync => 85,
+            | ProtocolFeature::ContinuousEpochSync
+            | ProtocolFeature::CompileQueueDeferral => 85,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
