@@ -2,7 +2,7 @@ use crate::{TrieAccess, TrieUpdate, get, get_pure, set};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::errors::{IntegerOverflowError, StorageError};
 use near_primitives::receipt::{
-    BufferedReceiptIndices, ReceiptOrStateStoredReceipt, TrieQueueIndices,
+    BufferedReceiptIndices, PendingCompileQueueEntry, ReceiptOrStateStoredReceipt, TrieQueueIndices,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::ShardId;
@@ -304,6 +304,85 @@ impl ShardsOutgoingReceiptBuffer {
     fn write_indices(&self, state_update: &mut TrieUpdate) {
         set(state_update, TrieKey::BufferedReceiptIndices, &self.shards_indices);
     }
+}
+
+/// Per-shard pending-compile queue. Holds receipts that contain at least
+/// one `DeployContract` action while their bytecode is being compiled
+/// asynchronously. Unlike the other `TrieQueue` impls, this queue
+/// supports out-of-order removal via [`PendingCompileQueue::remove`],
+/// which leaves a hole at the removed index. Front-of-queue scans
+/// (e.g. TTL eviction) and the [`read_pending_compile_queue`] read
+/// helper must tolerate such holes. The default `TrieQueue::iter` and
+/// `pop_front` impls are not hole-aware and should not be used after
+/// any `remove`.
+pub struct PendingCompileQueue {
+    indices: TrieQueueIndices,
+}
+
+impl PendingCompileQueue {
+    pub fn load(trie: &dyn TrieAccess) -> Result<Self, StorageError> {
+        let indices: TrieQueueIndices =
+            get(trie, &TrieKey::PendingCompileReceiptIndices)?.unwrap_or_default();
+        Ok(Self { indices })
+    }
+
+    /// Remove the entry at `index`, leaving `first_index` and
+    /// `next_available_index` unchanged. Returns the removed entry, or
+    /// `None` if no entry existed at `index` (already removed or never
+    /// admitted). Callers iterating the queue must skip missing entries.
+    pub fn remove(
+        &self,
+        state_update: &mut TrieUpdate,
+        index: u64,
+    ) -> Result<Option<PendingCompileQueueEntry>, StorageError> {
+        let key = TrieKey::PendingCompileReceipt { index };
+        let item: Option<PendingCompileQueueEntry> = get(state_update, &key)?;
+        if item.is_some() {
+            state_update.remove(key);
+        }
+        Ok(item)
+    }
+}
+
+impl TrieQueue for PendingCompileQueue {
+    type Item<'a> = PendingCompileQueueEntry;
+
+    fn load_indices(&self, trie: &dyn TrieAccess) -> Result<TrieQueueIndices, StorageError> {
+        Ok(get(trie, &TrieKey::PendingCompileReceiptIndices)?.unwrap_or_default())
+    }
+
+    fn indices(&self) -> TrieQueueIndices {
+        self.indices.clone()
+    }
+
+    fn indices_mut(&mut self) -> &mut TrieQueueIndices {
+        &mut self.indices
+    }
+
+    fn write_indices(&self, state_update: &mut TrieUpdate) {
+        set(state_update, TrieKey::PendingCompileReceiptIndices, &self.indices);
+    }
+
+    fn trie_key(&self, index: u64) -> TrieKey {
+        TrieKey::PendingCompileReceipt { index }
+    }
+}
+
+/// Read every entry currently in the pending-compile queue, skipping any
+/// holes left by [`PendingCompileQueue::remove`]. Returns each entry
+/// paired with its queue index.
+pub fn read_pending_compile_queue(
+    trie: &dyn TrieAccess,
+) -> Result<Vec<(u64, PendingCompileQueueEntry)>, StorageError> {
+    let indices: TrieQueueIndices =
+        get(trie, &TrieKey::PendingCompileReceiptIndices)?.unwrap_or_default();
+    let mut entries = Vec::with_capacity(indices.len() as usize);
+    for index in indices.first_index..indices.next_available_index {
+        if let Some(entry) = get(trie, &TrieKey::PendingCompileReceipt { index })? {
+            entries.push((index, entry));
+        }
+    }
+    Ok(entries)
 }
 
 impl TrieQueue for OutgoingReceiptBuffer<'_> {

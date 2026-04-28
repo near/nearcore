@@ -130,6 +130,21 @@ pub struct StateStoredReceiptMetadata {
     pub congestion_size: u64,
 }
 
+/// An entry in the per-shard pending-compile queue. Holds a receipt that
+/// contains at least one `DeployContract` action plus the metadata needed
+/// for deterministic TTL eviction and producer-driven advancement.
+///
+/// `pushed_at_height` is the block height at which the receipt was admitted
+/// to the queue. `code_hashes` lists the code hashes of every
+/// `DeployContract` action in the receipt; advancement requires all of
+/// them to have been compiled.
+#[derive(BorshDeserialize, BorshSerialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
+pub struct PendingCompileQueueEntry {
+    pub receipt: Receipt,
+    pub pushed_at_height: BlockHeight,
+    pub code_hashes: Vec<CryptoHash>,
+}
+
 /// The tag that is used to differentiate between the Receipt and StateStoredReceipt.
 const STATE_STORED_RECEIPT_TAG: u8 = u8::MAX;
 

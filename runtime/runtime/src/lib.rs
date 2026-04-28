@@ -110,6 +110,7 @@ pub mod ext;
 mod function_call;
 mod global_contracts;
 pub mod metrics;
+pub mod pending_compile_queue;
 mod pipelining;
 mod prefetch;
 pub mod receipt_manager;

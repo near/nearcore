@@ -432,6 +432,10 @@ impl StateChanges {
                 // Global contract nonce is internal distribution state, not account data.
                 TrieKey::GlobalContractNonce { .. } => {}
                 TrieKey::PromiseYieldStatus { .. } => {}
+                // Pending-compile queue state is internal runtime bookkeeping,
+                // not user-observable account data.
+                TrieKey::PendingCompileReceiptIndices => {}
+                TrieKey::PendingCompileReceipt { .. } => {}
             }
         }
 
