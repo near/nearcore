@@ -35,22 +35,6 @@ ignore = [
     # TODO(#15026): Remove this when rust-toolchain.toml is updated to >= 1.88
     "RUSTSEC-2026-0009",
 
-    # RUSTSEC-2026-0049 describes a problem in tls certificate validation. It doesn't really affect
-    # nearcore, so it's okay to ignore it. Currently we can't fully fix it because the
-    # `object_store` package depends on a vulnerable version of `reqwest`.
-    # object_store 0.13.1 -> reqwest 0.12.4 -> tokio-rustls 0.25.0 -> rustls 0.22.4 -> rustls-webpki 0.102.8
-    # TODO(#15435): Update object_store once the maintainers release a version with reqwest 0.13+
-    "RUSTSEC-2026-0049",
-
-    # RUSTSEC-2026-0098 and RUSTSEC-2026-0099 describe name-constraint validation bugs in
-    # rustls-webpki (URI names, and certs asserting wildcard names respectively). Same transitive
-    # chain as RUSTSEC-2026-0049 above, and same blocker:
-    # object_store 0.13.1 -> reqwest 0.12.4 -> tokio-rustls 0.25.0 -> rustls 0.22.4 -> rustls-webpki 0.102.8
-    # Fixed in rustls-webpki >= 0.103.12, which requires upgrading the whole rustls stack via object_store.
-    # TODO(#15435): Remove once object_store releases a version with reqwest 0.13+ / rustls 0.23+.
-    "RUSTSEC-2026-0098",
-    "RUSTSEC-2026-0099",
-
     # libsecp256k1 is unmaintained, but every version of aurora-engine-transactions pulls it in
     # (via aurora-engine-precompiles in 1.1, or aurora-engine-sdk in 1.2+). In the main workspace
     # it's only a dev-dependency (test-loop-tests, integration-tests). It is also a transitive

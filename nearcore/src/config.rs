@@ -86,9 +86,6 @@ pub const TESTNET_MAX_BLOCK_PRODUCTION_DELAY: i64 = 1_800;
 /// Maximum time until skipping the previous block is ms.
 pub const MAX_BLOCK_WAIT_DELAY: i64 = 6_000;
 
-/// Multiplier for the wait time for all chunks to be received.
-pub const CHUNK_WAIT_DENOMINATOR: i32 = 3;
-
 /// Horizon at which instead of fetching block, fetch full state.
 const BLOCK_FETCH_HORIZON: BlockHeightDelta = 50;
 
@@ -206,7 +203,7 @@ impl Default for Consensus {
             min_block_production_delay: Duration::milliseconds(MIN_BLOCK_PRODUCTION_DELAY),
             max_block_production_delay: Duration::milliseconds(MAX_BLOCK_PRODUCTION_DELAY),
             max_block_wait_delay: Duration::milliseconds(MAX_BLOCK_WAIT_DELAY),
-            chunk_wait_mult: Rational32::new(1, CHUNK_WAIT_DENOMINATOR),
+            chunk_wait_mult: default_chunk_wait_mult(),
             produce_empty_blocks: true,
             block_fetch_horizon: BLOCK_FETCH_HORIZON,
             block_header_fetch_horizon: BLOCK_HEADER_FETCH_HORIZON,

@@ -7,15 +7,14 @@ use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain_configs::{CloudArchivalWriterConfig, InterruptHandle};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::types::{BlockHeight, EpochId, ShardId};
+use near_primitives::types::{BlockHeight, ShardId};
 use near_store::adapter::StoreAdapter;
-use near_store::archive::cloud_storage::BatchRange;
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::archive::cloud_storage::archive::CloudArchivingError;
 use near_store::archive::cloud_storage::retrieve::CloudRetrievalError;
+use near_store::archive::cloud_storage::{BatchRange, compute_next_batch};
 use near_store::db::{
     CLOUD_BLOCK_HEAD_KEY, CLOUD_MIN_HEAD_KEY, DBTransaction, cloud_shard_head_key,
 };
@@ -66,6 +65,8 @@ pub enum CloudArchivalInitializationError {
     UpdateError { error: CloudArchivingError },
     #[error("Error when retrieving from cloud archival during initialization: {error}")]
     RetrievalError { error: CloudRetrievalError },
+    #[error("batch_size ({batch_size}) must be < epoch_length ({epoch_length})")]
+    InvalidBatchSize { batch_size: u64, epoch_length: u64 },
 }
 
 impl From<std::io::Error> for CloudArchivalInitializationError {
@@ -276,23 +277,25 @@ impl CloudArchivalWriter {
     async fn try_archive_data_impl(&self) -> Result<CloudArchivingOutcome, CloudArchivingError> {
         let min_head =
             self.get_local_cloud_min_head()?.expect("CLOUD_MIN_HEAD should exist in hot store");
-        let height_to_archive = min_head + 1;
+        let batch_range = self.next_batch_after(min_head);
         let hot_final_height = self.get_hot_final_head_height()?;
-        tracing::trace!(target: "cloud_archival", height_to_archive, hot_final_height, "try_archive");
+        tracing::trace!(target: "cloud_archival", ?batch_range, hot_final_height, "try_archive");
 
-        // Archive only while the height to archive is below the finalized height, since
-        // the next block should be finalized first (for `DBCol::NextBlockHashes`).
-        if height_to_archive >= hot_final_height {
+        // The entire batch must be below hot_final_height: the last block in
+        // the batch needs NextBlockHashes, which requires the next block to
+        // be finalized.
+        if batch_range.end() >= hot_final_height {
             return Ok(CloudArchivingOutcome::Idle { cloud_head: min_head });
         }
 
-        self.archive_lagging_components(height_to_archive).await?;
+        self.archive_lagging_components(&batch_range).await?;
 
-        let outcome = if height_to_archive + 1 == hot_final_height {
-            CloudArchivingOutcome::Recent { batch_end: height_to_archive }
+        let next_batch = self.next_batch_after(batch_range.end());
+        let outcome = if next_batch.end() >= hot_final_height {
+            CloudArchivingOutcome::Recent { batch_end: batch_range.end() }
         } else {
             CloudArchivingOutcome::Old {
-                batch_end: height_to_archive,
+                batch_end: batch_range.end(),
                 target_height: hot_final_height - 1,
             }
         };
@@ -300,74 +303,94 @@ impl CloudArchivalWriter {
         Ok(outcome)
     }
 
-    /// Archives all lagging components at the given height and advances local heads.
+    /// Returns the batch that follows `height`. Aligned to `batch_size`;
+    /// may be partial when `height` is unaligned (first batch after genesis
+    /// or fresh init).
+    fn next_batch_after(&self, height: BlockHeight) -> BatchRange {
+        compute_next_batch(height, self.cloud_storage.batch_size())
+    }
+
+    /// Archives all lagging components for the given batch and advances local heads.
     async fn archive_lagging_components(
         &self,
-        height: BlockHeight,
+        batch_range: &BatchRange,
     ) -> Result<(), CloudArchivingError> {
-        let block_hash = self.hot_store.chain_store().get_block_hash_by_height(height)?;
-        let epoch_id = self.epoch_manager.get_epoch_id(&block_hash)?;
+        // TODO(cloud_archival): support resharding.
+        let start_block_hash =
+            self.hot_store.chain_store().get_block_hash_by_height(batch_range.start())?;
+        let start_epoch_id = self.epoch_manager.get_epoch_id(&start_block_hash)?;
+        let shard_layout = self.epoch_manager.get_shard_layout(&start_epoch_id)?;
         let tracked_shards =
-            self.shard_tracker.get_tracked_shards_for_non_validator_in_epoch(&epoch_id)?;
-        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+            self.shard_tracker.get_tracked_shards_for_non_validator_in_epoch(&start_epoch_id)?;
 
         let block_advanced = if self.config.archive_block_data {
-            self.archive_block_and_epoch_if_lagging(height, &block_hash, epoch_id, &shard_layout)
-                .await?
+            self.archive_block_batch_if_lagging(batch_range).await?
         } else {
             false
         };
-        let advanced_shards =
-            self.archive_shards_if_lagging(height, &tracked_shards, &shard_layout).await?;
-        self.advance_local_heads(height, block_advanced, &advanced_shards)?;
+        let advanced_shards = self
+            .archive_shard_batches_if_lagging(batch_range, &shard_layout, &tracked_shards)
+            .await?;
+        self.advance_local_heads(batch_range.end(), block_advanced, &advanced_shards)?;
         Ok(())
     }
 
-    /// Archives block and epoch data if the local block head is behind `height`.
-    /// Epoch data is uploaded at epoch boundaries since it is keyed by epoch ID
-    /// and naturally belongs with the last block of the epoch.
-    /// Returns true if the block head was advanced.
-    async fn archive_block_and_epoch_if_lagging(
+    /// Uploads epoch data for any epoch whose last block falls in this batch.
+    async fn archive_epochs_ending_in_batch(
         &self,
-        height: BlockHeight,
-        block_hash: &CryptoHash,
-        epoch_id: EpochId,
-        shard_layout: &ShardLayout,
+        batch_range: &BatchRange,
+    ) -> Result<(), CloudArchivingError> {
+        for height in batch_range.start()..=batch_range.end() {
+            let block_hash = self.hot_store.chain_store().get_block_hash_by_height(height)?;
+            if !self.epoch_manager.is_next_block_epoch_start(&block_hash)? {
+                continue;
+            }
+            let epoch_id = self.epoch_manager.get_epoch_id(&block_hash)?;
+            let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+            self.cloud_storage.archive_epoch_data(&self.hot_store, &shard_layout, epoch_id).await?;
+        }
+        Ok(())
+    }
+
+    /// Archives the block batch if the local block head is behind `batch_range.end()`.
+    /// Also uploads epoch data for any epoch ending in the batch (gated on
+    /// the same lag check so non-block writers and already-caught-up writers
+    /// don't re-upload).
+    /// Returns true if the block head was advanced.
+    async fn archive_block_batch_if_lagging(
+        &self,
+        batch_range: &BatchRange,
     ) -> Result<bool, CloudArchivingError> {
         if let Some(head) = self.get_local_block_head()? {
-            if head >= height {
+            if head >= batch_range.end() {
                 return Ok(false);
             }
         }
         // TODO(cloud_archival): Race condition between this check and the upload below.
         // Will be replaced with ifGenerationMatch:0 atomic uploads + hash metadata verification.
         let ext_head = self.cloud_storage.retrieve_cloud_block_head_if_exists().await?;
-        if ext_head.is_some_and(|h| h >= height) {
+        if ext_head.is_some_and(|h| h >= batch_range.end()) {
             return Ok(false);
         }
-        if self.epoch_manager.is_next_block_epoch_start(block_hash)? {
-            self.cloud_storage.archive_epoch_data(&self.hot_store, shard_layout, epoch_id).await?;
-        }
-        self.cloud_storage
-            .archive_block_batch(&self.hot_store, &BatchRange::new(height, height))
-            .await?;
-        self.cloud_storage.update_cloud_block_head(height).await?;
+        self.archive_epochs_ending_in_batch(batch_range).await?;
+        self.cloud_storage.archive_block_batch(&self.hot_store, batch_range).await?;
+        self.cloud_storage.update_cloud_block_head(batch_range.end()).await?;
         Ok(true)
     }
 
-    /// Archives shard data for tracked shards whose local head is behind `height`.
-    /// Returns the shard IDs that were advanced.
-    async fn archive_shards_if_lagging(
+    /// Archives shard batches for tracked shards whose local head is behind
+    /// `batch_range.end()`. Returns the shard IDs that were advanced.
+    async fn archive_shard_batches_if_lagging(
         &self,
-        height: BlockHeight,
-        tracked_shards: &[ShardUId],
+        batch_range: &BatchRange,
         shard_layout: &ShardLayout,
+        tracked_shards: &[ShardUId],
     ) -> Result<Vec<ShardId>, CloudArchivingError> {
         let mut advanced_shards = Vec::new();
         for shard_uid in tracked_shards {
             let shard_id = shard_uid.shard_id();
             let lagging = match self.get_local_shard_head(shard_id)? {
-                Some(head) => head < height,
+                Some(head) => head < batch_range.end(),
                 None => true,
             };
             if !lagging {
@@ -376,7 +399,7 @@ impl CloudArchivalWriter {
             // TODO(cloud_archival): Race condition between this check and the upload below.
             // Will be replaced with ifGenerationMatch:0 atomic uploads + hash metadata verification.
             let ext_head = self.cloud_storage.retrieve_cloud_shard_head_if_exists(shard_id).await?;
-            if ext_head.is_some_and(|h| h >= height) {
+            if ext_head.is_some_and(|h| h >= batch_range.end()) {
                 continue;
             }
             self.cloud_storage
@@ -384,11 +407,11 @@ impl CloudArchivalWriter {
                     &self.hot_store,
                     self.genesis_height,
                     shard_layout,
-                    &BatchRange::new(height, height),
+                    batch_range,
                     *shard_uid,
                 )
                 .await?;
-            self.cloud_storage.update_cloud_shard_head(shard_id, height).await?;
+            self.cloud_storage.update_cloud_shard_head(shard_id, batch_range.end()).await?;
             advanced_shards.push(shard_id);
         }
         Ok(advanced_shards)
@@ -403,6 +426,7 @@ impl CloudArchivalWriter {
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
     ) -> Result<(), CloudArchivalInitializationError> {
         self.cloud_storage.ensure_bucket_config().await?;
+        self.check_batch_size_below_epoch_length()?;
         let hot_final_height = self.get_hot_final_head_height()?;
         // TODO(cloud_archival): support resharding
         let tracked_shard_ids = self.get_tracked_shard_ids(hot_final_height)?;
@@ -536,6 +560,32 @@ impl CloudArchivalWriter {
             .get_tracked_shards_for_non_validator_in_epoch(&epoch_id)
             .map_err(near_chain_primitives::Error::from)?;
         Ok(tracked_shards.iter().map(|uid| uid.shard_id()).collect())
+    }
+
+    /// A batch must never contain an entire epoch as a strict subset, so that
+    /// a batch crosses at most one epoch boundary (the writer resolves
+    /// `shard_layout` once from the batch's start). `batch_size == epoch_length`
+    /// would satisfy this, but we keep a strict `<` as a defensive margin.
+    fn check_batch_size_below_epoch_length(&self) -> Result<(), CloudArchivalInitializationError> {
+        let height = self.get_hot_final_head_height()?;
+        let block_hash = self.hot_store.chain_store().get_block_hash_by_height(height)?;
+        let epoch_id = self
+            .epoch_manager
+            .get_epoch_id(&block_hash)
+            .map_err(near_chain_primitives::Error::from)?;
+        let epoch_length = self
+            .epoch_manager
+            .get_epoch_config(&epoch_id)
+            .map_err(near_chain_primitives::Error::from)?
+            .epoch_length;
+        let batch_size = self.cloud_storage.batch_size() as u64;
+        if batch_size >= epoch_length {
+            return Err(CloudArchivalInitializationError::InvalidBatchSize {
+                batch_size,
+                epoch_length,
+            });
+        }
+        Ok(())
     }
 
     /// Ensures the cloud min head has not been garbage collected.

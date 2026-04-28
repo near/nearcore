@@ -8,7 +8,7 @@ use near_primitives::sharding::{ReceiptProof, ShardChunk};
 // TODO(cloud_archival): Re-enable once `get_state_header()` is fixed (see below).
 //use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use crate::adapter::StoreAdapter;
-use crate::archive::cloud_storage::file_id::BatchRange;
+use crate::archive::cloud_storage::batch::BatchRange;
 use crate::{DBCol, KeyForStateChanges, Store};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;

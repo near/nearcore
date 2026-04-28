@@ -1,7 +1,8 @@
 use crate::archive::cloud_storage::CloudStorage;
+use crate::archive::cloud_storage::batch::BatchId;
 use crate::archive::cloud_storage::blocks::BlockBatch;
 use crate::archive::cloud_storage::epoch_data::EpochData;
-use crate::archive::cloud_storage::file_id::{BatchId, CloudStorageFileID, ListableCloudDir};
+use crate::archive::cloud_storage::file_id::{CloudStorageFileID, ListableCloudDir};
 use crate::archive::cloud_storage::shards::ShardBatch;
 use borsh::BorshDeserialize;
 use near_primitives::state_sync::ShardStateSyncResponseHeader;
