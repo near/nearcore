@@ -130,7 +130,15 @@ impl BackfillReceiptToTxActor {
     fn check_chain_at_tip(&self) -> anyhow::Result<bool> {
         let block_head = self.chain_store.head().context("get block head")?.height;
         let header_head = self.chain_store.header_head().context("get header head")?.height;
-        Ok(is_chain_at_tip(block_head, header_head))
+        let at_tip = is_chain_at_tip(block_head, header_head);
+        tracing::warn!(
+            block_head,
+            header_head,
+            sync_gap = header_head.saturating_sub(block_head),
+            at_tip,
+            "receipt-to-tx backfill sync gate check"
+        );
+        Ok(at_tip)
     }
 
     /// Process one batch of heights in descending order.
@@ -260,6 +268,16 @@ impl BackfillReceiptToTxActor {
 
 impl Actor for BackfillReceiptToTxActor {
     fn start_actor(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
+        let checkpoint: Option<BlockHeight> =
+            self.storage.checkpoint_store.get_ser(DBCol::Misc, BACKFILL_CHECKPOINT_KEY_LOW);
+        tracing::warn!(
+            genesis_height = self.genesis_height,
+            batch_size = self.config.batch_size,
+            num_threads = self.config.num_threads,
+            ?checkpoint,
+            start_height = self.config.start_height,
+            "receipt-to-tx backfill actor started"
+        );
         self.backfill_loop(ctx);
     }
 }

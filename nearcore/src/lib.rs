@@ -582,6 +582,21 @@ pub async fn start_with_config_and_synchronization_impl(
         storage.is_local_archive(),
     ));
 
+    tracing::warn!(
+        save_receipt_to_tx = config.client_config.save_receipt_to_tx,
+        save_tx_outcomes = config.client_config.save_tx_outcomes,
+        archive_client = config.client_config.archive,
+        archive_config = config.config.archive,
+        backfill_enabled = config.client_config.backfill_receipt_to_tx.enabled,
+        backfill_batch_size = config.client_config.backfill_receipt_to_tx.batch_size,
+        backfill_num_threads = config.client_config.backfill_receipt_to_tx.num_threads,
+        split_store_available = split_store.is_some(),
+        cold_store_configured = config.config.cold_store.is_some(),
+        split_storage_enabled = config.config.split_storage.as_ref().is_some_and(|c| c.enable_split_storage_view_client),
+        hot_db_kind = ?storage.get_hot_store().get_db_kind(),
+        "backfill receipt-to-tx actor spawn conditions"
+    );
+
     if config.client_config.save_receipt_to_tx
         && config.client_config.save_tx_outcomes
         && config.client_config.archive
