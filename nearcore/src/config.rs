@@ -882,7 +882,7 @@ impl NightshadeRuntime {
                     let hot_store_path =
                         home_dir.join(config.config.store.path.as_ref().unwrap_or(&"data".into()));
                     match &config.client_config.cloud_archival_writer {
-                        Some(writer_config) => StateSnapshotConfig::enabled_with_frequency(
+                        Some(writer_config) => StateSnapshotConfig::enabled_with_cadence(
                             hot_store_path,
                             writer_config.snapshot_every_n_epochs,
                         ),

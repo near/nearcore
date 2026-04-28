@@ -144,10 +144,10 @@ impl StateSnapshotConfig {
     const STATE_SNAPSHOT_DIR: &str = "state_snapshot";
 
     pub fn enabled(hot_store_path: impl AsRef<Path>) -> Self {
-        Self::enabled_with_frequency(hot_store_path, 1)
+        Self::enabled_with_cadence(hot_store_path, 1)
     }
 
-    pub fn enabled_with_frequency(
+    pub fn enabled_with_cadence(
         hot_store_path: impl AsRef<Path>,
         snapshot_every_n_epochs: u64,
     ) -> Self {
@@ -168,7 +168,7 @@ impl StateSnapshotConfig {
     }
 
     /// Configured snapshot cadence in epochs. Defaults to `1`.
-    pub fn snapshot_frequency(&self) -> u64 {
+    pub fn snapshot_cadence(&self) -> u64 {
         if let StateSnapshotConfig::Enabled { snapshot_every_n_epochs, .. } = self {
             return *snapshot_every_n_epochs;
         }

@@ -489,7 +489,7 @@ mod tests {
     #[should_panic(
         expected = "\\nconfig.json semantic issue: `cloud_archival_writer.snapshot_every_n_epochs` must be greater than 0."
     )]
-    fn test_cloud_archival_writer_snapshot_frequency_nonzero() {
+    fn test_cloud_archival_writer_snapshot_cadence_nonzero() {
         let mut config = Config::default();
         config.cloud_archival = Some(test_cloud_archival_config(""));
         let mut writer_config = CloudArchivalWriterConfig::default();

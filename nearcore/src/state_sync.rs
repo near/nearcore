@@ -931,16 +931,15 @@ impl StateDumper {
     /// Cadence `1` (default) always dumps; larger cadences skip epochs whose `epoch_height`
     /// is not a multiple of the configured value.
     fn should_dump_epoch(&self, epoch_id: &EpochId) -> anyhow::Result<bool> {
-        let snapshot_frequency =
-            self.runtime.get_tries().state_snapshot_config().snapshot_frequency();
-        if snapshot_frequency <= 1 {
+        let snapshot_cadence = self.runtime.get_tries().state_snapshot_config().snapshot_cadence();
+        if snapshot_cadence <= 1 {
             return Ok(true);
         }
         let epoch_info = self
             .epoch_manager
             .get_epoch_info(epoch_id)
             .with_context(|| format!("Failed getting epoch info {:?}", epoch_id))?;
-        Ok(epoch_info.epoch_height() % snapshot_frequency == 0)
+        Ok(epoch_info.epoch_height() % snapshot_cadence == 0)
     }
 }
 

@@ -3635,7 +3635,7 @@ impl Chain {
         if let StateSnapshotConfig::Disabled = tries.state_snapshot_config() {
             return Ok(SnapshotAction::None);
         }
-        let snapshot_every_n_epochs = tries.state_snapshot_config().snapshot_frequency();
+        let snapshot_every_n_epochs = tries.state_snapshot_config().snapshot_cadence();
 
         // head value is that of the previous block, i.e. curr_block.prev_hash
         let head = self.head()?;

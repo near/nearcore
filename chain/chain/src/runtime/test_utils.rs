@@ -58,7 +58,7 @@ impl NightshadeRuntime {
             runtime_config_store,
             gc_num_epochs_to_keep,
             trie_config,
-            StateSnapshotConfig::enabled_with_frequency(
+            StateSnapshotConfig::enabled_with_cadence(
                 home_dir.join("data"),
                 snapshot_every_n_epochs,
             ),

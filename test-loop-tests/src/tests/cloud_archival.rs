@@ -53,8 +53,8 @@ impl CloudArchiveHarnessBuilder {
         self
     }
 
-    fn snapshot_every_n_epochs(mut self, frequency: u64) -> Self {
-        self.writer.snapshot_every_n_epochs = frequency;
+    fn snapshot_every_n_epochs(mut self, cadence: u64) -> Self {
+        self.writer.snapshot_every_n_epochs = cadence;
         self
     }
 
@@ -482,7 +482,7 @@ fn test_cloud_archival_multi_writer_disjoint_shards() {
 /// and that the discovery helper locates the nearest snapshot at or before a given height.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_cloud_archival_custom_snapshot_frequency() {
+fn test_cloud_archival_custom_snapshot_cadence() {
     let mut h = CloudArchiveHarness::builder().snapshot_every_n_epochs(2).build();
     h.run_until_epoch(6);
     h.assert_snapshots_ok();
