@@ -459,6 +459,7 @@ mod tests {
     use super::*;
     use crate::Trie;
     use crate::test_utils::{TestTriesBuilder, gen_receipts};
+    use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::Receipt;
     use near_primitives::shard_layout::ShardLayout;
     use rand::seq::SliceRandom;
@@ -614,6 +615,116 @@ mod tests {
             popped.push(receipt);
         }
         assert_eq!(input_receipts, popped, "receipts were not popped correctly");
+    }
+
+    fn make_entries(count: usize) -> Vec<PendingCompileQueueEntry> {
+        use near_crypto::{KeyType, PublicKey};
+        use near_primitives::receipt::{ActionReceipt, ReceiptEnum, ReceiptV0};
+        use near_primitives::transaction::{Action, DeployContractAction};
+        use near_primitives::types::{AccountId, Balance};
+        use std::str::FromStr;
+
+        let signer_id = AccountId::from_str("alice.near").unwrap();
+        let receiver_id = AccountId::from_str("bob.near").unwrap();
+        (0..count)
+            .map(|i| {
+                let code = format!("contract-bytecode-{i}").into_bytes();
+                let code_hash = CryptoHash::hash_bytes(&code);
+                let action_receipt = ActionReceipt {
+                    signer_id: signer_id.clone(),
+                    signer_public_key: PublicKey::empty(KeyType::ED25519),
+                    gas_price: Balance::ZERO,
+                    output_data_receivers: vec![],
+                    input_data_ids: vec![],
+                    actions: vec![Action::DeployContract(DeployContractAction { code })],
+                };
+                let receipt = Receipt::V0(ReceiptV0 {
+                    predecessor_id: signer_id.clone(),
+                    receiver_id: receiver_id.clone(),
+                    receipt_id: CryptoHash::hash_bytes(format!("rid-{i}").as_bytes()),
+                    receipt: ReceiptEnum::Action(action_receipt),
+                });
+                PendingCompileQueueEntry {
+                    receipt,
+                    pushed_at_height: 100 + i as u64,
+                    code_hashes: vec![code_hash],
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_pending_compile_queue_push_pop() {
+        for size in [0usize, 1, 10, 100] {
+            let entries = make_entries(size);
+            let mut trie = init_state();
+
+            // Push, then iterate, then drop and reload.
+            {
+                let mut queue =
+                    PendingCompileQueue::load(&trie).expect("loading queue must not fail");
+                for entry in &entries {
+                    queue.push_back(&mut trie, entry).expect("push must not fail");
+                }
+            }
+            let read_back = read_pending_compile_queue(&trie).unwrap();
+            let read_entries: Vec<_> = read_back.iter().map(|(_, e)| e.clone()).collect();
+            assert_eq!(entries, read_entries);
+
+            // Pop in order.
+            let mut queue = PendingCompileQueue::load(&trie).unwrap();
+            let mut popped = vec![];
+            while let Some(entry) = queue.pop_front(&mut trie).unwrap() {
+                popped.push(entry);
+            }
+            assert_eq!(entries, popped);
+            assert_eq!(read_pending_compile_queue(&trie).unwrap(), vec![]);
+        }
+    }
+
+    #[test]
+    fn test_pending_compile_queue_remove_leaves_holes() {
+        let entries = make_entries(5);
+
+        let mut trie = init_state();
+        let mut queue = PendingCompileQueue::load(&trie).unwrap();
+        for entry in &entries {
+            queue.push_back(&mut trie, entry).unwrap();
+        }
+        let indices_before = queue.indices();
+        assert_eq!(indices_before.first_index, 0);
+        assert_eq!(indices_before.next_available_index, 5);
+
+        // Remove out-of-order. The returned entries must equal the originals.
+        let removed_1 = queue.remove(&mut trie, 1).unwrap();
+        let removed_3 = queue.remove(&mut trie, 3).unwrap();
+        assert_eq!(removed_1.as_ref(), Some(&entries[1]));
+        assert_eq!(removed_3.as_ref(), Some(&entries[3]));
+
+        // Indices unchanged: holes are real holes, not range shrinks.
+        let indices_after = queue.indices();
+        assert_eq!(indices_after.first_index, 0);
+        assert_eq!(indices_after.next_available_index, 5);
+
+        // Read helper skips holes.
+        let read_back = read_pending_compile_queue(&trie).unwrap();
+        let kept_indices: Vec<_> = read_back.iter().map(|(i, _)| *i).collect();
+        assert_eq!(kept_indices, vec![0, 2, 4]);
+        let kept_entries: Vec<_> = read_back.iter().map(|(_, e)| e.clone()).collect();
+        assert_eq!(kept_entries, vec![entries[0].clone(), entries[2].clone(), entries[4].clone()]);
+
+        // Removing a hole returns None and is a no-op.
+        let removed_again = queue.remove(&mut trie, 1).unwrap();
+        assert!(removed_again.is_none());
+        assert_eq!(read_pending_compile_queue(&trie).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn test_pending_compile_queue_empty_load() {
+        let trie = init_state();
+        let queue = PendingCompileQueue::load(&trie).unwrap();
+        assert_eq!(queue.indices(), TrieQueueIndices::default());
+        assert_eq!(read_pending_compile_queue(&trie).unwrap(), vec![]);
     }
 
     fn init_state() -> TrieUpdate {

@@ -1787,4 +1787,43 @@ mod tests {
         let chunk = ShardChunk::from(&arced);
         assert_eq!(borsh::to_vec(&chunk).unwrap(), borsh::to_vec(&arced).unwrap());
     }
+
+    /// Build a header carrying a specific `ShardChunkHeaderInner` variant by
+    /// starting from a V3 dummy header and replacing its inner.
+    fn header_with_inner(inner: super::ShardChunkHeaderInner) -> ShardChunkHeader {
+        use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
+        let signer: ValidatorSigner = EmptyValidatorSigner::default().into();
+        ShardChunkHeader::V3(ShardChunkHeaderV3::from_inner(inner, &signer))
+    }
+
+    #[test]
+    fn validate_version_v7_gated_on_compile_queue_deferral() {
+        use super::shard_chunk_header_inner::{ShardChunkHeaderInner, ShardChunkHeaderInnerV7};
+        use near_primitives_core::version::ProtocolFeature;
+
+        let inner_v7 = ShardChunkHeaderInnerV7 {
+            prev_block_hash: CryptoHash::default(),
+            prev_state_root: CryptoHash::default(),
+            prev_outcome_root: CryptoHash::default(),
+            encoded_merkle_root: CryptoHash::default(),
+            encoded_length: 0,
+            height_created: 1,
+            shard_id: ShardId::new(0),
+            prev_gas_used: near_primitives_core::types::Gas::ZERO,
+            gas_limit: near_primitives_core::types::Gas::ZERO,
+            prev_balance_burnt: Balance::ZERO,
+            prev_outgoing_receipts_root: CryptoHash::default(),
+            tx_root: CryptoHash::default(),
+            prev_validator_proposals: vec![],
+            congestion_info: Default::default(),
+            bandwidth_requests: crate::bandwidth_scheduler::BandwidthRequests::empty(),
+            proposed_split: None,
+            compiled_indices: vec![],
+        };
+        let header = header_with_inner(ShardChunkHeaderInner::V7(inner_v7));
+
+        let activation = ProtocolFeature::CompileQueueDeferral.protocol_version();
+        assert!(header.validate_version(activation - 1).is_err());
+        assert!(header.validate_version(activation).is_ok());
+    }
 }

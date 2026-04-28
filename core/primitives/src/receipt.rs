@@ -1186,6 +1186,42 @@ mod tests {
     }
 
     #[test]
+    fn test_pending_compile_queue_entry_serialization() {
+        let receipt = Receipt::V0(ReceiptV0 {
+            predecessor_id: "predecessor_id".parse().unwrap(),
+            receiver_id: "receiver_id".parse().unwrap(),
+            receipt_id: CryptoHash::hash_bytes(b"receipt"),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: "signer_id".parse().unwrap(),
+                signer_public_key: PublicKey::empty(KeyType::ED25519),
+                gas_price: Balance::ZERO,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![
+                    Action::DeployContract(crate::transaction::DeployContractAction {
+                        code: b"contract-a".to_vec(),
+                    }),
+                    Action::DeployContract(crate::transaction::DeployContractAction {
+                        code: b"contract-b".to_vec(),
+                    }),
+                ],
+            }),
+        });
+        let entry = PendingCompileQueueEntry {
+            receipt,
+            pushed_at_height: 12345,
+            code_hashes: vec![
+                CryptoHash::hash_bytes(b"contract-a"),
+                CryptoHash::hash_bytes(b"contract-b"),
+            ],
+        };
+
+        let bytes = borsh::to_vec(&entry).unwrap();
+        let decoded = PendingCompileQueueEntry::try_from_slice(&bytes).unwrap();
+        assert_eq!(entry, decoded);
+    }
+
+    #[test]
     fn test_state_stored_receipt_serialization() {
         let receipt = get_receipt_v0();
         let metadata =
