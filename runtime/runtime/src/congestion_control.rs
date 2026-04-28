@@ -919,6 +919,22 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
         self.queue.len()
     }
 
+    /// Returns the index that will be assigned to the next receipt pushed
+    /// into the delayed-receipt queue. Used by the pending-compile-queue
+    /// diversion path to detect wrap-around when a deploy is popped and
+    /// re-pushed within the same chunk.
+    pub(crate) fn next_available_index(&self) -> u64 {
+        self.queue.indices().next_available_index
+    }
+
+    /// Returns the index of the front of the delayed-receipt queue. After a
+    /// `pop`, this advances past the popped receipt, so reading it before a
+    /// pop is an upper bound on the index of the next receipt that pop will
+    /// return.
+    pub(crate) fn first_index(&self) -> u64 {
+        self.queue.indices().first_index
+    }
+
     pub(crate) fn apply_congestion_changes(
         self,
         congestion: &mut CongestionInfo,

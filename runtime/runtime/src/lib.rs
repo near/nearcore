@@ -11,7 +11,7 @@ use crate::config::{
 use crate::congestion_control::DelayedReceiptQueueWrapper;
 use crate::contract_code::RuntimeContractIdentifier;
 use crate::function_call::action_function_call;
-use crate::pending_compile_queue::COMPILE_QUEUE_TTL_BLOCKS;
+use crate::pending_compile_queue::{COMPILE_QUEUE_ADMISSION_CAP, COMPILE_QUEUE_TTL_BLOCKS};
 use crate::prefetch::TriePrefetcher;
 pub use crate::types::SignedValidPeriodTransactions;
 use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
@@ -2246,6 +2246,54 @@ impl Runtime {
         })
     }
 
+    /// Divert a receipt to the pending-compile queue if it contains at
+    /// least one `DeployContract` action and the protocol feature is
+    /// active. Returns the diversion outcome so callers know whether to
+    /// also run the standard receipt processing path.
+    ///
+    /// When admission is at the per-chunk cap, the receipt is spilled to
+    /// the delayed-receipt queue instead and re-attempts admission in a
+    /// later chunk.
+    fn divert_receipt_if_deploy(
+        &self,
+        receipt: &Receipt,
+        processing_state: &mut ApplyProcessingReceiptState,
+    ) -> Result<DiversionOutcome, RuntimeError> {
+        if !ProtocolFeature::CompileQueueDeferral.enabled(processing_state.protocol_version) {
+            return Ok(DiversionOutcome::NotDiverted);
+        }
+        let action_receipt = match receipt.versioned_receipt() {
+            VersionedReceiptEnum::Action(action_receipt) => action_receipt,
+            _ => return Ok(DiversionOutcome::NotDiverted),
+        };
+        let mut code_hashes = Vec::new();
+        for action in action_receipt.actions() {
+            if let Action::DeployContract(deploy) = action {
+                code_hashes.push(CryptoHash::hash_bytes(&deploy.code));
+            }
+        }
+        if code_hashes.is_empty() {
+            return Ok(DiversionOutcome::NotDiverted);
+        }
+        if (processing_state.pending_compile_admitted as usize) >= COMPILE_QUEUE_ADMISSION_CAP {
+            processing_state.delayed_receipts.push(
+                &mut processing_state.state_update,
+                receipt,
+                processing_state.apply_state,
+            )?;
+            return Ok(DiversionOutcome::Spilled);
+        }
+        let entry = PendingCompileQueueEntry {
+            receipt: receipt.clone(),
+            pushed_at_height: processing_state.apply_state.block_height,
+            code_hashes,
+        };
+        let mut queue = PendingCompileQueue::load(&processing_state.state_update)?;
+        queue.push_back(&mut processing_state.state_update, &entry)?;
+        processing_state.pending_compile_admitted += 1;
+        Ok(DiversionOutcome::Admitted)
+    }
+
     /// This function wraps [Runtime::process_receipt]. It adds a tracing span around the latter
     /// and populates various metrics.
     fn process_receipt_with_metrics(
@@ -2359,6 +2407,12 @@ impl Runtime {
                     &processing_state.apply_state,
                 )?;
             } else {
+                match self.divert_receipt_if_deploy(receipt, &mut processing_state)? {
+                    DiversionOutcome::Admitted | DiversionOutcome::Spilled => {
+                        continue;
+                    }
+                    DiversionOutcome::NotDiverted => {}
+                }
                 if let Some(nsi) = &mut next_schedule_after {
                     *nsi = nsi.saturating_sub(1);
                     if *nsi == 0 {
@@ -2427,10 +2481,24 @@ impl Runtime {
             )
         };
 
+        // Snapshot the back of the delayed-receipt queue. Any receipt at an
+        // index >= this threshold was pushed back during this same loop by
+        // the pending-compile-queue diversion's spillover path; popping it
+        // would mean re-processing a receipt we just deferred and would
+        // cycle forever on a deploy-only delayed queue when the
+        // pending-compile admission cap is full.
+        let delayed_wrap_threshold = processing_state.delayed_receipts.next_available_index();
+
         loop {
             if processing_state.total.compute >= compute_limit
                 || processing_state.state_update.trie.check_proof_size_limit_exceed()
             {
+                break;
+            }
+
+            // Stop before popping a receipt that was re-queued earlier in
+            // this same loop by spillover diversion.
+            if processing_state.delayed_receipts.first_index() >= delayed_wrap_threshold {
                 break;
             }
 
@@ -2477,6 +2545,13 @@ impl Runtime {
                     receipt, e
                 ))
             })?;
+
+            match self.divert_receipt_if_deploy(&receipt, &mut processing_state)? {
+                DiversionOutcome::Admitted | DiversionOutcome::Spilled => {
+                    continue;
+                }
+                DiversionOutcome::NotDiverted => {}
+            }
 
             self.process_receipt_and_instant_receipts(
                 &receipt,
@@ -2549,6 +2624,12 @@ impl Runtime {
                     &processing_state.apply_state,
                 )?;
             } else {
+                match self.divert_receipt_if_deploy(receipt, &mut processing_state)? {
+                    DiversionOutcome::Admitted | DiversionOutcome::Spilled => {
+                        continue;
+                    }
+                    DiversionOutcome::NotDiverted => {}
+                }
                 if let Some(nsi) = &mut next_schedule_after {
                     *nsi = nsi.saturating_sub(1);
                     if *nsi == 0 {
@@ -3090,6 +3171,18 @@ struct ProcessReceiptsResult {
     validator_proposals: Vec<ValidatorStake>,
 }
 
+/// Outcome of [`Runtime::divert_receipt_if_deploy`]. `NotDiverted` means
+/// the caller should run the standard receipt-processing path; `Admitted`
+/// and `Spilled` mean the receipt has already been routed to either the
+/// pending-compile queue or the delayed-receipt queue and should not be
+/// further processed in this iteration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DiversionOutcome {
+    NotDiverted,
+    Admitted,
+    Spilled,
+}
+
 struct ResolvePromiseYieldTimeoutsResult {
     initial_promise_yield_indices: PromiseYieldIndices,
     promise_yield_indices: PromiseYieldIndices,
@@ -3165,6 +3258,7 @@ impl<'a> ApplyProcessingState<'a> {
             delayed_receipts,
             processed_receipts: Vec::new(),
             receipt_to_tx: Vec::new(),
+            pending_compile_admitted: 0,
         }
     }
 }
@@ -3190,6 +3284,10 @@ struct ApplyProcessingReceiptState<'a> {
     pipeline_manager: pipelining::ReceiptPreparationPipeline,
     processed_receipts: Vec<ProcessedReceipt>,
     receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
+    /// Number of receipts admitted to the pending-compile queue during the
+    /// current chunk apply. Bounded by `COMPILE_QUEUE_ADMISSION_CAP` across
+    /// the local, delayed, and incoming receipt processing loops.
+    pending_compile_admitted: u32,
 }
 
 trait MaybeRefReceipt {
