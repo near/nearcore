@@ -38,7 +38,7 @@ impl super::NetworkState {
     async fn tier1_connect_to_my_proxies(
         self: &Arc<Self>,
         clock: &time::Clock,
-        transport: &Arc<dyn NetworkTransport>,
+        transport: &dyn NetworkTransport,
         proxies: &[PeerAddr],
     ) {
         let tier1 = self.tier1.load();
@@ -78,7 +78,7 @@ impl super::NetworkState {
     pub async fn tier1_advertise_proxies(
         self: &Arc<Self>,
         clock: &time::Clock,
-        transport: &Arc<dyn NetworkTransport>,
+        transport: &dyn NetworkTransport,
     ) -> Option<Arc<SignedAccountData>> {
         // Tier1 advertise proxies calls should be disjoint,
         // to avoid a race condition while connecting to the proxies.
@@ -207,7 +207,7 @@ impl super::NetworkState {
     pub async fn tier1_connect(
         self: &Arc<Self>,
         clock: &time::Clock,
-        transport: &Arc<dyn NetworkTransport>,
+        transport: &dyn NetworkTransport,
     ) {
         if !self.config.tier1.enable_outbound {
             return;

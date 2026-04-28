@@ -212,7 +212,7 @@ impl messaging::Actor for PeerManagerActor {
                 loop {
                     interval.tick(&clock).await;
                     state.tier1_request_full_sync();
-                    state.tier1_advertise_proxies(&clock, &transport).await;
+                    state.tier1_advertise_proxies(&clock, &*transport).await;
                 }
             }
         });
@@ -227,7 +227,7 @@ impl messaging::Actor for PeerManagerActor {
             async move {
                 loop {
                     interval.tick().await;
-                    state.tier1_connect(&clock, &transport).await;
+                    state.tier1_connect(&clock, &*transport).await;
                 }
             }
         });
@@ -1446,7 +1446,7 @@ impl PeerManagerActor {
                 let clock = self.clock.clone();
                 let transport = self.transport.clone();
                 self.handle.spawn("advertise_tier1_proxies", async move {
-                    state.tier1_advertise_proxies(&clock, &transport).await;
+                    state.tier1_advertise_proxies(&clock, &*transport).await;
                 });
                 PeerManagerMessageResponse::AdvertiseTier1Proxies
             }
@@ -1484,7 +1484,7 @@ impl messaging::Handler<SetChainInfo> for PeerManagerActor {
                 // and this node won't be able to connect to proxies until it happens (and only the
                 // connected proxies are included in the advertisement). We run tier1_advertise_proxies
                 // periodically in the background anyway to cover those cases.
-                state.tier1_advertise_proxies(&clock, &transport).await;
+                state.tier1_advertise_proxies(&clock, &*transport).await;
             }
             .in_current_span(),
         );

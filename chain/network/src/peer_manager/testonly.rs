@@ -388,7 +388,7 @@ impl ActorHandler {
     ) -> Option<Arc<SignedAccountData>> {
         let clock = clock.clone();
         self.with_state_and_transport(move |s, transport| async move {
-            s.tier1_advertise_proxies(&clock, &transport).await
+            s.tier1_advertise_proxies(&clock, &*transport).await
         })
         .await
     }
@@ -570,7 +570,7 @@ impl ActorHandler {
     pub async fn tier1_connect(&self, clock: &time::Clock) {
         let clock = clock.clone();
         self.with_state_and_transport(move |s, transport| async move {
-            s.tier1_connect(&clock, &transport).await;
+            s.tier1_connect(&clock, &*transport).await;
         })
         .await;
     }
