@@ -3,9 +3,11 @@ use crate::action::{
     DeployGlobalContractAction, DeterministicStateInitAction, GlobalContractDeployMode,
     GlobalContractIdentifier, UseGlobalContractAction,
 };
+use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::Block;
 use crate::block_body::{BlockBody, ChunkEndorsementSignatures};
 use crate::block_header::BlockHeader;
+use crate::congestion_info::CongestionInfo;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::shard_layout::ShardLayout;
@@ -1213,6 +1215,38 @@ pub fn create_test_signer(account_name: &str) -> ValidatorSigner {
         near_crypto::KeyType::ED25519,
         account_name,
     )
+}
+
+/// Build a minimal `ShardChunkHeaderV3` for use in tests that only need
+/// an object with a valid signature, `prev_block_hash`, and `shard_id`
+/// (everything else is zeroed). Mirrors the implicit defaults of
+/// `ShardChunkHeaderV3::new_dummy` but takes an explicit `protocol_version`
+/// so callers can pin the header inner variant.
+pub fn test_chunk_header(
+    prev_block_hash: CryptoHash,
+    signer: &ValidatorSigner,
+    protocol_version: ProtocolVersion,
+) -> ShardChunkHeader {
+    ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+        prev_block_hash,
+        CryptoHash::default(),
+        CryptoHash::default(),
+        CryptoHash::default(),
+        0,
+        1,
+        ShardId::new(0),
+        Gas::ZERO,
+        Gas::ZERO,
+        Balance::ZERO,
+        CryptoHash::default(),
+        CryptoHash::default(),
+        vec![],
+        CongestionInfo::default(),
+        BandwidthRequests::empty(),
+        None,
+        signer,
+        protocol_version,
+    ))
 }
 
 /// Helper function that creates a new signer for a given account, that uses the account name as seed.

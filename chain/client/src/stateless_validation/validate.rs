@@ -1,15 +1,17 @@
 use super::partial_witness::witness_part_length;
+use crate::metrics;
 use itertools::Itertools;
 use near_chain::types::Tip;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::errors::EpochError;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ContractCodeRequest, PartialEncodedContractDeploys,
 };
 use near_primitives::stateless_validation::partial_witness::{
-    MAX_COMPRESSED_STATE_WITNESS_SIZE, PartialEncodedStateWitness,
+    MAX_COMPRESSED_STATE_WITNESS_SIZE, VersionedPartialEncodedStateWitness,
 };
 use near_primitives::types::{AccountId, BlockHeightDelta};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -62,7 +64,7 @@ macro_rules! require_relevant {
 /// These include checks based on epoch_id validity, witness size, height_created, distance from chain head, etc.
 pub fn validate_partial_encoded_state_witness(
     epoch_manager: &dyn EpochManagerAdapter,
-    partial_witness: &PartialEncodedStateWitness,
+    partial_witness: &VersionedPartialEncodedStateWitness,
     validator_account_id: &AccountId,
     store: &Store,
 ) -> Result<ChunkRelevance, Error> {
@@ -104,8 +106,72 @@ pub fn validate_partial_encoded_state_witness(
         store,
     )?);
 
-    let chunk_producer =
-        epoch_manager.get_chunk_producer_info(&partial_witness.chunk_production_key())?;
+    // Rollout policy + V1/V2 producer-resolution contract: see the docstring on
+    // `VersionedPartialEncodedStateWitness`. `DBNotFoundErr` on V2 is the signal
+    // for the caller to defer — `PendingV2WitnessCache` in `partial_witness_actor.rs`.
+    let chunk_producer = match partial_witness {
+        VersionedPartialEncodedStateWitness::V1(_) => {
+            epoch_manager.get_chunk_producer_info(&partial_witness.chunk_production_key())?
+        }
+        VersionedPartialEncodedStateWitness::V2(v2) => {
+            let shard_id_label = shard_id.to_string();
+            let prev_block_hash = v2.prev_block_hash();
+            let info = match epoch_manager.get_chunk_producer_info_db(prev_block_hash, shard_id) {
+                Ok(info) => {
+                    metrics::PARTIAL_WITNESS_DB_LOOKUP_TOTAL
+                        .with_label_values(&[shard_id_label.as_str(), "hit"])
+                        .inc();
+                    info
+                }
+                // Prev block header isn't in the epoch manager yet — common
+                // during steady-state operation when a witness races its
+                // prev block. Defer, don't fail.
+                Err(err @ EpochError::MissingBlock(_)) => {
+                    metrics::PARTIAL_WITNESS_DB_LOOKUP_TOTAL
+                        .with_label_values(&[shard_id_label.as_str(), "miss_prev_block"])
+                        .inc();
+                    return Err(err.into());
+                }
+                // Block is known but `DBCol::ChunkProducers` doesn't have an
+                // entry for this (block, shard). In steady state this
+                // should be near-zero — a persistent miss rate here
+                // signals an upstream writer bug (header-sync or block
+                // processing failed to populate the column).
+                Err(err @ EpochError::ChunkProducerNotInDB(_, _)) => {
+                    metrics::PARTIAL_WITNESS_DB_LOOKUP_TOTAL
+                        .with_label_values(&[shard_id_label.as_str(), "miss_db_entry"])
+                        .inc();
+                    return Err(err.into());
+                }
+                Err(err) => {
+                    metrics::PARTIAL_WITNESS_DB_LOOKUP_TOTAL
+                        .with_label_values(&[shard_id_label.as_str(), "error"])
+                        .inc();
+                    return Err(err.into());
+                }
+            };
+            // Cross-check the signed chunk key against what `prev_block_hash`
+            // implies. The producer's signature authenticates all of (epoch_id,
+            // shard_id, height_created, prev_block_hash), but without this
+            // check an authenticated producer for `(prev_block, shard)` could
+            // sign a witness claiming any (epoch_id, height_created) and we
+            // would store/forward it under that forged key. `prev_block_hash`
+            // uniquely determines the chunk slot: the chunk at the next height
+            // in the epoch implied by the prev block. Both lookups are cheap —
+            // `prev_block_hash` is already known to the epoch manager (we just
+            // resolved the producer via it), so these should not fault.
+            let expected_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
+            let expected_height = epoch_manager.get_block_info(prev_block_hash)?.height() + 1;
+            if expected_epoch_id != epoch_id || expected_height != height_created {
+                return Err(Error::InvalidPartialChunkStateWitness(format!(
+                    "V2 witness chunk key mismatch: signed (epoch_id={:?}, height={}) does not \
+                     match prev_block_hash-implied (epoch_id={:?}, height={})",
+                    epoch_id, height_created, expected_epoch_id, expected_height,
+                )));
+            }
+            info
+        }
+    };
     if !partial_witness.verify(chunk_producer.public_key()) {
         return Err(Error::InvalidPartialChunkStateWitness("Invalid signature".to_string()));
     }
@@ -190,7 +256,7 @@ pub fn validate_contract_code_request(
     Ok(ChunkRelevance::Relevant)
 }
 
-fn validate_chunk_relevant_as_validator(
+pub fn validate_chunk_relevant_as_validator(
     epoch_manager: &dyn EpochManagerAdapter,
     chunk: &ChunkProductionKey,
     validator_account_id: &AccountId,
