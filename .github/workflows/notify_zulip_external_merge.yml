@@ -31,7 +31,7 @@ jobs:
     steps:
       - name: "notify zulip on external contributor merge"
         env:
-          ZULIP_API_KEY: ${{ secrets.ZULIP_GHA_API_KEY }}
+          ZULIP_API_KEY: ${{ secrets.ZULIP_API_KEY }}
           ZULIP_EMAIL: "gha-bot@near.zulipchat.com"
           ZULIP_URL: "https://near.zulipchat.com"
           ZULIP_STREAM: "nearone/private"
