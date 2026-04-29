@@ -44,13 +44,23 @@ class TestReleaseCandidate(TestSetup):
         This avoid the need to properly calculate the upgrade timeline based on the epoch length and the upgrade interval.
         """
         super().amend_epoch_config()
+        # Upgrade when all producers vote
         self._amend_epoch_config(
-            f".protocol_upgrade_stake_threshold = [9999,10000]")
+            ".protocol_upgrade_stake_threshold = [9999,10000]")
+
+        # No kickouts dues to missed production/validation
+        self._amend_epoch_config(".block_producer_kickout_threshold = 0")
+        self._amend_epoch_config(".chunk_producer_kickout_threshold = 0")
+        self._amend_epoch_config(".chunk_validator_only_kickout_threshold = 0")
 
     def amend_configs_before_test_start(self):
         super().amend_configs_before_test_start()
+        cfg = ["save_invalid_witnesses=true"]
+        # Long block wait time to minimise
+        cfg.append('consensus.max_block_production_delay={"secs":30,"nanos":0}')
+        cfg.append('consensus.max_block_wait_delay={"secs":30,"nanos":0}')
         cfg_args = copy.deepcopy(self.args)
-        cfg_args.set = 'save_invalid_witnesses=true'
+        cfg_args.set = ';'.join(cfg)
         update_config_cmd(CommandContext(cfg_args))
 
     def _upgrade_nodes_in_four_batches(self):
