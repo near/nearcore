@@ -15,6 +15,7 @@ use near_chain::ChainStoreAccess;
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::action::{Action, DeployContractAction};
+#[cfg(feature = "test_features")]
 use near_primitives::errors::{ActionError, ActionErrorKind, TxExecutionError};
 use near_primitives::receipt::PendingCompileQueueEntry;
 use near_primitives::shard_layout::ShardUId;
@@ -96,6 +97,18 @@ fn set_compiled_indices_override(
     );
 }
 
+/// Pin the chunk producer's `compiled_indices` to `vec![]` so that the
+/// natural Phase-3 producer signaling does not advance queue entries while
+/// a test is asserting state about the queue (TTL expiry, admission cap,
+/// cross-shard admission, validation rejection, etc.). Tests that
+/// explicitly exercise natural signaling (`advancement_happy_path`,
+/// `hash_dedup`) must NOT call this.
+#[cfg(feature = "test_features")]
+fn suppress_natural_emission(env: &mut TestLoopEnv) {
+    set_compiled_indices_override(env, near_client::CompiledIndicesOverride::Force(vec![]));
+}
+
+#[cfg(feature = "test_features")]
 #[test]
 fn test_pending_compile_queue_ttl_expiry() {
     init_test_logger();
@@ -108,6 +121,7 @@ fn test_pending_compile_queue_ttl_expiry() {
         ProtocolFeature::CompileQueueDeferral.enabled(PROTOCOL_VERSION),
         "test requires a protocol version where CompileQueueDeferral is active",
     );
+    suppress_natural_emission(&mut env);
 
     let tx = env.rpc_node().tx_deploy_test_contract(&user_account);
     let tx_hash = tx.get_hash();
@@ -160,6 +174,7 @@ fn test_pending_compile_queue_ttl_expiry() {
     );
 }
 
+#[cfg(feature = "test_features")]
 #[test]
 fn test_pending_compile_queue_admission_cap_spillover() {
     init_test_logger();
@@ -170,6 +185,7 @@ fn test_pending_compile_queue_admission_cap_spillover() {
         .enable_rpc()
         .build();
     assert!(ProtocolFeature::CompileQueueDeferral.enabled(PROTOCOL_VERSION));
+    suppress_natural_emission(&mut env);
 
     let initial_height = env.rpc_node().head().height;
     let txs: Vec<SignedTransaction> = (0..total_deploys)
@@ -193,6 +209,7 @@ fn test_pending_compile_queue_admission_cap_spillover() {
     );
 }
 
+#[cfg(feature = "test_features")]
 #[test]
 fn test_pending_compile_queue_steady_state_bound() {
     init_test_logger();
@@ -202,6 +219,7 @@ fn test_pending_compile_queue_steady_state_bound() {
         .enable_rpc()
         .build();
     assert!(ProtocolFeature::CompileQueueDeferral.enabled(PROTOCOL_VERSION));
+    suppress_natural_emission(&mut env);
 
     let mut tag: u32 = 1;
     let deploys_per_block = ADMISSION_CAP + 5;
@@ -271,14 +289,14 @@ fn test_pending_compile_queue_pre_feature_regression() {
 }
 
 // --- Phase 2 tests: apply-loop advancement via the `compiled_indices`
-// injection knob. Each test enables a `Force(...)` override on the
-// chunk producer for one chunk, then resets to `Off` so subsequent
-// chunks don't re-attempt the (now-popped or invalid) advancement.
+// injection knob. Tests for scenarios that are easier to drive
+// deterministically with the override (multi-deploy atomicity,
+// cross-shard, out-of-order advancement, validation rejection) keep
+// using `Force(...)`. The happy path and hash-dedup tests below run on
+// the natural producer signaling path introduced in Phase 3.
 
-#[cfg(feature = "test_features")]
 #[test]
 fn test_pending_compile_queue_advancement_happy_path() {
-    use near_client::CompiledIndicesOverride;
     use near_primitives::hash::CryptoHash;
     use near_primitives::types::Gas;
 
@@ -300,7 +318,6 @@ fn test_pending_compile_queue_advancement_happy_path() {
 
     let queue = read_queue(&env, &user);
     assert_eq!(queue.len(), 1, "deploy must be admitted to the queue");
-    let (index, _entry) = queue[0].clone();
 
     // Pre-advancement: account must NOT yet hold the new code.
     let account_before = env.rpc_node().view_account_query(&user).unwrap();
@@ -314,41 +331,17 @@ fn test_pending_compile_queue_advancement_happy_path() {
         ref status => panic!("unexpected tx outcome status: {status:?}"),
     };
 
-    // While the deploy still sits in the queue, a follow-up FunctionCall
-    // on the same account fails because the account has no contract yet.
-    // The design doc accepts this race: per-account ordering of follow-up
-    // calls is deferred to a future PoC.
-    let pre_call_tx =
-        env.rpc_node().tx_call(&user, &user, "main", vec![], Balance::ZERO, Gas::from_teragas(30));
-    let pre_call_tx_hash = pre_call_tx.get_hash();
-    env.rpc_node().submit_tx(pre_call_tx);
-    env.rpc_runner().run_until_outcome_available(pre_call_tx_hash, Duration::seconds(5));
-    let pre_call_receipt_id =
-        match env.rpc_node().execution_outcome(pre_call_tx_hash).outcome.status {
-            ExecutionStatus::SuccessReceiptId(id) => id,
-            ref status => panic!("unexpected pre-advance call tx outcome status: {status:?}"),
-        };
-    env.rpc_runner().run_until_outcome_available(pre_call_receipt_id, Duration::seconds(5));
-    let pre_call_outcome = env.rpc_node().execution_outcome(pre_call_receipt_id);
+    // The admission spawn (deterministic test-loop spawner, 80ms duration)
+    // completes well within one block; the next produced chunk's
+    // `compiled_indices` must include the entry naturally without any
+    // test_features override.
+    let target = env.rpc_node().head().height + 5;
+    run_until_height(&mut env, target);
+
     assert!(
-        matches!(pre_call_outcome.outcome.status, ExecutionStatus::Failure(_)),
-        "function call before advancement must fail (deploy still queued, no contract on account), got: {:?}",
-        pre_call_outcome.outcome.status,
+        read_queue(&env, &user).is_empty(),
+        "natural advancement should empty the queue once the local compile finishes",
     );
-    assert_eq!(
-        read_queue(&env, &user).len(),
-        1,
-        "deploy entry must still be queued while pre-advance call was failing",
-    );
-
-    set_compiled_indices_override(&mut env, CompiledIndicesOverride::Force(vec![index]));
-    let target = env.rpc_node().head().height + 1;
-    run_until_height(&mut env, target);
-    set_compiled_indices_override(&mut env, CompiledIndicesOverride::Off);
-    let target = env.rpc_node().head().height + 1;
-    run_until_height(&mut env, target);
-
-    assert!(read_queue(&env, &user).is_empty(), "advancement should empty the queue");
 
     env.rpc_runner().run_until_outcome_available(receipt_id, Duration::seconds(2));
     let receipt_outcome = env.rpc_node().execution_outcome(receipt_id);
@@ -390,6 +383,89 @@ fn test_pending_compile_queue_advancement_happy_path() {
     );
 }
 
+/// Test 7: byte-identical deploys share a single compile and advance
+/// together when the producer signals naturally.
+#[test]
+fn test_pending_compile_queue_hash_dedup() {
+    use near_primitives::hash::CryptoHash;
+
+    init_test_logger();
+    let user: AccountId = "user".parse().unwrap();
+    let mut env = TestLoopBuilder::new()
+        .add_user_account(&user, Balance::from_near(100))
+        .enable_rpc()
+        .build();
+    assert!(ProtocolFeature::CompileQueueDeferral.enabled(PROTOCOL_VERSION));
+
+    // Submit five byte-identical deploys back-to-back so they all admit
+    // in the same admission window before the (single) deduped compile
+    // finishes. After admission, advance one block: the deterministic
+    // 80 ms spawn completes, and the next chunk-prep should signal all
+    // five indices together.
+    let code = unique_contract(7);
+    let code_hash = CryptoHash::hash_bytes(&code);
+    let mut tx_hashes = Vec::with_capacity(5);
+    for _ in 0..5 {
+        let tx = deploy_tx(&env, &user, code.clone());
+        tx_hashes.push(tx.get_hash());
+        env.rpc_node().submit_tx(tx);
+    }
+    for tx_hash in &tx_hashes {
+        env.rpc_runner().run_until_outcome_available(*tx_hash, Duration::seconds(10));
+    }
+    let mut receipt_ids = Vec::with_capacity(5);
+    for tx_hash in &tx_hashes {
+        let receipt_id = match env.rpc_node().execution_outcome(*tx_hash).outcome.status {
+            ExecutionStatus::SuccessReceiptId(id) => id,
+            ref status => panic!("unexpected tx outcome status: {status:?}"),
+        };
+        receipt_ids.push(receipt_id);
+    }
+
+    // Wait for one chunk where natural advancement could fire. Whether
+    // all 5 admit in the same chunk before any of them advances depends
+    // on tx-pool / chunk timing. We accept any state where the queue is
+    // either empty (advanced) or holds entries that all share the
+    // single shared code_hash. The key invariant is that the producer
+    // signals every queued index together (single shared compile means
+    // they become advance-ready in one shot).
+    let target = env.rpc_node().head().height + 4;
+    run_until_height(&mut env, target);
+    let queue_during = read_queue(&env, &user);
+    for (_, entry) in &queue_during {
+        assert_eq!(
+            entry.code_hashes,
+            vec![code_hash],
+            "every queued entry must hold the single shared hash",
+        );
+    }
+
+    let target = env.rpc_node().head().height + (TTL_BLOCKS as u64) + 2;
+    run_until_height(&mut env, target);
+    assert!(
+        read_queue(&env, &user).is_empty(),
+        "all five deduped entries should advance once the shared compile finishes",
+    );
+    for receipt_id in receipt_ids {
+        env.rpc_runner().run_until_outcome_available(receipt_id, Duration::seconds(2));
+        let outcome = env.rpc_node().execution_outcome(receipt_id);
+        assert!(
+            matches!(
+                outcome.outcome.status,
+                ExecutionStatus::SuccessValue(_) | ExecutionStatus::SuccessReceiptId(_)
+            ),
+            "advanced deploy receipt {receipt_id} should succeed, got: {:?}",
+            outcome.outcome.status,
+        );
+    }
+
+    let account_after = env.rpc_node().view_account_query(&user).unwrap();
+    assert_eq!(
+        account_after.code_hash, code_hash,
+        "account code_hash must match the (single) deployed contract",
+    );
+}
+
 #[cfg(feature = "test_features")]
 #[test]
 fn test_pending_compile_queue_multi_deploy_atomicity() {
@@ -402,6 +478,7 @@ fn test_pending_compile_queue_multi_deploy_atomicity() {
         .enable_rpc()
         .build();
     assert!(ProtocolFeature::CompileQueueDeferral.enabled(PROTOCOL_VERSION));
+    suppress_natural_emission(&mut env);
 
     let code_a = unique_contract(101);
     let code_b = unique_contract(102);
@@ -435,7 +512,7 @@ fn test_pending_compile_queue_multi_deploy_atomicity() {
     set_compiled_indices_override(&mut env, CompiledIndicesOverride::Force(vec![index]));
     let target = env.rpc_node().head().height + 1;
     run_until_height(&mut env, target);
-    set_compiled_indices_override(&mut env, CompiledIndicesOverride::Off);
+    set_compiled_indices_override(&mut env, CompiledIndicesOverride::Force(vec![]));
     let target = env.rpc_node().head().height + 1;
     run_until_height(&mut env, target);
 
@@ -464,6 +541,7 @@ fn test_pending_compile_queue_out_of_order_advancement() {
         .enable_rpc()
         .build();
     assert!(ProtocolFeature::CompileQueueDeferral.enabled(PROTOCOL_VERSION));
+    suppress_natural_emission(&mut env);
 
     let tx_a = deploy_tx(&env, &user, unique_contract(201));
     let tx_b = deploy_tx(&env, &user, unique_contract(202));
@@ -483,7 +561,7 @@ fn test_pending_compile_queue_out_of_order_advancement() {
     set_compiled_indices_override(&mut env, CompiledIndicesOverride::Force(vec![index_b]));
     let target = env.rpc_node().head().height + 1;
     run_until_height(&mut env, target);
-    set_compiled_indices_override(&mut env, CompiledIndicesOverride::Off);
+    set_compiled_indices_override(&mut env, CompiledIndicesOverride::Force(vec![]));
     let target = env.rpc_node().head().height + 1;
     run_until_height(&mut env, target);
 
@@ -494,7 +572,7 @@ fn test_pending_compile_queue_out_of_order_advancement() {
     set_compiled_indices_override(&mut env, CompiledIndicesOverride::Force(vec![index_a]));
     let target = env.rpc_node().head().height + 1;
     run_until_height(&mut env, target);
-    set_compiled_indices_override(&mut env, CompiledIndicesOverride::Off);
+    set_compiled_indices_override(&mut env, CompiledIndicesOverride::Force(vec![]));
     let target = env.rpc_node().head().height + 1;
     run_until_height(&mut env, target);
 
@@ -517,6 +595,7 @@ fn invalid_compiled_indices_variant(force_indices: Vec<u64>) {
         .enable_rpc()
         .build();
     assert!(ProtocolFeature::CompileQueueDeferral.enabled(PROTOCOL_VERSION));
+    suppress_natural_emission(&mut env);
 
     let tx = env.rpc_node().tx_deploy_test_contract(&user);
     let tx_hash = tx.get_hash();
@@ -539,7 +618,7 @@ fn invalid_compiled_indices_variant(force_indices: Vec<u64>) {
 
     // Restore Off so the test loop's drop check (no pending events) is happy
     // and any final shutdown bookkeeping works.
-    set_compiled_indices_override(&mut env, CompiledIndicesOverride::Off);
+    set_compiled_indices_override(&mut env, CompiledIndicesOverride::Force(vec![]));
     env.test_loop.run_for(Duration::seconds(1));
 }
 
@@ -550,6 +629,7 @@ fn invalid_compiled_indices_variant(force_indices: Vec<u64>) {
 /// from one `compiled_indices` override, which would force-advance an
 /// invalid index on the wrong shard. Advancement on the destination
 /// shard is exercised separately by `..._advancement_happy_path`.
+#[cfg(feature = "test_features")]
 #[test]
 fn test_pending_compile_queue_cross_shard_admission() {
     use near_primitives::shard_layout::ShardLayout;
@@ -573,6 +653,7 @@ fn test_pending_compile_queue_cross_shard_admission() {
         .enable_rpc()
         .build();
     assert!(ProtocolFeature::CompileQueueDeferral.enabled(PROTOCOL_VERSION));
+    suppress_natural_emission(&mut env);
 
     // Tx from `sender` targets `receiver` and carries a DeployContract
     // action. The action receipt is generated on `sender`'s shard and

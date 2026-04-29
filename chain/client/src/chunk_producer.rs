@@ -256,6 +256,7 @@ impl ChunkProducer {
         shard_id: ShardId,
         prev_block_hash: &CryptoHash,
         state_root: &near_primitives::types::StateRoot,
+        protocol_version: ProtocolVersion,
     ) -> Result<Vec<u64>, Error> {
         let trie = self.runtime_adapter.get_trie_for_shard(
             shard_id,
@@ -266,10 +267,14 @@ impl ChunkProducer {
         let entries = near_store::trie::receipts_column_helper::read_pending_compile_queue(&trie)
             .map_err(near_chain::Error::StorageError)?;
         let cache = self.runtime_adapter.compiled_contract_cache();
+        let runtime_config = self.runtime_adapter.get_runtime_config(protocol_version);
+        let wasm_config = Arc::clone(&runtime_config.wasm_config);
         let mut indices = Vec::new();
         for (index, entry) in entries {
-            let all_compiled =
-                entry.code_hashes.iter().all(|hash| cache.has(hash).unwrap_or(false));
+            let all_compiled = entry.code_hashes.iter().all(|hash| {
+                near_vm_runner::contract_cached(Arc::clone(&wasm_config), cache, *hash)
+                    .unwrap_or(false)
+            });
             if all_compiled {
                 indices.push(index);
             }
@@ -410,7 +415,12 @@ impl ChunkProducer {
         #[allow(unused_mut)]
         let mut compiled_indices: Vec<u64> =
             if ProtocolFeature::CompileQueueDeferral.enabled(protocol_version) {
-                self.collect_compiled_indices(shard_id, &prev_block_hash, chunk_extra.state_root())?
+                self.collect_compiled_indices(
+                    shard_id,
+                    &prev_block_hash,
+                    chunk_extra.state_root(),
+                    protocol_version,
+                )?
             } else {
                 vec![]
             };

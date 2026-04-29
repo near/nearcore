@@ -472,6 +472,7 @@ fn spawn_pending_compile_precompile(
             tracing::warn!(
                 target: "runtime",
                 ?err,
+                ?code_hash,
                 "pending compile admission precompile failed",
             );
         }
