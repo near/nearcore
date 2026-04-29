@@ -1,5 +1,5 @@
 use super::drop_condition::ClientToShardsManagerSender;
-use super::peer_manager_actor::TestLoopPeerManagerActor;
+use super::mock_pma::TestLoopPeerManagerActor;
 use super::rpc::{TestLoopRpcTransport, create_testloop_jsonrpc_router};
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 use near_async::futures::FutureSpawnerExt;
@@ -556,8 +556,8 @@ pub fn setup_client(
         chunk_state_witness: chunk_validation_multi_sender.chunk_state_witness,
     });
 
-    let peer_manager_sender =
-        test_loop.data.register_actor(identifier, peer_manager_actor, Some(network_adapter));
+    let legacy_mock_pma_sender =
+        Some(test_loop.data.register_actor(identifier, peer_manager_actor, Some(network_adapter)));
 
     let jsonrpc_router = create_testloop_jsonrpc_router(
         test_loop.clock(),
@@ -583,7 +583,7 @@ pub fn setup_client(
         chunk_endorsement_handler_sender,
         shards_manager_sender,
         partial_witness_sender,
-        peer_manager_sender,
+        legacy_mock_pma_sender,
         resharding_sender,
         state_sync_dumper_handle,
         spice_data_distributor_sender,

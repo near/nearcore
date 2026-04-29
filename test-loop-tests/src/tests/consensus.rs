@@ -1,6 +1,6 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::setup::peer_manager_actor::HandlerResult;
+use crate::setup::mock_pma::HandlerResult;
 use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 use near_async::messaging::CanSend as _;
 use near_async::test_loop::sender::TestLoopSender;
@@ -85,7 +85,11 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
         let handler = handler.clone();
         let rng = rng.clone();
 
-        let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
+        let peer_actor_handle = node_datas
+            .legacy_mock_pma_sender
+            .as_ref()
+            .expect("test uses register_override_handler — must call .use_legacy_mock_pma()")
+            .actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
         peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
             let mut handler = handler.write();

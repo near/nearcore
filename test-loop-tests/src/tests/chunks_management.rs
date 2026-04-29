@@ -1,5 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
-use crate::setup::peer_manager_actor::HandlerResult;
+use crate::setup::mock_pma::HandlerResult;
 use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 use near_async::messaging::Handler as _;
 use near_async::time::Duration;
@@ -86,7 +86,11 @@ impl Test {
 
         for node_datas in &env.node_datas {
             let from_whom = node_datas.account_id.clone();
-            let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
+            let peer_actor_handle = node_datas
+                .legacy_mock_pma_sender
+                .as_ref()
+                .expect("test uses register_override_handler — must call .use_legacy_mock_pma()")
+                .actor_handle();
             let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
             peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
                 match request {

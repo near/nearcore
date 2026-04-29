@@ -1,14 +1,9 @@
 use super::drop_condition::{DropCondition, TestLoopChunksStorage};
-use super::peer_manager_actor::{
-    ChunkEndorsementSenderForTestLoopNetwork, ClientSenderForTestLoopNetwork,
-    SpiceDataDistributorSenderForTestLoopNetwork, TestLoopNetworkBlockInfo,
-    TestLoopNetworkSharedState, TestLoopPeerManagerActor, TxRequestHandleSenderForTestLoopNetwork,
-    ViewClientSenderForTestLoopNetwork,
-};
-use near_async::messaging::{IntoMultiSender, IntoSender, Sender};
+use super::mock_pma::delayed_senders::NETWORK_DELAY;
+use super::mock_pma::{TestLoopNetworkSharedState, TestLoopPeerManagerActor};
+use near_async::messaging::IntoMultiSender;
 use near_async::test_loop::data::TestLoopDataHandle;
 use near_async::test_loop::sender::TestLoopSender;
-use near_async::time::Duration;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 use near_chain::spice_core_writer_actor::SpiceCoreWriterActor;
 use near_chain_configs::{ClientConfig, Genesis};
@@ -24,10 +19,6 @@ use near_client::{
 use near_jsonrpc::ViewClientSenderForRpc;
 use near_jsonrpc::client::{JsonRpcClient, RpcTransport};
 use near_jsonrpc::sharded_rpc::ShardedRpcPool;
-use near_network::client::SpiceChunkEndorsementMessage;
-use near_network::shards_manager::ShardsManagerRequestFromNetwork;
-use near_network::state_witness::PartialWitnessSenderForNetwork;
-use near_network::types::StateRequestSenderForNetwork;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
@@ -45,8 +36,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tempfile::TempDir;
-
-const NETWORK_DELAY: Duration = Duration::milliseconds(10);
 
 /// This is the state associate with the test loop environment.
 /// This state is shared across all nodes and none of it belongs to a specific node.
@@ -96,7 +85,11 @@ pub struct NodeExecutionData {
     pub chunk_endorsement_handler_sender: TestLoopSender<ChunkEndorsementHandlerActor>,
     pub shards_manager_sender: TestLoopSender<ShardsManagerActor>,
     pub partial_witness_sender: TestLoopSender<PartialWitnessActor>,
-    pub peer_manager_sender: TestLoopSender<TestLoopPeerManagerActor>,
+    /// Handle to the legacy mock `TestLoopPeerManagerActor`. Populated
+    /// only when the builder opts into the mock via
+    /// `.use_legacy_mock_pma()`. Tests that exercise the real PMA path
+    /// leave this `None`. Removed in T6 alongside the mock itself.
+    pub legacy_mock_pma_sender: Option<TestLoopSender<TestLoopPeerManagerActor>>,
     pub resharding_sender: TestLoopSender<ReshardingActor>,
     pub state_sync_dumper_handle: TestLoopDataHandle<Arc<StateSyncDumpHandle>>,
     pub spice_data_distributor_sender: TestLoopSender<SpiceDataDistributorActor>,
@@ -141,69 +134,9 @@ impl From<&NodeExecutionData> for PeerId {
     }
 }
 
-impl From<&NodeExecutionData> for ClientSenderForTestLoopNetwork {
-    fn from(data: &NodeExecutionData) -> ClientSenderForTestLoopNetwork {
-        data.client_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
-    }
-}
-
 impl From<&NodeExecutionData> for ViewClientSenderForRpc {
     fn from(data: &NodeExecutionData) -> ViewClientSenderForRpc {
         data.view_client_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
-    }
-}
-
-impl From<&NodeExecutionData> for ViewClientSenderForTestLoopNetwork {
-    fn from(data: &NodeExecutionData) -> ViewClientSenderForTestLoopNetwork {
-        data.view_client_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
-    }
-}
-
-impl From<&NodeExecutionData> for StateRequestSenderForNetwork {
-    fn from(data: &NodeExecutionData) -> StateRequestSenderForNetwork {
-        data.state_request_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
-    }
-}
-
-impl From<&NodeExecutionData> for PartialWitnessSenderForNetwork {
-    fn from(data: &NodeExecutionData) -> PartialWitnessSenderForNetwork {
-        data.partial_witness_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
-    }
-}
-
-impl From<&NodeExecutionData> for Sender<ShardsManagerRequestFromNetwork> {
-    fn from(data: &NodeExecutionData) -> Sender<ShardsManagerRequestFromNetwork> {
-        data.shards_manager_sender.clone().with_delay(NETWORK_DELAY).into_sender()
-    }
-}
-
-impl From<&NodeExecutionData> for TxRequestHandleSenderForTestLoopNetwork {
-    fn from(data: &NodeExecutionData) -> TxRequestHandleSenderForTestLoopNetwork {
-        data.rpc_handler_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
-    }
-}
-
-impl From<&NodeExecutionData> for ChunkEndorsementSenderForTestLoopNetwork {
-    fn from(data: &NodeExecutionData) -> ChunkEndorsementSenderForTestLoopNetwork {
-        data.chunk_endorsement_handler_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
-    }
-}
-
-impl From<&NodeExecutionData> for Sender<TestLoopNetworkBlockInfo> {
-    fn from(data: &NodeExecutionData) -> Sender<TestLoopNetworkBlockInfo> {
-        data.peer_manager_sender.clone().with_delay(NETWORK_DELAY).into_sender()
-    }
-}
-
-impl From<&NodeExecutionData> for SpiceDataDistributorSenderForTestLoopNetwork {
-    fn from(data: &NodeExecutionData) -> SpiceDataDistributorSenderForTestLoopNetwork {
-        data.spice_data_distributor_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
-    }
-}
-
-impl From<&NodeExecutionData> for Sender<SpiceChunkEndorsementMessage> {
-    fn from(data: &NodeExecutionData) -> Sender<SpiceChunkEndorsementMessage> {
-        data.spice_core_writer_sender.clone().with_delay(NETWORK_DELAY).into_sender()
     }
 }
 

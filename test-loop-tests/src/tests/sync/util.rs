@@ -1,4 +1,4 @@
-use crate::setup::peer_manager_actor::HandlerResult;
+use crate::setup::mock_pma::HandlerResult;
 use crate::setup::state::{NodeExecutionData, SharedState};
 use crate::utils::node::TestLoopNode;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};

@@ -1,5 +1,5 @@
 use crate::setup::env::TestLoopEnv;
-use crate::setup::peer_manager_actor::HandlerResult;
+use crate::setup::mock_pma::HandlerResult;
 use near_async::messaging::CanSend as _;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::types::NetworkRequests;
@@ -29,7 +29,13 @@ pub(super) fn delay_endorsements_propagation(env: &mut TestLoopEnv, delay_height
         let delayed_endorsements: Arc<
             RwLock<VecDeque<(CryptoHash, AccountId, SpiceChunkEndorsement)>>,
         > = Arc::new(RwLock::new(VecDeque::new()));
-        let peer_actor = env.test_loop.data.get_mut(&node.peer_manager_sender.actor_handle());
+        let peer_actor = env.test_loop.data.get_mut(
+            &node
+                .legacy_mock_pma_sender
+                .as_ref()
+                .expect("test uses register_override_handler — must call .use_legacy_mock_pma()")
+                .actor_handle(),
+        );
         peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
             match request {
                 NetworkRequests::Block { ref block } => {

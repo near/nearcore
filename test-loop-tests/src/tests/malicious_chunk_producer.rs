@@ -3,7 +3,7 @@
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::setup::peer_manager_actor::HandlerResult;
+use crate::setup::mock_pma::HandlerResult;
 use crate::utils::account::create_validator_id;
 use crate::utils::node::TestLoopNode;
 use near_async::messaging::CanSend as _;
@@ -154,7 +154,11 @@ fn test_producer_sending_large_encoded_length_chunks() {
     let mut env = TestLoopBuilder::new().validators(2, 0).gc_num_epochs_to_keep(20).build();
 
     let epoch_manager = env.node(0).client().epoch_manager.clone();
-    let peer_manager_actor_handle = env.node_datas[0].peer_manager_sender.actor_handle();
+    let peer_manager_actor_handle = env.node_datas[0]
+        .legacy_mock_pma_sender
+        .as_ref()
+        .expect("test uses register_override_handler — must call .use_legacy_mock_pma()")
+        .actor_handle();
     let peer_manager_actor = env.test_loop.data.get_mut(&peer_manager_actor_handle);
     peer_manager_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
         match request {

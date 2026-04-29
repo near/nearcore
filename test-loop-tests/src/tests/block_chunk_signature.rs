@@ -1,5 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
-use crate::setup::peer_manager_actor::HandlerResult;
+use crate::setup::mock_pma::HandlerResult;
 use near_async::time::Duration;
 use near_crypto::Signature;
 use near_network::types::NetworkRequests;
@@ -22,7 +22,11 @@ fn block_chunk_signature_rejection() {
 
     for node_data in &env.node_datas {
         let mutated_blocks = mutated_blocks.clone();
-        let peer_actor_handle = node_data.peer_manager_sender.actor_handle();
+        let peer_actor_handle = node_data
+            .legacy_mock_pma_sender
+            .as_ref()
+            .expect("test uses register_override_handler — must call .use_legacy_mock_pma()")
+            .actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
         peer_actor.register_override_handler(Box::new(move |request| match request {
             NetworkRequests::Block { block } => {

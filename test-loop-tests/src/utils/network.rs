@@ -1,5 +1,5 @@
 use crate::setup::drop_condition::TestLoopChunksStorage;
-use crate::setup::peer_manager_actor::HandlerResult;
+use crate::setup::mock_pma::HandlerResult;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::NetworkRequests;
 use near_network::types::NetworkResponses;

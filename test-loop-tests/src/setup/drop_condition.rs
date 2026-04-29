@@ -1,10 +1,4 @@
-use super::peer_manager_actor::NetworkRequestHandler;
-use super::state::NodeExecutionData;
-use crate::utils::network::{
-    block_dropper_by_height, chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash,
-};
 use near_async::messaging::{CanSend, LateBoundSender};
-use near_async::test_loop::data::TestLoopData;
 use near_async::test_loop::sender::TestLoopSender;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::shards_manager_actor::ShardsManagerActor;
@@ -94,147 +88,8 @@ impl CanSend<ShardsManagerRequestFromClient> for ClientToShardsManagerSender {
     }
 }
 
-impl NodeExecutionData {
-    pub fn register_drop_condition(
-        &self,
-        test_loop_data: &mut TestLoopData,
-        chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
-        drop_condition: &DropCondition,
-    ) {
-        match drop_condition {
-            DropCondition::ChunksValidatedBy(account_id) => {
-                self.register_drop_chunks_validated_by(test_loop_data, chunks_storage, account_id)
-            }
-            DropCondition::EndorsementsFrom(account_id) => {
-                self.register_drop_endorsements_from(test_loop_data, account_id);
-            }
-            DropCondition::ProtocolUpgradeChunkRange(protocol_version, chunk_ranges) => {
-                self.register_drop_protocol_upgrade_chunks(
-                    test_loop_data,
-                    chunks_storage,
-                    *protocol_version,
-                    chunk_ranges.clone(),
-                );
-            }
-            DropCondition::ChunksProducedByHeight(chunks_produced) => {
-                self.register_drop_chunks_by_height(
-                    test_loop_data,
-                    chunks_storage,
-                    chunks_produced.clone(),
-                );
-            }
-            DropCondition::BlocksByHeight(heights) => {
-                self.register_drop_blocks_by_height(test_loop_data, heights);
-            }
-        }
-    }
-
-    fn register_drop_chunks_validated_by(
-        &self,
-        test_loop_data: &mut TestLoopData,
-        chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
-        account_id: &AccountId,
-    ) {
-        let client_actor = test_loop_data.get(&self.client_sender.actor_handle());
-        let epoch_manager = client_actor.client.chain.epoch_manager.clone();
-
-        let inner_epoch_manager = epoch_manager.clone();
-        let account_id = account_id.clone();
-        let drop_chunks_condition = Box::new(move |chunk: ShardChunkHeader| -> bool {
-            is_chunk_validated_by(inner_epoch_manager.as_ref(), chunk, account_id.clone())
-        });
-
-        self.register_override_handler(
-            test_loop_data,
-            chunk_endorsement_dropper_by_hash(chunks_storage, epoch_manager, drop_chunks_condition),
-        );
-    }
-
-    fn register_drop_endorsements_from(
-        &self,
-        test_loop_data: &mut TestLoopData,
-        account_id: &AccountId,
-    ) {
-        self.register_override_handler(
-            test_loop_data,
-            chunk_endorsement_dropper(account_id.clone()),
-        );
-    }
-
-    fn register_drop_protocol_upgrade_chunks(
-        &self,
-        test_loop_data: &mut TestLoopData,
-        chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
-        protocol_version: ProtocolVersion,
-        chunk_ranges: HashMap<ShardIndex, Range<i64>>,
-    ) {
-        let client_actor = test_loop_data.get(&self.client_sender.actor_handle());
-        let epoch_manager = client_actor.client.chain.epoch_manager.clone();
-
-        let inner_epoch_manager = epoch_manager.clone();
-        let drop_chunks_condition = Box::new(move |chunk: ShardChunkHeader| -> bool {
-            should_drop_chunk_for_protocol_upgrade(
-                inner_epoch_manager.as_ref(),
-                chunk,
-                protocol_version,
-                chunk_ranges.clone(),
-            )
-        });
-
-        self.register_override_handler(
-            test_loop_data,
-            chunk_endorsement_dropper_by_hash(chunks_storage, epoch_manager, drop_chunks_condition),
-        );
-    }
-
-    fn register_drop_chunks_by_height(
-        &self,
-        test_loop_data: &mut TestLoopData,
-        chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
-        chunks_produced: HashMap<ShardId, Vec<bool>>,
-    ) {
-        let client_actor = test_loop_data.get(&self.client_sender.actor_handle());
-        let epoch_manager = client_actor.client.chain.epoch_manager.clone();
-
-        let inner_epoch_manager = epoch_manager.clone();
-        let drop_chunks_condition = Box::new(move |chunk: ShardChunkHeader| -> bool {
-            should_drop_chunk_by_height(
-                inner_epoch_manager.as_ref(),
-                chunk,
-                chunks_produced.clone(),
-            )
-        });
-
-        self.register_override_handler(
-            test_loop_data,
-            chunk_endorsement_dropper_by_hash(
-                chunks_storage,
-                epoch_manager.clone(),
-                drop_chunks_condition.clone(),
-            ),
-        );
-    }
-
-    fn register_drop_blocks_by_height(
-        &self,
-        test_loop_data: &mut TestLoopData,
-        heights: &HashSet<BlockHeight>,
-    ) {
-        self.register_override_handler(test_loop_data, block_dropper_by_height(heights.clone()));
-    }
-
-    pub fn register_override_handler(
-        &self,
-        test_loop_data: &mut TestLoopData,
-        handler: NetworkRequestHandler,
-    ) {
-        let peer_actor = test_loop_data.get_mut(&self.peer_manager_sender.actor_handle());
-        peer_actor.register_override_handler(handler);
-    }
-}
-
 /// Checks whether chunk is validated by the given account.
-fn is_chunk_validated_by(
+pub(crate) fn is_chunk_validated_by(
     epoch_manager_adapter: &dyn EpochManagerAdapter,
     chunk: ShardChunkHeader,
     account_id: AccountId,
@@ -251,7 +106,7 @@ fn is_chunk_validated_by(
 }
 
 /// returns !chunks_produced[shard_id][height_created - epoch_start].
-fn should_drop_chunk_by_height(
+pub(crate) fn should_drop_chunk_by_height(
     epoch_manager_adapter: &dyn EpochManagerAdapter,
     chunk: ShardChunkHeader,
     chunks_produced: HashMap<ShardId, Vec<bool>>,
@@ -279,7 +134,7 @@ fn should_drop_chunk_by_height(
 
 /// Returns true if the chunk should be dropped based on the
 /// `DropCondition::ProtocolUpgradeChunkRange`.
-fn should_drop_chunk_for_protocol_upgrade(
+pub(crate) fn should_drop_chunk_for_protocol_upgrade(
     epoch_manager_adapter: &dyn EpochManagerAdapter,
     chunk: ShardChunkHeader,
     version_of_protocol_upgrade: ProtocolVersion,

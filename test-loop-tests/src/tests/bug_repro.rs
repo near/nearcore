@@ -1,5 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
-use crate::setup::peer_manager_actor::HandlerResult;
+use crate::setup::mock_pma::HandlerResult;
 use crate::utils::account::{
     create_account_ids, create_validators_spec, validators_spec_clients_with_rpc,
 };
@@ -73,7 +73,11 @@ fn slow_test_repro_1183() {
         let clients = clients.clone();
         let rng = rng.clone();
 
-        let peer_actor_handle = node.peer_manager_sender.actor_handle();
+        let peer_actor_handle = node
+            .legacy_mock_pma_sender
+            .as_ref()
+            .expect("test uses register_override_handler — must call .use_legacy_mock_pma()")
+            .actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
         peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
             if let NetworkRequests::Block { block } = &request {
@@ -215,7 +219,11 @@ fn slow_test_sync_from_archival_node() {
 
         let peer_id = node.peer_id.clone();
 
-        let peer_actor_handle = node.peer_manager_sender.actor_handle();
+        let peer_actor_handle = node
+            .legacy_mock_pma_sender
+            .as_ref()
+            .expect("test uses register_override_handler — must call .use_legacy_mock_pma()")
+            .actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
         peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
             let mut block_counter = block_counter.write();
@@ -318,7 +326,11 @@ fn slow_test_long_gap_between_blocks() {
         .build();
 
     for node in &env.node_datas {
-        let peer_actor_handle = node.peer_manager_sender.actor_handle();
+        let peer_actor_handle = node
+            .legacy_mock_pma_sender
+            .as_ref()
+            .expect("test uses register_override_handler — must call .use_legacy_mock_pma()")
+            .actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
         peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
             match &request {

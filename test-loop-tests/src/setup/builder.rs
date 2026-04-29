@@ -1,5 +1,5 @@
 use super::env::TestLoopEnv;
-use super::peer_manager_actor::{TestLoopNetworkSharedState, UnreachableActor};
+use super::mock_pma::{TestLoopNetworkSharedState, UnreachableActor};
 use super::rpc::{FaultyRpcTransport, RpcFaultHandle};
 use super::setup::setup_client;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
