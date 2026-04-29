@@ -446,7 +446,7 @@ mod test {
 
         assert_eq!(
             profile_data.total_compute_usage(&ext_costs_config, 0),
-            3 * profile_data.host_gas().as_gas() + profile_data.action_gas().as_gas()
+            3 * profile_data.host_gas().as_gas()
         );
     }
 

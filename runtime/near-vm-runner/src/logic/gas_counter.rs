@@ -328,15 +328,19 @@ impl GasCounter {
     ) -> Result<()> {
         let old_burnt_gas = self.fast_counter.burnt_gas;
         let deduct_gas_result = self.deduct_gas(burn_cost.gas, use_gas);
+        // accurate accounting of burnt gas in profiles, even when running into limits
         self.update_profile_action(
             action,
             Gas::from_gas(self.fast_counter.burnt_gas.saturating_sub(old_burnt_gas)),
         );
+        // TODO: This needs to be behind a protocol feature!
+        // For compute costs, we always account for the full cost, even if only a part of the gas was payable.
         self.send_action_compute_usage = self
             .send_action_compute_usage
             .checked_add(burn_cost.compute)
             .ok_or(HostError::IntegerOverflow)?;
-        deduct_gas_result
+        deduct_gas_result?;
+        Ok(())
     }
 
     /// Pay the gas key fees for an add_key action, split into two cost categories:
@@ -492,7 +496,7 @@ mod tests {
         profile.compute_wasm_instruction_cost(counter.burnt_gas());
 
         assert_eq!(
-            profile.total_compute_usage(&ExtCostsConfig::test(), 0),
+            profile.total_compute_usage(&ExtCostsConfig::test(), counter.send_action_compute_usage),
             counter.burnt_gas().as_gas()
         );
     }
@@ -523,10 +527,11 @@ mod tests {
     fn test_profile_compute_cost_action_over_limit() {
         fn test(burn: Gas, prepaid: Gas, want: Result<(), HostError>) {
             let mut counter = make_test_counter(burn, prepaid, false);
+            let above_limit = Gas::from_gigagas(10);
             assert_eq!(
                 counter.pay_action_accumulated(
-                    ParameterCost::new(Gas::from_gigagas(10), 10),
-                    Gas::from_gigagas(10),
+                    ParameterCost::new(above_limit, above_limit.as_gas()),
+                    above_limit,
                     ActionCosts::new_data_receipt_byte
                 ),
                 want.map_err(Into::into)
@@ -535,8 +540,12 @@ mod tests {
             profile.compute_wasm_instruction_cost(counter.burnt_gas());
 
             assert_eq!(
-                profile.total_compute_usage(&ExtCostsConfig::test(), 0),
-                counter.burnt_gas().as_gas()
+                profile.total_compute_usage(
+                    &ExtCostsConfig::test(),
+                    counter.send_action_compute_usage
+                ),
+                // compute usage can go beyond burnt gas
+                counter.burnt_gas().as_gas().max(above_limit.as_gas())
             );
         }
 
