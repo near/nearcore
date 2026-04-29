@@ -217,6 +217,11 @@ pub struct Config {
     /// NEP-635: <https://github.com/near/NEPs/pull/635>
     pub p256_verify_host_fn: bool,
 
+    /// Accept BLS12-381 points that are on the curve but not in the G1/G2
+    /// subgroup in sum/multiexp/decompress host functions, as required by
+    /// NEP-488.
+    pub bls12381_not_in_group_fix: bool,
+
     /// Describes limits for VM and Runtime.
     pub limit_config: LimitConfig,
 }
@@ -250,6 +255,7 @@ impl Config {
         self.global_contract_host_fns = true;
         self.gas_key_host_fns = true;
         self.p256_verify_host_fn = true;
+        self.bls12381_not_in_group_fix = true;
     }
 }
 

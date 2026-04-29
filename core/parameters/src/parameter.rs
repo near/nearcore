@@ -262,6 +262,10 @@ pub enum Parameter {
 
     // Flag to enable the P-256 verification host function
     P256VerifyHostFn,
+
+    // Flag to accept BLS12-381 points that are on the curve but not in the
+    // G1/G2 subgroup in sum/multiexp/decompress host functions.
+    Bls12381NotInGroupFix,
 }
 
 #[derive(

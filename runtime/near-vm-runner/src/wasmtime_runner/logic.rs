@@ -58,7 +58,12 @@ macro_rules! bls12381_impl {
                 value_ptr,
                 value_len,
             )?;
-            let res_option = bls12381::$impl_fn_name(&data)?;
+            let version = if ctx.config.bls12381_not_in_group_fix {
+                crate::logic::bls12381::BLS12381_NOT_IN_GROUP_FIX_VERSION
+            } else {
+                0
+            };
+            let res_option = bls12381::$impl_fn_name(&data, version)?;
 
             if let Some(res) = res_option {
                 ctx.registers.set(

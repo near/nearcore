@@ -26,6 +26,10 @@ mod tests {
     macro_rules! run_bls12381_fn {
         ($fn_name:ident, $buffer:expr, $expected_res:expr) => {{
             let mut logic_builder = VMLogicBuilder::default();
+            // The host-function fix for points not in the G1/G2 subgroup is
+            // gated by the `BLS12381NotInGroupFix` protocol feature; tests
+            // exercise the post-fix behavior unconditionally.
+            logic_builder.config.bls12381_not_in_group_fix = true;
             let mut logic = logic_builder.build();
             let input = logic.internal_mem_write($buffer.concat().as_slice());
             let res = logic.$fn_name(input.len, input.ptr, 0).unwrap();
@@ -33,6 +37,7 @@ mod tests {
         }};
         ($fn_name:ident, $buffer:expr) => {{
             let mut logic_builder = VMLogicBuilder::default();
+            logic_builder.config.bls12381_not_in_group_fix = true;
             let mut logic = logic_builder.build();
             let input = logic.internal_mem_write($buffer.concat().as_slice());
             let res = logic.$fn_name(input.len, input.ptr, 0).unwrap();
@@ -1320,6 +1325,7 @@ mod tests {
                     let record = record.unwrap();
 
                     let mut logic_builder = VMLogicBuilder::default();
+                    logic_builder.config.bls12381_not_in_group_fix = true;
                     let mut logic = logic_builder.build();
 
                     let bytes_input = hex::decode(&record[0]).unwrap();

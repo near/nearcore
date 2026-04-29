@@ -380,6 +380,11 @@ pub enum ProtocolFeature {
     /// during header sync and block processing. Foundation for early chunk producer
     /// kickout without epoch manager recomputation.
     EarlyKickout,
+    /// Fix BLS12-381 sum/multiexp/decompress host functions to accept points that
+    /// are on the curve but not in the G1/G2 subgroup, as required by NEP-488.
+    /// Previously such points (e.g. (0, ±2)) returned an error instead of the
+    /// expected result.
+    BLS12381NotInGroupFix,
 }
 
 impl ProtocolFeature {
@@ -500,6 +505,7 @@ impl ProtocolFeature {
             ProtocolFeature::DynamicResharding => 150,
             ProtocolFeature::StrictNonce => 151,
             ProtocolFeature::EarlyKickout => 152,
+            ProtocolFeature::BLS12381NotInGroupFix => 153,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
@@ -548,7 +554,7 @@ pub fn assert_supported_protocol_version(current_protocol_version: ProtocolVersi
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 85;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 152;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 153;
 
 // TODO(spice): Once spice is mature and close to release make it part of nightly - at the point in
 // time cargo feature for spice should be removed as well.
