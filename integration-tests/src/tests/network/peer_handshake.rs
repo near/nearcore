@@ -1,11 +1,11 @@
 use crate::tests::network::runner::*;
-use near_async::messaging::{CanSend, CanSendAsync};
+use near_async::messaging::CanSendAsync;
 use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, time};
 use near_network::PeerManagerActor;
 use near_network::config;
 use near_network::tcp;
-use near_network::test_utils::{GetInfo, StopSignal, convert_boot_nodes, wait_or_timeout};
+use near_network::test_utils::{GetInfo, convert_boot_nodes, wait_or_timeout};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::genesis::GenesisId;
 use parking_lot::Mutex;
@@ -152,8 +152,11 @@ async fn peer_recover() {
                 // Wait a small timeout for connection to be active.
                 state.store(1, Ordering::Relaxed);
             } else if state.load(Ordering::Relaxed) == 1 {
-                // Stop node2.
-                let _ = pm2.lock().send(StopSignal::default());
+                // Stop node2 by cancelling its tokio runtime. This triggers
+                // `stop_actor` on drop (broadcasts Disconnect, shuts down
+                // transport) and cancels all spawned tasks (PeerActors,
+                // background loops), closing the TCP connections to peers.
+                pm2.lock().stop();
                 state.store(2, Ordering::Relaxed);
             } else if state.load(Ordering::Relaxed) == 2 {
                 // Wait until node0 removes node2 from active validators.

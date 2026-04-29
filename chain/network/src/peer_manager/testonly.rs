@@ -65,7 +65,7 @@ impl Debug for WithNetworkState {
 
 impl Handler<WithNetworkState> for PeerManagerActor {
     fn handle(&mut self, WithNetworkState(f): WithNetworkState) {
-        self.handle.spawn("with_network_state", f(self.state.clone()));
+        self.spawner.spawn("with_network_state", f(self.state.clone()));
     }
 }
 
@@ -90,7 +90,7 @@ impl Debug for WithStateAndTransport {
 
 impl Handler<WithStateAndTransport> for PeerManagerActor {
     fn handle(&mut self, WithStateAndTransport(f): WithStateAndTransport) {
-        self.handle
+        self.spawner
             .spawn("with_state_and_transport", f(self.state.clone(), self.transport.clone()));
     }
 }
