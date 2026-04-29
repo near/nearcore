@@ -275,3 +275,4 @@ deterministic_account_ids               true
 gas_key_host_fns                        false
 one_yocto_on_promise                    true
 p256_verify_host_fn                     true
+bls12381_not_in_group_fix               false
