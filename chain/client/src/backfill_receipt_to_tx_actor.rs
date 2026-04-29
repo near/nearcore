@@ -10,6 +10,7 @@ use near_chain_configs::BackfillReceiptToTxConfig;
 use near_o11y::tracing;
 use near_primitives::types::{BlockHeight, BlockHeightDelta};
 use near_store::DBCol;
+use std::path::Path;
 use std::time::Instant;
 
 use crate::metrics;
@@ -263,18 +264,29 @@ impl BackfillReceiptToTxActor {
     }
 }
 
+/// Removes any stale contents in the actor's per-PID SST staging directory.
+///
+/// Invoked from `Actor::start_actor`. Idempotent and `None`-safe so callers
+/// don't need to guard. The path is owned by this PID, so a previous run
+/// of this PID is the only thing this can touch — possible (but rare) after
+/// a hard crash followed by PID reuse.
+///
+/// Lives as a free function so it can be unit-tested without spinning up
+/// the actor's tokio runtime; `Actor::start_actor` only fires when the
+/// actor is spawned, which is awkward to drive from a `#[test]`.
+fn clean_stale_sst_temp_dir(temp_dir: Option<&Path>) {
+    let Some(temp_dir) = temp_dir else { return };
+    if !temp_dir.exists() {
+        return;
+    }
+    if let Err(e) = std::fs::remove_dir_all(temp_dir) {
+        tracing::warn!(?temp_dir, ?e, "failed to clean stale SST temp dir on startup");
+    }
+}
+
 impl Actor for BackfillReceiptToTxActor {
     fn start_actor(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
-        // If a previous run of this PID left an SST temp directory behind (rare but
-        // possible after a hard crash + PID reuse), wipe it before starting fresh.
-        // The path is owned by this PID, so this only touches files we wrote.
-        if let Some(temp_dir) = &self.storage.sst_temp_dir {
-            if temp_dir.exists() {
-                if let Err(e) = std::fs::remove_dir_all(temp_dir) {
-                    tracing::warn!(?temp_dir, ?e, "failed to clean stale SST temp dir on startup",);
-                }
-            }
-        }
+        clean_stale_sst_temp_dir(self.storage.sst_temp_dir.as_deref());
         self.backfill_loop(ctx);
     }
 }
@@ -311,5 +323,37 @@ mod tests {
         assert_eq!(next_retry_delay(1, batch_delay), Duration::seconds(120));
         assert_eq!(next_retry_delay(2, batch_delay), Duration::seconds(240));
         assert_eq!(next_retry_delay(3, batch_delay), Duration::seconds(300));
+    }
+
+    /// Pre-existing files in the SST staging directory left behind by a prior
+    /// run with this PID are wiped on startup.
+    #[test]
+    fn test_clean_stale_sst_temp_dir_removes_pre_existing_files() {
+        let tmp = tempfile::tempdir().expect("create tempdir");
+        let stale = tmp.path().join("ingest-1234-7.sst");
+        std::fs::write(&stale, b"leftover").expect("write stub");
+        assert!(stale.exists());
+
+        clean_stale_sst_temp_dir(Some(tmp.path()));
+
+        assert!(!tmp.path().exists(), "cleanup should remove the entire dir");
+    }
+
+    /// `None` means SST mode is disabled — cleanup is a no-op and must not panic.
+    #[test]
+    fn test_clean_stale_sst_temp_dir_none_is_noop() {
+        clean_stale_sst_temp_dir(None);
+    }
+
+    /// Missing path is the common fresh-process case — must not panic.
+    #[test]
+    fn test_clean_stale_sst_temp_dir_missing_path_is_noop() {
+        let tmp = tempfile::tempdir().expect("create tempdir");
+        let missing = tmp.path().join("does-not-exist");
+        assert!(!missing.exists());
+
+        clean_stale_sst_temp_dir(Some(&missing));
+
+        assert!(!missing.exists(), "cleanup must not create the missing path");
     }
 }
