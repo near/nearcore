@@ -587,6 +587,25 @@ fn validate_data_receipt(
     Ok(())
 }
 
+/// Validates that the number of deploy actions in the given list of actions doesn't exceed the limit.
+fn validate_number_of_deploy_actions(
+    actions: &[Action],
+    max_deploy_actions_per_receipt: u64,
+) -> Result<(), ActionsValidationError> {
+    let deploy_actions_count = actions
+        .iter()
+        .filter(|a| matches!(a, Action::DeployContract(_) | Action::DeployGlobalContract(_)))
+        .count() as u64;
+    if deploy_actions_count > max_deploy_actions_per_receipt {
+        Err(ActionsValidationError::TotalNumberOfDeployActionsExceeded {
+            number_of_deploy_actions: deploy_actions_count,
+            limit: max_deploy_actions_per_receipt,
+        })
+    } else {
+        Ok(())
+    }
+}
+
 /// Validates given actions:
 ///
 /// - Checks limits if applicable.
@@ -606,6 +625,8 @@ pub(crate) fn validate_actions(
             limit: limit_config.max_actions_per_receipt,
         });
     }
+
+    validate_number_of_deploy_actions(actions, limit_config.max_deploy_actions_per_receipt)?;
 
     let mut found_delegate_action = false;
     let mut iter = actions.iter().peekable();
@@ -960,6 +981,7 @@ mod tests {
     use crate::{ActionResult, ApplyState};
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
     use near_primitives::account::{AccessKey, AccountContract, FunctionCallPermission};
+    use near_primitives::action::GlobalContractDeployMode;
     use near_primitives::action::GlobalContractIdentifier;
     use near_primitives::action::TransferToGasKeyAction;
     use near_primitives::action::delegate::{DelegateAction, NonDelegateAction};
@@ -2371,6 +2393,162 @@ mod tests {
                 limit: 1
             },
         );
+    }
+
+    #[test]
+    fn test_validate_actions_num_deploy_actions() {
+        let receiver: AccountId = "alice.near".parse().unwrap();
+        let deploy_local = || Action::DeployContract(DeployContractAction { code: vec![1; 5] });
+        let deploy_global = || {
+            Action::DeployGlobalContract(DeployGlobalContractAction {
+                code: vec![1; 5].into(),
+                deploy_mode: GlobalContractDeployMode::CodeHash,
+            })
+        };
+
+        let mut limit_config = test_limit_config();
+        limit_config.max_deploy_actions_per_receipt = 2;
+
+        // Pure DeployContract over the limit → error.
+        assert_eq!(
+            validate_actions(
+                &limit_config,
+                &[deploy_local(), deploy_local(), deploy_local()],
+                &receiver,
+                PROTOCOL_VERSION,
+            )
+            .expect_err("expected error"),
+            ActionsValidationError::TotalNumberOfDeployActionsExceeded {
+                number_of_deploy_actions: 3,
+                limit: 2,
+            },
+        );
+
+        // Pure DeployGlobalContract over the limit → error.
+        assert_eq!(
+            validate_actions(
+                &limit_config,
+                &[deploy_global(), deploy_global(), deploy_global()],
+                &receiver,
+                PROTOCOL_VERSION,
+            )
+            .expect_err("expected error"),
+            ActionsValidationError::TotalNumberOfDeployActionsExceeded {
+                number_of_deploy_actions: 3,
+                limit: 2,
+            },
+        );
+
+        // Mixed deploy actions summing over the limit → error.
+        assert_eq!(
+            validate_actions(
+                &limit_config,
+                &[deploy_local(), deploy_global(), deploy_local()],
+                &receiver,
+                PROTOCOL_VERSION,
+            )
+            .expect_err("expected error"),
+            ActionsValidationError::TotalNumberOfDeployActionsExceeded {
+                number_of_deploy_actions: 3,
+                limit: 2,
+            },
+        );
+
+        // Equal-to-limit count → ok.
+        validate_actions(
+            &limit_config,
+            &[deploy_local(), deploy_global()],
+            &receiver,
+            PROTOCOL_VERSION,
+        )
+        .expect("expected ok");
+
+        // Other action types interleaved don't count toward the limit.
+        validate_actions(
+            &limit_config,
+            &[
+                Action::CreateAccount(CreateAccountAction {}),
+                deploy_local(),
+                Action::CreateAccount(CreateAccountAction {}),
+                deploy_global(),
+                Action::CreateAccount(CreateAccountAction {}),
+            ],
+            &receiver,
+            PROTOCOL_VERSION,
+        )
+        .expect("expected ok");
+
+        // Deploys nested inside a `Delegate` count toward the different per-receipt cap.
+        let delegate_with = |inner: Vec<Action>| {
+            let actions =
+                inner.into_iter().map(|a| NonDelegateAction::try_from(a).unwrap()).collect();
+            Action::Delegate(Box::new(SignedDelegateAction {
+                delegate_action: DelegateAction {
+                    sender_id: "bob.test.near".parse().unwrap(),
+                    receiver_id: "token.test.near".parse().unwrap(),
+                    actions,
+                    nonce: 19000001,
+                    max_block_height: 57,
+                    public_key: PublicKey::empty(KeyType::ED25519),
+                },
+                signature: Signature::default(),
+            }))
+        };
+
+        // Delegate alone whose inner deploys exceed the limit → error.
+        assert_eq!(
+            validate_actions(
+                &limit_config,
+                &[delegate_with(vec![deploy_local(), deploy_global(), deploy_local()])],
+                &receiver,
+                PROTOCOL_VERSION,
+            )
+            .expect_err("expected error"),
+            ActionsValidationError::TotalNumberOfDeployActionsExceeded {
+                number_of_deploy_actions: 3,
+                limit: 2,
+            },
+        );
+
+        // Loophole guard: outer deploys + delegate's inner deploys are summed against the
+        // same cap. Each side fits individually but the total exceeds the limit.
+        assert_eq!(
+            validate_actions(
+                &limit_config,
+                &[
+                    deploy_local(),
+                    delegate_with(vec![deploy_global(), deploy_local(), deploy_local()])
+                ],
+                &receiver,
+                PROTOCOL_VERSION,
+            )
+            .expect_err("expected error"),
+            ActionsValidationError::TotalNumberOfDeployActionsExceeded {
+                number_of_deploy_actions: 3,
+                limit: 2,
+            },
+        );
+
+        validate_actions(
+            &limit_config,
+            &[deploy_local(), delegate_with(vec![deploy_global()])],
+            &receiver,
+            PROTOCOL_VERSION,
+        )
+        .expect("expected ok");
+
+        // Delegate carrying only non-deploy actions does not contribute to the count.
+        validate_actions(
+            &limit_config,
+            &[
+                deploy_local(),
+                deploy_global(),
+                delegate_with(vec![Action::CreateAccount(CreateAccountAction {})]),
+            ],
+            &receiver,
+            PROTOCOL_VERSION,
+        )
+        .expect("expected ok");
     }
 
     #[test]

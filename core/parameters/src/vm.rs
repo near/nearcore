@@ -91,6 +91,9 @@ pub struct LimitConfig {
     pub max_total_prepaid_gas: Gas,
     /// Max number of actions per receipt.
     pub max_actions_per_receipt: u64,
+    /// Max number of `DeployContract` and `DeployGlobalContract` actions
+    /// combined within a single receipt.
+    pub max_deploy_actions_per_receipt: u64,
     /// Max total length of all method names (including terminating character) for a function call
     /// permission access key.
     pub max_number_bytes_method_names: u64,
