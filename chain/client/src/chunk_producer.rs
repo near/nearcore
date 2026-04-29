@@ -245,6 +245,38 @@ impl ChunkProducer {
         Ok(receipts_root)
     }
 
+    /// Walk the pending-compile queue at `(prev_block_hash, shard_id)` and
+    /// return the indices of entries whose code hashes are all present in
+    /// this node's compiled-contract cache. The queue is bounded at
+    /// `(TTL+1) * admission_cap` entries (120 with default parameters), so
+    /// the walk is cheap. Cache lookup is in-process and does not touch
+    /// the trie.
+    fn collect_compiled_indices(
+        &self,
+        shard_id: ShardId,
+        prev_block_hash: &CryptoHash,
+        state_root: &near_primitives::types::StateRoot,
+    ) -> Result<Vec<u64>, Error> {
+        let trie = self.runtime_adapter.get_trie_for_shard(
+            shard_id,
+            prev_block_hash,
+            *state_root,
+            true,
+        )?;
+        let entries = near_store::trie::receipts_column_helper::read_pending_compile_queue(&trie)
+            .map_err(near_chain::Error::StorageError)?;
+        let cache = self.runtime_adapter.compiled_contract_cache();
+        let mut indices = Vec::new();
+        for (index, entry) in entries {
+            let all_compiled =
+                entry.code_hashes.iter().all(|hash| cache.has(hash).unwrap_or(false));
+            if all_compiled {
+                indices.push(index);
+            }
+        }
+        Ok(indices)
+    }
+
     #[instrument(target = "client", level = "debug", "produce_chunk_internal", skip_all, fields(
         height=%next_height,
         %shard_id,
@@ -375,10 +407,13 @@ impl ChunkProducer {
         );
 
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
-        // Phase 2: natural value is empty until Phase 3 wires up local
-        // compile-state signaling. Tests can override via the adversarial knob.
         #[allow(unused_mut)]
-        let mut compiled_indices: Vec<u64> = vec![];
+        let mut compiled_indices: Vec<u64> =
+            if ProtocolFeature::CompileQueueDeferral.enabled(protocol_version) {
+                self.collect_compiled_indices(shard_id, &prev_block_hash, chunk_extra.state_root())?
+            } else {
+                vec![]
+            };
         #[cfg(feature = "test_features")]
         if let CompiledIndicesOverride::Force(indices) = &self.adversarial.compiled_indices_override
         {
