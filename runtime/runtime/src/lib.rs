@@ -253,6 +253,9 @@ pub enum TxVerdict {
 pub struct VerificationResult {
     /// The amount gas that was burnt to convert the transaction into a receipt and send it.
     pub gas_burnt: Gas,
+    /// Total amount of the compute budget of a chunk used by converting this
+    /// transaction into a receipt.
+    pub compute_burnt: Compute,
     /// The remaining amount of gas in the receipt.
     pub gas_remaining: Gas,
     /// The gas price at which the gas was purchased in the receipt.
@@ -445,10 +448,9 @@ impl Runtime {
     ) -> Result<ActionResult, RuntimeError> {
         let exec_fees = exec_fee(&apply_state.config, action, receipt.receiver_id());
         let mut result = ActionResult::default();
-        result.gas_used = exec_fees;
-        result.gas_burnt = exec_fees;
-        // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
-        result.compute_usage = exec_fees.as_gas();
+        result.gas_used = exec_fees.gas;
+        result.gas_burnt = exec_fees.gas;
+        result.compute_usage = exec_fees.compute;
         let account_id = receipt.receiver_id();
         let is_refund = receipt.predecessor_id().is_system();
         let is_the_only_action = actions.len() == 1;
@@ -722,10 +724,9 @@ impl Runtime {
         let mut actor_id = receipt.predecessor_id().clone();
         let mut result = ActionResult::default();
         let exec_fees = apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee();
-        result.gas_used = exec_fees;
-        result.gas_burnt = exec_fees;
-        // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
-        result.compute_usage = exec_fees.as_gas();
+        result.gas_used = exec_fees.gas;
+        result.gas_burnt = exec_fees.gas;
+        result.compute_usage = exec_fees.compute;
 
         // Executing actions one by one
         for (action_index, action) in action_receipt.actions().iter().enumerate() {
@@ -1020,7 +1021,7 @@ impl Runtime {
     ) -> Result<GasRefundResult, RuntimeError> {
         let total_deposit = total_deposit(&action_receipt.actions())?;
         let prepaid_gas = total_prepaid_gas(&action_receipt.actions())?
-            .checked_add(total_prepaid_send_fees(config, &action_receipt.actions())?)
+            .checked_add(total_prepaid_send_fees(config, &action_receipt.actions())?.gas)
             .ok_or(IntegerOverflowError)?;
         let prepaid_exec_gas =
             total_prepaid_exec_fees(config, &action_receipt.actions(), receipt.receiver_id())?
@@ -1029,13 +1030,13 @@ impl Runtime {
         let deposit_refund = if result.result.is_err() { total_deposit } else { Balance::ZERO };
         let gross_gas_refund = if result.result.is_err() {
             prepaid_gas
-                .checked_add(prepaid_exec_gas)
+                .checked_add(prepaid_exec_gas.gas)
                 .ok_or(IntegerOverflowError)?
                 .checked_sub(result.gas_burnt)
                 .unwrap()
         } else {
             prepaid_gas
-                .checked_add(prepaid_exec_gas)
+                .checked_add(prepaid_exec_gas.gas)
                 .ok_or(IntegerOverflowError)?
                 .checked_sub(result.gas_used)
                 .unwrap()
@@ -1931,8 +1932,7 @@ impl Runtime {
                             logs: vec![],
                             receipt_ids: vec![*receipt.receipt_id()],
                             gas_burnt: result.gas_burnt,
-                            // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
-                            compute_usage: Some(result.gas_burnt.as_gas()),
+                            compute_usage: Some(result.compute_burnt),
                             tokens_burnt: result.burnt_amount,
                             executor_id: signer_id.clone(),
                             // TODO: profile data is only counted in apply_action, which only happened at process_receipt

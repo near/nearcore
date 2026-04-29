@@ -342,11 +342,12 @@ impl GasCounter {
     ) -> Result<()> {
         self.pay_action_accumulated(
             Gas::ZERO,
-            exec_fee.base,
+            exec_fee.base.gas,
             ActionCosts::gas_key_nonce_write_base,
         )?;
         let burn_gas = send_fee;
-        let use_gas = burn_gas.checked_add(exec_fee.per_byte).ok_or(HostError::IntegerOverflow)?;
+        let use_gas =
+            burn_gas.checked_add(exec_fee.per_byte.gas).ok_or(HostError::IntegerOverflow)?;
         self.pay_action_accumulated(burn_gas, use_gas, ActionCosts::gas_key_byte)?;
         Ok(())
     }

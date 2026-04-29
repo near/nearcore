@@ -1982,14 +1982,14 @@ fn pay_gas_for_new_receipt(
     sir: bool,
     data_dependencies: &[bool],
 ) -> Result<()> {
-    let mut burn_gas = fees_config.fee(ActionCosts::new_action_receipt).send_fee(sir);
-    let mut use_gas = fees_config.fee(ActionCosts::new_action_receipt).exec_fee();
+    let mut burn_gas = fees_config.fee(ActionCosts::new_action_receipt).send_fee(sir).gas;
+    let mut use_gas = fees_config.fee(ActionCosts::new_action_receipt).exec_fee().gas;
     for dep in data_dependencies {
         // Both creation and execution for data receipts are considered burnt gas.
         burn_gas = burn_gas
-            .checked_add(fees_config.fee(ActionCosts::new_data_receipt_base).send_fee(*dep))
+            .checked_add(fees_config.fee(ActionCosts::new_data_receipt_base).send_fee(*dep).gas)
             .ok_or(HostError::IntegerOverflow)?
-            .checked_add(fees_config.fee(ActionCosts::new_data_receipt_base).exec_fee())
+            .checked_add(fees_config.fee(ActionCosts::new_data_receipt_base).exec_fee().gas)
             .ok_or(HostError::IntegerOverflow)?;
     }
     use_gas = use_gas.checked_add(burn_gas).ok_or(HostError::IntegerOverflow)?;
@@ -3101,8 +3101,8 @@ pub fn promise_batch_action_transfer(
         ctx.config.eth_implicit_accounts,
         receiver_id.get_account_type(),
     );
-    let burn_gas = send_fee;
-    let use_gas = burn_gas.checked_add(exec_fee).ok_or(HostError::IntegerOverflow)?;
+    let burn_gas = send_fee.gas;
+    let use_gas = burn_gas.checked_add(exec_fee.gas).ok_or(HostError::IntegerOverflow)?;
     ctx.result_state.gas_counter.pay_action_accumulated(
         burn_gas,
         use_gas,
@@ -3159,15 +3159,15 @@ pub fn promise_batch_action_transfer_to_gas_key(
     let send = gas_key_transfer_send_fee(&ctx.fees_config, sir, public_key_len as usize);
     let exec =
         gas_key_transfer_exec_fee(&ctx.fees_config, receiver_id.len(), public_key_len as usize);
-    let burn_base = send.base;
-    let use_base = burn_base.checked_add(exec.base).ok_or(HostError::IntegerOverflow)?;
+    let burn_base = send.base.gas;
+    let use_base = burn_base.checked_add(exec.base.gas).ok_or(HostError::IntegerOverflow)?;
     ctx.result_state.gas_counter.pay_action_accumulated(
         burn_base,
         use_base,
         ActionCosts::gas_key_transfer_base,
     )?;
-    let burn_byte = send.per_byte;
-    let use_byte = burn_byte.checked_add(exec.per_byte).ok_or(HostError::IntegerOverflow)?;
+    let burn_byte = send.per_byte.gas;
+    let use_byte = burn_byte.checked_add(exec.per_byte.gas).ok_or(HostError::IntegerOverflow)?;
     ctx.result_state.gas_counter.pay_action_accumulated(
         burn_byte,
         use_byte,
@@ -3233,7 +3233,7 @@ pub fn promise_batch_action_add_gas_key_with_full_access(
         public_key_len as usize,
         num_nonces,
     );
-    ctx.result_state.gas_counter.pay_gas_key_add_key_fees(send_fee, &exec_fee)?;
+    ctx.result_state.gas_counter.pay_gas_key_add_key_fees(send_fee.gas, &exec_fee)?;
     ctx.ext.append_action_add_gas_key_with_full_access(
         receipt_idx,
         public_key.decode()?,
@@ -3337,7 +3337,7 @@ pub fn promise_batch_action_add_gas_key_with_function_call(
         public_key_len as usize,
         num_nonces,
     );
-    ctx.result_state.gas_counter.pay_gas_key_add_key_fees(send_fee, &exec_fee)?;
+    ctx.result_state.gas_counter.pay_gas_key_add_key_fees(send_fee.gas, &exec_fee)?;
     ctx.ext.append_action_add_gas_key_with_function_call(
         receipt_idx,
         public_key.decode()?,
@@ -4006,7 +4006,10 @@ pub fn value_return(
                 ctx.fees_config
                     .fee(ActionCosts::new_data_receipt_byte)
                     .send_fee(sir)
-                    .checked_add(ctx.fees_config.fee(ActionCosts::new_data_receipt_byte).exec_fee())
+                    .gas
+                    .checked_add(
+                        ctx.fees_config.fee(ActionCosts::new_data_receipt_byte).exec_fee().gas,
+                    )
                     .ok_or(HostError::IntegerOverflow)?
                     .checked_mul(num_bytes)
                     .ok_or(HostError::IntegerOverflow)?,
@@ -4656,8 +4659,9 @@ pub fn pay_action_base(
     sir: bool,
 ) -> Result<()> {
     let base_fee = fees_config.fee(action);
-    let burn_gas = base_fee.send_fee(sir);
-    let use_gas = burn_gas.checked_add(base_fee.exec_fee()).ok_or(HostError::IntegerOverflow)?;
+    let burn_gas = base_fee.send_fee(sir).gas;
+    let use_gas =
+        burn_gas.checked_add(base_fee.exec_fee().gas).ok_or(HostError::IntegerOverflow)?;
     gas_counter.pay_action_accumulated(burn_gas, use_gas, action)
 }
 
@@ -4671,10 +4675,10 @@ pub fn pay_action_per_byte(
 ) -> Result<()> {
     let per_byte_fee = fees_config.fee(action);
     let burn_gas =
-        per_byte_fee.send_fee(sir).checked_mul(num_bytes).ok_or(HostError::IntegerOverflow)?;
+        per_byte_fee.send_fee(sir).gas.checked_mul(num_bytes).ok_or(HostError::IntegerOverflow)?;
     let use_gas = burn_gas
         .checked_add(
-            per_byte_fee.exec_fee().checked_mul(num_bytes).ok_or(HostError::IntegerOverflow)?,
+            per_byte_fee.exec_fee().gas.checked_mul(num_bytes).ok_or(HostError::IntegerOverflow)?,
         )
         .ok_or(HostError::IntegerOverflow)?;
     gas_counter.pay_action_accumulated(burn_gas, use_gas, action)

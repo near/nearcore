@@ -302,6 +302,7 @@ pub fn verify_and_charge_tx_ephemeral(
     }
     let TransactionCost {
         gas_burnt,
+        compute_burnt,
         gas_remaining,
         receipt_gas_price,
         total_cost,
@@ -364,6 +365,7 @@ pub fn verify_and_charge_tx_ephemeral(
 
     TxVerdict::Success(VerificationResult {
         gas_burnt,
+        compute_burnt,
         gas_remaining,
         receipt_gas_price,
         burnt_amount,
@@ -395,6 +397,7 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
     };
     let TransactionCost {
         gas_burnt,
+        compute_burnt,
         gas_remaining,
         receipt_gas_price,
         burnt_amount,
@@ -446,6 +449,7 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
         AccessKeyUpdate::GasKey { new_balance: new_gas_key_balance, nonce_index, nonce: tx_nonce };
     let make_result = move |new_account_amount| VerificationResult {
         gas_burnt,
+        compute_burnt,
         gas_remaining,
         receipt_gas_price,
         burnt_amount,
