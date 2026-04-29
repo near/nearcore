@@ -110,8 +110,24 @@ impl ProfileDataV3 {
             .fold(Gas::ZERO, |acc, x| acc.saturating_add(x))
     }
 
-    /// Returns total compute usage of host calls.
-    pub fn total_compute_usage(&self, ext_costs_config: &ExtCostsConfig) -> Compute {
+    /// Returns total compute usage of the function call.
+    ///
+    /// Compute usage has three potential sources:
+    ///
+    /// - wasm op cost (`regular_op_cost`): this currently doesn't support
+    ///                                     compute costs, compute = gas
+    /// - ext_costs (host functions):       calculated from the profile
+    /// - SEND cost for outgoing receipts:  since the profile does not count
+    ///                                     SEND/EXEC/SEND_SIR separately, it
+    ///                                     cannot be calculated from the
+    ///                                     profile. It is accounted for in the
+    ///                                     GasCounter and passed in as argument
+    ///                                     here.
+    pub fn total_compute_usage(
+        &self,
+        ext_costs_config: &ExtCostsConfig,
+        send_action_compute_usage: Compute,
+    ) -> Compute {
         let ext_compute_cost = self
             .wasm_ext_profile
             .iter()
@@ -134,10 +150,9 @@ impl ProfileDataV3 {
             })
             .fold(0, Compute::saturating_add);
 
-        // We currently only support compute costs for host calls. In the future we might add
-        // them for actions as well.
+        // We currently don't support compute costs for WASM operation costs
         ext_compute_cost
-            .saturating_add(self.action_gas().as_gas())
+            .saturating_add(send_action_compute_usage)
             .saturating_add(self.get_wasm_cost().as_gas())
     }
 }
@@ -430,7 +445,7 @@ mod test {
         profile_data.add_action_cost(ActionCosts::function_call_base, Gas::from_gas(100));
 
         assert_eq!(
-            profile_data.total_compute_usage(&ext_costs_config),
+            profile_data.total_compute_usage(&ext_costs_config, 0),
             3 * profile_data.host_gas().as_gas() + profile_data.action_gas().as_gas()
         );
     }

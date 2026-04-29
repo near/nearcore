@@ -56,7 +56,7 @@ impl FeeComponent {
     }
 
     pub fn cost(&self) -> ParameterCost {
-        ParameterCost { gas: self.gas(), compute: self.compute() }
+        ParameterCost::new(self.gas(), self.compute())
     }
 }
 

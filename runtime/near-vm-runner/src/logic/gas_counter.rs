@@ -2,8 +2,8 @@ use super::dependencies::StorageAccessTracker;
 use super::dependencies::sealed::StorageAccessTrackerSeal;
 use super::errors::{HostError, VMLogicError};
 use crate::ProfileDataV3;
-use near_parameters::{ActionCosts, ExtCosts, ExtCostsConfig, GasKeyAddFee};
-use near_primitives_core::types::Gas;
+use near_parameters::{ActionCosts, ExtCosts, ExtCostsConfig, GasKeyAddFee, ParameterCost};
+use near_primitives_core::types::{Compute, Gas};
 use std::collections::HashMap;
 
 #[inline]
@@ -77,6 +77,8 @@ pub struct GasCounter {
     ext_costs_config: ExtCostsConfig,
     /// Where to store profile data, if needed.
     profile: ProfileDataV3,
+    /// Compute costs for the send step of outgoing receipts.
+    pub(crate) send_action_compute_usage: Compute,
 }
 
 impl GasCounter {
@@ -102,6 +104,7 @@ impl GasCounter {
             prepaid_gas,
             is_view,
             profile: Default::default(),
+            send_action_compute_usage: 0,
         }
     }
 
@@ -314,21 +317,25 @@ impl GasCounter {
 
     /// A helper function to pay base cost gas fee for batching an action.
     /// # Args:
-    /// * `burn_gas`: amount of gas to burn;
+    /// * `burn_cost`: amount of gas + compute to burn;
     /// * `use_gas`: amount of gas to reserve;
     /// * `action`: what kind of action is charged for;
     pub(crate) fn pay_action_accumulated(
         &mut self,
-        burn_gas: Gas,
+        burn_cost: ParameterCost,
         use_gas: Gas,
         action: ActionCosts,
     ) -> Result<()> {
         let old_burnt_gas = self.fast_counter.burnt_gas;
-        let deduct_gas_result = self.deduct_gas(burn_gas, use_gas);
+        let deduct_gas_result = self.deduct_gas(burn_cost.gas, use_gas);
         self.update_profile_action(
             action,
             Gas::from_gas(self.fast_counter.burnt_gas.saturating_sub(old_burnt_gas)),
         );
+        self.send_action_compute_usage = self
+            .send_action_compute_usage
+            .checked_add(burn_cost.compute)
+            .ok_or(HostError::IntegerOverflow)?;
         deduct_gas_result
     }
 
@@ -337,18 +344,18 @@ impl GasCounter {
     /// - `gas_key_byte`: send fee for serialized GasKeyInfo + exec fee for nonce key/value bytes
     pub(crate) fn pay_gas_key_add_key_fees(
         &mut self,
-        send_fee: Gas,
+        send_fee: ParameterCost,
         exec_fee: &GasKeyAddFee,
     ) -> Result<()> {
         self.pay_action_accumulated(
-            Gas::ZERO,
+            ParameterCost::ZERO,
             exec_fee.base.gas,
             ActionCosts::gas_key_nonce_write_base,
         )?;
-        let burn_gas = send_fee;
+        let burn_cost = send_fee;
         let use_gas =
-            burn_gas.checked_add(exec_fee.per_byte.gas).ok_or(HostError::IntegerOverflow)?;
-        self.pay_action_accumulated(burn_gas, use_gas, ActionCosts::gas_key_byte)?;
+            burn_cost.gas.checked_add(exec_fee.per_byte.gas).ok_or(HostError::IntegerOverflow)?;
+        self.pay_action_accumulated(burn_cost, use_gas, ActionCosts::gas_key_byte)?;
         Ok(())
     }
 
@@ -396,7 +403,7 @@ impl StorageAccessTracker for GasCounter {
 #[cfg(test)]
 mod tests {
     use super::{ExtCostsConfig, HostError};
-    use near_parameters::{ActionCosts, ExtCosts};
+    use near_parameters::{ActionCosts, ExtCosts, ParameterCost};
     use near_primitives_core::types::Gas;
 
     /// Max prepaid amount of gas.
@@ -475,7 +482,7 @@ mod tests {
         counter.pay_per(ExtCosts::storage_write_value_byte, 10).unwrap();
         counter
             .pay_action_accumulated(
-                Gas::from_gas(100),
+                ParameterCost::new(Gas::from_gas(100), 100),
                 Gas::from_gas(100),
                 ActionCosts::new_data_receipt_byte,
             )
@@ -485,7 +492,7 @@ mod tests {
         profile.compute_wasm_instruction_cost(counter.burnt_gas());
 
         assert_eq!(
-            profile.total_compute_usage(&ExtCostsConfig::test()),
+            profile.total_compute_usage(&ExtCostsConfig::test(), 0),
             counter.burnt_gas().as_gas()
         );
     }
@@ -502,7 +509,7 @@ mod tests {
             profile.compute_wasm_instruction_cost(counter.burnt_gas());
 
             assert_eq!(
-                profile.total_compute_usage(&ExtCostsConfig::test()),
+                profile.total_compute_usage(&ExtCostsConfig::test(), 0),
                 counter.burnt_gas().as_gas()
             );
         }
@@ -518,7 +525,7 @@ mod tests {
             let mut counter = make_test_counter(burn, prepaid, false);
             assert_eq!(
                 counter.pay_action_accumulated(
-                    Gas::from_gigagas(10),
+                    ParameterCost::new(Gas::from_gigagas(10), 10),
                     Gas::from_gigagas(10),
                     ActionCosts::new_data_receipt_byte
                 ),
@@ -528,7 +535,7 @@ mod tests {
             profile.compute_wasm_instruction_cost(counter.burnt_gas());
 
             assert_eq!(
-                profile.total_compute_usage(&ExtCostsConfig::test()),
+                profile.total_compute_usage(&ExtCostsConfig::test(), 0),
                 counter.burnt_gas().as_gas()
             );
         }

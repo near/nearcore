@@ -66,6 +66,10 @@ pub struct ParameterCost {
 impl ParameterCost {
     pub const ZERO: ParameterCost = ParameterCost { gas: Gas::ZERO, compute: 0 };
 
+    pub fn new(gas: Gas, compute: Compute) -> Self {
+        Self { gas, compute }
+    }
+
     pub fn checked_add(self, rhs: Self) -> Option<Self> {
         let gas = self.gas.checked_add(rhs.gas)?;
         let compute = self.compute.checked_add(rhs.compute)?;
