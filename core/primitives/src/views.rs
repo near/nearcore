@@ -1090,6 +1090,13 @@ pub struct ChunkHeaderView {
     /// `Some(Some(split))`: field present and set
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proposed_split: Option<Option<TrieSplit>>,
+    /// Indices of pending-compile-queue entries the chunk producer signaled
+    /// as advance-ready. `None` for chunk header versions before V7;
+    /// `Some(_)` (possibly empty) for V7+. Round-tripping a `ChunkHeaderView`
+    /// back into a `ShardChunkHeader` preserves this field so the resulting
+    /// chunk hash matches the original V7 hash.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compiled_indices: Option<Vec<u64>>,
     pub signature: Signature,
 }
 
@@ -1105,6 +1112,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
         let signature = chunk.signature().clone();
         let height_included = chunk.height_included();
         let inner = chunk.take_inner();
+        let is_v7 = matches!(inner, ShardChunkHeaderInner::V7(_));
         ChunkHeaderView {
             chunk_hash: hash,
             prev_block_hash: *inner.prev_block_hash(),
@@ -1132,6 +1140,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             proposed_split: inner
                 .has_proposed_split_field()
                 .then(|| inner.proposed_split().cloned()),
+            compiled_indices: is_v7.then(|| inner.compiled_indices().to_vec()),
             signature,
         }
     }
@@ -1143,8 +1152,39 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
             view.validator_proposals.into_iter().map(Into::into).collect();
         // TODO: store the version in ChunkHeaderView instead of guessing it
         // from which fields are populated.
-        let inner = match (view.proposed_split, view.bandwidth_requests, view.congestion_info) {
-            (Some(proposed_split), Some(bandwidth_requests), Some(congestion_info)) => {
+        let inner = match (
+            view.compiled_indices,
+            view.proposed_split,
+            view.bandwidth_requests,
+            view.congestion_info,
+        ) {
+            (
+                Some(compiled_indices),
+                Some(proposed_split),
+                Some(bandwidth_requests),
+                Some(congestion_info),
+            ) => ShardChunkHeaderInner::V7(
+                crate::sharding::shard_chunk_header_inner::ShardChunkHeaderInnerV7 {
+                    prev_block_hash: view.prev_block_hash,
+                    prev_state_root: view.prev_state_root,
+                    prev_outcome_root: view.outcome_root,
+                    encoded_merkle_root: view.encoded_merkle_root,
+                    encoded_length: view.encoded_length,
+                    height_created: view.height_created,
+                    shard_id: view.shard_id,
+                    prev_gas_used: view.gas_used,
+                    gas_limit: view.gas_limit,
+                    prev_balance_burnt: view.balance_burnt,
+                    prev_outgoing_receipts_root: view.outgoing_receipts_root,
+                    tx_root: view.tx_root,
+                    prev_validator_proposals,
+                    congestion_info: congestion_info.into(),
+                    bandwidth_requests,
+                    proposed_split,
+                    compiled_indices,
+                },
+            ),
+            (None, Some(proposed_split), Some(bandwidth_requests), Some(congestion_info)) => {
                 ShardChunkHeaderInner::V5(ShardChunkHeaderInnerV5 {
                     prev_block_hash: view.prev_block_hash,
                     prev_state_root: view.prev_state_root,
@@ -1164,7 +1204,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                     proposed_split,
                 })
             }
-            (None, Some(bandwidth_requests), Some(congestion_info)) => {
+            (None, None, Some(bandwidth_requests), Some(congestion_info)) => {
                 ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
                     prev_block_hash: view.prev_block_hash,
                     prev_state_root: view.prev_state_root,
@@ -1183,7 +1223,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                     bandwidth_requests,
                 })
             }
-            (None, None, Some(congestion_info)) => {
+            (None, None, None, Some(congestion_info)) => {
                 ShardChunkHeaderInner::V3(ShardChunkHeaderInnerV3 {
                     prev_block_hash: view.prev_block_hash,
                     prev_state_root: view.prev_state_root,
@@ -1201,7 +1241,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                     congestion_info: congestion_info.into(),
                 })
             }
-            (None, None, None) => ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
+            (None, None, None, None) => ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
                 prev_block_hash: view.prev_block_hash,
                 prev_state_root: view.prev_state_root,
                 prev_outcome_root: view.outcome_root,
@@ -1216,13 +1256,17 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                 tx_root: view.tx_root,
                 prev_validator_proposals,
             }),
-            (proposed_split, bandwidth_requests, congestion_info) => unreachable!(
-                "unexpected combination of chunk header view fields: \
-                 proposed_split={}, bandwidth_requests={}, congestion_info={}",
-                proposed_split.is_some(),
-                bandwidth_requests.is_some(),
-                congestion_info.is_some(),
-            ),
+            (compiled_indices, proposed_split, bandwidth_requests, congestion_info) => {
+                unreachable!(
+                    "unexpected combination of chunk header view fields: \
+                     compiled_indices={}, proposed_split={}, bandwidth_requests={}, \
+                     congestion_info={}",
+                    compiled_indices.is_some(),
+                    proposed_split.is_some(),
+                    bandwidth_requests.is_some(),
+                    congestion_info.is_some(),
+                )
+            }
         };
         let mut header = ShardChunkHeaderV3 {
             inner,
