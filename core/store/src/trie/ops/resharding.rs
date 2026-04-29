@@ -383,6 +383,9 @@ mod tests {
             vec![col::GLOBAL_CONTRACT_CODE]..vec![col::GLOBAL_CONTRACT_CODE + 1],
             vec![col::GLOBAL_CONTRACT_NONCE]..vec![col::GLOBAL_CONTRACT_NONCE + 1],
             vec![col::PROMISE_YIELD_STATUS]..append_key(col::PROMISE_YIELD_STATUS, &alice_account),
+            vec![col::PENDING_COMPILE_RECEIPT_INDICES]
+                ..vec![col::PENDING_COMPILE_RECEIPT_INDICES + 1],
+            vec![col::PENDING_COMPILE_RECEIPT]..vec![col::PENDING_COMPILE_RECEIPT + 1],
         ];
         assert!(left_intervals.iter().all(|range| range.start < range.end));
         for (actual, expected) in left_intervals.iter().zip_eq(expected_left_intervals.iter()) {
@@ -411,6 +414,9 @@ mod tests {
             vec![col::GLOBAL_CONTRACT_NONCE]..vec![col::GLOBAL_CONTRACT_NONCE + 1],
             append_key(col::PROMISE_YIELD_STATUS, &alice_account)
                 ..vec![col::PROMISE_YIELD_STATUS + 1],
+            vec![col::PENDING_COMPILE_RECEIPT_INDICES]
+                ..vec![col::PENDING_COMPILE_RECEIPT_INDICES + 1],
+            vec![col::PENDING_COMPILE_RECEIPT]..vec![col::PENDING_COMPILE_RECEIPT + 1],
         ];
         assert!(right_intervals.iter().all(|range| range.start < range.end));
         for (actual, expected) in right_intervals.iter().zip_eq(expected_right_intervals.iter()) {

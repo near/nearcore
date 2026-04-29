@@ -14,13 +14,14 @@ use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, BlockHeightDelta, MerkleHash, ShardId};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
     ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionStatus, ViewStateResult,
 };
 use near_store::adapter::StoreUpdateAdapter;
+use near_store::trie::receipts_column_helper::read_pending_compile_queue;
 use near_store::{ShardTries, TrieUpdate};
 use node_runtime::SignedValidPeriodTransactions;
 use node_runtime::state_viewer::TrieViewer;
@@ -172,6 +173,24 @@ impl RuntimeUser {
                     apply_state.shard_id,
                     ExtendedCongestionInfo { missed_chunks_count: 0, congestion_info },
                 );
+            }
+            // Drain any entries that the previous apply admitted to the
+            // pending-compile queue. RuntimeUser has no chunk producer to
+            // emit `compiled_indices` for us, so we read the queue directly
+            // and force-advance every entry on the next iteration. Without
+            // this, deploy receipts would sit in the queue until TTL and
+            // tests asserting on the deploy outcome would never see it.
+            apply_state.compiled_indices = Vec::new();
+            if ProtocolFeature::CompileQueueDeferral.enabled(apply_state.current_protocol_version) {
+                let trie =
+                    client.tries.get_trie_for_shard(ShardUId::single_shard(), client.state_root);
+                let entries = read_pending_compile_queue(&trie)
+                    .expect("reading pending-compile queue should not fail in test setup");
+                if !entries.is_empty() {
+                    apply_state.compiled_indices =
+                        entries.into_iter().map(|(index, _)| index).collect();
+                    have_queued_receipts = true;
+                }
             }
             if receipts.is_empty() && !have_queued_receipts {
                 return Ok(());

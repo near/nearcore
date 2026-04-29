@@ -1,6 +1,5 @@
 use super::NightshadeRuntime;
-use near_async::futures::AsyncComputationSpawner;
-use near_async::thread_pool::contract_compilation_pool;
+use near_async::futures::{AsyncComputationSpawner, InlineAsyncComputationSpawner};
 use near_chain_configs::{
     DEFAULT_GC_NUM_EPOCHS_TO_KEEP, DEFAULT_STATE_PARTS_COMPRESSION_LEVEL, GenesisConfig,
 };
@@ -12,12 +11,15 @@ use std::path::Path;
 use std::sync::Arc;
 
 /// Default compile spawner used by the test-only `NightshadeRuntime`
-/// constructors when callers do not pass a custom spawner. Production code
-/// (e.g. `nearcore::start_with_config`) constructs the runtime via
-/// `NightshadeRuntime::new` directly and supplies the production
-/// `contract_compilation_pool()`.
+/// constructors when callers do not pass a custom spawner. Tests want
+/// deterministic ordering with respect to subsequent chunk production
+/// (otherwise a deploy admitted in chunk N might have its compile still
+/// running by the time chunk N+1's producer reads `cache.has`), so we
+/// default to inline (synchronous) spawning. Production code constructs
+/// the runtime via `NightshadeRuntime::new` directly and supplies the
+/// real `contract_compilation_pool()`.
 fn default_test_compile_spawner() -> Arc<dyn AsyncComputationSpawner> {
-    contract_compilation_pool().clone()
+    Arc::new(InlineAsyncComputationSpawner)
 }
 
 impl NightshadeRuntime {
