@@ -34,10 +34,8 @@ pub(crate) enum ParameterValue {
 /// either a plain gas value or as separate gas and compute costs.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Hash, PartialEq, Eq)]
 #[serde(untagged)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum FeeComponent {
     Gas(Gas),
-    // TODO: serde JSON serialize is not good for u64
     GasAndCompute { gas: Gas, compute: Compute },
 }
 
@@ -55,6 +53,10 @@ impl FeeComponent {
             FeeComponent::Gas(gas) => Compute::from(gas.as_gas()),
             FeeComponent::GasAndCompute { compute, .. } => *compute,
         }
+    }
+
+    pub fn cost(&self) -> ParameterCost {
+        ParameterCost { gas: self.gas(), compute: self.compute() }
     }
 }
 
