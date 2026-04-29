@@ -1,8 +1,10 @@
 """
 Test case classes for release tests on forknet.
 """
+from typing import Dict
+
 from .base import TestSetup, NodeHardware
-from mirror import CommandContext, update_config_cmd
+from mirror import CommandContext, update_config_cmd, run_remote_cmd
 
 import copy
 from utils import PartitionSelector
@@ -53,6 +55,31 @@ class TestReleaseCandidate(TestSetup):
         self._amend_epoch_config(".chunk_producer_kickout_threshold = 0")
         self._amend_epoch_config(".chunk_validator_only_kickout_threshold = 0")
 
+    def _set_log_level(self, target_log_level: Dict[str, str]):
+        """
+        Append extra target=level directives to log_config.json on
+        every node. Appending makes the new directives override any
+        existing same-target ones, since tracing_subscriber's EnvFilter
+        applies the last matching directive.
+        """
+        if not target_log_level:
+            return
+        extra = ",".join(
+            f"{target}={level}" for target, level in target_log_level.items())
+
+        jq_filter = (f'.opentelemetry = (.opentelemetry + ",{extra}") | '
+                     f'.rust_log = (.rust_log + ",{extra}")')
+        cmd = (f"jq '{jq_filter}' {log_config} > {log_config}.tmp "
+               f"&& mv {log_config}.tmp {log_config}")
+        run_cmd_args = copy.deepcopy(self.args)
+        run_cmd_args.cmd = cmd
+        run_cmd_args.host_type = 'nodes'
+        log_config = "/home/ubuntu/.near/log_config.json"
+        run_remote_cmd(CommandContext(run_cmd_args))
+        run_cmd_args.host_type = 'traffic'
+        log_config = "/home/ubuntu/.near/target/log_config.json"
+        run_remote_cmd(CommandContext(run_cmd_args))
+
     def amend_configs_before_test_start(self):
         super().amend_configs_before_test_start()
         cfg = ["save_invalid_witnesses=true"]
@@ -62,6 +89,8 @@ class TestReleaseCandidate(TestSetup):
         cfg_args = copy.deepcopy(self.args)
         cfg_args.set = ';'.join(cfg)
         update_config_cmd(CommandContext(cfg_args))
+
+        self._set_log_level({"vm": "debug"})
 
     def _upgrade_nodes_in_four_batches(self):
         """
