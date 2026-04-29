@@ -107,6 +107,7 @@ pub(crate) fn apply_block(
                     gas_limit: chunk_inner.gas_limit(),
                     is_new_chunk: true,
                     on_post_state_ready: None,
+                    compiled_indices: chunk_inner.compiled_indices().to_vec(),
                 },
                 ApplyChunkBlockContext::from_header(
                     block.header(),
@@ -133,6 +134,7 @@ pub(crate) fn apply_block(
                     gas_limit: chunk_extra.gas_limit(),
                     is_new_chunk: false,
                     on_post_state_ready: None,
+                    compiled_indices: vec![],
                 },
                 ApplyChunkBlockContext::from_header(
                     block.header(),

@@ -1069,6 +1069,7 @@ mod tests {
             save_receipt_to_tx: false,
             congestion_info: BlockCongestionInfo::default(),
             bandwidth_requests: BlockBandwidthRequests::empty(),
+            compiled_indices: vec![],
             trie_access_tracker_state: Default::default(),
             on_post_state_ready: None,
         }

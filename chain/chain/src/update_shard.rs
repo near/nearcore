@@ -50,6 +50,9 @@ pub struct NewChunkData {
     pub chunk_hash: Option<ChunkHash>,
     pub transactions: SignedValidPeriodTransactions,
     pub receipts: Vec<Receipt>,
+    /// Pending-compile-queue entries whose receipts the chunk producer
+    /// signaled to advance in this chunk's header.
+    pub compiled_indices: Vec<u64>,
     pub block: ApplyChunkBlockContext,
     pub storage_context: StorageContext,
 }
@@ -133,6 +136,7 @@ pub fn apply_new_chunk(
         transactions,
         block,
         receipts,
+        compiled_indices,
         storage_context,
     } = data;
     let shard_id = shard_context.shard_uid.shard_id();
@@ -166,6 +170,7 @@ pub fn apply_new_chunk(
             gas_limit,
             is_new_chunk: true,
             on_post_state_ready,
+            compiled_indices,
         },
         block,
         &receipts,
@@ -216,6 +221,7 @@ pub fn apply_old_chunk(
             gas_limit: prev_chunk_extra.gas_limit(),
             is_new_chunk: false,
             on_post_state_ready: None,
+            compiled_indices: vec![],
         },
         block,
         &[],

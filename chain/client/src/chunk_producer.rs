@@ -69,10 +69,21 @@ pub enum AdvProduceChunksMode {
 }
 
 #[cfg(feature = "test_features")]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub enum CompiledIndicesOverride {
+    /// Emit the natural value (currently always empty until Phase 3).
+    #[default]
+    Off,
+    /// Emit this exact list as `compiled_indices` regardless of natural value.
+    Force(Vec<u64>),
+}
+
+#[cfg(feature = "test_features")]
 pub struct ChunkProducerAdversarialControls {
     pub produce_mode: Option<AdvProduceChunksMode>,
     pub produce_invalid_chunks: bool,
     pub produce_invalid_tx_in_chunks: bool,
+    pub compiled_indices_override: CompiledIndicesOverride,
 }
 
 pub struct ProduceChunkResult {
@@ -126,6 +137,7 @@ impl ChunkProducer {
                 produce_mode: None,
                 produce_invalid_chunks: false,
                 produce_invalid_tx_in_chunks: false,
+                compiled_indices_override: CompiledIndicesOverride::Off,
             },
             clock,
             chunk_transactions_time_limit,
@@ -363,6 +375,15 @@ impl ChunkProducer {
         );
 
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
+        // Phase 2: natural value is empty until Phase 3 wires up local
+        // compile-state signaling. Tests can override via the adversarial knob.
+        #[allow(unused_mut)]
+        let mut compiled_indices: Vec<u64> = vec![];
+        #[cfg(feature = "test_features")]
+        if let CompiledIndicesOverride::Force(indices) = &self.adversarial.compiled_indices_override
+        {
+            compiled_indices = indices.clone();
+        }
         let (chunk, merkle_paths) = if ProtocolFeature::Spice.enabled(protocol_version) {
             ShardChunkWithEncoding::new_for_spice(
                 prev_block_hash,
@@ -393,6 +414,7 @@ impl ChunkProducer {
                 congestion_info,
                 bandwidth_requests.cloned().unwrap_or_else(BandwidthRequests::empty),
                 chunk_extra.proposed_split().cloned(),
+                compiled_indices,
                 &*validator_signer,
                 &mut self.reed_solomon_encoder,
                 protocol_version,

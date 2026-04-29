@@ -206,6 +206,7 @@ impl RuntimeUser {
             save_receipt_to_tx: false,
             congestion_info,
             bandwidth_requests: BlockBandwidthRequests::empty(),
+            compiled_indices: vec![],
             trie_access_tracker_state: Default::default(),
             on_post_state_ready: None,
         }

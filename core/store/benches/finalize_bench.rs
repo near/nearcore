@@ -144,6 +144,7 @@ fn create_chunk_header(height: u64, shard_id: ShardId) -> ShardChunkHeader {
             Default::default(),
             BandwidthRequests::empty(),
             None,
+            vec![],
             &validator_signer(),
             PROTOCOL_VERSION,
         ))
@@ -229,6 +230,7 @@ fn create_encoded_shard_chunk(
             Default::default(),
             BandwidthRequests::empty(),
             None,
+            vec![],
             &validator_signer(),
             &rs,
             PROTOCOL_VERSION,

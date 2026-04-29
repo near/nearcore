@@ -402,6 +402,7 @@ pub fn pre_validate_chunk_state_witness(
                 chunk_hash: Some(chunk_header.chunk_hash().clone()),
                 transactions,
                 receipts: receipts_to_apply,
+                compiled_indices: chunk_header.compiled_indices().to_vec(),
                 block: Chain::get_apply_chunk_block_context(last_chunk_block, &header, true),
                 storage_context: StorageContext {
                     storage_data_source: StorageDataSource::Recorded(PartialStorage {

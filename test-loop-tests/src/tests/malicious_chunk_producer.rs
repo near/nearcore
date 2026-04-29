@@ -192,6 +192,7 @@ fn test_producer_sending_large_encoded_length_chunks() {
                     header.congestion_info(),
                     header.bandwidth_requests().unwrap().clone(),
                     header.proposed_split().cloned(),
+                    header.compiled_indices().to_vec(),
                     &signer,
                     PROTOCOL_VERSION,
                 ));

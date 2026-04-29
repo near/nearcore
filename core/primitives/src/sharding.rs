@@ -278,6 +278,7 @@ impl ShardChunkHeaderV3 {
                 CongestionInfo::default(),
                 BandwidthRequests::empty(),
                 None,
+                vec![],
                 &EmptyValidatorSigner::default().into(),
                 PROTOCOL_VERSION,
             )
@@ -312,6 +313,7 @@ impl ShardChunkHeaderV3 {
         congestion_info: CongestionInfo,
         bandwidth_requests: BandwidthRequests,
         proposed_split: Option<TrieSplit>,
+        compiled_indices: Vec<u64>,
         signer: &ValidatorSigner,
         protocol_version: ProtocolVersion,
     ) -> Self {
@@ -333,7 +335,7 @@ impl ShardChunkHeaderV3 {
                 congestion_info,
                 bandwidth_requests,
                 proposed_split,
-                compiled_indices: vec![],
+                compiled_indices,
             })
         } else if ProtocolFeature::DynamicResharding.enabled(protocol_version) {
             ShardChunkHeaderInner::V5(ShardChunkHeaderInnerV5 {
@@ -651,6 +653,16 @@ impl ShardChunkHeader {
                 header_version: self.header_version_number(),
                 header_inner_version: self.inner_version_number(),
             })
+        }
+    }
+
+    /// Pending-compile-queue indices the producer is signaling to advance
+    /// in this chunk. Empty for header versions older than V3-with-V7-inner.
+    #[inline]
+    pub fn compiled_indices(&self) -> &[u64] {
+        match self {
+            Self::V1(_) | Self::V2(_) => &[],
+            Self::V3(header) => header.inner.compiled_indices(),
         }
     }
 
@@ -1464,6 +1476,7 @@ impl ShardChunkWithEncoding {
         congestion_info: CongestionInfo,
         bandwidth_requests: BandwidthRequests,
         proposed_split: Option<TrieSplit>,
+        compiled_indices: Vec<u64>,
         signer: &ValidatorSigner,
         rs: &reed_solomon_erasure::galois_8::ReedSolomon,
         protocol_version: ProtocolVersion,
@@ -1494,6 +1507,7 @@ impl ShardChunkWithEncoding {
             congestion_info,
             bandwidth_requests,
             proposed_split,
+            compiled_indices,
             signer,
             protocol_version,
         ));

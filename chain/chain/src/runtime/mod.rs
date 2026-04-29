@@ -199,6 +199,7 @@ impl NightshadeRuntime {
             gas_limit,
             is_new_chunk,
             on_post_state_ready,
+            compiled_indices,
         } = chunk;
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
         let validator_accounts_update = {
@@ -294,6 +295,7 @@ impl NightshadeRuntime {
             save_receipt_to_tx,
             congestion_info,
             bandwidth_requests,
+            compiled_indices,
             trie_access_tracker_state: Default::default(),
             on_post_state_ready,
         };

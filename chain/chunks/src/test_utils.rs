@@ -230,6 +230,7 @@ impl ChunkTestFixture {
             Default::default(),
             BandwidthRequests::empty(),
             None,
+            vec![],
             &signer,
             &rs,
             PROTOCOL_VERSION,
@@ -333,6 +334,7 @@ impl ChunkTestFixture {
             Default::default(),
             BandwidthRequests::empty(),
             None,
+            vec![],
             &signer,
             PROTOCOL_VERSION,
         ));

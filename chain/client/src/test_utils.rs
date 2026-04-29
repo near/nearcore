@@ -223,6 +223,7 @@ pub fn create_chunk(
                 header.congestion_info(),
                 header.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
                 None,
+                header.compiled_indices().to_vec(),
                 &*signer,
                 &rs,
                 PROTOCOL_VERSION,

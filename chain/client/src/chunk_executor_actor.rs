@@ -897,6 +897,7 @@ impl ChunkExecutorActor {
             chunk_hash,
             transactions,
             receipts,
+            compiled_indices: chunk_header.compiled_indices().to_vec(),
             block: block_context,
             storage_context,
         });

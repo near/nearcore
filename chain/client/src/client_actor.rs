@@ -6,7 +6,7 @@
 //! <https://github.com/near/nearcore/issues/7899>
 
 #[cfg(feature = "test_features")]
-pub use crate::chunk_producer::AdvProduceChunksMode;
+pub use crate::chunk_producer::{AdvProduceChunksMode, CompiledIndicesOverride};
 #[cfg(feature = "test_features")]
 use crate::client::AdvProduceBlocksMode;
 use crate::client::{CatchupState, Client, EPOCH_START_INFO_BLOCKS};
@@ -515,6 +515,7 @@ pub enum NetworkAdversarialMessage {
     AdvDisableDoomslug,
     AdvGetSavedBlocks,
     AdvCheckStorageConsistency,
+    AdvSetCompiledIndicesOverride(crate::chunk_producer::CompiledIndicesOverride),
 }
 
 #[cfg(feature = "test_features")]
@@ -598,6 +599,11 @@ impl Handler<NetworkAdversarialMessage, Option<u64>> for ClientActor {
             NetworkAdversarialMessage::AdvInsertInvalidTransactions(on) => {
                 tracing::info!(target: "adversary", on, "invalid transactions");
                 self.client.chunk_producer.adversarial.produce_invalid_tx_in_chunks = on;
+                None
+            }
+            NetworkAdversarialMessage::AdvSetCompiledIndicesOverride(override_value) => {
+                tracing::info!(target: "adversary", ?override_value, "setting compiled_indices override");
+                self.client.chunk_producer.adversarial.compiled_indices_override = override_value;
                 None
             }
         }

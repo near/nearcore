@@ -395,6 +395,9 @@ pub struct ApplyChunkShardContext<'a> {
     pub gas_limit: Gas,
     pub is_new_chunk: bool,
     pub on_post_state_ready: Option<PostStateReadyCallback>,
+    /// Pending-compile-queue entries whose receipts the chunk producer
+    /// is signaling to advance and execute in this chunk.
+    pub compiled_indices: Vec<u64>,
 }
 
 /// Contains transactions that were fetched from the transaction pool

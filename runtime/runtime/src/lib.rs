@@ -206,6 +206,9 @@ pub struct ApplyState {
     /// Each shard requests some bandwidth to other shards and then the bandwidth scheduler
     /// decides how much each shard is allowed to send.
     pub bandwidth_requests: BlockBandwidthRequests,
+    /// Pending-compile-queue entries the chunk producer signaled to advance
+    /// in this chunk's header. Empty when `CompileQueueDeferral` is inactive.
+    pub compiled_indices: Vec<u64>,
     /// Callback to be called when the post-state is ready.
     pub on_post_state_ready: Option<PostStateReadyCallback>,
 }
@@ -2246,6 +2249,68 @@ impl Runtime {
         })
     }
 
+    /// Execute the pending-compile-queue entries the chunk producer
+    /// signaled via `compiled_indices` in the chunk header. Each index is
+    /// validated, removed from the queue (leaving a hole), and dispatched
+    /// through the standard receipt-processing path.
+    ///
+    /// Runs immediately after TTL eviction, so an index that was just
+    /// evicted in this chunk is no longer in the queue and will be
+    /// rejected as invalid. Pre-feature this is a no-op.
+    #[instrument(
+        target = "runtime",
+        level = "debug",
+        "process_pending_compile_advancements",
+        skip_all
+    )]
+    fn process_pending_compile_advancements(
+        &self,
+        processing_state: &mut ApplyProcessingReceiptState,
+        receipt_sink: &mut ReceiptSink,
+        validator_proposals: &mut Vec<ValidatorStake>,
+    ) -> Result<(), RuntimeError> {
+        if !ProtocolFeature::CompileQueueDeferral.enabled(processing_state.protocol_version) {
+            return Ok(());
+        }
+        let compiled_indices = processing_state.apply_state.compiled_indices.clone();
+        if compiled_indices.is_empty() {
+            return Ok(());
+        }
+        let queue = PendingCompileQueue::load(&processing_state.state_update)?;
+        let next_avail = queue.indices().next_available_index;
+        let mut seen = HashSet::with_capacity(compiled_indices.len());
+        for &index in &compiled_indices {
+            if !seen.insert(index) {
+                return Err(RuntimeError::StorageError(StorageError::StorageInconsistentState(
+                    format!("duplicate compiled_indices entry {index}"),
+                )));
+            }
+            if index >= next_avail {
+                return Err(RuntimeError::StorageError(StorageError::StorageInconsistentState(
+                    format!("compiled_indices entry {index} >= next_available_index {next_avail}"),
+                )));
+            }
+        }
+        for index in compiled_indices {
+            let key = TrieKey::PendingCompileReceipt { index };
+            let entry: Option<PendingCompileQueueEntry> =
+                get(&processing_state.state_update, &key)?;
+            let Some(entry) = entry else {
+                return Err(RuntimeError::StorageError(StorageError::StorageInconsistentState(
+                    format!("compiled_indices entry {index} missing from queue"),
+                )));
+            };
+            processing_state.state_update.remove(key);
+            self.process_receipt_with_metrics(
+                &entry.receipt,
+                processing_state,
+                receipt_sink,
+                validator_proposals,
+            )?;
+        }
+        Ok(())
+    }
+
     /// Divert a receipt to the pending-compile queue if it contains at
     /// least one `DeployContract` action and the protocol feature is
     /// active. Returns the diversion outcome so callers know whether to
@@ -2719,6 +2784,14 @@ impl Runtime {
         // TTL-evict any pending-compile-queue entries that have outlived their
         // residence window. No-op when the protocol feature is inactive.
         self.process_pending_compile_evictions(processing_state, receipt_sink)?;
+
+        // Execute pending-compile-queue entries the chunk producer signaled
+        // via `compiled_indices` in the chunk header. No-op pre-feature.
+        self.process_pending_compile_advancements(
+            processing_state,
+            receipt_sink,
+            &mut validator_proposals,
+        )?;
 
         // We first process local receipts. They contain staking, local contract calls, etc.
         self.process_local_receipts(
