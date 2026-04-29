@@ -30,7 +30,7 @@ use global_contracts::{
 };
 use itertools::Itertools;
 use metrics::ApplyMetrics;
-use near_async::futures::AsyncComputationSpawner;
+use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 pub use near_crypto;
 use near_crypto::PublicKey;
 use near_parameters::{ActionCosts, RuntimeConfig};
@@ -88,6 +88,7 @@ use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::ProfileDataV3;
 use near_vm_runner::logic::ReturnData;
 use near_vm_runner::logic::types::PromiseResult;
+use near_vm_runner::precompile_contract;
 pub use near_vm_runner::with_ext_cost_counter;
 use pipelining::ReceiptPreparationPipeline;
 use rayon::prelude::*;
@@ -440,6 +441,42 @@ pub struct GasRefundResult {
 }
 
 pub struct Runtime {}
+
+/// Kick off a background compile for a freshly admitted deploy. Skips when
+/// no spawner is attached (test contexts), no cache is attached, the
+/// bytecode is already cached, or the same hash was already spawned during
+/// the current `apply()` call.
+fn spawn_pending_compile_precompile(
+    apply_state: &ApplyState,
+    spawned: &mut HashSet<CryptoHash>,
+    code_hash: CryptoHash,
+    code_bytes: &[u8],
+) {
+    let Some(spawner_handle) = &apply_state.compile_contracts_spawner else {
+        return;
+    };
+    let Some(cache) = apply_state.cache.as_ref() else {
+        return;
+    };
+    if !spawned.insert(code_hash) {
+        return;
+    }
+    if cache.has(&code_hash).unwrap_or(false) {
+        return;
+    }
+    let cache_handle = cache.handle();
+    let wasm_config = Arc::clone(&apply_state.config.wasm_config);
+    let code = ContractCode::new(code_bytes.to_vec(), Some(code_hash));
+    spawner_handle.0.spawn("precompile_pending_compile_admission", move || {
+        if let Err(err) = precompile_contract(&code, wasm_config, Some(&*cache_handle)) {
+            tracing::warn!(
+                target: "runtime",
+                ?err,
+                "pending compile admission precompile failed",
+            );
+        }
+    });
+}
 
 impl Runtime {
     pub fn new() -> Self {
@@ -2370,11 +2407,27 @@ impl Runtime {
         let entry = PendingCompileQueueEntry {
             receipt: receipt.clone(),
             pushed_at_height: processing_state.apply_state.block_height,
-            code_hashes,
+            code_hashes: code_hashes.clone(),
         };
         let mut queue = PendingCompileQueue::load(&processing_state.state_update)?;
         queue.push_back(&mut processing_state.state_update, &entry)?;
         processing_state.pending_compile_admitted += 1;
+        for (action, hash) in action_receipt
+            .actions()
+            .iter()
+            .filter_map(|a| match a {
+                Action::DeployContract(deploy) => Some(deploy),
+                _ => None,
+            })
+            .zip(code_hashes.into_iter())
+        {
+            spawn_pending_compile_precompile(
+                processing_state.apply_state,
+                &mut processing_state.pending_compile_spawned,
+                hash,
+                &action.code,
+            );
+        }
         Ok(DiversionOutcome::Admitted)
     }
 
@@ -3351,6 +3404,7 @@ impl<'a> ApplyProcessingState<'a> {
             processed_receipts: Vec::new(),
             receipt_to_tx: Vec::new(),
             pending_compile_admitted: 0,
+            pending_compile_spawned: HashSet::new(),
         }
     }
 }
@@ -3380,6 +3434,11 @@ struct ApplyProcessingReceiptState<'a> {
     /// current chunk apply. Bounded by `COMPILE_QUEUE_ADMISSION_CAP` across
     /// the local, delayed, and incoming receipt processing loops.
     pending_compile_admitted: u32,
+    /// Code hashes for which a background compile has already been spawned
+    /// during the current `apply()` call. Used to avoid redundant spawns
+    /// when the same bytecode is admitted multiple times in one chunk
+    /// (e.g. five byte-identical deploys; one compile is enough).
+    pending_compile_spawned: HashSet<CryptoHash>,
 }
 
 trait MaybeRefReceipt {
