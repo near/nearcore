@@ -1116,7 +1116,10 @@ impl<'a> ChainStoreUpdate<'a> {
         let Ok(metadata) = self.get_processed_receipt_ids(block_hash, shard_id) else { return };
         for entry in metadata.as_ref() {
             match entry.source() {
-                ReceiptSource::Local | ReceiptSource::Delayed | ReceiptSource::Instant => {
+                ReceiptSource::Local
+                | ReceiptSource::Delayed
+                | ReceiptSource::Instant
+                | ReceiptSource::PendingCompile => {
                     self.gc_col(DBCol::Receipts, entry.receipt_id().as_bytes());
                 }
                 ReceiptSource::ReceiptToTxGc => {

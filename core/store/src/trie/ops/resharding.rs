@@ -53,7 +53,9 @@ fn boundary_account_to_intervals(
             | col::PROMISE_YIELD_TIMEOUT
             | col::BANDWIDTH_SCHEDULER_STATE
             | col::GLOBAL_CONTRACT_CODE
-            | col::GLOBAL_CONTRACT_NONCE => {
+            | col::GLOBAL_CONTRACT_NONCE
+            | col::PENDING_COMPILE_RECEIPT_INDICES
+            | col::PENDING_COMPILE_RECEIPT => {
                 // This section contains the keys that we need to copy to both shards.
                 intervals.push(get_interval_for_copy_to_both_children(prefix))
             }

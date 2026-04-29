@@ -1393,6 +1393,11 @@ pub enum ReceiptSource {
     /// receipts, PromiseResume, cross-shard receipts on a source-only node,
     /// GlobalContractDistribution receipts).
     ReceiptToTxGc = 3,
+    /// Receipt that was admitted to the pending-compile queue and later
+    /// executed via producer-signaled advancement. Tracked here so the
+    /// receipt blob is saved to `DBCol::Receipts` on its advancement
+    /// chunk (the same way `Local` / `Delayed` source receipts are).
+    PendingCompile = 4,
 }
 
 /// A processed receipt together with its source. Runtime-only struct, not serialized to DB.
