@@ -196,6 +196,7 @@ fn setup_runtime_for_shard(
         congestion_info,
         bandwidth_requests: BlockBandwidthRequests::empty(),
         compiled_indices: vec![],
+        compile_contracts_spawner: None,
         trie_access_tracker_state: Default::default(),
         on_post_state_ready: None,
     };
@@ -3406,6 +3407,7 @@ fn test_fix_access_key_allowance_no_mutation_on_failed_tx() {
             congestion_info: BlockCongestionInfo::new(shards_congestion_info),
             bandwidth_requests: BlockBandwidthRequests::empty(),
             compiled_indices: vec![],
+            compile_contracts_spawner: None,
             trie_access_tracker_state: Default::default(),
             on_post_state_ready: None,
         };

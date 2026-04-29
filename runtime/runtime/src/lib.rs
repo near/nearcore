@@ -30,6 +30,7 @@ use global_contracts::{
 };
 use itertools::Itertools;
 use metrics::ApplyMetrics;
+use near_async::futures::AsyncComputationSpawner;
 pub use near_crypto;
 use near_crypto::PublicKey;
 use near_parameters::{ActionCosts, RuntimeConfig};
@@ -160,6 +161,17 @@ impl PostStateReadyCallback {
     }
 }
 
+/// Wrapper around an `AsyncComputationSpawner` so that `ApplyState` can keep
+/// its `#[derive(Debug)]` (the underlying trait does not require `Debug`).
+#[derive(Clone)]
+pub struct CompileContractsSpawnerHandle(pub Arc<dyn AsyncComputationSpawner>);
+
+impl Debug for CompileContractsSpawnerHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "CompileContractsSpawnerHandle")
+    }
+}
+
 #[derive(Debug)]
 pub struct ApplyState {
     /// Points to a phase of the chain lifecycle that we want to run apply for.
@@ -209,6 +221,13 @@ pub struct ApplyState {
     /// Pending-compile-queue entries the chunk producer signaled to advance
     /// in this chunk's header. Empty when `CompileQueueDeferral` is inactive.
     pub compiled_indices: Vec<u64>,
+    /// Spawner used to kick off background contract compilation when receipts
+    /// are admitted to the pending-compile queue. `None` for apply contexts
+    /// that do not run in a process with a real compile pool (ad-hoc tests,
+    /// view calls). When `None`, admission still succeeds but no async
+    /// compile is started; the eventual advancement falls back to
+    /// synchronous compile through the standard cache path.
+    pub compile_contracts_spawner: Option<CompileContractsSpawnerHandle>,
     /// Callback to be called when the post-state is ready.
     pub on_post_state_ready: Option<PostStateReadyCallback>,
 }

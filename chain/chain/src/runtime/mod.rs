@@ -7,6 +7,7 @@ use crate::types::{
     StateRootNodeValidationResult, StorageDataSource, Tip,
 };
 use errors::FromStateViewerErrors;
+use near_async::futures::AsyncComputationSpawner;
 use near_async::thread_pool::contract_compilation_pool;
 use near_async::time::{Duration, Instant};
 use near_chain_configs::{GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig};
@@ -56,9 +57,9 @@ use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
-    ApplyState, Runtime, SignedValidPeriodTransactions, TxVerdict, ValidatorAccountsUpdate,
-    get_signer_and_access_key, validate_transaction, verify_and_charge_gas_key_tx_ephemeral,
-    verify_and_charge_tx_ephemeral,
+    ApplyState, CompileContractsSpawnerHandle, Runtime, SignedValidPeriodTransactions, TxVerdict,
+    ValidatorAccountsUpdate, get_signer_and_access_key, validate_transaction,
+    verify_and_charge_gas_key_tx_ephemeral, verify_and_charge_tx_ephemeral,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -90,6 +91,11 @@ pub struct NightshadeRuntime {
     state_parts_compression_lvl: i32,
     is_cloud_archival_writer: bool,
     save_receipt_to_tx: bool,
+    /// Spawner used to start background contract compilation when receipts
+    /// are admitted to the pending-compile queue. Defaults to
+    /// `contract_compilation_pool()` in production and to a deterministic
+    /// test-loop spawner under tests.
+    compile_contracts_spawner: Arc<dyn AsyncComputationSpawner>,
 }
 
 impl NightshadeRuntime {
@@ -107,6 +113,7 @@ impl NightshadeRuntime {
         state_parts_compression_lvl: i32,
         is_cloud_archival_writer: bool,
         save_receipt_to_tx: bool,
+        compile_contracts_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Arc<Self> {
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
@@ -148,6 +155,7 @@ impl NightshadeRuntime {
             state_parts_compression_lvl,
             is_cloud_archival_writer,
             save_receipt_to_tx,
+            compile_contracts_spawner,
         })
     }
 
@@ -296,6 +304,9 @@ impl NightshadeRuntime {
             congestion_info,
             bandwidth_requests,
             compiled_indices,
+            compile_contracts_spawner: Some(CompileContractsSpawnerHandle(
+                self.compile_contracts_spawner.clone(),
+            )),
             trie_access_tracker_state: Default::default(),
             on_post_state_ready,
         };

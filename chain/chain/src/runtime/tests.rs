@@ -153,6 +153,7 @@ impl TestEnv {
             DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
             false,
             true,
+            near_async::thread_pool::contract_compilation_pool().clone(),
         );
         let state_roots = get_genesis_state_roots(&store).unwrap();
         let genesis_hash = hash(&[0]);

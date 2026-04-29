@@ -111,7 +111,7 @@ pub fn setup_client(
         .as_ref()
         .map(|writer_config| writer_config.snapshot_every_n_epochs)
         .unwrap_or(1);
-    let runtime_adapter = NightshadeRuntime::test_with_trie_config(
+    let runtime_adapter = NightshadeRuntime::test_with_trie_config_and_spawner(
         &homedir,
         storage.hot_store.clone(),
         ContractRuntimeCache::handle(&contract_cache),
@@ -123,6 +123,7 @@ pub fn setup_client(
         client_config.cloud_archival_writer.is_some(),
         snapshot_every_n_epochs,
         client_config.save_receipt_to_tx,
+        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
     );
 
     let state_snapshot = StateSnapshotActor::new(

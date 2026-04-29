@@ -318,14 +318,8 @@ fn test_pending_compile_queue_advancement_happy_path() {
     // on the same account fails because the account has no contract yet.
     // The design doc accepts this race: per-account ordering of follow-up
     // calls is deferred to a future PoC.
-    let pre_call_tx = env.rpc_node().tx_call(
-        &user,
-        &user,
-        "main",
-        vec![],
-        Balance::ZERO,
-        Gas::from_teragas(30),
-    );
+    let pre_call_tx =
+        env.rpc_node().tx_call(&user, &user, "main", vec![], Balance::ZERO, Gas::from_teragas(30));
     let pre_call_tx_hash = pre_call_tx.get_hash();
     env.rpc_node().submit_tx(pre_call_tx);
     env.rpc_runner().run_until_outcome_available(pre_call_tx_hash, Duration::seconds(5));
@@ -375,14 +369,8 @@ fn test_pending_compile_queue_advancement_happy_path() {
     );
 
     // Follow-up FunctionCall on the deployed contract must succeed.
-    let call_tx = env.rpc_node().tx_call(
-        &user,
-        &user,
-        "main",
-        vec![],
-        Balance::ZERO,
-        Gas::from_teragas(30),
-    );
+    let call_tx =
+        env.rpc_node().tx_call(&user, &user, "main", vec![], Balance::ZERO, Gas::from_teragas(30));
     let call_tx_hash = call_tx.get_hash();
     env.rpc_node().submit_tx(call_tx);
     env.rpc_runner().run_until_outcome_available(call_tx_hash, Duration::seconds(5));
