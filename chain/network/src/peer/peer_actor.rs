@@ -89,7 +89,8 @@ pub struct HandshakeCompletedEvent {
 }
 
 #[derive(thiserror::Error, Clone, PartialEq, Eq, Debug)]
-pub(crate) enum ClosingReason {
+#[allow(private_interfaces)]
+pub enum ClosingReason {
     #[error("too many inbound connections in connecting state")]
     TooManyInbound,
     #[error("outbound not allowed: {0}")]

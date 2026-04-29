@@ -30,7 +30,7 @@ use std::collections::HashMap;
 /// (Block updates `block_info`), removed on unregister.
 #[allow(dead_code)]
 #[derive(Clone)]
-pub(crate) struct ConnectedPeerState {
+pub struct ConnectedPeerState {
     pub peer_info: PeerInfo,
     /// Highest block we've heard of from this peer. `None` until the
     /// first `Block` message arrives. Distinct from `Connection::last_block`:
@@ -53,7 +53,7 @@ pub(crate) struct ConnectedPeerState {
 /// Invariant: `tier1_by_account_key[k] = p` iff there is a T1 entry
 /// at `p` with `owned_account_key == Some(k)`. Maintained by `insert`
 /// and `remove`.
-pub(crate) struct ConnectedPeers {
+pub struct ConnectedPeers {
     tier1_peers: Mutex<HashMap<PeerId, ConnectedPeerState>>,
     tier2_peers: Mutex<HashMap<PeerId, ConnectedPeerState>>,
     tier3_peers: Mutex<HashMap<PeerId, ConnectedPeerState>>,

@@ -105,7 +105,8 @@ pub(crate) struct WhitelistNode {
     account_id: Option<AccountId>,
 }
 
-pub(crate) struct NetworkState {
+#[allow(private_interfaces)]
+pub struct NetworkState {
     /// Spawner for NetworkState's background operations (gossip
     /// processing, edge correction, send-to-self delivery). The
     /// spawner's runtime lifetime is the caller's responsibility;
@@ -210,7 +211,7 @@ impl EdgesWithSource {
 /// Action to take after processing an incoming routed message.
 /// Returned by `NetworkState::process_incoming_routed` for the caller
 /// (PeerActor or TestLoopTransport) to execute.
-pub(crate) enum RoutedAction {
+pub enum RoutedAction {
     /// Message is for us — caller should handle (Ping/Pong synchronously,
     /// others via `handle_peer_message`).
     ForMe(Box<RoutedMessage>),
@@ -238,7 +239,7 @@ pub(crate) struct PeerConnectionInfo {
 
 /// Minimal peer identity carried through the disconnect path. Only
 /// what `on_peer_disconnected` actually reads.
-pub(crate) struct PeerDisconnectInfo {
+pub struct PeerDisconnectInfo {
     pub peer_info: PeerInfo,
     pub tier: tcp::Tier,
     pub peer_type: PeerType,
@@ -265,7 +266,7 @@ impl From<&connection::Connection> for PeerDisconnectInfo {
 }
 
 impl NetworkState {
-    pub fn new(
+    pub(crate) fn new(
         clock: &time::Clock,
         future_spawner: Arc<dyn FutureSpawner>,
         async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
@@ -541,7 +542,11 @@ impl NetworkState {
     /// internally, only when the removed peer was T1, with a defensive
     /// check against account-key reuse races). For T2: edge removal
     /// broadcast, peer_store, connection_store, pending_reconnect.
-    pub(crate) async fn on_peer_disconnected(
+    // tcp::StreamId is pub(crate) and #[cfg(test)]-gated; from outside
+    // the crate the parameter is invisible. The allow silences the lint
+    // for the in-crate test build only.
+    #[allow(private_interfaces)]
+    pub async fn on_peer_disconnected(
         self: &Arc<Self>,
         clock: &time::Clock,
         info: &PeerDisconnectInfo,
@@ -679,7 +684,11 @@ impl NetworkState {
         self.send_message_to_peer(clock, tier, self.sign_message(clock, msg), transport);
     }
 
-    pub fn sign_message(&self, clock: &time::Clock, msg: RawRoutedMessage) -> Box<RoutedMessage> {
+    pub(crate) fn sign_message(
+        &self,
+        clock: &time::Clock,
+        msg: RawRoutedMessage,
+    ) -> Box<RoutedMessage> {
         Box::new(msg.sign(
             &self.config.node_key,
             self.config.routed_message_ttl,
@@ -1063,7 +1072,7 @@ impl NetworkState {
     ///
     /// Returns a `RoutedAction` for the caller to execute. Ping/Pong
     /// special-casing happens on the caller side.
-    pub(crate) fn process_incoming_routed(
+    pub fn process_incoming_routed(
         &self,
         clock: &time::Clock,
         from: &PeerId,
@@ -1292,7 +1301,7 @@ impl NetworkState {
         }
     }
 
-    pub async fn add_accounts_data(
+    pub(crate) async fn add_accounts_data(
         self: &Arc<Self>,
         clock: &time::Clock,
         accounts_data: Vec<Arc<SignedAccountData>>,
@@ -1339,7 +1348,7 @@ impl NetworkState {
         .unwrap_or(None)
     }
 
-    pub async fn add_snapshot_hosts(
+    pub(crate) async fn add_snapshot_hosts(
         self: &Arc<Self>,
         hosts: Vec<Arc<SnapshotHostInfo>>,
         transport: Arc<dyn NetworkTransport>,

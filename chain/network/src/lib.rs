@@ -1,5 +1,11 @@
 #![cfg_attr(enable_const_type_id, feature(const_type_id))]
 
+pub use crate::peer::peer_actor::ClosingReason;
+pub use crate::peer_manager::connected_peers::{ConnectedPeerState, ConnectedPeers};
+pub use crate::peer_manager::network_state::{NetworkState, PeerDisconnectInfo, RoutedAction};
+pub use crate::peer_manager::network_transport::{
+    ConnectError, ConnectHandle, NetworkTransport, PeerTransportStats, TransportInfo,
+};
 pub use crate::peer_manager::peer_manager_actor::{Event, PeerManagerActor};
 pub use crate::peer_manager::tcp_transport::TcpTransport;
 pub use crate::rate_limits::messages_limits::OverrideConfig as MessagesLimitsOverrideConfig;
