@@ -895,14 +895,19 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
         // function bodies), LoadedCode::push_module stores the module in
         // modules_with_only_trampolines, but LoadedCode::module() only
         // searches self.modules, causing module_for_instance to panic.
+        // Seems to have been resolved in wasmtime 40, by a registry refactor.
+        // Until then the workaround is necessary.
         if let Export::Unresolved(_) = store.data().memory {
             if let Some(memory) = instance.get_memory(&mut store, MEMORY_EXPORT) {
                 store.data_mut().memory = Export::Resolved(memory);
             }
         }
-        if let Some(global) = remaining_gas {
-            let Some(Extern::Global(global)) = instance.get_module_export(&mut store, &global)
-            else {
+        if remaining_gas.is_some() {
+            // Uses string-based instance.get_global instead of
+            // instance.get_module_export due to the same wasmtime issue
+            // documented for the memory pre-resolution above: trampoline-only
+            // modules cause module_for_instance to panic.
+            let Some(global) = instance.get_global(&mut store, REMAINING_GAS_EXPORT) else {
                 panic!("gas global export was present on the module, but not on the instance");
             };
             store.call_hook(move |mut store, hook| {
@@ -931,8 +936,12 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
                 Ok(())
             });
         }
-        if let Some(start) = start {
-            let Some(Extern::Func(start)) = instance.get_module_export(&mut store, &start) else {
+        if start.is_some() {
+            // Uses string-based instance.get_func instead of
+            // instance.get_module_export due to the same wasmtime issue
+            // documented for the memory pre-resolution above: trampoline-only
+            // modules cause module_for_instance to panic.
+            let Some(start) = instance.get_func(&mut store, START_EXPORT) else {
                 panic!("start function export was present on the module, but not on the instance");
             };
             if let Err(err) = start.call(&mut store, &[], &mut []) {
