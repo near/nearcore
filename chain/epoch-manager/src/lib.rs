@@ -37,6 +37,7 @@ use num_rational::BigRational;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use primitive_types::U256;
 use reward_calculator::ValidatorOnlineThresholds;
+pub use shard_assignment::AssignmentStrategy;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
@@ -830,11 +831,16 @@ impl EpochManager {
             &next_shard_layout,
             block_info,
         )?;
-        let has_same_shard_layout = next_next_shard_layout == next_shard_layout;
 
-        let last_resharding = (!has_same_shard_layout)
+        let last_resharding = (next_next_shard_layout != next_shard_layout)
             .then(|| next_epoch_info.epoch_height() + 1)
             .or_else(|| next_epoch_info.last_resharding());
+
+        let strategy = AssignmentStrategy::select(
+            next_next_epoch_version,
+            &next_next_shard_layout,
+            &next_shard_layout,
+        );
 
         let next_next_epoch_info = match proposals_to_epoch_info(
             &next_next_epoch_config,
@@ -846,7 +852,7 @@ impl EpochManager {
             minted_amount,
             next_next_epoch_version,
             next_next_shard_layout.clone(),
-            has_same_shard_layout,
+            &strategy,
             last_resharding,
         ) {
             Ok(next_next_epoch_info) => next_next_epoch_info,

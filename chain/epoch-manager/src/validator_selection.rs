@@ -1,4 +1,4 @@
-use crate::shard_assignment::assign_chunk_producers_to_shards;
+use crate::shard_assignment::{AssignmentStrategy, assign_chunk_producers_to_shards};
 use near_primitives::epoch_info::{EpochInfo, RngSeed};
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::errors::EpochError;
@@ -101,7 +101,7 @@ fn get_chunk_producers_assignment(
     rng_seed: RngSeed,
     prev_epoch_info: &EpochInfo,
     validator_roles: &ValidatorRoles,
-    use_stable_shard_assignment: bool,
+    strategy: &AssignmentStrategy,
 ) -> Result<ChunkProducersAssignment, EpochError> {
     let ValidatorRoles { chunk_producers, block_producers, chunk_validators, .. } = validator_roles;
 
@@ -146,8 +146,8 @@ fn get_chunk_producers_assignment(
         minimum_validators_per_shard,
         epoch_config.chunk_producer_assignment_changes_limit as usize,
         rng_seed,
+        strategy,
         prev_chunk_producers_assignment,
-        use_stable_shard_assignment,
     )
     .map_err(|_| EpochError::NotEnoughValidators {
         num_validators: num_chunk_producers as u64,
@@ -173,7 +173,7 @@ pub fn proposals_to_epoch_info(
     minted_amount: Balance,
     protocol_version: ProtocolVersion,
     shard_layout: ShardLayout,
-    use_stable_shard_assignment: bool,
+    strategy: &AssignmentStrategy,
     last_resharding: Option<EpochHeight>,
 ) -> Result<EpochInfo, EpochError> {
     debug_assert!(
@@ -230,7 +230,7 @@ pub fn proposals_to_epoch_info(
         rng_seed,
         prev_epoch_info,
         &validator_roles,
-        use_stable_shard_assignment,
+        strategy,
     )?;
 
     if epoch_config.shuffle_shard_assignment_for_chunk_producers {
@@ -425,8 +425,9 @@ mod tests {
     use near_primitives::epoch_info::{EpochInfo, EpochInfoV3};
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::NumSeats;
+    use near_primitives::types::ShardId;
     use near_primitives::types::validator_stake::ValidatorStake;
-    use near_primitives::version::PROTOCOL_VERSION;
+    use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
     use num_rational::Ratio;
 
     #[test]
@@ -453,7 +454,7 @@ mod tests {
             Balance::ZERO,
             PROTOCOL_VERSION,
             shard_layout,
-            false,
+            &AssignmentStrategy::Fresh,
             None,
         )
         .unwrap();
@@ -524,7 +525,7 @@ mod tests {
             Balance::ZERO,
             PROTOCOL_VERSION,
             shard_layout,
-            false,
+            &AssignmentStrategy::Fresh,
             None,
         )
         .unwrap();
@@ -613,7 +614,7 @@ mod tests {
             Balance::ZERO,
             PROTOCOL_VERSION,
             shard_layout.clone(),
-            false,
+            &AssignmentStrategy::Fresh,
             None,
         )
         .unwrap();
@@ -627,7 +628,7 @@ mod tests {
             Balance::ZERO,
             PROTOCOL_VERSION,
             shard_layout.clone(),
-            false,
+            &AssignmentStrategy::Fresh,
             None,
         )
         .unwrap();
@@ -643,7 +644,7 @@ mod tests {
             Balance::ZERO,
             PROTOCOL_VERSION,
             shard_layout.clone(),
-            false,
+            &AssignmentStrategy::Fresh,
             None,
         )
         .unwrap();
@@ -657,7 +658,7 @@ mod tests {
             Balance::ZERO,
             PROTOCOL_VERSION,
             shard_layout,
-            false,
+            &AssignmentStrategy::Fresh,
             None,
         )
         .unwrap();
@@ -715,7 +716,7 @@ mod tests {
             Balance::ZERO,
             PROTOCOL_VERSION,
             shard_layout,
-            false,
+            &AssignmentStrategy::Fresh,
             None,
         )
         .unwrap();
@@ -760,7 +761,7 @@ mod tests {
             Balance::ZERO,
             PROTOCOL_VERSION,
             shard_layout.clone(),
-            false,
+            &AssignmentStrategy::Fresh,
             None,
         )
         .unwrap();
@@ -796,7 +797,7 @@ mod tests {
             Balance::ZERO,
             PROTOCOL_VERSION,
             shard_layout.clone(),
-            false,
+            &AssignmentStrategy::Fresh,
             None,
         )
         .unwrap();
@@ -853,7 +854,7 @@ mod tests {
             Balance::ZERO,
             PROTOCOL_VERSION,
             shard_layout,
-            false,
+            &AssignmentStrategy::Fresh,
             None,
         )
         .unwrap();
@@ -939,7 +940,7 @@ mod tests {
             Balance::ZERO,
             PROTOCOL_VERSION,
             shard_layout.clone(),
-            false,
+            &AssignmentStrategy::Fresh,
             None,
         )
         .unwrap();
@@ -984,7 +985,7 @@ mod tests {
             Balance::ZERO,
             PROTOCOL_VERSION,
             shard_layout.clone(),
-            false,
+            &AssignmentStrategy::Fresh,
             None,
         )
         .unwrap();
@@ -1009,7 +1010,7 @@ mod tests {
             Balance::ZERO,
             PROTOCOL_VERSION,
             shard_layout,
-            false,
+            &AssignmentStrategy::Fresh,
             None,
         )
         .unwrap();
@@ -1044,7 +1045,7 @@ mod tests {
             Balance::ZERO,
             PROTOCOL_VERSION,
             shard_layout,
-            false,
+            &AssignmentStrategy::Fresh,
             None,
         )
         .unwrap();
@@ -1082,7 +1083,7 @@ mod tests {
             Balance::ZERO,
             PROTOCOL_VERSION,
             shard_layout,
-            false,
+            &AssignmentStrategy::Fresh,
             None,
         )
         .unwrap();
@@ -1200,5 +1201,156 @@ mod tests {
         fn into_validator_stake(self) -> ValidatorStake {
             (*self).into_validator_stake()
         }
+    }
+
+    /// Sticky-resharding integration test. Drives the full
+    /// `proposals_to_epoch_info` flow across two epochs (T and T+1), where T+1
+    /// uses a derived shard layout in which one parent shard splits into two
+    /// children. Asserts that `chunk_producers_settlement` survives the split:
+    /// unchanged shards keep their validators by `ShardId`, and each child
+    /// shard inherits at least one of the parent's validators.
+    #[test]
+    fn test_validator_assignment_sticky_resharding() {
+        // Skip if the feature isn't active in this build.
+        if !ProtocolFeature::StickyValidatorAssignment.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+
+        // Two-shard prev layout split on "mid". Resharding will introduce a
+        // new boundary "ttt" inside the right shard, splitting it.
+        let prev_layout = ShardLayout::v2(
+            vec!["mid".parse().unwrap()],
+            vec![ShardId::new(0), ShardId::new(1)],
+            None,
+        );
+        let new_layout = ShardLayout::derive_shard_layout(&prev_layout, "ttt".parse().unwrap());
+        assert_eq!(new_layout.num_shards(), 3);
+
+        let prev_config = create_epoch_config(prev_layout.clone(), 8, Some(8), Some(8), None);
+        let new_config = create_epoch_config(new_layout.clone(), 8, Some(8), Some(8), None);
+
+        // 6 chunk producers — enough that each shard gets at least 2 in the
+        // 3-shard layout without triggering the satisfy-shards path.
+        let proposals = create_proposals(&[
+            ("aaa", Balance::from_yoctonear(1100)),
+            ("bbb", Balance::from_yoctonear(1000)),
+            ("ccc", Balance::from_yoctonear(900)),
+            ("ddd", Balance::from_yoctonear(800)),
+            ("eee", Balance::from_yoctonear(700)),
+            ("fff", Balance::from_yoctonear(600)),
+        ]);
+
+        // Bootstrap epoch T from a V3 prev so we obtain a fresh V5 EpochInfo
+        // for the prev-layout epoch.
+        let bootstrap_prev = create_prev_epoch_info::<&str>(7, &[], &[]);
+        let epoch_info_t = proposals_to_epoch_info(
+            &prev_config,
+            [0; 32],
+            &bootstrap_prev,
+            proposals.clone(),
+            Default::default(),
+            Default::default(),
+            Balance::ZERO,
+            PROTOCOL_VERSION,
+            prev_layout.clone(),
+            &AssignmentStrategy::Fresh,
+            None,
+        )
+        .unwrap();
+        assert!(epoch_info_t.shard_layout().is_some(), "epoch T should be V5 (DynamicResharding+)");
+
+        // Capture the per-shard validator-account sets for epoch T.
+        let validators_for_shard_index = |info: &EpochInfo, idx: usize| -> HashSet<AccountId> {
+            info.chunk_producers_settlement()[idx]
+                .iter()
+                .map(|&id| info.get_validator(id).account_id().clone())
+                .collect()
+        };
+        let prev_settlement = [
+            validators_for_shard_index(&epoch_info_t, 0),
+            validators_for_shard_index(&epoch_info_t, 1),
+        ];
+        // Sanity: every chunk producer is placed somewhere.
+        let total_t: HashSet<_> = prev_settlement.iter().flatten().cloned().collect();
+        assert_eq!(total_t.len(), 6);
+
+        // Epoch T+1 uses the post-split layout. Same proposals — so any
+        // movement is purely from layout-driven reassignment, not validator
+        // turnover.
+        // Use `Sticky` explicitly: this is the variant under test.
+        let epoch_info_t1 = proposals_to_epoch_info(
+            &new_config,
+            [0; 32],
+            &epoch_info_t,
+            proposals,
+            Default::default(),
+            Default::default(),
+            Balance::ZERO,
+            PROTOCOL_VERSION,
+            new_layout.clone(),
+            &AssignmentStrategy::sticky(&new_layout, &prev_layout).unwrap(),
+            None,
+        )
+        .unwrap();
+
+        // Stickiness invariants. These are tight enough to fail under the
+        // `Fresh` strategy (round-robin from scratch), so they actually
+        // exercise the sticky path rather than holding by coincidence:
+        //   1. Every parent validator lands on one of the split children.
+        //      With `Fresh`, ddd ends up on unchanged shard 0 instead.
+        //   2. Each child inherits ≥1 parent validator (warm start for state
+        //      sync).
+        //   3. The unchanged shard keeps 2 of its 3 prev validators (one is
+        //      pulled into a child to balance population). Under `Fresh` the
+        //      unchanged shard keeps only 1.
+        let prev_id_set: HashSet<ShardId> = prev_layout.shard_ids().collect();
+        let prev_idx = |id: ShardId| -> usize { prev_layout.get_shard_index(id).unwrap() };
+        let mut total_unwanted_moves = 0usize;
+        let mut split_parent_inheritance: HashMap<ShardId, HashSet<AccountId>> = HashMap::new();
+        for new_shard_id in new_layout.shard_ids() {
+            let new_idx = new_layout.get_shard_index(new_shard_id).unwrap();
+            let new_validators = validators_for_shard_index(&epoch_info_t1, new_idx);
+            if prev_id_set.contains(&new_shard_id) {
+                let prev_validators = &prev_settlement[prev_idx(new_shard_id)];
+                let lost = prev_validators.difference(&new_validators).count();
+                total_unwanted_moves += lost;
+            } else {
+                let parent = new_layout.get_parent_shard_id(new_shard_id).unwrap();
+                let parent_validators = &prev_settlement[prev_idx(parent)];
+                let inherited: HashSet<AccountId> =
+                    parent_validators.intersection(&new_validators).cloned().collect();
+                assert!(
+                    !inherited.is_empty(),
+                    "child shard {} (parent {}) inherited no validators from parent: \
+                     parent had {:?}, child has {:?}",
+                    new_shard_id,
+                    parent,
+                    parent_validators,
+                    new_validators,
+                );
+                split_parent_inheritance.entry(parent).or_default().extend(inherited);
+            }
+        }
+        // Invariant 1: every parent validator landed on one of the children.
+        // The `Fresh` strategy fails this — at least one parent validator is
+        // re-distributed onto an unchanged shard during round-robin filling.
+        for (parent, inherited) in &split_parent_inheritance {
+            let parent_validators = &prev_settlement[prev_idx(*parent)];
+            assert_eq!(
+                inherited, parent_validators,
+                "parent {} validators not fully preserved across its children: \
+                 parent had {:?}, children inherited {:?}",
+                parent, parent_validators, inherited,
+            );
+        }
+        // Invariant 2: unchanged shard loses at most 1 validator (the one
+        // pulled into a child to balance population). The `Fresh` baseline
+        // loses 2 of the 3 prev validators on the unchanged shard.
+        assert!(
+            total_unwanted_moves <= 1,
+            "too many validators moved away from unchanged shards: {} \
+             (sticky should keep all but one; Fresh would lose 2)",
+            total_unwanted_moves,
+        );
     }
 }

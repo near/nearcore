@@ -260,7 +260,7 @@ The parent shard's memtrie must be loaded when resharding executes (checked at `
 
 ### General Resharding TODOs (May Affect Dynamic Resharding)
 
-8. **`chain/epoch-manager/src/shard_assignment.rs:198`** -- Shard assignment for validators after resharding is not yet implemented.
+8. ~~**`chain/epoch-manager/src/shard_assignment.rs:198`** -- Shard assignment for validators after resharding is not yet implemented.~~ Resolved by `ProtocolFeature::StickyValidatorAssignment` (protocol version 153). On a shard split, the parent's chunk producers are distributed to the children via greedy stake-balanced bin-packing in `bin_pack_into_children`, and unchanged shards keep their producers by `ShardId` rather than `ShardIndex`. See `AssignmentStrategy` in `chain/epoch-manager/src/shard_assignment.rs`. Limitation: the path falls back to round-robin when `num_chunk_producers < min_validators_per_shard * num_shards`, and shard merges are not yet supported.
 
 9. **`chain/client/src/stateless_validation/shadow_validate.rs:22`** -- Shadow validation breaks across resharding boundaries.
 
