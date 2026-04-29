@@ -7,6 +7,7 @@ pub mod messaging;
 pub mod multithread;
 pub mod test_loop;
 pub mod test_utils;
+pub mod thread_pool;
 pub mod tokio;
 
 use crate::futures::FutureSpawner;

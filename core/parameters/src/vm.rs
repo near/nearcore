@@ -213,6 +213,10 @@ pub struct Config {
     /// call without requiring the calling contract to have sufficient balance.
     pub one_yocto_on_promise: bool,
 
+    /// Whether to enable the P-256 ECDSA signature verification host function.
+    /// NEP-635: <https://github.com/near/NEPs/pull/635>
+    pub p256_verify_host_fn: bool,
+
     /// Describes limits for VM and Runtime.
     pub limit_config: LimitConfig,
 }
@@ -245,6 +249,7 @@ impl Config {
         self.eth_implicit_global_contract = true;
         self.global_contract_host_fns = true;
         self.gas_key_host_fns = true;
+        self.p256_verify_host_fn = true;
     }
 }
 

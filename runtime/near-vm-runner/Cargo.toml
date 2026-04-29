@@ -24,6 +24,7 @@ finite-wasm-6 = { workspace = true, optional = true }
 lru.workspace = true
 memoffset = { workspace = true, optional = true }
 num-rational.workspace = true
+p256.workspace = true
 parking_lot.workspace = true
 prefix-sum-vec = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }

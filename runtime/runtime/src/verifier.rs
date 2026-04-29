@@ -126,18 +126,6 @@ pub fn validate_transaction(
     ValidatedTransaction::new(config, signed_tx, current_protocol_version)
 }
 
-/// Validates a transaction contains well-formed actions and is valid for the given runtime config.
-///
-/// This function is similar to `validate_transaction` but does NOT verify the signature.
-pub(crate) fn validate_transaction_well_formed<'a>(
-    config: &RuntimeConfig,
-    signed_tx: &SignedTransaction,
-    current_protocol_version: ProtocolVersion,
-) -> Result<(), InvalidTxError> {
-    validate_transaction_actions(config, signed_tx, current_protocol_version)?;
-    ValidatedTransaction::check_valid_for_config(config, signed_tx, current_protocol_version)
-}
-
 /// Set new `signer` and `access_key` in `state_update`.
 ///
 /// Note that this does not commit state changes to the `TrieUpdate`.

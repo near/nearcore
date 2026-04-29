@@ -51,7 +51,7 @@ impl InstrumentedThreadWriter {
         };
         self.advance_window_if_needed_internal(start_time_ns);
         MESSAGE_DEQUEUE_TIME
-            .with_label_values(&[&self.target.actor_name, message_type])
+            .with_label_values(&[self.target.actor_name.as_str(), message_type])
             .observe(dequeue_time_ns as f64 / NANOS_PER_SECOND);
         self.target.start_event(message_type_id, start_time_ns, dequeue_time_ns);
     }
@@ -66,7 +66,7 @@ impl InstrumentedThreadWriter {
         let total_elapsed_ns = self.target.end_event(end_time_ns);
 
         MESSAGE_PROCESSING_TIME
-            .with_label_values(&[&self.target.actor_name, message_type])
+            .with_label_values(&[self.target.actor_name.as_str(), message_type])
             .observe(total_elapsed_ns as f64 / NANOS_PER_SECOND);
     }
 

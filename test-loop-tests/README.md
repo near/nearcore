@@ -23,8 +23,10 @@ See `src/examples/setup.rs` for a full set of setup examples.
 The simplest setup uses all defaults (one validator, one shard, no RPC):
 
 ```rust
-let mut env = TestLoopBuilder::new().build().warmup();
+let mut env = TestLoopBuilder::new().build();
 ```
+
+`build()` automatically warms up the chain (advances a few blocks), so tests don't start on heights where blocks may be missing chunks or approvals. Use `.skip_warmup()` if you need to observe behavior starting from genesis, or `.delay_warmup()` if you need to configure the environment between `build()` and an explicit `env.warmup()` call.
 
 Configure topology with `.validators()`, `.num_shards()`, and `.enable_rpc()`:
 
@@ -33,8 +35,7 @@ let mut env = TestLoopBuilder::new()
     .validators(2, 1)  // 2 block+chunk producers, 1 chunk-only validator
     .num_shards(2)
     .enable_rpc()
-    .build()
-    .warmup();
+    .build();
 ```
 
 Add user accounts and override genesis parameters as needed:
@@ -45,8 +46,7 @@ let mut env = TestLoopBuilder::new()
     .epoch_length(10)
     .gas_limit(Gas::from_teragas(300))
     .protocol_version(PROTOCOL_VERSION - 1)
-    .build()
-    .warmup();
+    .build();
 ```
 
 Other available genesis overrides: `genesis_height`, `transaction_validity_period`, `max_inflation_rate`, `minimum_stake_ratio`, `gas_prices`.
@@ -64,8 +64,7 @@ let genesis = TestLoopBuilder::new_genesis_builder()
 let mut env = TestLoopBuilder::new()
     .genesis(genesis)
     .clients(clients)
-    .build()
-    .warmup();
+    .build();
 ```
 
 ## 2. Trigger and execute events

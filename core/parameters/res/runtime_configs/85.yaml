@@ -1,1 +1,2 @@
 one_yocto_on_promise: { old: false, new: true }
+p256_verify_host_fn: { old: false, new: true }

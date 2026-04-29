@@ -153,7 +153,7 @@ impl AppInfo {
 
         let account_id = self.peer_id_to_account_id(&peer_id);
         crate::metrics::PING_SENT
-            .with_label_values(&[&chain_id, &peer_str(peer_id, account_id)])
+            .with_label_values(&[chain_id, peer_str(peer_id, account_id).as_str()])
             .inc();
 
         match self.stats.entry(peer_id.clone()) {
@@ -488,7 +488,7 @@ async fn ping_via_node(
                 let t = pending_timeout.unwrap();
                 app_info.pop_timeout(&t);
                 let account_id = app_info.peer_id_to_account_id(&t.peer_id);
-                crate::metrics::PONG_TIMEOUTS.with_label_values(&[&chain_id, &peer_str(&t.peer_id, account_id)]).inc();
+                crate::metrics::PONG_TIMEOUTS.with_label_values(&[chain_id, peer_str(&t.peer_id, account_id).as_str()]).inc();
                 if let Some(csv) = latencies_csv.as_mut() {
                     result = csv.write_timeout(
                         &t.peer_id,

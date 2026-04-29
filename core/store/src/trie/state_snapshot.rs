@@ -133,26 +133,46 @@ impl StateSnapshot {
 #[derive(Debug)]
 pub enum StateSnapshotConfig {
     Disabled,
-    Enabled { state_snapshots_dir: PathBuf },
+    Enabled {
+        state_snapshots_dir: PathBuf,
+        /// Only epoch heights that are multiples of this value produce a snapshot.
+        snapshot_every_n_epochs: u64,
+    },
 }
 
 impl StateSnapshotConfig {
     const STATE_SNAPSHOT_DIR: &str = "state_snapshot";
 
     pub fn enabled(hot_store_path: impl AsRef<Path>) -> Self {
+        Self::enabled_with_cadence(hot_store_path, 1)
+    }
+
+    pub fn enabled_with_cadence(
+        hot_store_path: impl AsRef<Path>,
+        snapshot_every_n_epochs: u64,
+    ) -> Self {
         // Assumptions:
         // * RocksDB checkpoints are taken instantly and for free, because the filesystem supports hard links.
         // * The best place for checkpoints is within the `hot_store_path`, because that directory is often a separate disk.
         Self::Enabled {
             state_snapshots_dir: hot_store_path.as_ref().join(Self::STATE_SNAPSHOT_DIR),
+            snapshot_every_n_epochs,
         }
     }
 
     pub fn state_snapshots_dir(&self) -> Option<&Path> {
         match self {
             StateSnapshotConfig::Disabled => None,
-            StateSnapshotConfig::Enabled { state_snapshots_dir } => Some(state_snapshots_dir),
+            StateSnapshotConfig::Enabled { state_snapshots_dir, .. } => Some(state_snapshots_dir),
         }
+    }
+
+    /// Configured snapshot cadence in epochs. Defaults to `1`.
+    pub fn snapshot_cadence(&self) -> u64 {
+        if let StateSnapshotConfig::Enabled { snapshot_every_n_epochs, .. } = self {
+            return *snapshot_every_n_epochs;
+        }
+        1
     }
 }
 
