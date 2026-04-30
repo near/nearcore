@@ -1,8 +1,12 @@
+pub mod pre_populate;
 pub mod registry;
+pub mod setup_real_pma;
 pub mod shared_state;
 pub mod transport;
 
 // Re-exports consumed in T4 (`#[allow(unused_imports)]` cleared there).
+#[allow(unused_imports)]
+pub(crate) use pre_populate::populate_full_mesh;
 #[allow(unused_imports)]
 pub(crate) use registry::TestLoopNodeRegistry;
 #[allow(unused_imports)]

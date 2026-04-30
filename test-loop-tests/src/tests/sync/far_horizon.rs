@@ -58,6 +58,7 @@ fn test_far_horizon_full_pipeline() {
     let epoch_length = 10;
     let accounts = make_accounts(100);
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
         .validators(4, 0)
         .num_shards(4)
         .epoch_length(epoch_length)
@@ -116,6 +117,7 @@ fn test_far_horizon_chained_epoch_sync() {
     let epoch_length = 10;
     let accounts = make_accounts(100);
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
         .validators(4, 0)
         .num_shards(4)
         .epoch_length(epoch_length)
@@ -191,7 +193,11 @@ fn test_far_horizon_stale_node_shutdown() {
     init_test_logger();
 
     let epoch_length = 10;
-    let mut env = TestLoopBuilder::new().validators(4, 0).epoch_length(epoch_length).build();
+    let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .validators(4, 0)
+        .epoch_length(epoch_length)
+        .build();
 
     let kill_height = 3 * epoch_length;
     env.node_runner(0).run_until_head_height(kill_height);
@@ -248,6 +254,7 @@ fn test_far_horizon_archival_skips_epoch_sync() {
     let epoch_length = 10;
     let gc_num_epochs_to_keep = 10;
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
         .validators(4, 0)
         .epoch_length(epoch_length)
         // Validators need gc >= chain length so archival node can fetch all blocks from genesis.
@@ -323,6 +330,7 @@ fn test_far_horizon_restart_during_header_sync() {
     let epoch_length = 10;
     let accounts = make_accounts(100);
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
         .validators(4, 0)
         .num_shards(4)
         .epoch_length(epoch_length)
@@ -400,6 +408,7 @@ fn test_far_horizon_restart_during_state_sync() {
     let epoch_length = 10;
     let accounts = make_accounts(100);
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
         .validators(4, 0)
         .num_shards(4)
         .epoch_length(epoch_length)
@@ -474,6 +483,7 @@ fn test_far_horizon_restart_during_block_sync() {
     let epoch_length = 10;
     let accounts = make_accounts(100);
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
         .validators(4, 0)
         .num_shards(4)
         .epoch_length(epoch_length)
@@ -546,6 +556,7 @@ fn test_far_horizon_restart_after_long_downtime() {
     let epoch_length = 10;
     let accounts = make_accounts(100);
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
         .validators(4, 0)
         .num_shards(4)
         .epoch_length(epoch_length)
@@ -632,6 +643,7 @@ fn test_far_horizon_staking_state() {
     let stake_amount = Balance::from_near(100);
     let accounts = make_accounts(100);
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
         .validators(4, 0)
         .num_shards(4)
         .epoch_length(epoch_length)
@@ -716,6 +728,7 @@ fn test_far_horizon_tx_during_sync() {
     let epoch_length = 10;
     let accounts = make_accounts(100);
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
         .validators(4, 0)
         .num_shards(4)
         .epoch_length(epoch_length)
@@ -817,6 +830,7 @@ fn test_far_horizon_stale_sync_hash_detection() {
     let epoch_length = 10;
     let accounts = make_accounts(100);
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
         .validators(4, 0)
         .num_shards(4)
         .epoch_length(epoch_length)

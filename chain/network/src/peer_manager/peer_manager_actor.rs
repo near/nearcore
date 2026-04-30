@@ -351,7 +351,7 @@ fn build_connected_peer_info(
 impl PeerManagerActor {
     /// Pure constructor. Takes pre-built dependencies.
     /// Used by testloop (directly) and production (via spawn).
-    pub(crate) fn new(
+    pub fn new(
         clock: time::Clock,
         state: Arc<NetworkState>,
         transport: Arc<dyn NetworkTransport>,

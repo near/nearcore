@@ -16,7 +16,12 @@ const TIMEOUT_SECONDS: i64 = 5;
 fn block_chunk_signature_rejection() {
     init_test_logger();
 
-    let mut env = TestLoopBuilder::new().validators(2, 0).skip_warmup().build();
+    let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
+        .validators(2, 0)
+        .skip_warmup()
+        .build();
 
     let mutated_blocks = Arc::new(AtomicUsize::new(0));
 

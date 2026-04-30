@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 fn get_builder(num_shards: usize) -> TestLoopBuilder {
     init_test_logger();
-    let builder = TestLoopBuilder::new();
+    let builder = TestLoopBuilder::new().use_legacy_mock_pma();
 
     let epoch_length = 100;
     // Keep it above 3 to prevent missing blocks from stalling the network.

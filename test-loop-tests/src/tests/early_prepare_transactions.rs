@@ -41,6 +41,8 @@ fn setup(num_nodes: usize, epoch_length: BlockHeightDelta) -> TestLoopEnv {
         .genesis_height(10000)
         .build();
     TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(accounts)

@@ -1,14 +1,20 @@
 #![cfg_attr(enable_const_type_id, feature(const_type_id))]
 
+pub use crate::announce_accounts::AnnounceAccountCache;
 pub use crate::peer::peer_actor::ClosingReason;
 pub use crate::peer_manager::connected_peers::{ConnectedPeerState, ConnectedPeers};
-pub use crate::peer_manager::network_state::{NetworkState, PeerDisconnectInfo, RoutedAction};
+pub use crate::peer_manager::network_state::{
+    NetworkState, PeerConnectionInfo, PeerDisconnectInfo, RoutedAction,
+};
 pub use crate::peer_manager::network_transport::{
     ConnectError, ConnectHandle, NetworkTransport, PeerTransportStats, TransportInfo,
 };
 pub use crate::peer_manager::peer_manager_actor::{Event, PeerManagerActor};
+pub use crate::peer_manager::peer_store::PeerStore;
 pub use crate::peer_manager::tcp_transport::TcpTransport;
+pub use crate::private_messages::RegisterPeerError;
 pub use crate::rate_limits::messages_limits::OverrideConfig as MessagesLimitsOverrideConfig;
+pub use crate::store::Store as NetworkStore;
 
 mod accounts_data;
 mod announce_accounts;

@@ -67,6 +67,8 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
 
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .clients(accounts)
         .epoch_config_store(epoch_config_store)

@@ -73,6 +73,8 @@ impl Test {
             .minimum_validators_per_shard(self.min_validators)
             .build_store_for_genesis_protocol_version();
         let mut env = TestLoopBuilder::new()
+            .use_legacy_mock_pma()
+            .use_legacy_mock_pma()
             .genesis(genesis)
             .clients(accounts)
             .epoch_config_store(epoch_config_store)

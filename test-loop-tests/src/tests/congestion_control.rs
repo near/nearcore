@@ -164,6 +164,8 @@ fn setup(
         .build_store_for_genesis_protocol_version();
 
     let env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)

@@ -286,7 +286,7 @@ impl Inner {
     }
 }
 
-pub(crate) struct PeerStore(Mutex<Inner>);
+pub struct PeerStore(Mutex<Inner>);
 
 impl PeerStore {
     pub fn new(clock: &time::Clock, config: Config) -> anyhow::Result<Self> {

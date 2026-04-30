@@ -161,6 +161,8 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
 
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(vec![node_account])

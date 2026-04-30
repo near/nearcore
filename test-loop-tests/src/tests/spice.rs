@@ -39,7 +39,7 @@ use std::task::Poll;
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_chain() {
     init_test_logger();
-    let builder = TestLoopBuilder::new();
+    let builder = TestLoopBuilder::new().use_legacy_mock_pma();
 
     let accounts: Vec<AccountId> =
         (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect_vec();
@@ -175,6 +175,8 @@ fn test_spice_chain_with_delayed_execution() {
 
     let producer_account = clients[0].clone();
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(clients)
@@ -215,6 +217,8 @@ fn setup_spice_env_with_execution_delay() -> (TestLoopEnv, AccountId) {
 
     let producer_account = clients[0].clone();
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(clients)
@@ -330,6 +334,8 @@ fn test_spice_garbage_collection() {
         .epoch_length(epoch_length)
         .build();
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .gc_num_epochs_to_keep(1)
         .epoch_config_store_from_genesis()
@@ -359,6 +365,8 @@ fn test_spice_garbage_collection_witnesses() {
         .epoch_length(epoch_length)
         .build();
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .gc_num_epochs_to_keep(1)
         .epoch_config_store_from_genesis()
@@ -449,6 +457,8 @@ fn test_restart_rpc_node() {
         .build();
 
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(clients)
@@ -513,6 +523,8 @@ fn test_restart_producer_node() {
         .build();
 
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(clients)
@@ -585,6 +597,8 @@ fn test_restart_validator_node() {
         .build();
 
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(clients)
@@ -693,6 +707,8 @@ fn test_spice_chain_with_missing_chunks() {
         .build();
 
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(clients)
@@ -810,6 +826,8 @@ fn test_spice_validator_only_does_not_distribute_witness_and_receipts() {
     let num_validators = 2;
 
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .validators(num_producers, num_validators)
         .num_shards(2)
         .delay_warmup()
@@ -863,6 +881,8 @@ fn test_spice_validator_only_sends_endorsements() {
     let num_validators = 2;
 
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .validators(num_producers, num_validators)
         .num_shards(2)
         .delay_warmup()

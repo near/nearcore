@@ -6,7 +6,8 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum RegisterPeerError {
+#[allow(private_interfaces)]
+pub enum RegisterPeerError {
     Blacklisted,
     Banned,
     PoolError(connection::PoolError),

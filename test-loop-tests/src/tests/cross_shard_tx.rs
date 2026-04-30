@@ -115,6 +115,8 @@ fn test_cross_shard_tx_common(Params { num_transfers, rotate_validators, drop_ch
         .minimum_validators_per_shard(2)
         .build_store_for_genesis_protocol_version();
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .clients(validator_accounts)
         .epoch_config_store(epoch_config_store)

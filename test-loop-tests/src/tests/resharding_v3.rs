@@ -491,7 +491,7 @@ fn setup_global_contracts(
 /// Base setup to check sanity of Resharding V3.
 fn test_resharding_v3_base(params: TestReshardingParameters) {
     init_test_logger();
-    let mut builder = TestLoopBuilder::new();
+    let mut builder = TestLoopBuilder::new().use_legacy_mock_pma();
     let tracked_shard_schedule = params.tracked_shard_schedule.clone();
 
     builder = builder.config_modifier(move |config, client_index| {

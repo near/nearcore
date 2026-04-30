@@ -139,8 +139,13 @@ impl TestLoopEnv {
     /// Additionally, we set the NetworkInfo for this node which is required for state sync to work.
     pub fn restart_node(&mut self, new_identifier: &str, node_state: NodeSetupState) {
         // setup_client handles adding the account_id and peer_id details to network_shared_state
-        let node_data =
-            setup_client(new_identifier, &mut self.test_loop, node_state, &self.shared_state);
+        let node_data = setup_client(
+            new_identifier,
+            &mut self.test_loop,
+            node_state,
+            &self.shared_state,
+            self.shared_state.use_legacy_mock_pma,
+        );
         self.node_datas.push(node_data);
     }
 
@@ -259,6 +264,10 @@ impl Drop for TestLoopEnv {
             self.test_loop.data.get_mut(&node_data.state_sync_dumper_handle).stop();
         }
         self.test_loop.initiate_shutdown();
-        self.test_loop.run_for(Duration::seconds(30));
+        // Drain all delayed actions. Real PeerManagerActor schedules
+        // periodic triggers up to ~100s (monitor_peers) and ~60s
+        // (report_bandwidth_stats); 120s clears them in shutdown mode
+        // since process_event drops events without rescheduling.
+        self.test_loop.run_for(Duration::seconds(120));
     }
 }

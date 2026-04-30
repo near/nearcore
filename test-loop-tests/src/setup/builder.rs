@@ -3,6 +3,9 @@ use super::mock_pma::{TestLoopNetworkSharedState, UnreachableActor};
 use super::rpc::{FaultyRpcTransport, RpcFaultHandle};
 use super::setup::setup_client;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
+use super::testloop_transport::populate_full_mesh;
+use super::testloop_transport::registry::TestLoopNodeRegistry;
+use super::testloop_transport::shared_state::TestLoopNetworkSharedStateV2;
 use crate::utils::account::{
     archival_account_id, create_validators_spec, validators_spec_clients,
     validators_spec_clients_with_rpc,
@@ -73,6 +76,11 @@ pub(crate) struct TestLoopBuilder {
     /// the corresponding pool entry's transport returns `Err(msg)` instead of
     /// dispatching the request. Used to simulate unreachable / stale nodes.
     rpc_pool_fault_handles: HashMap<AccountId, RpcFaultHandle>,
+    /// When `true`, every node uses the legacy mock `TestLoopPeerManagerActor`.
+    /// When `false`, every node uses the real `PeerManagerActor` with
+    /// `TestLoopTransport`. Default is `true` while T4 lands; T5 migrates the
+    /// last mock-using tests, then T6 deletes the flag and the mock.
+    use_legacy_mock_pma: bool,
 }
 
 impl TestLoopBuilder {
@@ -92,7 +100,16 @@ impl TestLoopBuilder {
             rpc_pool: None,
             bucket_config: BucketConfig::canonical(),
             rpc_pool_fault_handles: HashMap::new(),
+            use_legacy_mock_pma: false,
         }
+    }
+
+    /// Opt into the legacy mock `TestLoopPeerManagerActor`. Tests that
+    /// register network handlers via `register_override_handler` need
+    /// this; the default is the real `PeerManagerActor`.
+    pub(crate) fn use_legacy_mock_pma(mut self) -> Self {
+        self.use_legacy_mock_pma = true;
+        self
     }
 
     pub(crate) fn bucket_config(mut self, bucket_config: BucketConfig) -> Self {
@@ -431,6 +448,7 @@ impl TestLoopBuilder {
 
         let rpc_pool = self.rpc_pool.take();
         let rpc_pool_fault_handles = std::mem::take(&mut self.rpc_pool_fault_handles);
+        let use_legacy_mock_pma = self.use_legacy_mock_pma;
         let node_states = (0..clients.len())
             .map(|idx| self.setup_node_state(idx, &genesis, &clients))
             .collect_vec();
@@ -439,11 +457,31 @@ impl TestLoopBuilder {
             .into_iter()
             .map(|node_state| {
                 let account_id = node_state.account_id.clone();
-                setup_client(account_id.as_str(), &mut test_loop, node_state, &shared_state)
+                setup_client(
+                    account_id.as_str(),
+                    &mut test_loop,
+                    node_state,
+                    &shared_state,
+                    use_legacy_mock_pma,
+                )
             })
             .collect_vec();
 
         Self::setup_sharded_rpc_pools(&datas, rpc_pool.as_deref(), &rpc_pool_fault_handles);
+
+        // Real-PMA path: seed the full mesh once every node is wired so PMA's
+        // monitor_peers_trigger and tier1_connect short-circuit naturally.
+        if !use_legacy_mock_pma {
+            let clock = test_loop.clock();
+            // Match production: use the genesis epoch_id for initial announcements.
+            let epoch_id = near_primitives::types::EpochId::default();
+            futures::executor::block_on(populate_full_mesh(
+                &clock,
+                &datas,
+                &shared_state.registry,
+                epoch_id,
+            ));
+        }
 
         TestLoopEnv { test_loop, node_datas: datas, shared_state }
     }
@@ -506,6 +544,9 @@ impl TestLoopBuilder {
             epoch_config_store: self.epoch_config_store.unwrap(),
             runtime_config_store: self.runtime_config_store,
             network_shared_state: TestLoopNetworkSharedState::new(unreachable_actor_sender),
+            transport_shared_state: TestLoopNetworkSharedStateV2::default(),
+            registry: TestLoopNodeRegistry::default(),
+            use_legacy_mock_pma: self.use_legacy_mock_pma,
             upgrade_schedule,
             chunks_storage: Default::default(),
             drop_conditions: Default::default(),

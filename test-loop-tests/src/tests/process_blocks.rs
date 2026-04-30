@@ -27,7 +27,12 @@ enum InvalidBlockMode {
 fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
     init_test_logger();
 
-    let mut env = TestLoopBuilder::new().validators(4, 0).epoch_length(100).build();
+    let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
+        .validators(4, 0)
+        .epoch_length(100)
+        .build();
     let epoch_manager = env.node(0).client().epoch_manager.clone();
 
     let ban_counter: Arc<RwLock<usize>> = Arc::new(RwLock::new(0));
@@ -136,7 +141,13 @@ fn test_ban_peer_for_ill_formed_block() {
 fn test_produce_block_with_approvals_arrived_early() {
     init_test_logger();
 
-    let mut env = TestLoopBuilder::new().validators(4, 0).num_shards(4).epoch_length(100).build();
+    let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
+        .validators(4, 0)
+        .num_shards(4)
+        .epoch_length(100)
+        .build();
     let epoch_manager = env.node(0).client().epoch_manager.clone();
 
     let block_holder: Arc<RwLock<Option<SpanWrapped<BlockResponse>>>> = Arc::new(RwLock::new(None));

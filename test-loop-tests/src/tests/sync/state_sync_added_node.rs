@@ -92,7 +92,7 @@ fn setup_initial_blockchain(
     skip_block_sync_height_delta: Option<isize>,
     initial_protocol_version: ProtocolVersion,
 ) -> TestState {
-    let builder = TestLoopBuilder::new();
+    let builder = TestLoopBuilder::new().use_legacy_mock_pma();
 
     let validators = (0..num_validators)
         .map(|i| {

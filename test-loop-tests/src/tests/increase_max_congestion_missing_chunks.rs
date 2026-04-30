@@ -70,7 +70,7 @@ fn slow_test_tx_inclusion() {
     let validators_spec = ValidatorsSpec::desired_roles(&producers, &validators);
     let [rpc_id] = rpcs else { panic!("Expected exactly one rpc node") };
 
-    let builder = TestLoopBuilder::new();
+    let builder = TestLoopBuilder::new().use_legacy_mock_pma();
     let genesis = TestGenesisBuilder::new()
         .protocol_version(old_protocol)
         .genesis_time_from_clock(&builder.clock())

@@ -99,7 +99,7 @@ impl WhitelistNode {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct WhitelistNode {
+pub struct WhitelistNode {
     id: PeerId,
     addr: SocketAddr,
     account_id: Option<AccountId>,
@@ -226,7 +226,7 @@ pub enum RoutedAction {
 /// for TCP, TestLoopTransport for testloop) extracts these fields from
 /// whatever connection representation it owns and hands them to the
 /// lifecycle methods (`validate_new_connection`, `on_peer_connected`).
-pub(crate) struct PeerConnectionInfo {
+pub struct PeerConnectionInfo {
     pub peer_info: PeerInfo,
     pub tier: tcp::Tier,
     pub peer_type: PeerType,
@@ -266,7 +266,8 @@ impl From<&connection::Connection> for PeerDisconnectInfo {
 }
 
 impl NetworkState {
-    pub(crate) fn new(
+    #[allow(private_interfaces)]
+    pub fn new(
         clock: &time::Clock,
         future_spawner: Arc<dyn FutureSpawner>,
         async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
@@ -484,7 +485,7 @@ impl NetworkState {
     /// succeeds. Writes to connected_peers (ConnectedPeers handles the
     /// T1 `account_key → peer_id` index internally as a side effect of
     /// `insert`), broadcasts edge (T2), and updates peer_store (T2).
-    pub(crate) async fn on_peer_connected(
+    pub async fn on_peer_connected(
         self: &Arc<Self>,
         clock: &time::Clock,
         edge: Edge,

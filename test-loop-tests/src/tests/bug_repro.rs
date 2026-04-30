@@ -56,6 +56,8 @@ fn slow_test_repro_1183() {
 
     let clients = block_producers.into_iter().map(|a| a.parse().unwrap()).collect_vec();
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
@@ -190,6 +192,8 @@ fn slow_test_sync_from_archival_node() {
 
     let clients = block_producers.into_iter().map(|a| a.parse().unwrap()).collect_vec();
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
@@ -315,6 +319,8 @@ fn slow_test_long_gap_between_blocks() {
 
     let clients = block_producers.into_iter().map(|a| a.parse().unwrap()).collect_vec();
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
@@ -381,6 +387,8 @@ fn test_rpc_forwards_retried_transaction() {
         .add_user_accounts_simple(&user_accounts, initial_balance)
         .build();
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(clients)

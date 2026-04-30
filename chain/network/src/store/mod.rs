@@ -23,7 +23,8 @@ pub(crate) struct Error(schema::Error);
 /// In particular it doesn't implement Clone and requires &mut self for
 /// methods writing to the DB.
 #[derive(Clone)]
-pub(crate) struct Store(schema::Store);
+#[allow(private_interfaces)]
+pub struct Store(schema::Store);
 
 impl Store {
     /// Inserts (account_id,aa) to the AccountAnnouncements column.
@@ -34,14 +35,14 @@ impl Store {
         skip_all,
         fields(%account_id)
     )]
-    pub fn set_account_announcement(&self, account_id: &AccountId, aa: &AnnounceAccount) {
+    pub(crate) fn set_account_announcement(&self, account_id: &AccountId, aa: &AnnounceAccount) {
         let mut update = self.0.new_update();
         update.set::<schema::AccountAnnouncements>(account_id, aa);
         self.0.commit(update)
     }
 
     /// Fetches row with key account_id from the AccountAnnouncements column.
-    pub fn get_account_announcement(
+    pub(crate) fn get_account_announcement(
         &self,
         account_id: &AccountId,
     ) -> Result<Option<AnnounceAccount>, Error> {
@@ -57,7 +58,7 @@ impl Store {
         "Store::set_recent_outbound_connections",
         skip_all
     )]
-    pub fn set_recent_outbound_connections(
+    pub(crate) fn set_recent_outbound_connections(
         &self,
         recent_outbound_connections: &Vec<ConnectionInfo>,
     ) {
@@ -66,7 +67,7 @@ impl Store {
         self.0.commit(update)
     }
 
-    pub fn get_recent_outbound_connections(&self) -> Vec<ConnectionInfo> {
+    pub(crate) fn get_recent_outbound_connections(&self) -> Vec<ConnectionInfo> {
         self.0
             .get::<schema::RecentOutboundConnections>(&())
             .unwrap_or(Some(vec![]))

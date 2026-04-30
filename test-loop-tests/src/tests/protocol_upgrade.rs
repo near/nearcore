@@ -56,7 +56,7 @@ pub(crate) fn test_protocol_upgrade(
     let validators_spec = ValidatorsSpec::desired_roles(&producers, &validators);
     let [_rpc_id] = rpcs else { panic!("Expected exactly one rpc node") };
 
-    let builder = TestLoopBuilder::new();
+    let builder = TestLoopBuilder::new().use_legacy_mock_pma();
     let genesis = TestGenesisBuilder::new()
         .protocol_version(old_protocol)
         .genesis_time_from_clock(&builder.clock())

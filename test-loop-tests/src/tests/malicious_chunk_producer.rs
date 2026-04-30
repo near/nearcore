@@ -44,6 +44,8 @@ fn test_producer_with_expired_transactions() {
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
     let mut test_loop_env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(accounts.clone())
@@ -151,7 +153,12 @@ fn test_producer_with_expired_transactions() {
 fn test_producer_sending_large_encoded_length_chunks() {
     init_test_logger();
 
-    let mut env = TestLoopBuilder::new().validators(2, 0).gc_num_epochs_to_keep(20).build();
+    let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
+        .validators(2, 0)
+        .gc_num_epochs_to_keep(20)
+        .build();
 
     let epoch_manager = env.node(0).client().epoch_manager.clone();
     let peer_manager_actor_handle = env.node_datas[0]
@@ -222,7 +229,12 @@ fn test_chunk_parts_withholding_attack() {
     // The malicious node sends only 1 part to the block producer, which must be
     // insufficient to reconstruct (need 2). With fewer validators (e.g. 4),
     // num_data_parts=1, so a single part suffices and the attack is ineffective.
-    let mut env = TestLoopBuilder::new().validators(7, 0).num_shards(7).build();
+    let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
+        .validators(7, 0)
+        .num_shards(7)
+        .build();
 
     let (malicious_node_idx, honest_node_idx) = (0, 1);
     // The malicious chunk producer only sends chunk parts to the block producer

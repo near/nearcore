@@ -2,6 +2,10 @@ use super::drop_condition::ClientToShardsManagerSender;
 use super::mock_pma::TestLoopPeerManagerActor;
 use super::rpc::{TestLoopRpcTransport, create_testloop_jsonrpc_router};
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
+use super::testloop_transport::setup_real_pma::{
+    ActorSenders, build_client_sender_for_network, pma_adapter_from,
+};
+use super::testloop_transport::transport::TestLoopTransport;
 use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::test_loop::TestLoopV2;
@@ -37,6 +41,8 @@ use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_jsonrpc::client::RpcTransport;
 use near_jsonrpc::sharded_rpc::ShardedRpcPool;
+use near_network::types::{PeerManagerAdapter, PeerManagerSenderForNetwork};
+use near_network::{NetworkState, NetworkStore, NetworkTransport, PeerManagerActor, PeerStore};
 use near_primitives::genesis::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
@@ -56,6 +62,7 @@ pub fn setup_client(
     test_loop: &mut TestLoopV2,
     node_state: NodeSetupState,
     shared_state: &SharedState,
+    use_legacy_mock_pma: bool,
 ) -> NodeExecutionData {
     let NodeSetupState { account_id, client_config, storage, validator_signer: custom_signer } =
         node_state;
@@ -66,6 +73,8 @@ pub fn setup_client(
         epoch_config_store,
         runtime_config_store,
         network_shared_state,
+        transport_shared_state,
+        registry,
         upgrade_schedule,
         chunks_storage,
         drop_conditions,
@@ -75,7 +84,7 @@ pub fn setup_client(
 
     let client_adapter = LateBoundSender::new();
     let rpc_handler_adapter = LateBoundSender::new();
-    let network_adapter = LateBoundSender::new();
+    let network_adapter = LateBoundSender::<PeerManagerAdapter>::new();
     let state_snapshot_adapter = LateBoundSender::new();
     let partial_witness_adapter = LateBoundSender::new();
     let sync_jobs_adapter = LateBoundSender::new();
@@ -353,17 +362,13 @@ pub fn setup_client(
         Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(10))),
     );
 
-    let peer_manager_actor = TestLoopPeerManagerActor::new(
-        test_loop.clock(),
-        &account_id,
-        network_shared_state,
-        client_adapter.as_multi_sender(),
-        GenesisId {
-            chain_id: client_config.chain_id.clone(),
-            hash: *client_actor.client.chain.genesis().hash(),
-        },
-        Arc::new(test_loop.future_spawner(identifier)),
-    );
+    // PMA construction (mock or real) is deferred to the inline branch
+    // below, after all per-actor senders are registered. Capture the
+    // genesis_id up-front while `client_actor` still owns `client`.
+    let genesis_id = GenesisId {
+        chain_id: client_config.chain_id.clone(),
+        hash: *client_actor.client.chain.genesis().hash(),
+    };
 
     let gc_actor = GCActor::new(
         runtime_adapter.store().clone(),
@@ -520,7 +525,7 @@ pub fn setup_client(
     let state_sync_dumper_handle = test_loop.data.register_data(state_sync_dumper_handle);
 
     let client_sender =
-        test_loop.data.register_actor(identifier, client_actor, Some(client_adapter));
+        test_loop.data.register_actor(identifier, client_actor, Some(client_adapter.clone()));
     let view_client_sender = test_loop.data.register_actor(identifier, view_client_actor, None);
     let state_request_sender = test_loop.data.register_actor(identifier, state_request_actor, None);
     let rpc_handler_sender =
@@ -556,8 +561,85 @@ pub fn setup_client(
         chunk_state_witness: chunk_validation_multi_sender.chunk_state_witness,
     });
 
-    let legacy_mock_pma_sender =
-        Some(test_loop.data.register_actor(identifier, peer_manager_actor, Some(network_adapter)));
+    let (legacy_mock_pma_sender, network_state) = if use_legacy_mock_pma {
+        let actor = TestLoopPeerManagerActor::new(
+            test_loop.clock(),
+            &account_id,
+            network_shared_state,
+            client_adapter.as_multi_sender(),
+            genesis_id,
+            Arc::new(test_loop.future_spawner(identifier)),
+        );
+        let mock_sender = test_loop.data.register_actor(identifier, actor, None);
+        network_adapter.bind(pma_adapter_from(mock_sender.clone()));
+        (Some(mock_sender), None)
+    } else {
+        // NetworkState needs PMA's sender for Tier3Request, but PMA is
+        // constructed AFTER NetworkState. Late-bound, mirroring
+        // chunk_validation_adapter at line 342 above.
+        let pma_late_bound = LateBoundSender::<PeerManagerSenderForNetwork>::new();
+
+        let client_for_network = build_client_sender_for_network(ActorSenders {
+            client_sender: client_sender.clone(),
+            view_client_sender: view_client_sender.clone(),
+            rpc_handler_sender: rpc_handler_sender.clone(),
+            chunk_endorsement_handler_sender: chunk_endorsement_handler_sender.clone(),
+        });
+
+        let network_config = near_network::config::NetworkConfig::from_seed(
+            account_id.as_str(),
+            near_network::tcp::ListenerAddr::reserve_for_test(),
+        );
+        let peer_store = PeerStore::new(&test_loop.clock(), network_config.peer_store.clone())
+            .expect("PeerStore::new with default testloop config");
+
+        // Network metadata DB — separate from blockchain state.
+        let network_db: Arc<dyn near_store::db::Database> = near_store::db::TestDB::new();
+
+        let net_state = Arc::new(NetworkState::new(
+            &test_loop.clock(),
+            Arc::new(test_loop.future_spawner(identifier)),
+            Arc::new(
+                test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(10)),
+            ),
+            NetworkStore::from(network_db),
+            peer_store,
+            network_config.verify().expect("verify testloop NetworkConfig"),
+            genesis_id,
+            client_for_network,
+            state_request_sender.clone().into_multi_sender(),
+            pma_late_bound.as_multi_sender(),
+            shards_manager_sender.clone().into_sender(),
+            partial_witness_sender.clone().into_multi_sender(),
+            vec![], // whitelist_nodes empty
+            spice_data_distributor_sender.clone().into_multi_sender(),
+            spice_core_writer_sender.clone().into_sender(),
+        ));
+
+        let transport = TestLoopTransport::new(
+            peer_id.clone(),
+            net_state.clone(),
+            transport_shared_state.clone(),
+            registry.clone(),
+            Arc::new(test_loop.future_spawner(identifier)),
+            test_loop.clock(),
+        );
+
+        let pma = PeerManagerActor::new(
+            test_loop.clock(),
+            net_state.clone(),
+            transport.clone() as Arc<dyn NetworkTransport>,
+            Arc::new(test_loop.future_spawner(identifier)),
+        );
+        let pma_sender = test_loop.data.register_actor(identifier, pma, None);
+
+        network_adapter.bind(pma_adapter_from(pma_sender.clone()));
+        pma_late_bound
+            .bind(PeerManagerSenderForNetwork { tier3_request_sender: pma_sender.into_sender() });
+        registry.register(peer_id.clone(), transport);
+
+        (None, Some(net_state))
+    };
 
     let jsonrpc_router = create_testloop_jsonrpc_router(
         test_loop.clock(),
@@ -584,6 +666,8 @@ pub fn setup_client(
         shards_manager_sender,
         partial_witness_sender,
         legacy_mock_pma_sender,
+        network_state,
+        is_archival,
         resharding_sender,
         state_sync_dumper_handle,
         spice_data_distributor_sender,
@@ -597,17 +681,21 @@ pub fn setup_client(
         pending_nonces: Default::default(),
     };
 
-    // Add the client to the network shared state before returning data
-    // Note that this can potentially overwrite an existing client with the same account_id
-    // and all new messages would be redirected to the new client.
-    network_shared_state.add_client(&node_data);
-    if is_archival {
-        network_shared_state.mark_archival(&node_data.peer_id);
-    }
-
-    // Register all accumulated drop conditions
-    for condition in drop_conditions {
-        node_data.register_drop_condition(&mut test_loop.data, chunks_storage.clone(), condition);
+    if use_legacy_mock_pma {
+        // Mock-only post-setup. The real-PMA path uses transport-level
+        // filters (T5) instead of `register_override_handler`, and the
+        // network_shared_state is unused on that path.
+        network_shared_state.add_client(&node_data);
+        if is_archival {
+            network_shared_state.mark_archival(&node_data.peer_id);
+        }
+        for condition in drop_conditions {
+            node_data.register_drop_condition(
+                &mut test_loop.data,
+                chunks_storage.clone(),
+                condition,
+            );
+        }
     }
 
     node_data

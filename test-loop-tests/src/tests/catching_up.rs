@@ -133,6 +133,8 @@ fn test_catchup_random_single_part_sync_common(
         .build_store_for_genesis_protocol_version();
 
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .clients(runner.all_validators_accounts())
         .epoch_config_store(epoch_config_store)
@@ -318,6 +320,8 @@ fn slow_test_catchup_sanity_blocks_produced() {
         .minimum_validators_per_shard(2)
         .build_store_for_genesis_protocol_version();
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .clients(accounts)
         .epoch_config_store(epoch_config_store)
@@ -415,6 +419,8 @@ fn slow_test_all_chunks_accepted() {
 
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .clients(accounts)
         .epoch_config_store(epoch_config_store)

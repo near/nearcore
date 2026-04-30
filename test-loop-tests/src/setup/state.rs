@@ -1,6 +1,8 @@
 use super::drop_condition::{DropCondition, TestLoopChunksStorage};
 use super::mock_pma::delayed_senders::NETWORK_DELAY;
 use super::mock_pma::{TestLoopNetworkSharedState, TestLoopPeerManagerActor};
+use super::testloop_transport::registry::TestLoopNodeRegistry;
+use super::testloop_transport::shared_state::TestLoopNetworkSharedStateV2;
 use near_async::messaging::IntoMultiSender;
 use near_async::test_loop::data::TestLoopDataHandle;
 use near_async::test_loop::sender::TestLoopSender;
@@ -19,6 +21,8 @@ use near_client::{
 use near_jsonrpc::ViewClientSenderForRpc;
 use near_jsonrpc::client::{JsonRpcClient, RpcTransport};
 use near_jsonrpc::sharded_rpc::ShardedRpcPool;
+use near_network::NetworkState;
+use near_network::types::PeerInfo;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
@@ -45,9 +49,20 @@ pub struct SharedState {
     pub tempdir: TempDir,
     pub epoch_config_store: EpochConfigStore,
     pub runtime_config_store: Option<RuntimeConfigStore>,
-    /// Shared state across all the network actors. It handles the mapping between AccountId,
-    /// PeerId, and the route back CryptoHash, so that individual network actors can do routing.
+    /// Shared state for the legacy mock PMA path. Maps AccountId,
+    /// PeerId, and the route back CryptoHash, so mock network actors
+    /// can do routing. Removed in T6 alongside the mock.
     pub network_shared_state: TestLoopNetworkSharedState,
+    /// Filters + delays for the real-PMA `TestLoopTransport`. Empty
+    /// by default; tests register filters via this handle.
+    pub transport_shared_state: TestLoopNetworkSharedStateV2,
+    /// Cross-node lookup of `Arc<TestLoopTransport>` for the real-PMA
+    /// path. Populated as nodes are registered in `setup_client`.
+    pub registry: TestLoopNodeRegistry,
+    /// Mirrors `TestLoopBuilder::use_legacy_mock_pma` so `restart_node`
+    /// / `add_node` use the same PMA path as the original build.
+    /// Removed in T6 alongside the flag.
+    pub use_legacy_mock_pma: bool,
     pub upgrade_schedule: ProtocolUpgradeVotingSchedule,
     /// Stores all chunks ever observed on chain. Used by drop conditions to simulate network drops.
     pub chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
@@ -90,6 +105,13 @@ pub struct NodeExecutionData {
     /// `.use_legacy_mock_pma()`. Tests that exercise the real PMA path
     /// leave this `None`.
     pub legacy_mock_pma_sender: Option<TestLoopSender<TestLoopPeerManagerActor>>,
+    /// The real PMA's `NetworkState`. `None` on the legacy mock path.
+    /// Used by `populate_full_mesh` at end-of-build to seed peer_store,
+    /// account_announcements, and `state.peers` bidirectionally.
+    pub network_state: Option<Arc<NetworkState>>,
+    /// Mirror of `client_config.archive`. Needed by `populate_full_mesh`
+    /// to set `archival` on each peer's `PeerConnectionInfo`.
+    pub is_archival: bool,
     pub resharding_sender: TestLoopSender<ReshardingActor>,
     pub state_sync_dumper_handle: TestLoopDataHandle<Arc<StateSyncDumpHandle>>,
     pub spice_data_distributor_sender: TestLoopSender<SpiceDataDistributorActor>,
@@ -134,6 +156,12 @@ impl NodeExecutionData {
                 "test uses register_override_handler — must call .use_legacy_mock_pma() on the builder",
             )
             .actor_handle()
+    }
+
+    /// Build a `PeerInfo` for this node. Used by the real-PMA path's
+    /// `populate_full_mesh` to seed cross-node `peer_store` entries.
+    pub fn peer_info(&self) -> PeerInfo {
+        PeerInfo { id: self.peer_id.clone(), addr: None, account_id: Some(self.account_id.clone()) }
     }
 }
 

@@ -172,6 +172,8 @@ fn test_state_sync_simple_two_node() {
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
@@ -202,6 +204,8 @@ fn test_state_sync_simple_five_node() {
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
@@ -235,6 +239,8 @@ fn test_state_sync_empty_shard() {
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
@@ -264,6 +270,8 @@ fn test_state_sync_miss_chunks_first_block() {
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
@@ -303,6 +311,8 @@ fn test_state_sync_miss_chunks_second_block() {
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
@@ -340,6 +350,8 @@ fn test_state_sync_miss_chunks_third_block() {
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
@@ -377,6 +389,8 @@ fn test_state_sync_miss_chunks_sync_block() {
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
@@ -415,6 +429,8 @@ fn test_state_sync_miss_chunks_sync_prev_block() {
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
@@ -453,6 +469,8 @@ fn test_state_sync_miss_chunks_before_last_chunk_included() {
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
@@ -493,6 +511,8 @@ fn test_state_sync_miss_chunks_multiple() {
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
@@ -546,6 +566,8 @@ fn test_state_sync_untrack_then_track() {
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
@@ -586,6 +608,8 @@ fn test_state_sync_from_fork() {
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
@@ -621,6 +645,8 @@ fn test_state_sync_to_fork() {
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
@@ -656,6 +682,8 @@ fn test_state_sync_fork_after_sync() {
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
@@ -690,6 +718,8 @@ fn test_state_sync_fork_before_sync() {
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
@@ -768,6 +798,8 @@ fn test_state_request() {
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
@@ -796,6 +828,8 @@ fn test_state_sync_protocol_upgrade() {
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
