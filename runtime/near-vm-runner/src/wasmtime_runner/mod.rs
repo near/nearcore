@@ -454,7 +454,6 @@ impl WasmtimeVM {
                 .memory_may_move(false)
                 .memory_reservation(max_memory_size.try_into().unwrap_or(u64::MAX))
                 .memory_reservation_for_growth(0)
-                .compiler_inlining(true)
                 .cranelift_nan_canonicalization(true)
                 .wasm_wide_arithmetic(true);
 
