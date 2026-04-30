@@ -11,14 +11,16 @@
 //! has been wired by `setup_client`. Order doesn't matter — the
 //! populate runs after all nodes exist and is N×N symmetric.
 
+use super::registry::TestLoopNodeRegistry;
 use crate::setup::state::NodeExecutionData;
 use near_async::time;
-use near_network::PeerConnectionInfo;
 use near_network::tcp;
 use near_network::types::{Edge, PeerType};
+use near_network::{NetworkTransport, PeerConnectionInfo};
 use near_primitives::network::AnnounceAccount;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::EpochId;
+use std::sync::Arc;
 
 const MESH_EDGE_NONCE: u64 = 1;
 
@@ -48,20 +50,14 @@ fn build_signed_edge(me: &NodeExecutionData, other: &NodeExecutionData) -> Edge 
     Edge::new(peer0, peer1, MESH_EDGE_NONCE, sig0, sig1)
 }
 
-/// Seeds peer_store, account_announcements, `state.peers`, and the
-/// routing graph bidirectionally for every pair of nodes.
-///
-/// Synchronous: bypasses the async `on_peer_connected` path because
-/// it would await `add_edges` through the demux, which is bound to a
-/// `FakeClock` that the testloop drives. Calling `block_on` on that
-/// path while the testloop thread is held would deadlock. Instead we
-/// use `NetworkState::populate_for_testloop` which writes the same
-/// connection state synchronously and adds the edge directly to the
-/// routing graph (no broadcast needed — every node is populated
-/// independently).
-pub(crate) fn populate_full_mesh(
+/// Seeds peer_store, account_announcements, and `state.peers`
+/// bidirectionally for every pair of nodes. The routing graph
+/// populates implicitly via `add_edges` inside `on_peer_connected`.
+#[allow(dead_code)]
+pub(crate) async fn populate_full_mesh(
     clock: &time::Clock,
     nodes: &[NodeExecutionData],
+    registry: &TestLoopNodeRegistry,
     test_epoch_id: EpochId,
 ) {
     // 1. peer_store + account_announcements.
@@ -84,9 +80,12 @@ pub(crate) fn populate_full_mesh(
         }
     }
 
-    // 2. state.peers + routing graph via populate_for_testloop.
+    // 2. state.peers via on_peer_connected. Routing graph populates
+    //    implicitly through add_edges inside on_peer_connected.
     for me in nodes {
         let Some(me_state) = me.network_state.as_ref() else { continue };
+        let me_transport: Arc<dyn NetworkTransport> =
+            registry.get(&me.peer_id).expect("populate_full_mesh: transport missing from registry");
         for other in nodes {
             if other.peer_id == me.peer_id {
                 continue;
@@ -109,7 +108,7 @@ pub(crate) fn populate_full_mesh(
                 established_time: clock.now(),
             };
 
-            me_state.populate_for_testloop(clock, edge, info);
+            me_state.on_peer_connected(clock, edge, info, me_transport.clone()).await;
         }
     }
 }

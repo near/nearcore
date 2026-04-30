@@ -485,60 +485,6 @@ impl NetworkState {
     /// succeeds. Writes to connected_peers (ConnectedPeers handles the
     /// T1 `account_key → peer_id` index internally as a side effect of
     /// `insert`), broadcasts edge (T2), and updates peer_store (T2).
-    /// Synchronous mirror of `on_peer_connected` that skips the async
-    /// `add_edges` demux call and the broadcast. Adds the edge directly
-    /// to the routing graph and inserts per-peer demuxes. Intended for
-    /// testloop's `populate_full_mesh` end-of-build seeding, which
-    /// runs under `block_on` and would deadlock on the FakeClock-bound
-    /// demux otherwise. Production callers must use `on_peer_connected`.
-    pub fn populate_for_testloop(
-        self: &Arc<Self>,
-        clock: &time::Clock,
-        edge: Edge,
-        info: PeerConnectionInfo,
-    ) {
-        let account_key = info.owned_account.as_ref().map(|oa| oa.account_key.clone());
-        let peer_id = info.peer_info.id.clone();
-        let tier = info.tier;
-        let peer_info = info.peer_info.clone();
-        self.peers.insert(
-            peer_id,
-            ConnectedPeerState {
-                peer_info: info.peer_info,
-                block_info: None,
-                tier: info.tier,
-                archival: info.archival,
-                tracked_shards: info.tracked_shards,
-                owned_account_key: account_key,
-                peer_type: info.peer_type,
-                established_time: info.established_time,
-            },
-        );
-        if tier == tcp::Tier::T2 {
-            self.accounts_data_demuxes.lock().insert(
-                peer_info.id.clone(),
-                demux::Demux::new(
-                    self.config.accounts_data_broadcast_rate_limit,
-                    clock.clone(),
-                    self.ops_spawner.as_ref(),
-                ),
-            );
-            self.snapshot_hosts_demuxes.lock().insert(
-                peer_info.id.clone(),
-                demux::Demux::new(
-                    self.config.snapshot_hosts_broadcast_rate_limit,
-                    clock.clone(),
-                    self.ops_spawner.as_ref(),
-                ),
-            );
-            // Add the edge to the graph synchronously, bypassing the
-            // demux (every node is seeded directly so no broadcast is
-            // needed during populate).
-            self.graph.update(vec![EdgesWithSource::Local(vec![edge])]);
-            self.peer_store.peer_connected(clock, &peer_info);
-        }
-    }
-
     pub async fn on_peer_connected(
         self: &Arc<Self>,
         clock: &time::Clock,
