@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// closure runs on the testloop event thread instead.
 ///
 /// Mirrors `near_chain::rayon_spawner::RayonAsyncComputationSpawner` (cycle
-/// prevents direct reuse). Both impls preserve the tracing dispatcher across
+/// prevents direct reuse). Both copies preserve the tracing dispatcher across
 /// the rayon hop so spans don't disappear from spawned work.
 pub struct RayonAsyncComputationSpawner;
 
