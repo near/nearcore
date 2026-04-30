@@ -239,13 +239,13 @@ fn test_wasmtime_artifact_output_stability() {
     ];
     let compiled_hashes = [
         // See the above comment if you want to change this
-        17467356520024489490,
-        14729060831070184139,
-        11041498883632407283,
-        12049699321754363033,
-        9906436427985886682,
-        15560032392659795845,
-        11171783944424554209,
+        4774743111553613885,
+        1597576442569865275,
+        2458663334453612687,
+        2596794912834051398,
+        914926634613848705,
+        16754245741617892699,
+        15435585184328777682,
     ];
     let mut got_prepared_hashes = Vec::with_capacity(seeds.len());
     let mut got_compiled_hashes = Vec::with_capacity(seeds.len());
@@ -327,7 +327,7 @@ fn test_wasmtime_sparse_contract_stability() {
     // sparse-data-segment case that `arbitrary_contract` does not cover.
     // See comments on that test for how to update these hashes.
     let expected_prepared_hash: u64 = 16694328674582109973;
-    let expected_compiled_hash: u64 = 8543849532946659263;
+    let expected_compiled_hash: u64 = 17665236938772967494;
 
     let contract = ContractCode::new(sparse_wasm_contract(), None);
     let config = test_vm_config(Some(VMKind::Wasmtime));
