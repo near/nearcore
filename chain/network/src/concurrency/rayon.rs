@@ -1,23 +1,8 @@
+pub use near_async::RayonAsyncComputationSpawner;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use rayon::iter::{Either, ParallelIterator};
 use std::error::Error;
 use std::sync::atomic::{AtomicBool, Ordering};
-
-/// `AsyncComputationSpawner` backed by the global rayon thread pool. Used in
-/// production; testloop substitutes `TestLoopAsyncComputationSpawner` so the
-/// closure runs on the testloop event thread instead.
-///
-/// Mirrors `near_chain::rayon_spawner::RayonAsyncComputationSpawner` (cycle
-/// prevents direct reuse). Both copies preserve the tracing dispatcher across
-/// the rayon hop so spans don't disappear from spawned work.
-pub struct RayonAsyncComputationSpawner;
-
-impl AsyncComputationSpawner for RayonAsyncComputationSpawner {
-    fn spawn_boxed(&self, _name: &str, f: Box<dyn FnOnce() + Send>) {
-        let dispatcher = tracing::dispatcher::get_default(|it| it.clone());
-        rayon::spawn(move || tracing::dispatcher::with_default(&dispatcher, f))
-    }
-}
 
 /// Runs a closure via the supplied `AsyncComputationSpawner` and awaits its
 /// completion. Used to bridge sync, parallel work (e.g., signature

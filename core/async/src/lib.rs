@@ -1,10 +1,12 @@
 pub use near_async_derive::{MultiSend, MultiSenderFrom};
+pub use rayon_spawner::RayonAsyncComputationSpawner;
 
 mod functional;
 pub mod futures;
 pub mod instrumentation;
 pub mod messaging;
 pub mod multithread;
+mod rayon_spawner;
 pub mod test_loop;
 pub mod test_utils;
 pub mod thread_pool;

@@ -106,8 +106,13 @@ const TIER3_IDLE_TIMEOUT: time::Duration = time::Duration::seconds(15);
 /// Actor that manages peers connections.
 pub struct PeerManagerActor {
     pub(crate) clock: time::Clock,
-    /// Spawner for async tasks. In production, backed by a tokio runtime.
-    /// In testloop, backed by `PendingEventsSender` (deterministic, FakeClock-driven).
+    /// Spawner for PMA's background work (epoch height fetch, periodic
+    /// triggers, ad-hoc spawns from message handlers). Lifetime is the
+    /// caller's responsibility: tasks are tied to the spawner's runtime
+    /// and may be cancelled at runtime shutdown — callers that await
+    /// `spawner.spawn(...)` results should treat them as best-effort.
+    /// Production wires a tokio runtime handle; testloop wires
+    /// `TestLoopFutureSpawner` (deterministic, FakeClock-driven).
     pub(crate) spawner: Arc<dyn FutureSpawner>,
     /// Peer information for this node.
     my_peer_id: PeerId,
