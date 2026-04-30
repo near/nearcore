@@ -525,6 +525,7 @@ pub(crate) fn validate_receipt(
             action_receipt,
             receipt.receiver_id(),
             current_protocol_version,
+            mode,
         ),
         VersionedReceiptEnum::Data(data_receipt)
         | VersionedReceiptEnum::PromiseResume(data_receipt) => {
@@ -554,6 +555,7 @@ fn validate_action_receipt(
     receipt: VersionedActionReceipt,
     receiver: &AccountId,
     current_protocol_version: ProtocolVersion,
+    mode: ValidateReceiptMode,
 ) -> Result<(), ReceiptValidationError> {
     if receipt.input_data_ids().len() as u64 > limit_config.max_number_input_data_dependencies {
         return Err(ReceiptValidationError::NumberInputDataDependenciesExceeded {
@@ -568,8 +570,14 @@ fn validate_action_receipt(
         })?;
     }
 
-    validate_actions(limit_config, receipt.actions(), receiver, current_protocol_version)
-        .map_err(ReceiptValidationError::ActionsValidation)
+    validate_actions_with_mode(
+        limit_config,
+        receipt.actions(),
+        receiver,
+        current_protocol_version,
+        mode,
+    )
+    .map_err(ReceiptValidationError::ActionsValidation)
 }
 
 /// Validates given data receipt. Checks validity of the length of the returned data.
@@ -606,6 +614,23 @@ fn validate_number_of_deploy_actions(
     }
 }
 
+/// Validates given actions in `NewReceipt` mode (the strictest variant). See
+/// [`validate_actions_with_mode`] for the full description of checks performed.
+pub(crate) fn validate_actions(
+    limit_config: &LimitConfig,
+    actions: &[Action],
+    receiver: &AccountId,
+    current_protocol_version: ProtocolVersion,
+) -> Result<(), ActionsValidationError> {
+    validate_actions_with_mode(
+        limit_config,
+        actions,
+        receiver,
+        current_protocol_version,
+        ValidateReceiptMode::NewReceipt,
+    )
+}
+
 /// Validates given actions:
 ///
 /// - Checks limits if applicable.
@@ -613,11 +638,12 @@ fn validate_number_of_deploy_actions(
 /// - Checks that there not other action if Action::Delegate is present.
 /// - Validates each individual action.
 /// - Checks that the total prepaid gas doesn't exceed the limit.
-pub(crate) fn validate_actions(
+pub(crate) fn validate_actions_with_mode(
     limit_config: &LimitConfig,
     actions: &[Action],
     receiver: &AccountId,
     current_protocol_version: ProtocolVersion,
+    mode: ValidateReceiptMode,
 ) -> Result<(), ActionsValidationError> {
     if actions.len() as u64 > limit_config.max_actions_per_receipt {
         return Err(ActionsValidationError::TotalNumberOfActionsExceeded {
@@ -626,7 +652,9 @@ pub(crate) fn validate_actions(
         });
     }
 
-    validate_number_of_deploy_actions(actions, limit_config.max_deploy_actions_per_receipt)?;
+    if mode == ValidateReceiptMode::NewReceipt {
+        validate_number_of_deploy_actions(actions, limit_config.max_deploy_actions_per_receipt)?;
+    }
 
     let mut found_delegate_action = false;
     let mut iter = actions.iter().peekable();
@@ -643,7 +671,7 @@ pub(crate) fn validate_actions(
                 found_delegate_action = true;
             }
         }
-        validate_action(limit_config, action, receiver, current_protocol_version)?;
+        validate_action_with_mode(limit_config, action, receiver, current_protocol_version, mode)?;
     }
 
     let total_prepaid_gas =
@@ -658,12 +686,30 @@ pub(crate) fn validate_actions(
     Ok(())
 }
 
-/// Validates a single given action. Checks limits if applicable.
+/// Validates a single given action in `NewReceipt` mode. See [`validate_action_with_mode`].
 pub fn validate_action(
     limit_config: &LimitConfig,
     action: &Action,
     receiver: &AccountId,
     current_protocol_version: ProtocolVersion,
+) -> Result<(), ActionsValidationError> {
+    validate_action_with_mode(
+        limit_config,
+        action,
+        receiver,
+        current_protocol_version,
+        ValidateReceiptMode::NewReceipt,
+    )
+}
+
+/// Validates a single given action.
+/// The `mode` only affects nested validation of `Action::Delegate` payloads
+fn validate_action_with_mode(
+    limit_config: &LimitConfig,
+    action: &Action,
+    receiver: &AccountId,
+    current_protocol_version: ProtocolVersion,
+    mode: ValidateReceiptMode,
 ) -> Result<(), ActionsValidationError> {
     match action {
         Action::CreateAccount(_) => Ok(()),
@@ -677,7 +723,7 @@ pub fn validate_action(
         Action::DeleteKey(_) => Ok(()),
         Action::DeleteAccount(a) => validate_delete_action(a),
         Action::Delegate(a) => {
-            validate_delegate_action(limit_config, a, receiver, current_protocol_version)
+            validate_delegate_action(limit_config, a, receiver, current_protocol_version, mode)
         }
         Action::DeterministicStateInit(a) => {
             validate_deterministic_state_init(limit_config, a, receiver, current_protocol_version)
@@ -696,9 +742,10 @@ fn validate_delegate_action(
     signed_delegate_action: &SignedDelegateAction,
     receiver: &AccountId,
     current_protocol_version: ProtocolVersion,
+    mode: ValidateReceiptMode,
 ) -> Result<(), ActionsValidationError> {
     let actions = signed_delegate_action.delegate_action.get_actions();
-    validate_actions(limit_config, &actions, receiver, current_protocol_version)?;
+    validate_actions_with_mode(limit_config, &actions, receiver, current_protocol_version, mode)?;
     Ok(())
 }
 
@@ -2240,7 +2287,8 @@ mod tests {
                 }
                 .into(),
                 &receiver,
-                PROTOCOL_VERSION
+                PROTOCOL_VERSION,
+                ValidateReceiptMode::NewReceipt,
             )
             .expect_err("expected an error"),
             ReceiptValidationError::NumberInputDataDependenciesExceeded {
@@ -2478,7 +2526,10 @@ mod tests {
         )
         .expect("expected ok");
 
-        // Deploys nested inside a `Delegate` count toward the different per-receipt cap.
+        // Deploys inside a Delegate are checked against the same cap on their own when the
+        // verifier recurses through `validate_action` -> `validate_delegate_action` ->
+        // `validate_actions`. Outer and inner deploys are not summed: the inner list ends up
+        // as a separate receipt and is bounded independently.
         let delegate_with = |inner: Vec<Action>| {
             let actions =
                 inner.into_iter().map(|a| NonDelegateAction::try_from(a).unwrap()).collect();
@@ -2495,7 +2546,7 @@ mod tests {
             }))
         };
 
-        // Delegate alone whose inner deploys exceed the limit → error.
+        // Delegate alone whose inner deploys exceed the limit → error (caught by recursion).
         assert_eq!(
             validate_actions(
                 &limit_config,
@@ -2510,28 +2561,14 @@ mod tests {
             },
         );
 
-        // Loophole guard: outer deploys + delegate's inner deploys are summed against the
-        // same cap. Each side fits individually but the total exceeds the limit.
-        assert_eq!(
-            validate_actions(
-                &limit_config,
-                &[
-                    deploy_local(),
-                    delegate_with(vec![deploy_global(), deploy_local(), deploy_local()])
-                ],
-                &receiver,
-                PROTOCOL_VERSION,
-            )
-            .expect_err("expected error"),
-            ActionsValidationError::TotalNumberOfDeployActionsExceeded {
-                number_of_deploy_actions: 3,
-                limit: 2,
-            },
-        );
-
+        // Outer at limit + delegate inner at limit → ok (counts are independent, not summed).
         validate_actions(
             &limit_config,
-            &[deploy_local(), delegate_with(vec![deploy_global()])],
+            &[
+                deploy_local(),
+                deploy_global(),
+                delegate_with(vec![deploy_local(), deploy_global()]),
+            ],
             &receiver,
             PROTOCOL_VERSION,
         )
