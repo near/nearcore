@@ -686,22 +686,6 @@ pub(crate) fn validate_actions_with_mode(
     Ok(())
 }
 
-/// Validates a single given action in `NewReceipt` mode. See [`validate_action_with_mode`].
-pub fn validate_action(
-    limit_config: &LimitConfig,
-    action: &Action,
-    receiver: &AccountId,
-    current_protocol_version: ProtocolVersion,
-) -> Result<(), ActionsValidationError> {
-    validate_action_with_mode(
-        limit_config,
-        action,
-        receiver,
-        current_protocol_version,
-        ValidateReceiptMode::NewReceipt,
-    )
-}
-
 /// Validates a single given action.
 /// The `mode` only affects nested validation of `Action::Delegate` payloads
 fn validate_action_with_mode(
@@ -1062,6 +1046,21 @@ mod tests {
     fn test_limit_config() -> LimitConfig {
         let store = near_parameters::RuntimeConfigStore::test();
         store.get_config(PROTOCOL_VERSION).wasm_config.limit_config.clone()
+    }
+
+    fn validate_action(
+        limit_config: &LimitConfig,
+        action: &Action,
+        receiver: &AccountId,
+        current_protocol_version: ProtocolVersion,
+    ) -> Result<(), ActionsValidationError> {
+        validate_action_with_mode(
+            limit_config,
+            action,
+            receiver,
+            current_protocol_version,
+            ValidateReceiptMode::NewReceipt,
+        )
     }
 
     fn setup_common(
