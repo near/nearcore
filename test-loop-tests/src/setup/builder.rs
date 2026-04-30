@@ -438,15 +438,7 @@ impl TestLoopBuilder {
         self.ensure_epoch_config_store(&genesis);
 
         let warmup_pending = Arc::new(AtomicBool::new(self.warmup_mode != WarmupMode::Skip));
-        if self.warmup_mode != WarmupMode::Skip {
-            let warmup_pending = warmup_pending.clone();
-            self.test_loop.send_adhoc_event("warmup_pending".into(), move |_| {
-                assert!(
-                    !warmup_pending.load(Ordering::Relaxed),
-                    "warmup is pending! Call env.warmup() or builder.skip_warmup()"
-                );
-            });
-        }
+        let warmup_mode = self.warmup_mode;
 
         let rpc_pool = self.rpc_pool.take();
         let rpc_pool_fault_handles = std::mem::take(&mut self.rpc_pool_fault_handles);
@@ -454,7 +446,8 @@ impl TestLoopBuilder {
         let node_states = (0..clients.len())
             .map(|idx| self.setup_node_state(idx, &genesis, &clients))
             .collect_vec();
-        let (mut test_loop, shared_state) = self.setup_shared_state(genesis, warmup_pending);
+        let (mut test_loop, shared_state) =
+            self.setup_shared_state(genesis, warmup_pending.clone());
         let datas = node_states
             .into_iter()
             .map(|node_state| {
@@ -504,6 +497,21 @@ impl TestLoopBuilder {
                 |_| done.load(Ordering::Relaxed),
                 near_async::time::Duration::seconds(10),
             );
+        }
+
+        // Warmup-pending sentinel: queued AFTER populate so the populate's
+        // `run_until` doesn't trip the assertion before warmup has even
+        // had a chance to run. The first time the testloop runs after
+        // this point (typically inside `env.warmup()` or a test's
+        // explicit `run_for`), this adhoc event fires; if the test
+        // forgot to call warmup or skip_warmup, it panics.
+        if warmup_mode != WarmupMode::Skip {
+            test_loop.send_adhoc_event("warmup_pending".into(), move |_| {
+                assert!(
+                    !warmup_pending.load(Ordering::Relaxed),
+                    "warmup is pending! Call env.warmup() or builder.skip_warmup()"
+                );
+            });
         }
 
         TestLoopEnv { test_loop, node_datas: datas, shared_state }
