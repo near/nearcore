@@ -88,7 +88,7 @@ pub struct NodeExecutionData {
     /// Handle to the legacy mock `TestLoopPeerManagerActor`. Populated
     /// only when the builder opts into the mock via
     /// `.use_legacy_mock_pma()`. Tests that exercise the real PMA path
-    /// leave this `None`. Removed in T6 alongside the mock itself.
+    /// leave this `None`.
     pub legacy_mock_pma_sender: Option<TestLoopSender<TestLoopPeerManagerActor>>,
     pub resharding_sender: TestLoopSender<ReshardingActor>,
     pub state_sync_dumper_handle: TestLoopDataHandle<Arc<StateSyncDumpHandle>>,
@@ -119,6 +119,21 @@ impl NodeExecutionData {
 
     pub fn jsonrpc_client(&self) -> JsonRpcClient {
         JsonRpcClient::new_with_transport(self.jsonrpc_transport.clone())
+    }
+
+    /// Handle to the legacy mock PMA. Panics if the test didn't opt
+    /// into the mock via `.use_legacy_mock_pma()` on the builder.
+    /// Used by tests that register network handlers via
+    /// `register_override_handler`.
+    pub fn legacy_pma_handle(
+        &self,
+    ) -> near_async::test_loop::data::TestLoopDataHandle<TestLoopPeerManagerActor> {
+        self.legacy_mock_pma_sender
+            .as_ref()
+            .expect(
+                "test uses register_override_handler — must call .use_legacy_mock_pma() on the builder",
+            )
+            .actor_handle()
     }
 }
 
