@@ -60,10 +60,12 @@ pub struct SharedState {
     /// Cross-node lookup of `Arc<TestLoopTransport>` for the real-PMA
     /// path. Populated as nodes are registered in `setup_client`.
     pub registry: TestLoopNodeRegistry,
-    /// Monotonic counter for mesh-edge nonces. Initialized at build
-    /// time and incremented per edge so re-populating the mesh after
-    /// `restart_node` produces edges with strictly higher nonces than
-    /// the previous edges to the same peer.
+    /// Monotonic offset added to `Edge::create_fresh_nonce(clock)`
+    /// when seeding mesh edges. Production interprets edge nonces as
+    /// Unix-timestamp seconds and prunes edges older than 30 minutes
+    /// (`PRUNE_EDGES_AFTER`); the offset (incremented by 2 per edge)
+    /// keeps nonces unique across re-seeds and odd (Active state)
+    /// while still anchored to the FakeClock's wall time.
     pub mesh_edge_nonce: Arc<AtomicU64>,
     /// If `true`, `setup_client` builds the legacy mock PMA. If
     /// `false`, the real `PeerManagerActor` is wired with

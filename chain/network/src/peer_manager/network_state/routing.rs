@@ -96,7 +96,8 @@ impl NetworkState {
     /// Validates edges, then adds them to the graph and then broadcasts all the edges that
     /// hasn't been observed before. Returns an error iff any edge was invalid. Even if an
     /// error was returned some of the valid input edges might have been added to the graph.
-    pub(crate) async fn add_edges(
+    #[allow(private_interfaces)]
+    pub async fn add_edges(
         self: &Arc<Self>,
         clock: &time::Clock,
         edges: EdgesWithSource,

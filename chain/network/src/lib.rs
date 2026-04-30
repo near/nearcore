@@ -4,7 +4,7 @@ pub use crate::announce_accounts::AnnounceAccountCache;
 pub use crate::peer::peer_actor::ClosingReason;
 pub use crate::peer_manager::connected_peers::{ConnectedPeerState, ConnectedPeers};
 pub use crate::peer_manager::network_state::{
-    NetworkState, PeerConnectionInfo, PeerDisconnectInfo, RoutedAction,
+    EdgesWithSource, NetworkState, PeerConnectionInfo, PeerDisconnectInfo, RoutedAction,
 };
 pub use crate::peer_manager::network_transport::{
     ConnectError, ConnectHandle, NetworkTransport, PeerTransportStats, TransportInfo,

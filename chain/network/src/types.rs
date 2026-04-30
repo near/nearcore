@@ -2,7 +2,7 @@ use crate::client::{StatePartOrHeader, StateRequestHeader, StateRequestPart};
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
     Disconnect, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
-    SignedAccountData,
+    SignedAccountData, SyncAccountsData,
 };
 /// Exported types, which are part of network protocol.
 pub use crate::network_protocol::{

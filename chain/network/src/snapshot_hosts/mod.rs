@@ -30,7 +30,7 @@ mod tests;
 pub const STATE_SNAPSHOT_INFO_RETENTION_WINDOW: EpochHeight = 1;
 
 #[derive(thiserror::Error, Debug, PartialEq, Eq, Clone)]
-pub(crate) enum SnapshotHostInfoError {
+pub enum SnapshotHostInfoError {
     #[error("found multiple entries for the same peer_id")]
     DuplicatePeerId,
     #[error(transparent)]

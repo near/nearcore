@@ -577,7 +577,7 @@ impl TestLoopBuilder {
             network_shared_state: TestLoopNetworkSharedState::new(unreachable_actor_sender),
             transport_shared_state: TestLoopNetworkSharedStateV2::default(),
             registry: TestLoopNodeRegistry::default(),
-            mesh_edge_nonce: Arc::new(AtomicU64::new(1)),
+            mesh_edge_nonce: Arc::new(AtomicU64::new(0)),
             use_legacy_mock_pma: self.use_legacy_mock_pma,
             upgrade_schedule,
             chunks_storage: Default::default(),

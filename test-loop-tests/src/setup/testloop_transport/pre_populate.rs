@@ -31,10 +31,19 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// `node_key`. Both signatures are present so the edge passes
 /// `edge.verify()` inside `add_edges`.
 ///
-/// Nonce is taken from a shared atomic counter (incremented per call)
-/// so re-seeding a node after restart produces edges with strictly
-/// higher nonces than the previous edges to the same peer.
+/// Nonce is anchored to the (Fake)Clock via `Edge::create_fresh_nonce`
+/// — production interprets edge nonces as Unix-timestamp seconds and
+/// silently prunes edges older than `PRUNE_EDGES_AFTER` (30 min). A
+/// plain monotonic counter starting at 1 looks like 1970-01-01 to the
+/// graph and gets dropped by the age filter, leaving the routing
+/// table empty.
+///
+/// `nonce_counter` is incremented by 2 per call: keeps nonces odd
+/// (Active edge state) and strictly monotonic across re-seeds (e.g.
+/// `restart_node`) so the new edge dominates any previous edge to the
+/// same peer.
 fn build_signed_edge(
+    clock: &time::Clock,
     me: &NodeExecutionData,
     other: &NodeExecutionData,
     nonce_counter: &AtomicU64,
@@ -44,7 +53,8 @@ fn build_signed_edge(
     let other_state =
         other.network_state.as_ref().expect("populate: real-PMA path requires network_state");
 
-    let nonce = nonce_counter.fetch_add(1, Ordering::Relaxed);
+    let base = Edge::create_fresh_nonce(clock);
+    let nonce = base + nonce_counter.fetch_add(2, Ordering::Relaxed);
     let hash = Edge::build_hash(&me.peer_id, &other.peer_id, nonce);
     let me_sig = me_state.config.node_key.sign(hash.as_ref());
     let other_sig = other_state.config.node_key.sign(hash.as_ref());
@@ -89,7 +99,7 @@ async fn seed_async_side(
     let Some(me_state) = me.network_state.as_ref() else { return };
     let me_transport: Arc<dyn NetworkTransport> =
         registry.get(&me.peer_id).expect("populate: transport missing from registry");
-    let edge = build_signed_edge(me, other, nonce_counter);
+    let edge = build_signed_edge(clock, me, other, nonce_counter);
 
     // Convention: lexicographically lower peer_id is Outbound. Stable
     // rule; testloop doesn't differentiate but production does for

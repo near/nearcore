@@ -193,7 +193,7 @@ pub struct NetworkState {
 #[derive(Debug)]
 /// Edges along with their source (constructed locally or received from a remote peer).
 /// Self-connected edges are not allowed from remote peers.
-pub(crate) enum EdgesWithSource {
+pub enum EdgesWithSource {
     Local(Vec<Edge>),
     Remote { edges: Vec<Edge>, source: PeerId },
 }
@@ -1302,7 +1302,8 @@ impl NetworkState {
         }
     }
 
-    pub(crate) async fn add_accounts_data(
+    #[allow(private_interfaces)]
+    pub async fn add_accounts_data(
         self: &Arc<Self>,
         clock: &time::Clock,
         accounts_data: Vec<Arc<SignedAccountData>>,
@@ -1349,7 +1350,8 @@ impl NetworkState {
         .unwrap_or(None)
     }
 
-    pub(crate) async fn add_snapshot_hosts(
+    #[allow(private_interfaces)]
+    pub async fn add_snapshot_hosts(
         self: &Arc<Self>,
         hosts: Vec<Arc<SnapshotHostInfo>>,
         transport: Arc<dyn NetworkTransport>,

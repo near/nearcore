@@ -5,9 +5,10 @@ use near_async::time;
 use near_network::tcp;
 use near_network::types::{PeerInfo, PeerMessage, ReasonForBan};
 use near_network::{
-    ClosingReason, ConnectHandle, NetworkState, NetworkTransport, PeerDisconnectInfo, RoutedAction,
-    TransportInfo,
+    ClosingReason, ConnectHandle, EdgesWithSource, NetworkState, NetworkTransport,
+    PeerDisconnectInfo, RoutedAction, TransportInfo,
 };
+use near_primitives::network::AnnounceAccount;
 use near_primitives::network::PeerId;
 use std::sync::{Arc, Weak};
 
@@ -111,18 +112,81 @@ impl TestLoopTransport {
     }
 
     async fn dispatch_to_client(self: &Arc<Self>, from: PeerId, msg: PeerMessage, tier: tcp::Tier) {
-        let result = self
-            .state
-            .handle_peer_message(&self.clock, from.clone(), msg, /* was_requested */ false)
-            .await;
-        match result {
-            Ok(Some(resp)) => {
-                self.send_message(tier, from, Arc::new(resp));
+        // Production's `PeerActor::handle_msg_ready` intercepts the
+        // gossip / routing-table messages before they reach
+        // `NetworkState::handle_peer_message`. Mirror that here so the
+        // testloop transport feeds runtime updates back into the same
+        // `add_edges` / `add_accounts*` / `add_snapshot_hosts` flows
+        // PMA exercises in production. Without this, e.g. a fresh
+        // edge gossiped via `SyncRoutingTable` after `restart_node`
+        // would be silently dropped.
+        match msg {
+            PeerMessage::SyncRoutingTable(rtu) => {
+                let transport: Arc<dyn NetworkTransport> = self.self_arc();
+                let edges_result = self
+                    .state
+                    .add_edges(
+                        &self.clock,
+                        EdgesWithSource::Remote { edges: rtu.edges, source: from.clone() },
+                        transport.clone(),
+                    )
+                    .await;
+                if let Err(ban) = edges_result {
+                    let t: &dyn NetworkTransport = self.as_ref();
+                    self.state.disconnect_and_ban(&self.clock, &from, ban, t);
+                    return;
+                }
+                let accounts: Vec<AnnounceAccount> = rtu.accounts;
+                if !accounts.is_empty() {
+                    self.state.add_accounts(accounts, transport).await;
+                }
             }
-            Ok(None) => {}
-            Err(ban) => {
-                let transport: &dyn NetworkTransport = self.as_ref();
-                self.state.disconnect_and_ban(&self.clock, &from, ban, transport);
+            PeerMessage::SyncAccountsData(msg) => {
+                // `requesting_full_sync` is the cross-peer bootstrap
+                // path; testloop pre-seeds full accounts_data via
+                // `populate_full_mesh`, so we skip the response and
+                // just consume any incremental data the sender
+                // provided.
+                if !msg.accounts_data.is_empty() {
+                    let transport: Arc<dyn NetworkTransport> = self.self_arc();
+                    // Production also bans on error; testloop has no
+                    // single-conn ban surface, so drop err silently.
+                    self.state.add_accounts_data(&self.clock, msg.accounts_data, transport).await;
+                }
+            }
+            PeerMessage::SyncSnapshotHosts(msg) => {
+                if !msg.hosts.is_empty() {
+                    let transport: Arc<dyn NetworkTransport> = self.self_arc();
+                    self.state.add_snapshot_hosts(msg.hosts, transport).await;
+                }
+            }
+            PeerMessage::Disconnect(_) => {
+                // Production processes Disconnect by closing the
+                // connection in PeerActor; testloop's transport is
+                // cooperative — `disconnect_peer` does the bidirectional
+                // teardown. Ignore here; the sender already invoked
+                // its own teardown when it sent the Disconnect.
+            }
+            other => {
+                let result = self
+                    .state
+                    .handle_peer_message(
+                        &self.clock,
+                        from.clone(),
+                        other,
+                        /* was_requested */ false,
+                    )
+                    .await;
+                match result {
+                    Ok(Some(resp)) => {
+                        self.send_message(tier, from, Arc::new(resp));
+                    }
+                    Ok(None) => {}
+                    Err(ban) => {
+                        let transport: &dyn NetworkTransport = self.as_ref();
+                        self.state.disconnect_and_ban(&self.clock, &from, ban, transport);
+                    }
+                }
             }
         }
     }

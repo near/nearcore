@@ -41,7 +41,7 @@ use std::sync::Arc;
 mod tests;
 
 #[derive(thiserror::Error, Debug, PartialEq, Eq)]
-pub(crate) enum AccountDataError {
+pub enum AccountDataError {
     #[error("found an invalid signature")]
     InvalidSignature,
     #[error("found too large payload")]
