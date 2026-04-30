@@ -161,11 +161,7 @@ fn test_producer_sending_large_encoded_length_chunks() {
         .build();
 
     let epoch_manager = env.node(0).client().epoch_manager.clone();
-    let peer_manager_actor_handle = env.node_datas[0]
-        .legacy_mock_pma_sender
-        .as_ref()
-        .expect("test uses register_override_handler — must call .use_legacy_mock_pma()")
-        .actor_handle();
+    let peer_manager_actor_handle = env.node_datas[0].legacy_pma_handle();
     let peer_manager_actor = env.test_loop.data.get_mut(&peer_manager_actor_handle);
     peer_manager_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
         match request {

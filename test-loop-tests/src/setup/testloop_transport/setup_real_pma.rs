@@ -23,7 +23,6 @@ use near_network::types::{
 /// The 4 per-actor senders that cover all 16 fields of
 /// `ClientSenderForNetwork`. `state_request_adapter` is a separate
 /// network-state field and isn't included here.
-#[allow(dead_code)]
 pub(crate) struct ActorSenders {
     pub client_sender: TestLoopSender<ClientActor>,
     pub view_client_sender: TestLoopSender<ViewClientActor>,
@@ -37,7 +36,6 @@ pub(crate) struct ActorSenders {
 /// at `setup.rs:78` binds the result via explicit `.bind(...)`.
 /// Single audit point for "are all 4 PeerManagerAdapter fields
 /// wired?".
-#[allow(dead_code)]
 pub(crate) fn pma_adapter_from<A>(sender: TestLoopSender<A>) -> PeerManagerAdapter
 where
     A: Actor
@@ -58,7 +56,6 @@ where
 /// Build the 16-field `ClientSenderForNetwork` by mapping each field
 /// to its destination testloop actor. Mirrors
 /// `chain/client/src/adapter.rs:14`.
-#[allow(dead_code)]
 pub(crate) fn build_client_sender_for_network(s: ActorSenders) -> ClientSenderForNetwork {
     ClientSenderForNetwork {
         // ── ClientActor: block flow + epoch sync + optimistic block + state response

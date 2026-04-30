@@ -842,13 +842,7 @@ fn test_spice_validator_only_does_not_distribute_witness_and_receipts() {
     for i in num_producers..env.node_datas.len() {
         let node_data = &env.node_datas[i];
         let counter = spice_data_sent_count.clone();
-        let peer_actor = env.test_loop.data.get_mut(
-            &node_data
-                .legacy_mock_pma_sender
-                .as_ref()
-                .expect("test uses register_override_handler — must call .use_legacy_mock_pma()")
-                .actor_handle(),
-        );
+        let peer_actor = env.test_loop.data.get_mut(&node_data.legacy_pma_handle());
         peer_actor.register_override_handler(Box::new(move |request| {
             if matches!(&request, NetworkRequests::SpicePartialData { .. }) {
                 counter.fetch_add(1, Ordering::SeqCst);
@@ -894,13 +888,7 @@ fn test_spice_validator_only_sends_endorsements() {
     for i in num_producers..env.node_datas.len() {
         let node_data = &env.node_datas[i];
         let counter = endorsement_count.clone();
-        let peer_actor = env.test_loop.data.get_mut(
-            &node_data
-                .legacy_mock_pma_sender
-                .as_ref()
-                .expect("test uses register_override_handler — must call .use_legacy_mock_pma()")
-                .actor_handle(),
-        );
+        let peer_actor = env.test_loop.data.get_mut(&node_data.legacy_pma_handle());
         peer_actor.register_override_handler(Box::new(move |request| {
             if matches!(&request, NetworkRequests::SpiceChunkEndorsement(..)) {
                 counter.fetch_add(1, Ordering::SeqCst);

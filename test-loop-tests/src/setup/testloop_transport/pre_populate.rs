@@ -1,15 +1,19 @@
 //! End-of-build mesh seeding for the real-PMA path.
 //!
-//! Position Y design (see plan.md "T3 design principle" and decision
-//! #14): the testloop transport never writes connectivity state on
-//! the connect path. Setup pre-populates `state.peers`, `peer_store`,
-//! `account_announcements`, and the routing graph on every node so
-//! PMA's `monitor_peers_trigger` and `tier1_connect` short-circuit
-//! naturally.
+//! Position Y design: the testloop transport never writes connectivity
+//! state on the connect path. Setup pre-populates `state.peers`,
+//! `peer_store`, `account_announcements`, and the routing graph on
+//! every node so PMA's `monitor_peers_trigger` and `tier1_connect`
+//! short-circuit naturally.
 //!
 //! `populate_full_mesh` runs once at end-of-build, after every node
-//! has been wired by `setup_client`. Order doesn't matter — the
-//! populate runs after all nodes exist and is N×N symmetric.
+//! has been wired by `setup_client`. `seed_node_into_mesh` is the
+//! per-node variant called from `restart_node` / `add_node` so a
+//! newly-built node is wired bidirectionally with all existing nodes.
+//!
+//! Both async: they call `state.on_peer_connected(...).await` which
+//! goes through the FakeClock-bound demux. Callers spawn these on the
+//! testloop's `FutureSpawner` and `run_until` a completion flag flips.
 
 use super::registry::TestLoopNodeRegistry;
 use crate::setup::state::NodeExecutionData;
@@ -21,23 +25,27 @@ use near_primitives::network::AnnounceAccount;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::EpochId;
 use std::sync::Arc;
-
-const MESH_EDGE_NONCE: u64 = 1;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Build a signed `Edge` between two peers using each side's
 /// `node_key`. Both signatures are present so the edge passes
 /// `edge.verify()` inside `add_edges`.
-fn build_signed_edge(me: &NodeExecutionData, other: &NodeExecutionData) -> Edge {
-    let me_state = me
-        .network_state
-        .as_ref()
-        .expect("populate_full_mesh: real-PMA path requires network_state");
-    let other_state = other
-        .network_state
-        .as_ref()
-        .expect("populate_full_mesh: real-PMA path requires network_state");
+///
+/// Nonce is taken from a shared atomic counter (incremented per call)
+/// so re-seeding a node after restart produces edges with strictly
+/// higher nonces than the previous edges to the same peer.
+fn build_signed_edge(
+    me: &NodeExecutionData,
+    other: &NodeExecutionData,
+    nonce_counter: &AtomicU64,
+) -> Edge {
+    let me_state =
+        me.network_state.as_ref().expect("populate: real-PMA path requires network_state");
+    let other_state =
+        other.network_state.as_ref().expect("populate: real-PMA path requires network_state");
 
-    let hash = Edge::build_hash(&me.peer_id, &other.peer_id, MESH_EDGE_NONCE);
+    let nonce = nonce_counter.fetch_add(1, Ordering::Relaxed);
+    let hash = Edge::build_hash(&me.peer_id, &other.peer_id, nonce);
     let me_sig = me_state.config.node_key.sign(hash.as_ref());
     let other_sig = other_state.config.node_key.sign(hash.as_ref());
 
@@ -47,68 +55,117 @@ fn build_signed_edge(me: &NodeExecutionData, other: &NodeExecutionData) -> Edge 
     } else {
         (other.peer_id.clone(), me.peer_id.clone(), other_sig, me_sig)
     };
-    Edge::new(peer0, peer1, MESH_EDGE_NONCE, sig0, sig1)
+    Edge::new(peer0, peer1, nonce, sig0, sig1)
 }
 
-/// Seeds peer_store, account_announcements, and `state.peers`
-/// bidirectionally for every pair of nodes. The routing graph
-/// populates implicitly via `add_edges` inside `on_peer_connected`.
-#[allow(dead_code)]
+/// Sync side of the seeding: `peer_store` + `account_announcements`.
+fn seed_sync_side(
+    me: &NodeExecutionData,
+    other: &NodeExecutionData,
+    clock: &time::Clock,
+    test_epoch_id: EpochId,
+) {
+    let Some(me_state) = me.network_state.as_ref() else { return };
+    // peer_store: status `Connected` so disconnect_and_ban can write
+    // peer_ban (peer_store/mod.rs:peer_connected).
+    me_state.peer_store.peer_connected(clock, &other.peer_info());
+
+    // account_announcements: bypasses verify_announce_accounts (the
+    // gossip ingress path). Each peer announces itself signed under
+    // its own validator key.
+    let signer = create_test_signer(other.account_id.as_str());
+    let announcement = AnnounceAccount::new(&signer, other.peer_id.clone(), test_epoch_id);
+    me_state.account_announcements.add_accounts(vec![announcement]);
+}
+
+/// Async side: `state.peers` + routing graph via `on_peer_connected`.
+async fn seed_async_side(
+    me: &NodeExecutionData,
+    other: &NodeExecutionData,
+    clock: &time::Clock,
+    registry: &TestLoopNodeRegistry,
+    nonce_counter: &AtomicU64,
+) {
+    let Some(me_state) = me.network_state.as_ref() else { return };
+    let me_transport: Arc<dyn NetworkTransport> =
+        registry.get(&me.peer_id).expect("populate: transport missing from registry");
+    let edge = build_signed_edge(me, other, nonce_counter);
+
+    // Convention: lexicographically lower peer_id is Outbound. Stable
+    // rule; testloop doesn't differentiate but production does for
+    // some checks.
+    let peer_type = if me.peer_id < other.peer_id { PeerType::Outbound } else { PeerType::Inbound };
+
+    let info = PeerConnectionInfo {
+        peer_info: other.peer_info(),
+        tier: tcp::Tier::T2,
+        peer_type,
+        archival: other.is_archival,
+        tracked_shards: vec![],
+        owned_account: None,
+        established_time: clock.now(),
+    };
+
+    me_state.on_peer_connected(clock, edge, info, me_transport).await;
+}
+
+/// Seeds peer_store, account_announcements, `state.peers`, and the
+/// routing graph bidirectionally for every pair of nodes.
 pub(crate) async fn populate_full_mesh(
     clock: &time::Clock,
     nodes: &[NodeExecutionData],
     registry: &TestLoopNodeRegistry,
+    nonce_counter: &AtomicU64,
     test_epoch_id: EpochId,
 ) {
-    // 1. peer_store + account_announcements.
+    // 1. Sync side first so all peer_store / announcement entries
+    //    exist before any on_peer_connected reads them.
     for me in nodes {
-        let Some(me_state) = me.network_state.as_ref() else { continue };
         for other in nodes {
             if other.peer_id == me.peer_id {
                 continue;
             }
-            // peer_store: status `Connected` so disconnect_and_ban can
-            // write peer_ban (peer_store/mod.rs:peer_connected).
-            me_state.peer_store.peer_connected(clock, &other.peer_info());
-
-            // account_announcements: bypasses verify_announce_accounts
-            // (the gossip ingress path). Each peer announces itself
-            // signed under its own validator key.
-            let signer = create_test_signer(other.account_id.as_str());
-            let announcement = AnnounceAccount::new(&signer, other.peer_id.clone(), test_epoch_id);
-            me_state.account_announcements.add_accounts(vec![announcement]);
+            seed_sync_side(me, other, clock, test_epoch_id);
         }
     }
 
-    // 2. state.peers via on_peer_connected. Routing graph populates
-    //    implicitly through add_edges inside on_peer_connected.
+    // 2. Async side: state.peers + routing graph.
     for me in nodes {
-        let Some(me_state) = me.network_state.as_ref() else { continue };
-        let me_transport: Arc<dyn NetworkTransport> =
-            registry.get(&me.peer_id).expect("populate_full_mesh: transport missing from registry");
         for other in nodes {
             if other.peer_id == me.peer_id {
                 continue;
             }
-            let edge = build_signed_edge(me, other);
-
-            // Convention: lexicographically lower peer_id is Outbound.
-            // Stable rule; testloop doesn't differentiate but
-            // production does for some checks.
-            let peer_type =
-                if me.peer_id < other.peer_id { PeerType::Outbound } else { PeerType::Inbound };
-
-            let info = PeerConnectionInfo {
-                peer_info: other.peer_info(),
-                tier: tcp::Tier::T2,
-                peer_type,
-                archival: other.is_archival,
-                tracked_shards: vec![],
-                owned_account: None,
-                established_time: clock.now(),
-            };
-
-            me_state.on_peer_connected(clock, edge, info, me_transport.clone()).await;
+            seed_async_side(me, other, clock, registry, nonce_counter).await;
         }
+    }
+}
+
+/// Seeds a single newly-built node bidirectionally against all
+/// existing nodes. Used by `restart_node` / `add_node` when the
+/// real-PMA path is active.
+pub(crate) async fn seed_node_into_mesh(
+    clock: &time::Clock,
+    new_node: &NodeExecutionData,
+    existing_nodes: &[NodeExecutionData],
+    registry: &TestLoopNodeRegistry,
+    nonce_counter: &AtomicU64,
+    test_epoch_id: EpochId,
+) {
+    // Sync side both directions.
+    for other in existing_nodes {
+        if other.peer_id == new_node.peer_id {
+            continue;
+        }
+        seed_sync_side(new_node, other, clock, test_epoch_id);
+        seed_sync_side(other, new_node, clock, test_epoch_id);
+    }
+
+    // Async side both directions.
+    for other in existing_nodes {
+        if other.peer_id == new_node.peer_id {
+            continue;
+        }
+        seed_async_side(new_node, other, clock, registry, nonce_counter).await;
+        seed_async_side(other, new_node, clock, registry, nonce_counter).await;
     }
 }

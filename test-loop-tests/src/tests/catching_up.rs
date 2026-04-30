@@ -141,11 +141,7 @@ fn test_catchup_random_single_part_sync_common(
         .build();
 
     for node_datas in &env.node_datas {
-        let peer_actor_handle = node_datas
-            .legacy_mock_pma_sender
-            .as_ref()
-            .expect("test uses register_override_handler — must call .use_legacy_mock_pma()")
-            .actor_handle();
+        let peer_actor_handle = node_datas.legacy_pma_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
         peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
             if let NetworkRequests::PartialEncodedChunkMessage { partial_encoded_chunk, .. } =
@@ -347,11 +343,7 @@ fn slow_test_catchup_sanity_blocks_produced() {
             }
         };
 
-        let peer_actor_handle = node_datas
-            .legacy_mock_pma_sender
-            .as_ref()
-            .expect("test uses register_override_handler — must call .use_legacy_mock_pma()")
-            .actor_handle();
+        let peer_actor_handle = node_datas.legacy_pma_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
         peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
             if let NetworkRequests::Block { block } = &request {
@@ -429,11 +421,7 @@ fn slow_test_all_chunks_accepted() {
     let seen_chunk_same_sender = Rc::new(RefCell::new(HashSet::<(AccountId, u64, ShardId)>::new()));
     for node_datas in &env.node_datas {
         let seen_chunk_same_sender = seen_chunk_same_sender.clone();
-        let peer_actor_handle = node_datas
-            .legacy_mock_pma_sender
-            .as_ref()
-            .expect("test uses register_override_handler — must call .use_legacy_mock_pma()")
-            .actor_handle();
+        let peer_actor_handle = node_datas.legacy_pma_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
         peer_actor.register_override_handler(Box::new(move |msg| -> HandlerResult {
             match msg {

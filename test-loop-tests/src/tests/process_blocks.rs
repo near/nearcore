@@ -42,11 +42,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
         let epoch_manager = epoch_manager.clone();
         let mode = mode.clone();
 
-        let peer_actor_handle = node
-            .legacy_mock_pma_sender
-            .as_ref()
-            .expect("test uses register_override_handler — must call .use_legacy_mock_pma()")
-            .actor_handle();
+        let peer_actor_handle = node.legacy_pma_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
         peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
             let mut ban_counter = ban_counter.write();
@@ -181,11 +177,7 @@ fn test_produce_block_with_approvals_arrived_early() {
         let client_senders = client_senders.clone();
         let block_producer_for_next_height = block_producer_for_next_height.clone();
 
-        let peer_actor_handle = node
-            .legacy_mock_pma_sender
-            .as_ref()
-            .expect("test uses register_override_handler — must call .use_legacy_mock_pma()")
-            .actor_handle();
+        let peer_actor_handle = node.legacy_pma_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
         peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
             let mut approval_counter = approval_counter.write();

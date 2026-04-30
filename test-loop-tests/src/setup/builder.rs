@@ -11,6 +11,7 @@ use crate::utils::account::{
     validators_spec_clients_with_rpc,
 };
 use itertools::Itertools;
+use near_async::futures::FutureSpawnerExt;
 use near_async::test_loop::TestLoopV2;
 use near_async::time::{Clock, Duration};
 use near_chain_configs::test_genesis::{
@@ -38,7 +39,7 @@ use near_store::test_utils::{TestNodeStorage, create_test_node_storage};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tempfile::TempDir;
 
 pub(crate) const MIN_BLOCK_PROD_TIME: u64 = 600;
@@ -78,8 +79,9 @@ pub(crate) struct TestLoopBuilder {
     rpc_pool_fault_handles: HashMap<AccountId, RpcFaultHandle>,
     /// When `true`, every node uses the legacy mock `TestLoopPeerManagerActor`.
     /// When `false`, every node uses the real `PeerManagerActor` with
-    /// `TestLoopTransport`. Default is `true` while T4 lands; T5 migrates the
-    /// last mock-using tests, then T6 deletes the flag and the mock.
+    /// `TestLoopTransport`. Default is `false`; tests that register
+    /// network handlers via `register_override_handler` opt back into
+    /// the mock by calling `.use_legacy_mock_pma()` on the builder.
     use_legacy_mock_pma: bool,
 }
 
@@ -471,16 +473,37 @@ impl TestLoopBuilder {
 
         // Real-PMA path: seed the full mesh once every node is wired so PMA's
         // monitor_peers_trigger and tier1_connect short-circuit naturally.
+        // Driven by the testloop: `populate_full_mesh` is async (calls
+        // `on_peer_connected.await` which goes through the FakeClock-bound
+        // demux), so we spawn it on the testloop's `FutureSpawner` and
+        // `run_until` the completion flag flips. `block_on` would deadlock
+        // here — the demux's debounce timer needs the testloop to advance
+        // FakeClock, which can't happen while `block_on` holds the thread.
         if !use_legacy_mock_pma {
             let clock = test_loop.clock();
-            // Match production: use the genesis epoch_id for initial announcements.
-            let epoch_id = near_primitives::types::EpochId::default();
-            futures::executor::block_on(populate_full_mesh(
-                &clock,
-                &datas,
-                &shared_state.registry,
-                epoch_id,
-            ));
+            let registry = shared_state.registry.clone();
+            let nonce_counter = shared_state.mesh_edge_nonce.clone();
+            let datas_for_populate = datas.clone();
+            let done = Arc::new(AtomicBool::new(false));
+            let done_clone = done.clone();
+            let spawner = test_loop.future_spawner("populate_full_mesh");
+            spawner.spawn("populate_full_mesh", async move {
+                // Match production: use the genesis epoch_id for initial announcements.
+                let epoch_id = near_primitives::types::EpochId::default();
+                populate_full_mesh(
+                    &clock,
+                    &datas_for_populate,
+                    &registry,
+                    &nonce_counter,
+                    epoch_id,
+                )
+                .await;
+                done_clone.store(true, Ordering::Relaxed);
+            });
+            test_loop.run_until(
+                |_| done.load(Ordering::Relaxed),
+                near_async::time::Duration::seconds(10),
+            );
         }
 
         TestLoopEnv { test_loop, node_datas: datas, shared_state }
@@ -546,6 +569,7 @@ impl TestLoopBuilder {
             network_shared_state: TestLoopNetworkSharedState::new(unreachable_actor_sender),
             transport_shared_state: TestLoopNetworkSharedStateV2::default(),
             registry: TestLoopNodeRegistry::default(),
+            mesh_edge_nonce: Arc::new(AtomicU64::new(1)),
             use_legacy_mock_pma: self.use_legacy_mock_pma,
             upgrade_schedule,
             chunks_storage: Default::default(),

@@ -27,11 +27,7 @@ fn network_drop_random_messages() {
     // it a test of resilience against misbehaving nodes who withhold messages.
     for node_data in &env.node_datas {
         let rng = rng.clone();
-        let peer_actor_handle = node_data
-            .legacy_mock_pma_sender
-            .as_ref()
-            .expect("test uses register_override_handler — must call .use_legacy_mock_pma()")
-            .actor_handle();
+        let peer_actor_handle = node_data.legacy_pma_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
         peer_actor.register_override_handler(Box::new(move |request| {
             let mut rng = rng.write();

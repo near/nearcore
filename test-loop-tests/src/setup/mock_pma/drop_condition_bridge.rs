@@ -157,16 +157,7 @@ impl NodeExecutionData {
         test_loop_data: &mut TestLoopData,
         handler: NetworkRequestHandler,
     ) {
-        let peer_actor = test_loop_data.get_mut(
-            &self
-                .legacy_mock_pma_sender
-                .as_ref()
-                .expect(
-                    "register_override_handler requires the legacy mock PMA — \
-                     test must call .use_legacy_mock_pma() on the builder",
-                )
-                .actor_handle(),
-        );
+        let peer_actor = test_loop_data.get_mut(&self.legacy_pma_handle());
         peer_actor.register_override_handler(handler);
     }
 }

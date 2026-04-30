@@ -49,19 +49,27 @@ pub struct SharedState {
     pub tempdir: TempDir,
     pub epoch_config_store: EpochConfigStore,
     pub runtime_config_store: Option<RuntimeConfigStore>,
-    /// Shared state for the legacy mock PMA path. Maps AccountId,
-    /// PeerId, and the route back CryptoHash, so mock network actors
-    /// can do routing. Removed in T6 alongside the mock.
+    /// Shared state for the legacy mock PMA path: AccountId↔PeerId
+    /// mapping and route-back tracking for the mock's
+    /// `*ForTestLoopNetwork` senders.
     pub network_shared_state: TestLoopNetworkSharedState,
-    /// Filters + delays for the real-PMA `TestLoopTransport`. Empty
-    /// by default; tests register filters via this handle.
+    /// Filters and delays applied by `TestLoopTransport` to messages
+    /// between testloop nodes. Empty by default; tests register
+    /// filters via this handle.
     pub transport_shared_state: TestLoopNetworkSharedStateV2,
     /// Cross-node lookup of `Arc<TestLoopTransport>` for the real-PMA
     /// path. Populated as nodes are registered in `setup_client`.
     pub registry: TestLoopNodeRegistry,
-    /// Mirrors `TestLoopBuilder::use_legacy_mock_pma` so `restart_node`
-    /// / `add_node` use the same PMA path as the original build.
-    /// Removed in T6 alongside the flag.
+    /// Monotonic counter for mesh-edge nonces. Initialized at build
+    /// time and incremented per edge so re-populating the mesh after
+    /// `restart_node` produces edges with strictly higher nonces than
+    /// the previous edges to the same peer.
+    pub mesh_edge_nonce: Arc<AtomicU64>,
+    /// If `true`, `setup_client` builds the legacy mock PMA. If
+    /// `false`, the real `PeerManagerActor` is wired with
+    /// `TestLoopTransport`. Mirrors the builder flag so
+    /// `restart_node` / `add_node` use the same PMA path as the
+    /// original build.
     pub use_legacy_mock_pma: bool,
     pub upgrade_schedule: ProtocolUpgradeVotingSchedule,
     /// Stores all chunks ever observed on chain. Used by drop conditions to simulate network drops.

@@ -19,10 +19,9 @@ pub const NETWORK_DELAY: time::Duration = time::Duration::milliseconds(10);
 /// what it takes to deliver a `PeerMessage` from one peer to another.
 /// Routing, dispatch, peer management, and the connect/disconnect
 /// lifecycle all live on `NetworkState` — shared with production.
-#[allow(dead_code)]
 pub struct TestLoopTransport {
     my_peer_id: PeerId,
-    pub(super) state: Arc<NetworkState>,
+    state: Arc<NetworkState>,
     shared: TestLoopNetworkSharedStateV2,
     registry: TestLoopNodeRegistry,
     future_spawner: Arc<dyn FutureSpawner>,
@@ -34,7 +33,6 @@ pub struct TestLoopTransport {
     self_weak: Weak<Self>,
 }
 
-#[allow(dead_code)]
 impl TestLoopTransport {
     pub fn new(
         my_peer_id: PeerId,
@@ -211,14 +209,14 @@ impl NetworkTransport for TestLoopTransport {
         );
 
         if let Some(target) = self.registry.get(peer_id) {
-            if let Some(their_peer_state) = target.state.peers.get(&self.my_peer_id) {
+            if let Some(their_peer_state) = target.state().peers.get(&self.my_peer_id) {
                 let their_info = PeerDisconnectInfo {
                     peer_info: their_peer_state.peer_info.clone(),
                     tier: their_peer_state.tier,
                     peer_type: their_peer_state.peer_type,
                 };
                 self.spawn_disconnect(
-                    target.state.clone(),
+                    target.state().clone(),
                     their_info,
                     ClosingReason::DisconnectMessage,
                     target.clone(),

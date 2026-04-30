@@ -16,7 +16,6 @@ pub type DelayPredicate = Arc<dyn Fn(&PeerId, &PeerId, &PeerMessage) -> bool + S
 /// Test-controlled hooks: filters and delays. Cloneable so `TestLoopEnv`
 /// can hand it to the builder, the registry, and to test code.
 #[derive(Clone, Default)]
-#[allow(dead_code)]
 pub struct TestLoopNetworkSharedStateV2 {
     inner: Arc<Inner>,
 }
@@ -27,7 +26,6 @@ struct Inner {
     delays: Mutex<Vec<(DelayPredicate, time::Duration)>>,
 }
 
-#[allow(dead_code)]
 impl TestLoopNetworkSharedStateV2 {
     pub fn register_message_filter(&self, f: TransportMessageFilter) {
         self.inner.filters.lock().push(f);

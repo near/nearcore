@@ -27,11 +27,7 @@ fn block_chunk_signature_rejection() {
 
     for node_data in &env.node_datas {
         let mutated_blocks = mutated_blocks.clone();
-        let peer_actor_handle = node_data
-            .legacy_mock_pma_sender
-            .as_ref()
-            .expect("test uses register_override_handler — must call .use_legacy_mock_pma()")
-            .actor_handle();
+        let peer_actor_handle = node_data.legacy_pma_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
         peer_actor.register_override_handler(Box::new(move |request| match request {
             NetworkRequests::Block { block } => {

@@ -7,7 +7,6 @@ use std::sync::Arc;
 /// Cross-node lookup for testloop transports. Populated as nodes start
 /// (via `setup_client`) and updated by `kill_node` / `restart_node`.
 #[derive(Clone, Default)]
-#[allow(dead_code)]
 pub(crate) struct TestLoopNodeRegistry {
     inner: Arc<Inner>,
 }
@@ -17,7 +16,6 @@ struct Inner {
     nodes: Mutex<HashMap<PeerId, Arc<TestLoopTransport>>>,
 }
 
-#[allow(dead_code)]
 impl TestLoopNodeRegistry {
     pub(crate) fn register(&self, peer_id: PeerId, transport: Arc<TestLoopTransport>) {
         self.inner.nodes.lock().insert(peer_id, transport);

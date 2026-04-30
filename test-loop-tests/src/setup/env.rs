@@ -2,8 +2,10 @@ use super::builder::NodeStateBuilder;
 use super::drop_condition::DropCondition;
 use super::setup::setup_client;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
+use super::testloop_transport::pre_populate::seed_node_into_mesh;
 use crate::utils::account::{archival_account_id, rpc_account_id};
 use crate::utils::node::{NodeRunner, TestLoopNode, TestLoopNodeMut};
+use near_async::futures::FutureSpawnerExt;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
@@ -14,7 +16,7 @@ use near_store::archive::cloud_storage::CloudStorage;
 use near_store::db::ColdDB;
 use near_store::test_utils::TestNodeStorage;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub struct TestLoopEnv {
     pub test_loop: TestLoopV2,
@@ -95,6 +97,13 @@ impl TestLoopEnv {
             .find(|data| data.identifier == identifier)
             .expect("Node with identifier not found");
 
+        // Real-PMA path: drop the killed node's transport from the
+        // registry so subsequent `send_message` from other nodes
+        // returns false instead of trying to deliver to a dead node.
+        if !self.shared_state.use_legacy_mock_pma {
+            self.shared_state.registry.unregister(&node_data.peer_id);
+        }
+
         let account_id = node_data.account_id.clone();
         let client_actor = self.test_loop.data.get(&node_data.client_sender.actor_handle());
         let client_config = client_actor.client.config.clone();
@@ -146,7 +155,34 @@ impl TestLoopEnv {
             &self.shared_state,
             self.shared_state.use_legacy_mock_pma,
         );
-        self.node_datas.push(node_data);
+        self.node_datas.push(node_data.clone());
+
+        // Real-PMA path: seed the new node into the mesh so existing
+        // nodes can route to it (and vice versa) — symmetric with
+        // `populate_full_mesh` at end-of-build.
+        if !self.shared_state.use_legacy_mock_pma {
+            let clock = self.test_loop.clock();
+            let registry = self.shared_state.registry.clone();
+            let nonce_counter = self.shared_state.mesh_edge_nonce.clone();
+            let existing_nodes = self.node_datas.clone();
+            let done = Arc::new(AtomicBool::new(false));
+            let done_clone = done.clone();
+            let spawner = self.test_loop.future_spawner("seed_node_into_mesh");
+            spawner.spawn("seed_node_into_mesh", async move {
+                let epoch_id = near_primitives::types::EpochId::default();
+                seed_node_into_mesh(
+                    &clock,
+                    &node_data,
+                    &existing_nodes,
+                    &registry,
+                    &nonce_counter,
+                    epoch_id,
+                )
+                .await;
+                done_clone.store(true, Ordering::Relaxed);
+            });
+            self.test_loop.run_until(|_| done.load(Ordering::Relaxed), Duration::seconds(10));
+        }
     }
 
     /// Function to add a new node in test loop environment. This function takes in the identifier
