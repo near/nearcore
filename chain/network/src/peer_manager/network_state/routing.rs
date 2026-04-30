@@ -46,7 +46,7 @@ impl NetworkState {
             this.broadcast_routing_table_update(RoutingTableUpdate::from_accounts(
                 new_accounts,
             ), &*transport);
-        }).await.unwrap()
+        }).await.ok();
     }
 
     /// Constructs a partial edge to the given peer with the nonce specified.

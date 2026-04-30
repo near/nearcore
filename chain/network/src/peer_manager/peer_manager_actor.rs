@@ -367,7 +367,7 @@ impl PeerManagerActor {
         let clock = clock;
         let state = Arc::new(NetworkState::new(
             &clock,
-            &*handle.future_spawner(),
+            Arc::from(handle.future_spawner()),
             store,
             peer_store,
             config,

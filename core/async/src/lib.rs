@@ -164,14 +164,6 @@ impl ActorSystem {
     }
 }
 
-/// Spawns a future spawner that is NOT owned by any ActorSystem.
-/// Rather, the returned FutureSpawner, when dropped, will stop the runtime.
-pub fn new_owned_future_spawner(description: &str) -> Box<dyn FutureSpawner> {
-    Box::new(OwnedFutureSpawner {
-        handle: spawn_tokio_actor(EmptyActor, description.to_string(), CancellationToken::new()),
-    })
-}
-
 /// Spawns a multithreaded actor which is NOT owned by any ActorSystem.
 /// Rather, the returned handle, when dropped, will stop the actor and its runtime.
 pub fn new_owned_multithread_actor<A: Actor + Send + 'static>(
@@ -185,22 +177,6 @@ pub fn new_owned_multithread_actor<A: Actor + Send + 'static>(
         cancellation_receiver,
         Some(cancellation_signal), // never cancelled
     )
-}
-
-struct OwnedFutureSpawner {
-    handle: TokioRuntimeHandle<EmptyActor>,
-}
-
-impl FutureSpawner for OwnedFutureSpawner {
-    fn spawn_boxed(&self, description: &'static str, f: crate::futures::BoxFuture<'static, ()>) {
-        self.handle.future_spawner().spawn_boxed(description, f);
-    }
-}
-
-impl Drop for OwnedFutureSpawner {
-    fn drop(&mut self) {
-        self.handle.stop();
-    }
 }
 
 /// Used to determine whether shutdown_all_actors is being used properly. If there are multiple

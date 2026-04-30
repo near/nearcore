@@ -49,7 +49,7 @@ use arc_swap::ArcSwap;
 use dashmap::DashMap;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{CanSend, CanSendAsync, Sender};
-use near_async::{new_owned_future_spawner, time};
+use near_async::time;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
@@ -106,8 +106,12 @@ pub(crate) struct WhitelistNode {
 }
 
 pub(crate) struct NetworkState {
-    /// Single-threaded tokio runtime for NetworkState operations
-    ops_spawner: Box<dyn FutureSpawner>,
+    /// Spawner for NetworkState's background operations (gossip
+    /// processing, edge correction, send-to-self delivery). The
+    /// spawner's runtime lifetime is the caller's responsibility;
+    /// callers of `self.spawn(..).await` should treat the result as
+    /// best-effort (cancellation propagates from the runtime).
+    ops_spawner: Arc<dyn FutureSpawner>,
     /// PeerManager config.
     pub config: config::VerifiedConfig,
     /// When network state has been constructed.
@@ -263,7 +267,7 @@ impl From<&connection::Connection> for PeerDisconnectInfo {
 impl NetworkState {
     pub fn new(
         clock: &time::Clock,
-        future_spawner: &dyn FutureSpawner,
+        future_spawner: Arc<dyn FutureSpawner>,
         store: store::Store,
         peer_store: peer_store::PeerStore,
         config: config::VerifiedConfig,
@@ -278,7 +282,7 @@ impl NetworkState {
         spice_core_writer_adapter: Sender<SpiceChunkEndorsementMessage>,
     ) -> Self {
         Self {
-            ops_spawner: new_owned_future_spawner("NetworkState ops"),
+            ops_spawner: future_spawner.clone(),
             graph: crate::routing::Graph::new(
                 clock.clone(),
                 crate::routing::GraphConfig {
@@ -317,7 +321,7 @@ impl NetworkState {
             whitelist_nodes,
             add_edges_demux: demux::Demux::new(
                 config.routing_table_update_rate_limit,
-                future_spawner,
+                future_spawner.as_ref(),
             ),
             set_chain_info_mutex: Mutex::new(()),
             config,
@@ -328,14 +332,12 @@ impl NetworkState {
         }
     }
 
-    /// Spawn a future on the runtime which has the same lifetime as the NetworkState instance.
-    /// In particular if the future contains the NetworkState handler, it will be run until
-    /// completion. It is safe to self.spawn(...).await.unwrap(), since runtime will be kept alive
-    /// by the reference to self.
+    /// Spawn a future on the configured ops spawner. The returned receiver
+    /// resolves with the future's output, or `Err` if the spawner's runtime
+    /// is cancelled before the future completes (typically only at system
+    /// shutdown).
     ///
-    /// It should be used to make the public methods cancellable: you spawn the
-    /// noncancellable logic on self.runtime and just await it: in case the call is cancelled,
-    /// the noncancellable logic will be run in the background anyway.
+    /// Callers should treat `rx.await` as best-effort and not unwrap.
     pub(crate) fn spawn<R: 'static + Send>(
         &self,
         description: &'static str,
@@ -505,14 +507,14 @@ impl NetworkState {
                 peer_info.id.clone(),
                 demux::Demux::new(
                     self.config.accounts_data_broadcast_rate_limit,
-                    &*self.ops_spawner,
+                    self.ops_spawner.as_ref(),
                 ),
             );
             self.snapshot_hosts_demuxes.lock().insert(
                 peer_info.id.clone(),
                 demux::Demux::new(
                     self.config.snapshot_hosts_broadcast_rate_limit,
-                    &*self.ops_spawner,
+                    self.ops_spawner.as_ref(),
                 ),
             );
             // Broadcast the edge to other peers. The edge was already verified
@@ -1322,12 +1324,12 @@ impl NetworkState {
                 })
                 .collect();
             for t in tasks {
-                t.await.unwrap();
+                let _ = t.await;
             }
             err
         })
         .await
-        .unwrap()
+        .unwrap_or(None)
     }
 
     pub async fn add_snapshot_hosts(
@@ -1365,12 +1367,12 @@ impl NetworkState {
                 })
                 .collect();
             for t in tasks {
-                t.await.unwrap();
+                let _ = t.await;
             }
             err
         })
         .await
-        .unwrap()
+        .unwrap_or(None)
     }
 
     /// a) there is a peer we should be connected to, but we aren't
@@ -1465,7 +1467,7 @@ impl NetworkState {
             }
         })
         .await
-        .unwrap()
+        .ok();
     }
 
     pub fn update_connection_store(self: &Arc<Self>, clock: &time::Clock) {
