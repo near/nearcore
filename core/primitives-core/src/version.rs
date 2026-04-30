@@ -328,6 +328,10 @@ pub enum ProtocolFeature {
     IncreaseMaxCongestionMissedChunks,
 
     Wasmtime,
+    /// Cap the combined number of `DeployContract` and `DeployGlobalContract`
+    /// actions in a single receipt via `LimitConfig::max_deploy_actions_per_receipt`.
+    /// Inner deploys nested in a `Delegate` action count toward the same cap.
+    LimitDeployActionsPerReceipt,
     #[deprecated]
     _DeprecatedSaturatingFloatToInt,
     #[deprecated]
@@ -380,9 +384,6 @@ pub enum ProtocolFeature {
     /// during header sync and block processing. Foundation for early chunk producer
     /// kickout without epoch manager recomputation.
     EarlyKickout,
-    /// Cap the combined number of `DeployContract` and `DeployGlobalContract`
-    /// actions in a single receipt via `LimitConfig::max_deploy_actions_per_receipt`.
-    LimitDeployActionsPerReceipt,
 }
 
 impl ProtocolFeature {
@@ -490,7 +491,7 @@ impl ProtocolFeature {
             | ProtocolFeature::YieldResumeImprovements
             | ProtocolFeature::EthImplicitGlobalContract
             | ProtocolFeature::InstantDeleteAccount => 83,
-            ProtocolFeature::Wasmtime => 84,
+            ProtocolFeature::Wasmtime | ProtocolFeature::LimitDeployActionsPerReceipt => 84,
             ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
             | ProtocolFeature::ContinuousEpochSync => 85,
 
@@ -503,7 +504,6 @@ impl ProtocolFeature {
             ProtocolFeature::DynamicResharding => 150,
             ProtocolFeature::StrictNonce => 151,
             ProtocolFeature::EarlyKickout => 152,
-            ProtocolFeature::LimitDeployActionsPerReceipt => 153,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
@@ -552,7 +552,7 @@ pub fn assert_supported_protocol_version(current_protocol_version: ProtocolVersi
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 85;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 153;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 152;
 
 // TODO(spice): Once spice is mature and close to release make it part of nightly - at the point in
 // time cargo feature for spice should be removed as well.
