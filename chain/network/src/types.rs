@@ -174,10 +174,6 @@ pub enum PeerManagerMessageRequest {
     /// The effect would be accounts data known by this node broadcasted to other tier1 nodes.
     /// That includes info about validator signer of this node.
     AdvertiseTier1Proxies,
-    /// Request PeerManager to connect to the given peer.
-    /// Used in tests and internally by PeerManager.
-    /// TODO: replace it with AsyncContext::spawn/run_later for internal use.
-    OutboundTcpConnect(crate::tcp::Stream),
     /// The following types of requests are used to trigger actions in the Peer Manager for testing.
     /// TEST-ONLY: Fetch current routing table.
     FetchRoutingTable,
@@ -206,8 +202,6 @@ impl PeerManagerMessageRequest {
 pub enum PeerManagerMessageResponse {
     NetworkResponses(NetworkResponses),
     AdvertiseTier1Proxies,
-    /// TEST-ONLY
-    OutboundTcpConnect,
     FetchRoutingTable(RoutingTableInfo),
 }
 

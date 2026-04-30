@@ -2502,6 +2502,12 @@ pub struct EpochValidatorInfo {
     pub epoch_start_height: BlockHeight,
     /// Epoch height
     pub epoch_height: EpochHeight,
+    /// Per-validator rewards paid out at the start of the previous epoch.
+    /// For epoch E, this contains the rewards earned in epoch E-2 that were
+    /// added to validator and treasury balances at the first block of epoch
+    /// E-1 (via `ValidatorAccountsUpdate`).
+    #[serde(default)]
+    pub validator_reward_paid_prev_epoch: HashMap<AccountId, Balance>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]

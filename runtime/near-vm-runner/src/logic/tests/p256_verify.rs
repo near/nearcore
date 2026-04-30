@@ -5,13 +5,15 @@ use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
 use crate::map;
 use near_parameters::ExtCosts;
 use p256::ecdsa::SigningKey;
-use p256::ecdsa::signature::Signer;
+use p256::ecdsa::signature::hazmat::PrehashSigner;
 use std::collections::HashMap;
 
-/// Deterministic key-pair plus arbitrary 32-byte message. RustCrypto's `p256`
-/// uses deterministic RFC6979 nonces by default, so calling `sign` on the same
-/// key/message produces the same signature every time; we rely on that for
-/// reproducibility.
+/// Deterministic key-pair plus arbitrary 32-byte prehash. RustCrypto's `p256`
+/// uses deterministic RFC6979 nonces by default, so calling `sign_prehash` on
+/// the same key/prehash produces the same signature every time; we rely on
+/// that for reproducibility. The host function does not hash — per NEP-635 the
+/// caller supplies a prehashed digest — so tests sign and verify the same raw
+/// bytes.
 fn p256_test_vectors() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
     let secret_key: [u8; 32] = [
         0xc9, 0xaf, 0xa9, 0xd8, 0x45, 0xba, 0x75, 0x16, 0x6b, 0x5c, 0x21, 0x57, 0x67, 0xb1, 0xd6,
@@ -20,7 +22,7 @@ fn p256_test_vectors() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
     ];
     let message = vec![7u8; 32];
     let signing_key = SigningKey::from_bytes(&secret_key.into()).unwrap();
-    let signature: p256::ecdsa::Signature = signing_key.sign(&message);
+    let signature: p256::ecdsa::Signature = signing_key.sign_prehash(&message).unwrap();
     let signature_bytes = signature.to_vec();
     let public_key = p256::ecdsa::VerifyingKey::from(&signing_key).to_encoded_point(true);
     let public_key_bytes = public_key.as_bytes().to_vec();
@@ -288,8 +290,9 @@ fn test_p256_verify_empty_message() {
 
 #[test]
 fn test_p256_verify_long_message() {
-    // Sign a longer message (256 bytes) to ensure byte-based gas accounting
-    // scales with message length.
+    // Feed the host a longer "prehash" (256 bytes) to ensure the per-byte gas
+    // accounting scales with input length even though bits2field truncates the
+    // prehash to the field size before verification.
     let secret_key: [u8; 32] = [
         0xc9, 0xaf, 0xa9, 0xd8, 0x45, 0xba, 0x75, 0x16, 0x6b, 0x5c, 0x21, 0x57, 0x67, 0xb1, 0xd6,
         0x93, 0x4e, 0x50, 0xc3, 0xdb, 0x36, 0xe8, 0x9b, 0x12, 0x7b, 0x8a, 0x62, 0x2b, 0x12, 0x0f,
@@ -297,7 +300,7 @@ fn test_p256_verify_long_message() {
     ];
     let signing_key = SigningKey::from_bytes(&secret_key.into()).unwrap();
     let message: Vec<u8> = (0..256u16).map(|i| (i & 0xff) as u8).collect();
-    let signature: p256::ecdsa::Signature = signing_key.sign(&message);
+    let signature: p256::ecdsa::Signature = signing_key.sign_prehash(&message).unwrap();
     let signature = signature.to_vec();
     let public_key =
         p256::ecdsa::VerifyingKey::from(&signing_key).to_encoded_point(true).as_bytes().to_vec();

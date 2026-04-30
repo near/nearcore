@@ -1,7 +1,8 @@
+use crate::archive::cloud_storage::batch::compute_batch_id;
+pub use crate::archive::cloud_storage::batch::{BatchId, BatchRange, compute_next_batch};
 pub use crate::archive::cloud_storage::blocks::{BlockBatch, BlockData};
 pub use crate::archive::cloud_storage::bucket_config::BucketConfig;
 pub use crate::archive::cloud_storage::epoch_data::EpochData;
-use crate::archive::cloud_storage::file_id::compute_batch_id;
 pub use crate::archive::cloud_storage::shards::{ShardBatch, ShardData};
 use near_external_storage::ExternalConnection;
 use near_primitives::state_sync::ShardStateSyncResponseHeader;
@@ -15,12 +16,13 @@ pub mod archive;
 pub mod bucket_config;
 pub mod retrieve;
 
+pub(super) mod batch;
 pub(super) mod blocks;
 pub(super) mod epoch_data;
 pub(super) mod file_id;
 pub(super) mod shards;
 
-pub use file_id::{BatchRange, ListableCloudDir};
+pub use file_id::ListableCloudDir;
 
 /// Handles operations related to cloud storage used for archival data.
 pub struct CloudStorage {
@@ -60,6 +62,16 @@ impl CloudStorage {
         let fut = self.retrieve_state_header(epoch_height, epoch_id, shard_id);
         let state_header = block_on_future(fut).map_err(Error::other)?;
         Ok(state_header)
+    }
+
+    pub fn is_state_header_stored(
+        &self,
+        epoch_height: EpochHeight,
+        epoch_id: EpochId,
+        shard_id: ShardId,
+    ) -> Result<bool> {
+        let dir = ListableCloudDir::StateHeader { epoch_height, epoch_id, shard_id };
+        block_on_future(self.dir_contains(&dir, "header")).map_err(Error::other)
     }
 
     pub fn get_epoch_data(&self, epoch_id: EpochId) -> Result<EpochData> {
@@ -117,7 +129,8 @@ fn block_on_future<F: Future>(fut: F) -> F::Output {
 #[cfg(test)]
 mod tests {
     use super::CloudStorage;
-    use super::file_id::{BatchId, CloudStorageFileID};
+    use super::batch::BatchId;
+    use super::file_id::CloudStorageFileID;
     use crate::archive::cloud_storage::bucket_config::BucketConfig;
     use near_external_storage::ExternalConnection;
 

@@ -1,11 +1,10 @@
 use crate::Store;
 use crate::archive::cloud_storage::CloudStorage;
+use crate::archive::cloud_storage::batch::{BatchRange, compute_batch_id};
 use crate::archive::cloud_storage::blocks::build_block_batch;
 use crate::archive::cloud_storage::bucket_config::BucketConfig;
 use crate::archive::cloud_storage::epoch_data::build_epoch_data;
-use crate::archive::cloud_storage::file_id::{
-    BatchRange, CloudStorageFileID, ListableCloudDir, compute_batch_id,
-};
+use crate::archive::cloud_storage::file_id::{CloudStorageFileID, ListableCloudDir};
 use crate::archive::cloud_storage::retrieve::CloudRetrievalError;
 use crate::archive::cloud_storage::shards::build_shard_batch;
 use near_primitives::errors::EpochError;

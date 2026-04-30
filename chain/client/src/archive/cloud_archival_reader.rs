@@ -1,7 +1,7 @@
 use anyhow::Context;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
-use near_primitives::types::{BlockHeight, EpochId};
+use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
 use near_primitives::utils::index_to_bytes;
 use near_store::archive::cloud_storage::{BlockData, CloudStorage, EpochData};
 use near_store::{DBCol, Store};
@@ -149,6 +149,51 @@ fn backfill_epoch_start(
     }
 
     Ok(epoch_data)
+}
+
+/// Walks epochs backward from `height` and returns the first `(epoch_height, epoch_id)`
+/// whose state-header is present in cloud for `shard_id`, or `None` after the genesis
+/// epoch.
+pub fn find_snapshot_at_or_before(
+    cloud_storage: &CloudStorage,
+    height: BlockHeight,
+    shard_id: ShardId,
+) -> anyhow::Result<Option<(EpochHeight, EpochId)>> {
+    let initial_batch = cloud_storage
+        .get_block_batch_for_height(height)
+        .with_context(|| format!("failed to download block batch at height {height}"))?;
+    let mut epoch_id = *initial_batch.get_block_at_height(height).block().header().epoch_id();
+
+    loop {
+        let epoch_data = cloud_storage
+            .get_epoch_data(epoch_id)
+            .with_context(|| format!("failed to download epoch data for {epoch_id:?}"))?;
+        let epoch_height = epoch_data.epoch_info().epoch_height();
+        let epoch_start_height = epoch_data.epoch_start_height();
+
+        tracing::info!(epoch_height, ?epoch_id, "probing for state snapshot");
+
+        if cloud_storage.is_state_header_stored(epoch_height, epoch_id, shard_id)? {
+            return Ok(Some((epoch_height, epoch_id)));
+        }
+
+        // Miss: step to the previous epoch. Fetch the epoch-start block so we
+        // can detect the genesis epoch (its prev_hash is the default hash) and
+        // then read the block immediately before it to get the previous epoch_id.
+        let epoch_start_batch =
+            cloud_storage.get_block_batch_for_height(epoch_start_height).with_context(|| {
+                format!("failed to download batch at epoch-start height {epoch_start_height}")
+            })?;
+        let epoch_start_block = epoch_start_batch.get_block_at_height(epoch_start_height);
+        if epoch_start_block.block().header().is_genesis() {
+            return Ok(None);
+        }
+        let prev_height = epoch_start_height - 1;
+        let prev_batch = cloud_storage
+            .get_block_batch_for_height(prev_height)
+            .with_context(|| format!("failed to download block batch at height {prev_height}"))?;
+        epoch_id = *prev_batch.get_block_at_height(prev_height).block().header().epoch_id();
+    }
 }
 
 /// Downloads and saves epoch-level data for a new epoch. Also saves the epoch

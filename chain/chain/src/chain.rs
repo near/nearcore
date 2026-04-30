@@ -3631,11 +3631,11 @@ impl Chain {
     /// Function to check whether we need to create a new snapshot while processing the current block
     /// Note that this functions is called as a part of block preprocessing, so the head is not updated to current block
     fn should_make_snapshot(&self) -> Result<SnapshotAction, Error> {
-        if let StateSnapshotConfig::Disabled =
-            self.runtime_adapter.get_tries().state_snapshot_config()
-        {
+        let tries = self.runtime_adapter.get_tries();
+        if let StateSnapshotConfig::Disabled = tries.state_snapshot_config() {
             return Ok(SnapshotAction::None);
         }
+        let snapshot_every_n_epochs = tries.state_snapshot_config().snapshot_cadence();
 
         // head value is that of the previous block, i.e. curr_block.prev_hash
         let head = self.head()?;
@@ -3645,13 +3645,17 @@ impl Chain {
         }
 
         let is_sync_prev = self.state_sync_adapter.is_sync_prev_hash(&head)?;
-        if is_sync_prev {
-            // Here the head block is the prev block of what the sync hash will be, and the previous
-            // block is the point in the chain we want to snapshot state for
-            Ok(SnapshotAction::MakeSnapshot(head.last_block_hash))
-        } else {
-            Ok(SnapshotAction::None)
+        if !is_sync_prev {
+            return Ok(SnapshotAction::None);
         }
+        // Here the head block is the prev block of what the sync hash will be, and the previous
+        // block is the point in the chain we want to snapshot state for.
+        let epoch_height =
+            self.epoch_manager.get_epoch_height_from_prev_block(&head.prev_block_hash)?;
+        if epoch_height % snapshot_every_n_epochs != 0 {
+            return Ok(SnapshotAction::None);
+        }
+        Ok(SnapshotAction::MakeSnapshot(head.last_block_hash))
     }
 
     pub fn transaction_validity_period(&self) -> BlockHeightDelta {

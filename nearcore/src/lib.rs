@@ -720,7 +720,7 @@ pub async fn start_with_config_and_synchronization_impl(
     let hot_store = storage.get_hot_store();
     let cold_store = storage.get_cold_store();
 
-    let network_actor = PeerManagerActor::spawn(
+    let (network_actor, _tcp) = PeerManagerActor::spawn(
         Clock::real(),
         actor_system.clone(),
         storage.into_inner(near_store::Temperature::Hot),

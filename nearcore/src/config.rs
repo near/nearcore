@@ -86,9 +86,6 @@ pub const TESTNET_MAX_BLOCK_PRODUCTION_DELAY: i64 = 1_800;
 /// Maximum time until skipping the previous block is ms.
 pub const MAX_BLOCK_WAIT_DELAY: i64 = 6_000;
 
-/// Multiplier for the wait time for all chunks to be received.
-pub const CHUNK_WAIT_DENOMINATOR: i32 = 3;
-
 /// Horizon at which instead of fetching block, fetch full state.
 const BLOCK_FETCH_HORIZON: BlockHeightDelta = 50;
 
@@ -206,7 +203,7 @@ impl Default for Consensus {
             min_block_production_delay: Duration::milliseconds(MIN_BLOCK_PRODUCTION_DELAY),
             max_block_production_delay: Duration::milliseconds(MAX_BLOCK_PRODUCTION_DELAY),
             max_block_wait_delay: Duration::milliseconds(MAX_BLOCK_WAIT_DELAY),
-            chunk_wait_mult: Rational32::new(1, CHUNK_WAIT_DENOMINATOR),
+            chunk_wait_mult: default_chunk_wait_mult(),
             produce_empty_blocks: true,
             block_fetch_horizon: BLOCK_FETCH_HORIZON,
             block_header_fetch_horizon: BLOCK_HEADER_FETCH_HORIZON,
@@ -878,9 +875,17 @@ impl NightshadeRuntime {
         #[allow(clippy::or_fun_call)] // Closure cannot return reference to a temporary value
         let state_snapshot_config =
             match config.config.store.state_snapshot_config.state_snapshot_type {
-                StateSnapshotType::Enabled => StateSnapshotConfig::enabled(
-                    home_dir.join(config.config.store.path.as_ref().unwrap_or(&"data".into())),
-                ),
+                StateSnapshotType::Enabled => {
+                    let hot_store_path =
+                        home_dir.join(config.config.store.path.as_ref().unwrap_or(&"data".into()));
+                    match &config.client_config.cloud_archival_writer {
+                        Some(writer_config) => StateSnapshotConfig::enabled_with_cadence(
+                            hot_store_path,
+                            writer_config.snapshot_every_n_epochs,
+                        ),
+                        None => StateSnapshotConfig::enabled(hot_store_path),
+                    }
+                }
                 StateSnapshotType::Disabled => StateSnapshotConfig::Disabled,
             };
         // FIXME: this (and other contract runtime resources) should probably get constructed by

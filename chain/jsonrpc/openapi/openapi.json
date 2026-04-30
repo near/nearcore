@@ -3786,6 +3786,13 @@
               "secs": 1
             },
             "description": "Interval at which the system checks for new blocks or chunks to archive."
+          },
+          "snapshot_every_n_epochs": {
+            "default": 10,
+            "description": "Cadence of state snapshots, in epochs. Higher values reduce bucket cost at\nthe expense of potentially longer delta replay during reader bootstrap.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
           }
         },
         "type": "object"
@@ -17611,6 +17618,14 @@
               "$ref": "#/components/schemas/ValidatorKickoutView"
             },
             "type": "array"
+          },
+          "validator_reward_paid_prev_epoch": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/NearToken"
+            },
+            "default": {},
+            "description": "Per-validator rewards paid out at the start of the previous epoch.\nFor epoch E, this contains the rewards earned in epoch E-2 that were\nadded to validator and treasury balances at the first block of epoch\nE-1 (via `ValidatorAccountsUpdate`).",
+            "type": "object"
           }
         },
         "required": [
