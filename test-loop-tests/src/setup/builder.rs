@@ -471,16 +471,13 @@ impl TestLoopBuilder {
 
         // Real-PMA path: seed the full mesh once every node is wired so PMA's
         // monitor_peers_trigger and tier1_connect short-circuit naturally.
+        // Synchronous (see `populate_full_mesh` doc): bypasses the demux that
+        // would deadlock under `block_on` against testloop's FakeClock.
         if !use_legacy_mock_pma {
             let clock = test_loop.clock();
             // Match production: use the genesis epoch_id for initial announcements.
             let epoch_id = near_primitives::types::EpochId::default();
-            futures::executor::block_on(populate_full_mesh(
-                &clock,
-                &datas,
-                &shared_state.registry,
-                epoch_id,
-            ));
+            populate_full_mesh(&clock, &datas, epoch_id);
         }
 
         TestLoopEnv { test_loop, node_datas: datas, shared_state }
