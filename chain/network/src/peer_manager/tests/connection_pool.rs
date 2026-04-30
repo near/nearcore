@@ -24,6 +24,7 @@ async fn unsolicited_tier3_rejected() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let pm = peer_manager::testonly::start(
@@ -84,6 +85,7 @@ async fn expected_tier3_accepted() {
     let mut rng = make_rng(921853234);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let pm = peer_manager::testonly::start(
@@ -148,6 +150,7 @@ async fn duplicate_handshake_closes_tier3() {
     let mut rng = make_rng(921853235);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let pm = peer_manager::testonly::start(
@@ -223,6 +226,7 @@ async fn t3_disconnect() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let pm = peer_manager::testonly::start(
@@ -299,6 +303,7 @@ async fn slow_test_connection_spam_security_test() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     const PEERS_OVER_LIMIT: usize = 10;
@@ -340,6 +345,7 @@ async fn loop_connection() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let pm = peer_manager::testonly::start(
@@ -407,6 +413,7 @@ async fn owned_account_mismatch() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let pm = peer_manager::testonly::start(
@@ -470,6 +477,7 @@ async fn owned_account_conflict() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let pm = peer_manager::testonly::start(
@@ -508,6 +516,7 @@ async fn invalid_edge() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let pm = peer_manager::testonly::start(

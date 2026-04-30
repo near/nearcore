@@ -9,6 +9,7 @@ use crate::network_protocol::SnapshotHostInfo;
 use crate::network_protocol::SnapshotHostInfoVerificationError;
 use itertools::Itertools;
 use lru::LruCache;
+use near_async::futures::AsyncComputationSpawner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochHeight;
@@ -297,34 +298,49 @@ impl Inner {
     }
 }
 
-pub(crate) struct SnapshotHostsCache(Mutex<Inner>);
+pub(crate) struct SnapshotHostsCache {
+    inner: Mutex<Inner>,
+    /// See `AccountDataCache::async_computation_spawner` for context.
+    async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
+}
 
 impl SnapshotHostsCache {
-    pub fn new(config: Config) -> Self {
-        Self::new_with_epoch_retention_window(config, STATE_SNAPSHOT_INFO_RETENTION_WINDOW)
+    pub fn new(
+        config: Config,
+        async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
+    ) -> Self {
+        Self::new_with_epoch_retention_window(
+            config,
+            STATE_SNAPSHOT_INFO_RETENTION_WINDOW,
+            async_computation_spawner,
+        )
     }
 
     pub fn new_with_epoch_retention_window(
         config: Config,
         epoch_retention_window: EpochHeight,
+        async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Self {
-        Self(Mutex::new(Inner {
-            hosts: LruCache::new(
-                NonZeroUsize::new(config.snapshot_hosts_cache_size as usize).unwrap(),
-            ),
-            current_state_sync_hash: None,
-            discard_snapshot_infos_below_epoch_height: None,
-            hosts_for_shard: HashMap::new(),
-            peer_selector: HashMap::new(),
-            part_selection_cache_batch_size: config.part_selection_cache_batch_size as usize,
-            epoch_retention_window,
-        }))
+        Self {
+            inner: Mutex::new(Inner {
+                hosts: LruCache::new(
+                    NonZeroUsize::new(config.snapshot_hosts_cache_size as usize).unwrap(),
+                ),
+                current_state_sync_hash: None,
+                discard_snapshot_infos_below_epoch_height: None,
+                hosts_for_shard: HashMap::new(),
+                peer_selector: HashMap::new(),
+                part_selection_cache_batch_size: config.part_selection_cache_batch_size as usize,
+                epoch_retention_window,
+            }),
+            async_computation_spawner,
+        }
     }
 
     /// Updates the minimum epoch height to keep based on chain progression.
     /// Snapshot infos older than STATE_SNAPSHOT_INFO_RETENTION_WINDOW epochs from the given epoch height will be discarded.
     pub fn set_current_epoch_height(&self, epoch_height: EpochHeight) {
-        self.0.lock().update_discard_epoch_threshold(epoch_height);
+        self.inner.lock().update_discard_epoch_threshold(epoch_height);
     }
 
     /// Selects new data and verifies the signatures.
@@ -339,19 +355,23 @@ impl SnapshotHostsCache {
             return (vec![], Some(SnapshotHostInfoError::DuplicatePeerId));
         }
         let new_data = {
-            let inner = self.0.lock();
+            let inner = self.inner.lock();
             data.into_iter().filter(|d| !d.shards.is_empty() && inner.is_new(d)).collect_vec()
         };
         // Verify the signatures in parallel.
         // Verification will stop at the first encountered error.
-        let (data, verification_result) = concurrency::rayon::run(move || {
-            concurrency::rayon::try_map_result(new_data.into_iter().par_bridge(), |d| {
-                match d.verify() {
-                    Ok(()) => Ok(d),
-                    Err(err) => Err(err),
-                }
-            })
-        })
+        let (data, verification_result) = concurrency::rayon::run(
+            self.async_computation_spawner.as_ref(),
+            "SnapshotHostsCache::verify",
+            move || {
+                concurrency::rayon::try_map_result(new_data.into_iter().par_bridge(), |d| {
+                    match d.verify() {
+                        Ok(()) => Ok(d),
+                        Err(err) => Err(err),
+                    }
+                })
+            },
+        )
         .await;
         match verification_result {
             Ok(()) => (data, None),
@@ -372,22 +392,22 @@ impl SnapshotHostsCache {
             return (vec![], err);
         }
         // Insert the successfully verified data.
-        let mut inner = self.0.lock();
+        let mut inner = self.inner.lock();
         data.iter().for_each(|d| inner.insert(d));
         (data, err)
     }
 
     /// Skips signature verification. Used only for the local node's own information.
     pub fn insert_skip_verify(self: &Self, my_info: Arc<SnapshotHostInfo>) {
-        let _ = self.0.lock().try_insert(my_info);
+        let _ = self.inner.lock().try_insert(my_info);
     }
 
     pub fn get_hosts(&self) -> Vec<Arc<SnapshotHostInfo>> {
-        self.0.lock().hosts.iter().map(|(_, v)| v.clone()).collect()
+        self.inner.lock().hosts.iter().map(|(_, v)| v.clone()).collect()
     }
 
     pub(crate) fn get_host_info(&self, peer_id: &PeerId) -> Option<Arc<SnapshotHostInfo>> {
-        self.0.lock().hosts.peek(peer_id).cloned()
+        self.inner.lock().hosts.peek(peer_id).cloned()
     }
 
     /// Given a state header request, selects a peer host to which the request should be sent.
@@ -396,7 +416,7 @@ impl SnapshotHostsCache {
         sync_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Option<PeerId> {
-        self.0.lock().select_host_for_header(sync_hash, shard_id)
+        self.inner.lock().select_host_for_header(sync_hash, shard_id)
     }
 
     /// Given a state part request, selects a peer host to which the request should be sent.
@@ -406,18 +426,18 @@ impl SnapshotHostsCache {
         shard_id: ShardId,
         part_id: u64,
     ) -> Option<PeerId> {
-        self.0.lock().select_host_for_part(sync_hash, shard_id, part_id)
+        self.inner.lock().select_host_for_part(sync_hash, shard_id, part_id)
     }
 
     /// Triggered by state sync actor after processing a state part.
     pub fn part_received(&self, shard_id: ShardId, part_id: u64) {
-        let mut inner = self.0.lock();
+        let mut inner = self.inner.lock();
         inner.peer_selector.remove(&(shard_id, part_id));
     }
 
     #[cfg(test)]
     pub(crate) fn has_selector(&self, shard_id: ShardId, part_id: u64) -> bool {
-        let inner = self.0.lock();
+        let inner = self.inner.lock();
         inner.peer_selector.contains_key(&(shard_id, part_id))
     }
 }

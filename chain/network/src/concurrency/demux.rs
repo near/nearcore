@@ -105,7 +105,11 @@ impl<Arg: 'static + Send, Res: 'static + Send> Demux<Arg, Res> {
 
     // Spawns a subroutine performing the demultiplexing.
     // Panics if rl is not valid.
-    pub fn new(rl: rate::Limit, future_spawner: &dyn FutureSpawner) -> Demux<Arg, Res> {
+    pub fn new(
+        rl: rate::Limit,
+        clock: time::Clock,
+        future_spawner: &dyn FutureSpawner,
+    ) -> Demux<Arg, Res> {
         rl.validate().unwrap();
         let (send, mut recv): (Stream<Arg, Res>, _) = mpsc::unbounded_channel();
         // TODO(gprusak): this task should be running as long as Demux object exists.
@@ -115,23 +119,21 @@ impl<Arg: 'static + Send, Res: 'static + Send> Demux<Arg, Res> {
             let mut calls = vec![];
             let mut closed = false;
             let mut tokens = rl.burst;
-            let mut next_token = None;
-            let interval = (time::Duration::SECOND / rl.qps).try_into().unwrap();
+            let mut next_token: Option<time::Instant> = None;
+            let interval = time::Duration::SECOND / rl.qps;
             while !(calls.is_empty() && closed) {
                 // Restarting the timer every time a new request comes could
                 // cause a starvation, so we compute the next token arrival time
                 // just once for each token.
                 if tokens < rl.burst && next_token.is_none() {
-                    next_token = Some(tokio::time::Instant::now() + interval);
+                    next_token = Some(clock.now() + interval);
                 }
 
                 tokio::select! {
-                    // TODO(gprusak): implement sleep future support for FakeClock,
-                    // so that we don't use tokio directly here.
                     _ = async {
                         // without async {} wrapper, next_token.unwrap() would be evaluated
                         // unconditionally.
-                        tokio::time::sleep_until(next_token.unwrap()).await
+                        clock.sleep_until(next_token.unwrap()).await
                     }, if next_token.is_some() => {
                         tokens += 1;
                         next_token = None;

@@ -45,7 +45,9 @@ async fn happy_path() {
     let e0 = Arc::new(data::make_account_keys(&signers[0..5]));
     let e1 = Arc::new(data::make_account_keys(&signers[2..7]));
 
-    let cache = Arc::new(AccountDataCache::new());
+    let cache = Arc::new(AccountDataCache::new(Arc::new(
+        crate::concurrency::rayon::RayonAsyncComputationSpawner,
+    )));
     assert_eq!(cache.load().data.values().count(), 0); // initially empty
     assert!(cache.set_keys(e0.clone()));
     assert_eq!(cache.load().data.values().count(), 0); // empty after initial set_keys.
@@ -109,7 +111,9 @@ async fn data_too_large() {
     let signers = make_signers(rng, 3);
     let e = Arc::new(data::make_account_keys(&signers));
 
-    let cache = Arc::new(AccountDataCache::new());
+    let cache = Arc::new(AccountDataCache::new(Arc::new(
+        crate::concurrency::rayon::RayonAsyncComputationSpawner,
+    )));
     cache.set_keys(e);
     let a0 = Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[0]));
     let a1 = Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[1]));
@@ -148,7 +152,9 @@ async fn invalid_signature() {
     let signers = make_signers(rng, 3);
     let e = Arc::new(data::make_account_keys(&signers));
 
-    let cache = Arc::new(AccountDataCache::new());
+    let cache = Arc::new(AccountDataCache::new(Arc::new(
+        crate::concurrency::rayon::RayonAsyncComputationSpawner,
+    )));
     cache.set_keys(e);
     let a0 = Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[0]));
     let mut a1 = make_account_data(rng, &clock.clock(), 1, &signers[1]);
@@ -186,7 +192,9 @@ async fn single_account_multiple_data() {
     let signers = make_signers(rng, 3);
     let e = Arc::new(data::make_account_keys(&signers));
 
-    let cache = Arc::new(AccountDataCache::new());
+    let cache = Arc::new(AccountDataCache::new(Arc::new(
+        crate::concurrency::rayon::RayonAsyncComputationSpawner,
+    )));
     cache.set_keys(e);
     let a0 = Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[0]));
     let a1 = Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[1]));
@@ -219,7 +227,9 @@ async fn set_local() {
     let e0 = Arc::new(data::make_account_keys(&signers[0..2]));
     let e1 = Arc::new(data::make_account_keys(&signers[1..3]));
 
-    let cache = Arc::new(AccountDataCache::new());
+    let cache = Arc::new(AccountDataCache::new(Arc::new(
+        crate::concurrency::rayon::RayonAsyncComputationSpawner,
+    )));
     assert!(cache.set_keys(e0.clone()));
 
     // Set local while local.signer is in cache.keys.

@@ -65,7 +65,7 @@ impl Debug for WithNetworkState {
 
 impl Handler<WithNetworkState> for PeerManagerActor {
     fn handle(&mut self, WithNetworkState(f): WithNetworkState) {
-        self.handle.spawn("with_network_state", f(self.state.clone()));
+        self.spawner.spawn("with_network_state", f(self.state.clone()));
     }
 }
 
@@ -90,7 +90,7 @@ impl Debug for WithStateAndTransport {
 
 impl Handler<WithStateAndTransport> for PeerManagerActor {
     fn handle(&mut self, WithStateAndTransport(f): WithStateAndTransport) {
-        self.handle
+        self.spawner
             .spawn("with_state_and_transport", f(self.state.clone(), self.transport.clone()));
     }
 }
@@ -101,6 +101,22 @@ pub(crate) struct ActorHandler {
     pub actor: AutoStopActor<PeerManagerActor>,
     pub actor_system: ActorSystem,
     pub tcp: Arc<TcpTransport>,
+}
+
+/// Spawns a real-time tokio task that advances the `FakeClock` by 10 ms every
+/// 10 ms of wall time. The demux's debounce timer is bound to the user-
+/// supplied `time::Clock`, so tests using a `FakeClock` need it advanced for
+/// the demux to refill tokens during connection establishment / gossip. The
+/// task is detached; tokio terminates it at end-of-test.
+pub(crate) fn auto_advance_fake_clock(clock: &time::FakeClock) {
+    let clock = clock.clone();
+    let step = std::time::Duration::from_millis(10);
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(step).await;
+            clock.advance(time::Duration::milliseconds(10));
+        }
+    });
 }
 
 pub(crate) fn unwrap_sync_accounts_data_processed(ev: Event) -> Option<SyncAccountsData> {

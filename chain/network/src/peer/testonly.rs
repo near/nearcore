@@ -1,5 +1,6 @@
 use crate::auto_stop::AutoStopActor;
 use crate::broadcast;
+use crate::concurrency::rayon::RayonAsyncComputationSpawner;
 use crate::config::NetworkConfig;
 use crate::network_protocol::{
     Edge, PartialEdgeInfo, PeerIdOrHash, PeerMessage, RawRoutedMessage, TieredMessageBody,
@@ -94,6 +95,7 @@ impl PeerHandle {
         let network_state = Arc::new(NetworkState::new(
             &clock,
             Arc::from(actor_system.new_future_spawner("network demux")),
+            Arc::new(RayonAsyncComputationSpawner),
             store,
             peer_store::PeerStore::new(&clock, network_cfg.peer_store.clone()).unwrap(),
             network_cfg.verify().unwrap(),

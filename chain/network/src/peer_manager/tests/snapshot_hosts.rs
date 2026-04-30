@@ -76,6 +76,7 @@ async fn broadcast() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
     let clock = clock.clock();
     let clock = &clock;
@@ -154,6 +155,7 @@ async fn invalid_signature_not_broadcast() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
     let clock = clock.clock();
     let clock = &clock;
@@ -218,6 +220,7 @@ async fn too_many_shards_not_broadcast() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
     let clock = clock.clock();
     let clock = &clock;
@@ -294,6 +297,7 @@ async fn propagate() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     // Adjust the file descriptors limit, so that we can create many connection in the test.
@@ -355,6 +359,7 @@ async fn large_shard_id_in_cache() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
     let clock = clock.clock();
     let clock = &clock;
@@ -405,6 +410,7 @@ async fn too_many_shards_truncate() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
     let clock = clock.clock();
     let clock = &clock;
@@ -476,6 +482,7 @@ async fn no_shards_not_broadcast() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
     let clock = clock.clock();
     let clock = &clock;

@@ -49,7 +49,10 @@ async fn happy_path() {
     let peer2 = PeerId::new(key2.public_key());
 
     let config = Config { snapshot_hosts_cache_size: 100, part_selection_cache_batch_size: 1 };
-    let cache = SnapshotHostsCache::new(config);
+    let cache = SnapshotHostsCache::new(
+        config,
+        std::sync::Arc::new(crate::concurrency::rayon::RayonAsyncComputationSpawner),
+    );
     assert_eq!(cache.get_hosts().len(), 0); // initially empty
 
     let sid_vec = |v: &[u64]| v.iter().cloned().map(Into::into).collect_vec();
@@ -86,7 +89,10 @@ async fn invalid_signature() {
     let peer1 = PeerId::new(key1.public_key());
 
     let config = Config { snapshot_hosts_cache_size: 100, part_selection_cache_batch_size: 1 };
-    let cache = SnapshotHostsCache::new(config);
+    let cache = SnapshotHostsCache::new(
+        config,
+        std::sync::Arc::new(crate::concurrency::rayon::RayonAsyncComputationSpawner),
+    );
 
     let sid_vec = |v: &[u64]| v.iter().cloned().map(Into::into).collect_vec();
 
@@ -122,7 +128,10 @@ async fn too_many_shards() {
     let peer1 = PeerId::new(key1.public_key());
 
     let config = Config { snapshot_hosts_cache_size: 100, part_selection_cache_batch_size: 1 };
-    let cache = SnapshotHostsCache::new(config);
+    let cache = SnapshotHostsCache::new(
+        config,
+        std::sync::Arc::new(crate::concurrency::rayon::RayonAsyncComputationSpawner),
+    );
 
     let sid_vec = |v: &[u64]| v.iter().cloned().map(Into::into).collect_vec();
 
@@ -160,7 +169,10 @@ async fn duplicate_peer_id() {
     let peer0 = PeerId::new(key0.public_key());
 
     let config = Config { snapshot_hosts_cache_size: 100, part_selection_cache_batch_size: 1 };
-    let cache = SnapshotHostsCache::new(config);
+    let cache = SnapshotHostsCache::new(
+        config,
+        std::sync::Arc::new(crate::concurrency::rayon::RayonAsyncComputationSpawner),
+    );
 
     let sid_vec = |v: &[u64]| v.iter().cloned().map(Into::into).collect_vec();
 
@@ -189,7 +201,10 @@ async fn test_lru_eviction() {
     let peer2 = PeerId::new(key2.public_key());
 
     let config = Config { snapshot_hosts_cache_size: 2, part_selection_cache_batch_size: 1 };
-    let cache = SnapshotHostsCache::new(config);
+    let cache = SnapshotHostsCache::new(
+        config,
+        std::sync::Arc::new(crate::concurrency::rayon::RayonAsyncComputationSpawner),
+    );
 
     let sid_vec = |v: &[u64]| v.iter().cloned().map(Into::into).collect_vec();
 
@@ -407,7 +422,11 @@ async fn run_select_peer_test(
 ) {
     let config =
         Config { snapshot_hosts_cache_size: keys.len() as u32, part_selection_cache_batch_size };
-    let cache = SnapshotHostsCache::new_with_epoch_retention_window(config, 1);
+    let cache = SnapshotHostsCache::new_with_epoch_retention_window(
+        config,
+        1,
+        std::sync::Arc::new(crate::concurrency::rayon::RayonAsyncComputationSpawner),
+    );
 
     tracing::debug!(test_name, "start");
 

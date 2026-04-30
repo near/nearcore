@@ -117,6 +117,7 @@ async fn first_proxy_advertisement() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
     let pm = start_pm(
         clock.clock(),
@@ -144,6 +145,7 @@ async fn direct_connections() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let mut pms = vec![];
@@ -188,6 +190,7 @@ async fn proxy_connections() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     const N: usize = 5;
@@ -255,6 +258,7 @@ async fn account_keys_change() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let v0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
@@ -298,6 +302,7 @@ async fn proxy_change() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     // v0 has proxies {p0,p1}
@@ -361,6 +366,7 @@ async fn tier2_routing_using_accounts_data() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     tracing::info!(target:"test", "start 2 nodes and connect them");
@@ -393,6 +399,7 @@ async fn stun_self_discovery() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     tracing::info!(target:"test", "configure tier1 self discovery to use 2 local stun servers");

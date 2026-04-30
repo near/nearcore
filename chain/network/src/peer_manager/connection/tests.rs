@@ -15,6 +15,7 @@ async fn connection_tie_break() {
     let mut rng = make_rng(33955575545);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let mut configs: Vec<_> = (0..3).map(|_| chain.make_config(rng)).collect();
@@ -61,6 +62,7 @@ async fn duplicate_connections() {
     let mut rng = make_rng(33955575545);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let pm = peer_manager::testonly::start(

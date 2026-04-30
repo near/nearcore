@@ -24,6 +24,7 @@ async fn broadcast() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
     let clock = clock.clock();
     let clock = &clock;
@@ -111,6 +112,7 @@ async fn gradual_epoch_change() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let mut pms = vec![];
@@ -178,6 +180,7 @@ async fn slow_test_rate_limiting() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     // TODO(gprusak): 10 connections per peer is not much, try to scale up this test 2x (some config
@@ -188,6 +191,11 @@ async fn slow_test_rate_limiting() {
     for _ in 0..n * m {
         let mut cfg = chain.make_config(rng);
         cfg.accounts_data_broadcast_rate_limit = rate::Limit { qps: 0.5, burst: 1 };
+        // Routing-table rate limit isn't the subject of this test. With the
+        // demux now FakeClock-bound, the default `qps: 10, burst: 1` would
+        // stall edge propagation during connection establishment because
+        // this test doesn't advance the clock until after connections finish.
+        cfg.routing_table_update_rate_limit = rate::Limit { qps: 1000., burst: 1000 };
         pms.push(
             peer_manager::testonly::start(
                 clock.clock(),
@@ -291,6 +299,7 @@ async fn validator_node_restart() {
         let mut rng = make_rng(921853233);
         let rng = &mut rng;
         let mut clock = time::FakeClock::default();
+        peer_manager::testonly::auto_advance_fake_clock(&clock);
         let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
         // Start 2 nodes with node pm0 being a validator.

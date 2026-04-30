@@ -1,14 +1,37 @@
+use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use rayon::iter::{Either, ParallelIterator};
 use std::error::Error;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// spawns a closure on a global rayon threadpool and awaits its completion.
-/// Returns the closure result.
+/// `AsyncComputationSpawner` backed by the global rayon thread pool. Used in
+/// production; testloop substitutes `TestLoopAsyncComputationSpawner` so the
+/// closure runs on the testloop event thread instead.
+///
+/// Mirrors `near_chain::rayon_spawner::RayonAsyncComputationSpawner` (cycle
+/// prevents direct reuse). Both impls preserve the tracing dispatcher across
+/// the rayon hop so spans don't disappear from spawned work.
+pub struct RayonAsyncComputationSpawner;
+
+impl AsyncComputationSpawner for RayonAsyncComputationSpawner {
+    fn spawn_boxed(&self, _name: &str, f: Box<dyn FnOnce() + Send>) {
+        let dispatcher = tracing::dispatcher::get_default(|it| it.clone());
+        rayon::spawn(move || tracing::dispatcher::with_default(&dispatcher, f))
+    }
+}
+
+/// Runs a closure via the supplied `AsyncComputationSpawner` and awaits its
+/// completion. Used to bridge sync, parallel work (e.g., signature
+/// verification on rayon) into async code.
+///
 /// WARNING: panicking within a rayon task seems to be causing a double panic,
 /// and hence the panic message is not visible when running "cargo test".
-pub async fn run<T: 'static + Send>(f: impl 'static + Send + FnOnce() -> T) -> T {
+pub async fn run<T: 'static + Send>(
+    spawner: &dyn AsyncComputationSpawner,
+    name: &'static str,
+    f: impl 'static + Send + FnOnce() -> T,
+) -> T {
     let (send, recv) = tokio::sync::oneshot::channel();
-    rayon::spawn(move || {
+    spawner.spawn(name, move || {
         if send.send(f()).is_err() {
             tracing::warn!("rayon::run has been aborted");
         }

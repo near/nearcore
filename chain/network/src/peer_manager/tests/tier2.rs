@@ -5,6 +5,7 @@ use crate::peer_manager::network_state::RECONNECT_ATTEMPT_INTERVAL;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_manager_actor::POLL_CONNECTION_STORE_INTERVAL;
 use crate::peer_manager::testonly::ActorHandler;
+use crate::peer_manager::testonly::auto_advance_fake_clock;
 use crate::peer_manager::testonly::start as start_pm;
 use crate::tcp;
 use crate::testonly::AsSet;
@@ -44,6 +45,7 @@ async fn test_store_outbound_connection() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
@@ -76,6 +78,7 @@ async fn test_storage_after_disconnect() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
@@ -108,6 +111,7 @@ async fn test_reconnect_after_restart_outbound_side() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let pm0_db = TestDB::new();
@@ -138,6 +142,7 @@ async fn test_skip_reconnect_after_restart_outbound_side() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let pm0_db = TestDB::new();
@@ -183,6 +188,7 @@ async fn test_reconnect_after_restart_inbound_side() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
@@ -217,6 +223,7 @@ async fn test_reconnect_after_disconnect_inbound_side() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
@@ -251,6 +258,7 @@ async fn test_reconnect_after_restart_outbound_side_multi() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let pm0_db = TestDB::new();

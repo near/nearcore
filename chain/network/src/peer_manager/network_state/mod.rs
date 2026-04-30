@@ -47,7 +47,7 @@ use crate::types::{
 };
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
-use near_async::futures::{FutureSpawner, FutureSpawnerExt};
+use near_async::futures::{AsyncComputationSpawner, FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{CanSend, CanSendAsync, Sender};
 use near_async::time;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
@@ -268,6 +268,7 @@ impl NetworkState {
     pub fn new(
         clock: &time::Clock,
         future_spawner: Arc<dyn FutureSpawner>,
+        async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
         store: store::Store,
         peer_store: peer_store::PeerStore,
         config: config::VerifiedConfig,
@@ -306,10 +307,13 @@ impl NetworkState {
             chain_info: Default::default(),
             my_public_addr: Arc::new(RwLock::new(config.tier3_public_addr)),
             peer_store,
-            snapshot_hosts: Arc::new(SnapshotHostsCache::new(config.snapshot_hosts.clone())),
+            snapshot_hosts: Arc::new(SnapshotHostsCache::new(
+                config.snapshot_hosts.clone(),
+                async_computation_spawner.clone(),
+            )),
             connection_store: connection_store::ConnectionStore::new(store.clone()).unwrap(),
             pending_reconnect: Mutex::new(Vec::<PeerInfo>::new()),
-            accounts_data: Arc::new(AccountDataCache::new()),
+            accounts_data: Arc::new(AccountDataCache::new(async_computation_spawner)),
             account_announcements: Arc::new(AnnounceAccountCache::new(store)),
             tier2_route_back: Mutex::new(RouteBackCache::default()),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
@@ -321,6 +325,7 @@ impl NetworkState {
             whitelist_nodes,
             add_edges_demux: demux::Demux::new(
                 config.routing_table_update_rate_limit,
+                clock.clone(),
                 future_spawner.as_ref(),
             ),
             set_chain_info_mutex: Mutex::new(()),
@@ -507,6 +512,7 @@ impl NetworkState {
                 peer_info.id.clone(),
                 demux::Demux::new(
                     self.config.accounts_data_broadcast_rate_limit,
+                    clock.clone(),
                     self.ops_spawner.as_ref(),
                 ),
             );
@@ -514,6 +520,7 @@ impl NetworkState {
                 peer_info.id.clone(),
                 demux::Demux::new(
                     self.config.snapshot_hosts_broadcast_rate_limit,
+                    clock.clone(),
                     self.ops_spawner.as_ref(),
                 ),
             );

@@ -6,6 +6,7 @@ use crate::network_protocol::{
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer::testonly::{PeerConfig, PeerHandle};
 use crate::peer_manager::peer_manager_actor::Event;
+use crate::peer_manager::testonly::auto_advance_fake_clock;
 use crate::tcp;
 use crate::testonly::make_rng;
 use crate::testonly::stream::Stream;
@@ -24,6 +25,7 @@ async fn test_peer_communication() -> anyhow::Result<()> {
     init_test_logger();
     let mut rng = make_rng(89028037453);
     let mut clock = time::FakeClock::default();
+    auto_advance_fake_clock(&clock);
 
     let chain = Arc::new(data::Chain::make(&mut clock, &mut rng, 12));
     let inbound_cfg = PeerConfig { chain: chain.clone(), network: chain.make_config(&mut rng) };
@@ -162,6 +164,7 @@ async fn test_request_update_nonce_rejects_invalid_nonce() -> anyhow::Result<()>
     init_test_logger();
     let mut rng = make_rng(89028037453);
     let mut clock = time::FakeClock::default();
+    auto_advance_fake_clock(&clock);
 
     let chain = Arc::new(data::Chain::make(&mut clock, &mut rng, 12));
     let inbound_cfg = PeerConfig { chain: chain.clone(), network: chain.make_config(&mut rng) };
@@ -210,6 +213,7 @@ async fn test_handshake() {
     init_test_logger();
     let mut rng = make_rng(89028037453);
     let mut clock = time::FakeClock::default();
+    auto_advance_fake_clock(&clock);
 
     let chain = Arc::new(data::Chain::make(&mut clock, &mut rng, 12));
     let inbound_cfg = PeerConfig { network: chain.make_config(&mut rng), chain: chain.clone() };

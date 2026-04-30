@@ -1,4 +1,5 @@
 use crate::network_protocol::testonly as data;
+use crate::peer_manager::testonly::auto_advance_fake_clock;
 use crate::raw;
 use crate::tcp;
 use crate::testonly;
@@ -17,6 +18,7 @@ async fn test_raw_conn_pings() {
     let mut rng = testonly::make_rng(33955575545);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let cfg = chain.make_config(rng);
@@ -78,6 +80,7 @@ async fn test_raw_conn_state_parts() {
     let mut rng = testonly::make_rng(33955575545);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let cfg = chain.make_config(rng);
@@ -166,6 +169,7 @@ async fn test_listener() {
     let mut rng = testonly::make_rng(33955575545);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
     let mut cfg = chain.make_config(rng);
     let genesis_id = chain.genesis_id.clone();

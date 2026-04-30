@@ -33,6 +33,7 @@ async fn simple() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     tracing::info!(target:"test", "start two nodes");
@@ -63,6 +64,7 @@ async fn three_nodes_path() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     tracing::info!(target:"test", "connect three nodes in a line");
@@ -104,6 +106,7 @@ async fn three_nodes_star() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     tracing::info!(target:"test", "connect three nodes in a line");
@@ -168,6 +171,7 @@ async fn join_components() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     tracing::info!(target:"test", "create two connected components having two nodes each");
@@ -239,6 +243,7 @@ async fn simple_remove() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     tracing::info!(target:"test", "connect 3 nodes in a line");
@@ -330,6 +335,7 @@ async fn ping_simple() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     tracing::info!(target:"test", "start two nodes");
@@ -368,6 +374,7 @@ async fn ping_jump() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     tracing::info!(target:"test", "start three nodes");
@@ -423,6 +430,7 @@ async fn test_dont_drop_after_ttl() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     tracing::info!(target:"test", "start three nodes");
@@ -480,6 +488,7 @@ async fn test_drop_after_ttl() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     tracing::info!(target:"test", "start three nodes");
@@ -533,6 +542,7 @@ async fn test_dropping_duplicate_messages() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     tracing::info!(target:"test", "start three nodes");
@@ -653,6 +663,7 @@ async fn from_boot_nodes() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     tracing::info!(target:"test", "start two nodes");
@@ -676,6 +687,7 @@ async fn blacklist_01() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     tracing::info!(target:"test", "start two nodes with 0 blacklisting 1");
@@ -711,6 +723,7 @@ async fn blacklist_10() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     tracing::info!(target:"test", "start two nodes with 1 blacklisting 0");
@@ -746,6 +759,7 @@ async fn blacklist_all() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     tracing::info!(target:"test", "start two nodes with 0 blacklisting everything");
@@ -780,6 +794,7 @@ async fn max_num_peers_limit() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     tracing::info!(target:"test", "start three nodes with max_num_peers=2");
@@ -883,6 +898,7 @@ async fn ttl_and_num_hops() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
     let mut pm = peer_manager::testonly::start(
         clock.clock(),
@@ -935,6 +951,7 @@ async fn repeated_data_in_sync_routing_table() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
     let pm = peer_manager::testonly::start(
         clock.clock(),
@@ -1012,6 +1029,7 @@ async fn square() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     tracing::info!(target:"test", "connect 4 nodes in a square");
@@ -1065,6 +1083,7 @@ async fn fix_local_edges() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let pm = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
@@ -1123,6 +1142,7 @@ async fn do_not_block_announce_account_broadcast() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let db0 = TestDB::new();
@@ -1161,6 +1181,7 @@ async fn archival_node() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let mut configs = make_configs(&chain, rng, 5, 5, false);
@@ -1251,6 +1272,7 @@ async fn connect_to_unbanned_peer() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let mut pm0 =
@@ -1298,6 +1320,7 @@ async fn oversized_sync_routing_table_drops_edges_but_keeps_connection() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     // Set a small ingress cap for testing.
@@ -1371,6 +1394,7 @@ async fn oversized_sync_routing_table_still_processes_accounts() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
+    peer_manager::testonly::auto_advance_fake_clock(&clock);
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     // Set a small ingress cap for testing.

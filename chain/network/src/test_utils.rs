@@ -111,30 +111,6 @@ impl Handler<GetInfo, crate::types::NetworkInfo> for PeerManagerActor {
     }
 }
 
-// `StopSignal is used to stop PeerManagerActor for unit tests
-#[derive(Default, Debug)]
-pub struct StopSignal {
-    pub should_panic: bool,
-}
-
-impl StopSignal {
-    pub fn should_panic() -> Self {
-        Self { should_panic: true }
-    }
-}
-
-impl Handler<StopSignal> for PeerManagerActor {
-    fn handle(&mut self, msg: StopSignal) {
-        tracing::debug!(target: "network", "received stop signal");
-
-        if msg.should_panic {
-            panic!("Node crashed");
-        } else {
-            self.handle.stop();
-        }
-    }
-}
-
 // Mocked `PeerManager` adapter, has a queue of `PeerManagerMessageRequest` messages.
 #[derive(Default)]
 pub struct MockPeerManagerAdapter {

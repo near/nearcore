@@ -29,6 +29,7 @@ use crate::concurrency::arc_mutex::ArcMutex;
 use crate::network_protocol;
 use crate::network_protocol::{AccountData, SignedAccountData, VersionedAccountData};
 use crate::types::AccountKeys;
+use near_async::futures::AsyncComputationSpawner;
 use near_async::time;
 use near_crypto::PublicKey;
 use near_primitives::validator_signer::ValidatorSigner;
@@ -191,16 +192,26 @@ impl AccountDataCacheSnapshot {
     }
 }
 
-pub(crate) struct AccountDataCache(ArcMutex<AccountDataCacheSnapshot>);
+pub(crate) struct AccountDataCache {
+    snapshot: ArcMutex<AccountDataCacheSnapshot>,
+    /// Spawner used to run signature verification off the caller's thread.
+    /// Production wires `RayonAsyncComputationSpawner`; testloop wires
+    /// `TestLoopAsyncComputationSpawner` so the resume happens on the
+    /// testloop thread rather than a rayon worker.
+    async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
+}
 
 impl AccountDataCache {
-    pub fn new() -> Self {
-        Self(ArcMutex::new(AccountDataCacheSnapshot {
-            keys_by_id: Arc::new(AccountKeys::default()),
-            keys: im::HashSet::new(),
-            data: im::HashMap::new(),
-            local: None,
-        }))
+    pub fn new(async_computation_spawner: Arc<dyn AsyncComputationSpawner>) -> Self {
+        Self {
+            snapshot: ArcMutex::new(AccountDataCacheSnapshot {
+                keys_by_id: Arc::new(AccountKeys::default()),
+                keys: im::HashSet::new(),
+                data: im::HashMap::new(),
+                local: None,
+            }),
+            async_computation_spawner,
+        }
     }
 
     /// Updates the set of important accounts and their public keys.
@@ -211,7 +222,7 @@ impl AccountDataCache {
     ///   so a call to set_local afterwards is required to do that. For now it is fine because
     ///   the AccountDataCache owner is expected to call set_local periodically anyway.
     pub fn set_keys(&self, keys_by_id: Arc<AccountKeys>) -> bool {
-        self.0
+        self.snapshot
             .try_update(|mut inner| {
                 // Skip further processing if the key set didn't change.
                 // NOTE: if T implements Eq, then Arc<T> short circuits equality for x == x.
@@ -237,7 +248,7 @@ impl AccountDataCache {
         // Filter out non-interesting data, so that we never check signatures for valid non-interesting data.
         // Bad peers may force us to check signatures for fake data anyway, but we will ban them after first invalid signature.
         let mut new_data = HashMap::new();
-        let inner = self.0.load();
+        let inner = self.snapshot.load();
         for d in data {
             // There is a limit on the amount of RAM occupied by per-account datasets.
             // Broadcasting larger datasets is considered malicious behavior.
@@ -259,14 +270,18 @@ impl AccountDataCache {
 
         // Verify the signatures in parallel.
         // Verification will stop at the first encountered error.
-        let (data, ok) = concurrency::rayon::run(move || {
-            concurrency::rayon::try_map(new_data.into_values().par_bridge(), |d| {
-                match d.payload().verify(&d.account_key) {
-                    Ok(()) => Some(d),
-                    Err(()) => None,
-                }
-            })
-        })
+        let (data, ok) = concurrency::rayon::run(
+            self.async_computation_spawner.as_ref(),
+            "AccountDataCache::verify",
+            move || {
+                concurrency::rayon::try_map(new_data.into_values().par_bridge(), |d| {
+                    match d.payload().verify(&d.account_key) {
+                        Ok(()) => Some(d),
+                        Err(()) => None,
+                    }
+                })
+            },
+        )
         .await;
         if !ok {
             return (data, Some(AccountDataError::InvalidSignature));
@@ -279,7 +294,7 @@ impl AccountDataCache {
         clock: &time::Clock,
         local: LocalAccountData,
     ) -> Option<Arc<SignedAccountData>> {
-        self.0.update(|mut inner| {
+        self.snapshot.update(|mut inner| {
             let data = inner.set_local(clock, local);
             (data, inner)
         })
@@ -297,7 +312,7 @@ impl AccountDataCache {
         // Execute verification on the rayon threadpool.
         let (data, err) = this.verify(data).await;
         // Insert the successfully verified data, even if an error has been encountered.
-        let inserted = self.0.update(|mut inner| {
+        let inserted = self.snapshot.update(|mut inner| {
             let inserted = data.into_iter().filter_map(|d| inner.try_insert(clock, d)).collect();
             (inserted, inner)
         });
@@ -307,6 +322,6 @@ impl AccountDataCache {
 
     /// Loads the current cache snapshot.
     pub fn load(&self) -> Arc<AccountDataCacheSnapshot> {
-        self.0.load()
+        self.snapshot.load()
     }
 }
