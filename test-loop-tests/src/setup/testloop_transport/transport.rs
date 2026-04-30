@@ -55,8 +55,32 @@ impl TestLoopTransport {
         })
     }
 
+    /// Read-only accessor for the underlying `NetworkState`. Mirrors
+    /// the production transport pattern: callers within the testloop
+    /// crate use this rather than reaching into a `pub(super)` field.
+    pub(super) fn state(&self) -> &Arc<NetworkState> {
+        &self.state
+    }
+
     fn self_arc(&self) -> Arc<Self> {
         self.self_weak.upgrade().expect("TestLoopTransport self_weak upgrade")
+    }
+
+    /// Spawn an `on_peer_disconnected` task. Used by `disconnect_peer`
+    /// to notify both ends of the connection. The state, info, reason,
+    /// and transport vary per call; the spawn shape is identical.
+    fn spawn_disconnect(
+        &self,
+        target_state: Arc<NetworkState>,
+        info: PeerDisconnectInfo,
+        reason: ClosingReason,
+        transport: Arc<dyn NetworkTransport>,
+        label: &'static str,
+    ) {
+        let clock = self.clock.clone();
+        self.future_spawner.spawn(label, async move {
+            target_state.on_peer_disconnected(&clock, &info, reason, transport).await;
+        });
     }
 
     /// Entry point invoked by another node's `send_message` after the
@@ -178,12 +202,13 @@ impl NetworkTransport for TestLoopTransport {
         // disconnect — the ban applies to us about them, not the reverse.
         let my_reason =
             ban_reason.map(ClosingReason::Ban).unwrap_or(ClosingReason::DisconnectMessage);
-        let my_state = self.state.clone();
-        let my_transport: Arc<dyn NetworkTransport> = self.self_arc();
-        let clock_a = self.clock.clone();
-        self.future_spawner.spawn("testloop disconnect (initiator)", async move {
-            my_state.on_peer_disconnected(&clock_a, &my_info, my_reason, my_transport).await;
-        });
+        self.spawn_disconnect(
+            self.state.clone(),
+            my_info,
+            my_reason,
+            self.self_arc(),
+            "testloop disconnect (initiator)",
+        );
 
         if let Some(target) = self.registry.get(peer_id) {
             if let Some(their_peer_state) = target.state.peers.get(&self.my_peer_id) {
@@ -192,19 +217,13 @@ impl NetworkTransport for TestLoopTransport {
                     tier: their_peer_state.tier,
                     peer_type: their_peer_state.peer_type,
                 };
-                let their_state = target.state.clone();
-                let their_transport: Arc<dyn NetworkTransport> = target.clone();
-                let clock_b = self.clock.clone();
-                self.future_spawner.spawn("testloop disconnect (target)", async move {
-                    their_state
-                        .on_peer_disconnected(
-                            &clock_b,
-                            &their_info,
-                            ClosingReason::DisconnectMessage,
-                            their_transport,
-                        )
-                        .await;
-                });
+                self.spawn_disconnect(
+                    target.state.clone(),
+                    their_info,
+                    ClosingReason::DisconnectMessage,
+                    target.clone(),
+                    "testloop disconnect (target)",
+                );
             }
         }
     }
