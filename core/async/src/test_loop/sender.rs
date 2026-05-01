@@ -116,7 +116,14 @@ where
             Box::new(callback),
             self.sender_delay,
         );
-        async move { Ok(receiver.await.unwrap()) }.boxed()
+        // The callback's `sender` is dropped without sending if the destination
+        // actor's events are skipped (e.g. via `event_denylist` after a node is
+        // killed or shutdown is initiated). Map the resulting `Canceled` to
+        // `AsyncSendError::Dropped` so callers that handle send-failures
+        // gracefully (`.ok()`, `if let Ok(..)`) don't panic. Surfaces under
+        // real-PMA testloop where cross-actor `send_async` calls span node
+        // boundaries.
+        async move { receiver.await.map_err(|_| AsyncSendError::Dropped) }.boxed()
     }
 }
 
