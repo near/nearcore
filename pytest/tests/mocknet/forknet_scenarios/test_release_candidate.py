@@ -3,11 +3,11 @@ Test case classes for release tests on forknet.
 """
 from typing import Dict
 
-from .base import TestSetup, NodeHardware
+from .base import TestSetup, NodeHardware, time_to_str
 from mirror import CommandContext, update_config_cmd, run_remote_cmd
 
 import copy
-from utils import PartitionSelector
+from utils import PartitionSelector, ScheduleMode
 from datetime import datetime, timedelta
 
 
@@ -119,12 +119,62 @@ class TestReleaseCandidate(TestSetup):
                                                                quarter + 1),
                                              total_partitions=batches))
 
+    def _checkout_nearcore_on_traffic(self):
+        """
+        Sparse-checkout `pytest/` from slavas/bench-long-compile of
+        nearcore at /home/ubuntu/nearcore on the traffic node so the
+        scheduled stress test can run slow_compile_adversarial.py and
+        import its pytest/lib helpers. Idempotent: clones if missing,
+        otherwise fetches and hard-resets to the upstream tip.
+        """
+        repo = "https://github.com/near/nearcore.git"
+        branch = "slavas/bench-long-compile"
+        checkout_dir = "/home/ubuntu/nearcore"
+        cmd = (
+            f"set -e; "
+            f"if [ ! -d {checkout_dir}/.git ]; then "
+            f"  git clone --no-checkout --filter=blob:none {repo} {checkout_dir} "
+            f"  && git -C {checkout_dir} sparse-checkout init --cone "
+            f"  && git -C {checkout_dir} sparse-checkout set pytest; "
+            f"fi; "
+            f"git -C {checkout_dir} fetch origin {branch} "
+            f"&& git -C {checkout_dir} checkout -B slow-compile-adversarial origin/{branch} "
+            f"&& git -C {checkout_dir} reset --hard origin/{branch}")
+        run_cmd_args = copy.deepcopy(self.args)
+        run_cmd_args.host_type = 'traffic'
+        run_cmd_args.cmd = cmd
+        run_remote_cmd(CommandContext(run_cmd_args))
+
+    def _schedule_slow_compile_stress_test(self, delay_minutes: int = 30):
+        """
+        Sparse-checkout nearcore on the traffic node, then schedule
+        slow_compile_adversarial.py to start delay_minutes after the
+        network start. The traffic node is itself an RPC node, so we
+        point the script at localhost:3030. The script signs as the
+        forknet-injected full-access key for `astro-stakers.poolv1.near`.
+        """
+        self._checkout_nearcore_on_traffic()
+
+        run_at = datetime.now() + timedelta(minutes=delay_minutes)
+        run_cmd_args = copy.deepcopy(self.args)
+        run_cmd_args.host_type = 'traffic'
+        run_cmd_args.cmd = (
+            "cd /home/ubuntu/nearcore "
+            "&& python3 pytest/tests/mocknet/slow_compile_adversarial.py "
+            "--rpc-url http://localhost:3030 "
+            "--tps 1")
+        run_cmd_args.on = ScheduleMode(mode="calendar",
+                                       value=time_to_str(run_at))
+        run_cmd_args.schedule_id = "slow-compile-adversarial"
+        run_remote_cmd(CommandContext(run_cmd_args))
+
     def after_test_start(self):
         """
         Use this event to run any commands after the test is started.
         """
         super().after_test_start()
         self._upgrade_nodes_in_four_batches()
+        self._schedule_slow_compile_stress_test()
 
 
 class TestReleaseCandidateFast(TestReleaseCandidate):
@@ -154,3 +204,4 @@ class TestReleaseCandidateFast(TestReleaseCandidate):
         upgrade_time = datetime.now() + timedelta(
             minutes=self.first_upgrade_delay_minutes)
         self.schedule_binary_upgrade(upgrade_time, 0, binary_idx=1)
+        self._schedule_slow_compile_stress_test()
