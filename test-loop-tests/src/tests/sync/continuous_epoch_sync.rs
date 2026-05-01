@@ -1,4 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
+use crate::tests::sync::util::strip_leading_awaiting_peers;
 use near_epoch_manager::epoch_sync::derive_epoch_sync_proof_from_last_block;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_sync::EpochSyncProof;
@@ -199,21 +200,13 @@ fn test_epoch_sync_bootstrap_fresh_node() {
         env.node_runner(fresh_node_idx).run_until_new_epoch();
     }
 
-    assert_eq!(
-        sync_status_history.borrow().as_slice(),
-        &[
-            "AwaitingPeers",
-            "NoSync",
-            "EpochSync",
-            "HeaderSync",
-            "StateSync",
-            "BlockSync",
-            "NoSync",
-        ]
-        .into_iter()
-        .map(|s| s.to_string())
-        .collect::<Vec<_>>()
-    );
+    let history = sync_status_history.borrow();
+    let expected: Vec<String> =
+        ["NoSync", "EpochSync", "HeaderSync", "StateSync", "BlockSync", "NoSync"]
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
+    assert_eq!(strip_leading_awaiting_peers(history.as_slice()), expected.as_slice());
 }
 
 // Scenario: update_epoch_sync_proof is called when the stored proof is 2 epochs

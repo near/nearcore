@@ -104,23 +104,45 @@ pub fn verify_balances_on_synced_node(
 
 /// Expected V2 far-horizon sync status sequence.
 const FAR_HORIZON_SYNC_SEQUENCE: &[&str] =
-    &["AwaitingPeers", "NoSync", "EpochSync", "HeaderSync", "StateSync", "BlockSync", "NoSync"];
+    &["NoSync", "EpochSync", "HeaderSync", "StateSync", "BlockSync", "NoSync"];
 
 /// Expected V2 near-horizon sync status sequence.
-const NEAR_HORIZON_SYNC_SEQUENCE: &[&str] = &["AwaitingPeers", "NoSync", "BlockSync", "NoSync"];
+const NEAR_HORIZON_SYNC_SEQUENCE: &[&str] = &["NoSync", "BlockSync", "NoSync"];
+
+/// Strip an optional leading `AwaitingPeers` entry from a recorded sync history.
+///
+/// `AwaitingPeers` is an unobservable startup state that the node passes
+/// through before any peer connections are established. Whether the
+/// `every_event_callback` observes it depends on event-pump ordering between
+/// peer-manager bring-up and the test registering its callback — so
+/// assertions over the visible sync sequence treat this entry as optional.
+pub fn strip_leading_awaiting_peers(history: &[String]) -> &[String] {
+    match history.split_first() {
+        Some((first, rest)) if first == "AwaitingPeers" => rest,
+        _ => history,
+    }
+}
 
 /// Assert that the sync status history matches the expected V2 far-horizon sequence.
 pub fn assert_far_horizon_sync_sequence(history: &[String]) {
     let expected: Vec<String> =
         FAR_HORIZON_SYNC_SEQUENCE.iter().map(|s| (*s).to_string()).collect();
-    assert_eq!(history, expected.as_slice(), "unexpected sync status history");
+    assert_eq!(
+        strip_leading_awaiting_peers(history),
+        expected.as_slice(),
+        "unexpected sync status history",
+    );
 }
 
 /// Assert that the sync status history matches the expected V2 near-horizon sequence.
 pub fn assert_near_horizon_sync_sequence(history: &[String]) {
     let expected: Vec<String> =
         NEAR_HORIZON_SYNC_SEQUENCE.iter().map(|s| (*s).to_string()).collect();
-    assert_eq!(history, expected.as_slice(), "unexpected sync status history");
+    assert_eq!(
+        strip_leading_awaiting_peers(history),
+        expected.as_slice(),
+        "unexpected sync status history",
+    );
 }
 
 /// Run until two nodes have equal head heights (30s timeout).

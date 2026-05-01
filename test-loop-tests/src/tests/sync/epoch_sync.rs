@@ -1,5 +1,6 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
+use crate::tests::sync::util::strip_leading_awaiting_peers;
 use crate::utils::account::create_account_id;
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{BalanceMismatchError, execute_money_transfers};
@@ -152,18 +153,9 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
         Duration::seconds(30),
     );
     let expected: Vec<String> = if SYNC_V2_ENABLED {
-        vec![
-            "AwaitingPeers",
-            "NoSync",
-            "EpochSync",
-            "HeaderSync",
-            "StateSync",
-            "BlockSync",
-            "NoSync",
-        ]
+        vec!["NoSync", "EpochSync", "HeaderSync", "StateSync", "BlockSync", "NoSync"]
     } else {
         vec![
-            "AwaitingPeers",
             "NoSync",
             "EpochSync",
             "HeaderSync",
@@ -176,7 +168,8 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
     .into_iter()
     .map(|s| s.to_string())
     .collect();
-    assert_eq!(sync_status_history.borrow().as_slice(), expected);
+    let history = sync_status_history.borrow();
+    assert_eq!(strip_leading_awaiting_peers(history.as_slice()), expected.as_slice());
 
     env
 }
