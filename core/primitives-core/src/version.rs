@@ -328,11 +328,6 @@ pub enum ProtocolFeature {
     IncreaseMaxCongestionMissedChunks,
 
     Wasmtime,
-    /// Cap the combined number of `DeployContract` and `DeployGlobalContract`
-    /// actions in a single receipt via `LimitConfig::max_deploy_actions_per_receipt`.
-    /// Deploys nested inside a `Delegate` action are bounded independently
-    /// against the same per-receipt cap (not summed with the outer deploys).
-    LimitDeployActionsPerReceipt,
     #[deprecated]
     _DeprecatedSaturatingFloatToInt,
     #[deprecated]
@@ -492,7 +487,7 @@ impl ProtocolFeature {
             | ProtocolFeature::YieldResumeImprovements
             | ProtocolFeature::EthImplicitGlobalContract
             | ProtocolFeature::InstantDeleteAccount => 83,
-            ProtocolFeature::Wasmtime | ProtocolFeature::LimitDeployActionsPerReceipt => 84,
+            ProtocolFeature::Wasmtime => 84,
             ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
             | ProtocolFeature::ContinuousEpochSync => 85,
 
