@@ -28,4 +28,10 @@ impl TestLoopNodeRegistry {
     pub(crate) fn get(&self, peer_id: &PeerId) -> Option<Arc<TestLoopTransport>> {
         self.inner.nodes.lock().get(peer_id).cloned()
     }
+
+    /// True if the peer is currently registered (i.e. not killed).
+    /// Used by `restart_node` to filter out dead nodes from re-seed.
+    pub(crate) fn contains(&self, peer_id: &PeerId) -> bool {
+        self.inner.nodes.lock().contains_key(peer_id)
+    }
 }

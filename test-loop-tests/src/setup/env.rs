@@ -160,11 +160,22 @@ impl TestLoopEnv {
         // Real-PMA path: seed the new node into the mesh so existing
         // nodes can route to it (and vice versa) — symmetric with
         // `populate_full_mesh` at end-of-build.
+        //
+        // Filter `existing_nodes` to only the nodes still alive in the
+        // registry. `kill_node` leaves the killed entry in
+        // `node_datas` (only marks it event-denylisted), but its
+        // transport is gone, so seeding against it would panic in
+        // `seed_async_side` at `registry.get(...).expect(...)`.
         if !self.shared_state.use_legacy_mock_pma {
             let clock = self.test_loop.clock();
             let registry = self.shared_state.registry.clone();
             let nonce_counter = self.shared_state.mesh_edge_nonce.clone();
-            let existing_nodes = self.node_datas.clone();
+            let existing_nodes: Vec<NodeExecutionData> = self
+                .node_datas
+                .iter()
+                .filter(|n| n.peer_id == node_data.peer_id || registry.contains(&n.peer_id))
+                .cloned()
+                .collect();
             let done = Arc::new(AtomicBool::new(false));
             let done_clone = done.clone();
             let spawner = self.test_loop.future_spawner("seed_node_into_mesh");

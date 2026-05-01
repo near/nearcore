@@ -139,15 +139,21 @@ pub(crate) async fn populate_full_mesh(
         }
     }
 
-    // 2. Async side: state.peers + routing graph.
-    for me in nodes {
-        for other in nodes {
+    // 2. Async side: state.peers + routing graph. Run all pairs
+    //    concurrently so the demux's debounce fires once for the
+    //    whole batch instead of N²-times sequentially. With 8 nodes,
+    //    that's ~100ms of FakeClock vs ~5.4s sequential, which
+    //    avoids racing past the warmup deadline.
+    let async_seeds = nodes.iter().flat_map(|me| {
+        nodes.iter().filter_map(move |other| {
             if other.peer_id == me.peer_id {
-                continue;
+                None
+            } else {
+                Some(seed_async_side(me, other, clock, registry, nonce_counter))
             }
-            seed_async_side(me, other, clock, registry, nonce_counter).await;
-        }
-    }
+        })
+    });
+    futures::future::join_all(async_seeds).await;
 }
 
 /// Seeds a single newly-built node bidirectionally against all
@@ -170,12 +176,14 @@ pub(crate) async fn seed_node_into_mesh(
         seed_sync_side(other, new_node, clock, test_epoch_id);
     }
 
-    // Async side both directions.
-    for other in existing_nodes {
-        if other.peer_id == new_node.peer_id {
-            continue;
-        }
-        seed_async_side(new_node, other, clock, registry, nonce_counter).await;
-        seed_async_side(other, new_node, clock, registry, nonce_counter).await;
-    }
+    // Async side both directions, run concurrently so the demux's
+    // debounce fires once for the batch instead of per-pair.
+    let async_seeds =
+        existing_nodes.iter().filter(|n| n.peer_id != new_node.peer_id).flat_map(|other| {
+            [
+                seed_async_side(new_node, other, clock, registry, nonce_counter),
+                seed_async_side(other, new_node, clock, registry, nonce_counter),
+            ]
+        });
+    futures::future::join_all(async_seeds).await;
 }
