@@ -456,6 +456,12 @@ pub enum ActionsValidationError {
     } = 18,
     /// Gas keys with FunctionCall permission cannot have an allowance set.
     GasKeyFunctionCallAllowanceNotAllowed = 19,
+    /// The combined number of `DeployContract` and `DeployGlobalContract`
+    /// actions in one receipt exceeded the limit.
+    TotalNumberOfDeployActionsExceeded {
+        number_of_deploy_actions: u64,
+        limit: u64,
+    } = 20,
 }
 
 /// Describes the error for validating a receipt.
@@ -651,6 +657,14 @@ impl Display for ActionsValidationError {
             ActionsValidationError::GasKeyFunctionCallAllowanceNotAllowed => {
                 write!(f, "Gas keys with FunctionCall permission cannot have an allowance set")
             }
+            ActionsValidationError::TotalNumberOfDeployActionsExceeded {
+                number_of_deploy_actions,
+                limit,
+            } => write!(
+                f,
+                "The total number of deploy actions {} exceeds the per-receipt limit {}",
+                number_of_deploy_actions, limit
+            ),
         }
     }
 }

@@ -3053,6 +3053,35 @@
               "GasKeyFunctionCallAllowanceNotAllowed"
             ],
             "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The combined number of `DeployContract` and `DeployGlobalContract`\nactions in one receipt exceeded the limit.",
+            "properties": {
+              "TotalNumberOfDeployActionsExceeded": {
+                "properties": {
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "number_of_deploy_actions": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "number_of_deploy_actions",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "TotalNumberOfDeployActionsExceeded"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -11110,6 +11139,12 @@
           },
           "max_contract_size": {
             "description": "Max contract size",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_deploy_actions_per_receipt": {
+            "description": "Max number of `DeployContract` and `DeployGlobalContract` actions\ncombined within a single receipt.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"

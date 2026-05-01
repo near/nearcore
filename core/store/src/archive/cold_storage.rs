@@ -413,12 +413,33 @@ pub fn get_cold_head(cold_db: &ColdDB) -> io::Result<Option<Tip>> {
 /// so `update_cold_db`'s `copy_state_from_store` copies nothing at genesis.
 /// Call this before the cold store loop processes genesis height.
 pub fn copy_state_to_cold(cold_db: &ColdDB, hot_store: &Store) -> io::Result<()> {
-    copy_from_store(
-        cold_db,
-        hot_store,
-        DBCol::State,
-        hot_store.iter(DBCol::State).map(|(k, _)| k.to_vec()).collect(),
-    )
+    // Matches the historical `default_cold_store_initial_migration_batch_size`
+    // from the pre-`e302517b8` BatchTransaction flow.
+    #[cfg(not(test))]
+    const BATCH_SIZE_BYTES: usize = 500_000_000;
+    // Small batch in tests so the batching logic is actually exercised.
+    #[cfg(test)]
+    const BATCH_SIZE_BYTES: usize = 1024;
+
+    let _span = tracing::debug_span!(target: "cold_store", "copy_state_to_cold");
+    let mut transaction = DBTransaction::new();
+    let mut batch_bytes = 0;
+    for (key, value) in hot_store.iter(DBCol::State) {
+        metrics::COLD_MIGRATION_READS.with_label_values(&[<&str>::from(DBCol::State)]).inc();
+        batch_bytes += key.len() + value.len();
+        rc_aware_set(&mut transaction, DBCol::State, key.to_vec(), value.to_vec());
+        if batch_bytes >= BATCH_SIZE_BYTES {
+            let mut swap_tx = DBTransaction::new();
+            std::mem::swap(&mut swap_tx, &mut transaction);
+            cold_db.write(swap_tx);
+            tracing::debug!(target: "cold_store", "flushing copy_state_to_cold batch");
+            batch_bytes = 0;
+        }
+    }
+    if !transaction.ops.is_empty() {
+        cold_db.write(transaction);
+    }
+    Ok(())
 }
 
 // The copy_state_from_store function depends on the state nodes to be present
@@ -679,9 +700,47 @@ impl ColdMigrationStore for Store {
 
 #[cfg(test)]
 mod test {
-    use super::{StoreKey, combine_keys};
+    use super::{StoreKey, combine_keys, copy_state_to_cold};
     use crate::columns::DBKeyType;
+    use crate::db::{ColdDB, Database};
+    use crate::metadata::{DB_VERSION, DbKind};
+    use crate::test_utils::create_test_node_storage_with_cold;
+    use crate::{DBCol, Store};
     use std::collections::{HashMap, HashSet};
+    use std::sync::Arc;
+
+    #[test]
+    fn test_copy_state_to_cold_batches() {
+        // BATCH_SIZE_BYTES is 1024 in tests (see copy_state_to_cold). We write 50
+        // entries of ~100 bytes each so the batching loop fires multiple times.
+        let (_storage, hot, cold) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+        let hot_store = Store::new(hot as Arc<dyn Database>);
+        let cold_db = ColdDB::new(cold as Arc<dyn Database>);
+
+        let n_entries = 50;
+        let value_size = 100;
+        let mut update = hot_store.store_update();
+        for i in 0..n_entries {
+            let key = format!("key{:04}", i).into_bytes();
+            let value = vec![b'x'; value_size];
+            update.increment_refcount(DBCol::State, &key, &value);
+        }
+        update.commit();
+
+        copy_state_to_cold(&cold_db, &hot_store).unwrap();
+
+        // Every key should be present in cold storage with matching value.
+        let mut cold_keys: HashSet<Vec<u8>> = HashSet::new();
+        for (key, value) in cold_db.iter(DBCol::State) {
+            assert_eq!(value.as_ref(), &vec![b'x'; value_size][..]);
+            cold_keys.insert(key.into_vec());
+        }
+        assert_eq!(cold_keys.len(), n_entries);
+        for i in 0..n_entries {
+            let key = format!("key{:04}", i).into_bytes();
+            assert!(cold_keys.contains(&key), "missing key {:?} in cold", key);
+        }
+    }
 
     #[test]
     fn test_combine_keys() {
