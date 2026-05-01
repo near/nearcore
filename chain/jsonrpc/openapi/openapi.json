@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.2.5"
+    "version": "1.2.6"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -20470,6 +20470,10 @@
       },
       "VMConfigView": {
         "properties": {
+          "bls12381_not_in_group_fix": {
+            "description": "See [VMConfig::bls12381_not_in_group_fix](crate::vm::Config::bls12381_not_in_group_fix).",
+            "type": "boolean"
+          },
           "deterministic_account_ids": {
             "description": "See [VMConfig::deterministic_account_ids](crate::vm::Config::deterministic_account_ids).",
             "type": "boolean"
