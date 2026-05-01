@@ -62,12 +62,17 @@ fn test_stake_nodes_impl(epoch_length: u64, execution_delay: u64) {
         .max_inflation_rate(Rational32::new(0, 1))
         .build();
 
-    let mut env = TestLoopBuilder::new()
+    let mut builder = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(accounts.clone())
-        .delay_warmup()
-        .build();
+        .delay_warmup();
+    // delay_endorsements_propagation uses register_override_handler, which is
+    // only supported via the legacy mock PMA.
+    if execution_delay > 0 {
+        builder = builder.use_legacy_mock_pma();
+    }
+    let mut env = builder.build();
     if execution_delay > 0 {
         delay_endorsements_propagation(&mut env, execution_delay);
     }
@@ -136,13 +141,16 @@ fn test_validator_kickout_impl(epoch_length: u64, execution_delay: u64) {
         .minimum_stake_ratio(Rational32::new(1, 100))
         .build();
 
-    let mut env = TestLoopBuilder::new()
+    let mut builder = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(accounts.clone())
         .track_all_shards()
-        .delay_warmup()
-        .build();
+        .delay_warmup();
+    if execution_delay > 0 {
+        builder = builder.use_legacy_mock_pma();
+    }
+    let mut env = builder.build();
     if execution_delay > 0 {
         delay_endorsements_propagation(&mut env, execution_delay);
     }
@@ -245,13 +253,16 @@ fn test_validator_join_impl(epoch_length: u64, execution_delay: u64) {
         .max_inflation_rate(Rational32::new(0, 1))
         .build();
 
-    let mut env = TestLoopBuilder::new()
+    let mut builder = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(accounts.clone())
         .track_all_shards()
-        .delay_warmup()
-        .build();
+        .delay_warmup();
+    if execution_delay > 0 {
+        builder = builder.use_legacy_mock_pma();
+    }
+    let mut env = builder.build();
     if execution_delay > 0 {
         delay_endorsements_propagation(&mut env, execution_delay);
     }
@@ -331,15 +342,18 @@ fn test_staking_join_and_leave_impl(execution_delay: u64) {
             amount: TESTING_INIT_STAKE,
         })
         .collect();
-    let mut env = TestLoopBuilder::new()
+    let mut builder = TestLoopBuilder::new()
         .validators_spec(ValidatorsSpec::raw(validators, 2, 2, 2))
         .add_non_validator_client(&accounts[2])
         .add_user_account(&accounts[2], TESTING_INIT_BALANCE)
         .epoch_length(epoch_length)
         .max_inflation_rate(Rational32::new(0, 1))
         .track_all_shards()
-        .delay_warmup()
-        .build();
+        .delay_warmup();
+    if execution_delay > 0 {
+        builder = builder.use_legacy_mock_pma();
+    }
+    let mut env = builder.build();
     if execution_delay > 0 {
         delay_endorsements_propagation(&mut env, execution_delay);
     }
@@ -436,6 +450,7 @@ fn test_spice_uncertified_restake_prevents_stake_return() {
     let unstaker_key = create_test_signer(unstaker.as_str()).public_key();
 
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
         .validators_spec(validators_spec)
         .epoch_length(epoch_length)
         .add_user_accounts(&accounts, TESTING_INIT_BALANCE)

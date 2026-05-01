@@ -49,6 +49,7 @@ fn test_spice_certified_results_across_resharding() {
     let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(epoch_configs));
 
     let mut env = TestLoopBuilder::new()
+        .use_legacy_mock_pma()
         .genesis(genesis)
         .clients(clients)
         .epoch_config_store(epoch_config_store)

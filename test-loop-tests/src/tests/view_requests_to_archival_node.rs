@@ -46,7 +46,11 @@ const NUM_SHARDS: usize = 4;
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_view_requests_to_archival_node() {
     init_test_logger();
-    let builder = TestLoopBuilder::new();
+    // The test asserts exact transaction counts within specific blocks (e.g.
+    // state_changes.len() == 4 at height 6). Real-PMA propagates messages with
+    // slightly different cadence so more transactions land in early blocks,
+    // breaking these counts. Pin to legacy mock PMA for deterministic ordering.
+    let builder = TestLoopBuilder::new().use_legacy_mock_pma();
 
     let accounts = (0..NUM_ACCOUNTS)
         .map(|i| format!("account{}", i).parse().unwrap())
