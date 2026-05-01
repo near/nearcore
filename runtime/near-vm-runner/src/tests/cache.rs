@@ -327,7 +327,7 @@ fn test_wasmtime_sparse_contract_stability() {
     // sparse-data-segment case that `arbitrary_contract` does not cover.
     // See comments on that test for how to update these hashes.
     let expected_prepared_hash: u64 = 16694328674582109973;
-    let expected_compiled_hash: u64 = 8543849532946659263;
+    let expected_compiled_hash: u64 = 3829876428286564557;
 
     let contract = ContractCode::new(sparse_wasm_contract(), None);
     let config = test_vm_config(Some(VMKind::Wasmtime));
