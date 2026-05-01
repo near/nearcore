@@ -66,18 +66,20 @@ class TestReleaseCandidate(TestSetup):
             return
         extra = ",".join(
             f"{target}={level}" for target, level in target_log_level.items())
-
         jq_filter = (f'.opentelemetry = (.opentelemetry + ",{extra}") | '
                      f'.rust_log = (.rust_log + ",{extra}")')
-        cmd = (f"jq '{jq_filter}' {log_config} > {log_config}.tmp "
-               f"&& mv {log_config}.tmp {log_config}")
+
+        def patch_cmd(path):
+            return (f"jq '{jq_filter}' {path} > {path}.tmp "
+                    f"&& mv {path}.tmp {path}")
+
         run_cmd_args = copy.deepcopy(self.args)
-        run_cmd_args.cmd = cmd
         run_cmd_args.host_type = 'nodes'
-        log_config = "/home/ubuntu/.near/log_config.json"
+        run_cmd_args.cmd = patch_cmd("/home/ubuntu/.near/log_config.json")
         run_remote_cmd(CommandContext(run_cmd_args))
         run_cmd_args.host_type = 'traffic'
-        log_config = "/home/ubuntu/.near/target/log_config.json"
+        run_cmd_args.cmd = patch_cmd(
+            "/home/ubuntu/.near/target/log_config.json")
         run_remote_cmd(CommandContext(run_cmd_args))
 
     def amend_configs_before_test_start(self):
