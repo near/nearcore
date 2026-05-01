@@ -138,7 +138,6 @@ skip = [
     { name = "num-rational", version = "=0.3.2" },
     { name = "regex-syntax", version = "=0.6.28" },
 
-    # ark-ec, criterion, prost-derive pull in older itertools.
+    # ark-ec, prost-derive pull in older itertools.
     { name = "itertools", version = "=0.10.5" },
-    { name = "itertools", version = "=0.13.0" },
 ]
