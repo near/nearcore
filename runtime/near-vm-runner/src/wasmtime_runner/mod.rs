@@ -469,7 +469,7 @@ impl WasmtimeVM {
     pub(crate) fn vm_hash(&self) -> u64 {
         // increment the `version` when making modifications that affect the
         // artifact compatibility.
-        let version = 71;
+        let version = 72;
 
         let mut hasher = std::hash::DefaultHasher::new();
         self.engine.precompile_compatibility_hash().hash(&mut hasher);
