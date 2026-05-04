@@ -230,12 +230,19 @@ impl PartialEncodedStateWitnessInnerV2 {
 /// V1 is the legacy format; V2 adds `prev_block_hash` to enable
 /// hash-based chunk-producer lookup against `DBCol::ChunkProducers`.
 ///
-/// Rollout policy:
+/// Current scope (this PR): wire types and network plumbing only. V2 is
+/// inert — handlers drop V2 unconditionally and
+/// [`VersionedPartialEncodedStateWitness::new`] always returns V1
+/// regardless of `protocol_version`. The `protocol_version` parameter is
+/// plumbed through so the version-gated rollout below lands as a pure
+/// implementation change in the consumer follow-up.
+///
+/// Eventual rollout policy (consumer follow-up PR):
 /// - Before EarlyKickout activation: only V1 is emitted and accepted.
 ///   V2 arriving over the wire is dropped.
 /// - At/after EarlyKickout activation: only V2 is emitted and accepted.
 ///   V1 arriving over the wire is dropped.
-/// - [`VersionedPartialEncodedStateWitness::new`] selects the variant
+/// - [`VersionedPartialEncodedStateWitness::new`] will select the variant
 ///   based on the `protocol_version` argument.
 ///
 /// Cross-version replay resistance: V1 and V2 use distinct

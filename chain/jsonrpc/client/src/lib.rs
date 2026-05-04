@@ -4,6 +4,7 @@ use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::Message;
 use near_jsonrpc_primitives::types::changes::{
     RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockByTypeResponse,
+    RpcStateChangesInBlockRequest, RpcStateChangesInBlockResponse,
 };
 use near_jsonrpc_primitives::types::receipts::{
     RpcReceiptRequest, RpcReceiptResponse, RpcReceiptToTxRequest, RpcReceiptToTxResponse,
@@ -92,10 +93,10 @@ pub trait RpcTransport: Send + Sync {
 
             let msg: Message =
                 near_jsonrpc_primitives::message::from_slice(&bytes).map_err(|err| {
-                    RpcError::parse_error(format!(
-                        "parsing jsonrpc response message failed: {:?}",
-                        err
-                    ))
+                    RpcError::new_internal_error(
+                        None,
+                        format!("parsing jsonrpc response message failed: {:?}", err),
+                    )
                 })?;
             Ok(msg)
         })
@@ -302,16 +303,31 @@ impl JsonRpcClient {
     pub fn EXPERIMENTAL_changes(
         &self,
         request: RpcStateChangesInBlockByTypeRequest,
-    ) -> RpcRequest<RpcStateChangesInBlockByTypeResponse> {
+    ) -> RpcRequest<RpcStateChangesInBlockResponse> {
         call_method(&self.transport, "EXPERIMENTAL_changes", request)
     }
 
-    #[allow(non_snake_case)]
     pub fn changes(
         &self,
         request: RpcStateChangesInBlockByTypeRequest,
-    ) -> RpcRequest<RpcStateChangesInBlockByTypeResponse> {
+    ) -> RpcRequest<RpcStateChangesInBlockResponse> {
         call_method(&self.transport, "changes", request)
+    }
+
+    pub fn block_effects(
+        &self,
+        request: RpcStateChangesInBlockRequest,
+    ) -> RpcRequest<RpcStateChangesInBlockByTypeResponse> {
+        call_method(&self.transport, "block_effects", request)
+    }
+
+    #[deprecated(since = "2.7.0", note = "Use `block_effects` method instead")]
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_changes_in_block(
+        &self,
+        request: RpcStateChangesInBlockRequest,
+    ) -> RpcRequest<RpcStateChangesInBlockByTypeResponse> {
+        call_method(&self.transport, "EXPERIMENTAL_changes_in_block", request)
     }
 
     #[allow(non_snake_case)]

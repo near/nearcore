@@ -1,3 +1,4 @@
+mod backfill_receipt_to_tx;
 mod bandwidth_scheduler;
 #[cfg(feature = "test_features")]
 mod block_chunk_signature;
@@ -36,11 +37,13 @@ mod multinode_stateless_validators;
 #[cfg(feature = "test_features")]
 mod network_drop;
 mod optimistic_block;
+mod p256_verify;
 mod process_blocks;
 mod processed_receipts_gc;
 mod protocol_upgrade;
 mod receipt_to_tx;
 mod reject_outdated_blocks;
+mod resharding_cold_storage;
 mod resharding_v3;
 mod sharded_rpc;
 mod sharded_rpc_reliability;
@@ -48,6 +51,7 @@ mod sharded_rpc_resharding;
 mod shutdown_signal;
 mod single_shard_tracking;
 mod spice;
+mod spice_malicious_chunk_producer;
 mod spice_resharding;
 mod spice_utils;
 mod split_storage;

@@ -456,6 +456,12 @@ pub enum ActionsValidationError {
     } = 18,
     /// Gas keys with FunctionCall permission cannot have an allowance set.
     GasKeyFunctionCallAllowanceNotAllowed = 19,
+    /// The combined number of `DeployContract` and `DeployGlobalContract`
+    /// actions in one receipt exceeded the limit.
+    TotalNumberOfDeployActionsExceeded {
+        number_of_deploy_actions: u64,
+        limit: u64,
+    } = 20,
 }
 
 /// Describes the error for validating a receipt.
@@ -651,6 +657,14 @@ impl Display for ActionsValidationError {
             ActionsValidationError::GasKeyFunctionCallAllowanceNotAllowed => {
                 write!(f, "Gas keys with FunctionCall permission cannot have an allowance set")
             }
+            ActionsValidationError::TotalNumberOfDeployActionsExceeded {
+                number_of_deploy_actions,
+                limit,
+            } => write!(
+                f,
+                "The total number of deploy actions {} exceeds the per-receipt limit {}",
+                number_of_deploy_actions, limit
+            ),
         }
     }
 }
@@ -1441,6 +1455,10 @@ pub enum HostError {
     /// Invalid input to ed25519 signature verification function (e.g. signature cannot be
     /// derived from bytes).
     Ed25519VerifyInvalidInput { msg: String } = 32,
+    /// Input length mismatch for p256 signature verification (signature is not 64
+    /// bytes or public key is not 33 bytes). Parse failures of otherwise
+    /// well-sized inputs return 0 from the host function instead of aborting.
+    P256VerifyInvalidInput { msg: String } = 33,
 }
 
 #[derive(

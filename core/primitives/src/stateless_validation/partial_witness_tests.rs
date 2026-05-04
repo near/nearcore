@@ -151,6 +151,34 @@ fn test_v2_signature_differentiator_prevents_cross_version_replay() {
     assert!(v2.verify(&signer.public_key()));
 }
 
+/// Reverse direction: a signature produced over a V2 witness's inner bytes
+/// must not verify when grafted onto a V1 struct, for the same
+/// `signature_differentiator` reason as the forward case above.
+#[test]
+fn test_v1_signature_differentiator_prevents_cross_version_replay() {
+    let signer = test_signer();
+    let v1 = make_v1_witness(&signer);
+    let v2 = make_v2_witness(&signer);
+
+    let v2_sig = match &v2 {
+        VersionedPartialEncodedStateWitness::V2(w) => w.signature.clone(),
+        _ => panic!("expected V2"),
+    };
+    let mut v1_for_graft = v1.clone();
+    match &mut v1_for_graft {
+        VersionedPartialEncodedStateWitness::V1(w) => {
+            w.signature = v2_sig;
+        }
+        _ => panic!("expected V1"),
+    }
+
+    assert!(
+        !v1_for_graft.verify(&signer.public_key()),
+        "V2 signature must not verify against V1 inner",
+    );
+    assert!(v1.verify(&signer.public_key()));
+}
+
 /// V1 and V2 witnesses signed by the same key must both borsh round-trip
 /// and both verify. This guards against regressions where a producer
 /// rolls to V2 but a stale-version validator can no longer accept either.

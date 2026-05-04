@@ -25,10 +25,12 @@ pub struct Graph {
 
     /// Total number of edges used for stats.
     total_active_edges: u64,
+    /// Maximum number of unique peer IDs allowed in the graph.
+    max_peers: usize,
 }
 
 impl Graph {
-    pub fn new(source: PeerId) -> Self {
+    pub fn new(source: PeerId, max_peers: usize) -> Self {
         let mut res = Self {
             source_id: 0,
             p2id: HashMap::default(),
@@ -37,6 +39,7 @@ impl Graph {
             unused: Vec::default(),
             adjacency: Vec::default(),
             total_active_edges: 0,
+            max_peers,
         };
         res.id2p.push(source.clone());
         res.adjacency.push(Vec::default());
@@ -101,17 +104,26 @@ impl Graph {
         }
     }
 
-    pub fn add_edge(&mut self, peer0: &PeerId, peer1: &PeerId) {
+    /// Adds an edge between two peers. Returns false if the edge would exceed
+    /// the max_peers limit, true otherwise (including if the edge already exists).
+    pub fn add_edge(&mut self, peer0: &PeerId, peer1: &PeerId) -> bool {
         assert_ne!(peer0, peer1);
-        if !self.contains_edge(peer0, peer1) {
-            let id0 = self.get_id(peer0);
-            let id1 = self.get_id(peer1);
-
-            self.adjacency[id0 as usize].push(id1);
-            self.adjacency[id1 as usize].push(id0);
-
-            self.total_active_edges += 1;
+        if self.contains_edge(peer0, peer1) {
+            return true;
         }
+        let new_peers =
+            (!self.p2id.contains_key(peer0) as usize) + (!self.p2id.contains_key(peer1) as usize);
+        if new_peers > 0 && self.p2id.len() + new_peers > self.max_peers {
+            return false;
+        }
+        let id0 = self.get_id(peer0);
+        let id1 = self.get_id(peer1);
+
+        self.adjacency[id0 as usize].push(id1);
+        self.adjacency[id1 as usize].push(id0);
+
+        self.total_active_edges += 1;
+        true
     }
 
     pub fn remove_edge(&mut self, peer0: &PeerId, peer1: &PeerId) {
@@ -254,7 +266,7 @@ mod test {
         let node0 = random_peer_id();
         let node1 = random_peer_id();
 
-        let mut graph = Graph::new(source.clone());
+        let mut graph = Graph::new(source.clone(), 100_000);
 
         assert!(graph.contains_edge(&source, &node0).not());
         assert!(graph.contains_edge(&source, &node1).not());
@@ -282,7 +294,7 @@ mod test {
         let source = random_peer_id();
         let node0 = random_peer_id();
 
-        let mut graph = Graph::new(source.clone());
+        let mut graph = Graph::new(source.clone(), 100_000);
         graph.add_edge(&source, &node0);
         graph.remove_edge(&source, &node0);
         graph.add_edge(&source, &node0);
@@ -301,7 +313,7 @@ mod test {
         let source = random_peer_id();
         let nodes: Vec<_> = (0..3).map(|_| random_peer_id()).collect();
 
-        let mut graph = Graph::new(source);
+        let mut graph = Graph::new(source, 100_000);
 
         graph.add_edge(&nodes[0], &nodes[1]);
         graph.add_edge(&nodes[2], &nodes[1]);
@@ -318,7 +330,7 @@ mod test {
         let source = random_peer_id();
         let nodes: Vec<_> = (0..3).map(|_| random_peer_id()).collect();
 
-        let mut graph = Graph::new(source.clone());
+        let mut graph = Graph::new(source.clone(), 100_000);
 
         graph.add_edge(&nodes[0], &nodes[1]);
         graph.add_edge(&nodes[2], &nodes[1]);
@@ -342,7 +354,7 @@ mod test {
         let source = random_peer_id();
         let nodes: Vec<_> = (0..3).map(|_| random_peer_id()).collect();
 
-        let mut graph = Graph::new(source.clone());
+        let mut graph = Graph::new(source.clone(), 100_000);
 
         graph.add_edge(&nodes[0], &nodes[1]);
         graph.add_edge(&nodes[2], &nodes[1]);
@@ -378,7 +390,7 @@ mod test {
         let source = random_peer_id();
         let nodes: Vec<_> = (0..11).map(|_| random_peer_id()).collect();
 
-        let mut graph = Graph::new(source.clone());
+        let mut graph = Graph::new(source.clone(), 100_000);
 
         for node in &nodes[0..3] {
             graph.add_edge(&source, node);
@@ -416,7 +428,7 @@ mod test {
         let source = random_peer_id();
         let nodes: Vec<_> = (0..11).map(|_| random_peer_id()).collect();
 
-        let mut graph = Graph::new(source.clone());
+        let mut graph = Graph::new(source.clone(), 100_000);
 
         for node in &nodes[0..3] {
             graph.add_edge(&source, node);
@@ -457,7 +469,7 @@ mod test {
         let source = random_peer_id();
         let nodes: Vec<_> = (0..4).map(|_| random_peer_id()).collect();
 
-        let mut graph = Graph::new(source.clone());
+        let mut graph = Graph::new(source.clone(), 100_000);
         graph.add_edge(&source, &nodes[0]);
         graph.add_edge(&source, &nodes[2]);
         graph.add_edge(&nodes[2], &nodes[3]);

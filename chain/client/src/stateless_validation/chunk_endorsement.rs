@@ -40,7 +40,7 @@ impl ChunkEndorsementTracker {
     }
 
     // Validate the chunk endorsement and store it in the cache.
-    pub fn process_chunk_endorsement(&self, endorsement: ChunkEndorsement) -> Result<(), Error> {
+    pub fn process_chunk_endorsement(&self, endorsement: &ChunkEndorsement) -> Result<(), Error> {
         // Check if we have already received chunk endorsement from this validator.
         let key = endorsement.chunk_production_key();
         let account_id = endorsement.account_id();
@@ -54,7 +54,7 @@ impl ChunkEndorsementTracker {
         }
 
         // Validate the chunk endorsement and store it in the cache.
-        match validate_chunk_endorsement(self.epoch_manager.as_ref(), &endorsement, &self.store)? {
+        match validate_chunk_endorsement(self.epoch_manager.as_ref(), endorsement, &self.store)? {
             ChunkRelevance::Relevant => {
                 let mut cache = self.chunk_endorsements.lock();
                 cache.get_or_insert_mut(key, || HashMap::new()).insert(

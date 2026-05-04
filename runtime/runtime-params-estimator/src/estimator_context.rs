@@ -56,6 +56,7 @@ pub(crate) struct CachedCosts {
     pub(crate) apply_block: Option<GasCost>,
     pub(crate) touching_trie_node_write: Option<GasCost>,
     pub(crate) ed25519_verify_base: Option<GasCost>,
+    pub(crate) p256_verify_base: Option<GasCost>,
     pub(crate) function_call_base: Option<GasCost>,
     #[cfg(feature = "nightly")]
     pub(crate) yield_create_base: Option<GasCost>,

@@ -6,3 +6,4 @@ max_function_body_size: { new: 196_608 }
 max_instrumented_code_size: { new: 16_777_216 }
 max_blocks_per_function: { new: 5_000 }
 max_blocks_per_contract: { new: 50_000 }
+max_deploy_actions_per_receipt: { old: 100, new: 10 }

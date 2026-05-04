@@ -2,8 +2,8 @@ use super::NetworkState;
 use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerMessage, RoutedMessage, RoutingTableUpdate,
 };
-use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{EdgesWithSource, PeerIdOrHash};
+use crate::peer_manager::network_transport::NetworkTransport;
 use crate::routing::routing_table_view::FindRouteError;
 use crate::stats::metrics;
 use crate::tcp;
@@ -17,20 +17,26 @@ use std::sync::Arc;
 impl NetworkState {
     // TODO(gprusak): eventually, this should be blocking, as it should be up to the caller
     // whether to wait for the broadcast to finish, or run it in parallel with sth else.
-    fn broadcast_routing_table_update(&self, mut rtu: RoutingTableUpdate) {
+    fn broadcast_routing_table_update(
+        &self,
+        mut rtu: RoutingTableUpdate,
+        transport: &dyn NetworkTransport,
+    ) {
         if rtu == RoutingTableUpdate::default() {
             return;
         }
         rtu.edges = Edge::deduplicate(rtu.edges);
         let msg = Arc::new(PeerMessage::SyncRoutingTable(rtu));
-        for conn in self.tier2.load().ready.values() {
-            conn.send_message(msg.clone());
-        }
+        transport.broadcast_message(msg);
     }
 
     /// Adds AnnounceAccounts (without validating them) to the routing table.
     /// Then it broadcasts all the AnnounceAccounts that haven't been seen before.
-    pub async fn add_accounts(self: &Arc<NetworkState>, accounts: Vec<AnnounceAccount>) {
+    pub async fn add_accounts(
+        self: &Arc<NetworkState>,
+        accounts: Vec<AnnounceAccount>,
+        transport: Arc<dyn NetworkTransport>,
+    ) {
         let this = self.clone();
         self.spawn("add_accounts", async move {
             let new_accounts = this.account_announcements.add_accounts(accounts);
@@ -39,7 +45,7 @@ impl NetworkState {
             this.config.event_sink.send(crate::peer_manager::peer_manager_actor::Event::AccountsAdded(new_accounts.clone()));
             this.broadcast_routing_table_update(RoutingTableUpdate::from_accounts(
                 new_accounts,
-            ));
+            ), &*transport);
         }).await.unwrap()
     }
 
@@ -74,6 +80,7 @@ impl NetworkState {
         clock: &time::Clock,
         peer_id: PeerId,
         edge_info: PartialEdgeInfo,
+        transport: Arc<dyn NetworkTransport>,
     ) -> Result<Edge, ReasonForBan> {
         let edge = Edge::build_with_secret_key(
             self.config.node_id(),
@@ -82,7 +89,7 @@ impl NetworkState {
             &self.config.node_key,
             edge_info.signature,
         );
-        self.add_edges(&clock, EdgesWithSource::Local(vec![edge.clone()])).await?;
+        self.add_edges(&clock, EdgesWithSource::Local(vec![edge.clone()]), transport).await?;
         Ok(edge)
     }
 
@@ -93,6 +100,7 @@ impl NetworkState {
         self: &Arc<Self>,
         clock: &time::Clock,
         edges: EdgesWithSource,
+        transport: Arc<dyn NetworkTransport>,
     ) -> Result<(), ReasonForBan> {
         if edges.is_empty() {
             return Ok(());
@@ -117,7 +125,10 @@ impl NetworkState {
                 this.config.event_sink.send(
                     crate::peer_manager::peer_manager_actor::Event::EdgesAdded(edges.clone()),
                 );
-                this.broadcast_routing_table_update(RoutingTableUpdate::from_edges(edges));
+                this.broadcast_routing_table_update(
+                    RoutingTableUpdate::from_edges(edges),
+                    &*transport,
+                );
                 oks.iter()
                     .map(|ok| match ok {
                         true => Ok(()),
@@ -152,7 +163,8 @@ impl NetworkState {
     pub(crate) fn add_route_back(
         &self,
         clock: &time::Clock,
-        conn: &connection::Connection,
+        from: &PeerId,
+        tier: tcp::Tier,
         msg: &RoutedMessage,
     ) {
         if !msg.expect_response() {
@@ -160,9 +172,8 @@ impl NetworkState {
         }
 
         tracing::trace!(target: "network", route_back = ?msg.clone(), "received peer message that requires response");
-        let from = &conn.peer_info.id;
 
-        match conn.tier {
+        match tier {
             tcp::Tier::T1 => self.tier1_route_back.lock().insert(&clock, msg.hash(), from.clone()),
             tcp::Tier::T2 => self.tier2_route_back.lock().insert(&clock, msg.hash(), from.clone()),
             tcp::Tier::T3 => {

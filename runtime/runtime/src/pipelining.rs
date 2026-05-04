@@ -84,6 +84,11 @@ struct PrepareTask {
     status: Mutex<PrepareTaskStatus>,
     condvar: Condvar,
     created: Instant,
+    /// Hash of the contract identifier captured at submit time.
+    ///
+    /// Defense in depth: if the receiver's code hash unexpectedly changes between
+    /// preparation and execution, the stale prepared artifact is discarded.
+    expected_hash: CryptoHash,
 }
 
 enum PrepareTaskStatus {
@@ -150,10 +155,18 @@ impl ReceiptPreparationPipeline {
             match action {
                 Action::DeployContract(_)
                 | Action::UseGlobalContract(_)
-                | Action::DeterministicStateInit(_) => {
+                | Action::DeterministicStateInit(_)
+                | Action::CreateAccount(_)
+                | Action::DeleteAccount(_) => {
+                    // Any action that can change the account's executable-code identity within
+                    // this chunk must block preparation for the receiver. Otherwise a later
+                    // function call could be prepared against the account's current contract
+                    // and then executed under a freshly created or recreated account with
+                    // different (or no) code.
+                    //
                     // FIXME: instead of blocking these accounts, move the handling of
-                    // deploy action into here, so that the necessary data dependencies can be
-                    // established.
+                    // code-identity-changing actions into here, so that the necessary data
+                    // dependencies can be established.
                     return self.block_accounts.insert(account_id);
                 }
                 Action::FunctionCall(function_call) => {
@@ -216,7 +229,13 @@ impl ReceiptPreparationPipeline {
                     let method_name = function_call.method_name.clone();
                     let status = Mutex::new(PrepareTaskStatus::Pending);
                     let created = Instant::now();
-                    let task = Arc::new(PrepareTask { status, condvar: Condvar::new(), created });
+                    let expected_hash = identifier.hash();
+                    let task = Arc::new(PrepareTask {
+                        status,
+                        condvar: Condvar::new(),
+                        created,
+                        expected_hash,
+                    });
                     entry.insert(Arc::clone(&task));
                     PIPELINING_ACTIONS_SUBMITTED.inc_by(1);
                     let shard_id = self.shard_id;
@@ -250,12 +269,10 @@ impl ReceiptPreparationPipeline {
                 // No need to handle this receipt as it only generates other new receipts.
                 Action::Delegate(_) => {}
                 // No handling for these.
-                Action::CreateAccount(_)
-                | Action::Transfer(_)
+                Action::Transfer(_)
                 | Action::Stake(_)
                 | Action::AddKey(_)
                 | Action::DeleteKey(_)
-                | Action::DeleteAccount(_)
                 | Action::DeployGlobalContract(_)
                 | Action::TransferToGasKey(_)
                 | Action::WithdrawFromGasKey(_) => {}
@@ -299,7 +316,8 @@ impl ReceiptPreparationPipeline {
             panic!("referenced receipt action is not a function call!");
         };
         let key = PrepareTaskKey { receipt_id: receipt.get_hash(), action_index };
-        let Some(task) = self.map.get(&key) else {
+        // Double-check contract hash matches as defense-in-depth.
+        let Some(task) = self.map.get(&key).filter(|t| t.expected_hash == identifier.hash()) else {
             let start = Instant::now();
             let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);
             if !self.block_accounts.contains(account_id) {

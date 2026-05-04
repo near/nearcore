@@ -327,8 +327,6 @@ fn test_yield_then_resume_same_block() {
 /// With the feature everything should work fine.
 /// See https://github.com/near/nearcore/issues/14904, this test reproduces case 4)
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_yield_then_resume_two_actions() {
     let mut env = prepare_env();
     let signer = create_user_test_signer(&AccountId::from_str("test0").unwrap());
@@ -356,8 +354,9 @@ fn test_yield_then_resume_two_actions() {
         ],
         *genesis_block.hash(),
     );
-    env.validator().submit_tx(yield_resume_transaction.clone());
-    env.validator_runner().run_for_number_of_blocks(3);
+    env.validator_runner()
+        .execute_tx(yield_resume_transaction.clone(), Duration::seconds(5))
+        .unwrap();
 
     {
         let node = env.validator();

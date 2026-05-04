@@ -24,6 +24,7 @@ pub use store_validator::{ErrorMessage, StoreValidator};
 pub use types::{Block, BlockHeader, BlockStatus, ChainGenesis, LatestKnown, Provenance};
 
 mod approval_verification;
+pub mod backfill_receipt_to_tx;
 mod block_processing_utils;
 pub mod blocks_delay_tracker;
 pub mod chain;

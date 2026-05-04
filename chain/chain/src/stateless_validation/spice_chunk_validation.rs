@@ -3,6 +3,7 @@ use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use crate::spice_chunk_application::build_spice_apply_chunk_block_context;
 use crate::store::filter_incoming_receipts_for_shard;
 use crate::types::{RuntimeAdapter, StorageDataSource};
+use crate::validate::validate_chunk_proofs;
 use crate::{Chain, ChainStore};
 use itertools::Itertools;
 use near_chain_primitives::Error;
@@ -14,7 +15,9 @@ use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::sharding::ReceiptProof;
+use near_primitives::sharding::{
+    EncodedShardChunk, EncodedShardChunkBody, EncodedShardChunkV2, ReceiptProof, ShardChunkHeader,
+};
 use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStake;
@@ -85,19 +88,33 @@ pub fn spice_pre_validate_chunk_state_witness(
             state_witness.applied_receipts_hash()
         )));
     }
-    let (tx_root_from_state_witness, _) = merklize(&state_witness.transactions());
-    let chunk_tx_root = if chunk_header.is_new_chunk(block.header().height()) {
-        *chunk_header.tx_root()
+    if let Some(proof) = state_witness.proof_of_invalid_chunk() {
+        if !state_witness.transactions().is_empty() {
+            return Err(Error::InvalidChunkStateWitness(
+                "proof_of_invalid_chunk provided with non-empty transactions".to_string(),
+            ));
+        }
+        if !chunk_header.is_new_chunk(block.header().height()) {
+            return Err(Error::InvalidChunkStateWitness(
+                "proof_of_invalid_chunk provided for non-new chunk".to_string(),
+            ));
+        }
+        verify_proof_of_invalid_chunk(proof, chunk_header, epoch_manager)?;
     } else {
-        // Missing chunks are treated as empty chunks.
-        let (empty_txs_root, _) = merklize::<SignedTransaction>(&[]);
-        empty_txs_root
-    };
-    if chunk_tx_root != tx_root_from_state_witness {
-        return Err(Error::InvalidChunkStateWitness(format!(
-            "Transaction root {:?} does not match expected transaction root {:?}",
-            tx_root_from_state_witness, chunk_tx_root
-        )));
+        let (tx_root_from_state_witness, _) = merklize(&state_witness.transactions());
+        let chunk_tx_root = if chunk_header.is_new_chunk(block.header().height()) {
+            *chunk_header.tx_root()
+        } else {
+            // Missing chunks are treated as empty chunks.
+            let (empty_txs_root, _) = merklize::<SignedTransaction>(&[]);
+            empty_txs_root
+        };
+        if chunk_tx_root != tx_root_from_state_witness {
+            return Err(Error::InvalidChunkStateWitness(format!(
+                "Transaction root {:?} does not match expected transaction root {:?}",
+                tx_root_from_state_witness, chunk_tx_root
+            )));
+        }
     }
 
     let transaction_validity_check_results = state_witness
@@ -231,6 +248,53 @@ pub fn spice_validate_chunk_state_witness(
     Ok(execution_result)
 }
 
+/// Verifies that the given `body` proves the chunk (identified by `chunk_header`)
+/// is invalid. Accepts the proof if the body decodes to an invalid chunk;
+/// rejects it if the chunk is actually valid (fraudulent proof).
+fn verify_proof_of_invalid_chunk(
+    body: &EncodedShardChunkBody,
+    chunk_header: &ShardChunkHeader,
+    epoch_manager: &dyn EpochManagerAdapter,
+) -> Result<(), Error> {
+    // Reject bodies with missing parts to avoid panicking in get_merkle_hash_and_paths.
+    if body.parts.iter().any(|p| p.is_none()) {
+        return Err(Error::InvalidChunkStateWitness(
+            "proof_of_invalid_chunk body contains missing parts".to_string(),
+        ));
+    }
+    // Verify the body is consistent with the chunk header's encoded_merkle_root.
+    let (body_merkle_root, _) = body.get_merkle_hash_and_paths();
+    if &body_merkle_root != chunk_header.encoded_merkle_root() {
+        return Err(Error::InvalidChunkStateWitness(format!(
+            "proof_of_invalid_chunk body encoded_merkle_root {:?} does not match \
+             chunk header encoded_merkle_root {:?}",
+            body_merkle_root,
+            chunk_header.encoded_merkle_root()
+        )));
+    }
+
+    // Attempt to decode the body.
+    let encoded_chunk = EncodedShardChunk::V2(EncodedShardChunkV2 {
+        header: chunk_header.clone(),
+        content: body.clone(),
+    });
+    let shard_chunk = match encoded_chunk.decode_chunk() {
+        Ok(chunk) => chunk,
+        // Decode failure is sufficient proof of invalidity.
+        Err(_) => return Ok(()),
+    };
+
+    // Attempt to validate the decoded chunk's proofs.
+    let is_valid = validate_chunk_proofs(&shard_chunk, epoch_manager)?;
+    if is_valid {
+        return Err(Error::InvalidChunkStateWitness(
+            "proof_of_invalid_chunk is fraudulent: chunk body is actually valid".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
 fn validate_source_receipts_proofs(
     source_receipt_proofs: &HashMap<ShardId, ReceiptProof>,
     prev_execution_results: &BlockExecutionResults,
@@ -334,7 +398,10 @@ mod tests {
     use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
     use near_o11y::testonly::init_test_logger;
     use near_primitives::hash::CryptoHash;
-    use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
+    use near_primitives::reed_solomon::reed_solomon_encode;
+    use near_primitives::sharding::{
+        EncodedShardChunkBody, ShardChunkHeader, ShardChunkHeaderV3, TransactionReceipt,
+    };
     use near_primitives::state::PartialState;
     use near_primitives::stateless_validation::ChunkProductionKey;
     use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateTransition;
@@ -349,6 +416,7 @@ mod tests {
     };
     use near_primitives::validator_signer::ValidatorSigner;
     use near_store::get_genesis_state_roots;
+    use reed_solomon_erasure::galois_8::ReedSolomon;
     use std::str::FromStr as _;
     use tracing::Span;
 
@@ -573,6 +641,7 @@ mod tests {
             vec![],
             ChunkExecutionResultHash(CryptoHash::default()),
             CryptoHash::default(),
+            None,
         );
 
         let result = spice_pre_validate_chunk_state_witness(
@@ -618,6 +687,7 @@ mod tests {
             test_chain.transactions(),
             ChunkExecutionResultHash(CryptoHash::default()),
             CryptoHash::default(),
+            None,
         );
 
         let result = spice_pre_validate_chunk_state_witness(
@@ -700,6 +770,134 @@ mod tests {
 
         let error_message = unwrap_error_message(test_chain.run_validation(invalid_witness));
         assert_contains(&error_message, "does not match expected execution result hash");
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn test_pre_validation_succeeds_with_proof_of_invalid_chunk() {
+        let mut test_chain = setup();
+        let bad_tx_root = CryptoHash::hash_bytes(b"wrong tx root");
+        let witness =
+            test_chain.witness_with_proof_of_invalid_chunk(bad_tx_root, Default::default());
+
+        let output = test_chain.run_pre_validation(&witness).unwrap();
+        let transactions = output.new_chunk_data.transactions.into_nonexpired_transactions();
+        assert!(transactions.is_empty());
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn test_pre_validation_rejects_proof_of_invalid_chunk_for_missing_chunk() {
+        let test_chain = setup();
+        let valid_witness = test_chain.valid_witness_for_block_with_missing_chunks();
+
+        let any_body = EncodedShardChunkBody { parts: vec![] };
+        let invalid_witness = TestWitnessBuilder::from_default(valid_witness)
+            .proof_of_invalid_chunk(Some(Box::new(any_body)))
+            .build();
+
+        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
+        assert_contains(&error_message, "non-new chunk");
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn test_pre_validation_rejects_proof_of_invalid_chunk_with_non_empty_transactions() {
+        let test_chain = setup();
+        let valid_witness = test_chain.valid_witness();
+
+        let any_body = EncodedShardChunkBody { parts: vec![] };
+        let invalid_witness = TestWitnessBuilder::from_default(valid_witness)
+            .transactions(test_chain.transactions())
+            .proof_of_invalid_chunk(Some(Box::new(any_body)))
+            .build();
+
+        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
+        assert_contains(&error_message, "non-empty transactions");
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn test_pre_validation_rejects_proof_of_invalid_chunk_with_wrong_encoded_merkle_root() {
+        let test_chain = setup();
+
+        // Use a body whose merkle root does not match the chunk header's encoded_merkle_root.
+        let wrong_body =
+            EncodedShardChunkBody { parts: vec![Some(vec![0u8; 32].into_boxed_slice())] };
+        let valid_witness = test_chain.valid_witness();
+        let invalid_witness = TestWitnessBuilder::from_default(valid_witness)
+            .transactions(vec![])
+            .proof_of_invalid_chunk(Some(Box::new(wrong_body)))
+            .build();
+
+        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
+        assert_contains(&error_message, "encoded_merkle_root");
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn test_pre_validation_rejects_fraudulent_proof_of_invalid_chunk() {
+        let mut test_chain = setup();
+
+        // Build a body where everything is correct — the chunk is actually valid,
+        // so claiming it's invalid is fraudulent.
+        let (correct_tx_root, _) = merklize::<SignedTransaction>(&[]);
+        let shard_layout = test_chain.shard_layout();
+        let empty_receipt_hashes = Chain::build_receipts_hashes(&[], &shard_layout).unwrap();
+        let (correct_receipts_root, _) = merklize(&empty_receipt_hashes);
+
+        let witness =
+            test_chain.witness_with_proof_of_invalid_chunk(correct_tx_root, correct_receipts_root);
+
+        let error_message = unwrap_error_message(test_chain.run_pre_validation(&witness));
+        assert_contains(&error_message, "fraudulent");
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn test_pre_validation_rejects_proof_of_invalid_chunk_with_missing_parts() {
+        let test_chain = setup();
+        let valid_witness = test_chain.valid_witness();
+
+        let body = EncodedShardChunkBody {
+            parts: vec![None, Some(vec![0u8; 32].into_boxed_slice()), None],
+        };
+        let invalid_witness = TestWitnessBuilder::from_default(valid_witness)
+            .transactions(vec![])
+            .proof_of_invalid_chunk(Some(Box::new(body)))
+            .build();
+
+        let error_message = unwrap_error_message(test_chain.run_pre_validation(&invalid_witness));
+        assert_contains(&error_message, "missing parts");
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn test_pre_validation_accepts_proof_of_invalid_chunk_on_decode_failure() {
+        let mut test_chain = setup();
+
+        // Build a body with garbage data that will fail to decode.
+        let total_parts = test_chain.chain.epoch_manager.num_total_parts();
+        let data_parts = test_chain.chain.epoch_manager.num_data_parts();
+        let part_size = 64;
+        let garbage_body = EncodedShardChunkBody {
+            parts: (0..total_parts)
+                .map(|_| Some(vec![u8::MAX; part_size].into_boxed_slice()))
+                .collect(),
+        };
+        // Use a realistic encoded_length so decode failure is due to garbage
+        // content, not a zero-length shortcut.
+        let encoded_length = (part_size * data_parts) as u64;
+        let witness = test_chain.witness_with_proof_of_invalid_chunk_body(
+            garbage_body,
+            encoded_length,
+            Default::default(),
+            Default::default(),
+        );
+
+        let output = test_chain.run_pre_validation(&witness).unwrap();
+        let transactions = output.new_chunk_data.transactions.into_nonexpired_transactions();
+        assert!(transactions.is_empty());
     }
 
     #[track_caller]
@@ -821,6 +1019,7 @@ mod tests {
         transactions: Vec<SignedTransaction>,
         execution_result_hash: ChunkExecutionResultHash,
         contract_accesses_hash: CryptoHash,
+        proof_of_invalid_chunk: Option<Box<EncodedShardChunkBody>>,
     }
 
     macro_rules! builder_setter {
@@ -839,6 +1038,7 @@ mod tests {
         builder_setter!(applied_receipts_hash, CryptoHash);
         builder_setter!(transactions, Vec<SignedTransaction>);
         builder_setter!(execution_result_hash, ChunkExecutionResultHash);
+        builder_setter!(proof_of_invalid_chunk, Option<Box<EncodedShardChunkBody>>);
 
         fn from_default(default: SpiceChunkStateWitness) -> Self {
             Self {
@@ -849,6 +1049,9 @@ mod tests {
                 transactions: default.transactions().to_vec(),
                 execution_result_hash: default.execution_result_hash().clone(),
                 contract_accesses_hash: *default.contract_accesses_hash(),
+                proof_of_invalid_chunk: default
+                    .proof_of_invalid_chunk()
+                    .map(|b| Box::new(b.clone())),
             }
         }
 
@@ -861,6 +1064,7 @@ mod tests {
                 self.transactions,
                 self.execution_result_hash,
                 self.contract_accesses_hash,
+                self.proof_of_invalid_chunk,
             )
         }
     }
@@ -955,6 +1159,117 @@ mod tests {
                 .build()
         }
 
+        /// RS-encodes an empty TransactionReceipt. Returns the fully reconstructed body
+        /// (all parts filled) and the encoded_length. The decoded tx_root of the resulting
+        /// chunk will be `merklize::<SignedTransaction>(&[]).0`.
+        fn make_empty_encoded_body(&self) -> (EncodedShardChunkBody, u64) {
+            let total_parts = self.chain.epoch_manager.num_total_parts();
+            let data_parts = self.chain.epoch_manager.num_data_parts();
+            let rs = ReedSolomon::new(data_parts, total_parts - data_parts).unwrap();
+            let (parts, encoded_length) =
+                reed_solomon_encode(&rs, &TransactionReceipt(vec![], vec![]));
+            (EncodedShardChunkBody { parts }, encoded_length as u64)
+        }
+
+        /// Builds a block where each shard's chunk header has the given fields.
+        fn build_block_with_custom_chunk_header(
+            &self,
+            prev_block: &Block,
+            encoded_merkle_root: CryptoHash,
+            encoded_length: u64,
+            tx_root: CryptoHash,
+            prev_outgoing_receipts_root: CryptoHash,
+        ) -> Arc<Block> {
+            let mut chunks = Vec::new();
+            for chunk in prev_block.chunks().iter_raw() {
+                let shard_id = chunk.shard_id();
+                let height = prev_block.header().height() + 1;
+                let chunk_producer = self
+                    .chain
+                    .epoch_manager
+                    .get_chunk_producer_info(&ChunkProductionKey {
+                        shard_id,
+                        epoch_id: *prev_block.header().epoch_id(),
+                        height_created: height,
+                    })
+                    .unwrap();
+                let signer = create_test_signer(chunk_producer.account_id().as_str());
+                let mut chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new_for_spice(
+                    *prev_block.hash(),
+                    encoded_merkle_root,
+                    encoded_length,
+                    height,
+                    shard_id,
+                    prev_outgoing_receipts_root,
+                    tx_root,
+                    &signer,
+                ));
+                *chunk_header.height_included_mut() = height;
+                chunks.push(chunk_header);
+            }
+            self.build_block_with_chunks(prev_block, chunks)
+        }
+
+        /// Builds a witness with the given body as proof_of_invalid_chunk.
+        /// Creates a block whose chunk header's encoded_merkle_root matches
+        /// the body, with the given tx_root and prev_outgoing_receipts_root.
+        fn witness_with_proof_of_invalid_chunk_body(
+            &mut self,
+            body: EncodedShardChunkBody,
+            encoded_length: u64,
+            tx_root: CryptoHash,
+            prev_outgoing_receipts_root: CryptoHash,
+        ) -> SpiceChunkStateWitness {
+            let (encoded_merkle_root, _) = body.get_merkle_hash_and_paths();
+
+            let prev_block = self.block();
+            let block = self.build_block_with_custom_chunk_header(
+                &prev_block,
+                encoded_merkle_root,
+                encoded_length,
+                tx_root,
+                prev_outgoing_receipts_root,
+            );
+            process_block_sync(
+                &mut self.chain,
+                block.clone().into(),
+                Provenance::PRODUCED,
+                &mut BlockProcessingArtifact::default(),
+            )
+            .unwrap();
+
+            let shard_id = self.shard_id();
+            SpiceChunkStateWitness::new(
+                SpiceChunkId { block_hash: *block.hash(), shard_id },
+                SpiceChunkStateTransition {
+                    base_state: PartialState::TrieValues(vec![]),
+                    post_state_root: CryptoHash::default(),
+                },
+                self.source_receipt_proofs(),
+                self.applied_receipts_hash(),
+                vec![],
+                ChunkExecutionResultHash(CryptoHash::default()),
+                CryptoHash::default(),
+                Some(Box::new(body)),
+            )
+        }
+
+        /// Convenience wrapper: RS-encodes an empty body and builds a witness
+        /// with it as proof_of_invalid_chunk.
+        fn witness_with_proof_of_invalid_chunk(
+            &mut self,
+            tx_root: CryptoHash,
+            prev_outgoing_receipts_root: CryptoHash,
+        ) -> SpiceChunkStateWitness {
+            let (body, encoded_length) = self.make_empty_encoded_body();
+            self.witness_with_proof_of_invalid_chunk_body(
+                body,
+                encoded_length,
+                tx_root,
+                prev_outgoing_receipts_root,
+            )
+        }
+
         fn shard_id(&self) -> ShardId {
             self.shard_layout().shard_ids().next().unwrap()
         }
@@ -1047,6 +1362,7 @@ mod tests {
                 transactions,
                 execution_result.compute_hash(),
                 CryptoHash::default(),
+                None,
             )
         }
 
@@ -1068,6 +1384,7 @@ mod tests {
                 transactions,
                 execution_result.compute_hash(),
                 CryptoHash::default(),
+                None,
             )
         }
 

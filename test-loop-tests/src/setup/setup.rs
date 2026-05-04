@@ -106,6 +106,11 @@ pub fn setup_client(
     );
 
     let contract_cache = FilesystemContractRuntimeCache::test().expect("filesystem contract cache");
+    let snapshot_every_n_epochs = client_config
+        .cloud_archival_writer
+        .as_ref()
+        .map(|writer_config| writer_config.snapshot_every_n_epochs)
+        .unwrap_or(1);
     let runtime_adapter = NightshadeRuntime::test_with_trie_config(
         &homedir,
         storage.hot_store.clone(),
@@ -116,6 +121,7 @@ pub fn setup_client(
         TrieConfig::from_store_config(&store_config),
         client_config.gc.gc_num_epochs_to_keep,
         client_config.cloud_archival_writer.is_some(),
+        snapshot_every_n_epochs,
         client_config.save_receipt_to_tx,
     );
 
@@ -210,6 +216,7 @@ pub fn setup_client(
                 TrieConfig::from_store_config(&store_config),
                 client_config.gc.gc_num_epochs_to_keep,
                 client_config.cloud_archival_writer.is_some(),
+                snapshot_every_n_epochs,
                 client_config.save_receipt_to_tx,
             );
             (view_epoch_manager, view_shard_tracker, view_runtime_adapter)
