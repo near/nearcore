@@ -229,13 +229,13 @@ fn test_wasmtime_artifact_output_stability() {
     let seeds = [2, 3, 5, 7, 11, 13, 17];
     let prepared_hashes = [
         // See the above comment if you want to change this
-        12449640751251113238,
-        6667984442121282965,
-        5326763896713807329,
-        7732431717957140339,
-        3109521814084239259,
-        10353595027846323532,
-        10277454382572670711,
+        8872655251928162472,
+        5874696682778417150,
+        15325374922549829539,
+        16384246902307889877,
+        10198860491477346864,
+        17647195016507989234,
+        9026912712981131179,
     ];
     let compiled_hashes = [
         // See the above comment if you want to change this
@@ -326,7 +326,7 @@ fn test_wasmtime_sparse_contract_stability() {
     // Companion to `test_wasmtime_artifact_output_stability`: exercises the
     // sparse-data-segment case that `arbitrary_contract` does not cover.
     // See comments on that test for how to update these hashes.
-    let expected_prepared_hash: u64 = 16694328674582109973;
+    let expected_prepared_hash: u64 = 3829876428286564557;
     let expected_compiled_hash: u64 = 8543849532946659263;
 
     let contract = ContractCode::new(sparse_wasm_contract(), None);
