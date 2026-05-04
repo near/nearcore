@@ -47,10 +47,7 @@ mod tests {
             let mut logic = logic_builder.build();
             let input = logic.internal_mem_write($buffer.concat().as_slice());
             let res = logic.$fn_name(input.len, input.ptr, 0).unwrap();
-            assert_eq!(
-                res, $expected_res,
-                "with bls12381_not_in_group_fix={not_in_group_fix}"
-            );
+            assert_eq!(res, $expected_res, "with bls12381_not_in_group_fix={not_in_group_fix}");
         }};
         // Single flag, success expected, returns register.
         ($fn_name:ident, $buffer:expr, bls12381_not_in_group_fix: $flag:expr) => {{
@@ -72,10 +69,7 @@ mod tests {
                 let mut logic = logic_builder.build();
                 let input = logic.internal_mem_write(buffer.as_slice());
                 let res = logic.$fn_name(input.len, input.ptr, 0).unwrap();
-                assert_eq!(
-                    res, $expected_res,
-                    "with bls12381_not_in_group_fix={not_in_group_fix}"
-                );
+                assert_eq!(res, $expected_res, "with bls12381_not_in_group_fix={not_in_group_fix}");
             }
         }};
         // Both flags, success expected, returns register; asserts the
@@ -723,10 +717,8 @@ mod tests {
                     [vec![0u8], p_ser, vec![0u8], q_ser],
                     bls12381_not_in_group_fix: true
                 );
-                let library_sum = G1Operations::serialize_uncompressed_g(
-                    &p.p.add(&q).into_affine(),
-                )
-                .to_vec();
+                let library_sum =
+                    G1Operations::serialize_uncompressed_g(&p.p.add(&q).into_affine()).to_vec();
                 assert_eq!(got, library_sum);
             }
         });
@@ -1585,8 +1577,7 @@ mod tests {
     ///   sum matches the expected result encoded in the CSV.
     #[test]
     fn test_bls12381_g1_add_x0_test_vectors() {
-        let input_csv =
-            fs::read("src/logic/tests/bls12381_test_vectors/g1_add_x0.csv").unwrap();
+        let input_csv = fs::read("src/logic/tests/bls12381_test_vectors/g1_add_x0.csv").unwrap();
         let mut reader = csv::Reader::from_reader(input_csv.as_slice());
         for record in reader.records() {
             let record = record.unwrap();
@@ -1594,9 +1585,8 @@ mod tests {
             let k = bytes_input.len() / 256;
             let mut bytes_input_fix: Vec<Vec<u8>> = vec![];
             for i in 0..k {
-                bytes_input_fix.push(fix_eip2537_sum_g1_input(
-                    bytes_input[i * 256..(i + 1) * 256].to_vec(),
-                ));
+                bytes_input_fix
+                    .push(fix_eip2537_sum_g1_input(bytes_input[i * 256..(i + 1) * 256].to_vec()));
             }
             let got = run_bls12381_fn!(
                 bls12381_p1_sum,
