@@ -44,6 +44,24 @@ impl ProfileDataV3 {
         profile_data
     }
 
+    /// Create a test profile valid for a specific config.
+    ///
+    /// Unlike `test()`, only assigns gas to ext costs that have non-zero gas in `config`,
+    /// satisfying the invariant that a non-zero profile value implies a non-zero gas cost.
+    pub fn test_with_config(config: &ExtCostsConfig) -> Self {
+        let mut profile = ProfileDataV3::default();
+        for (i, cost) in ExtCosts::iter().enumerate() {
+            let unit = cost.gas(config);
+            if unit != Gas::ZERO {
+                profile.add_ext_cost(cost, unit.checked_mul(i as u64 + 1).unwrap_or(unit));
+            }
+        }
+        for (i, cost) in ActionCosts::iter().enumerate() {
+            profile.add_action_cost(cost, Gas::from_gas(i as u64 + 1000));
+        }
+        profile
+    }
+
     #[inline]
     pub fn merge(&mut self, other: &ProfileDataV3) {
         for ((_, gas), (_, other_gas)) in
