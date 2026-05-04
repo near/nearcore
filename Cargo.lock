@@ -4414,6 +4414,7 @@ dependencies = [
  "near-store",
  "near-telemetry",
  "near-vm-runner",
+ "nix 0.24.3",
  "node-runtime",
  "num-rational 0.3.2",
  "parking_lot 0.12.1",

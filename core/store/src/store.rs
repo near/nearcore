@@ -140,6 +140,46 @@ impl Store {
         self.get(column, key).is_some()
     }
 
+    /// Fetches values for multiple keys in `column` via a single batched
+    /// backend call.
+    ///
+    /// `result[i]` corresponds to `keys[i]`; missing keys map to `None`.
+    /// For reference-counted columns, refcount stripping is applied so
+    /// tombstone cells (refcount ≤ 0) appear as `None` — mirroring scalar
+    /// [`Self::get`] semantics.  The RC vs non-RC dispatch happens at the
+    /// [`crate::db::Database`] trait level because [`crate::db::SplitDB`]
+    /// must fall through hot tombstones to cold real values, which a
+    /// raw-bytes-then-strip wrapper at this layer would break.
+    ///
+    /// Uses the single-CF backend path (`pinned_multi_get_*`). On RocksDB
+    /// this exploits `batched_multi_get_cf` and returns pinned slices
+    /// (zero-copy).
+    pub fn multi_get(&self, column: DBCol, keys: &[&[u8]]) -> Vec<Option<DBSlice<'_>>> {
+        let values = if column.is_rc() {
+            self.storage.pinned_multi_get_with_rc_stripped(column, keys)
+        } else {
+            self.storage.pinned_multi_get_raw_bytes(column, keys)
+        };
+        tracing::trace!(
+            target: "store",
+            db_op = "multi_get",
+            col = %column,
+            n = keys.len(),
+            present = values.iter().filter(|v| v.is_some()).count()
+        );
+        values
+    }
+
+    /// Multi-key existence check.  Returns a parallel `Vec<bool>` where
+    /// `result[i] == true` iff a value is present for `keys[i]`.
+    ///
+    /// For RC columns, tombstones (refcount ≤ 0) are correctly reported
+    /// as absent — implemented in terms of [`Self::multi_get`] which
+    /// already dispatches RC handling correctly.
+    pub fn multi_exists(&self, column: DBCol, keys: &[&[u8]]) -> Vec<bool> {
+        self.multi_get(column, keys).into_iter().map(|opt| opt.is_some()).collect()
+    }
+
     pub fn store_update(&self) -> StoreUpdate {
         StoreUpdate { transaction: DBTransaction::new(), store: self.clone() }
     }

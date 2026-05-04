@@ -18,6 +18,7 @@ bytesize.workspace = true
 futures.workspace = true
 itertools.workspace = true
 lru.workspace = true
+nix.workspace = true
 num-rational.workspace = true
 parking_lot.workspace = true
 rand.workspace = true

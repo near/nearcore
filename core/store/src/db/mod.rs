@@ -205,6 +205,80 @@ pub trait Database: Sync + Send {
         self.get_raw_bytes(col, key).and_then(DBSlice::strip_refcount)
     }
 
+    /// Returns raw bytes for every key in `keys`, in input order.
+    ///
+    /// Semantically equivalent to calling [`Self::get_raw_bytes`] once per
+    /// key.  Backends can override this with a batched implementation that
+    /// reduces per-key syscall and userspace overhead.  The default impl
+    /// here is just N scalar gets, so backends that don't override get
+    /// correct (but unoptimised) behaviour for free.
+    ///
+    /// As with [`Self::get_raw_bytes`], the returned bytes for RC columns
+    /// include the trailing reference count and cells with non-positive
+    /// refcount are returned as `Some(...)`.  Use higher-level wrappers
+    /// (e.g. `Store::multi_get`) for refcount-stripped semantics.
+    ///
+    /// On a per-key backend error, implementations panic — matching the
+    /// existing scalar `get_raw_bytes` behaviour.  Returning `Result` here
+    /// would change the actor's crash-on-corruption semantics.
+    fn multi_get_raw_bytes<'a>(&'a self, col: DBCol, keys: &[&[u8]]) -> Vec<Option<DBSlice<'a>>> {
+        keys.iter().map(|k| self.get_raw_bytes(col, k)).collect()
+    }
+
+    /// Single-CF multi-key read, with the option for backends to return
+    /// pinned (zero-copy) slices.
+    ///
+    /// All keys must target the same column family `col`. Backends with a
+    /// pinned-slice fast path (RocksDB's `batched_multi_get_cf`) override
+    /// this; the default forwards to [`Self::multi_get_raw_bytes`] so
+    /// backends without one behave correctly with no extra work.
+    ///
+    /// Returned slices may be borrowed from the backend's block cache and
+    /// must not outlive this call.
+    fn pinned_multi_get_raw_bytes<'a>(
+        &'a self,
+        col: DBCol,
+        keys: &[&[u8]],
+    ) -> Vec<Option<DBSlice<'a>>> {
+        self.multi_get_raw_bytes(col, keys)
+    }
+
+    /// Returns refcount-stripped values for every key in `keys`, in input
+    /// order.  Multi-key analogue of [`Self::get_with_rc_stripped`].
+    ///
+    /// **Panics** if the column is not reference counted.
+    ///
+    /// The default impl strips refcounts from [`Self::multi_get_raw_bytes`]
+    /// per element.  Backends that need different fall-through semantics
+    /// for RC columns (notably [`super::SplitDB`], where a hot-side
+    /// tombstone must NOT shadow a real cold-side value) override this.
+    fn multi_get_with_rc_stripped<'a>(
+        &'a self,
+        col: DBCol,
+        keys: &[&[u8]],
+    ) -> Vec<Option<DBSlice<'a>>> {
+        assert!(col.is_rc());
+        self.multi_get_raw_bytes(col, keys)
+            .into_iter()
+            .map(|opt| opt.and_then(DBSlice::strip_refcount))
+            .collect()
+    }
+
+    /// Single-CF, refcount-stripped multi-key read with optional pinned
+    /// slices. See [`Self::pinned_multi_get_raw_bytes`] for the pinning
+    /// semantics.
+    fn pinned_multi_get_with_rc_stripped<'a>(
+        &'a self,
+        col: DBCol,
+        keys: &[&[u8]],
+    ) -> Vec<Option<DBSlice<'a>>> {
+        assert!(col.is_rc());
+        self.pinned_multi_get_raw_bytes(col, keys)
+            .into_iter()
+            .map(|opt| opt.and_then(DBSlice::strip_refcount))
+            .collect()
+    }
+
     /// Iterate over all items in given column in lexicographical order sorted
     /// by the key.
     ///

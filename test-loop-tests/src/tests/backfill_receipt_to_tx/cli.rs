@@ -332,7 +332,7 @@ fn test_checkpoint_resume_after_partial_completion() {
     let options_with_checkpoint =
         BackfillOptions { batch_size: 1000, num_threads: 1, use_checkpoint: true };
 
-    // Phase 1: backfill only the first half.
+    // First: backfill only the first half.
     let stats1 = backfill_receipt_to_tx(
         chain_store,
         &shared_storage(&store, None),
@@ -350,7 +350,7 @@ fn test_checkpoint_resume_after_partial_completion() {
 
     let entries_after_first_half = store.iter(DBCol::ReceiptToTx).count();
 
-    // Phase 2: resume from checkpoint+1 to head.
+    // Then: resume from checkpoint+1 to head.
     let stats2 = backfill_receipt_to_tx(
         chain_store,
         &shared_storage(&store, None),

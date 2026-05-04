@@ -49,6 +49,30 @@ impl Database for ColdDB {
         self.cold.get_with_rc_stripped(col, key)
     }
 
+    fn multi_get_raw_bytes(&self, col: DBCol, keys: &[&[u8]]) -> Vec<Option<DBSlice<'_>>> {
+        Self::assert_is_in_colddb(col);
+        self.cold.multi_get_raw_bytes(col, keys)
+    }
+
+    fn pinned_multi_get_raw_bytes(&self, col: DBCol, keys: &[&[u8]]) -> Vec<Option<DBSlice<'_>>> {
+        Self::assert_is_in_colddb(col);
+        self.cold.pinned_multi_get_raw_bytes(col, keys)
+    }
+
+    fn multi_get_with_rc_stripped(&self, col: DBCol, keys: &[&[u8]]) -> Vec<Option<DBSlice<'_>>> {
+        Self::assert_is_in_colddb(col);
+        self.cold.multi_get_with_rc_stripped(col, keys)
+    }
+
+    fn pinned_multi_get_with_rc_stripped(
+        &self,
+        col: DBCol,
+        keys: &[&[u8]],
+    ) -> Vec<Option<DBSlice<'_>>> {
+        Self::assert_is_in_colddb(col);
+        self.cold.pinned_multi_get_with_rc_stripped(col, keys)
+    }
+
     /// Iterates over all values in a column.
     fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
         Self::assert_is_in_colddb(col);

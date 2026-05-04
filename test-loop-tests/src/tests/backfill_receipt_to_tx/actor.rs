@@ -425,7 +425,7 @@ fn test_sequential_forward_then_backward_converge() {
     let head_height = env.validator().head().height;
     let mid_height = genesis_height + (head_height - genesis_height) / 2;
 
-    // Phase 1: CLI forward backfill over [genesis, mid_height].
+    // First: CLI forward backfill over [genesis, mid_height].
     backfill_receipt_to_tx(
         chain_store,
         &shared_storage(&store, None),
@@ -436,7 +436,7 @@ fn test_sequential_forward_then_backward_converge() {
     )
     .expect("forward CLI backfill should succeed");
 
-    // Phase 2: actor backward backfill from head down — overlaps phase 1 in [genesis, mid_height].
+    // Then: actor backward backfill from head down — overlaps the forward run in [genesis, mid_height].
     let genesis = &env.shared_state.genesis;
     let chain_genesis = ChainGenesis::new(&genesis.config);
     let mut actor = BackfillReceiptToTxActor::new(
@@ -534,7 +534,7 @@ fn test_actor_resumes_from_checkpoint_after_restart() {
     let genesis = &env.shared_state.genesis;
     let chain_genesis = ChainGenesis::new(&genesis.config);
 
-    // Phase 1: run a fresh actor for a few batches (partial progress).
+    // First: run a fresh actor for a few batches (partial progress).
     {
         let mut actor = BackfillReceiptToTxActor::new(
             shared_storage(&store, None),
@@ -566,17 +566,17 @@ fn test_actor_resumes_from_checkpoint_after_restart() {
     }
     // Actor is dropped; checkpoint persists in the store.
 
-    let checkpoint_after_phase1 = store
+    let checkpoint_after_partial = store
         .get_ser::<BlockHeight>(DBCol::Misc, BACKFILL_CHECKPOINT_KEY_LOW)
         .expect("checkpoint should exist after partial run");
     assert!(
-        checkpoint_after_phase1 > genesis_height,
+        checkpoint_after_partial > genesis_height,
         "checkpoint should be above genesis after partial run"
     );
     let partial_entry_count = store.iter(DBCol::ReceiptToTx).count();
     assert!(partial_entry_count > 0, "should have written some entries in partial run");
 
-    // Phase 2: create a fresh actor and drive to completion.
+    // Then: create a fresh actor and drive to completion.
     {
         let mut actor = BackfillReceiptToTxActor::new(
             shared_storage(&store, None),
@@ -935,4 +935,159 @@ fn test_sst_path_handles_cross_batch_value_divergence() {
             );
         }
     }
+}
+
+/// Byte-equivalence between the MultiGet `process_height` and a scalar
+/// reference implementation. The reference walks the same chain state with
+/// per-key Gets (the shape `process_height` collapses into batched calls).
+/// For the same chain state, both implementations must produce identical
+/// `(receipt_id, ReceiptToTxInfo)` entries — drift here would silently
+/// corrupt `ReceiptToTx` data on archival nodes.
+///
+/// The scalar reference is intentionally verbose and parallel to the
+/// per-key shape so future readers can spot divergence at the call-site
+/// level.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_multi_get_path_matches_scalar_reference() {
+    use near_chain::ChainStoreAccess;
+    use near_primitives::receipt::{ReceiptOriginReceipt, ReceiptOriginTransaction};
+    use near_primitives::utils::get_block_shard_id_rev;
+
+    init_test_logger();
+
+    let user_account = create_account_id("account0");
+    let receiver_account = create_account_id("account1");
+
+    let mut env = TestLoopBuilder::new()
+        .add_user_account(&user_account, Balance::from_near(1_000_000))
+        .add_user_account(&receiver_account, Balance::from_near(1_000_000))
+        .epoch_length(EPOCH_LENGTH)
+        .config_modifier(|config, _| {
+            config.save_receipt_to_tx = false;
+        })
+        .gc_num_epochs_to_keep(20)
+        .build();
+
+    generate_diverse_traffic(&mut env);
+
+    let chain_store = env.validator().client().chain.chain_store();
+    let genesis_height = chain_store.get_genesis_height();
+    let head_height = env.validator().head().height;
+
+    /// Scalar reference implementation — mirrors the pre-Phase-1 shape of
+    /// `process_height` exactly.  Returns the same `(receipt_id, info)`
+    /// list the new MultiGet code is expected to produce.
+    fn scalar_reference_process_height(
+        chain_store: &near_chain::ChainStore,
+        height: BlockHeight,
+    ) -> Vec<(CryptoHash, ReceiptToTxInfo)> {
+        let block_hash = match chain_store.get_block_hash_by_height(height) {
+            Ok(hash) => hash,
+            Err(_) => return Vec::new(),
+        };
+        let read_store = chain_store.store();
+        let mut entries = Vec::new();
+        for (key, outcome_ids) in
+            read_store.iter_prefix_ser::<Vec<CryptoHash>>(DBCol::OutcomeIds, block_hash.as_ref())
+        {
+            let (_, shard_id) = get_block_shard_id_rev(&key).expect("invalid OutcomeIds key");
+            for outcome_id in outcome_ids {
+                let outcome_with_proof =
+                    match chain_store.get_outcome_by_id_and_block_hash(&outcome_id, &block_hash) {
+                        Some(o) => o,
+                        None => continue,
+                    };
+                let outcome = &outcome_with_proof.outcome;
+                if outcome.receipt_ids.is_empty() {
+                    continue;
+                }
+                let is_tx = read_store.exists(DBCol::Transactions, outcome_id.as_ref());
+                let parent_receipt =
+                    if !is_tx { chain_store.get_receipt(&outcome_id) } else { None };
+                for child_receipt_id in &outcome.receipt_ids {
+                    let child_receipt = match chain_store.get_receipt(child_receipt_id) {
+                        Some(r) => r,
+                        None => continue,
+                    };
+                    let info = if is_tx {
+                        ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+                            origin: ReceiptOrigin::FromTransaction(ReceiptOriginTransaction {
+                                tx_hash: outcome_id,
+                                sender_account_id: outcome.executor_id.clone(),
+                            }),
+                            receiver_account_id: child_receipt.receiver_id().clone(),
+                            shard_id,
+                        })
+                    } else {
+                        let parent = match &parent_receipt {
+                            Some(r) => r,
+                            None => continue,
+                        };
+                        ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+                            origin: ReceiptOrigin::FromReceipt(ReceiptOriginReceipt {
+                                parent_receipt_id: outcome_id,
+                                parent_predecessor_id: parent.predecessor_id().clone(),
+                            }),
+                            receiver_account_id: child_receipt.receiver_id().clone(),
+                            shard_id,
+                        })
+                    };
+                    entries.push((*child_receipt_id, info));
+                }
+            }
+        }
+        entries
+    }
+
+    // Walk every height; collect the entry set produced by each path.
+    let mut multi_get_total: Vec<(CryptoHash, ReceiptToTxInfo)> = Vec::new();
+    let mut scalar_total: Vec<(CryptoHash, ReceiptToTxInfo)> = Vec::new();
+    let mut heights_with_entries = 0usize;
+    for h in genesis_height..=head_height {
+        if let Some(result) =
+            process_height(chain_store, h).expect("process_height should not error on test chain")
+        {
+            if !result.entries.is_empty() {
+                heights_with_entries += 1;
+            }
+            multi_get_total.extend(result.entries);
+        }
+        scalar_total.extend(scalar_reference_process_height(chain_store, h));
+    }
+
+    assert!(
+        heights_with_entries > 0,
+        "diverse traffic must produce at least one ReceiptToTx entry"
+    );
+
+    // Sort both by receipt_id to make the comparison order-independent
+    // (the assembly loops walk in slightly different orders by construction).
+    let key = |e: &(CryptoHash, ReceiptToTxInfo)| e.0;
+    multi_get_total.sort_by_key(key);
+    scalar_total.sort_by_key(key);
+
+    // Compare via Borsh-serialised bytes — same equality semantics as the
+    // SST-vs-legacy test (`ReceiptToTxInfo` is `BorshSerialize`).
+    let to_bytes = |entries: &[(CryptoHash, ReceiptToTxInfo)]| {
+        entries
+            .iter()
+            .map(|(k, v)| {
+                let v = borsh::to_vec(v).expect("serialize ReceiptToTxInfo");
+                (*k, v)
+            })
+            .collect::<Vec<(CryptoHash, Vec<u8>)>>()
+    };
+    let multi_bytes = to_bytes(&multi_get_total);
+    let scalar_bytes = to_bytes(&scalar_total);
+
+    assert_eq!(
+        multi_bytes.len(),
+        scalar_bytes.len(),
+        "MultiGet and scalar paths must produce the same number of entries",
+    );
+    assert_eq!(
+        multi_bytes, scalar_bytes,
+        "MultiGet `process_height` must produce byte-identical entries to the scalar reference",
+    );
 }

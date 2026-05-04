@@ -87,6 +87,112 @@ impl Database for SplitDB {
         None
     }
 
+    /// Multi-key analogue of [`Self::get_raw_bytes`].
+    ///
+    /// One batched call to hot for all keys, then a second batched call to
+    /// cold for the positions where hot returned `None` (only when the
+    /// column is cold-resident).  Mirrors scalar `get_raw_bytes` semantics
+    /// per slot.
+    fn multi_get_raw_bytes(&self, col: DBCol, keys: &[&[u8]]) -> Vec<Option<DBSlice<'_>>> {
+        let mut results = self.hot.multi_get_raw_bytes(col, keys);
+        if !col.is_cold() {
+            return results;
+        }
+        let cold_indices: Vec<usize> = results
+            .iter()
+            .enumerate()
+            .filter_map(|(i, v)| if v.is_none() { Some(i) } else { None })
+            .collect();
+        if cold_indices.is_empty() {
+            return results;
+        }
+        let cold_keys: Vec<&[u8]> = cold_indices.iter().map(|&i| keys[i]).collect();
+        let cold_values = self.cold.multi_get_raw_bytes(col, &cold_keys);
+        for (i, cold_value) in cold_indices.into_iter().zip(cold_values.into_iter()) {
+            results[i] = cold_value;
+        }
+        results
+    }
+
+    /// Single-CF optimised variant of [`Self::multi_get_raw_bytes`].
+    fn pinned_multi_get_raw_bytes(&self, col: DBCol, keys: &[&[u8]]) -> Vec<Option<DBSlice<'_>>> {
+        let mut results = self.hot.pinned_multi_get_raw_bytes(col, keys);
+        if !col.is_cold() {
+            return results;
+        }
+        let cold_indices: Vec<usize> = results
+            .iter()
+            .enumerate()
+            .filter_map(|(i, v)| if v.is_none() { Some(i) } else { None })
+            .collect();
+        if cold_indices.is_empty() {
+            return results;
+        }
+        let cold_keys: Vec<&[u8]> = cold_indices.iter().map(|&i| keys[i]).collect();
+        let cold_values = self.cold.pinned_multi_get_raw_bytes(col, &cold_keys);
+        for (i, cold_value) in cold_indices.into_iter().zip(cold_values.into_iter()) {
+            results[i] = cold_value;
+        }
+        results
+    }
+
+    /// Multi-key analogue of [`Self::get_with_rc_stripped`].
+    ///
+    /// **Panics** if the column is not reference counted.
+    ///
+    /// Calls each side with refcount stripping applied, so a tombstone in
+    /// hot (refcount ≤ 0) does NOT shadow a real value in cold.  This is
+    /// the load-bearing semantic that the naive raw-bytes wrapper would
+    /// have broken.
+    fn multi_get_with_rc_stripped(&self, col: DBCol, keys: &[&[u8]]) -> Vec<Option<DBSlice<'_>>> {
+        assert!(col.is_rc());
+        let mut results = self.hot.multi_get_with_rc_stripped(col, keys);
+        if !col.is_cold() {
+            return results;
+        }
+        let cold_indices: Vec<usize> = results
+            .iter()
+            .enumerate()
+            .filter_map(|(i, v)| if v.is_none() { Some(i) } else { None })
+            .collect();
+        if cold_indices.is_empty() {
+            return results;
+        }
+        let cold_keys: Vec<&[u8]> = cold_indices.iter().map(|&i| keys[i]).collect();
+        let cold_values = self.cold.multi_get_with_rc_stripped(col, &cold_keys);
+        for (i, cold_value) in cold_indices.into_iter().zip(cold_values.into_iter()) {
+            results[i] = cold_value;
+        }
+        results
+    }
+
+    /// Single-CF optimised variant of [`Self::multi_get_with_rc_stripped`].
+    fn pinned_multi_get_with_rc_stripped(
+        &self,
+        col: DBCol,
+        keys: &[&[u8]],
+    ) -> Vec<Option<DBSlice<'_>>> {
+        assert!(col.is_rc());
+        let mut results = self.hot.pinned_multi_get_with_rc_stripped(col, keys);
+        if !col.is_cold() {
+            return results;
+        }
+        let cold_indices: Vec<usize> = results
+            .iter()
+            .enumerate()
+            .filter_map(|(i, v)| if v.is_none() { Some(i) } else { None })
+            .collect();
+        if cold_indices.is_empty() {
+            return results;
+        }
+        let cold_keys: Vec<&[u8]> = cold_indices.iter().map(|&i| keys[i]).collect();
+        let cold_values = self.cold.pinned_multi_get_with_rc_stripped(col, &cold_keys);
+        for (i, cold_value) in cold_indices.into_iter().zip(cold_values.into_iter()) {
+            results[i] = cold_value;
+        }
+        results
+    }
+
     /// Iterate over all items in given column in lexicographical order sorted
     /// by the key.
     ///
