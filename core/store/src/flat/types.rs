@@ -63,6 +63,11 @@ impl From<FlatStorageError> for StorageError {
 )]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
+// suppressed warning:
+// large size difference between variants:
+// the second-largest variant contains at least 72 bytes (FlatStorageReadyStatus)
+// the largest variant contains at least 296 bytes (FlatStorageReshardingStatus)
+#[allow(clippy::large_enum_variant)]
 pub enum FlatStorageStatus {
     /// Flat Storage is not supported.
     Disabled = 0,
