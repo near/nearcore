@@ -389,6 +389,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 deterministic_account_ids: params.get(Parameter::DeterministicAccountIds)?,
                 gas_key_host_fns: params.get(Parameter::GasKeyHostFns)?,
                 one_yocto_on_promise: params.get(Parameter::OneYoctoOnPromise)?,
+                p256_verify_host_fn: params.get(Parameter::P256VerifyHostFn)?,
             }),
             account_creation_config: AccountCreationConfig {
                 min_allowed_top_level_account_length: params

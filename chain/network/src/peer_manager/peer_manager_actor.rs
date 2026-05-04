@@ -10,12 +10,14 @@ use crate::network_protocol::{
     StatePartRequest, StateRequestAck,
 };
 use crate::network_protocol::{SyncSnapshotHosts, T1MessageBody};
-use crate::peer::peer_actor::PeerActor;
-use crate::peer_manager::connection;
+use crate::peer_manager::connected_peers::ConnectedPeerState;
 use crate::peer_manager::network_state::{
     NetworkState, PENDING_TIER3_REQUEST_TIMEOUT, WhitelistNode,
 };
+use crate::peer_manager::network_transport::{NetworkTransport, PeerTransportStats};
 use crate::peer_manager::peer_store;
+use crate::peer_manager::tcp_transport::TcpTransport;
+use crate::routing::GraphSnapshot;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::spice_data_distribution::SpiceDataDistributorSenderForNetwork;
 use crate::state_witness::PartialWitnessSenderForNetwork;
@@ -23,14 +25,15 @@ use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
 use crate::types::{
-    ConnectedPeerInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo, NetworkRequests,
-    NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    PeerManagerSenderForNetwork, PeerType, SetChainInfo, SnapshotHostEvent, SnapshotHostInfo,
-    StateHeaderRequestBody, StatePartRequestBody, StateRequestSenderForNetwork, StateSyncEvent,
-    Tier3Request, Tier3RequestBody,
+    ConnectedPeerInfo, FullPeerInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo,
+    NetworkRequests, NetworkResponses, PeerChainInfo, PeerInfo, PeerManagerMessageRequest,
+    PeerManagerMessageResponse, PeerManagerSenderForNetwork, PeerType, SetChainInfo,
+    SnapshotHostEvent, SnapshotHostInfo, StateHeaderRequestBody, StatePartRequestBody,
+    StateRequestSenderForNetwork, StateSyncEvent, Tier3Request, Tier3RequestBody,
 };
 use ::time::ext::InstantExt as _;
 use anyhow::Context as _;
+use itertools::Itertools;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawnerExt};
 use near_async::messaging::{self, CanSendAsync, Sender};
 use near_async::tokio::TokioRuntimeHandle;
@@ -48,9 +51,8 @@ use rand::Rng;
 use rand::seq::{IteratorRandom, SliceRandom};
 use rand::thread_rng;
 use std::cmp::min;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 use tracing::Instrument as _;
 
 /// Ratio between consecutive attempts to establish connection with another peer.
@@ -70,10 +72,10 @@ const MAX_RECONNECT_ATTEMPTS: usize = 6;
 const REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL: time::Duration =
     time::Duration::milliseconds(60_000);
 
-/// If we received more than `REPORT_BANDWIDTH_THRESHOLD_BYTES` of data from given peer it's bandwidth stats will be reported.
-const REPORT_BANDWIDTH_THRESHOLD_BYTES: usize = 10_000_000;
-/// If we received more than REPORT_BANDWIDTH_THRESHOLD_COUNT` of messages from given peer it's bandwidth stats will be reported.
-const REPORT_BANDWIDTH_THRESHOLD_COUNT: usize = 10_000;
+/// If a peer's average bytes/sec exceeds this threshold, its bandwidth stats will be reported.
+const REPORT_BANDWIDTH_THRESHOLD_BYTES_PER_SEC: u64 = 10_000_000 / 60;
+/// If a peer's average messages/sec exceeds this threshold, its bandwidth stats will be reported.
+const REPORT_BANDWIDTH_THRESHOLD_COUNT_PER_SEC: u64 = 10_000 / 60;
 
 /// If a peer is more than these blocks behind (comparing to our current head) - don't route any messages through it.
 /// We are updating the list of unreliable peers every MONITOR_PEER_MAX_DURATION (60 seconds) - so the current
@@ -101,8 +103,6 @@ const TIER3_IDLE_TIMEOUT: time::Duration = time::Duration::seconds(15);
 /// Actor that manages peers connections.
 pub struct PeerManagerActor {
     pub(crate) clock: time::Clock,
-    /// Actor system for spawning PeerActors.
-    pub(crate) actor_system: ActorSystem,
     /// Handle to spawning futures as well as stopping ourselves for testing.
     pub(crate) handle: TokioRuntimeHandle<Self>,
     /// Peer information for this node.
@@ -112,6 +112,8 @@ pub struct PeerManagerActor {
 
     /// State that is shared between multiple threads (including PeerActors).
     pub(crate) state: Arc<NetworkState>,
+    /// Transport for sending/broadcasting messages.
+    pub(crate) transport: Arc<dyn NetworkTransport>,
 }
 
 /// TEST-ONLY
@@ -176,11 +178,12 @@ impl messaging::Actor for PeerManagerActor {
         // Periodically fix local edges.
         let clock = self.clock.clone();
         let state = self.state.clone();
+        let transport = self.transport.clone();
         self.handle.spawn("fix_local_edges loop", async move {
             let mut interval = time::Interval::new(clock.now(), FIX_LOCAL_EDGES_INTERVAL);
             loop {
                 interval.tick(&clock).await;
-                state.fix_local_edges(&clock, FIX_LOCAL_EDGES_TIMEOUT).await;
+                state.fix_local_edges(&clock, FIX_LOCAL_EDGES_TIMEOUT, transport.clone()).await;
             }
         });
 
@@ -198,6 +201,70 @@ impl messaging::Actor for PeerManagerActor {
         // Periodically prints bandwidth stats for each peer.
         self.report_bandwidth_stats_trigger(REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL);
 
+        // Connect to TIER1 proxies and broadcast the list those connections periodically.
+        let tier1 = self.state.config.tier1.clone();
+        self.handle.spawn("connect to TIER1 proxies", {
+            let clock = self.clock.clone();
+            let state = self.state.clone();
+            let transport = self.transport.clone();
+            let mut interval = time::Interval::new(clock.now(), tier1.advertise_proxies_interval);
+            async move {
+                loop {
+                    interval.tick(&clock).await;
+                    state.tier1_request_full_sync(transport.as_ref());
+                    state.tier1_advertise_proxies(&clock, transport.as_ref()).await;
+                }
+            }
+        });
+
+        // Update TIER1 connections periodically.
+        self.handle.spawn("update TIER1 connections", {
+            let clock = self.clock.clone();
+            let state = self.state.clone();
+            let transport = self.transport.clone();
+            let mut interval = tokio::time::interval(tier1.connect_interval.try_into().unwrap());
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            async move {
+                loop {
+                    interval.tick().await;
+                    state.tier1_connect(&clock, transport.as_ref()).await;
+                }
+            }
+        });
+
+        // Periodically poll the connection store for connections we'd like to re-establish
+        self.handle.spawn("poll connection store for reconnects", {
+            let clock = self.clock.clone();
+            let transport = self.transport.clone();
+            let state = self.state.clone();
+            let handle = self.handle.clone();
+            let mut interval = time::Interval::new(clock.now(), POLL_CONNECTION_STORE_INTERVAL);
+            async move {
+                loop {
+                    interval.tick(&clock).await;
+                    // Poll the NetworkState for all pending reconnect attempts
+                    let pending_reconnect = state.poll_pending_reconnect();
+                    // Spawn a separate reconnect loop for each pending reconnect attempt
+                    for peer_info in pending_reconnect {
+                        handle.spawn("reconnect peer", {
+                            let state = state.clone();
+                            let clock = clock.clone();
+                            let peer_info = peer_info.clone();
+                            let transport = transport.clone();
+                            async move {
+                                state
+                                    .reconnect(clock, transport, peer_info, MAX_RECONNECT_ATTEMPTS)
+                                    .await;
+                            }
+                        });
+
+                        #[cfg(test)]
+                        state.config.event_sink.send(Event::ReconnectLoopSpawned(peer_info));
+                    }
+                }
+            }
+        });
+
         #[cfg(test)]
         self.state.config.event_sink.send(Event::PeerManagerStarted);
     }
@@ -205,9 +272,60 @@ impl messaging::Actor for PeerManagerActor {
     /// Try to gracefully disconnect from connected peers.
     fn stop_actor(&mut self) {
         tracing::debug!(target: "network", "peer manager stopping");
-        self.state.tier2.broadcast_message(Arc::new(PeerMessage::Disconnect(Disconnect {
+        self.transport.broadcast_message(Arc::new(PeerMessage::Disconnect(Disconnect {
             remove_from_connection_store: false,
         })));
+        self.transport.shutdown();
+    }
+}
+
+/// Project a `ConnectedPeerState` to a `HighestHeightPeerInfo`, keyed by
+/// the T2 peer's latest block. Returns `None` if the peer hasn't
+/// reported a block yet (the height info is what makes the projection
+/// interesting).
+fn to_highest_height_peer_info(
+    peer_state: &ConnectedPeerState,
+    genesis_id: &GenesisId,
+) -> Option<HighestHeightPeerInfo> {
+    let block = peer_state.block_info.as_ref()?;
+    Some(HighestHeightPeerInfo {
+        peer_info: peer_state.peer_info.clone(),
+        genesis_id: genesis_id.clone(),
+        highest_block_height: block.height,
+        highest_block_hash: block.hash,
+        tracked_shards: peer_state.tracked_shards.clone(),
+        archival: peer_state.archival,
+    })
+}
+
+/// Joins `ConnectedPeerState` (business metadata) with per-peer stats
+/// from `transport_info()` (bandwidth, last-seen timestamps) and the
+/// routing graph (edge nonce) into a single `ConnectedPeerInfo` for
+/// NetworkInfo RPC output.
+fn build_connected_peer_info(
+    peer_id: &PeerId,
+    cp: &ConnectedPeerState,
+    stats: &HashMap<PeerId, PeerTransportStats>,
+    graph: &GraphSnapshot,
+    genesis_id: &GenesisId,
+    now: time::Instant,
+) -> ConnectedPeerInfo {
+    let s = stats.get(peer_id);
+    let chain_info = PeerChainInfo {
+        genesis_id: genesis_id.clone(),
+        last_block: cp.block_info,
+        tracked_shards: cp.tracked_shards.clone(),
+        archival: cp.archival,
+    };
+    ConnectedPeerInfo {
+        full_peer_info: FullPeerInfo { peer_info: cp.peer_info.clone(), chain_info },
+        received_bytes_per_sec: s.map_or(0, |s| s.received_bytes_per_sec),
+        sent_bytes_per_sec: s.map_or(0, |s| s.sent_bytes_per_sec),
+        last_time_peer_requested: s.and_then(|s| s.last_time_peer_requested).unwrap_or(now),
+        last_time_received_message: s.map_or(now, |s| s.last_time_received_message),
+        connection_established_time: cp.established_time,
+        peer_type: cp.peer_type,
+        nonce: graph.local_edges.get(peer_id).map_or(0, |e| e.nonce()),
     }
 }
 
@@ -225,7 +343,7 @@ impl PeerManagerActor {
         spice_data_distributor_adapter: SpiceDataDistributorSenderForNetwork,
         spice_core_writer_adapter: Sender<SpiceChunkEndorsementMessage>,
         genesis_id: GenesisId,
-    ) -> anyhow::Result<TokioRuntimeHandle<Self>> {
+    ) -> anyhow::Result<(TokioRuntimeHandle<Self>, Arc<TcpTransport>)> {
         let config = config.verify().context("config")?;
         let store = store::Store::from(store);
         let peer_store = peer_store::PeerStore::new(&clock, config.peer_store.clone())
@@ -267,122 +385,34 @@ impl PeerManagerActor {
             tracing::info!(target: "network", %addr, "using configured tier3 public address");
             metrics::TIER3_PUBLIC_ADDR.with_label_values(&[&addr.to_string()]).set(1);
         }
-        handle.spawn("PeerManagerActor server", {
-            let handle = handle.clone();
+        handle.spawn("PeerManagerActor epoch height fetch", {
             let state = state.clone();
-            let clock = clock.clone();
-            let actor_system = actor_system.clone();
             async move {
-                if let Ok(Some(epoch_height)) = state.client.current_epoch_height_request.send_async(GetCurrentEpochHeight).await {
+                if let Ok(Some(epoch_height)) = state
+                    .client
+                    .current_epoch_height_request
+                    .send_async(GetCurrentEpochHeight)
+                    .await
+                {
                     state.snapshot_hosts.set_current_epoch_height(epoch_height);
                 }
-                // Start server if address provided.
-                if let Some(server_addr) = &state.config.node_addr {
-                    tracing::debug!(target: "network", at = ?server_addr, "starting public server");
-                    let listener = match server_addr.listener() {
-                        Ok(it) => it,
-                        Err(e) => {
-                            panic!("failed to start listening on server_addr={server_addr:?} e={e:?}")
-                        }
-                    };
-                    #[cfg(test)]
-                    state.config.event_sink.send(Event::ServerStarted);
-                    handle.spawn("PeerManagerActor listener loop", {
-                        let clock = clock.clone();
-                        let state = state.clone();
-                        let actor_system = actor_system.clone();
-                        async move {
-                            loop {
-                                if let Ok(stream) = listener.accept().await {
-                                    // Always let the new peer to send a handshake message.
-                                    // Only then we can decide whether we should accept a connection.
-                                    // It is expected to be reasonably cheap: eventually, for TIER2 network
-                                    // we would like to exchange set of connected peers even without establishing
-                                    // a proper connection.
-                                    tracing::debug!(target: "network", from = ?stream.peer_addr, "got new connection");
-                                    if let Err(err) =
-                                        PeerActor::spawn(clock.clone(), actor_system.clone(), stream, state.clone())
-                                    {
-                                        tracing::info!(target:"network", ?err, "peer actor spawn failed");
-                                    }
-                                }
-                            }
-                        }
-                    });
-                }
-
-                // Connect to TIER1 proxies and broadcast the list those connections periodically.
-                let tier1 = state.config.tier1.clone();
-                handle.spawn("connect to TIER1 proxies", {
-                    let clock = clock.clone();
-                    let state = state.clone();
-                    let actor_system = actor_system.clone();
-                    let mut interval = time::Interval::new(clock.now(), tier1.advertise_proxies_interval);
-                    async move {
-                        loop {
-                            interval.tick(&clock).await;
-                            state.tier1_request_full_sync();
-                            state.tier1_advertise_proxies(&clock, actor_system.clone()).await;
-                        }
-                    }
-                });
-
-                // Update TIER1 connections periodically.
-                handle.spawn("update TIER1 connections", {
-                    let clock = clock.clone();
-                    let state = state.clone();
-                    let actor_system = actor_system.clone();
-                    let mut interval = tokio::time::interval(tier1.connect_interval.try_into().unwrap());
-                    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                    async move {
-                        loop {
-                            interval.tick().await;
-                            state.tier1_connect(&clock, actor_system.clone()).await;
-                        }
-                    }
-                });
-
-                // Periodically poll the connection store for connections we'd like to re-establish
-                handle.spawn("poll connection store for reconnects", {
-                    let clock = clock.clone();
-                    let actor_system = actor_system.clone();
-                    let state = state.clone();
-                    let handle = handle.clone();
-                    let mut interval = time::Interval::new(clock.now(), POLL_CONNECTION_STORE_INTERVAL);
-                    async move {
-                        loop {
-                            interval.tick(&clock).await;
-                            // Poll the NetworkState for all pending reconnect attempts
-                            let pending_reconnect = state.poll_pending_reconnect();
-                            // Spawn a separate reconnect loop for each pending reconnect attempt
-                            for peer_info in pending_reconnect {
-                                handle.spawn("reconnect peer", {
-                                    let state = state.clone();
-                                    let clock = clock.clone();
-                                    let peer_info = peer_info.clone();
-                                    let actor_system = actor_system.clone();
-                                    async move {
-                                        state.reconnect(clock, actor_system, peer_info, MAX_RECONNECT_ATTEMPTS).await;
-                                    }
-                                });
-
-                                #[cfg(test)]
-                                state.config.event_sink.send(Event::ReconnectLoopSpawned(peer_info));
-                            }
-                        }
-                    }
-                });
             }
         });
+        // Build the transport and start the TCP listener. The listener
+        // lives inside TcpTransport so that PMA only ever holds
+        // `Arc<dyn NetworkTransport>`, never the concrete type.
+        let tcp = TcpTransport::new(state.clone(), clock.clone(), actor_system, handle.clone());
+        tcp.start();
+        let transport: Arc<dyn NetworkTransport> = tcp.clone();
         builder.spawn_tokio_actor(Self {
             my_peer_id,
             started_connect_attempts: false,
             state,
+            transport,
             clock,
-            actor_system,
             handle: handle.clone(),
         });
-        Ok(handle)
+        Ok((handle, tcp))
     }
 
     /// Periodically prints bandwidth stats for each peer.
@@ -390,29 +420,29 @@ impl PeerManagerActor {
         let _timer = metrics::PEER_MANAGER_TRIGGER_TIME
             .with_label_values(&["report_bandwidth_stats"])
             .start_timer();
-        let mut total_bandwidth_used_by_all_peers: usize = 0;
-        let mut total_msg_received_count: usize = 0;
-        for (peer_id, connected_peer) in &self.state.tier2.load().ready {
-            let bandwidth_used =
-                connected_peer.stats.received_bytes.swap(0, Ordering::Relaxed) as usize;
-            let msg_received_count =
-                connected_peer.stats.received_messages.swap(0, Ordering::Relaxed) as usize;
-            if bandwidth_used > REPORT_BANDWIDTH_THRESHOLD_BYTES
-                || msg_received_count > REPORT_BANDWIDTH_THRESHOLD_COUNT
+        let info = self.transport.transport_info();
+        let mut total_bytes_per_sec: u64 = 0;
+        let mut total_messages_per_sec: u64 = 0;
+        for (peer_id, stat) in &info.peer_stats {
+            let bytes_per_sec = stat.received_bytes_per_sec;
+            let messages_per_sec = stat.received_messages_per_sec;
+            if bytes_per_sec > REPORT_BANDWIDTH_THRESHOLD_BYTES_PER_SEC
+                || messages_per_sec > REPORT_BANDWIDTH_THRESHOLD_COUNT_PER_SEC
             {
                 tracing::debug!(target: "bandwidth",
                     ?peer_id,
-                    bandwidth_used, msg_received_count, "peer bandwidth exceeded threshold",
+                    bytes_per_sec, messages_per_sec,
+                    "peer bandwidth exceeded threshold",
                 );
             }
-            total_bandwidth_used_by_all_peers += bandwidth_used;
-            total_msg_received_count += msg_received_count;
+            total_bytes_per_sec += bytes_per_sec;
+            total_messages_per_sec += messages_per_sec;
         }
 
         tracing::info!(
             target: "bandwidth",
-            total_bandwidth_used_by_all_peers,
-            total_msg_received_count
+            total_bytes_per_sec,
+            total_messages_per_sec,
         );
 
         self.handle.clone().run_later(
@@ -429,11 +459,12 @@ impl PeerManagerActor {
     /// (the number of outgoing connections is less than `minimum_outbound_peers`
     ///     and the total connections is less than `max_num_peers`)
     fn is_outbound_bootstrap_needed(&self) -> bool {
-        let tier2 = self.state.tier2.load();
-        let total_connections = tier2.ready.len() + tier2.outbound_handshakes.len();
-        let potential_outbound_connections =
-            tier2.ready.values().filter(|peer| peer.peer_type == PeerType::Outbound).count()
-                + tier2.outbound_handshakes.len();
+        let pending = self.transport.transport_info().pending_outbound.len();
+        let t2 = self.state.peers.tier2();
+        let t2_count = t2.len();
+        let t2_outbound = t2.values().filter(|s| s.peer_type == PeerType::Outbound).count();
+        let total_connections = t2_count + pending;
+        let potential_outbound_connections = t2_outbound + pending;
 
         (total_connections < self.state.config.ideal_connections_lo as usize
             || (total_connections < self.state.config.max_num_peers as usize
@@ -442,15 +473,15 @@ impl PeerManagerActor {
             && !self.state.config.outbound_disabled
     }
 
-    /// Returns peers close to the highest height
+    /// Returns peers close to the highest height.
     fn highest_height_peers(&self) -> Vec<HighestHeightPeerInfo> {
+        let genesis_id = self.state.genesis_id.clone();
         let infos: Vec<HighestHeightPeerInfo> = self
             .state
-            .tier2
-            .load()
-            .ready
+            .peers
+            .tier2()
             .values()
-            .filter_map(|p| p.full_peer_info().into())
+            .filter_map(|peer_state| to_highest_height_peer_info(peer_state, &genesis_id))
             .collect();
 
         // This finds max height among peers, and returns one peer close to such height.
@@ -484,18 +515,16 @@ impl PeerManagerActor {
         // Find all peers whose height is below `highest_peer_horizon` from max height peer(s).
         // or the ones we don't have height information yet
         self.state
-            .tier2
-            .load()
-            .ready
-            .values()
-            .filter(|p| {
-                p.last_block
-                    .load()
+            .peers
+            .tier2()
+            .into_iter()
+            .filter(|(_, s)| {
+                s.block_info
                     .as_ref()
                     .map(|x| x.height.saturating_add(UNRELIABLE_PEER_HORIZON) < my_height)
                     .unwrap_or(false)
             })
-            .map(|p| p.peer_info.id.clone())
+            .map(|(id, _)| id)
             .collect()
     }
 
@@ -511,31 +540,33 @@ impl PeerManagerActor {
     ///    and add them one by one to the safe_set (starting from earliest connection time)
     ///    until safe set has safe_set_size elements.
     fn maybe_stop_active_connection(&self) {
-        let tier2 = self.state.tier2.load();
-        let filter_peers = |predicate: &dyn Fn(&connection::Connection) -> bool| -> Vec<_> {
-            tier2
-                .ready
-                .values()
-                .filter(|peer| predicate(&*peer))
-                .map(|peer| peer.peer_info.id.clone())
-                .collect()
-        };
+        let info = self.transport.transport_info();
+        let stats = &info.peer_stats;
+        let t2_peers = self.state.peers.tier2();
+        let t2_count = t2_peers.len();
 
         // Build safe set
         let mut safe_set = HashSet::new();
 
         // Add whitelisted nodes to the safe set.
-        let whitelisted_peers = filter_peers(&|p| self.state.is_peer_whitelisted(&p.peer_info));
-        safe_set.extend(whitelisted_peers);
+        for (id, s) in &t2_peers {
+            if self.state.is_peer_whitelisted(&s.peer_info) {
+                safe_set.insert(id.clone());
+            }
+        }
 
         // If there is not enough non-whitelisted peers, return without disconnecting anyone.
-        if tier2.ready.len() - safe_set.len() <= self.state.config.ideal_connections_hi as usize {
+        if t2_count - safe_set.len() <= self.state.config.ideal_connections_hi as usize {
             return;
         }
 
         // If there is not enough outbound peers, add them to the safe set.
-        let outbound_peers = filter_peers(&|p| p.peer_type == PeerType::Outbound);
-        if outbound_peers.len() + tier2.outbound_handshakes.len()
+        let outbound_peers = t2_peers
+            .iter()
+            .filter(|(_, s)| s.peer_type == PeerType::Outbound)
+            .map(|(id, _)| id.clone())
+            .collect_vec();
+        if outbound_peers.len() + info.pending_outbound.len()
             <= self.state.config.minimum_outbound_peers as usize
         {
             safe_set.extend(outbound_peers);
@@ -543,46 +574,49 @@ impl PeerManagerActor {
 
         // If there is not enough archival peers, add them to the safe set.
         if self.state.config.archive {
-            let archival_peers = filter_peers(&|p| p.archival);
-            if archival_peers.len()
-                <= self.state.config.archival_peer_connections_lower_bound as usize
-            {
-                safe_set.extend(archival_peers);
+            let archival_count = t2_peers.iter().filter(|(_, s)| s.archival).count();
+            if archival_count <= self.state.config.archival_peer_connections_lower_bound as usize {
+                let archival_ids = t2_peers
+                    .iter()
+                    .filter(|(_, s)| s.archival)
+                    .map(|(id, _)| id.clone())
+                    .collect_vec();
+                safe_set.extend(archival_ids);
             }
         }
 
-        // Find all recently active peers.
+        // Find all recently active peers, sorted by established time.
         let now = self.clock.now();
-        let mut active_peers: Vec<Arc<connection::Connection>> = tier2
-            .ready
-            .values()
-            .filter(|p| {
-                now - p.last_time_received_message.load()
-                    < self.state.config.peer_recent_time_window
+        let mut active_peers: Vec<(&PeerId, time::Instant)> = t2_peers
+            .iter()
+            .filter_map(|(id, s)| {
+                let stat = stats.get(id)?;
+                let is_recent = now - stat.last_time_received_message
+                    < self.state.config.peer_recent_time_window;
+                is_recent.then_some((id, s.established_time))
             })
-            .cloned()
             .collect();
+        active_peers.sort_by_key(|(_, established_time)| *established_time);
 
-        // Sort by established time.
-        active_peers.sort_by_key(|p| p.established_time);
         // Saturate safe set with recently active peers.
         let set_limit = self.state.config.safe_set_size as usize;
-        for p in active_peers {
+        for (id, _) in active_peers {
             if safe_set.len() >= set_limit {
                 break;
             }
-            safe_set.insert(p.peer_info.id.clone());
+            safe_set.insert(id.clone());
         }
 
-        // Build valid candidate list to choose the peer to be removed. All peers outside the safe set.
-        let candidates = tier2.ready.values().filter(|p| !safe_set.contains(&p.peer_info.id));
-        if let Some(p) = candidates.choose(&mut rand::thread_rng()) {
-            tracing::debug!(target: "network", id = ?p.peer_info.id,
-                tier2_len = tier2.ready.len(),
+        // Build valid candidate list: all peers outside the safe set.
+        let candidates: Vec<&PeerId> =
+            t2_peers.keys().filter(|id| !safe_set.contains(*id)).collect();
+        if let Some(id) = candidates.choose(&mut rand::thread_rng()) {
+            tracing::debug!(target: "network", ?id,
+                t2_count,
                 ideal_connections_hi = self.state.config.ideal_connections_hi,
                 "stopping active connection"
             );
-            p.stop(None);
+            self.transport.disconnect_peer(id, None);
         }
     }
 
@@ -599,13 +633,18 @@ impl PeerManagerActor {
     /// retry logic anyway. TODO(saketh): consider if we can improve this in a simple way.
     fn stop_tier3_idle_connections(&self) {
         let now = self.clock.now();
-        self.state
-            .tier3
-            .load()
-            .ready
-            .values()
-            .filter(|p| now - p.last_time_received_message.load() > TIER3_IDLE_TIMEOUT)
-            .for_each(|p| p.stop(None));
+        let info = self.transport.transport_info();
+        let t3_peers = self.state.peers.tier3();
+        let idle_peers: Vec<PeerId> = t3_peers
+            .into_iter()
+            .filter_map(|(id, _)| {
+                let stat = info.peer_stats.get(&id)?;
+                (now - stat.last_time_received_message > TIER3_IDLE_TIMEOUT).then_some(id)
+            })
+            .collect();
+        for peer_id in &idle_peers {
+            self.transport.disconnect_peer(peer_id, None);
+        }
         // Clean up stale pending Tier3 request entries for peers that never connected back.
         // retain() does a full scan of the map, but this is fine: the map is bounded by the
         // number of in-flight state sync requests (typically tens at most).
@@ -638,7 +677,7 @@ impl PeerManagerActor {
         self.state.peer_store.update(&self.clock);
 
         if self.is_outbound_bootstrap_needed() {
-            let tier2 = self.state.tier2.load();
+            let pending_outbound = self.transport.transport_info().pending_outbound;
             // With some odds - try picking one of the 'NotConnected' peers -- these are the ones that we were able to connect to in the past.
             let prefer_previously_connected_peer =
                 thread_rng().gen_bool(PREFER_PREVIOUSLY_CONNECTED_PEER);
@@ -648,7 +687,7 @@ impl PeerManagerActor {
                     self.my_peer_id == peer_state.peer_info.id
                     || self.state.config.node_addr.as_ref().map(|a|**a) == peer_state.peer_info.addr
                     // Or to peers we are currently trying to connect to
-                    || tier2.outbound_handshakes.contains(&peer_state.peer_info.id)
+                    || pending_outbound.contains(&peer_state.peer_info.id)
                 },
                 prefer_previously_connected_peer,
             ) {
@@ -660,13 +699,12 @@ impl PeerManagerActor {
                 self.handle.spawn("monitor_peers_trigger_connect", {
                     let state = self.state.clone();
                     let clock = self.clock.clone();
-                    let actor_system = self.actor_system.clone();
+                    let transport = self.transport.clone();
                     async move {
-                        let result = async {
-                            let stream = tcp::Stream::connect(&peer_info, tcp::Tier::T2, &state.config.socket_options).await.context("tcp::Stream::connect()")?;
-                            PeerActor::spawn_and_handshake(clock.clone(), actor_system, stream,state.clone()).await.context("PeerActor::spawn()")?;
-                            anyhow::Ok(())
-                        }.await;
+                        let result = transport
+                            .connect_to_peer(&clock, peer_info.clone(), tcp::Tier::T2)
+                            .await
+                            .map_err(|err| anyhow::anyhow!("connect_to_peer: {err:?}"));
 
                         if let Err(ref err) = result {
                             tracing::info!(target: "network", %err, %peer_info, "tier2 failed to connect");
@@ -705,10 +743,10 @@ impl PeerManagerActor {
             self.handle.spawn("bootstrap_outbound_from_recent_connections", {
                 let state = self.state.clone();
                 let clock = self.clock.clone();
-                let actor_system = self.actor_system.clone();
+                let transport = self.transport.clone();
                 let peer_info = conn_info.peer_info.clone();
                 async move {
-                    state.reconnect(clock, actor_system, peer_info, 1).await;
+                    state.reconnect(clock, transport, peer_info, 1).await;
                 }
             });
 
@@ -721,39 +759,36 @@ impl PeerManagerActor {
     }
 
     pub(crate) fn get_network_info(&self) -> NetworkInfo {
-        let tier1 = self.state.tier1.load();
-        let tier2 = self.state.tier2.load();
         let now = self.clock.now();
         let graph = self.state.graph.load();
-        let connected_peer = |cp: &Arc<connection::Connection>| ConnectedPeerInfo {
-            full_peer_info: cp.full_peer_info(),
-            received_bytes_per_sec: cp.stats.received_bytes_per_sec.load(Ordering::Relaxed),
-            sent_bytes_per_sec: cp.stats.sent_bytes_per_sec.load(Ordering::Relaxed),
-            last_time_peer_requested: cp.last_time_peer_requested.load().unwrap_or(now),
-            last_time_received_message: cp.last_time_received_message.load(),
-            connection_established_time: cp.established_time,
-            peer_type: cp.peer_type,
-            nonce: match graph.local_edges.get(&cp.peer_info.id) {
-                Some(e) => e.nonce(),
-                None => 0,
-            },
+        let genesis_id = self.state.genesis_id.clone();
+
+        let info = self.transport.transport_info();
+        let stats = &info.peer_stats;
+
+        let t2_snapshot = self.state.peers.tier2();
+        let t1_snapshot = self.state.peers.tier1();
+
+        let build = |peer_id: &PeerId, cp: &ConnectedPeerState| -> ConnectedPeerInfo {
+            build_connected_peer_info(peer_id, cp, stats, &graph, &genesis_id, now)
         };
+        let t2_infos: Vec<ConnectedPeerInfo> =
+            t2_snapshot.iter().map(|(id, s)| build(id, s)).collect();
+        let t1_infos: Vec<ConnectedPeerInfo> =
+            t1_snapshot.iter().map(|(id, s)| build(id, s)).collect();
+
+        let num_connected = t2_infos.len();
+        let sent_total: u64 = t2_infos.iter().map(|p| p.sent_bytes_per_sec).sum();
+        let recv_total: u64 = t2_infos.iter().map(|p| p.received_bytes_per_sec).sum();
+
         NetworkInfo {
-            connected_peers: tier2.ready.values().map(connected_peer).collect(),
-            tier1_connections: tier1.ready.values().map(connected_peer).collect(),
-            num_connected_peers: tier2.ready.len(),
+            connected_peers: t2_infos,
+            tier1_connections: t1_infos,
+            num_connected_peers: num_connected,
             peer_max_count: self.state.config.max_num_peers,
             highest_height_peers: self.highest_height_peers(),
-            sent_bytes_per_sec: tier2
-                .ready
-                .values()
-                .map(|x| x.stats.sent_bytes_per_sec.load(Ordering::Relaxed))
-                .sum(),
-            received_bytes_per_sec: tier2
-                .ready
-                .values()
-                .map(|x| x.stats.received_bytes_per_sec.load(Ordering::Relaxed))
-                .sum(),
+            sent_bytes_per_sec: sent_total,
+            received_bytes_per_sec: recv_total,
             known_producers: self
                 .state
                 .account_announcements
@@ -807,7 +842,7 @@ impl PeerManagerActor {
         metrics::REQUEST_COUNT_BY_TYPE_TOTAL.with_label_values(&[msg.as_ref()]).inc();
         match msg {
             NetworkRequests::Block { block } => {
-                self.state.tier2.broadcast_message(Arc::new(PeerMessage::Block(block)));
+                self.transport.broadcast_message(Arc::new(PeerMessage::Block(block)));
                 NetworkResponses::NoResponse
             }
             NetworkRequests::OptimisticBlock { chunk_producers, optimistic_block } => {
@@ -816,8 +851,10 @@ impl PeerManagerActor {
                 // a conversion here from AccountId to peer connection. Consider reworking this.
                 let msg = Arc::new(PeerMessage::OptimisticBlock(optimistic_block));
                 for target_account in &*chunk_producers {
-                    if let Some(conn) = self.state.get_tier1_proxy_for_account_id(&target_account) {
-                        conn.send_message(msg.clone());
+                    if let Some(peer_id) =
+                        self.state.get_tier1_proxy_for_account_id(&target_account)
+                    {
+                        self.transport.send_message(tcp::Tier::T1, peer_id, msg.clone());
                     }
                 }
                 NetworkResponses::NoResponse
@@ -827,23 +864,27 @@ impl PeerManagerActor {
                     &self.clock,
                     &approval_message.target,
                     T1MessageBody::BlockApproval(approval_message.approval).into(),
+                    &*self.transport,
                 );
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BlockRequest { hash, peer_id } => {
-                if self.state.tier2.send_message(peer_id, Arc::new(PeerMessage::BlockRequest(hash)))
-                {
+                if self.transport.send_message(
+                    tcp::Tier::T2,
+                    peer_id,
+                    Arc::new(PeerMessage::BlockRequest(hash)),
+                ) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
                 }
             }
             NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
-                if self
-                    .state
-                    .tier2
-                    .send_message(peer_id, Arc::new(PeerMessage::BlockHeadersRequest(hashes)))
-                {
+                if self.transport.send_message(
+                    tcp::Tier::T2,
+                    peer_id,
+                    Arc::new(PeerMessage::BlockHeadersRequest(hashes)),
+                ) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
@@ -881,7 +922,12 @@ impl PeerManagerActor {
                 );
 
                 self.state.pending_tier3_requests.insert(peer_id.clone(), self.clock.now());
-                if !self.state.send_message_to_peer(&self.clock, tcp::Tier::T2, routed_message) {
+                if !self.state.send_message_to_peer(
+                    &self.clock,
+                    tcp::Tier::T2,
+                    routed_message,
+                    &*self.transport,
+                ) {
                     self.state.pending_tier3_requests.remove(&peer_id);
                     return NetworkResponses::RouteNotFound;
                 }
@@ -926,7 +972,12 @@ impl PeerManagerActor {
                 );
 
                 self.state.pending_tier3_requests.insert(peer_id.clone(), self.clock.now());
-                if !self.state.send_message_to_peer(&self.clock, tcp::Tier::T2, routed_message) {
+                if !self.state.send_message_to_peer(
+                    &self.clock,
+                    tcp::Tier::T2,
+                    routed_message,
+                    &*self.transport,
+                ) {
                     self.state.pending_tier3_requests.remove(&peer_id);
                     return NetworkResponses::RouteNotFound;
                 }
@@ -954,7 +1005,12 @@ impl PeerManagerActor {
                     },
                 );
 
-                if !self.state.send_message_to_peer(&self.clock, tcp::Tier::T2, routed_message) {
+                if !self.state.send_message_to_peer(
+                    &self.clock,
+                    tcp::Tier::T2,
+                    routed_message,
+                    &*self.transport,
+                ) {
                     return NetworkResponses::RouteNotFound;
                 }
 
@@ -1025,19 +1081,20 @@ impl PeerManagerActor {
                 // Insert our info to our own cache.
                 self.state.snapshot_hosts.insert_skip_verify(snapshot_host_info.clone());
 
-                self.state.tier2.broadcast_message(Arc::new(PeerMessage::SyncSnapshotHosts(
+                self.transport.broadcast_message(Arc::new(PeerMessage::SyncSnapshotHosts(
                     SyncSnapshotHosts { hosts: vec![snapshot_host_info] },
                 )));
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {
-                self.state.disconnect_and_ban(&self.clock, &peer_id, ban_reason);
+                self.state.disconnect_and_ban(&self.clock, &peer_id, ban_reason, &*self.transport);
                 NetworkResponses::NoResponse
             }
             NetworkRequests::AnnounceAccount(announce_account) => {
                 let state = self.state.clone();
+                let transport = self.transport.clone();
                 self.handle.spawn("announce_account", async move {
-                    state.add_accounts(vec![announce_account]).await;
+                    state.add_accounts(vec![announce_account], transport).await;
                 });
                 NetworkResponses::NoResponse
             }
@@ -1056,23 +1113,25 @@ impl PeerManagerActor {
                                 &self.clock,
                                 account_id,
                                 T2MessageBody::PartialEncodedChunkRequest(request.clone()).into(),
+                                &*self.transport,
                             ) {
                                 success = true;
                                 break;
                             }
                         }
                     } else {
-                        let mut matching_peers = vec![];
-                        for (peer_id, peer) in &self.state.tier2.load().ready {
-                            let last_block = peer.last_block.load();
-                            if (peer.archival || !target.only_archival)
-                                && last_block.is_some()
-                                && last_block.as_ref().unwrap().height >= target.min_height
-                                && peer.tracked_shards.contains(&target.shard_id)
-                            {
-                                matching_peers.push(peer_id.clone());
-                            }
-                        }
+                        let t2_peers = self.state.peers.tier2();
+                        let matching_peers: Vec<PeerId> = t2_peers
+                            .into_iter()
+                            .filter(|(_, s)| {
+                                (s.archival || !target.only_archival)
+                                    && s.block_info
+                                        .as_ref()
+                                        .is_some_and(|b| b.height >= target.min_height)
+                                    && s.tracked_shards.contains(&target.shard_id)
+                            })
+                            .map(|(id, _)| id)
+                            .collect();
 
                         if let Some(matching_peer) = matching_peers.iter().choose(&mut thread_rng())
                         {
@@ -1089,6 +1148,7 @@ impl PeerManagerActor {
                                         .into(),
                                     },
                                 ),
+                                &*self.transport,
                             ) {
                                 success = true;
                                 break;
@@ -1117,6 +1177,7 @@ impl PeerManagerActor {
                             body: T2MessageBody::PartialEncodedChunkResponse(response).into(),
                         },
                     ),
+                    &*self.transport,
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -1131,6 +1192,7 @@ impl PeerManagerActor {
                         partial_encoded_chunk.into(),
                     ))
                     .into(),
+                    &*self.transport,
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -1142,6 +1204,7 @@ impl PeerManagerActor {
                     &self.clock,
                     &account_id,
                     T1MessageBody::PartialEncodedChunkForward(forward).into(),
+                    &*self.transport,
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -1153,6 +1216,7 @@ impl PeerManagerActor {
                     &self.clock,
                     &account_id,
                     T2MessageBody::ForwardTx(tx).into(),
+                    &*self.transport,
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -1164,6 +1228,7 @@ impl PeerManagerActor {
                     &self.clock,
                     &account_id,
                     T2MessageBody::TxStatusRequest(signer_account_id, tx_hash).into(),
+                    &*self.transport,
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -1175,6 +1240,7 @@ impl PeerManagerActor {
                     &self.clock,
                     &target,
                     T2MessageBody::ChunkStateWitnessAck(ack).into(),
+                    &*self.transport,
                 );
                 NetworkResponses::NoResponse
             }
@@ -1183,6 +1249,7 @@ impl PeerManagerActor {
                     &self.clock,
                     &target,
                     T1MessageBody::VersionedChunkEndorsement(endorsement).into(),
+                    &*self.transport,
                 );
                 NetworkResponses::NoResponse
             }
@@ -1205,6 +1272,7 @@ impl PeerManagerActor {
                         &self.clock,
                         &chunk_validator,
                         T1MessageBody::PartialEncodedStateWitness(partial_witness).into(),
+                        &*self.transport,
                     );
                 }
                 NetworkResponses::NoResponse
@@ -1227,23 +1295,28 @@ impl PeerManagerActor {
                         &chunk_validator,
                         T1MessageBody::PartialEncodedStateWitnessForward(partial_witness.clone())
                             .into(),
+                        &*self.transport,
                     );
                 }
                 NetworkResponses::NoResponse
             }
             NetworkRequests::EpochSyncRequest { peer_id } => {
-                if self.state.tier2.send_message(peer_id, PeerMessage::EpochSyncRequest.into()) {
+                if self.transport.send_message(
+                    tcp::Tier::T2,
+                    peer_id,
+                    PeerMessage::EpochSyncRequest.into(),
+                ) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
                 }
             }
             NetworkRequests::EpochSyncResponse { peer_id, proof } => {
-                if self
-                    .state
-                    .tier2
-                    .send_message(peer_id, PeerMessage::EpochSyncResponse(proof).into())
-                {
+                if self.transport.send_message(
+                    tcp::Tier::T2,
+                    peer_id,
+                    PeerMessage::EpochSyncResponse(proof).into(),
+                ) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
@@ -1255,6 +1328,7 @@ impl PeerManagerActor {
                         &self.clock,
                         &validator,
                         T1MessageBody::ChunkContractAccesses(accesses.clone()).into(),
+                        &*self.transport,
                     );
                 }
                 NetworkResponses::NoResponse
@@ -1264,6 +1338,7 @@ impl PeerManagerActor {
                     &self.clock,
                     &target,
                     T1MessageBody::ContractCodeRequest(request).into(),
+                    &*self.transport,
                 );
                 NetworkResponses::NoResponse
             }
@@ -1272,6 +1347,7 @@ impl PeerManagerActor {
                     &self.clock,
                     &target,
                     T1MessageBody::ContractCodeResponse(response).into(),
+                    &*self.transport,
                 );
                 NetworkResponses::NoResponse
             }
@@ -1283,12 +1359,14 @@ impl PeerManagerActor {
                         &self.clock,
                         &account,
                         T2MessageBody::PartialEncodedContractDeploys(deploys.clone()).into(),
+                        &*self.transport,
                     );
                 }
                 self.state.send_message_to_account(
                     &self.clock,
                     &last_account,
                     T2MessageBody::PartialEncodedContractDeploys(deploys).into(),
+                    &*self.transport,
                 );
                 NetworkResponses::NoResponse
             }
@@ -1302,6 +1380,7 @@ impl PeerManagerActor {
                         // TODO(spice): Once spice data distribution retries are implemented
                         // reconsider if sending data over T1 still makes sense.
                         T1MessageBody::SpicePartialData(partial_data).into(),
+                        &*self.transport,
                     );
                 }
                 NetworkResponses::NoResponse
@@ -1311,6 +1390,7 @@ impl PeerManagerActor {
                     &self.clock,
                     &target,
                     T1MessageBody::SpiceChunkEndorsement(endorsement).into(),
+                    &*self.transport,
                 );
                 NetworkResponses::NoResponse
             }
@@ -1319,6 +1399,7 @@ impl PeerManagerActor {
                     &self.clock,
                     &producer,
                     T1MessageBody::SpicePartialDataRequest(request).into(),
+                    &*self.transport,
                 );
                 NetworkResponses::NoResponse
             }
@@ -1328,6 +1409,7 @@ impl PeerManagerActor {
                         &self.clock,
                         &target,
                         T1MessageBody::SpiceChunkContractAccesses(accesses.clone()).into(),
+                        &*self.transport,
                     );
                 }
                 NetworkResponses::NoResponse
@@ -1337,6 +1419,7 @@ impl PeerManagerActor {
                     &self.clock,
                     &target,
                     T1MessageBody::SpiceContractCodeRequest(request).into(),
+                    &*self.transport,
                 );
                 NetworkResponses::NoResponse
             }
@@ -1345,6 +1428,7 @@ impl PeerManagerActor {
                     &self.clock,
                     &target,
                     T1MessageBody::SpiceContractCodeResponse(response).into(),
+                    &*self.transport,
                 );
                 NetworkResponses::NoResponse
             }
@@ -1362,23 +1446,11 @@ impl PeerManagerActor {
             PeerManagerMessageRequest::AdvertiseTier1Proxies => {
                 let state = self.state.clone();
                 let clock = self.clock.clone();
-                let actor_system = self.actor_system.clone();
+                let transport = self.transport.clone();
                 self.handle.spawn("advertise_tier1_proxies", async move {
-                    state.tier1_advertise_proxies(&clock, actor_system).await;
+                    state.tier1_advertise_proxies(&clock, transport.as_ref()).await;
                 });
                 PeerManagerMessageResponse::AdvertiseTier1Proxies
-            }
-            PeerManagerMessageRequest::OutboundTcpConnect(stream) => {
-                let peer_addr = stream.peer_addr;
-                if let Err(err) = PeerActor::spawn(
-                    self.clock.clone(),
-                    self.actor_system.clone(),
-                    stream,
-                    self.state.clone(),
-                ) {
-                    tracing::info!(target:"network", ?err, ?peer_addr, "spawn_outbound()");
-                }
-                PeerManagerMessageResponse::OutboundTcpConnect
             }
             // TEST-ONLY
             PeerManagerMessageRequest::FetchRoutingTable => {
@@ -1396,14 +1468,14 @@ impl messaging::Handler<SetChainInfo> for PeerManagerActor {
         // synchronously, therefore, assuming actor in-order delivery,
         // there will be no race condition between subsequent SetChainInfo
         // calls.
-        if !self.state.set_chain_info(info) {
+        if !self.state.set_chain_info(info, &*self.transport) {
             // We early exit in case the set of TIER1 account keys hasn't changed.
             return;
         }
 
         let state = self.state.clone();
         let clock = self.clock.clone();
-        let actor_system = self.actor_system.clone();
+        let transport = self.transport.clone();
         self.handle.spawn(
             "handle set_chain_info",
             async move {
@@ -1414,7 +1486,7 @@ impl messaging::Handler<SetChainInfo> for PeerManagerActor {
                 // and this node won't be able to connect to proxies until it happens (and only the
                 // connected proxies are included in the advertisement). We run tier1_advertise_proxies
                 // periodically in the background anyway to cover those cases.
-                state.tier1_advertise_proxies(&clock, actor_system).await;
+                state.tier1_advertise_proxies(&clock, transport.as_ref()).await;
             }
             .in_current_span(),
         );
@@ -1461,8 +1533,8 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
 
         let state = self.state.clone();
         let clock = self.clock.clone();
-        let actor_system = self.actor_system.clone();
-        self.handle.spawn("handle tier3 request", 
+        let transport = self.transport.clone();
+        self.handle.spawn("handle tier3 request",
             async move {
                 // Process the request.
                 // Unconditionally produce an ack to be sent back over tier2.
@@ -1531,7 +1603,7 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                         body: tier2_ack,
                     },
                 );
-                if !state.send_message_to_peer(&clock, tcp::Tier::T2, routed_message) {
+                if !state.send_message_to_peer(&clock, tcp::Tier::T2, routed_message, transport.as_ref()) {
                     tracing::debug!(target: "network", sender = %sender, "failed to route ack");
                 }
 
@@ -1539,24 +1611,19 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                     return;
                 };
 
-                // Establish a tier3 connection if we don't have one already
-                if !state.tier3.load().ready.contains_key(&sender) {
-                    let result = async {
-                        let stream = tcp::Stream::connect(
-                            &request.peer_info,
-                            tcp::Tier::T3,
-                            &state.config.socket_options
-                        ).await.context("tcp::Stream::connect()")?;
-                        PeerActor::spawn_and_handshake(clock.clone(), actor_system, stream, state.clone()).await.context("PeerActor::spawn()")?;
-                        anyhow::Ok(())
-                    }.await;
-
-                    if let Err(ref err) = result {
+                // Establish a tier3 connection if we don't have one already.
+                let already_connected_t3 =
+                    state.peers.is_connected_on_tier(&sender, tcp::Tier::T3);
+                if !already_connected_t3 {
+                    if let Err(err) = transport
+                        .connect_to_peer(&clock, request.peer_info.clone(), tcp::Tier::T3)
+                        .await
+                    {
                         tracing::debug!(target: "network", ?err, peer_info = %request.peer_info, "tier3 failed to connect");
                     }
                 }
 
-                state.tier3.send_message(sender, Arc::new(tier3_response));
+                transport.send_message(tcp::Tier::T3, sender, Arc::new(tier3_response));
             }
         );
     }

@@ -14,12 +14,12 @@ use near_async::messaging::{AsyncSendError, AsyncSender, CanSend, CanSendAsync, 
 use near_async::time::{Clock, Duration};
 use near_chain_configs::{ClientConfig, GenesisConfig, ProtocolConfigView};
 use near_client::{
-    DebugStatus, GetBlock, GetBlockProof, GetBlockProofResponse, GetChunk, GetClientConfig,
-    GetExecutionOutcome, GetExecutionOutcomeResponse, GetGasPrice, GetMaintenanceWindows,
-    GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetReceiptToTx,
-    GetReceiptToTxResponse, GetStateChanges, GetStateChangesInBlock, GetValidatorInfo,
-    GetValidatorOrdered, ProcessTxRequest, ProcessTxResponse, Query as ClientQuery, QueryError,
-    Status, StatusResponse, TxStatus, TxStatusError,
+    DebugStatus, GetBlock, GetBlockProof, GetBlockProofResponse, GetChunk, GetChunkExtraExists,
+    GetClientConfig, GetExecutionOutcome, GetExecutionOutcomeResponse, GetGasPrice,
+    GetMaintenanceWindows, GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt,
+    GetReceiptToTx, GetReceiptToTxResponse, GetStateChanges, GetStateChangesInBlock,
+    GetValidatorInfo, GetValidatorOrdered, ProcessTxRequest, ProcessTxResponse,
+    Query as ClientQuery, QueryError, Status, StatusResponse, TxStatus, TxStatusError,
 };
 use near_client_primitives::debug::{
     DebugBlockStatusQuery, DebugBlocksStartingMode, DebugStatusResponse,
@@ -39,6 +39,11 @@ use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::blocks::RpcBlockRequest;
 use near_jsonrpc_primitives::types::call_function::{
     RpcCallFunctionError, RpcCallFunctionRequest, RpcCallFunctionResponse,
+};
+use near_jsonrpc_primitives::types::changes::{
+    RpcStateChangesError, RpcStateChangesInBlockByTypeRequest,
+    RpcStateChangesInBlockByTypeResponse, RpcStateChangesInBlockRequest,
+    RpcStateChangesInBlockResponse,
 };
 use near_jsonrpc_primitives::types::chunks::ChunkReference;
 use near_jsonrpc_primitives::types::config::{RpcProtocolConfigError, RpcProtocolConfigResponse};
@@ -77,20 +82,26 @@ use near_network::tcp::{self, ListenerAddr};
 use near_o11y::metrics::{Encoder, TextEncoder, prometheus};
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::ChunkHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockId, BlockReference, ShardId, TransactionOrReceiptId};
+use near_primitives::types::{
+    AccountId, BlockId, BlockReference, EpochId, ShardId, TransactionOrReceiptId,
+};
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, GasPriceView, LightClientBlockView,
     MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, SplitStorageInfoView,
-    StateChangesKindsView, StateChangesView, TxExecutionStatus, TxStatusView,
+    StateChangeKindView, StateChangesKindsView, StateChangesRequestView, StateChangesView,
+    TxExecutionStatus, TxStatusView,
 };
 use parking_lot::RwLock;
 use serde_json::{Value, json};
 use sharded_rpc::{
-    BlockHint, CoordinatorRequestStrategy, RequestSource, RpcNodeHandle, ShardHint, ShardedRpcPool,
+    BlockHint, CoordinatorRequestStrategy, NodeRequestAssignment, RequestSource, RpcNodeHandle,
+    ShardHint, ShardedRpcPool,
 };
+use std::collections::HashSet;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -200,6 +211,94 @@ impl RpcConfig {
 #[allow(clippy::result_large_err)]
 fn serialize_response(value: impl serde::ser::Serialize) -> Result<Value, RpcError> {
     serde_json::to_value(value).map_err(|err| RpcError::serialization_error(err.to_string()))
+}
+
+/// Filters a `StateChangesRequestView` to only the accounts belonging to the
+/// given shard group, returning a new sub-request for just those accounts.
+fn filter_request_to_shard_group(
+    request: &StateChangesRequestView,
+    shard_group: &[ShardId],
+    shard_layout: &ShardLayout,
+) -> StateChangesRequestView {
+    let shard_set: HashSet<&ShardId> = shard_group.iter().collect();
+    let filter_accounts = |account_ids: &[AccountId]| -> Vec<AccountId> {
+        account_ids
+            .iter()
+            .filter(|id| shard_set.contains(&shard_layout.account_id_to_shard_id(id)))
+            .cloned()
+            .collect()
+    };
+
+    match request {
+        StateChangesRequestView::AccountChanges { account_ids } => {
+            StateChangesRequestView::AccountChanges { account_ids: filter_accounts(account_ids) }
+        }
+        StateChangesRequestView::SingleAccessKeyChanges { keys } => {
+            let filtered: Vec<_> = keys
+                .iter()
+                .filter(|k| shard_set.contains(&shard_layout.account_id_to_shard_id(&k.account_id)))
+                .cloned()
+                .collect();
+            StateChangesRequestView::SingleAccessKeyChanges { keys: filtered }
+        }
+        StateChangesRequestView::AllAccessKeyChanges { account_ids } => {
+            StateChangesRequestView::AllAccessKeyChanges {
+                account_ids: filter_accounts(account_ids),
+            }
+        }
+        StateChangesRequestView::ContractCodeChanges { account_ids } => {
+            StateChangesRequestView::ContractCodeChanges {
+                account_ids: filter_accounts(account_ids),
+            }
+        }
+        StateChangesRequestView::DataChanges { account_ids, key_prefix } => {
+            StateChangesRequestView::DataChanges {
+                account_ids: filter_accounts(account_ids),
+                key_prefix: key_prefix.clone(),
+            }
+        }
+    }
+}
+
+/// Convert a low-level `RpcError` (from shard-layout lookups and similar)
+/// into `RpcStateChangesError::InternalError` so it can propagate out of the
+/// local `changes_*` handlers.
+fn to_state_changes_internal(err: RpcError) -> RpcStateChangesError {
+    RpcStateChangesError::InternalError { error_message: err.to_string() }
+}
+
+/// Returns `true` if the request references no accounts or keys, i.e.
+/// `extract_target_shards` would return an empty set for any shard layout.
+fn state_changes_request_is_empty(request: &StateChangesRequestView) -> bool {
+    match request {
+        StateChangesRequestView::AccountChanges { account_ids }
+        | StateChangesRequestView::AllAccessKeyChanges { account_ids }
+        | StateChangesRequestView::ContractCodeChanges { account_ids }
+        | StateChangesRequestView::DataChanges { account_ids, .. } => account_ids.is_empty(),
+        StateChangesRequestView::SingleAccessKeyChanges { keys } => keys.is_empty(),
+    }
+}
+
+/// Extracts the set of target shards from a `StateChangesRequestView`.
+/// Returns the unique shards the request's accounts/keys belong to. Returns
+/// an empty set if the request has no accounts or keys.
+fn extract_target_shards(
+    request: &StateChangesRequestView,
+    shard_layout: &ShardLayout,
+) -> HashSet<ShardId> {
+    let account_ids: &[AccountId] = match request {
+        StateChangesRequestView::AccountChanges { account_ids } => account_ids,
+        StateChangesRequestView::SingleAccessKeyChanges { keys } => {
+            return keys
+                .iter()
+                .map(|k| shard_layout.account_id_to_shard_id(&k.account_id))
+                .collect();
+        }
+        StateChangesRequestView::AllAccessKeyChanges { account_ids } => account_ids,
+        StateChangesRequestView::ContractCodeChanges { account_ids } => account_ids,
+        StateChangesRequestView::DataChanges { account_ids, .. } => account_ids,
+    };
+    account_ids.iter().map(|id| shard_layout.account_id_to_shard_id(id)).collect()
 }
 
 /// Processes a specific method call.
@@ -358,6 +457,7 @@ pub struct ViewClientSenderForRpc(
     AsyncSender<GetReceipt, Result<Option<ReceiptView>, GetReceiptError>>,
     AsyncSender<GetReceiptToTx, Result<GetReceiptToTxResponse, GetReceiptToTxError>>,
     AsyncSender<GetSplitStorageInfo, Result<SplitStorageInfoView, GetSplitStorageInfoError>>,
+    AsyncSender<GetChunkExtraExists, Result<bool, GetStateChangesError>>,
     AsyncSender<GetStateChanges, Result<StateChangesView, GetStateChangesError>>,
     AsyncSender<GetStateChangesInBlock, Result<StateChangesKindsView, GetStateChangesError>>,
     AsyncSender<GetValidatorInfo, Result<EpochValidatorInfo, GetValidatorInfoError>>,
@@ -495,7 +595,14 @@ impl JsonRpcHandler {
             // Handlers ordered alphabetically
             "block" => process_method_call(request, |params| self.block(params)).await,
             "block_effects" | "EXPERIMENTAL_changes_in_block" => {
-                process_method_call(request, |params| self.changes_in_block(params)).await
+                let method = request.method.clone();
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| self.changes_in_block_sharded(&method, params),
+                    |params| self.changes_in_block(params, RequestSource::Coordinator),
+                )
+                .await
             }
             "broadcast_tx_async" => {
                 process_method_call(request, |params| async {
@@ -508,7 +615,14 @@ impl JsonRpcHandler {
                 process_method_call(request, |params| self.send_tx_commit(params)).await
             }
             "changes" | "EXPERIMENTAL_changes" => {
-                process_method_call(request, |params| self.changes_in_block_by_type(params)).await
+                let method = request.method.clone();
+                process_sharded_method_call(
+                    request,
+                    source,
+                    |params| self.changes_in_block_by_type_sharded(&method, params),
+                    |params| self.changes_in_block_by_type(params, RequestSource::Coordinator),
+                )
+                .await
             }
             "chunk" => {
                 process_sharded_method_call(
@@ -1456,9 +1570,10 @@ impl JsonRpcHandler {
 
                 match message {
                     Message::Response(resp) => resp.result,
-                    _ => {
-                        Err(RpcError::parse_error("failed to parse JSON RPC response".to_string()))
-                    }
+                    _ => Err(RpcError::new_internal_error(
+                        None,
+                        "failed to parse JSON RPC response".to_string(),
+                    )),
                 }
             }
             RpcNodeHandle::LocalNode => {
@@ -1821,34 +1936,57 @@ impl JsonRpcHandler {
 
     async fn changes_in_block(
         &self,
-        request: near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockRequest,
-    ) -> Result<
-        near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockByTypeResponse,
-        near_jsonrpc_primitives::types::changes::RpcStateChangesError,
-    > {
+        request: RpcStateChangesInBlockRequest,
+        source: RequestSource,
+    ) -> Result<RpcStateChangesInBlockByTypeResponse, RpcStateChangesError> {
         let block: near_primitives::views::BlockView =
             self.view_client_send(GetBlock(request.block_reference)).await?;
 
         let block_hash = block.header.hash;
+
+        // Coordinator-forwarded requests must only be answered for shards this
+        // node actually applied. `block_effects` has no account filter, so the
+        // scope is "every shard this node advertises tracking for at this
+        // epoch" — if any of those is missing a ChunkExtra, the response would
+        // be silently partial, so we fail fast and let the coordinator retry.
+        // Direct user requests preserve the legacy best-effort behavior.
+        if source == RequestSource::Coordinator {
+            let epoch_id = EpochId(block.header.epoch_id);
+            let shard_layout =
+                self.shard_layout_for_epoch(&epoch_id).map_err(to_state_changes_internal)?;
+            let required = self.tracked_shard_uids_at_epoch(&shard_layout, &epoch_id)?;
+            self.ensure_chunks_applied(&block_hash, &required).await?;
+        }
+
         let changes = self.view_client_send(GetStateChangesInBlock { block_hash }).await?;
 
-        Ok(near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockByTypeResponse {
-            block_hash: block.header.hash,
-            changes,
-        })
+        Ok(RpcStateChangesInBlockByTypeResponse { block_hash: block.header.hash, changes })
     }
 
     async fn changes_in_block_by_type(
         &self,
-        request: near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockByTypeRequest,
-    ) -> Result<
-        near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockResponse,
-        near_jsonrpc_primitives::types::changes::RpcStateChangesError,
-    > {
+        request: RpcStateChangesInBlockByTypeRequest,
+        source: RequestSource,
+    ) -> Result<RpcStateChangesInBlockResponse, RpcStateChangesError> {
         let block: near_primitives::views::BlockView =
             self.view_client_send(GetBlock(request.block_reference)).await?;
 
         let block_hash = block.header.hash;
+
+        if source == RequestSource::Coordinator {
+            let epoch_id = EpochId(block.header.epoch_id);
+            let shard_layout =
+                self.shard_layout_for_epoch(&epoch_id).map_err(to_state_changes_internal)?;
+            let required: Vec<ShardUId> =
+                extract_target_shards(&request.state_changes_request, &shard_layout)
+                    .into_iter()
+                    .map(|shard_id| ShardUId::from_shard_id_and_layout(shard_id, &shard_layout))
+                    .collect();
+            if !required.is_empty() {
+                self.ensure_chunks_applied(&block_hash, &required).await?;
+            }
+        }
+
         let changes = self
             .view_client_send(GetStateChanges {
                 block_hash,
@@ -1856,10 +1994,294 @@ impl JsonRpcHandler {
             })
             .await?;
 
-        Ok(near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockResponse {
-            block_hash: block.header.hash,
-            changes,
+        Ok(RpcStateChangesInBlockResponse { block_hash: block.header.hash, changes })
+    }
+
+    /// Return the `ShardUId`s of shards this node advertises tracking at
+    /// `epoch_id` (via `TrackedShardsConfig` or validator assignment). Used by
+    /// the `block_effects` coordinator path, where the request carries no
+    /// shard filter and the peer's tracked set is the scope of the response.
+    fn tracked_shard_uids_at_epoch(
+        &self,
+        shard_layout: &ShardLayout,
+        epoch_id: &EpochId,
+    ) -> Result<Vec<ShardUId>, RpcStateChangesError> {
+        let pool = self.pool.read();
+        let mut tracked = Vec::new();
+        for shard_uid in shard_layout.shard_uids() {
+            match pool.shard_tracker.rpc_tracks_shard_at_epoch(shard_uid.shard_id(), epoch_id) {
+                Ok(true) => tracked.push(shard_uid),
+                Ok(false) => {}
+                Err(e) => {
+                    return Err(RpcStateChangesError::InternalError {
+                        error_message: format!("failed to resolve tracked shards: {e}"),
+                    });
+                }
+            }
+        }
+        Ok(tracked)
+    }
+
+    /// Verify that this node has applied every given shard's chunk at
+    /// `block_hash`. Returns `ShardNotApplied` on the first shard that isn't
+    /// applied, so the coordinator can retry on another peer.
+    async fn ensure_chunks_applied(
+        &self,
+        block_hash: &CryptoHash,
+        shard_uids: &[ShardUId],
+    ) -> Result<(), RpcStateChangesError> {
+        for shard_uid in shard_uids {
+            let applied = self
+                .view_client_send(GetChunkExtraExists {
+                    block_hash: *block_hash,
+                    shard_uid: *shard_uid,
+                })
+                .await?;
+            if !applied {
+                return Err(RpcStateChangesError::ShardNotApplied {
+                    shard_id: shard_uid.shard_id(),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Scatter-gather coordinator for `block_effects` / `EXPERIMENTAL_changes_in_block`.
+    ///
+    /// Fans out the request to one node per shard, filters each response to the
+    /// assigned shards, and concatenates the results. Retries failed shards with
+    /// different nodes.
+    async fn changes_in_block_sharded(
+        &self,
+        method: &str,
+        request: RpcStateChangesInBlockRequest,
+    ) -> Result<Value, RpcError> {
+        // Fast path: no remote nodes configured, just serve locally.
+        if self.pool.read().nodes.is_empty() {
+            return serialize_response(self.changes_in_block(request, RequestSource::User).await?);
+        }
+
+        // Resolve block locally to get block_hash and epoch_id.
+        let block: BlockView = self
+            .view_client_send(GetBlock(request.block_reference))
+            .await
+            .map_err(RpcStateChangesError::from)?;
+        let block_hash = block.header.hash;
+        let epoch_id = EpochId(block.header.epoch_id);
+
+        let shard_layout = self.shard_layout_for_epoch(&epoch_id)?;
+
+        let all_shards: HashSet<ShardId> = shard_layout.shard_ids().collect();
+
+        let get_params_for_shard_group = |_shards: &[ShardId]| {
+            serde_json::to_value(RpcStateChangesInBlockRequest {
+                block_reference: BlockReference::BlockId(BlockId::Hash(block_hash)),
+            })
+            .map_err(|e| RpcError::serialization_error(e.to_string()))
+        };
+
+        // Scatter-gather with retry loop.
+        let merged_responses = self
+            .run_scatter_gather(method, &get_params_for_shard_group, &epoch_id, all_shards)
+            .await?;
+
+        // Post-filter: each node returns changes for all shards it tracks, but we
+        // only want the shards we assigned to it. This relies on every
+        // StateChangeKindView variant having a meaningful account_id().
+        let mut merged_changes: Vec<StateChangeKindView> = Vec::new();
+        for (assigned_shards, value) in merged_responses {
+            let resp: RpcStateChangesInBlockByTypeResponse =
+                serde_json::from_value(value).map_err(|e| RpcError::parse_error(e.to_string()))?;
+            let filtered = resp.changes.into_iter().filter(|change| {
+                assigned_shards.iter().any(|&shard_id| {
+                    shard_layout.account_id_to_shard_id(change.account_id()) == shard_id
+                })
+            });
+            merged_changes.extend(filtered);
+        }
+
+        serialize_response(RpcStateChangesInBlockByTypeResponse {
+            block_hash,
+            changes: merged_changes,
         })
+    }
+
+    /// Scatter-gather coordinator for `changes` / `EXPERIMENTAL_changes`.
+    ///
+    /// Splits the request's account_ids by shard group, sends per-group
+    /// sub-requests to the appropriate nodes, and concatenates the results.
+    async fn changes_in_block_by_type_sharded(
+        &self,
+        method: &str,
+        request: RpcStateChangesInBlockByTypeRequest,
+    ) -> Result<Value, RpcError> {
+        // Fast path: no remote nodes configured, just serve locally.
+        if self.pool.read().nodes.is_empty() {
+            return serialize_response(
+                self.changes_in_block_by_type(request, RequestSource::User).await?,
+            );
+        }
+
+        // Short-circuit requests with no target accounts/keys *before* the
+        // local view client lookup. Under spice, a non-validator RPC node may
+        // see the block header before its chunks are applied, making
+        // `GetBlock(BlockId::Height(h))` transiently return `UNKNOWN_BLOCK`.
+        // With nothing to fan out there is no reason to resolve the block.
+        if state_changes_request_is_empty(&request.state_changes_request) {
+            return serialize_response(RpcStateChangesInBlockResponse {
+                block_hash: CryptoHash::default(),
+                changes: vec![],
+            });
+        }
+
+        // Resolve block locally.
+        let block: BlockView = self
+            .view_client_send(GetBlock(request.block_reference))
+            .await
+            .map_err(RpcStateChangesError::from)?;
+        let block_hash = block.header.hash;
+        let epoch_id = EpochId(block.header.epoch_id);
+
+        let shard_layout = self.shard_layout_for_epoch(&epoch_id)?;
+
+        // Determine which shards we need based on the account_ids in the request.
+        // A non-empty request always yields at least one target shard, so we
+        // do not need a second empty-set guard here.
+        let target_shards: HashSet<ShardId> =
+            extract_target_shards(&request.state_changes_request, &shard_layout);
+
+        let get_params_for_shard_group = |shards: &[ShardId]| {
+            let sub_request = filter_request_to_shard_group(
+                &request.state_changes_request,
+                shards,
+                &shard_layout,
+            );
+            serde_json::to_value(RpcStateChangesInBlockByTypeRequest {
+                block_reference: BlockReference::BlockId(BlockId::Hash(block_hash)),
+                state_changes_request: sub_request,
+            })
+            .map_err(|e| RpcError::serialization_error(e.to_string()))
+        };
+
+        // Scatter-gather with retry loop.
+        let merged_responses = self
+            .run_scatter_gather(method, &get_params_for_shard_group, &epoch_id, target_shards)
+            .await?;
+
+        let mut merged_changes = Vec::new();
+        for (_assigned_shards, value) in merged_responses {
+            let resp: RpcStateChangesInBlockResponse =
+                serde_json::from_value(value).map_err(|e| RpcError::parse_error(e.to_string()))?;
+            merged_changes.extend(resp.changes);
+        }
+
+        serialize_response(RpcStateChangesInBlockResponse { block_hash, changes: merged_changes })
+    }
+
+    fn shard_layout_for_epoch(&self, epoch_id: &EpochId) -> Result<ShardLayout, RpcError> {
+        self.pool.read().shard_tracker.epoch_manager().get_shard_layout(epoch_id).map_err(|e| {
+            RpcError::new_internal_error(None, format!("failed to get shard layout for epoch: {e}"))
+        })
+    }
+
+    /// Scatter-gather: assign target shards to nodes in groups, fan out one
+    /// request per node group, retry failed groups with different nodes.
+    ///
+    /// Returns `(assigned_shards, response_value)` pairs. Callers interpret
+    /// the responses (filter, parse, merge) as appropriate for the method.
+    async fn run_scatter_gather<F>(
+        &self,
+        method: &str,
+        get_params_for_shard_group: &F,
+        epoch_id: &EpochId,
+        target_shards: HashSet<ShardId>,
+    ) -> Result<Vec<(Vec<ShardId>, Value)>, RpcError>
+    where
+        F: Fn(&[ShardId]) -> Result<Value, RpcError> + Sync,
+    {
+        let mut merged: Vec<(Vec<ShardId>, Value)> = Vec::new();
+        let mut remaining_shards = target_shards;
+        let mut excluded_nodes: HashSet<usize> = HashSet::new();
+
+        while !remaining_shards.is_empty() {
+            let assignments = self.pool.read().one_node_per_group_of_shard(
+                epoch_id,
+                &remaining_shards,
+                &excluded_nodes,
+            )?;
+
+            tracing::debug!(
+                target: "jsonrpc",
+                method,
+                remaining = remaining_shards.len(),
+                groups = assignments.len(),
+                "scatter-gather round"
+            );
+
+            // Build requests for each node group. Bail on serialization error.
+            let mut request_groups = Vec::new();
+            for NodeRequestAssignment { handle, node_idx, assigned_shards } in assignments {
+                let params = get_params_for_shard_group(&assigned_shards)?;
+                let Message::Request(req) = Message::request(method.to_string(), params) else {
+                    unreachable!("Message::request always returns Message::Request");
+                };
+                request_groups.push((handle, req, node_idx, assigned_shards));
+            }
+
+            // Fan out in parallel with per-peer timeout.
+            let per_peer_timeout = Duration::seconds(10);
+            let futures: Vec<_> = request_groups
+                .into_iter()
+                .map(|(handle, req, node_idx, assigned_shards)| {
+                    let fut = self.run_coordinator_request_on_node(req, handle);
+                    let timeout_fut = self.clock.timeout(per_peer_timeout, fut);
+                    async move {
+                        let result = match timeout_fut.await {
+                            Ok(inner) => inner,
+                            Err(_) => Err(RpcError::new_internal_error(
+                                None,
+                                format!("scatter-gather: peer {node_idx} timed out"),
+                            )),
+                        };
+                        (node_idx, assigned_shards, result)
+                    }
+                })
+                .collect();
+
+            let results = futures::future::join_all(futures).await;
+
+            for (node_idx, assigned_shards, result) in results {
+                match result {
+                    Ok(value) => {
+                        for shard_id in &assigned_shards {
+                            remaining_shards.remove(shard_id);
+                        }
+                        merged.push((assigned_shards, value));
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "jsonrpc",
+                            method,
+                            node_idx,
+                            ?assigned_shards,
+                            error = %e,
+                            "scatter-gather: peer failed"
+                        );
+                        // Don't retry on request validation errors — they're
+                        // deterministic and every node will return the same.
+                        if matches!(
+                            e.error_struct.as_ref(),
+                            Some(RpcErrorKind::RequestValidationError(_))
+                        ) {
+                            return Err(e);
+                        }
+                        excluded_nodes.insert(node_idx);
+                    }
+                }
+            }
+        }
+
+        Ok(merged)
     }
 
     async fn next_light_client_block(

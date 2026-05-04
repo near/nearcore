@@ -319,11 +319,10 @@ impl TestEnv {
         let mut any_processed = false;
         while let Some(msg) = self.client_adapters[id].pop() {
             match msg.span_unwrap() {
-                ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
-                    self.clients[id].on_chunk_completed(partial_chunk, shard_chunk, None);
-                }
-                ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
-                    self.clients[id].on_invalid_chunk(encoded_chunk);
+                ShardsManagerResponse::ChunkCompleted { partial_chunk, decoded_chunk } => {
+                    self.clients[id]
+                        .on_chunk_completed(partial_chunk, decoded_chunk, None)
+                        .unwrap();
                 }
                 ShardsManagerResponse::ChunkHeaderReadyForInclusion {
                     chunk_header,
@@ -445,7 +444,7 @@ impl TestEnv {
                         tracing::warn!(target: "test", %account_id, "client not found for account_id");
                         return None;
                     }
-                    let processing_result = self.client(&account_id).chunk_endorsement_tracker.process_chunk_endorsement(endorsement);
+                    let processing_result = self.client(&account_id).chunk_endorsement_tracker.process_chunk_endorsement(&endorsement);
                     if !allow_errors {
                         processing_result.unwrap();
                     }

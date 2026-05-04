@@ -1,4 +1,4 @@
-use crate::sharding::ReceiptProof;
+use crate::sharding::{EncodedShardChunkBody, ReceiptProof};
 use crate::state::PartialState;
 use crate::stateless_validation::contract_distribution::{CodeBytes, CodeHash};
 use crate::transaction::SignedTransaction;
@@ -102,6 +102,12 @@ pub struct SpiceChunkStateWitnessV1 {
     /// received matches what the witness expects, preventing a malicious
     /// producer from injecting invalid contract accesses.
     pub contract_accesses_hash: CryptoHash,
+    /// Proof that the chunk body is invalid (e.g. bad tx_root). Present when
+    /// a malicious chunk producer sends an invalid chunk body. The body must
+    /// be RS-reconstructed (all parts filled) so validators can independently
+    /// verify the invalidity. When present, validators accept empty
+    /// transactions instead of the chunk header's tx_root.
+    pub proof_of_invalid_chunk: Option<Box<EncodedShardChunkBody>>,
 }
 
 impl SpiceChunkStateWitness {
@@ -113,6 +119,7 @@ impl SpiceChunkStateWitness {
         transactions: Vec<SignedTransaction>,
         execution_result_hash: ChunkExecutionResultHash,
         contract_accesses_hash: CryptoHash,
+        proof_of_invalid_chunk: Option<Box<EncodedShardChunkBody>>,
     ) -> Self {
         Self::V1(SpiceChunkStateWitnessV1 {
             chunk_id,
@@ -122,6 +129,7 @@ impl SpiceChunkStateWitness {
             transactions,
             execution_result_hash,
             contract_accesses_hash,
+            proof_of_invalid_chunk,
         })
     }
 
@@ -170,6 +178,12 @@ impl SpiceChunkStateWitness {
     pub fn contract_accesses_hash(&self) -> &CryptoHash {
         match self {
             Self::V1(witness) => &witness.contract_accesses_hash,
+        }
+    }
+
+    pub fn proof_of_invalid_chunk(&self) -> Option<&EncodedShardChunkBody> {
+        match self {
+            Self::V1(witness) => witness.proof_of_invalid_chunk.as_deref(),
         }
     }
 }

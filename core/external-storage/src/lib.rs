@@ -73,7 +73,7 @@ impl ExternalConnection {
                         );
                     }
                 }
-                ExternalConnection::S3 { bucket: Arc::new(bucket.unwrap()) }
+                ExternalConnection::S3 { bucket: Arc::from(bucket.unwrap()) }
             }
             ExternalStorageLocation::Filesystem { root_dir } => {
                 ExternalConnection::Filesystem { root_dir: root_dir.clone() }
@@ -238,7 +238,7 @@ pub fn create_s3_bucket_readonly(
     bucket: &str,
     region: &str,
     timeout: Duration,
-) -> Result<s3::Bucket, anyhow::Error> {
+) -> Result<Box<s3::Bucket>, anyhow::Error> {
     let creds = s3::creds::Credentials::anonymous()?;
     create_s3_bucket(bucket, region, timeout, creds)
 }
@@ -256,7 +256,7 @@ pub fn create_s3_bucket_read_write(
     region: &str,
     timeout: Duration,
     credentials_file: Option<PathBuf>,
-) -> Result<s3::Bucket, anyhow::Error> {
+) -> Result<Box<s3::Bucket>, anyhow::Error> {
     let creds = match credentials_file {
         Some(credentials_file) => {
             let mut file = std::fs::File::open(credentials_file)?;
@@ -282,7 +282,7 @@ fn create_s3_bucket(
     region: &str,
     timeout: Duration,
     creds: s3::creds::Credentials,
-) -> Result<s3::Bucket, anyhow::Error> {
+) -> Result<Box<s3::Bucket>, anyhow::Error> {
     let mut bucket = s3::Bucket::new(bucket, region.parse::<s3::Region>()?, creds)?;
     // Ensure requests finish in finite amount of time.
     bucket.set_request_timeout(Some(timeout));

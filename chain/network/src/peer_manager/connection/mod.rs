@@ -1,28 +1,21 @@
 use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
-use crate::concurrency::demux;
-use crate::network_protocol::{
-    PeerInfo, PeerMessage, SignedAccountData, SignedOwnedAccount, SnapshotHostInfo,
-    SyncAccountsData, SyncSnapshotHosts, TieredMessageBody,
-};
+use crate::network_protocol::{PeerInfo, PeerMessage, SignedOwnedAccount, TieredMessageBody};
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;
 use crate::private_messages::SendMessage;
 use crate::stats::metrics;
 use crate::tcp;
-use crate::types::{BlockInfo, FullPeerInfo, PeerChainInfo, PeerType, ReasonForBan};
+use crate::types::{BlockInfo, PeerType, ReasonForBan};
 use arc_swap::ArcSwap;
 use near_async::messaging::CanSend;
 use near_async::time;
 use near_async::tokio::TokioRuntimeHandle;
 use near_crypto::PublicKey;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
-use near_primitives::genesis::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::types::ShardId;
-use std::collections::{HashMap, hash_map::Entry};
 use std::fmt;
-use std::future::Future;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Weak};
 
@@ -89,6 +82,8 @@ pub(crate) struct Stats {
     pub received_bytes: AtomicU64,
     /// Avg received bytes/s, based on the last few minutes of traffic.
     pub received_bytes_per_sec: AtomicU64,
+    /// Avg received messages/s, based on the last few minutes of traffic.
+    pub received_messages_per_sec: AtomicU64,
     /// Avg sent bytes/s, based on the last few minutes of traffic.
     pub sent_bytes_per_sec: AtomicU64,
 
@@ -107,8 +102,6 @@ pub(crate) struct Connection {
     pub peer_info: PeerInfo,
     /// AccountKey ownership proof.
     pub owned_account: Option<SignedOwnedAccount>,
-    /// Chain Id and hash of genesis block.
-    pub genesis_id: GenesisId,
     /// Shards that the peer is tracking.
     pub tracked_shards: Vec<ShardId>,
     /// Denote if a node is running in archival mode or not.
@@ -128,11 +121,6 @@ pub(crate) struct Connection {
     pub stats: Arc<Stats>,
     /// prometheus gauge point guard.
     pub _peer_connections_metric: metrics::GaugePoint,
-
-    /// Demultiplexer for the calls to send_accounts_data().
-    pub send_accounts_data_demux: demux::Demux<Vec<Arc<SignedAccountData>>, ()>,
-    /// Demultiplexer for the calls to send_snapshot_hosts().
-    pub send_snapshot_hosts_demux: demux::Demux<Vec<Arc<SnapshotHostInfo>>, ()>,
 }
 
 impl fmt::Debug for Connection {
@@ -146,16 +134,6 @@ impl fmt::Debug for Connection {
 }
 
 impl Connection {
-    pub fn full_peer_info(&self) -> FullPeerInfo {
-        let chain_info = PeerChainInfo {
-            genesis_id: self.genesis_id.clone(),
-            last_block: *self.last_block.load().as_ref(),
-            tracked_shards: self.tracked_shards.clone(),
-            archival: self.archival,
-        };
-        FullPeerInfo { peer_info: self.peer_info.clone(), chain_info }
-    }
-
     pub fn stop(&self, ban_reason: Option<ReasonForBan>) {
         self.handle.send(peer_actor::Stop { ban_reason }.span_wrap());
     }
@@ -166,102 +144,6 @@ impl Connection {
         let msg_kind = msg.msg_variant().to_string();
         tracing::trace!(target: "network", ?msg_kind, "sending message");
         self.handle.send(SendMessage { message: msg }.span_wrap());
-    }
-
-    pub fn send_accounts_data(
-        self: &Arc<Self>,
-        data: Vec<Arc<SignedAccountData>>,
-    ) -> impl Future<Output = ()> + use<> {
-        let this = self.clone();
-        async move {
-            let res = this
-                .send_accounts_data_demux
-                .call(data, {
-                    let this = this.clone();
-                    |ds: Vec<Vec<Arc<SignedAccountData>>>| async move {
-                        let res = ds.iter().map(|_| ()).collect();
-                        let mut sum = HashMap::<_, Arc<SignedAccountData>>::new();
-                        for d in ds.into_iter().flatten() {
-                            match sum.entry(d.account_key.clone()) {
-                                Entry::Occupied(mut x) => {
-                                    if x.get().version < d.version {
-                                        x.insert(d);
-                                    }
-                                }
-                                Entry::Vacant(x) => {
-                                    x.insert(d);
-                                }
-                            }
-                        }
-                        let msg = Arc::new(PeerMessage::SyncAccountsData(SyncAccountsData {
-                            incremental: true,
-                            requesting_full_sync: false,
-                            accounts_data: sum.into_values().collect(),
-                        }));
-                        this.send_message(msg);
-                        res
-                    }
-                })
-                .await;
-            if res.is_err() {
-                tracing::debug!(
-                    peer_id = %this.peer_info.id,
-                    "peer disconnected while sending sync accounts data"
-                );
-            }
-        }
-    }
-
-    // Accepts a list of SnapshotHostInfos to be broadcast to all neighbors of the node.
-    // Multiple calls to this function made in quick succession will be condensed into a
-    // single outgoing message.
-    pub fn send_snapshot_hosts<'a>(
-        self: &'a Arc<Self>,
-        data: Vec<Arc<SnapshotHostInfo>>,
-    ) -> impl Future<Output = ()> + use<> {
-        let this = self.clone();
-        async move {
-            // Pass the data through the snapshot_hosts_demux to
-            // rate-limit the production of network messages.
-            let res = this
-                .send_snapshot_hosts_demux
-                .call(data, {
-                    let this = this.clone();
-                    // This function describes how to combine multiple vectors of
-                    // SnapshotHostInfos into a single batch of data.
-                    |ds: Vec<Vec<Arc<SnapshotHostInfo>>>| async move {
-                        let res = ds.iter().map(|_| ()).collect();
-                        let mut sum = HashMap::<_, Arc<SnapshotHostInfo>>::new();
-                        for d in ds.into_iter().flatten() {
-                            match sum.entry(d.peer_id.clone()) {
-                                Entry::Occupied(mut x) => {
-                                    // If two entries are present for the same peer,
-                                    // keep one with the greatest epoch_height.
-                                    if x.get().epoch_height < d.epoch_height {
-                                        x.insert(d);
-                                    }
-                                }
-                                Entry::Vacant(x) => {
-                                    x.insert(d);
-                                }
-                            }
-                        }
-                        // Send a single SyncSnapshotHosts message with the condensed data.
-                        let msg = Arc::new(PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts {
-                            hosts: sum.into_values().collect(),
-                        }));
-                        this.send_message(msg);
-                        res
-                    }
-                })
-                .await;
-            if res.is_err() {
-                tracing::debug!(
-                    peer_id = %this.peer_info.id,
-                    "peer disconnected while sending sync snapshot hosts"
-                );
-            }
-        }
     }
 }
 

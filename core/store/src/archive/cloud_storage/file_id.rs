@@ -1,19 +1,25 @@
 use crate::archive::cloud_storage::CloudStorage;
-use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
+use crate::archive::cloud_storage::batch::BatchId;
+use near_primitives::types::{EpochHeight, EpochId, ShardId};
 
 /// Cloud directories that can be safely listed (recursively).
-/// Unbounded directories (heights/, epochs/) must not be listed.
+/// Unbounded directories (blocks/, shards/, epochs/) must not be listed.
 #[derive(Clone, Copy, Debug)]
 pub enum ListableCloudDir {
     Metadata,
     ShardHeads,
+    StateHeader { epoch_height: EpochHeight, epoch_id: EpochId, shard_id: ShardId },
 }
 
 impl ListableCloudDir {
     pub fn path(&self) -> String {
         match self {
-            Self::Metadata => "metadata".into(),
-            Self::ShardHeads => "metadata/shard_head".into(),
+            Self::Metadata => "archive/metadata".into(),
+            Self::ShardHeads => "archive/metadata/shard_head".into(),
+            Self::StateHeader { epoch_height, epoch_id, shard_id } => format!(
+                "epoch_height={epoch_height}/epoch_id={}/headers/shard_id={shard_id}",
+                epoch_id.0
+            ),
         }
     }
 }
@@ -22,7 +28,7 @@ impl ListableCloudDir {
 /// Each variant maps to a specific logical file within the archive.
 #[derive(Clone, Debug)]
 pub enum CloudStorageFileID {
-    /// Archive-wide configuration (compression level, etc.).
+    /// Archive-wide configuration (compression level, batch size, etc.).
     Config,
     /// Tracks the latest block height for which block data has been archived.
     BlockHead,
@@ -31,10 +37,10 @@ pub enum CloudStorageFileID {
     ShardHead(ShardId),
     /// Identifier of the epoch file for the given epoch ID.
     Epoch(EpochId),
-    /// Identifier of the block file for the given block height.
-    Block(BlockHeight),
-    /// Identifier of the shard file for the given block height and shard.
-    Shard(BlockHeight, ShardId),
+    /// Identifier of the block batch for the given batch ID.
+    BlockBatch(BatchId),
+    /// Identifier of the shard batch for the given shard and batch ID.
+    ShardBatch(ShardId, BatchId),
     /// Identifier of the state snapshot header file for the given epoch and shard.
     StateHeader(EpochHeight, EpochId, ShardId),
 }
@@ -51,14 +57,15 @@ impl CloudStorage {
                 (ListableCloudDir::ShardHeads.path(), format!("{shard_id}"))
             }
             CloudStorageFileID::Epoch(epoch_id) => {
-                (format!("epochs/epoch_id={}", epoch_id.0), "epoch_data".into())
+                (format!("archive/epochs/epoch_id={}", epoch_id.0), "epoch_data".into())
             }
-            CloudStorageFileID::Block(height) => {
-                (format!("heights/block_height={height}"), "block_data".into())
+            CloudStorageFileID::BlockBatch(batch_id) => {
+                (format!("archive/blocks/batch_id={}", batch_id.0), "data".into())
             }
-            CloudStorageFileID::Shard(height, shard_id) => {
-                (format!("heights/block_height={height}/shard_id={shard_id}"), "shard_data".into())
-            }
+            CloudStorageFileID::ShardBatch(shard_id, batch_id) => (
+                format!("archive/shards/shard_id={shard_id}/batch_id={}", batch_id.0),
+                "data".into(),
+            ),
             CloudStorageFileID::StateHeader(epoch_height, epoch_id, shard_id) => (
                 format!(
                     "epoch_height={}/epoch_id={}/headers/shard_id={}",

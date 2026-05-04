@@ -255,6 +255,14 @@ pub(crate) static EDGE_TOTAL: LazyLock<IntGauge> = LazyLock::new(|| {
         .unwrap()
 });
 
+pub(crate) static EDGE_DROPPED: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_edge_dropped",
+        "Number of edges rejected due to routing graph limits",
+    )
+    .unwrap()
+});
+
 pub(crate) static EDGE_TOMBSTONE_SENDING_SKIPPED: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
         "near_edge_tombstone_sending_skip",

@@ -17,11 +17,11 @@ use near_chain_configs::{ClientConfig, MutableValidatorSigner, ProtocolConfigVie
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_client_primitives::types::{
     Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
-    GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
-    GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetMaintenanceWindows,
-    GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProcessedReceiptIds,
-    GetProcessedReceiptIdsError, GetProtocolConfig, GetProtocolConfigError, GetReceipt,
-    GetReceiptError, GetReceiptToTx, GetReceiptToTxError, GetReceiptToTxResponse,
+    GetBlockWithMerkleTree, GetChunkError, GetChunkExtraExists, GetExecutionOutcome,
+    GetExecutionOutcomeError, GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError,
+    GetMaintenanceWindows, GetMaintenanceWindowsError, GetNextLightClientBlockError,
+    GetProcessedReceiptIds, GetProcessedReceiptIdsError, GetProtocolConfig, GetProtocolConfigError,
+    GetReceipt, GetReceiptError, GetReceiptToTx, GetReceiptToTxError, GetReceiptToTxResponse,
     GetSplitStorageInfo, GetSplitStorageInfoError, GetStateChangesError,
     GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
     GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError,
@@ -966,6 +966,22 @@ impl Handler<GetStateChangesInBlock, Result<StateChangesKindsView, GetStateChang
             .into_iter()
             .map(Into::into)
             .collect())
+    }
+}
+
+/// Returns whether the given shard's chunk at `block_hash` was applied on
+/// this node, i.e. whether its `ChunkExtra` is present in the store.
+impl Handler<GetChunkExtraExists, Result<bool, GetStateChangesError>> for ViewClientActor {
+    fn handle(&mut self, msg: GetChunkExtraExists) -> Result<bool, GetStateChangesError> {
+        tracing::debug!(target: "client", ?msg);
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["GetChunkExtraExists"])
+            .start_timer();
+        match self.chain.chain_store().get_chunk_extra(&msg.block_hash, &msg.shard_uid) {
+            Ok(_) => Ok(true),
+            Err(near_chain_primitives::Error::DBNotFoundErr(_)) => Ok(false),
+            Err(err) => Err(err.into()),
+        }
     }
 }
 

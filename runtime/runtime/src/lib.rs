@@ -11,15 +11,9 @@ use crate::config::{
 use crate::congestion_control::DelayedReceiptQueueWrapper;
 use crate::contract_code::RuntimeContractIdentifier;
 use crate::function_call::action_function_call;
-use crate::metrics::{
-    TRANSACTION_BATCH_SIGNATURE_VERIFY_FAILURE_TOTAL,
-    TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS_TOTAL,
-};
 use crate::prefetch::TriePrefetcher;
 pub use crate::types::SignedValidPeriodTransactions;
-use crate::verifier::{
-    StorageStakingError, check_storage_stake, validate_receipt, validate_transaction_well_formed,
-};
+use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
 pub use crate::verifier::{
     ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_signer_and_access_key, set_tx_state_changes,
     validate_transaction, verify_and_charge_gas_key_tx_ephemeral, verify_and_charge_tx_ephemeral,
@@ -36,7 +30,7 @@ use global_contracts::{
 use itertools::Itertools;
 use metrics::ApplyMetrics;
 pub use near_crypto;
-use near_crypto::{PublicKey, Signature};
+use near_crypto::PublicKey;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::{AccessKey, Account};
@@ -59,7 +53,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry,
-    SignedTransaction, TransferAction,
+    TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::PromiseYieldStatus;
@@ -91,10 +85,8 @@ use near_vm_runner::ProfileDataV3;
 use near_vm_runner::logic::ReturnData;
 use near_vm_runner::logic::types::PromiseResult;
 pub use near_vm_runner::with_ext_cost_counter;
-use num_integer::Integer;
 use pipelining::ReceiptPreparationPipeline;
 use rayon::prelude::*;
-use smallvec::SmallVec;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Debug;
@@ -1673,111 +1665,35 @@ impl Runtime {
         signed_txs: SignedValidPeriodTransactions,
         receipt_sink: &mut ReceiptSink,
     ) -> Result<(), RuntimeError> {
-        /// We track the transaction validity in a bit vector of this size. This type informs the
-        /// maximum size of the transactions' chunk processed with each rayon job.
-        type ValidBitmask = u128;
-        const MAX_BATCH_SIZE: usize = ValidBitmask::BITS as usize;
-        /// Avoid the overhead of inter-thread scheduling by processing at least this many
-        /// transactions for each instance of this overhead. This can reduce the number of
-        /// transaction chunks for smaller lists of transactions, however.
-        /// We are populating the validations chunks in parallel. To avoid cache line conflicts
-        /// between the threads, we want to ensure that each chunk size is at least (and proportional to)
-        /// the gcd of Option<InvalidTxError> and a cache line sizes (8 at the time of writing).
-        const CACHE_LINE_SIZE: usize = size_of::<crossbeam_utils::CachePadded<u8>>();
-        let min_chunk_size: usize = size_of::<Option<InvalidTxError>>().gcd(&CACHE_LINE_SIZE);
-        /// Avoid splitting transactions into just $NUM_THREADS chunks, as that can result in an
-        /// increased tail latency when one of the threads is slower at processing its chunk
-        /// compared to others (whatever reason may be for that.) Splitting into smaller chunks
-        /// allows the load to be distributed across threads more evenly and any tail latency
-        /// reduced due to the last chunk(s) being smaller.
-        const TARGET_CHUNKS_PER_THREAD: usize = 4;
         let num_transactions = signed_txs.len();
-        let chunk_count_target = rayon::current_num_threads() * TARGET_CHUNKS_PER_THREAD;
-        let chunk_size =
-            (num_transactions / chunk_count_target).clamp(min_chunk_size, ValidBitmask::BITS as _);
-        let chunk_size = (chunk_size / min_chunk_size) * min_chunk_size;
         let protocol_version = processing_state.protocol_version;
 
         let mut validations: Vec<Option<InvalidTxError>> = vec![None; num_transactions];
 
         let ((), (accounts, access_keys, gas_key_nonces)) = rayon::join(
             || {
-                let validation_chunks = validations.par_chunks_mut(chunk_size);
                 let (maybe_expired_txs, tx_expiration_flags) =
                     signed_txs.get_potentially_expired_transactions_and_expiration_flags();
                 maybe_expired_txs
-                    .par_chunks(chunk_size)
-                    .zip(tx_expiration_flags.par_chunks(chunk_size))
-                    .zip(validation_chunks)
-                    .for_each(|((txs, expiration_flags), validations)| {
-                        // Prepare signatures, public keys and messages (tx hash) for batch verification.
-                        let mut batched_tx_mask: ValidBitmask = 0;
-                        let mut signatures =
-                            SmallVec::<[_; MAX_BATCH_SIZE]>::with_capacity(txs.len());
-                        let mut verifying_keys =
-                            SmallVec::<[_; MAX_BATCH_SIZE]>::with_capacity(txs.len());
-                        let mut messages =
-                            SmallVec::<[_; MAX_BATCH_SIZE]>::with_capacity(txs.len());
-
-                        for (idx, (tx, non_expired)) in txs.iter().zip(expiration_flags).enumerate()
-                        {
-                            if !non_expired {
-                                continue;
-                            }
-                            if let Some((signature, public_key)) =
-                                get_batchable_signature_and_public_key(tx)
-                            {
-                                signatures.push(*signature);
-                                verifying_keys.push(public_key);
-                                messages.push(tx.hash().as_ref());
-                                batched_tx_mask |= 1 << idx;
-                            }
+                    .par_iter()
+                    .zip(tx_expiration_flags.par_iter())
+                    .zip(validations.par_iter_mut())
+                    .for_each(|((tx, non_expired), validation)| {
+                        if !non_expired {
+                            *validation = Some(InvalidTxError::Expired);
+                            return;
                         }
-
-                        let valid_signatures = if near_crypto_ed25519_batch::safe_verify_batch(
-                            &messages,
-                            &signatures,
-                            &verifying_keys,
+                        let tx_hash = tx.hash();
+                        let v = validate_transaction(
+                            &processing_state.apply_state.config,
+                            tx.clone(),
+                            protocol_version,
                         )
-                        .is_ok()
-                        {
-                            TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS_TOTAL.inc();
-                            batched_tx_mask
-                        } else {
-                            TRANSACTION_BATCH_SIGNATURE_VERIFY_FAILURE_TOTAL.inc();
-                            0
-                        };
-
-                        for (idx, (tx, non_expired)) in txs.iter().zip(expiration_flags).enumerate()
-                        {
-                            if !non_expired {
-                                validations[idx] = Some(InvalidTxError::Expired);
-                                continue;
-                            }
-                            let tx_hash = tx.hash();
-                            let signature_already_verified = (valid_signatures >> idx) & 1 == 1;
-
-                            let v = if signature_already_verified {
-                                validate_transaction_well_formed(
-                                    &processing_state.apply_state.config,
-                                    tx,
-                                    protocol_version,
-                                )
-                            } else {
-                                // TODO(perf): Can we use the VerifyingKey constructed for batch verification
-                                // to avoid re-parsing the public key here if batch verification fails?
-                                validate_transaction(
-                                    &processing_state.apply_state.config,
-                                    tx.clone(),
-                                    protocol_version,
-                                )
-                                .map_err(|(err, _)| err)
-                                .map(|_| ())
-                            };
-                            if let Err(err) = v {
-                                tracing::debug!(?tx_hash, error=?&err, "transaction invalid");
-                                validations[idx] = Some(err);
-                            }
+                        .map_err(|(err, _)| err)
+                        .map(|_| ());
+                        if let Err(err) = v {
+                            tracing::debug!(?tx_hash, error=?&err, "transaction invalid");
+                            *validation = Some(err);
                         }
                     });
             },
@@ -1808,38 +1724,34 @@ impl Runtime {
                 let (maybe_expired_txs, tx_expiration_flags) =
                     signed_txs.get_potentially_expired_transactions_and_expiration_flags();
 
-                maybe_expired_txs
-                    .par_chunks(chunk_size)
-                    .zip(tx_expiration_flags.par_chunks(chunk_size))
-                    .for_each(|(txs, expiration_flags)| {
-                        for (tx, non_expired) in txs.iter().zip(expiration_flags) {
-                            if !non_expired {
-                                continue;
-                            }
-
-                            let signer_id = tx.transaction.signer_id();
-                            let pubkey = tx.transaction.public_key();
-                            accounts.entry(signer_id).or_insert_with(|| {
-                                get_account(&processing_state.state_update, signer_id)
-                            });
-                            access_keys.entry((signer_id, pubkey)).or_insert_with(|| {
-                                get_access_key(&processing_state.state_update, signer_id, pubkey)
-                            });
-                            // For gas key transactions, also prefetch the nonce
-                            if let Some(nonce_index) = tx.transaction.nonce().nonce_index() {
-                                gas_key_nonces
-                                    .entry((signer_id, pubkey, nonce_index))
-                                    .or_insert_with(|| {
-                                        get_gas_key_nonce(
-                                            &processing_state.state_update,
-                                            signer_id,
-                                            pubkey,
-                                            nonce_index,
-                                        )
-                                    });
-                            }
+                maybe_expired_txs.par_iter().zip(tx_expiration_flags.par_iter()).for_each(
+                    |(tx, non_expired)| {
+                        if !non_expired {
+                            return;
                         }
-                    });
+                        let signer_id = tx.transaction.signer_id();
+                        let pubkey = tx.transaction.public_key();
+                        accounts.entry(signer_id).or_insert_with(|| {
+                            get_account(&processing_state.state_update, signer_id)
+                        });
+                        access_keys.entry((signer_id, pubkey)).or_insert_with(|| {
+                            get_access_key(&processing_state.state_update, signer_id, pubkey)
+                        });
+                        // For gas key transactions, also prefetch the nonce
+                        if let Some(nonce_index) = tx.transaction.nonce().nonce_index() {
+                            gas_key_nonces.entry((signer_id, pubkey, nonce_index)).or_insert_with(
+                                || {
+                                    get_gas_key_nonce(
+                                        &processing_state.state_update,
+                                        signer_id,
+                                        pubkey,
+                                        nonce_index,
+                                    )
+                                },
+                            );
+                        }
+                    },
+                );
                 (accounts, access_keys, gas_key_nonces)
             },
         );
@@ -2721,24 +2633,6 @@ impl Runtime {
             receipt_to_tx,
         })
     }
-}
-
-/// Returns the signature and public key if they are of ED25519 type.
-///
-/// Used for batch signature verification, which only supports ED25519 signatures.
-/// Returns `None` if the signature or public key are not ED25519.
-fn get_batchable_signature_and_public_key(
-    signed_tx: &SignedTransaction,
-) -> Option<(&ed25519_dalek::Signature, ed25519_dalek::VerifyingKey)> {
-    let (Signature::ED25519(sig), PublicKey::ED25519(key)) =
-        (&signed_tx.signature, signed_tx.transaction.public_key())
-    else {
-        return None;
-    };
-    let Ok(key) = ed25519_dalek::VerifyingKey::from_bytes(&key.0) else {
-        return None;
-    };
-    Some((sig, key))
 }
 
 impl ApplyState {

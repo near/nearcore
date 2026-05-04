@@ -20,7 +20,7 @@ static COMPILATION_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
         "near_vm_runner_compilation_seconds",
         "Histogram of how long it takes to compile things",
         &["vm_kind", "shard_id"],
-        None,
+        Some(vec![0.01, 0.02, 0.04, 0.08, 0.1, 0.2, 0.4, 0.6, 0.8, 1.0, 1.5, 2.0, 5.0]),
     )
     .unwrap()
 });

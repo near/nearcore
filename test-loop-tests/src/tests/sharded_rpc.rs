@@ -4,6 +4,10 @@ use near_jsonrpc::client::ChunkId;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::Message;
 use near_jsonrpc_primitives::types::call_function::RpcCallFunctionRequest;
+use near_jsonrpc_primitives::types::changes::{
+    RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockByTypeResponse,
+    RpcStateChangesInBlockRequest, RpcStateChangesInBlockResponse,
+};
 use near_jsonrpc_primitives::types::chunks::ChunkReference;
 use near_jsonrpc_primitives::types::congestion::RpcCongestionLevelRequest;
 use near_jsonrpc_primitives::types::light_client::{
@@ -26,7 +30,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockId, BlockReference, Finality, FunctionArgs, Gas, StoreKey,
     TransactionOrReceiptId,
 };
-use near_primitives::views::QueryRequest;
+use near_primitives::views::{QueryRequest, StateChangesRequestView};
 use near_store::ShardUId;
 
 /// EXPERIMENTAL_view_account queries should be forwarded to the right shard.
@@ -1375,5 +1379,290 @@ fn test_rpc_light_client_proof_unknown_outcome() {
         let err = run_proof_query(&mut h, node_id, bogus_receipt.clone())
             .expect_err("expected UNKNOWN_TRANSACTION_OR_RECEIPT");
         assert_rpc_error(&err, "UNKNOWN_TRANSACTION_OR_RECEIPT");
+    }
+}
+
+/// `block_effects` should scatter-gather across shards: an RPC node tracking
+/// only one shard should return changes for ALL shards by forwarding to peers.
+#[test]
+fn test_rpc_changes_in_block_scatter_gather() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+
+    // Submit a transfer so that alice has account changes in a block.
+    let alice = h.alice.clone();
+    let zoe = h.zoe.clone();
+    let validator = h.validator.clone();
+    let tx = h.env.node_for_account(&validator).tx_send_money(&alice, &zoe, Balance::from_near(1));
+    let tx_hash = tx.get_hash();
+    h.env.node_for_account(&validator).submit_tx(tx);
+
+    let target_height = h.env.node_for_account(&validator).head().height + 10;
+    h.env.runner_for_account(&validator).run_until_executed_height(target_height);
+
+    // Find the block where the transaction was executed (has alice's state changes).
+    let outcome =
+        h.env.node_for_account(&validator).client().chain.get_execution_outcome(&tx_hash).unwrap();
+    let block_hash = outcome.block_hash;
+
+    let run_block_effects = |h: &mut TwoShardHarness,
+                             node_id: &AccountId|
+     -> Result<RpcStateChangesInBlockByTypeResponse, RpcError> {
+        h.env.runner_for_account(node_id).run_with_jsonrpc_client(
+            |client| {
+                client.block_effects(RpcStateChangesInBlockRequest {
+                    block_reference: BlockReference::BlockId(BlockId::Hash(block_hash)),
+                })
+            },
+            Duration::seconds(5),
+        )
+    };
+
+    // Query from alice_node (tracks shard 0 only) — should get changes for both shards.
+    let alice_node = h.alice_node.clone();
+    let zoe_node = h.zoe_node.clone();
+
+    let result = run_block_effects(&mut h, &alice_node).unwrap();
+    let accounts_touched: Vec<_> = result.changes.iter().map(|c| c.account_id().clone()).collect();
+    assert!(
+        accounts_touched.iter().any(|a| a == &alice),
+        "alice_node: missing alice's changes, got: {accounts_touched:?}",
+    );
+
+    // Same from zoe_node (tracks shard 1 only) — scatter-gather should still find alice.
+    let result = run_block_effects(&mut h, &zoe_node).unwrap();
+    let accounts_touched: Vec<_> = result.changes.iter().map(|c| c.account_id().clone()).collect();
+    assert!(
+        accounts_touched.iter().any(|a| a == &alice),
+        "zoe_node: missing alice's changes, got: {accounts_touched:?}",
+    );
+}
+
+/// `changes` with AccountChanges should scatter-gather: requesting changes for
+/// accounts on different shards from a node that only tracks one shard should
+/// return results for all requested accounts.
+#[test]
+fn test_rpc_changes_scatter_gather() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+
+    let alice = h.alice.clone();
+    let zoe = h.zoe.clone();
+    let validator = h.validator.clone();
+
+    // Submit two independent TXs before running any blocks: alice → validator and
+    // zoe → validator. Both are on different shards, so their TX executions (which
+    // produce the sender-side AccountChanges) will land in chunks of the same block.
+    let tx_alice =
+        h.env.node_for_account(&validator).tx_send_money(&alice, &validator, Balance::from_near(1));
+    let tx_zoe =
+        h.env.node_for_account(&validator).tx_send_money(&zoe, &validator, Balance::from_near(1));
+    let tx_alice_hash = tx_alice.get_hash();
+    let tx_zoe_hash = tx_zoe.get_hash();
+    h.env.node_for_account(&validator).submit_tx(tx_alice);
+    h.env.node_for_account(&validator).submit_tx(tx_zoe);
+
+    let target_height = h.env.node_for_account(&validator).head().height + 10;
+    h.env.runner_for_account(&validator).run_until_executed_height(target_height);
+
+    let alice_outcome = h
+        .env
+        .node_for_account(&validator)
+        .client()
+        .chain
+        .get_execution_outcome(&tx_alice_hash)
+        .unwrap();
+    let zoe_outcome = h
+        .env
+        .node_for_account(&validator)
+        .client()
+        .chain
+        .get_execution_outcome(&tx_zoe_hash)
+        .unwrap();
+
+    // Both TXs are on different shards, so they execute in chunks of the same block.
+    let block_hash = alice_outcome.block_hash;
+    assert_eq!(
+        alice_outcome.block_hash, zoe_outcome.block_hash,
+        "alice and zoe TXs should execute in the same block"
+    );
+
+    let alice_node = h.alice_node.clone();
+    let zoe_node = h.zoe_node.clone();
+
+    // Helper: send a raw "changes" request and parse the response.
+    let send_changes_request =
+        |h: &mut TwoShardHarness, node_id: &AccountId, account_ids: Vec<AccountId>| {
+            let params = serde_json::to_value(RpcStateChangesInBlockByTypeRequest {
+                block_reference: BlockReference::BlockId(BlockId::Hash(block_hash)),
+                state_changes_request: StateChangesRequestView::AccountChanges { account_ids },
+            })
+            .unwrap();
+            let response = h
+                .env
+                .runner_for_account(node_id)
+                .run_with_jsonrpc_client(
+                    |client| {
+                        client.transport.send_jsonrpc_request(
+                            Message::request("changes".to_string(), params.clone()),
+                            false,
+                        )
+                    },
+                    Duration::seconds(5),
+                )
+                .unwrap();
+            match response {
+                Message::Response(resp) => {
+                    let value = resp.result.expect("expected Ok result");
+                    serde_json::from_value::<RpcStateChangesInBlockResponse>(value)
+                        .expect("failed to parse changes response")
+                }
+                other => panic!("expected Response, got: {other:?}"),
+            }
+        };
+
+    // Query alice's changes from alice_node (local shard) — baseline.
+    let result = send_changes_request(&mut h, &alice_node, vec![alice.clone()]);
+    let accounts_changed: Vec<_> =
+        result.changes.iter().map(|c| c.value.account_id().clone()).collect();
+    assert!(
+        accounts_changed.contains(&alice),
+        "alice_node (local): missing alice's changes, got: {accounts_changed:?}",
+    );
+
+    // Cross-shard forwarding: query alice's changes from zoe_node (doesn't track alice's shard).
+    let result = send_changes_request(&mut h, &zoe_node, vec![alice.clone()]);
+    let accounts_changed: Vec<_> =
+        result.changes.iter().map(|c| c.value.account_id().clone()).collect();
+    assert!(
+        accounts_changed.contains(&alice),
+        "zoe_node (cross-shard): missing alice's changes, got: {accounts_changed:?}",
+    );
+
+    // Cross-shard merge: query alice AND zoe together from zoe_node in a single request.
+    // This exercises the scatter-gather split-by-shard path: the coordinator sends
+    // alice's shard query to alice_node and zoe's shard query to zoe_node (local),
+    // then merges both results.
+    let result = send_changes_request(&mut h, &zoe_node, vec![alice.clone(), zoe.clone()]);
+    let accounts_changed: Vec<_> =
+        result.changes.iter().map(|c| c.value.account_id().clone()).collect();
+    assert!(
+        accounts_changed.contains(&alice),
+        "zoe_node (cross-shard merge): missing alice's changes, got: {accounts_changed:?}",
+    );
+    assert!(
+        accounts_changed.contains(&zoe),
+        "zoe_node (cross-shard merge): missing zoe's changes, got: {accounts_changed:?}",
+    );
+}
+
+/// `changes` with empty account_ids returns an empty result without error.
+/// Empty account_ids means "no accounts requested" — the scatter-gather
+/// coordinator short-circuits without fanning out.
+#[test]
+fn test_rpc_changes_empty_account_ids_scatter_gather() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+
+    let zoe_node = h.zoe_node.clone();
+    let head_height = h.env.node_for_account(&h.validator).head().height;
+
+    let params = serde_json::to_value(RpcStateChangesInBlockByTypeRequest {
+        block_reference: BlockReference::BlockId(BlockId::Height(head_height)),
+        state_changes_request: StateChangesRequestView::AccountChanges { account_ids: vec![] },
+    })
+    .unwrap();
+    let response = h
+        .env
+        .runner_for_account(&zoe_node)
+        .run_with_jsonrpc_client(
+            |client| {
+                client.transport.send_jsonrpc_request(
+                    Message::request("changes".to_string(), params.clone()),
+                    false,
+                )
+            },
+            Duration::seconds(5),
+        )
+        .unwrap();
+    match response {
+        Message::Response(resp) => {
+            let value = resp.result.expect("empty account_ids request should succeed");
+            let parsed: RpcStateChangesInBlockResponse =
+                serde_json::from_value(value).expect("failed to parse");
+            assert!(
+                parsed.changes.is_empty(),
+                "empty account_ids should return empty changes, got: {:?}",
+                parsed.changes.len(),
+            );
+        }
+        other => panic!("expected Response, got: {other:?}"),
+    }
+}
+
+/// `changes` with SingleAccessKeyChanges variant should scatter-gather
+/// correctly, routing by the access key's account_id to the right shard.
+#[test]
+fn test_rpc_changes_single_access_key_scatter_gather() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+
+    let alice = h.alice.clone();
+    let zoe = h.zoe.clone();
+    let validator = h.validator.clone();
+
+    // Create a transaction so alice has access key changes in a block.
+    let tx = h.env.node_for_account(&validator).tx_send_money(&alice, &zoe, Balance::from_near(1));
+    let tx_hash = tx.get_hash();
+    h.env.node_for_account(&validator).submit_tx(tx);
+
+    let target_height = h.env.node_for_account(&validator).head().height + 10;
+    h.env.runner_for_account(&validator).run_until_executed_height(target_height);
+
+    let outcome =
+        h.env.node_for_account(&validator).client().chain.get_execution_outcome(&tx_hash).unwrap();
+    let block_hash = outcome.block_hash;
+
+    let zoe_node = h.zoe_node.clone();
+
+    // Use SingleAccessKeyChanges with alice's key — alice is on a different shard
+    // from zoe_node, so scatter-gather must forward to alice's node.
+    let signer = near_crypto::InMemorySigner::from_seed(
+        alice.clone(),
+        near_crypto::KeyType::ED25519,
+        alice.as_ref(),
+    );
+    let params = serde_json::to_value(RpcStateChangesInBlockByTypeRequest {
+        block_reference: BlockReference::BlockId(BlockId::Hash(block_hash)),
+        state_changes_request: StateChangesRequestView::SingleAccessKeyChanges {
+            keys: vec![near_primitives::types::AccountWithPublicKey {
+                account_id: alice,
+                public_key: signer.public_key(),
+            }],
+        },
+    })
+    .unwrap();
+    let response = h
+        .env
+        .runner_for_account(&zoe_node)
+        .run_with_jsonrpc_client(
+            |client| {
+                client.transport.send_jsonrpc_request(
+                    Message::request("changes".to_string(), params.clone()),
+                    false,
+                )
+            },
+            Duration::seconds(5),
+        )
+        .unwrap();
+    match response {
+        Message::Response(resp) => {
+            // The request should succeed — scatter-gather forwards to alice's shard.
+            let value = resp.result.expect("SingleAccessKeyChanges request should succeed");
+            let parsed: RpcStateChangesInBlockResponse =
+                serde_json::from_value(value).expect("failed to parse");
+            assert_eq!(parsed.block_hash, block_hash, "response block_hash should match request");
+        }
+        other => panic!("expected Response, got: {other:?}"),
     }
 }

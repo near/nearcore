@@ -43,6 +43,7 @@ fn make_peer_manager(
         GenesisId::default(),
     )
     .unwrap()
+    .0
 }
 
 #[tokio::test]
