@@ -80,7 +80,7 @@ fn test_backfill_matches_normal_processing() {
 
     let stats = backfill_receipt_to_tx(
         chain_store,
-        &shared_storage(&store),
+        &shared_storage(&store, None),
         genesis_height,
         head_height,
         &default_options(),
@@ -151,7 +151,7 @@ fn test_backfill_idempotent() {
     // Run backfill once.
     let stats1 = backfill_receipt_to_tx(
         chain_store,
-        &shared_storage(&store),
+        &shared_storage(&store, None),
         genesis_height,
         head_height,
         &default_options(),
@@ -168,7 +168,7 @@ fn test_backfill_idempotent() {
     // Run backfill again (idempotent).
     let stats2 = backfill_receipt_to_tx(
         chain_store,
-        &shared_storage(&store),
+        &shared_storage(&store, None),
         genesis_height,
         head_height,
         &default_options(),
@@ -241,7 +241,7 @@ fn test_checkpoint_does_not_skip_mid_height_receipts() {
     let options = BackfillOptions { batch_size: 1, num_threads: 1, use_checkpoint: true };
     let stats = backfill_receipt_to_tx(
         chain_store,
-        &shared_storage(&store),
+        &shared_storage(&store, None),
         genesis_height,
         head_height,
         &options,
@@ -265,7 +265,7 @@ fn test_checkpoint_does_not_skip_mid_height_receipts() {
     // this height is done" — no receipts were skipped mid-height.
     let stats2 = backfill_receipt_to_tx(
         chain_store,
-        &shared_storage(&store),
+        &shared_storage(&store, None),
         checkpoint_value + 1,
         head_height,
         &options,
@@ -332,10 +332,10 @@ fn test_checkpoint_resume_after_partial_completion() {
     let options_with_checkpoint =
         BackfillOptions { batch_size: 1000, num_threads: 1, use_checkpoint: true };
 
-    // Phase 1: backfill only the first half.
+    // First: backfill only the first half.
     let stats1 = backfill_receipt_to_tx(
         chain_store,
-        &shared_storage(&store),
+        &shared_storage(&store, None),
         genesis_height,
         mid_height,
         &options_with_checkpoint,
@@ -350,10 +350,10 @@ fn test_checkpoint_resume_after_partial_completion() {
 
     let entries_after_first_half = store.iter(DBCol::ReceiptToTx).count();
 
-    // Phase 2: resume from checkpoint+1 to head.
+    // Then: resume from checkpoint+1 to head.
     let stats2 = backfill_receipt_to_tx(
         chain_store,
-        &shared_storage(&store),
+        &shared_storage(&store, None),
         checkpoint + 1,
         head_height,
         &options_with_checkpoint,
@@ -387,7 +387,7 @@ fn test_checkpoint_resume_after_partial_completion() {
 
     let stats_full = backfill_receipt_to_tx(
         chain_store,
-        &shared_storage(&store),
+        &shared_storage(&store, None),
         genesis_height,
         head_height,
         &default_options(),
@@ -440,6 +440,7 @@ fn test_split_storage_wiring() {
         read_store: read_store.clone(),
         write_store: write_store.clone(),
         checkpoint_store: checkpoint_store.clone(),
+        sst_temp_dir: None,
     };
 
     let chain_store = env.validator().client().chain.chain_store();
@@ -541,7 +542,7 @@ fn test_crash_between_entries_and_checkpoint_replay() {
     let partial_heights: Vec<BlockHeight> = (genesis_height..=mid_height).collect();
     let partial_stats = process_one_batch(
         chain_store,
-        &shared_storage(&store),
+        &shared_storage(&store, None),
         &pool,
         &partial_heights,
         Some((BACKFILL_CHECKPOINT_KEY, mid_height)),
@@ -563,7 +564,7 @@ fn test_crash_between_entries_and_checkpoint_replay() {
     // Replay from genesis — no checkpoint present — covers the same heights and then some.
     let replay_stats = backfill_receipt_to_tx(
         chain_store,
-        &shared_storage(&store),
+        &shared_storage(&store, None),
         genesis_height,
         head_height,
         &BackfillOptions { batch_size: 100, num_threads: 1, use_checkpoint: true },
@@ -588,7 +589,7 @@ fn test_crash_between_entries_and_checkpoint_replay() {
     }
     backfill_receipt_to_tx(
         chain_store,
-        &shared_storage(&store),
+        &shared_storage(&store, None),
         genesis_height,
         head_height,
         &default_options(),

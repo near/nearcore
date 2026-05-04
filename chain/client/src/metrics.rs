@@ -839,6 +839,46 @@ pub(crate) static BACKFILL_RECEIPT_TO_TX_LOWEST_COMPLETED_HEIGHT: LazyLock<IntGa
         .unwrap()
     });
 
+/// Number of batches quarantined because two within-batch entries shared a
+/// receipt id but disagreed on the `ReceiptToTxInfo` payload. Non-zero values
+/// indicate non-determinism in chain-data resolution; the affected batch's
+/// checkpoint is NOT advanced.
+pub(crate) static BACKFILL_RECEIPT_TO_TX_VALUE_DIVERGENCE_TOTAL: LazyLock<IntCounter> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "near_backfill_receipt_to_tx_value_divergence_total",
+            "Total ReceiptToTx backfill batches quarantined due to within-batch value divergence",
+        )
+        .unwrap()
+    });
+
+/// Number of times the ReceiptToTx backfill actor halted after exceeding the
+/// consecutive-error budget. Each increment corresponds to a permanent halt
+/// requiring operator intervention.
+pub(crate) static BACKFILL_RECEIPT_TO_TX_HALTED_TOTAL: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "near_backfill_receipt_to_tx_halted_total",
+            "Total ReceiptToTx backfill actor halts, labelled by reason",
+            &["reason"],
+        )
+        .unwrap()
+    });
+
+/// Number of times the ReceiptToTx backfill actor failed to acquire its
+/// per-PID SST staging-directory lock. A non-zero value indicates another
+/// process is already using the directory (PID reuse / collision); the
+/// affected actor instance falls back to the legacy per-key write path
+/// for the lifetime of the process.
+pub(crate) static BACKFILL_RECEIPT_TO_TX_SST_LOCK_CONTENTION_TOTAL: LazyLock<IntCounter> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "near_backfill_receipt_to_tx_sst_lock_contention_total",
+            "Total ReceiptToTx backfill SST staging-directory lock acquisition failures",
+        )
+        .unwrap()
+    });
+
 pub static SPICE_INVALID_CHUNK_REPLACED_WITH_EMPTY_TOTAL: LazyLock<IntCounterVec> =
     LazyLock::new(|| {
         try_create_int_counter_vec(

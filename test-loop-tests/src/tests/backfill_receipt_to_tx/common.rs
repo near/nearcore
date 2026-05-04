@@ -7,6 +7,7 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{Balance, Gas};
 use near_store::Store;
+use std::path::PathBuf;
 
 pub(super) const EPOCH_LENGTH: u64 = 5;
 
@@ -16,11 +17,20 @@ pub(super) fn default_options() -> BackfillOptions {
 
 /// Build a `BackfillStorage` where all three roles share the same underlying store.
 /// Useful for non-split-storage tests.
-pub(super) fn shared_storage(store: &Store) -> BackfillStorage {
+///
+/// `sst_temp_dir` is required (no implicit default) so each test makes an explicit
+/// choice about which write path it exercises. Tests on the in-memory test store
+/// must pass `None` because that store does not implement
+/// `Database::ingest_external_sst_files`; the SST path is exercised end-to-end by
+/// the unit tests in `core/store/tests/sst_ingest.rs` against a real RocksDB
+/// tempdir, so the actor tests verifying the `process_one_batch` glue stay on the
+/// legacy `insert + commit` path.
+pub(super) fn shared_storage(store: &Store, sst_temp_dir: Option<PathBuf>) -> BackfillStorage {
     BackfillStorage {
         read_store: store.clone(),
         write_store: store.clone(),
         checkpoint_store: store.clone(),
+        sst_temp_dir,
     }
 }
 

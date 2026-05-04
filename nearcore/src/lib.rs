@@ -588,8 +588,24 @@ pub async fn start_with_config_and_synchronization_impl(
         && config.client_config.backfill_receipt_to_tx.enabled
     {
         if split_store.is_some() {
+            // Resolve the cold store path the same way `copy_block_headers_to_cold_db`
+            // does in `migrations.rs`. The SST staging directory must live on the
+            // cold store's filesystem so RocksDB can rename instead of copy when
+            // ingesting the file. The per-PID subdirectory makes ownership obvious
+            // — only this process writes there, so startup cleanup is safe.
+            let cold_store_path = home_dir.join(
+                config
+                    .config
+                    .cold_store
+                    .as_ref()
+                    .and_then(|c| c.path.as_deref())
+                    .unwrap_or_else(|| Path::new("cold-data")),
+            );
+            let sst_temp_dir = cold_store_path
+                .join("backfill-receipt-to-tx-sst")
+                .join(format!("pid-{}", std::process::id()));
             let _backfill_actor = actor_system.spawn_tokio_actor(BackfillReceiptToTxActor::new(
-                BackfillStorage::for_node(&storage),
+                BackfillStorage::for_node(&storage, Some(sst_temp_dir)),
                 config.client_config.save_trie_changes,
                 &chain_genesis,
                 config.client_config.backfill_receipt_to_tx.clone(),

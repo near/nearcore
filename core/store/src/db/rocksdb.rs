@@ -399,6 +399,50 @@ impl Database for RocksDB {
         result
     }
 
+    fn multi_get_raw_bytes(&self, col: DBCol, keys: &[&[u8]]) -> Vec<Option<DBSlice<'_>>> {
+        let timer = metrics::DATABASE_OP_LATENCY_HIST
+            .with_label_values::<&str>(&["multi_get", col.into()])
+            .start_timer();
+        let read_options = rocksdb_read_options();
+        let cf = self.cf_handle(col);
+        let cfs_and_keys: Vec<(&ColumnFamily, &[u8])> = keys.iter().map(|k| (cf, *k)).collect();
+        let result = self
+            .db
+            .multi_get_cf_opt(cfs_and_keys, &read_options)
+            .into_iter()
+            .map(|res| {
+                res.unwrap_or_else(|err| panic!("{col}: multi_get_cf_opt failed: {err}"))
+                    .map(DBSlice::from_vec)
+            })
+            .collect();
+        timer.observe_duration();
+        result
+    }
+
+    fn pinned_multi_get_raw_bytes(&self, col: DBCol, keys: &[&[u8]]) -> Vec<Option<DBSlice<'_>>> {
+        // Metric label intentionally kept as "batched_multi_get" to preserve
+        // existing operator dashboards. The Rust method name was renamed to
+        // `pinned_multi_get_*` to match its actual single-CF + pinned-slice
+        // semantics; the label is operator-facing and renaming would break
+        // Grafana queries.
+        let timer = metrics::DATABASE_OP_LATENCY_HIST
+            .with_label_values::<&str>(&["batched_multi_get", col.into()])
+            .start_timer();
+        let read_options = rocksdb_read_options();
+        let cf = self.cf_handle(col);
+        let result = self
+            .db
+            .batched_multi_get_cf_opt(cf, keys.iter().copied(), false, &read_options)
+            .into_iter()
+            .map(|res| {
+                res.unwrap_or_else(|err| panic!("{col}: batched_multi_get_cf_opt failed: {err}"))
+                    .map(DBSlice::from_rocksdb_slice)
+            })
+            .collect();
+        timer.observe_duration();
+        result
+    }
+
     fn iter_raw_bytes(&self, col: DBCol) -> DBIterator {
         Box::new(self.iter_raw_bytes_internal(col, None, None, None))
     }
