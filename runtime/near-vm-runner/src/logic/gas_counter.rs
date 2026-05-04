@@ -329,18 +329,28 @@ impl GasCounter {
         let old_burnt_gas = self.fast_counter.burnt_gas;
         let deduct_gas_result = self.deduct_gas(burn_cost.gas, use_gas);
         // accurate accounting of burnt gas in profiles, even when running into limits
-        self.update_profile_action(
-            action,
-            Gas::from_gas(self.fast_counter.burnt_gas.saturating_sub(old_burnt_gas)),
-        );
-        // TODO: This needs to be behind a protocol feature!
-        // For compute costs, we always account for the full cost, even if only a part of the gas was payable.
-        self.send_action_compute_usage = self
-            .send_action_compute_usage
-            .checked_add(burn_cost.compute)
-            .ok_or(HostError::IntegerOverflow)?;
-        deduct_gas_result?;
-        Ok(())
+        let burnt_gas = Gas::from_gas(self.fast_counter.burnt_gas.saturating_sub(old_burnt_gas));
+        self.update_profile_action(action, burnt_gas);
+        if deduct_gas_result.is_ok() {
+            // normal case: burn real compute cost
+            self.send_action_compute_usage = self
+                .send_action_compute_usage
+                .checked_add(burn_cost.compute)
+                .ok_or(HostError::IntegerOverflow)?;
+        } else {
+            // Special case: we ran out of gas (`HostError::GasLimitExceeded` or
+            // `HostError::GasExceeded`).
+            // To preserve backwards-compatibility, burn compute costs exactly
+            // equal to the gas cost for this last step. Even it if should be an
+            // increased compute cost. This could be a problem if the last step
+            // has a high compute cost.
+            // Changing this behaviour would be a protocol change.
+            self.send_action_compute_usage = self
+                .send_action_compute_usage
+                .checked_add(burnt_gas.as_gas())
+                .ok_or(HostError::IntegerOverflow)?;
+        }
+        deduct_gas_result
     }
 
     /// Pay the gas key fees for an add_key action, split into two cost categories:
@@ -544,8 +554,7 @@ mod tests {
                     &ExtCostsConfig::test(),
                     counter.send_action_compute_usage
                 ),
-                // compute usage can go beyond burnt gas
-                counter.burnt_gas().as_gas().max(above_limit.as_gas())
+                counter.burnt_gas().as_gas()
             );
         }
 
