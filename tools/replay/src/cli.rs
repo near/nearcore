@@ -195,10 +195,8 @@ fn replay_shard(
             Err(err) => {
                 let tail = chain_store.tail();
                 if num_blocks.is_some() {
-                    return Err(anyhow::anyhow!(err).context(format!(
-                        "prepare failed (chain tail height: {})",
-                        tail,
-                    )));
+                    return Err(anyhow::anyhow!(err)
+                        .context(format!("prepare failed (chain tail height: {})", tail,)));
                 }
                 tracing::info!(
                     target: "replay",
