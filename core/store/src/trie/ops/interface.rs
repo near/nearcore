@@ -51,9 +51,11 @@ pub enum GenericNodeOrIndex<GenericTrieNodePtr> {
 /// TrieNodePtr can potentially be of any type including GenericTrieNodePtr for normal nodes or
 /// GenericNodeOrIndex<GenericTrieNodePtr> for updated nodes.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Default)]
 pub enum GenericTrieNode<TrieNodePtr, GenericValueHandle> {
     /// Used for either an empty root node (indicating an empty trie), or as a temporary
     /// node to ease implementation.
+    #[default]
     Empty,
     Leaf {
         extension: Box<[u8]>,
@@ -70,11 +72,6 @@ pub enum GenericTrieNode<TrieNodePtr, GenericValueHandle> {
     },
 }
 
-impl<N, V> Default for GenericTrieNode<N, V> {
-    fn default() -> Self {
-        Self::Empty
-    }
-}
 
 impl<N, V> GenericTrieNode<N, V>
 where
