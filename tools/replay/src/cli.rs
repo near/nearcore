@@ -5,7 +5,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
-use near_primitives::types::ShardId;
+use near_primitives::types::{BlockHeight, ShardId};
 use near_replay::MemtrieShardReplayController;
 use near_store::adapter::StoreAdapter;
 use near_store::flat::FlatStorageStatus;
@@ -106,6 +106,58 @@ impl ReplayCommand {
     }
 }
 
+/// Wraps a single shard's replay progress bar. Computes the bar position
+/// from the most recently replayed block height, so the caller does not
+/// need to track an iteration counter separately.
+struct ReplayProgress {
+    bar: ProgressBar,
+    /// Marker height such that `bar position = head_marker - replayed_height`.
+    /// Set to `head_height + 1` so the bar advances to `1` after the first
+    /// (head) block is replayed.
+    head_marker: BlockHeight,
+}
+
+impl ReplayProgress {
+    fn new(
+        chain_store: &ChainStore,
+        shard_id: ShardId,
+        num_blocks: Option<u64>,
+        show_progress: bool,
+    ) -> Self {
+        let head_height = chain_store.head().map(|tip| tip.height).unwrap_or(0);
+        let bar = if show_progress {
+            let total =
+                num_blocks.unwrap_or_else(|| head_height.saturating_sub(chain_store.tail()));
+            let bar =
+                ProgressBar::with_draw_target(Some(total), ProgressDrawTarget::stderr_with_hz(5))
+                    .with_style(
+                        ProgressStyle::with_template(
+                            "shard {msg} [{bar:40}] {pos}/{len} ({eta} remaining)",
+                        )
+                        .unwrap(),
+                    );
+            bar.set_message(shard_id.to_string());
+            bar
+        } else {
+            ProgressBar::hidden()
+        };
+        Self { bar, head_marker: head_height + 1 }
+    }
+
+    fn update(&self, replayed_height: BlockHeight) {
+        let pos = self.head_marker.saturating_sub(replayed_height);
+        self.bar.set_position(pos);
+    }
+
+    fn finish(&self) {
+        self.bar.finish();
+    }
+
+    fn abandon(&self) {
+        self.bar.abandon();
+    }
+}
+
 /// Replays chunks for a single shard, walking backwards from the chain head.
 /// If `num_blocks` is `Some`, replays at most that many blocks; otherwise
 /// replays until no more blocks are available. Verifies each chunk's
@@ -128,24 +180,7 @@ fn replay_shard(
     )
     .context("failed to create replay controller")?;
 
-    let progress_bar = if show_progress {
-        let total = num_blocks.unwrap_or_else(|| {
-            let head_height = chain_store.head().map(|tip| tip.height).unwrap_or(0);
-            let tail_height = chain_store.tail();
-            head_height.saturating_sub(tail_height)
-        });
-        let bar = ProgressBar::with_draw_target(Some(total), ProgressDrawTarget::stderr_with_hz(5))
-            .with_style(
-                ProgressStyle::with_template(
-                    "shard {msg} [{bar:40}] {pos}/{len} ({eta} remaining)",
-                )
-                .unwrap(),
-            );
-        bar.set_message(shard_id.to_string());
-        bar
-    } else {
-        ProgressBar::hidden()
-    };
+    let progress = ReplayProgress::new(chain_store, shard_id, num_blocks, show_progress);
 
     tracing::info!(
         target: "replay",
@@ -155,24 +190,38 @@ fn replay_shard(
     );
 
     for i in 0..num_blocks.unwrap_or(u64::MAX) {
-        let current_hash = *controller.current_block_hash();
-        let height = chain_store
-            .get_block(&current_hash)
-            .context("failed to get current block")?
-            .header()
-            .height();
-
-        let result = controller.replay_current_chunk().context("replay failed")?;
+        let prepared = match controller.prepare_next_replay() {
+            Ok(p) => p,
+            Err(err) => {
+                let tail = chain_store.tail();
+                if num_blocks.is_some() {
+                    return Err(anyhow::anyhow!(err).context(format!(
+                        "prepare failed (chain tail height: {})",
+                        tail,
+                    )));
+                }
+                tracing::info!(
+                    target: "replay",
+                    %shard_id,
+                    tail,
+                    ?err,
+                    "stopping replay, likely reached chain tail",
+                );
+                break;
+            }
+        };
+        let result = prepared.replay().context("replay failed")?;
+        let height = result.block_height;
         if let Err(e) = result.verify() {
             if fail_fast {
-                progress_bar.abandon();
+                progress.abandon();
                 return Err(
                     anyhow::anyhow!(e).context(format!("chunk mismatch at height {}", height))
                 );
             }
             tracing::warn!(target: "replay", %shard_id, %height, "chunk mismatch: {:#}", e);
         }
-        progress_bar.set_position(i + 1);
+        progress.update(height);
         tracing::debug!(
             target: "replay",
             block = i + 1,
@@ -180,19 +229,9 @@ fn replay_shard(
             %height,
             "replayed chunk"
         );
-
-        if !controller.advance().context("advance failed")? {
-            tracing::info!(
-                target: "replay",
-                %shard_id,
-                "reached end of replay window after {} blocks",
-                i + 1,
-            );
-            break;
-        }
     }
 
-    progress_bar.finish();
+    progress.finish();
     Ok(())
 }
 

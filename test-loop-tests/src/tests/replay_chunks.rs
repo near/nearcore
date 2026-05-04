@@ -70,6 +70,8 @@ fn test_replay_chunks_controller() {
     // Run a few more blocks so the head is past the call block.
     env.rpc_runner().run_for_number_of_blocks(3);
 
+    let target_block_hash = receipt_outcomes[0].block_hash;
+
     for (shard_uid, receipt_outcome) in shard_uids.into_iter().zip(receipt_outcomes) {
         let rpc_client = env.rpc_node().client();
         let runtime = rpc_client.runtime_adapter.clone();
@@ -84,24 +86,22 @@ fn test_replay_chunks_controller() {
         )
         .expect("failed to create replay controller");
 
-        let start_height =
-            rpc_client.chain.get_block(controller.current_block_hash()).unwrap().header().height();
-        assert!(
-            start_height > call_height,
-            "controller should start past call_height, got {} vs {}",
-            start_height,
-            call_height,
-        );
-
-        // Advance each controller backwards to the block containing the calls.
-        while rpc_client.chain.get_block(controller.current_block_hash()).unwrap().header().height()
-            > call_height
-        {
-            assert!(controller.advance().expect("advance failed"), "reached genesis");
-        }
-
-        let replay_result = controller.replay_current_chunk().expect("replay failed");
-        replay_result.verify().expect("chunk extra mismatch");
+        // Replay backwards from the head, verifying each chunk, until we
+        // reach the block containing the calls.
+        let replay_result = loop {
+            let prepared = controller.prepare_next_replay().expect("prepare_next_replay failed");
+            let result = prepared.replay().expect("replay failed");
+            result.verify().expect("chunk extra mismatch");
+            assert!(
+                result.block_height >= call_height,
+                "advanced past call block without finding it (height {} < {})",
+                result.block_height,
+                call_height,
+            );
+            if result.block_hash == target_block_hash {
+                break result;
+            }
+        };
 
         assert_replayed_outcome(&replay_result, &receipt_outcome.outcome_with_id);
     }
