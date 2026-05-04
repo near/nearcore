@@ -23,11 +23,47 @@ mod tests {
 
     const MAX_N_PAIRING: usize = 15;
 
-    // Runs the host function with `bls12381_not_in_group_fix` set to both
-    // `true` (post-`BLS12381NotInGroupFix`) and `false` (legacy), asserting
-    // the same expected result in each case. The 2-arg form additionally
-    // checks that the register output is identical between the two modes.
+    // Runs the host function with `bls12381_not_in_group_fix`. The
+    // optional `bls12381_not_in_group_fix:` selector pins the flag to a
+    // single value; without it, both `true` and `false` are exercised and
+    // asserted to match.
+    //
+    //   run_bls12381_fn!(fn, buf)
+    //       → both flag values, expect success; asserts registers are
+    //         equal across modes, returns the register.
+    //   run_bls12381_fn!(fn, buf, expected)
+    //       → both flag values, expect $expected.
+    //   run_bls12381_fn!(fn, buf, bls12381_not_in_group_fix: f)
+    //       → only with $bls12381_not_in_group_fix=f, expect success,
+    //         returns the register.
+    //   run_bls12381_fn!(fn, buf, bls12381_not_in_group_fix: f, exp)
+    //       → only with $bls12381_not_in_group_fix=f, expect $exp.
     macro_rules! run_bls12381_fn {
+        // Single flag, given expected (no register return).
+        ($fn_name:ident, $buffer:expr, bls12381_not_in_group_fix: $flag:expr, $expected_res:expr) => {{
+            let not_in_group_fix: bool = $flag;
+            let mut logic_builder = VMLogicBuilder::default();
+            logic_builder.config.bls12381_not_in_group_fix = not_in_group_fix;
+            let mut logic = logic_builder.build();
+            let input = logic.internal_mem_write($buffer.concat().as_slice());
+            let res = logic.$fn_name(input.len, input.ptr, 0).unwrap();
+            assert_eq!(
+                res, $expected_res,
+                "with bls12381_not_in_group_fix={not_in_group_fix}"
+            );
+        }};
+        // Single flag, success expected, returns register.
+        ($fn_name:ident, $buffer:expr, bls12381_not_in_group_fix: $flag:expr) => {{
+            let not_in_group_fix: bool = $flag;
+            let mut logic_builder = VMLogicBuilder::default();
+            logic_builder.config.bls12381_not_in_group_fix = not_in_group_fix;
+            let mut logic = logic_builder.build();
+            let input = logic.internal_mem_write($buffer.concat().as_slice());
+            let res = logic.$fn_name(input.len, input.ptr, 0).unwrap();
+            assert_eq!(res, 0, "with bls12381_not_in_group_fix={not_in_group_fix}");
+            logic.registers().get_for_free(0).unwrap().to_vec()
+        }};
+        // Both flags, common expected (no register return).
         ($fn_name:ident, $buffer:expr, $expected_res:expr) => {{
             let buffer = $buffer.concat();
             for not_in_group_fix in [true, false] {
@@ -42,6 +78,8 @@ mod tests {
                 );
             }
         }};
+        // Both flags, success expected, returns register; asserts the
+        // register is identical across flag values.
         ($fn_name:ident, $buffer:expr) => {{
             let buffer = $buffer.concat();
             let mut prev: Option<Vec<u8>> = None;
@@ -51,10 +89,7 @@ mod tests {
                 let mut logic = logic_builder.build();
                 let input = logic.internal_mem_write(buffer.as_slice());
                 let res = logic.$fn_name(input.len, input.ptr, 0).unwrap();
-                assert_eq!(
-                    res, 0,
-                    "with bls12381_not_in_group_fix={not_in_group_fix}"
-                );
+                assert_eq!(res, 0, "with bls12381_not_in_group_fix={not_in_group_fix}");
                 let reg = logic.registers().get_for_free(0).unwrap().to_vec();
                 if let Some(p) = &prev {
                     assert_eq!(p, &reg, "register output differs between flag values");
@@ -670,15 +705,30 @@ mod tests {
         slow_test_bls12381_p2_sum_incorrect_input_fuzzer
     );
 
+    /// Input is rejected by the legacy parse path; runs only post-fix and
+    /// checks `P + (0, ±2)` matches the library sum. Legacy rejection is
+    /// covered by `test_bls12381_g1_add_x0_test_vectors`.
     #[test]
     fn test_bls12381_sum_x0_fuzzer() {
         let mut zero_x_uncompress = vec![0u8; 2 * 48];
         zero_x_uncompress[2 * 48 - 1] = 2;
-
         let zero_x_point = G1Operations::deserialize_g(zero_x_uncompress);
+
         bolero::check!().with_type().for_each(|p: &E1Point| {
-            check_sum_p1(p.p, zero_x_point);
-            check_sum_p1(p.p, zero_x_point.neg());
+            for q in [zero_x_point, zero_x_point.neg()] {
+                let p_ser = G1Operations::serialize_uncompressed_g(&p.p).to_vec();
+                let q_ser = G1Operations::serialize_uncompressed_g(&q).to_vec();
+                let got = run_bls12381_fn!(
+                    bls12381_p1_sum,
+                    [vec![0u8], p_ser, vec![0u8], q_ser],
+                    bls12381_not_in_group_fix: true
+                );
+                let library_sum = G1Operations::serialize_uncompressed_g(
+                    &p.p.add(&q).into_affine(),
+                )
+                .to_vec();
+                assert_eq!(got, library_sum);
+            }
         });
     }
 
@@ -1111,11 +1161,17 @@ mod tests {
         };
     }
 
+    /// Input is rejected by the legacy parse path; runs only post-fix.
+    /// Legacy rejection is covered by `test_bls12381_g1_add_x0_test_vectors`.
     #[test]
     fn test_bls12381_decompress_x_0() {
         let mut zero_x = vec![0u8; 48];
         zero_x[0] = 0x80;
-        let res1 = run_bls12381_fn!(bls12381_p1_decompress, [zero_x]);
+        let res1 = run_bls12381_fn!(
+            bls12381_p1_decompress,
+            [zero_x],
+            bls12381_not_in_group_fix: true
+        );
         let mut zero_x_uncompress = vec![0u8; 2 * 48];
         zero_x_uncompress[2 * 48 - 1] = 2;
         assert_eq!(res1, zero_x_uncompress);
@@ -1542,21 +1598,18 @@ mod tests {
                     bytes_input[i * 256..(i + 1) * 256].to_vec(),
                 ));
             }
-
-            for not_in_group_fix in [true, false] {
-                let mut logic_builder = VMLogicBuilder::default();
-                logic_builder.config.bls12381_not_in_group_fix = not_in_group_fix;
-                let mut logic = logic_builder.build();
-                let input = logic.internal_mem_write(&bytes_input_fix.concat());
-                let res = sum_g1_return_value(input, &mut logic);
-                if not_in_group_fix {
-                    assert_eq!(res, 0);
-                    let reg = logic.registers().get_for_free(0).unwrap().to_vec();
-                    cmp_output_g1(&record[1], reg);
-                } else {
-                    assert_eq!(res, 1);
-                }
-            }
+            let got = run_bls12381_fn!(
+                bls12381_p1_sum,
+                bytes_input_fix,
+                bls12381_not_in_group_fix: true
+            );
+            cmp_output_g1(&record[1], got);
+            run_bls12381_fn!(
+                bls12381_p1_sum,
+                bytes_input_fix,
+                bls12381_not_in_group_fix: false,
+                1
+            );
         }
     }
 
