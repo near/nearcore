@@ -79,13 +79,13 @@ impl<'a> PrepareContext<'a> {
                 }
 
                 wp::Payload::TypeSection(reader) => {
-                    self.validator
-                        .type_section(&reader)
-                        .map_err(|_| PrepareError::Deserialization)?;
                     self.type_limit = self
                         .type_limit
                         .checked_sub(u64::from(reader.count()))
                         .ok_or(PrepareError::TooManyTypes)?;
+                    self.validator
+                        .type_section(&reader)
+                        .map_err(|_| PrepareError::Deserialization)?;
                     self.copy_section(SectionId::Type, reader.range())?;
                 }
 
