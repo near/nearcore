@@ -10,7 +10,11 @@ use near_primitives::utils::min_heap::{MinHeap, PeekMut};
 use near_primitives::version::ProtocolFeature;
 use near_store::trie::ShardUId;
 use rand::Rng;
+use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+
+/// Local index of a chunk producer in the current epoch's chunk_producers list.
+type ValidatorIdx = usize;
 
 /// Marker struct to communicate the error where you try to assign validators to shards
 /// and there are not enough to even meet the minimum per shard.
@@ -152,57 +156,60 @@ pub enum AssignmentStrategy {
     /// Carry over the previous epoch's assignment by `ShardIndex`. Used when
     /// the shard layout is unchanged across the boundary.
     CarryOver,
-    /// Start fresh with no prior assignment. Used pre-`StickyValidatorAssignment`
+    /// Start fresh with no prior assignment. Used pre-`StickyReshardingValidatorAssignment`
     /// on layout changes, where `ShardIndex`-based copying is meaningless.
     Fresh,
-    /// Sticky-by-`ShardId` across a layout change. Unchanged shards keep their
+    /// Sticky-by-`ShardId` across a resharding. Unchanged shards keep their
     /// validators by `ShardId`; split children inherit a stake-balanced subset
     /// of their parent's validators via greedy bin-packing.
     ///
-    /// `shard_idx_mapping[prev_idx]` is the list of new layout shard indices that
-    /// descend from the prev layout shard at `prev_idx`. Single-item entry
-    /// means the shard persists unchanged, multi-item entry means a split.
-    Sticky { shard_idx_mapping: Vec<Vec<ShardIndex>> },
+    /// `shard_idx_mapping[prev_idx]` is the list of new layout shard indices
+    /// that descend from the prev layout shard at `prev_idx`. Single-item
+    /// entry means the shard persists unchanged, multi-item entry means a
+    /// split.
+    StickyResharding { shard_idx_mapping: Vec<Vec<ShardIndex>> },
 }
 
 impl AssignmentStrategy {
     /// Pick the strategy for an epoch boundary. If the layouts are identical,
-    /// use `CarryOver`. Otherwise, use `Sticky` (when the `StickyValidatorAssignment`
-    /// feature is enabled and the new layout is derived from the prev layout)
-    /// or `Fresh`.
+    /// use `CarryOver`. Otherwise, use `StickyResharding` (when the
+    /// `StickyReshardingValidatorAssignment` feature is enabled and the new
+    /// layout is derived from the prev layout) or `Fresh`.
     ///
     /// Falls back to `Fresh` when sticky construction fails: in production,
-    /// `next_next_shard_layout()` always returns an inherited or derived layout
-    /// that `sticky()` accepts, so the fallback should be unreachable there.
-    /// Test setups that swap in synthetic layouts (e.g. `multi_shard`) hit this
-    /// path and continue with a fresh assignment instead of halting.
+    /// `next_next_shard_layout()` always returns an inherited or derived
+    /// layout that `sticky_resharding()` accepts, so the fallback should be
+    /// unreachable there. Test setups that swap in synthetic layouts
+    /// (e.g. `multi_shard`) hit this path and continue with a fresh
+    /// assignment instead of halting.
     pub fn select(
         protocol_version: ProtocolVersion,
-        new_layout: &ShardLayout,
         prev_layout: &ShardLayout,
+        new_layout: &ShardLayout,
     ) -> Self {
         if prev_layout == new_layout {
             return Self::CarryOver;
         }
-        if !ProtocolFeature::StickyValidatorAssignment.enabled(protocol_version) {
+        if !ProtocolFeature::StickyReshardingValidatorAssignment.enabled(protocol_version) {
             return Self::Fresh;
         }
-        Self::sticky(new_layout, prev_layout).unwrap_or_else(|err| {
+        Self::sticky_resharding(new_layout, prev_layout).unwrap_or_else(|err| {
             tracing::warn!(
                 target: "epoch_manager",
                 ?err,
-                "sticky strategy unavailable for non-derived layouts; falling back to fresh"
+                "sticky-resharding strategy unavailable for non-derived layouts; falling back to fresh"
             );
             Self::Fresh
         })
     }
 
-    /// Build a `Sticky` strategy directly. Validates that `new_layout` was
-    /// derived from `prev_layout` by walking the new layout's shards and
-    /// resolving each one's parent. Errors if any new shard has no parent in
-    /// the prev layout, or if any prev shard has no descendants in the new
-    /// layout (i.e., a merge or a dropped shard, neither yet supported).
-    pub(crate) fn sticky(
+    /// Build a `StickyResharding` strategy directly. Validates that
+    /// `new_layout` was derived from `prev_layout` by walking the prev
+    /// layout's shards and resolving each one's children in the new layout,
+    /// producing a prev->new child mapping. Errors if any prev shard has no
+    /// descendants in the new layout (i.e., a merge or a dropped shard,
+    /// neither yet supported).
+    pub(crate) fn sticky_resharding(
         new_layout: &ShardLayout,
         prev_layout: &ShardLayout,
     ) -> Result<Self, ShardLayoutError> {
@@ -217,18 +224,18 @@ impl AssignmentStrategy {
                 prev_to_new[shard_idx].push(child_idx);
             }
         }
-        Ok(Self::Sticky { shard_idx_mapping: prev_to_new })
+        Ok(Self::StickyResharding { shard_idx_mapping: prev_to_new })
     }
 
     /// Whether this strategy should override the configured
     /// `shard_assignment_changes_limit` to permit more rebalancing in a single
-    /// epoch. True only for `Sticky`, where freshly split children would
-    /// otherwise be chronically under-staffed; bumping the limit lets them
-    /// reach target population in one go.
-    pub(crate) fn override_changes_limit(&self) -> bool {
+    /// epoch. True only for `StickyResharding`, where freshly split children
+    /// would otherwise be chronically under-staffed; bumping the limit lets
+    /// them reach target population in one go.
+    pub(crate) fn needs_changes_limit_override(&self) -> bool {
         match self {
             Self::CarryOver | Self::Fresh => false,
-            Self::Sticky { .. } => true,
+            Self::StickyResharding { .. } => true,
         }
     }
 }
@@ -241,8 +248,8 @@ fn carry_over_by_shard_index(
     chunk_producers: &[ValidatorStake],
     num_shards: usize,
     prev_assignment: &[Vec<ValidatorStake>],
-) -> Vec<Vec<usize>> {
-    let chunk_producer_indices = build_chunk_producer_indices(chunk_producers);
+) -> Vec<Vec<ValidatorIdx>> {
+    let cp_indices = build_chunk_producer_indices(chunk_producers);
     let mut assignment = vec![vec![]; num_shards];
     let max_shards_to_copy = prev_assignment.len().min(num_shards);
     for (shard_index, validator_stakes) in
@@ -250,7 +257,7 @@ fn carry_over_by_shard_index(
     {
         let mut shard_validators = vec![];
         for validator_stake in validator_stakes {
-            if let Some(&index) = chunk_producer_indices.get(validator_stake.account_id()) {
+            if let Some(&index) = cp_indices.get(validator_stake.account_id()) {
                 shard_validators.push(index);
             }
         }
@@ -282,9 +289,9 @@ impl ChildLoad {
 }
 
 /// Greedy stake-balanced bin-pack of `validators` across the children of a
-/// split shard. Walks validators desc by stake (tiebreak by account id) and
-/// at each step places the next one on whichever child currently has the
-/// lowest `(stake, count, shard_index)`.
+/// split shard. Walks validators desc by stake (tiebreak: lower account id
+/// wins) and at each step places the next one on whichever child currently
+/// has the lowest `(stake, count, shard_index)`.
 ///
 /// Returns a `BTreeMap` with one entry per child (empty `Vec` if the child
 /// got no validators). Within each child's `Vec`, validators appear in
@@ -292,23 +299,22 @@ impl ChildLoad {
 ///
 /// `validators` are indices into `chunk_producers`; the returned `Vec`s
 /// contain the same indices. `children` are `ShardIndex` values into the new
-/// layout.
+/// layout. With one child the function trivially places every survivor on
+/// that child.
 fn bin_pack_into_children(
-    validators: Vec<usize>,
+    validators: Vec<ValidatorIdx>,
     children: &[ShardIndex],
     chunk_producers: &[ValidatorStake],
-) -> BTreeMap<ShardIndex, Vec<usize>> {
+) -> BTreeMap<ShardIndex, Vec<ValidatorIdx>> {
     let children = children.iter().sorted().collect_vec();
     let mut child_loads = children.iter().map(|&&idx| ChildLoad::new(idx)).collect_vec();
     let mut result: BTreeMap<_, _> = children.iter().map(|&idx| (*idx, Vec::new())).collect();
 
-    let sorted_validators = validators
-        .into_iter()
-        .sorted_by_key(|&i| {
-            let cp = &chunk_producers[i];
-            (cp.stake(), cp.account_id())
-        })
-        .rev();
+    // Stakes desc, then account id asc — matches OrderedValidatorStake.
+    let sorted_validators = validators.into_iter().sorted_by_key(|&i| {
+        let cp = &chunk_producers[i];
+        (Reverse(cp.stake()), cp.account_id().clone())
+    });
     for validator_idx in sorted_validators {
         let (min_pos, _) = child_loads.iter().enumerate().min_by_key(|(_, load)| **load).unwrap();
         let load = &mut child_loads[min_pos];
@@ -324,63 +330,61 @@ fn bin_pack_into_children(
 /// See `AssignmentStrategy` for the meaning of each variant.
 ///
 /// PRECONDITION: Each validator appears on at most one prev shard's
-/// assignment. Both `Sticky` and `CarryOver` propagate the prev assignment
-/// per-prev-shard, so duplicates would carry into the new assignment and can
-/// trip `assign_to_balance_shards`'s hard-limit assert.
+/// assignment. Both `StickyResharding` and `CarryOver` propagate the prev
+/// assignment per-prev-shard, so duplicates would carry into the new
+/// assignment and can trip `assign_to_balance_shards`'s hard-limit assert.
 fn get_initial_chunk_producer_assignment(
     chunk_producers: &[ValidatorStake],
     num_shards: usize,
     strategy: &AssignmentStrategy,
     prev_assignment: Vec<Vec<ValidatorStake>>,
-) -> Vec<Vec<usize>> {
+) -> Vec<Vec<ValidatorIdx>> {
     match strategy {
         AssignmentStrategy::Fresh => vec![vec![]; num_shards],
         AssignmentStrategy::CarryOver => {
             carry_over_by_shard_index(chunk_producers, num_shards, &prev_assignment)
         }
-        AssignmentStrategy::Sticky { shard_idx_mapping } => {
+        AssignmentStrategy::StickyResharding { shard_idx_mapping } => {
             sticky_by_shard_id(chunk_producers, num_shards, shard_idx_mapping, &prev_assignment)
         }
     }
 }
 
-#[inline]
-fn build_chunk_producer_indices(chunk_producers: &[ValidatorStake]) -> HashMap<AccountId, usize> {
+fn build_chunk_producer_indices(
+    chunk_producers: &[ValidatorStake],
+) -> HashMap<AccountId, ValidatorIdx> {
     chunk_producers.iter().enumerate().map(|(i, vs)| (vs.account_id().clone(), i)).collect()
 }
 
 /// Map the prev assignment onto the new layout by `ShardId`. Used by
-/// `AssignmentStrategy::Sticky`. Unchanged shards keep their validators
-/// directly; split children get a stake-balanced subset of their parent's
-/// validators via greedy bin-packing. Validators that are no longer chunk
-/// producers in the new epoch are dropped.
+/// `AssignmentStrategy::StickyResharding`. Unchanged shards keep their
+/// validators directly; split children get a stake-balanced subset of their
+/// parent's validators via greedy bin-packing. Validators that are no longer
+/// chunk producers in the new epoch are dropped.
 fn sticky_by_shard_id(
     chunk_producers: &[ValidatorStake],
     num_shards: usize,
     shard_idx_mapping: &[Vec<ShardIndex>],
     prev_assignment: &[Vec<ValidatorStake>],
-) -> Vec<Vec<usize>> {
-    let chunk_producer_indices = build_chunk_producer_indices(chunk_producers);
+) -> Vec<Vec<ValidatorIdx>> {
+    let cp_indices = build_chunk_producer_indices(chunk_producers);
     debug_assert_eq!(shard_idx_mapping.len(), prev_assignment.len());
-    let mut assignment: Vec<Vec<usize>> = vec![vec![]; num_shards];
+    let mut assignment: Vec<Vec<ValidatorIdx>> = vec![vec![]; num_shards];
     for (prev_idx, new_indices) in shard_idx_mapping.iter().enumerate() {
         // Drop validators that are no longer chunk producers in the new epoch
         // (unstaked, kicked out, fell below threshold, role-changed).
         let surviving = prev_assignment[prev_idx]
             .iter()
-            .filter_map(|v| chunk_producer_indices.get(v.account_id()).copied())
+            .filter_map(|v| cp_indices.get(v.account_id()).copied())
             .collect_vec();
 
-        if new_indices.len() == 1 {
-            assignment[new_indices[0]] = surviving;
-        } else {
-            // Distribute survivors across the split children with greedy
-            // stake-balanced bin-packing.
-            for (child_idx, child_validators) in
-                bin_pack_into_children(surviving, new_indices, chunk_producers)
-            {
-                assignment[child_idx] = child_validators;
-            }
+        // Distribute survivors across the children with greedy stake-balanced
+        // bin-packing. With one child this trivially places every survivor on
+        // that child.
+        for (child_idx, child_validators) in
+            bin_pack_into_children(surviving, new_indices, chunk_producers)
+        {
+            assignment[child_idx] = child_validators;
         }
     }
     assignment
@@ -511,8 +515,9 @@ fn assign_to_balance_shards(
 ///
 /// NOTE: when `chunk_producers.len() < min_validators_per_shard * num_shards`,
 /// `assign_to_satisfy_shards` is taken instead of `assign_to_balance_shards`,
-/// and `strategy`/`prev_chunk_producers_assignment` are ignored — `Sticky`'s
-/// stickiness-by-id property does not hold in that regime.
+/// and `strategy`/`prev_chunk_producers_assignment` are ignored —
+/// `StickyResharding`'s stickiness-by-id property does not hold in that
+/// regime.
 ///
 /// Caller must guarantee that `chunk_producers` is sorted in non-increasing
 /// order by stake.
@@ -540,7 +545,7 @@ pub(crate) fn assign_chunk_producers_to_shards(
     // their target population. Raise the change limit so the rebalancing loop
     // can top them up in one shot, rather than spreading the cost across many
     // epochs and leaving children chronically understaffed.
-    let effective_changes_limit = if strategy.override_changes_limit() {
+    let effective_changes_limit = if strategy.needs_changes_limit_override() {
         let target_per_shard = num_chunk_producers / (num_shards as usize);
         shard_assignment_changes_limit.max(target_per_shard)
     } else {
@@ -615,13 +620,15 @@ pub fn shard_id_to_index(
 mod tests {
     use crate::RngSeed;
     use crate::shard_assignment::assign_chunk_producers_to_shards as assign_inner;
+    use near_crypto::{KeyType, PublicKey};
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::types::{AccountId, Balance, NumShards, ShardId, ShardIndex};
     use std::collections::{BTreeMap, HashMap, HashSet};
 
-    /// Test wrapper preserving the legacy (`ShardIndex`-based) signature used by
-    /// the historical tests, by passing `None` for the layouts. New tests for the
+    /// Test wrapper preserving the legacy boolean-based signature used by the
+    /// historical tests by mapping `use_stable_shard_assignment` to
+    /// `AssignmentStrategy::{CarryOver, Fresh}`. New tests for the
     /// sticky-by-`ShardId` behavior call `assign_inner` directly.
     fn assign_chunk_producers_to_shards(
         chunk_producers: Vec<ValidatorStake>,
@@ -652,8 +659,36 @@ mod tests {
         ValidatorStake::test(format!("test{:02}", n).parse().unwrap())
     }
 
+    #[test]
+    /// `select` falls back to `Fresh` (instead of panicking or erroring) when
+    /// the new layout has no derivation relationship to the prev layout —
+    /// e.g. two independent V2 layouts with no `shards_split_map`. This is
+    /// the path that synthetic test layouts (`multi_shard`) take to keep
+    /// unrelated tests from failing on nightly.
+    fn test_select_falls_back_to_fresh_for_non_derived_layouts() {
+        use near_primitives::version::PROTOCOL_VERSION;
+
+        let prev_layout = ShardLayout::v2(
+            vec!["aa".parse().unwrap()],
+            vec![ShardId::new(0), ShardId::new(1)],
+            None,
+        );
+        // Independent layout — not derived from `prev_layout`. No parent map.
+        let new_layout = ShardLayout::v2(
+            vec!["aa".parse().unwrap(), "bb".parse().unwrap()],
+            vec![ShardId::new(2), ShardId::new(3), ShardId::new(4)],
+            None,
+        );
+        // sticky_resharding errors on this directly (signaling the issue),
+        // and select swallows the error and returns Fresh.
+        assert!(super::AssignmentStrategy::sticky_resharding(&new_layout, &prev_layout).is_err());
+        assert!(matches!(
+            super::AssignmentStrategy::select(PROTOCOL_VERSION, &prev_layout, &new_layout),
+            super::AssignmentStrategy::Fresh,
+        ));
+    }
+
     fn validator_stake_for_test_with_stake(n: usize, stake: u128) -> ValidatorStake {
-        use near_crypto::{KeyType, PublicKey};
         ValidatorStake::new(
             format!("test{:02}", n).parse().unwrap(),
             PublicKey::empty(KeyType::ED25519),
@@ -1049,16 +1084,14 @@ mod tests {
 
     #[test]
     /// Equal-stake validators: count tiebreak makes them alternate across
-    /// children. Real case: production validators often cluster around
-    /// similar stake amounts.
+    /// children. With the lexicographic tiebreak (low account id first),
+    /// even-indexed validators land on the lower-index child and odd-indexed
+    /// on the higher-index child. Real case: production validators often
+    /// cluster around similar stake amounts.
     fn test_bin_pack_equal_stakes_round_robin() {
         let result = bin_pack_named(&[(0, 10), (1, 10), (2, 10), (3, 10)], &[10, 20]);
-        let a = &result[&10];
-        let b = &result[&20];
-        assert_eq!(a.len(), 2);
-        assert_eq!(b.len(), 2);
-        let union: HashSet<_> = a.iter().chain(b.iter()).cloned().collect();
-        assert_eq!(union, (0..4).map(account).collect::<HashSet<_>>());
+        assert_eq!(result[&10], vec![account(0), account(2)]);
+        assert_eq!(result[&20], vec![account(1), account(3)]);
     }
 
     #[test]
@@ -1111,41 +1144,26 @@ mod tests {
             1,
             0,
             RngSeed::default(),
-            &super::AssignmentStrategy::sticky(&new_layout, &prev_layout).unwrap(),
+            &super::AssignmentStrategy::sticky_resharding(&new_layout, &prev_layout).unwrap(),
             prev_assignment,
         )
         .unwrap();
 
-        let by_id = assignment_by_shard_id(&assignment, &new_layout);
+        let accounts_by_shard_id = assignment_by_shard_id(&assignment, &new_layout);
 
         // Unchanged shard 0 retains its validators by id.
-        let shard_0 = ShardId::new(0);
-        assert_eq!(
-            by_id[&shard_0],
-            vec![
-                validator_stake_for_test(0).account_id().clone(),
-                validator_stake_for_test(1).account_id().clone(),
-            ]
-        );
+        assert_eq!(accounts_by_shard_id[&ShardId::new(0)], vec![account(0), account(1)],);
 
-        // The parent (id 1) splits into two children. Each child should
-        // receive at least one of the parent's old validators, and every
-        // parent validator should land on exactly one child.
+        // Parent shard 1 splits into children with ShardIds 2 and 3 (V2
+        // assigns max+1, max+2). Bin-pack with equal stakes places
+        // even-indexed parent validators on the lower-index child and
+        // odd-indexed on the higher-index child.
         let children = new_layout
             .get_children_shards_ids(ShardId::new(1))
             .expect("shard 1 should have children");
-        assert_eq!(children.len(), 2);
-        let parent_validator_ids: HashSet<AccountId> =
-            (2..6).map(|i| validator_stake_for_test(i).account_id().clone()).collect();
-        let child_a_validators: HashSet<_> = by_id[&children[0]].iter().cloned().collect();
-        let child_b_validators: HashSet<_> = by_id[&children[1]].iter().cloned().collect();
-        assert!(!child_a_validators.is_empty());
-        assert!(!child_b_validators.is_empty());
-        assert!(child_a_validators.is_disjoint(&child_b_validators));
-        assert_eq!(
-            child_a_validators.union(&child_b_validators).cloned().collect::<HashSet<_>>(),
-            parent_validator_ids
-        );
+        assert_eq!(children, vec![ShardId::new(2), ShardId::new(3)]);
+        assert_eq!(accounts_by_shard_id[&ShardId::new(2)], vec![account(2), account(4)]);
+        assert_eq!(accounts_by_shard_id[&ShardId::new(3)], vec![account(3), account(5)]);
     }
 
     #[test]
@@ -1182,17 +1200,17 @@ mod tests {
             1,
             0,
             RngSeed::default(),
-            &super::AssignmentStrategy::sticky(&new_layout, &prev_layout).unwrap(),
+            &super::AssignmentStrategy::sticky_resharding(&new_layout, &prev_layout).unwrap(),
             prev_assignment,
         )
         .unwrap();
 
-        let by_id = assignment_by_shard_id(&assignment, &new_layout);
+        let accounts_by_shard_id = assignment_by_shard_id(&assignment, &new_layout);
         let parent = ShardId::new(1);
         let children = new_layout.get_children_shards_ids(parent).unwrap();
 
         let stake_total = |shard_id| -> u128 {
-            by_id[&shard_id]
+            accounts_by_shard_id[&shard_id]
                 .iter()
                 .map(|acct| {
                     chunk_producers
@@ -1217,8 +1235,8 @@ mod tests {
             imbalance
         );
         // And both children must have inherited at least one parent validator.
-        assert!(!by_id[&children[0]].is_empty());
-        assert!(!by_id[&children[1]].is_empty());
+        assert!(!accounts_by_shard_id[&children[0]].is_empty());
+        assert!(!accounts_by_shard_id[&children[1]].is_empty());
     }
 
     #[test]
@@ -1241,29 +1259,26 @@ mod tests {
             1,
             0,
             RngSeed::default(),
-            &super::AssignmentStrategy::sticky(&new_layout, &prev_layout).unwrap(),
+            &super::AssignmentStrategy::sticky_resharding(&new_layout, &prev_layout).unwrap(),
             prev_assignment,
         )
         .unwrap();
 
-        let by_id = assignment_by_shard_id(&assignment, &new_layout);
-        let unchanged_expected = |orig: &[usize]| -> Vec<AccountId> {
-            orig.iter().map(|&i| validator_stake_for_test(i).account_id().clone()).collect()
+        let accounts_by_shard_id = assignment_by_shard_id(&assignment, &new_layout);
+        let expected_unchanged_accounts = |prev_account_indices: &[usize]| -> Vec<AccountId> {
+            prev_account_indices.iter().map(|&i| account(i)).collect()
         };
         // Unchanged shards 0, 2, 3 keep their original validators.
-        assert_eq!(by_id[&ShardId::new(0)], unchanged_expected(&[0, 1]));
-        assert_eq!(by_id[&ShardId::new(2)], unchanged_expected(&[4, 5]));
-        assert_eq!(by_id[&ShardId::new(3)], unchanged_expected(&[6, 7]));
+        assert_eq!(accounts_by_shard_id[&ShardId::new(0)], expected_unchanged_accounts(&[0, 1]));
+        assert_eq!(accounts_by_shard_id[&ShardId::new(2)], expected_unchanged_accounts(&[4, 5]));
+        assert_eq!(accounts_by_shard_id[&ShardId::new(3)], expected_unchanged_accounts(&[6, 7]));
 
         // The split children together cover exactly the parent's validators.
         let children = new_layout.get_children_shards_ids(ShardId::new(1)).unwrap();
         let mut combined: Vec<AccountId> =
-            children.iter().flat_map(|c| by_id[c].iter().cloned()).collect();
+            children.iter().flat_map(|c| accounts_by_shard_id[c].iter().cloned()).collect();
         combined.sort();
-        let mut expected = vec![
-            validator_stake_for_test(2).account_id().clone(),
-            validator_stake_for_test(3).account_id().clone(),
-        ];
+        let mut expected = vec![account(2), account(3)];
         expected.sort();
         assert_eq!(combined, expected);
     }

@@ -1208,11 +1208,14 @@ mod tests {
     /// uses a derived shard layout in which one parent shard splits into two
     /// children. Asserts that `chunk_producers_settlement` survives the split:
     /// unchanged shards keep their validators by `ShardId`, and each child
-    /// shard inherits at least one of the parent's validators.
+    /// shard inherits at least one of the parent's validators. Also asserts
+    /// the same invariants are *violated* under the `Fresh` strategy, so the
+    /// invariants actually exercise the sticky-by-id behavior rather than
+    /// holding by coincidence.
     #[test]
     fn test_validator_assignment_sticky_resharding() {
         // Skip if the feature isn't active in this build.
-        if !ProtocolFeature::StickyValidatorAssignment.enabled(PROTOCOL_VERSION) {
+        if !ProtocolFeature::StickyReshardingValidatorAssignment.enabled(PROTOCOL_VERSION) {
             return;
         }
 
@@ -1226,8 +1229,8 @@ mod tests {
         let new_layout = ShardLayout::derive_shard_layout(&prev_layout, "ttt".parse().unwrap());
         assert_eq!(new_layout.num_shards(), 3);
 
-        let prev_config = create_epoch_config(prev_layout.clone(), 8, Some(8), Some(8), None);
-        let new_config = create_epoch_config(new_layout.clone(), 8, Some(8), Some(8), None);
+        let prev_config = create_epoch_config(prev_layout.clone(), 6, Some(6), Some(6), None);
+        let new_config = create_epoch_config(new_layout.clone(), 6, Some(6), Some(6), None);
 
         // 6 chunk producers — enough that each shard gets at least 2 in the
         // 3-shard layout without triggering the satisfy-shards path.
@@ -1240,8 +1243,8 @@ mod tests {
             ("fff", Balance::from_yoctonear(600)),
         ]);
 
-        // Bootstrap epoch T from a V3 prev so we obtain a fresh V5 EpochInfo
-        // for the prev-layout epoch.
+        // Bootstrap epoch T with an empty placeholder so the prev-layout
+        // epoch's `EpochInfo` is generated through the normal selection path.
         let bootstrap_prev = create_prev_epoch_info::<&str>(7, &[], &[]);
         let epoch_info_t = proposals_to_epoch_info(
             &prev_config,
@@ -1257,7 +1260,7 @@ mod tests {
             None,
         )
         .unwrap();
-        assert!(epoch_info_t.shard_layout().is_some(), "epoch T should be V5 (DynamicResharding+)");
+        assert!(epoch_info_t.shard_layout().is_some(), "epoch info should include shard layout");
 
         // Capture the per-shard validator-account sets for epoch T.
         let validators_for_shard_index = |info: &EpochInfo, idx: usize| -> HashSet<AccountId> {
@@ -1274,83 +1277,76 @@ mod tests {
         let total_t: HashSet<_> = prev_settlement.iter().flatten().cloned().collect();
         assert_eq!(total_t.len(), 6);
 
-        // Epoch T+1 uses the post-split layout. Same proposals — so any
-        // movement is purely from layout-driven reassignment, not validator
-        // turnover.
-        // Use `Sticky` explicitly: this is the variant under test.
-        let epoch_info_t1 = proposals_to_epoch_info(
-            &new_config,
-            [0; 32],
-            &epoch_info_t,
-            proposals,
-            Default::default(),
-            Default::default(),
-            Balance::ZERO,
-            PROTOCOL_VERSION,
-            new_layout.clone(),
-            &AssignmentStrategy::sticky(&new_layout, &prev_layout).unwrap(),
-            None,
-        )
-        .unwrap();
+        // Run epoch T+1 under both strategies and check the sticky invariants
+        // for each. Sticky should satisfy all three; Fresh should violate at
+        // least one (otherwise the invariants don't actually distinguish the
+        // strategies).
+        let run_t1 = |strategy: &AssignmentStrategy| -> EpochInfo {
+            proposals_to_epoch_info(
+                &new_config,
+                [0; 32],
+                &epoch_info_t,
+                proposals.clone(),
+                Default::default(),
+                Default::default(),
+                Balance::ZERO,
+                PROTOCOL_VERSION,
+                new_layout.clone(),
+                strategy,
+                None,
+            )
+            .unwrap()
+        };
 
-        // Stickiness invariants. These are tight enough to fail under the
-        // `Fresh` strategy (round-robin from scratch), so they actually
-        // exercise the sticky path rather than holding by coincidence:
+        // Returns Ok(()) if all three invariants hold; Err(name) on first
+        // violation. Same proposals across epochs, so any movement is purely
+        // layout-driven.
         //   1. Every parent validator lands on one of the split children.
-        //      With `Fresh`, ddd ends up on unchanged shard 0 instead.
-        //   2. Each child inherits ≥1 parent validator (warm start for state
+        //   2. Each child inherits >=1 parent validator (warm start for state
         //      sync).
-        //   3. The unchanged shard keeps 2 of its 3 prev validators (one is
-        //      pulled into a child to balance population). Under `Fresh` the
-        //      unchanged shard keeps only 1.
+        //   3. The unchanged shard keeps at least 2 of its 3 prev validators.
         let prev_id_set: HashSet<ShardId> = prev_layout.shard_ids().collect();
         let prev_idx = |id: ShardId| -> usize { prev_layout.get_shard_index(id).unwrap() };
-        let mut total_unwanted_moves = 0usize;
-        let mut split_parent_inheritance: HashMap<ShardId, HashSet<AccountId>> = HashMap::new();
-        for new_shard_id in new_layout.shard_ids() {
-            let new_idx = new_layout.get_shard_index(new_shard_id).unwrap();
-            let new_validators = validators_for_shard_index(&epoch_info_t1, new_idx);
-            if prev_id_set.contains(&new_shard_id) {
-                let prev_validators = &prev_settlement[prev_idx(new_shard_id)];
-                let lost = prev_validators.difference(&new_validators).count();
-                total_unwanted_moves += lost;
-            } else {
-                let parent = new_layout.get_parent_shard_id(new_shard_id).unwrap();
-                let parent_validators = &prev_settlement[prev_idx(parent)];
-                let inherited: HashSet<AccountId> =
-                    parent_validators.intersection(&new_validators).cloned().collect();
-                assert!(
-                    !inherited.is_empty(),
-                    "child shard {} (parent {}) inherited no validators from parent: \
-                     parent had {:?}, child has {:?}",
-                    new_shard_id,
-                    parent,
-                    parent_validators,
-                    new_validators,
-                );
-                split_parent_inheritance.entry(parent).or_default().extend(inherited);
+        let check_sticky_invariants = |epoch_info_t1: &EpochInfo| -> Result<(), &'static str> {
+            let mut total_unwanted_moves = 0usize;
+            let mut split_parent_inheritance: HashMap<ShardId, HashSet<AccountId>> = HashMap::new();
+            for new_shard_id in new_layout.shard_ids() {
+                let new_idx = new_layout.get_shard_index(new_shard_id).unwrap();
+                let new_validators = validators_for_shard_index(epoch_info_t1, new_idx);
+                if prev_id_set.contains(&new_shard_id) {
+                    let prev_validators = &prev_settlement[prev_idx(new_shard_id)];
+                    let lost = prev_validators.difference(&new_validators).count();
+                    total_unwanted_moves += lost;
+                } else {
+                    let parent = new_layout.get_parent_shard_id(new_shard_id).unwrap();
+                    let parent_validators = &prev_settlement[prev_idx(parent)];
+                    let inherited: HashSet<AccountId> =
+                        parent_validators.intersection(&new_validators).cloned().collect();
+                    if inherited.is_empty() {
+                        return Err("invariant 2: child inherited no parent validators");
+                    }
+                    split_parent_inheritance.entry(parent).or_default().extend(inherited);
+                }
             }
-        }
-        // Invariant 1: every parent validator landed on one of the children.
-        // The `Fresh` strategy fails this — at least one parent validator is
-        // re-distributed onto an unchanged shard during round-robin filling.
-        for (parent, inherited) in &split_parent_inheritance {
-            let parent_validators = &prev_settlement[prev_idx(*parent)];
-            assert_eq!(
-                inherited, parent_validators,
-                "parent {} validators not fully preserved across its children: \
-                 parent had {:?}, children inherited {:?}",
-                parent, parent_validators, inherited,
-            );
-        }
-        // Invariant 2: unchanged shard loses at most 1 validator (the one
-        // pulled into a child to balance population). The `Fresh` baseline
-        // loses 2 of the 3 prev validators on the unchanged shard.
+            for (parent, inherited) in &split_parent_inheritance {
+                let parent_validators = &prev_settlement[prev_idx(*parent)];
+                if inherited != parent_validators {
+                    return Err("invariant 1: not all parent validators landed on its children");
+                }
+            }
+            if total_unwanted_moves > 1 {
+                return Err("invariant 3: too many validators moved away from unchanged shards");
+            }
+            Ok(())
+        };
+
+        let sticky_strategy =
+            AssignmentStrategy::sticky_resharding(&new_layout, &prev_layout).unwrap();
+        check_sticky_invariants(&run_t1(&sticky_strategy)).expect("sticky must satisfy invariants");
         assert!(
-            total_unwanted_moves <= 1,
-            "too many validators moved away from unchanged shards: {} \
-             (sticky should keep all but one; Fresh would lose 2)",
-            total_unwanted_moves,
+            check_sticky_invariants(&run_t1(&AssignmentStrategy::Fresh)).is_err(),
+            "fresh should violate at least one sticky invariant — otherwise these \
+             assertions don't actually exercise the sticky-by-id behavior",
         );
     }
 }

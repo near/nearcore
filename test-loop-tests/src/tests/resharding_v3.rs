@@ -349,7 +349,7 @@ fn get_base_shard_layout() -> ShardLayout {
     ShardLayout::v2(boundary_accounts, shard_ids, shards_split_map)
 }
 
-/// Asserts the stickiness invariants of `ProtocolFeature::StickyValidatorAssignment`:
+/// Asserts the stickiness invariants of `ProtocolFeature::StickyReshardingValidatorAssignment`:
 /// every shard in `new_layout` that already existed in `prev_layout` keeps at least
 /// one of its previous chunk producers, and every shard in `new_layout` that is a
 /// child of a split parent inherits at least one of the parent's previous chunk
@@ -859,7 +859,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             // flag intentionally overrides stickiness, so this only fires when
             // shuffling is off (which is the default for these tests).
             if !params.shuffle_shard_assignment_for_chunk_producers
-                && ProtocolFeature::StickyValidatorAssignment.enabled(PROTOCOL_VERSION)
+                && ProtocolFeature::StickyReshardingValidatorAssignment.enabled(PROTOCOL_VERSION)
             {
                 let post_epoch_id =
                     client.epoch_manager.get_epoch_id(&tip.last_block_hash).unwrap();

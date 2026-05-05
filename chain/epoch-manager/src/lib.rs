@@ -832,14 +832,15 @@ impl EpochManager {
             block_info,
         )?;
 
-        let last_resharding = (next_next_shard_layout != next_shard_layout)
+        let has_same_shard_layout = next_next_shard_layout == next_shard_layout;
+        let last_resharding = (!has_same_shard_layout)
             .then(|| next_epoch_info.epoch_height() + 1)
             .or_else(|| next_epoch_info.last_resharding());
 
         let strategy = AssignmentStrategy::select(
             next_next_epoch_version,
-            &next_next_shard_layout,
             &next_shard_layout,
+            &next_next_shard_layout,
         );
 
         let next_next_epoch_info = match proposals_to_epoch_info(

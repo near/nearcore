@@ -385,7 +385,7 @@ pub enum ProtocolFeature {
     /// shard splits, distribute the parent's chunk producers across its child
     /// shards using greedy stake-balanced bin-packing. Reduces unnecessary state
     /// sync after resharding.
-    StickyValidatorAssignment,
+    StickyReshardingValidatorAssignment,
 }
 
 impl ProtocolFeature {
@@ -506,7 +506,7 @@ impl ProtocolFeature {
             ProtocolFeature::DynamicResharding => 150,
             ProtocolFeature::StrictNonce => 151,
             ProtocolFeature::EarlyKickout => 152,
-            ProtocolFeature::StickyValidatorAssignment => 153,
+            ProtocolFeature::StickyReshardingValidatorAssignment => 153,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.

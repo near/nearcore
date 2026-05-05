@@ -1123,8 +1123,8 @@ pub(crate) fn print_epoch_analysis(
         let strategy = match mode {
             EpochAnalysisMode::CheckConsistency => AssignmentStrategy::select(
                 next_next_protocol_version,
-                &next_next_shard_layout,
                 &next_shard_layout,
+                &next_next_shard_layout,
             ),
             EpochAnalysisMode::Backtest => AssignmentStrategy::CarryOver,
         };
