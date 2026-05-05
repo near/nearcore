@@ -171,6 +171,7 @@ pub fn spice_pre_validate_chunk_state_witness(
                 transaction_validity_check_results,
             ),
             receipts: receipts_to_apply,
+            compiled_indices: chunk_header.compiled_indices().to_vec(),
             block: block_context,
             storage_context,
         }
@@ -1490,6 +1491,7 @@ mod tests {
                 chunk_hash: None,
                 transactions: SignedValidPeriodTransactions::new(transactions, txs_validity),
                 receipts,
+                compiled_indices: vec![],
                 block: build_spice_apply_chunk_block_context(
                     block.header(),
                     &prev_execution_results,

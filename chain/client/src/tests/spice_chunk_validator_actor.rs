@@ -519,6 +519,7 @@ fn simulate_chunk_application(
                 gas_limit: GAS_LIMIT,
                 is_new_chunk: true,
                 on_post_state_ready: None,
+                compiled_indices: chunk_header.compiled_indices().to_vec(),
             },
             {
                 let is_new_chunk = true;

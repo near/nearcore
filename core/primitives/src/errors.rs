@@ -833,6 +833,10 @@ pub enum ActionErrorKind {
         public_key: Option<Box<PublicKey>>,
         balance: Balance,
     } = 25,
+    /// A receipt admitted to the pending-compile queue exceeded its
+    /// residence TTL before any chunk producer signaled its bytecode as
+    /// compiled. The receipt is dropped and standard refunds are issued.
+    CompileQueueExpired = 26,
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -1162,6 +1166,12 @@ impl Display for ActionErrorKind {
                         account_id, balance
                     )
                 }
+            }
+            ActionErrorKind::CompileQueueExpired => {
+                write!(
+                    f,
+                    "pending-compile-queue entry expired before its bytecode finished compiling"
+                )
             }
         }
     }

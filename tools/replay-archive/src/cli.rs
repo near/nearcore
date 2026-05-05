@@ -325,6 +325,7 @@ impl ReplayController {
                 chunk_hash: Some(chunk_header.chunk_hash().clone()),
                 transactions,
                 receipts,
+                compiled_indices: chunk_header.compiled_indices().to_vec(),
                 block: block_context,
                 storage_context,
             })

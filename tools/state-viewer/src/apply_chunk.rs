@@ -177,6 +177,7 @@ pub fn apply_chunk(
                 gas_limit: chunk_header.gas_limit(),
                 is_new_chunk: true,
                 on_post_state_ready: None,
+                compiled_indices: chunk_header.compiled_indices().to_vec(),
             },
             ApplyChunkBlockContext {
                 block_type: BlockType::Normal,

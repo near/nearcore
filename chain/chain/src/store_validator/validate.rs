@@ -308,7 +308,10 @@ pub(crate) fn processed_receipt_ids_exist_in_receipts(
     for entry in metadata {
         let receipt_id = entry.receipt_id();
         match entry.source() {
-            ReceiptSource::Local | ReceiptSource::Delayed | ReceiptSource::Instant => {
+            ReceiptSource::Local
+            | ReceiptSource::Delayed
+            | ReceiptSource::Instant
+            | ReceiptSource::PendingCompile => {
                 unwrap_or_err_db!(
                     sv.store.get_ser::<Receipt>(DBCol::Receipts, receipt_id.as_bytes()),
                     "ProcessedReceiptIds references {:?} but it doesn't exist in Receipts column",

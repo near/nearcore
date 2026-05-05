@@ -311,6 +311,7 @@ pub fn get_fake_next_block_chunk_headers(
                 CongestionInfo::default(),
                 BandwidthRequests::empty(),
                 None,
+                vec![],
                 signer,
                 PROTOCOL_VERSION,
             ))

@@ -912,6 +912,7 @@ impl NightshadeRuntime {
             config.client_config.state_sync.parts_compression_lvl,
             config.client_config.cloud_archival_writer.is_some(),
             config.client_config.save_receipt_to_tx,
+            near_async::thread_pool::contract_compilation_pool().clone(),
         ))
     }
 }

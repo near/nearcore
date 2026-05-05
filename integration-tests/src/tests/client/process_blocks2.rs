@@ -164,6 +164,7 @@ fn test_bad_shard_id() {
             congestion_info,
             chunk.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
             None,
+            chunk.compiled_indices().to_vec(),
             &validator_signer,
             PROTOCOL_VERSION,
         )
@@ -308,6 +309,7 @@ fn test_validate_chunk_with_chunk_extra_bad_congestion_info_impl(mode: BadConges
         congestion_info,
         chunk.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
         None,
+        chunk.compiled_indices().to_vec(),
         &validator_signer,
         PROTOCOL_VERSION,
     );

@@ -493,6 +493,31 @@ impl<'a> NodeRunner<'a> {
         ret.unwrap()
     }
 
+    /// Run the loop until `get_final_transaction_result(tx_hash)` resolves to
+    /// a terminal status (`SuccessValue`/`SuccessReceiptId`/`Failure`). This
+    /// is the right wait for "submit a transaction and wait for all of its
+    /// receipts to finish" — useful for deploys that go through the
+    /// pending-compile queue, since those need both the tx outcome and the
+    /// later advancement-chunk's receipt outcome to be present.
+    pub fn run_until_tx_final(
+        &mut self,
+        tx_hash: CryptoHash,
+        maximum_duration: Duration,
+    ) -> FinalExecutionOutcomeView {
+        self.run_until(
+            |node| match node.client().chain.get_final_transaction_result(&tx_hash) {
+                Ok(view) => matches!(
+                    view.status,
+                    FinalExecutionStatus::SuccessValue(_) | FinalExecutionStatus::Failure(_)
+                ),
+                Err(_) => false,
+            },
+            maximum_duration,
+        );
+        let node = TestLoopNode { data: &self.test_loop.data, node_data: self.node_data };
+        node.client().chain.get_final_transaction_result(&tx_hash).unwrap()
+    }
+
     /// With spice blocks are executed separately from production so this runs until block with passed in
     /// header is executed.
     /// Without spice returns immediately.

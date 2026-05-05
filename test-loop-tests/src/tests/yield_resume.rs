@@ -18,7 +18,7 @@ use near_primitives::receipt::{Receipt, ReceiptEnum, VersionedReceiptEnum};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance};
+use near_primitives::types::{AccountId, Balance, BlockHeight};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
@@ -26,9 +26,6 @@ use std::collections::BTreeMap;
 use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::Arc;
-
-// The height of the next block after environment setup is complete.
-const NEXT_BLOCK_HEIGHT_AFTER_SETUP: u64 = 3;
 
 fn get_outgoing_receipts_from_latest_executed_block(env: &TestLoopEnv) -> Vec<Receipt> {
     let node = env.validator();
@@ -89,8 +86,11 @@ fn get_transaction_hashes_in_latest_executed_block(env: &TestLoopEnv) -> Vec<Cry
     transactions
 }
 
-/// Create environment with deployed test contract.
-fn prepare_env() -> TestLoopEnv {
+/// Create environment with deployed test contract. Returns the next block
+/// height the test should process after setup; this depends on how many
+/// blocks the deploy actually took to advance through the pending-compile
+/// queue and so cannot be a constant any more.
+fn prepare_env() -> (TestLoopEnv, BlockHeight) {
     init_test_logger();
 
     let test_account: AccountId = "test0".parse().unwrap();
@@ -114,22 +114,21 @@ fn prepare_env() -> TestLoopEnv {
     );
     env.validator().submit_tx(deploy_contract_tx.clone());
 
-    // Allow two blocks for the contract to be deployed
-    env.validator_runner().run_until_executed_height(2);
-    assert!(matches!(
-        env.validator()
-            .client()
-            .chain
-            .get_final_transaction_result(&deploy_contract_tx.get_hash())
-            .unwrap()
-            .status,
-        FinalExecutionStatus::SuccessValue(_),
-    ));
+    // Wait until the deploy actually finished executing. With
+    // CompileQueueDeferral active the deploy is admitted to the
+    // pending-compile queue and only executes once natural producer
+    // signaling advances it.
+    let deploy_outcome = env
+        .validator_runner()
+        .run_until_tx_final(deploy_contract_tx.get_hash(), Duration::seconds(10));
+    assert!(
+        matches!(deploy_outcome.status, FinalExecutionStatus::SuccessValue(_)),
+        "deploy contract must succeed before yield setup, got: {:?}",
+        deploy_outcome.status,
+    );
 
-    let last_block_height = env.validator().last_executed().height;
-    assert_eq!(NEXT_BLOCK_HEIGHT_AFTER_SETUP, last_block_height + 1);
-
-    env
+    let next_block_height = env.validator().last_executed().height + 1;
+    (env, next_block_height)
 }
 
 /// Submit one transaction which yields and saves data_id to state.
@@ -138,10 +137,10 @@ fn prepare_env() -> TestLoopEnv {
 /// Yield-resume should work.
 #[test]
 fn test_yield_then_resume_one_block_apart() {
-    let mut env = prepare_env();
+    let (mut env, next_block_height_after_setup) = prepare_env();
     let signer = create_user_test_signer(&AccountId::from_str("test0").unwrap());
     let genesis_block = env.validator().client().chain.get_block_by_height(0).unwrap();
-    let mut next_block_height = NEXT_BLOCK_HEIGHT_AFTER_SETUP;
+    let mut next_block_height = next_block_height_after_setup;
     let yield_payload = vec![6u8; 16];
 
     // Add a transaction invoking `yield_create`.
@@ -235,10 +234,10 @@ fn test_yield_then_resume_one_block_apart() {
 /// See https://github.com/near/nearcore/issues/14904, this test reproduces case 2)
 #[test]
 fn test_yield_then_resume_same_block() {
-    let mut env = prepare_env();
+    let (mut env, next_block_height_after_setup) = prepare_env();
     let signer = create_user_test_signer(&AccountId::from_str("test0").unwrap());
     let genesis_block = env.validator().client().chain.get_block_by_height(0).unwrap();
-    let mut next_block_height = NEXT_BLOCK_HEIGHT_AFTER_SETUP;
+    let mut next_block_height = next_block_height_after_setup;
     let yield_payload = vec![6u8; 16];
 
     // Add a transaction invoking `yield_create`.
@@ -328,7 +327,7 @@ fn test_yield_then_resume_same_block() {
 /// See https://github.com/near/nearcore/issues/14904, this test reproduces case 4)
 #[test]
 fn test_yield_then_resume_two_actions() {
-    let mut env = prepare_env();
+    let (mut env, _next_block_height_after_setup) = prepare_env();
     let signer = create_user_test_signer(&AccountId::from_str("test0").unwrap());
     let genesis_block = env.validator().client().chain.get_block_by_height(0).unwrap();
     let yield_payload = vec![6u8; 16];
@@ -402,7 +401,7 @@ fn test_yield_then_resume_two_actions() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_yield_then_resume_two_actions_failure() {
-    let mut env = prepare_env();
+    let (mut env, _next_block_height_after_setup) = prepare_env();
     let signer = create_user_test_signer(&AccountId::from_str("test0").unwrap());
     let genesis_block = env.validator().client().chain.get_block_by_height(0).unwrap();
     let yield_payload = vec![6u8; 16];

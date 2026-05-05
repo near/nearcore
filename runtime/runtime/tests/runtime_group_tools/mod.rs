@@ -12,7 +12,7 @@ use near_primitives::state_record::{StateRecord, state_record_to_account_id};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{AccountId, AccountInfo, Balance, Gas};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives_core::account::id::AccountIdRef;
 use near_store::ShardTries;
 use near_store::genesis::GenesisStateApplier;
@@ -98,6 +98,13 @@ impl StandaloneRuntime {
             .collect();
         let congestion_info = BlockCongestionInfo::new(congestion_info);
 
+        // Match the runtime/src/tests/apply.rs default: pin below
+        // CompileQueueDeferral so existing deploy-and-call-in-apply tests
+        // observe inline deploys rather than queue admission.
+        let current_protocol_version = std::cmp::min(
+            PROTOCOL_VERSION,
+            ProtocolFeature::CompileQueueDeferral.protocol_version() - 1,
+        );
         let apply_state = ApplyState {
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height: 1,
@@ -109,13 +116,15 @@ impl StandaloneRuntime {
             block_timestamp: 0,
             gas_limit: None,
             random_seed: Default::default(),
-            current_protocol_version: PROTOCOL_VERSION,
+            current_protocol_version,
             config: Arc::new(runtime_config),
             cache: None,
             is_new_chunk: true,
             save_receipt_to_tx: false,
             congestion_info,
             bandwidth_requests: BlockBandwidthRequests::empty(),
+            compiled_indices: vec![],
+            compile_contracts_spawner: None,
             trie_access_tracker_state: Default::default(),
             on_post_state_ready: None,
         };

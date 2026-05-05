@@ -83,6 +83,7 @@ fn genesis_chunk(
         congestion_info,
         BandwidthRequests::empty(),
         None,
+        vec![],
         &EmptyValidatorSigner::default().into(),
         rs,
         PROTOCOL_VERSION,

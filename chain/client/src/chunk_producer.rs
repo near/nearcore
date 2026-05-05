@@ -69,10 +69,21 @@ pub enum AdvProduceChunksMode {
 }
 
 #[cfg(feature = "test_features")]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub enum CompiledIndicesOverride {
+    /// Emit the natural value (currently always empty until Phase 3).
+    #[default]
+    Off,
+    /// Emit this exact list as `compiled_indices` regardless of natural value.
+    Force(Vec<u64>),
+}
+
+#[cfg(feature = "test_features")]
 pub struct ChunkProducerAdversarialControls {
     pub produce_mode: Option<AdvProduceChunksMode>,
     pub produce_invalid_chunks: bool,
     pub produce_invalid_tx_in_chunks: bool,
+    pub compiled_indices_override: CompiledIndicesOverride,
 }
 
 pub struct ProduceChunkResult {
@@ -126,6 +137,7 @@ impl ChunkProducer {
                 produce_mode: None,
                 produce_invalid_chunks: false,
                 produce_invalid_tx_in_chunks: false,
+                compiled_indices_override: CompiledIndicesOverride::Off,
             },
             clock,
             chunk_transactions_time_limit,
@@ -231,6 +243,43 @@ impl ChunkProducer {
         let receipts_hashes = Chain::build_receipts_hashes(&receipts, &shard_layout)?;
         let (receipts_root, _) = merklize(&receipts_hashes);
         Ok(receipts_root)
+    }
+
+    /// Walk the pending-compile queue at `(prev_block_hash, shard_id)` and
+    /// return the indices of entries whose code hashes are all present in
+    /// this node's compiled-contract cache. The queue is bounded at
+    /// `(TTL+1) * admission_cap` entries (120 with default parameters), so
+    /// the walk is cheap. Cache lookup is in-process and does not touch
+    /// the trie.
+    fn collect_compiled_indices(
+        &self,
+        shard_id: ShardId,
+        prev_block_hash: &CryptoHash,
+        state_root: &near_primitives::types::StateRoot,
+        protocol_version: ProtocolVersion,
+    ) -> Result<Vec<u64>, Error> {
+        let trie = self.runtime_adapter.get_trie_for_shard(
+            shard_id,
+            prev_block_hash,
+            *state_root,
+            true,
+        )?;
+        let entries = near_store::trie::receipts_column_helper::read_pending_compile_queue(&trie)
+            .map_err(near_chain::Error::StorageError)?;
+        let cache = self.runtime_adapter.compiled_contract_cache();
+        let runtime_config = self.runtime_adapter.get_runtime_config(protocol_version);
+        let wasm_config = Arc::clone(&runtime_config.wasm_config);
+        let mut indices = Vec::new();
+        for (index, entry) in entries {
+            let all_compiled = entry.code_hashes.iter().all(|hash| {
+                near_vm_runner::contract_cached(Arc::clone(&wasm_config), cache, *hash)
+                    .unwrap_or(false)
+            });
+            if all_compiled {
+                indices.push(index);
+            }
+        }
+        Ok(indices)
     }
 
     #[instrument(target = "client", level = "debug", "produce_chunk_internal", skip_all, fields(
@@ -363,6 +412,23 @@ impl ChunkProducer {
         );
 
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
+        #[allow(unused_mut)]
+        let mut compiled_indices: Vec<u64> =
+            if ProtocolFeature::CompileQueueDeferral.enabled(protocol_version) {
+                self.collect_compiled_indices(
+                    shard_id,
+                    &prev_block_hash,
+                    chunk_extra.state_root(),
+                    protocol_version,
+                )?
+            } else {
+                vec![]
+            };
+        #[cfg(feature = "test_features")]
+        if let CompiledIndicesOverride::Force(indices) = &self.adversarial.compiled_indices_override
+        {
+            compiled_indices = indices.clone();
+        }
         let (chunk, merkle_paths) = if ProtocolFeature::Spice.enabled(protocol_version) {
             ShardChunkWithEncoding::new_for_spice(
                 prev_block_hash,
@@ -393,6 +459,7 @@ impl ChunkProducer {
                 congestion_info,
                 bandwidth_requests.cloned().unwrap_or_else(BandwidthRequests::empty),
                 chunk_extra.proposed_split().cloned(),
+                compiled_indices,
                 &*validator_signer,
                 &mut self.reed_solomon_encoder,
                 protocol_version,

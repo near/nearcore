@@ -159,3 +159,16 @@ impl AsyncComputationSpawner for StdThreadAsyncComputationSpawner {
         std::thread::Builder::new().name(name.to_owned()).spawn(f).expect("failed to spawn thread");
     }
 }
+
+/// Runs each computation inline (synchronously) on the calling thread.
+/// Useful in unit and integration tests where the test driver expects
+/// downstream effects of the computation to be visible immediately after
+/// the spawn returns; for example, contract precompiles that must land in
+/// the cache before the next chunk is produced.
+pub struct InlineAsyncComputationSpawner;
+
+impl AsyncComputationSpawner for InlineAsyncComputationSpawner {
+    fn spawn_boxed(&self, _name: &str, f: Box<dyn FnOnce() + Send>) {
+        f();
+    }
+}

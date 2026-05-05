@@ -164,6 +164,19 @@ fn setup_runtime_for_shard(
     let shards_congestion_info =
         shard_ids.map(|shard_id| (shard_id, ExtendedCongestionInfo::default())).collect();
     let congestion_info = BlockCongestionInfo::new(shards_congestion_info);
+    // Many tests in this module assume `DeployContract` actions execute
+    // inline. With `CompileQueueDeferral` (active at and after its
+    // `protocol_version()`), deploy receipts are diverted to a pending-
+    // compile queue and only execute after producer-signaled advancement
+    // — semantics that those tests don't model. Pin the default to one
+    // protocol version below `CompileQueueDeferral` so existing
+    // deploy-and-call-in-apply tests continue to observe inline deploys.
+    // Tests that specifically exercise post-feature behavior set
+    // `apply_state.current_protocol_version` themselves.
+    let current_protocol_version = std::cmp::min(
+        PROTOCOL_VERSION,
+        ProtocolFeature::CompileQueueDeferral.protocol_version() - 1,
+    );
     let apply_state = ApplyState {
         apply_reason: ApplyChunkReason::UpdateTrackedShard,
         block_height: 1,
@@ -175,13 +188,15 @@ fn setup_runtime_for_shard(
         block_timestamp: 100,
         gas_limit: Some(gas_limit),
         random_seed: Default::default(),
-        current_protocol_version: PROTOCOL_VERSION,
+        current_protocol_version,
         config: Arc::new(RuntimeConfig::test()),
         cache: Some(Box::new(contract_cache)),
         is_new_chunk: true,
         save_receipt_to_tx: false,
         congestion_info,
         bandwidth_requests: BlockBandwidthRequests::empty(),
+        compiled_indices: vec![],
+        compile_contracts_spawner: None,
         trie_access_tracker_state: Default::default(),
         on_post_state_ready: None,
     };
@@ -3391,6 +3406,8 @@ fn test_fix_access_key_allowance_no_mutation_on_failed_tx() {
             save_receipt_to_tx: false,
             congestion_info: BlockCongestionInfo::new(shards_congestion_info),
             bandwidth_requests: BlockBandwidthRequests::empty(),
+            compiled_indices: vec![],
+            compile_contracts_spawner: None,
             trie_access_tracker_state: Default::default(),
             on_post_state_ready: None,
         };

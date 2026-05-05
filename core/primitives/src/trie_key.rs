@@ -70,6 +70,13 @@ pub mod col {
     pub const GLOBAL_CONTRACT_NONCE: u8 = 19;
     /// Status of a yielded receipt. Values are of type `PromiseYieldStatus`.
     pub const PROMISE_YIELD_STATUS: u8 = 20;
+    /// Indices of the pending-compile queue (a singleton per shard). Stores
+    /// `TrieQueueIndices` for the queue holding receipts deferred for
+    /// asynchronous contract compilation.
+    pub const PENDING_COMPILE_RECEIPT_INDICES: u8 = 22;
+    /// Pending-compile queue entries. Each entry is a
+    /// `PendingCompileQueueEntry` indexed by `u64`.
+    pub const PENDING_COMPILE_RECEIPT: u8 = 23;
 
     /// All columns except those used for the delayed receipts queue, the yielded promises
     /// queue, and the outgoing receipts buffer, which are global state for the shard.
@@ -86,7 +93,7 @@ pub mod col {
         (PROMISE_YIELD_STATUS, "PromiseYieldStatus"),
     ];
 
-    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 20] = [
+    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 22] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -107,6 +114,8 @@ pub mod col {
         (GLOBAL_CONTRACT_CODE, "GlobalContractCode"),
         (GLOBAL_CONTRACT_NONCE, "GlobalContractNonce"),
         (PROMISE_YIELD_STATUS, "PromiseYieldStatus"),
+        (PENDING_COMPILE_RECEIPT_INDICES, "PendingCompileReceiptIndices"),
+        (PENDING_COMPILE_RECEIPT, "PendingCompileReceipt"),
     ];
 }
 
@@ -265,6 +274,13 @@ pub enum TrieKey {
         public_key: PublicKey,
         index: NonceIndex,
     } = 21,
+    /// Indices of the pending-compile queue (singleton per shard).
+    PendingCompileReceiptIndices = col::PENDING_COMPILE_RECEIPT_INDICES,
+    /// A pending-compile-queue entry at a given index. Values are of type
+    /// `PendingCompileQueueEntry`. The queue is unique per shard.
+    PendingCompileReceipt {
+        index: u64,
+    } = col::PENDING_COMPILE_RECEIPT,
 }
 
 /// Provides `len` function.
@@ -371,6 +387,10 @@ impl TrieKey {
                     + receiver_id.len()
                     + ACCOUNT_DATA_SEPARATOR.len()
                     + data_id.as_ref().len()
+            }
+            TrieKey::PendingCompileReceiptIndices => col::PENDING_COMPILE_RECEIPT_INDICES.len(),
+            TrieKey::PendingCompileReceipt { .. } => {
+                col::PENDING_COMPILE_RECEIPT.len() + size_of::<u64>()
             }
         }
     }
@@ -486,6 +506,13 @@ impl TrieKey {
                 buf.push(ACCOUNT_DATA_SEPARATOR);
                 buf.extend(data_id.as_ref());
             }
+            TrieKey::PendingCompileReceiptIndices => {
+                buf.push(col::PENDING_COMPILE_RECEIPT_INDICES);
+            }
+            TrieKey::PendingCompileReceipt { index } => {
+                buf.push(col::PENDING_COMPILE_RECEIPT);
+                buf.extend(&index.to_le_bytes());
+            }
         };
         debug_assert_eq!(expected_len, buf.len() - start_len);
     }
@@ -523,6 +550,8 @@ impl TrieKey {
             TrieKey::GlobalContractCode { .. } => None,
             TrieKey::GlobalContractNonce { .. } => None,
             TrieKey::PromiseYieldStatus { receiver_id, .. } => Some(receiver_id.clone()),
+            TrieKey::PendingCompileReceiptIndices => None,
+            TrieKey::PendingCompileReceipt { .. } => None,
         }
     }
 }

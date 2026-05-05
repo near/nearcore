@@ -3466,6 +3466,7 @@ impl Chain {
                 chunk_hash: Some(chunk_header.chunk_hash().clone()),
                 transactions,
                 receipts,
+                compiled_indices: chunk_header.compiled_indices().to_vec(),
                 block,
                 storage_context,
             })

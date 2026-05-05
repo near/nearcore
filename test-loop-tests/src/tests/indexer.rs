@@ -270,23 +270,49 @@ fn test_indexer_failed_local_tx() {
 fn test_indexer_deploy_contract_local_tx() {
     init_test_logger();
     let mut env = setup();
+    let pre_height = env.validator().head().height;
     deploy_test_contract(&mut env);
-    let deploy_contract_height = env.validator().head().height;
+    let deploy_final_height = env.validator().head().height;
 
-    let mut indexer_receiver =
-        start_indexer(&env, SyncModeEnum::BlockHeight(deploy_contract_height));
-    let msg = receive_indexer_message(&mut env, &mut indexer_receiver);
-    let indexer_shard = &msg.shards[0];
-    assert_eq!(indexer_shard.chunk.as_ref().unwrap().transactions.len(), 1);
-    let [
-        IndexerExecutionOutcomeWithReceipt {
-            receipt: ReceiptView { receipt: ReceiptEnumView::Action { actions, .. }, .. },
-            ..
-        },
-    ] = indexer_shard.receipt_execution_outcomes.as_slice()
-    else {
-        panic!("expected single action receipt")
-    };
+    // With CompileQueueDeferral active the deploy tx is included in one
+    // block and the resulting deploy receipt only executes in a later
+    // block (after admission to the pending-compile queue and natural
+    // signaling). So we sync the indexer from before the deploy and walk
+    // forward, collecting tx-included and receipt-executed sightings
+    // across the spanned chunks.
+    let mut indexer_receiver = start_indexer(&env, SyncModeEnum::BlockHeight(pre_height + 1));
+    let mut deploy_tx_seen = false;
+    let mut deploy_receipt_actions: Option<Vec<ActionView>> = None;
+    while !deploy_tx_seen || deploy_receipt_actions.is_none() {
+        let msg = receive_indexer_message(&mut env, &mut indexer_receiver);
+        let indexer_shard = &msg.shards[0];
+        if let Some(chunk) = indexer_shard.chunk.as_ref() {
+            if !chunk.transactions.is_empty() {
+                assert_eq!(chunk.transactions.len(), 1);
+                deploy_tx_seen = true;
+            }
+        }
+        if !indexer_shard.receipt_execution_outcomes.is_empty() {
+            let [
+                IndexerExecutionOutcomeWithReceipt {
+                    receipt: ReceiptView { receipt: ReceiptEnumView::Action { actions, .. }, .. },
+                    ..
+                },
+            ] = indexer_shard.receipt_execution_outcomes.as_slice()
+            else {
+                panic!("expected single action receipt")
+            };
+            deploy_receipt_actions = Some(actions.clone());
+        }
+        if msg.block.header.height > deploy_final_height + 2 {
+            panic!(
+                "indexer walked past deploy-final height without finding both events; \
+                 tx_seen={deploy_tx_seen}, receipt_actions={:?}",
+                deploy_receipt_actions,
+            );
+        }
+    }
+    let actions = deploy_receipt_actions.unwrap();
     let [ActionView::DeployContract { code }] = actions.as_slice() else {
         panic!("expected single deploy contract action")
     };

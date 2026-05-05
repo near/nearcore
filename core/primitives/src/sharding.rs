@@ -129,7 +129,7 @@ impl StateSyncInfo {
 
 pub mod shard_chunk_header_inner;
 use self::shard_chunk_header_inner::ShardChunkHeaderInnerV6SpiceTxOnly;
-use crate::sharding::shard_chunk_header_inner::ShardChunkHeaderInnerV5;
+use crate::sharding::shard_chunk_header_inner::{ShardChunkHeaderInnerV5, ShardChunkHeaderInnerV7};
 use crate::trie_split::TrieSplit;
 pub use shard_chunk_header_inner::{
     ShardChunkHeaderInner, ShardChunkHeaderInnerV1, ShardChunkHeaderInnerV2,
@@ -278,6 +278,7 @@ impl ShardChunkHeaderV3 {
                 CongestionInfo::default(),
                 BandwidthRequests::empty(),
                 None,
+                vec![],
                 &EmptyValidatorSigner::default().into(),
                 PROTOCOL_VERSION,
             )
@@ -312,10 +313,31 @@ impl ShardChunkHeaderV3 {
         congestion_info: CongestionInfo,
         bandwidth_requests: BandwidthRequests,
         proposed_split: Option<TrieSplit>,
+        compiled_indices: Vec<u64>,
         signer: &ValidatorSigner,
         protocol_version: ProtocolVersion,
     ) -> Self {
-        let inner = if ProtocolFeature::DynamicResharding.enabled(protocol_version) {
+        let inner = if ProtocolFeature::CompileQueueDeferral.enabled(protocol_version) {
+            ShardChunkHeaderInner::V7(ShardChunkHeaderInnerV7 {
+                prev_block_hash,
+                prev_state_root,
+                prev_outcome_root,
+                encoded_merkle_root,
+                encoded_length,
+                height_created,
+                shard_id,
+                prev_gas_used,
+                gas_limit,
+                prev_balance_burnt,
+                prev_outgoing_receipts_root,
+                tx_root,
+                prev_validator_proposals,
+                congestion_info,
+                bandwidth_requests,
+                proposed_split,
+                compiled_indices,
+            })
+        } else if ProtocolFeature::DynamicResharding.enabled(protocol_version) {
             ShardChunkHeaderInner::V5(ShardChunkHeaderInnerV5 {
                 prev_block_hash,
                 prev_state_root,
@@ -617,6 +639,9 @@ impl ShardChunkHeader {
                 ShardChunkHeaderInner::V4(_) => true,
                 ShardChunkHeaderInner::V5(_) => ProtocolFeature::DynamicResharding.enabled(version),
                 ShardChunkHeaderInner::V6(_) => ProtocolFeature::Spice.enabled(version),
+                ShardChunkHeaderInner::V7(_) => {
+                    ProtocolFeature::CompileQueueDeferral.enabled(version)
+                }
             },
         };
 
@@ -628,6 +653,16 @@ impl ShardChunkHeader {
                 header_version: self.header_version_number(),
                 header_inner_version: self.inner_version_number(),
             })
+        }
+    }
+
+    /// Pending-compile-queue indices the producer is signaling to advance
+    /// in this chunk. Empty for header versions older than V3-with-V7-inner.
+    #[inline]
+    pub fn compiled_indices(&self) -> &[u64] {
+        match self {
+            Self::V1(_) | Self::V2(_) => &[],
+            Self::V3(header) => header.inner.compiled_indices(),
         }
     }
 
@@ -1441,6 +1476,7 @@ impl ShardChunkWithEncoding {
         congestion_info: CongestionInfo,
         bandwidth_requests: BandwidthRequests,
         proposed_split: Option<TrieSplit>,
+        compiled_indices: Vec<u64>,
         signer: &ValidatorSigner,
         rs: &reed_solomon_erasure::galois_8::ReedSolomon,
         protocol_version: ProtocolVersion,
@@ -1471,6 +1507,7 @@ impl ShardChunkWithEncoding {
             congestion_info,
             bandwidth_requests,
             proposed_split,
+            compiled_indices,
             signer,
             protocol_version,
         ));
@@ -1763,5 +1800,44 @@ mod tests {
 
         let chunk = ShardChunk::from(&arced);
         assert_eq!(borsh::to_vec(&chunk).unwrap(), borsh::to_vec(&arced).unwrap());
+    }
+
+    /// Build a header carrying a specific `ShardChunkHeaderInner` variant by
+    /// starting from a V3 dummy header and replacing its inner.
+    fn header_with_inner(inner: super::ShardChunkHeaderInner) -> ShardChunkHeader {
+        use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
+        let signer: ValidatorSigner = EmptyValidatorSigner::default().into();
+        ShardChunkHeader::V3(ShardChunkHeaderV3::from_inner(inner, &signer))
+    }
+
+    #[test]
+    fn validate_version_v7_gated_on_compile_queue_deferral() {
+        use super::shard_chunk_header_inner::{ShardChunkHeaderInner, ShardChunkHeaderInnerV7};
+        use near_primitives_core::version::ProtocolFeature;
+
+        let inner_v7 = ShardChunkHeaderInnerV7 {
+            prev_block_hash: CryptoHash::default(),
+            prev_state_root: CryptoHash::default(),
+            prev_outcome_root: CryptoHash::default(),
+            encoded_merkle_root: CryptoHash::default(),
+            encoded_length: 0,
+            height_created: 1,
+            shard_id: ShardId::new(0),
+            prev_gas_used: near_primitives_core::types::Gas::ZERO,
+            gas_limit: near_primitives_core::types::Gas::ZERO,
+            prev_balance_burnt: Balance::ZERO,
+            prev_outgoing_receipts_root: CryptoHash::default(),
+            tx_root: CryptoHash::default(),
+            prev_validator_proposals: vec![],
+            congestion_info: Default::default(),
+            bandwidth_requests: crate::bandwidth_scheduler::BandwidthRequests::empty(),
+            proposed_split: None,
+            compiled_indices: vec![],
+        };
+        let header = header_with_inner(ShardChunkHeaderInner::V7(inner_v7));
+
+        let activation = ProtocolFeature::CompileQueueDeferral.protocol_version();
+        assert!(header.validate_version(activation - 1).is_err());
+        assert!(header.validate_version(activation).is_ok());
     }
 }

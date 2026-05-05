@@ -112,6 +112,7 @@ fn chunk_header_proposed_split_validation() {
         original_header.congestion_info(),
         original_header.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
         forged_split.clone(), // FORGED proposed_split
+        original_header.compiled_indices().to_vec(),
         &signer,
         PROTOCOL_VERSION,
     ));

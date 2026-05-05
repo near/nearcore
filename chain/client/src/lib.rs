@@ -3,6 +3,8 @@ pub use crate::chunk_endorsement_handler::{
 };
 pub use crate::client::{AsyncComputationMultiSpawner, Client};
 #[cfg(feature = "test_features")]
+pub use crate::client_actor::CompiledIndicesOverride;
+#[cfg(feature = "test_features")]
 pub use crate::client_actor::NetworkAdversarialMessage;
 pub use crate::client_actor::{StartClientResult, start_client};
 pub use crate::config_updater::ConfigUpdater;

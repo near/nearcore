@@ -22,6 +22,7 @@ pub enum ShardChunkHeaderInner {
     V4(ShardChunkHeaderInnerV4) = 3,
     V5(ShardChunkHeaderInnerV5) = 4,
     V6(ShardChunkHeaderInnerV6SpiceTxOnly) = 5,
+    V7(ShardChunkHeaderInnerV7) = 6,
 }
 
 impl ShardChunkHeaderInner {
@@ -37,6 +38,7 @@ impl ShardChunkHeaderInner {
                 debug_assert!(false, "Transaction only header doesn't include prev_state_root");
                 DEFAULT_CRYPTO_HASH
             }
+            Self::V7(inner) => &inner.prev_state_root,
         }
     }
 
@@ -49,6 +51,7 @@ impl ShardChunkHeaderInner {
             Self::V4(inner) => &inner.prev_block_hash,
             Self::V5(inner) => &inner.prev_block_hash,
             Self::V6(inner) => &inner.prev_block_hash,
+            Self::V7(inner) => &inner.prev_block_hash,
         }
     }
 
@@ -64,6 +67,7 @@ impl ShardChunkHeaderInner {
                 debug_assert!(false, "Transaction only header doesn't include gas_limit");
                 Gas::ZERO
             }
+            Self::V7(inner) => inner.gas_limit,
         }
     }
 
@@ -80,6 +84,7 @@ impl ShardChunkHeaderInner {
                 // anymore.
                 Gas::ZERO
             }
+            Self::V7(inner) => inner.prev_gas_used,
         }
     }
 
@@ -96,6 +101,7 @@ impl ShardChunkHeaderInner {
                 // anymore.
                 ValidatorStakeIter::empty()
             }
+            Self::V7(inner) => ValidatorStakeIter::new(&inner.prev_validator_proposals),
         }
     }
 
@@ -108,6 +114,7 @@ impl ShardChunkHeaderInner {
             Self::V4(inner) => inner.height_created,
             Self::V5(inner) => inner.height_created,
             Self::V6(inner) => inner.height_created,
+            Self::V7(inner) => inner.height_created,
         }
     }
 
@@ -120,6 +127,7 @@ impl ShardChunkHeaderInner {
             Self::V4(inner) => inner.shard_id,
             Self::V5(inner) => inner.shard_id,
             Self::V6(inner) => inner.shard_id,
+            Self::V7(inner) => inner.shard_id,
         }
     }
 
@@ -136,6 +144,7 @@ impl ShardChunkHeaderInner {
                 // prev_outcome_root.
                 DEFAULT_CRYPTO_HASH
             }
+            Self::V7(inner) => &inner.prev_outcome_root,
         }
     }
 
@@ -148,6 +157,7 @@ impl ShardChunkHeaderInner {
             Self::V4(inner) => &inner.encoded_merkle_root,
             Self::V5(inner) => &inner.encoded_merkle_root,
             Self::V6(inner) => &inner.encoded_merkle_root,
+            Self::V7(inner) => &inner.encoded_merkle_root,
         }
     }
 
@@ -160,6 +170,7 @@ impl ShardChunkHeaderInner {
             Self::V4(inner) => inner.encoded_length,
             Self::V5(inner) => inner.encoded_length,
             Self::V6(inner) => inner.encoded_length,
+            Self::V7(inner) => inner.encoded_length,
         }
     }
 
@@ -176,6 +187,7 @@ impl ShardChunkHeaderInner {
                 // anymore.
                 Balance::ZERO
             }
+            Self::V7(inner) => inner.prev_balance_burnt,
         }
     }
 
@@ -189,6 +201,7 @@ impl ShardChunkHeaderInner {
             Self::V5(inner) => &inner.prev_outgoing_receipts_root,
             // TODO(spice): debug_assert as unreachable. See comment on the field for more details.
             Self::V6(inner) => &inner.prev_outgoing_receipts_root,
+            Self::V7(inner) => &inner.prev_outgoing_receipts_root,
         }
     }
 
@@ -201,6 +214,7 @@ impl ShardChunkHeaderInner {
             Self::V4(inner) => &inner.tx_root,
             Self::V5(inner) => &inner.tx_root,
             Self::V6(inner) => &inner.tx_root,
+            Self::V7(inner) => &inner.tx_root,
         }
     }
 
@@ -217,6 +231,7 @@ impl ShardChunkHeaderInner {
             // TODO(spice): debug_assert this is unreachable after verifying that nothing depend on this
             // anymore.
             Self::V6(_) => CongestionInfo::default(),
+            Self::V7(v7) => v7.congestion_info,
         }
     }
 
@@ -229,6 +244,7 @@ impl ShardChunkHeaderInner {
             // TODO(spice): debug_assert this is unreachable after verifying that nothing depend on this
             // anymore.
             Self::V6(_) => None,
+            Self::V7(inner) => Some(&inner.bandwidth_requests),
         }
     }
 
@@ -242,6 +258,7 @@ impl ShardChunkHeaderInner {
             Self::V4(_) => 4,
             Self::V5(_) => 5,
             Self::V6(_) => 6,
+            Self::V7(_) => 7,
         }
     }
 
@@ -249,7 +266,9 @@ impl ShardChunkHeaderInner {
     #[inline]
     pub fn is_spice_chunk(&self) -> bool {
         match self {
-            Self::V1(_) | Self::V2(_) | Self::V3(_) | Self::V4(_) | Self::V5(_) => false,
+            Self::V1(_) | Self::V2(_) | Self::V3(_) | Self::V4(_) | Self::V5(_) | Self::V7(_) => {
+                false
+            }
             Self::V6(_) => true,
         }
     }
@@ -263,6 +282,7 @@ impl ShardChunkHeaderInner {
             Self::V1(_) | Self::V2(_) | Self::V3(_) | Self::V4(_) => false,
             Self::V5(_) => true,
             Self::V6(_) => false,
+            Self::V7(_) => true,
         }
     }
 
@@ -275,6 +295,20 @@ impl ShardChunkHeaderInner {
                 // TODO(spice): pass shard split to produce_block in another way
                 None
             }
+            Self::V7(inner) => inner.proposed_split.as_ref(),
+        }
+    }
+
+    /// Indices into the per-shard pending-compile queue that the chunk
+    /// producer is signaling as advance-ready. Only `V7` carries this
+    /// field; pre-feature variants always return an empty slice.
+    #[inline]
+    pub fn compiled_indices(&self) -> &[u64] {
+        match self {
+            Self::V1(_) | Self::V2(_) | Self::V3(_) | Self::V4(_) | Self::V5(_) | Self::V6(_) => {
+                &[]
+            }
+            Self::V7(inner) => &inner.compiled_indices,
         }
     }
 }
@@ -424,6 +458,45 @@ pub struct ShardChunkHeaderInnerV5 {
     /// Proposed split of this shard (dynamic resharding).
     /// `None` if the shard is not above the resharding threshold.
     pub proposed_split: Option<TrieSplit>,
+}
+
+// V5 -> V7: Add `compiled_indices` for the pending-compile queue
+// advancement signal. Structurally a copy of V5 plus the new field. V6 is
+// reserved for SPICE tx-only headers and is not on the V5 -> V7 lineage.
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, ProtocolSchema)]
+pub struct ShardChunkHeaderInnerV7 {
+    /// Previous block hash.
+    pub prev_block_hash: CryptoHash,
+    pub prev_state_root: StateRoot,
+    /// Root of the outcomes from execution transactions and results of the previous chunk.
+    pub prev_outcome_root: CryptoHash,
+    pub encoded_merkle_root: CryptoHash,
+    pub encoded_length: u64,
+    pub height_created: BlockHeight,
+    /// Shard index.
+    pub shard_id: ShardId,
+    /// Gas used in the previous chunk.
+    pub prev_gas_used: Gas,
+    /// Gas limit voted by validators.
+    pub gas_limit: Gas,
+    /// Total balance burnt in the previous chunk.
+    pub prev_balance_burnt: Balance,
+    /// Previous chunk's outgoing receipts merkle root.
+    pub prev_outgoing_receipts_root: CryptoHash,
+    /// Tx merkle root.
+    pub tx_root: CryptoHash,
+    /// Validator proposals from the previous chunk.
+    pub prev_validator_proposals: Vec<ValidatorStake>,
+    /// Congestion info about this shard after the previous chunk was applied.
+    pub congestion_info: CongestionInfo,
+    /// Requests for bandwidth to send receipts to other shards.
+    pub bandwidth_requests: BandwidthRequests,
+    /// Proposed split of this shard (dynamic resharding).
+    /// `None` if the shard is not above the resharding threshold.
+    pub proposed_split: Option<TrieSplit>,
+    /// Indices into the per-shard pending-compile queue that this chunk
+    /// producer signals as advance-ready. May be empty.
+    pub compiled_indices: Vec<u64>,
 }
 
 // V5 -> V6: a version for spice of a chunk header including only transactions (no previous

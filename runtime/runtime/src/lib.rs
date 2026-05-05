@@ -11,6 +11,7 @@ use crate::config::{
 use crate::congestion_control::DelayedReceiptQueueWrapper;
 use crate::contract_code::RuntimeContractIdentifier;
 use crate::function_call::action_function_call;
+use crate::pending_compile_queue::{COMPILE_QUEUE_ADMISSION_CAP, COMPILE_QUEUE_TTL_BLOCKS};
 use crate::prefetch::TriePrefetcher;
 pub use crate::types::SignedValidPeriodTransactions;
 use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
@@ -29,6 +30,7 @@ use global_contracts::{
 };
 use itertools::Itertools;
 use metrics::ApplyMetrics;
+use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 pub use near_crypto;
 use near_crypto::PublicKey;
 use near_parameters::{ActionCosts, RuntimeConfig};
@@ -43,10 +45,10 @@ use near_primitives::errors::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    DataReceipt, ProcessedReceipt, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
-    ReceiptOrStateStoredReceipt, ReceiptOrigin, ReceiptOriginReceipt, ReceiptOriginTransaction,
-    ReceiptSource, ReceiptToTxInfo, ReceiptToTxInfoV1, ReceiptV0, ReceivedData,
-    VersionedActionReceipt, VersionedReceiptEnum,
+    DataReceipt, PendingCompileQueueEntry, ProcessedReceipt, PromiseYieldIndices,
+    PromiseYieldTimeout, Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, ReceiptOrigin,
+    ReceiptOriginReceipt, ReceiptOriginTransaction, ReceiptSource, ReceiptToTxInfo,
+    ReceiptToTxInfoV1, ReceiptV0, ReceivedData, VersionedActionReceipt, VersionedReceiptEnum,
 };
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
@@ -69,7 +71,9 @@ use near_primitives::utils::{
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives_core::apply::ApplyChunkReason;
 use near_store::trie::AccessOptions;
-use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
+use near_store::trie::receipts_column_helper::{
+    DelayedReceiptQueue, PendingCompileQueue, TrieQueue,
+};
 use near_store::trie::update::TrieUpdateResult;
 use near_store::{
     PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get, get_access_key,
@@ -84,6 +88,7 @@ use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::ProfileDataV3;
 use near_vm_runner::logic::ReturnData;
 use near_vm_runner::logic::types::PromiseResult;
+use near_vm_runner::precompile_contract;
 pub use near_vm_runner::with_ext_cost_counter;
 use pipelining::ReceiptPreparationPipeline;
 use rayon::prelude::*;
@@ -110,6 +115,7 @@ pub mod ext;
 mod function_call;
 mod global_contracts;
 pub mod metrics;
+pub mod pending_compile_queue;
 mod pipelining;
 mod prefetch;
 pub mod receipt_manager;
@@ -153,6 +159,17 @@ impl PostStateReadyCallback {
         F: Fn(PostState) + Send + Sync + 'static,
     {
         Self { callback: Box::new(callback) }
+    }
+}
+
+/// Wrapper around an `AsyncComputationSpawner` so that `ApplyState` can keep
+/// its `#[derive(Debug)]` (the underlying trait does not require `Debug`).
+#[derive(Clone)]
+pub struct CompileContractsSpawnerHandle(pub Arc<dyn AsyncComputationSpawner>);
+
+impl Debug for CompileContractsSpawnerHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "CompileContractsSpawnerHandle")
     }
 }
 
@@ -202,6 +219,16 @@ pub struct ApplyState {
     /// Each shard requests some bandwidth to other shards and then the bandwidth scheduler
     /// decides how much each shard is allowed to send.
     pub bandwidth_requests: BlockBandwidthRequests,
+    /// Pending-compile-queue entries the chunk producer signaled to advance
+    /// in this chunk's header. Empty when `CompileQueueDeferral` is inactive.
+    pub compiled_indices: Vec<u64>,
+    /// Spawner used to kick off background contract compilation when receipts
+    /// are admitted to the pending-compile queue. `None` for apply contexts
+    /// that do not run in a process with a real compile pool (ad-hoc tests,
+    /// view calls). When `None`, admission still succeeds but no async
+    /// compile is started; the eventual advancement falls back to
+    /// synchronous compile through the standard cache path.
+    pub compile_contracts_spawner: Option<CompileContractsSpawnerHandle>,
     /// Callback to be called when the post-state is ready.
     pub on_post_state_ready: Option<PostStateReadyCallback>,
 }
@@ -414,6 +441,43 @@ pub struct GasRefundResult {
 }
 
 pub struct Runtime {}
+
+/// Kick off a background compile for a freshly admitted deploy. Skips when
+/// no spawner is attached (test contexts), no cache is attached, the
+/// bytecode is already cached, or the same hash was already spawned during
+/// the current `apply()` call.
+fn spawn_pending_compile_precompile(
+    apply_state: &ApplyState,
+    spawned: &mut HashSet<CryptoHash>,
+    code_hash: CryptoHash,
+    code_bytes: &[u8],
+) {
+    let Some(spawner_handle) = &apply_state.compile_contracts_spawner else {
+        return;
+    };
+    let Some(cache) = apply_state.cache.as_ref() else {
+        return;
+    };
+    if !spawned.insert(code_hash) {
+        return;
+    }
+    if cache.has(&code_hash).unwrap_or(false) {
+        return;
+    }
+    let cache_handle = cache.handle();
+    let wasm_config = Arc::clone(&apply_state.config.wasm_config);
+    let code = ContractCode::new(code_bytes.to_vec(), Some(code_hash));
+    spawner_handle.0.spawn("precompile_pending_compile_admission", move || {
+        if let Err(err) = precompile_contract(&code, wasm_config, Some(&*cache_handle)) {
+            tracing::warn!(
+                target: "runtime",
+                ?err,
+                ?code_hash,
+                "pending compile admission precompile failed",
+            );
+        }
+    });
+}
 
 impl Runtime {
     pub fn new() -> Self {
@@ -2045,6 +2109,333 @@ impl Runtime {
         Ok(())
     }
 
+    /// Scan the front of the pending-compile queue and evict every entry whose
+    /// residence has exceeded `COMPILE_QUEUE_TTL_BLOCKS`. Each evicted entry
+    /// produces a `CompileQueueExpired` action failure with the standard NEP-536
+    /// refund receipts.
+    ///
+    /// Runs at the start of receipt processing, gated on
+    /// `ProtocolFeature::CompileQueueDeferral`. Pre-feature this is a no-op.
+    #[instrument(
+        target = "runtime",
+        level = "debug",
+        "process_pending_compile_evictions",
+        skip_all
+    )]
+    fn process_pending_compile_evictions(
+        &self,
+        processing_state: &mut ApplyProcessingReceiptState,
+        receipt_sink: &mut ReceiptSink,
+    ) -> Result<(), RuntimeError> {
+        if !ProtocolFeature::CompileQueueDeferral.enabled(processing_state.protocol_version) {
+            return Ok(());
+        }
+        let block_height = processing_state.apply_state.block_height;
+        let mut queue = PendingCompileQueue::load(&processing_state.state_update)?;
+        let queue_indices = queue.indices();
+        let original_first = queue_indices.first_index;
+        let next_avail = queue_indices.next_available_index;
+        let mut new_first = original_first;
+        let mut index = original_first;
+        while index < next_avail {
+            let key = TrieKey::PendingCompileReceipt { index };
+            let entry: Option<PendingCompileQueueEntry> =
+                get(&processing_state.state_update, &key)?;
+            let Some(entry) = entry else {
+                // Hole left by out-of-order advancement. Advance past it.
+                index += 1;
+                new_first = index;
+                continue;
+            };
+            if block_height <= entry.pushed_at_height + COMPILE_QUEUE_TTL_BLOCKS {
+                // FIFO admission means the rest of the queue is younger; stop.
+                break;
+            }
+            processing_state.state_update.remove(key);
+            let receipt_hash = entry.receipt.get_hash();
+            let outcome = self.apply_evicted_compile_receipt(
+                &entry.receipt,
+                &mut processing_state.state_update,
+                processing_state.apply_state,
+                receipt_sink,
+                &mut processing_state.stats,
+            )?;
+            let gas_burnt = outcome.outcome.gas_burnt;
+            let compute_usage = outcome
+                .outcome
+                .compute_usage
+                .expect("compute_usage populated by apply_evicted_compile_receipt");
+            processing_state.total.add(gas_burnt.as_gas(), compute_usage)?;
+            processing_state.outcomes.push(outcome);
+            processing_state
+                .state_update
+                .commit(StateChangeCause::ReceiptProcessing { receipt_hash });
+            index += 1;
+            new_first = index;
+        }
+        if new_first != original_first {
+            queue.indices_mut().first_index = new_first;
+            queue.write_indices(&mut processing_state.state_update);
+        }
+        Ok(())
+    }
+
+    /// Build the failure outcome and refund receipts for an evicted
+    /// pending-compile-queue entry. Mirrors the post-action-loop tail of
+    /// [`Runtime::apply_action_receipt`] but skips action execution: the
+    /// receipt's actions never run, so `gas_burnt` is just the receipt
+    /// creation exec fee and the result is unconditionally
+    /// `ActionErrorKind::CompileQueueExpired`.
+    fn apply_evicted_compile_receipt(
+        &self,
+        receipt: &Receipt,
+        state_update: &mut TrieUpdate,
+        apply_state: &ApplyState,
+        receipt_sink: &mut ReceiptSink,
+        stats: &mut ChunkApplyStatsV0,
+    ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
+        let action_receipt = match receipt.versioned_receipt() {
+            VersionedReceiptEnum::Action(action_receipt) => action_receipt,
+            _ => {
+                unreachable!("pending-compile queue entries must be action receipts")
+            }
+        };
+        let account_id = receipt.receiver_id();
+        let exec_fees = apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee();
+        let mut result = ActionResult::default();
+        result.gas_used = exec_fees;
+        result.gas_burnt = exec_fees;
+        result.compute_usage = exec_fees.as_gas();
+        result.result =
+            Err(ActionError { index: None, kind: ActionErrorKind::CompileQueueExpired });
+
+        let gas_refund_result = if receipt.predecessor_id().is_system() {
+            stats.balance.other_burnt_amount = safe_add_balance(
+                stats.balance.other_burnt_amount,
+                total_deposit(&action_receipt.actions())?,
+            )?;
+            GasRefundResult::default()
+        } else {
+            self.refund_unspent_gas_and_deposits(
+                apply_state.gas_price,
+                receipt,
+                &action_receipt,
+                &mut result,
+                &apply_state.config,
+            )?
+        };
+        stats.balance.gas_deficit_amount =
+            safe_add_balance(stats.balance.gas_deficit_amount, gas_refund_result.price_deficit)?;
+
+        let gas_burnt: Gas =
+            if receipt.predecessor_id().is_system() { Gas::ZERO } else { result.gas_burnt };
+        let mut tx_burnt_amount = safe_gas_to_balance(apply_state.gas_price, gas_burnt)?
+            .checked_sub(gas_refund_result.price_deficit)
+            .unwrap();
+        tx_burnt_amount = safe_add_balance(tx_burnt_amount, gas_refund_result.price_surplus)?;
+        tx_burnt_amount = safe_add_balance(tx_burnt_amount, gas_refund_result.refund_penalty)?;
+        tx_burnt_amount = safe_add_balance(tx_burnt_amount, result.tokens_burnt)?;
+        let tokens_burnt = tx_burnt_amount;
+
+        stats.balance.tx_burnt_amount =
+            safe_add_balance(stats.balance.tx_burnt_amount, tx_burnt_amount)?;
+        stats.balance.subsidized_amount =
+            safe_add_balance(stats.balance.subsidized_amount, result.subsidized_amount)?;
+
+        // Output data receivers attached to a queue entry's action receipt
+        // get a Failed data receipt, mirroring the failure branch of
+        // `apply_action_receipt`.
+        if !action_receipt.output_data_receivers().is_empty() {
+            result.new_receipts.extend(action_receipt.output_data_receivers().iter().map(
+                |data_receiver| {
+                    Receipt::V0(ReceiptV0 {
+                        predecessor_id: account_id.clone(),
+                        receiver_id: data_receiver.receiver_id.clone(),
+                        receipt_id: CryptoHash::default(),
+                        receipt: ReceiptEnum::Data(DataReceipt {
+                            data_id: data_receiver.data_id,
+                            data: None,
+                        }),
+                    })
+                },
+            ));
+        }
+
+        let receipt_ids = result
+            .new_receipts
+            .into_iter()
+            .enumerate()
+            .filter_map(|(receipt_index, mut new_receipt)| {
+                let receipt_id = apply_state.create_receipt_id(receipt.receipt_id(), receipt_index);
+                new_receipt.set_receipt_id(receipt_id);
+                let is_action = matches!(
+                    new_receipt.receipt(),
+                    ReceiptEnum::Action(_)
+                        | ReceiptEnum::PromiseYield(_)
+                        | ReceiptEnum::ActionV2(_)
+                        | ReceiptEnum::PromiseYieldV2(_)
+                );
+                if let Err(e) =
+                    receipt_sink.forward_or_buffer_receipt(new_receipt, apply_state, state_update)
+                {
+                    return Some(Err(e));
+                }
+                if is_action { Some(Ok(receipt_id)) } else { None }
+            })
+            .collect::<Result<_, _>>()?;
+
+        let status = match result.result {
+            Err(e) => ExecutionStatus::Failure(TxExecutionError::ActionError(e)),
+            Ok(_) => unreachable!("result was set to Err above"),
+        };
+
+        Ok(ExecutionOutcomeWithId {
+            id: *receipt.receipt_id(),
+            outcome: ExecutionOutcome {
+                status,
+                logs: result.logs,
+                receipt_ids,
+                gas_burnt: result.gas_burnt,
+                compute_usage: Some(result.compute_usage),
+                tokens_burnt,
+                executor_id: account_id.clone(),
+                metadata: ExecutionMetadata::V3(Box::new(conversions::Convert::convert(
+                    *result.profile,
+                ))),
+            },
+        })
+    }
+
+    /// Execute the pending-compile-queue entries the chunk producer
+    /// signaled via `compiled_indices` in the chunk header. Each index is
+    /// validated, removed from the queue (leaving a hole), and dispatched
+    /// through the standard receipt-processing path.
+    ///
+    /// Runs immediately after TTL eviction, so an index that was just
+    /// evicted in this chunk is no longer in the queue and will be
+    /// rejected as invalid. Pre-feature this is a no-op.
+    #[instrument(
+        target = "runtime",
+        level = "debug",
+        "process_pending_compile_advancements",
+        skip_all
+    )]
+    fn process_pending_compile_advancements(
+        &self,
+        processing_state: &mut ApplyProcessingReceiptState,
+        receipt_sink: &mut ReceiptSink,
+        validator_proposals: &mut Vec<ValidatorStake>,
+    ) -> Result<(), RuntimeError> {
+        if !ProtocolFeature::CompileQueueDeferral.enabled(processing_state.protocol_version) {
+            return Ok(());
+        }
+        let compiled_indices = processing_state.apply_state.compiled_indices.clone();
+        if compiled_indices.is_empty() {
+            return Ok(());
+        }
+        let queue = PendingCompileQueue::load(&processing_state.state_update)?;
+        let next_avail = queue.indices().next_available_index;
+        let mut seen = HashSet::with_capacity(compiled_indices.len());
+        for &index in &compiled_indices {
+            if !seen.insert(index) {
+                return Err(RuntimeError::StorageError(StorageError::StorageInconsistentState(
+                    format!("duplicate compiled_indices entry {index}"),
+                )));
+            }
+            if index >= next_avail {
+                return Err(RuntimeError::StorageError(StorageError::StorageInconsistentState(
+                    format!("compiled_indices entry {index} >= next_available_index {next_avail}"),
+                )));
+            }
+        }
+        for index in compiled_indices {
+            let key = TrieKey::PendingCompileReceipt { index };
+            let entry: Option<PendingCompileQueueEntry> =
+                get(&processing_state.state_update, &key)?;
+            let Some(entry) = entry else {
+                return Err(RuntimeError::StorageError(StorageError::StorageInconsistentState(
+                    format!("compiled_indices entry {index} missing from queue"),
+                )));
+            };
+            processing_state.state_update.remove(key);
+            self.process_receipt_with_metrics(
+                &entry.receipt,
+                processing_state,
+                receipt_sink,
+                validator_proposals,
+            )?;
+            processing_state.processed_receipts.push(ProcessedReceipt {
+                receipt: entry.receipt,
+                source: ReceiptSource::PendingCompile,
+            });
+        }
+        Ok(())
+    }
+
+    /// Divert a receipt to the pending-compile queue if it contains at
+    /// least one `DeployContract` action and the protocol feature is
+    /// active. Returns the diversion outcome so callers know whether to
+    /// also run the standard receipt processing path.
+    ///
+    /// When admission is at the per-chunk cap, the receipt is spilled to
+    /// the delayed-receipt queue instead and re-attempts admission in a
+    /// later chunk.
+    fn divert_receipt_if_deploy(
+        &self,
+        receipt: &Receipt,
+        processing_state: &mut ApplyProcessingReceiptState,
+    ) -> Result<DiversionOutcome, RuntimeError> {
+        if !ProtocolFeature::CompileQueueDeferral.enabled(processing_state.protocol_version) {
+            return Ok(DiversionOutcome::NotDiverted);
+        }
+        let action_receipt = match receipt.versioned_receipt() {
+            VersionedReceiptEnum::Action(action_receipt) => action_receipt,
+            _ => return Ok(DiversionOutcome::NotDiverted),
+        };
+        let mut code_hashes = Vec::new();
+        for action in action_receipt.actions() {
+            if let Action::DeployContract(deploy) = action {
+                code_hashes.push(CryptoHash::hash_bytes(&deploy.code));
+            }
+        }
+        if code_hashes.is_empty() {
+            return Ok(DiversionOutcome::NotDiverted);
+        }
+        if (processing_state.pending_compile_admitted as usize) >= COMPILE_QUEUE_ADMISSION_CAP {
+            processing_state.delayed_receipts.push(
+                &mut processing_state.state_update,
+                receipt,
+                processing_state.apply_state,
+            )?;
+            return Ok(DiversionOutcome::Spilled);
+        }
+        let entry = PendingCompileQueueEntry {
+            receipt: receipt.clone(),
+            pushed_at_height: processing_state.apply_state.block_height,
+            code_hashes: code_hashes.clone(),
+        };
+        let mut queue = PendingCompileQueue::load(&processing_state.state_update)?;
+        queue.push_back(&mut processing_state.state_update, &entry)?;
+        processing_state.pending_compile_admitted += 1;
+        for (action, hash) in action_receipt
+            .actions()
+            .iter()
+            .filter_map(|a| match a {
+                Action::DeployContract(deploy) => Some(deploy),
+                _ => None,
+            })
+            .zip(code_hashes.into_iter())
+        {
+            spawn_pending_compile_precompile(
+                processing_state.apply_state,
+                &mut processing_state.pending_compile_spawned,
+                hash,
+                &action.code,
+            );
+        }
+        Ok(DiversionOutcome::Admitted)
+    }
+
     /// This function wraps [Runtime::process_receipt]. It adds a tracing span around the latter
     /// and populates various metrics.
     fn process_receipt_with_metrics(
@@ -2158,6 +2549,12 @@ impl Runtime {
                     &processing_state.apply_state,
                 )?;
             } else {
+                match self.divert_receipt_if_deploy(receipt, &mut processing_state)? {
+                    DiversionOutcome::Admitted | DiversionOutcome::Spilled => {
+                        continue;
+                    }
+                    DiversionOutcome::NotDiverted => {}
+                }
                 if let Some(nsi) = &mut next_schedule_after {
                     *nsi = nsi.saturating_sub(1);
                     if *nsi == 0 {
@@ -2226,10 +2623,24 @@ impl Runtime {
             )
         };
 
+        // Snapshot the back of the delayed-receipt queue. Any receipt at an
+        // index >= this threshold was pushed back during this same loop by
+        // the pending-compile-queue diversion's spillover path; popping it
+        // would mean re-processing a receipt we just deferred and would
+        // cycle forever on a deploy-only delayed queue when the
+        // pending-compile admission cap is full.
+        let delayed_wrap_threshold = processing_state.delayed_receipts.next_available_index();
+
         loop {
             if processing_state.total.compute >= compute_limit
                 || processing_state.state_update.trie.check_proof_size_limit_exceed()
             {
+                break;
+            }
+
+            // Stop before popping a receipt that was re-queued earlier in
+            // this same loop by spillover diversion.
+            if processing_state.delayed_receipts.first_index() >= delayed_wrap_threshold {
                 break;
             }
 
@@ -2276,6 +2687,13 @@ impl Runtime {
                     receipt, e
                 ))
             })?;
+
+            match self.divert_receipt_if_deploy(&receipt, &mut processing_state)? {
+                DiversionOutcome::Admitted | DiversionOutcome::Spilled => {
+                    continue;
+                }
+                DiversionOutcome::NotDiverted => {}
+            }
 
             self.process_receipt_and_instant_receipts(
                 &receipt,
@@ -2348,6 +2766,12 @@ impl Runtime {
                     &processing_state.apply_state,
                 )?;
             } else {
+                match self.divert_receipt_if_deploy(receipt, &mut processing_state)? {
+                    DiversionOutcome::Admitted | DiversionOutcome::Spilled => {
+                        continue;
+                    }
+                    DiversionOutcome::NotDiverted => {}
+                }
                 if let Some(nsi) = &mut next_schedule_after {
                     *nsi = nsi.saturating_sub(1);
                     if *nsi == 0 {
@@ -2433,6 +2857,18 @@ impl Runtime {
         // TODO(#8859): Introduce a dedicated `compute_limit` for the chunk.
         // For now compute limit always matches the gas limit.
         let compute_limit = apply_state.gas_limit.map(|g| g.as_gas()).unwrap_or(u64::MAX);
+
+        // TTL-evict any pending-compile-queue entries that have outlived their
+        // residence window. No-op when the protocol feature is inactive.
+        self.process_pending_compile_evictions(processing_state, receipt_sink)?;
+
+        // Execute pending-compile-queue entries the chunk producer signaled
+        // via `compiled_indices` in the chunk header. No-op pre-feature.
+        self.process_pending_compile_advancements(
+            processing_state,
+            receipt_sink,
+            &mut validator_proposals,
+        )?;
 
         // We first process local receipts. They contain staking, local contract calls, etc.
         self.process_local_receipts(
@@ -2885,6 +3321,18 @@ struct ProcessReceiptsResult {
     validator_proposals: Vec<ValidatorStake>,
 }
 
+/// Outcome of [`Runtime::divert_receipt_if_deploy`]. `NotDiverted` means
+/// the caller should run the standard receipt-processing path; `Admitted`
+/// and `Spilled` mean the receipt has already been routed to either the
+/// pending-compile queue or the delayed-receipt queue and should not be
+/// further processed in this iteration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DiversionOutcome {
+    NotDiverted,
+    Admitted,
+    Spilled,
+}
+
 struct ResolvePromiseYieldTimeoutsResult {
     initial_promise_yield_indices: PromiseYieldIndices,
     promise_yield_indices: PromiseYieldIndices,
@@ -2960,6 +3408,8 @@ impl<'a> ApplyProcessingState<'a> {
             delayed_receipts,
             processed_receipts: Vec::new(),
             receipt_to_tx: Vec::new(),
+            pending_compile_admitted: 0,
+            pending_compile_spawned: HashSet::new(),
         }
     }
 }
@@ -2985,6 +3435,15 @@ struct ApplyProcessingReceiptState<'a> {
     pipeline_manager: pipelining::ReceiptPreparationPipeline,
     processed_receipts: Vec<ProcessedReceipt>,
     receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
+    /// Number of receipts admitted to the pending-compile queue during the
+    /// current chunk apply. Bounded by `COMPILE_QUEUE_ADMISSION_CAP` across
+    /// the local, delayed, and incoming receipt processing loops.
+    pending_compile_admitted: u32,
+    /// Code hashes for which a background compile has already been spawned
+    /// during the current `apply()` call. Used to avoid redundant spawns
+    /// when the same bytecode is admitted multiple times in one chunk
+    /// (e.g. five byte-identical deploys; one compile is enough).
+    pending_compile_spawned: HashSet<CryptoHash>,
 }
 
 trait MaybeRefReceipt {
