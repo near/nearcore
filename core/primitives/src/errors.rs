@@ -1332,7 +1332,7 @@ pub enum PrepareError {
     TooManyBlocksPerFunction = 13,
     /// A contract contains too many basic blocks.
     TooManyBlocksPerContract = 14,
-    /// Contract declares too many distinct types (function signatures).
+    /// Contract declares too many entries in the wasm type section.
     TooManyTypes = 15,
 }
 
