@@ -187,13 +187,24 @@ fn replay_shard(
                     return Err(anyhow::anyhow!(err)
                         .context(format!("prepare failed (chain tail height: {})", tail,)));
                 }
+                // Stopping here can happen for two reasons:
+                // (1) we reached the chain tail and the previous block has
+                //     been garbage collected;
+                // (2) we crossed an epoch boundary going backwards and the
+                //     epoch manager needs `BlockInfo` for the previous
+                //     epoch's first block, which sits below tail and has
+                //     been garbage collected (surfaced as
+                //     `DBNotFoundErr("epoch block: ...")`).
+                // Either way, the required chain data is no longer
+                // available; the fields below let the operator tell which
+                // case applies.
                 tracing::info!(
                     target: "replay",
                     %shard_id,
                     ?last_replayed_height,
                     tail,
                     ?err,
-                    "stopping replay, likely reached chain tail",
+                    "stopping replay, required chain data unavailable",
                 );
                 break;
             }
